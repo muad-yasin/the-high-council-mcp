@@ -5,8 +5,7 @@
   "type": "module",
   "license": "MIT",
   "bin": {
-    "council": "./src/cli.js",
-    "relay": "./src/cli.js"
+    "council": "./src/cli.js"
   },
   "scripts": {
     "run": "node src/cli.js",
@@ -24,5 +23,30 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "express": "^4.22.2",
     "zod": "^4.5.4"
-  }
+  },
+  "files": [
+    "src/",
+    "chains/",
+    "README.md",
+    "LICENSE",
+    ".env.example"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muad-yasin/the-high-council-mcp.git"
+  },
+  "homepage": "https://muad-yasin.github.io/the-high-council-mcp/",
+  "bugs": {
+    "url": "https://github.com/muad-yasin/the-high-council-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "llm",
+    "multi-agent",
+    "planning",
+    "claude",
+    "ai",
+    "cli"
+  ]
 }

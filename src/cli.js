@@ -6,10 +6,21 @@ import { runChain, checkSeats, setCache, setBudget, budgetState, ExternalPause, 
 import { summarise, formatUsd, priceOf } from './cost.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = resolve(here, '..');
 
-// Minimal .env loader. No dependency for four lines of parsing.
-const envPath = join(root, '.env');
+// Two roots, and the distinction matters once this is installed from npm
+// rather than cloned. `pkg` is where the shipped assets live (chains/,
+// pricing.json) - inside node_modules for an npx user. `work` is the user's
+// own directory, where their .env, their task files and their run output
+// belong. Resolving a task path against pkg sends an npx user looking for
+// their own file inside node_modules, which is exactly what it did.
+// In a cloned checkout the two are the same directory, so nothing changes.
+const pkg = resolve(here, '..');
+const work = process.cwd();
+
+// Minimal .env loader. No dependency for four lines of parsing. The user's
+// own directory wins; the package copy is the fallback that makes a cloned
+// checkout behave as before.
+const envPath = [join(work, '.env'), join(pkg, '.env')].find(existsSync) || join(work, '.env');
 if (existsSync(envPath)) {
   for (const line of readFileSync(envPath, 'utf8').split('\n')) {
     const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
@@ -24,6 +35,14 @@ function flag(name, fallback) {
   const next = argv[i + 1];
   return (next && !next.startsWith('--')) ? next : true;
 }
+
+// `council --mcp` starts the MCP server instead of running a chain. The
+// package ships one bin, so this is what makes a single npx invocation work
+// as an MCP command: `npx -y the-high-council --mcp`. Checked before any
+// other argument handling, since the server takes none of them.
+if (argv.includes('--mcp')) {
+  await import('./mcp/server.js');
+} else {
 
 const chainName = flag('chain', 'verify');
 const taskPath = flag('task', null);
@@ -80,7 +99,10 @@ if (resumeRun) {
   resumeMeta = JSON.parse(readFileSync(join(resolve(resumeRun), 'run.json'), 'utf8'));
 }
 const chainNameEff = resumeMeta?.chain || chainName;
-const configPath = join(root, 'chains', `${chainNameEff}.json`);
+// A user's own chains/ takes precedence, so a custom chain works from an
+// npm install without editing anything inside node_modules.
+const configPath = [join(work, 'chains', `${chainNameEff}.json`), join(pkg, 'chains', `${chainNameEff}.json`)]
+  .find(existsSync) || join(pkg, 'chains', `${chainNameEff}.json`);
 if (!existsSync(configPath)) {
   console.error(`No such chain: ${configPath}`);
   process.exit(1);
@@ -107,9 +129,9 @@ if (fromRun) {
 // --from-run it replaces that run's build.md; the criteria still come from
 // the run. With --rounds 1 this is a panel-only pass: no builder, no reviser.
 const draftPath = resumeMeta ? resumeMeta.draft : flag('draft', null);
-if (draftPath) handedDraft = readFileSync(resolve(root, draftPath), 'utf8');
+if (draftPath) handedDraft = readFileSync(resolve(work, draftPath), 'utf8');
 if (resumeMeta?.fromRun && !fromRun) {
-  const rp = join(resolve(root, resumeMeta.fromRun), 'report.json');
+  const rp = join(resolve(work, resumeMeta.fromRun), 'report.json');
   if (existsSync(rp)) config.criteria = JSON.parse(readFileSync(rp, 'utf8')).criteria;
 }
 
@@ -194,7 +216,7 @@ if (missing.length) {
 }
 
 const taskPathEff = resumeMeta?.task || taskPath;
-const taskFile = resolve(root, taskPathEff);
+const taskFile = resolve(work, taskPathEff);
 if (!existsSync(taskFile)) {
   console.error(`\nNo task file at ${taskFile}`);
   console.error(`The task file is the request the council plans against - plain prose, written by you.`);
@@ -221,7 +243,7 @@ if (contextArg) {
   console.log(`context: ${files.length} document(s) appended (${files.map(f => f.split('/').pop()).join(', ')})`);
 }
 const runId = resumeMeta ? basename(resolve(resumeRun)) : new Date().toISOString().replace(/[:.]/g, '-');
-const runDir = join(root, 'runs', runId);
+const runDir = join(work, 'runs', runId);
 mkdirSync(runDir, { recursive: true });
 if (!resumeMeta) {
   writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskPathEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd }, null, 2));
@@ -380,3 +402,6 @@ if (result.scoreboard) {
 log(`tokens:   ${t.input} in, ${t.output} out, ${t.total} total`);
 log(`cost:     ${formatUsd(t.usd)}${t.unpriced.length ? ` (+ unpriced: ${t.unpriced.join(', ')})` : ''}${maxUsdEff === null ? '' : ` of ${formatUsd(maxUsdEff)} ceiling`}`);
 log(`output:   ${join(runDir, 'deliverable.md')}${result.handoff ? `  (+ HANDOFF.md${result.board ? ', BOARD.md' : ''})` : result.board ? '  (+ BOARD.md)' : ''}`);
+
+}
+// end of the non-MCP path (see the --mcp branch at the top of this file)

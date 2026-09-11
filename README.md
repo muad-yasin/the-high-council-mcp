@@ -121,11 +121,32 @@ node src/cli.js --resume runs/<id>
 
 ## Quick start (MCP)
 
+Register the server with your MCP client. For Claude Code, from a clone of this repo:
+
 ```bash
-npm run mcp
+claude mcp add high-council -- node /absolute/path/to/the-high-council-mcp/src/mcp/server.js
 ```
 
-Register it with your MCP client, then drive it with these tools:
+**The path must be absolute.** The client starts the server from its own working directory, not
+from this one, so a relative path resolves somewhere unexpected and the server never starts.
+
+Once the package is published to npm, no clone is needed:
+
+```bash
+claude mcp add high-council -- npx -y the-high-council --mcp
+```
+
+Either way the server reads and writes in **your** working directory, not inside the package:
+`.env` for keys, `tasks/` for requests, `runs/` for output, and a `chains/` of your own takes
+precedence over the bundled ones.
+
+To run it by hand, from a clone:
+
+```bash
+npm run mcp          # or: node src/cli.js --mcp
+```
+
+Then drive it with these tools:
 
 | Tool | What it does |
 |---|---|

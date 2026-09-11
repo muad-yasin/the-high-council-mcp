@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// relay as an MCP server: Claude Code (or any MCP client) as command and
+// The High Council as an MCP server: Claude Code (or any MCP client) as command and
 // control of the harness. Stdio transport, no network. Tools mirror the CLI:
 // start a run, watch it, read what it produced, grade a draft panel-only,
 // price a chain. Runs are spawned detached so a long run outlives the tool
 // call; the client polls with run_status.
 //
-//   claude mcp add relay -- node /path/to/relay/src/mcp/server.js
+//   claude mcp add high-council -- npx -y the-high-council
+//   from a clone: claude mcp add high-council -- node /absolute/path/to/src/mcp/server.js
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -16,9 +17,14 @@ import { fileURLToPath } from 'node:url';
 import { parseSections, flatten, parseLedger, words } from '../ui/parse.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = resolve(here, '../..');
-const runsDir = join(root, 'runs');
-const cli = join(root, 'src', 'cli.js');
+// Same split as the CLI: `pkg` ships with the package (chains/, the CLI
+// itself), `work` belongs to the user. An MCP client launches this server with
+// the user's project as cwd, so task files and run output land where they can
+// find them rather than inside node_modules. In a clone the two are identical.
+const pkg = resolve(here, '../..');
+const work = process.cwd();
+const runsDir = join(work, 'runs');
+const cli = join(pkg, 'src', 'cli.js');
 
 const text = s => ({ content: [{ type: 'text', text: typeof s === 'string' ? s : JSON.stringify(s, null, 2) }] });
 const safeRun = id => /^[0-9TZ-]+$/.test(id) && existsSync(join(runsDir, id));
@@ -87,22 +93,22 @@ function isAlive(id) {
   } catch { return false; }
 }
 
-const server = new McpServer({ name: 'relay', version: '0.2.0' });
+const server = new McpServer({ name: 'the-high-council', version: '0.1.0' });
 
 server.tool('list_chains', 'Chains available to run, with their description and worst-case price from a dry run.', {}, async () => {
-  const chains = readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json')).map(f => {
-    const c = readJson(join(root, 'chains', f));
+  const chains = readdirSync(join(pkg, 'chains')).filter(f => f.endsWith('.json')).map(f => {
+    const c = readJson(join(pkg, 'chains', f));
     return { name: c.name, description: c.description, maxRounds: c.maxRounds, signoff: c.signoff || 'first', proposals: !!c.proposals, debate: !!c.debate, handoff: !!c.handoff };
   });
   return text(chains);
 });
 
 server.tool('dry_run', 'Price a chain without calling any model.', { chain: z.string() }, async ({ chain }) => {
-  const out = execFileSync('node', [cli, '--chain', chain, '--dry-run'], { encoding: 'utf8', cwd: root });
+  const out = execFileSync('node', [cli, '--chain', chain, '--dry-run'], { encoding: 'utf8', cwd: work });
   return text(out);
 });
 
-server.tool('start_run', 'Start a harness run in the background. Returns the run id to poll with run_status. task is a path relative to the relay root (tasks/x.md) or absolute; context is optional (context/war-of-love). draft + from_run + rounds=1 makes a panel-only grading pass.', {
+server.tool('start_run', 'Start a harness run in the background. Returns the run id to poll with run_status. task is a path relative to your working directory (tasks/x.md) or absolute; context is optional (context/war-of-love). draft + from_run + rounds=1 makes a panel-only grading pass.', {
   chain: z.string(),
   task: z.string(),
   context: z.string().optional(),
@@ -111,17 +117,17 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   rounds: z.number().int().min(1).max(5).optional(),
   max_usd: z.number().min(0).optional().describe('per-run spend ceiling in USD. Defaults to MAX_USD_PER_RUN or $5. Pass 0 for no ceiling. The run stops cleanly before any stage that could breach it, and resumes with a higher ceiling.'),
 }, async ({ chain, task, context, draft, from_run, rounds, max_usd }) => {
-  const args = [cli, '--chain', chain, '--task', resolve(root, task)];
-  if (context) args.push('--context', resolve(root, context));
-  if (draft) args.push('--draft', resolve(root, draft));
-  if (from_run) args.push('--from-run', resolve(root, from_run));
+  const args = [cli, '--chain', chain, '--task', resolve(work, task)];
+  if (context) args.push('--context', resolve(work, context));
+  if (draft) args.push('--draft', resolve(work, draft));
+  if (from_run) args.push('--from-run', resolve(work, from_run));
   if (rounds) args.push('--rounds', String(rounds));
   if (max_usd !== undefined) args.push('--max-usd', max_usd === 0 ? 'none' : String(max_usd));
   mkdirSync(runsDir, { recursive: true });
   const before = new Set(readdirSync(runsDir));
-  const logPath = join(root, `relay-${Date.now()}.log`);
+  const logPath = join(work, `council-${Date.now()}.log`);
   const fd = (await import('node:fs')).openSync(logPath, 'a');
-  const child = spawn('node', args.slice(0), { cwd: root, detached: true, stdio: ['ignore', fd, fd] });
+  const child = spawn('node', args.slice(0), { cwd: work, detached: true, stdio: ['ignore', fd, fd] });
   child.unref();
   // The run creates its folder within a second or two; find it.
   let id = null;
@@ -155,12 +161,12 @@ server.tool('resume_run', 'Resume a paused run after its external stage was answ
 });
 
 async function resume(run, maxUsd) {
-  const logPath = join(root, `relay-${Date.now()}.log`);
+  const logPath = join(work, `council-${Date.now()}.log`);
   const fs = await import('node:fs');
   const fd = fs.openSync(logPath, 'a');
   const resumeArgs = [cli, '--resume', join('runs', run)];
   if (maxUsd !== undefined) resumeArgs.push('--max-usd', maxUsd === 0 ? 'none' : String(maxUsd));
-  const child = spawn('node', resumeArgs, { cwd: root, detached: true, stdio: ['ignore', fd, fd] });
+  const child = spawn('node', resumeArgs, { cwd: work, detached: true, stdio: ['ignore', fd, fd] });
   child.unref();
   return { resumed: true, run, pid: child.pid, log: logPath, note: 'poll run_status(run); it may pause again at the next external stage' };
 }
@@ -197,7 +203,7 @@ server.tool('plan_outline', 'Section tree of a run\'s deliverable (or any markdo
 });
 
 server.tool('write_task', 'Write or overwrite a task file under tasks/ (the request the harness plans against).', { name: z.string().regex(/^[a-z0-9-]+$/), content: z.string() }, async ({ name, content }) => {
-  const p = join(root, 'tasks', `${name}.md`);
+  const p = join(work, 'tasks', `${name}.md`);
   writeFileSync(p, content);
   return text({ written: p, words: words(content) });
 });
