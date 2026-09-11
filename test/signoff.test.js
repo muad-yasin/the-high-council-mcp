@@ -87,6 +87,29 @@ test('a seat that signed off carries an empty objections list, never null', asyn
   assert.deepEqual(signed.objections, [], 'a sign-off is an answer, not an absence');
 });
 
+test('a non-unanimous chain has no panel record at all, not an empty one', async () => {
+  // `first` termination stops as soon as any one critic passes, so there is no
+  // panel and `signoff` stays null for the whole report - not [] and not a list
+  // of nulls. A consumer must check the field exists before iterating it.
+  // Untested until now: the README documents this shape, so something has to
+  // pin it. Found by a peer session reading the branch statically, 2026-09-11.
+  const result = await runChain({
+    request: 'A test request.',
+    config: {
+      name: 'test-first', maxRounds: 2, stopOnPass: true,   // no `signoff` key
+      seats: {
+        criteria: seat('mock-criteria'), builder: seat('mock-builder'),
+        reviser: seat('mock-builder'),
+        critics: [seat('mock-critic-a', 'mock-a'), seat('mock-critic-b', 'mock-b')],
+      },
+    },
+    log: () => {},
+  });
+
+  assert.equal(result.signoff, null, 'no unanimous panel means no per-seat record');
+  assert.ok(result.lastCritique, 'the critique of the last round is still reported');
+});
+
 test('unanimous sign-off still reports every seat, each with no objections', async () => {
   const result = await run([
     seat('mock-critic-a', 'mock-a'),

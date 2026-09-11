@@ -46,10 +46,14 @@ anything on top of a run, read that instead. Do not parse the markdown.
 
 ```jsonc
 {
-  "runId": "...", "chain": "...", "passed": false,
+  "runId": "...", "chain": "...", "passed": false, "maxUsd": 5,
   "criteria":  [ "each acceptance criterion, as written before the debate" ],
+  "questions": [ { "question": "...", "why": "...", "default": "..." } ],  // null if the chain skipped them
   "proposals": [ { "id": "DEEPSEEK-1", "lab": "deepseek", "model": "...",
-                   "title": "...", "serves": "...", "what": "...", "why": "..." } ],
+                   "title": "...", "serves": "...", "what": "...", "why": "...",
+                   "how": "...", "acceptance_test": "...", "attempt": 1,
+                   "withdrawn": true, "amended": true, "replaced_by": "GLM-1" } ],
+  "dropouts":  [ { "lab": "...", "model": "...", "stage": "proposals", "reason": "..." } ],
   "debate": {
     "posts":   [ { "by": "deepseek", "on": "QWEN-1", "stance": "object|support|merge",
                    "text": "...", "merge_with": "GLM-2" } ],
@@ -59,14 +63,34 @@ anything on top of a run, read that instead. Do not parse the markdown.
   "signoff": [ { "provider": "qwen", "model": "...", "signedOff": false,
                  "objections": [ { "criterion": "...", "problem": "...", "fix": "..." } ] } ],
   "lastCritique": { "meets": false, "failures": [ { "criterion": "...", "lab": "qwen" } ] },
-  "scoreboard": { "rows": [ ... ] },
-  "totals": { "input": 0, "output": 0, "usd": 0, "unpriced": [] }
+  "scoreboard": {
+    "rows": [ /* one per proposal, with its outcome */ ],
+    "labs": [ { "lab": "deepseek", "model": "...", "proposed": 3, "accepted": 0,
+                "cut": 0, "withdrawn": 3, "unaccounted": 0, "built": null } ]
+  },
+  "totals": { "input": 0, "output": 0, "total": 0, "usd": 0, "unpriced": [] }
 }
 ```
 
 `proposals` plus `debate.posts` is a directed graph with verifiable edges: one node per proposal,
 one edge per posture, and `replies[].action` says what each author did with their own proposal
 once they had read the argument against it. That is the whole artifact, already machine-readable.
+`scoreboard.labs` is the per-lab tally already aggregated for you — start there for a scoreboard
+rather than counting `proposals` yourself.
+
+**`dropouts` is the field you will regret ignoring.** A lab whose proposals came back unreadable
+after a retry is dropped from the run: it is not in `proposals`, not in the debate, and not in the
+scoreboard. It is only in `dropouts`. A consumer that counts labs from `proposals` and reports
+"four labs debated this" will be wrong — the roster shrank, and the run log says so loudly at the
+time. Report a seated lab that produced nothing as what it was, or you are publishing a panel that
+was smaller than you claim. Treat `null` and `[]` alike here; runs written by older versions have
+no such field at all.
+
+**Two of these are not closed schemas.** `debate.replies[]` is built by spreading the model's own
+reply object and normalising `id`, `action` and `replaced_by` over it, so an entry carries at least
+those plus `text` and may carry more (an `amend` often brings a `how`). `replaced_by` is only set
+when the action is `withdraw`. `proposals[]` likewise carries `withdrawn` / `amended` /
+`replaced_by` only when they apply. Read defensively: check for a field, do not assume it.
 
 `signoff[].objections` is why a seat declined, on the seat's own record. `signedOff: null` means
 the seat gave no usable reply and abstained - neither a pass nor an objection, and `objections` is
