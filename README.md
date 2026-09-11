@@ -279,6 +279,39 @@ A few worth knowing:
 
 Read a chain's `description` field before running it; they say what they cost you in calls.
 
+## How this was built
+
+Vibecoded, with **Claude Code** doing the writing, by one person at
+[Sower Industries](https://sower-industries.de). Parts of it were planned by the harness itself —
+the build order for its own v2 went through a four-lab council, and the plan came back with one of
+its findings built on evidence that turned out to be wrong, which is recorded rather than quietly
+dropped.
+
+The parts worth knowing, because they explain why the code looks the way it does:
+
+**Almost every defensive branch here is a headstone.** `parseJson` in `chain.js` repairs two
+specific malformations — an unescaped `"` inside a markdown-quoted span, and raw newlines inside
+string values — because three consecutive real runs died on the first one and silently logged a
+pass that never happened. The comments name the run id and the date. The retry that disables
+thinking exists because an Anthropic seat burned its entire `maxTokens` budget thinking and
+returned nothing. The `ROSTER SHRANK` warning exists because a lab can return nothing and vanish
+from the scoreboard without saying so. None of these were designed in advance; each one is a day
+that went wrong.
+
+**The failure modes are testable offline.** The `mock` provider has named models
+(`mock-unreadable`, `mock-provider-error`, `mock-proposer-empty`, `mock-critic-holdout`) that each
+drive one of those branches for $0, so the regression tests run without keys and without spend.
+
+**`docs/` ships no JavaScript on purpose.** The landing page arrived from a design tool depending
+on an unlicensed runtime that also fetched React and Babel from a CDN at page load. Shipping it
+would have relicensed someone else's build artifact as MIT and put a third-party request on a page
+shared with a German site. Its loops were pre-rendered to static HTML and the fonts self-hosted
+instead. `test/landing-page.test.js` fails if a script tag or a third-party URL ever comes back —
+and if the page's typed-in numbers stop matching the repo, which has already caught the page
+claiming 29 chains and 12 tools when there were 30 and 11.
+
+No claim is made here that any of this produces better plans. It has not been measured.
+
 ## Known limits, stated plainly
 
 - The spend cap is enforced against a **worst case**, not a prediction: the whole prompt billed as
