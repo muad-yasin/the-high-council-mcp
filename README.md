@@ -38,6 +38,45 @@ A run moves through fixed stages. Which stages fire depends on the chain you pic
 Every run writes a folder: the deliverable, `BOARD.md` (the full debate — every post, every
 withdrawal), `HANDOFF.md`, a per-lab scoreboard, and the real token/cost accounting.
 
+### Reading a run with a program
+
+`BOARD.md` is for people. **`report.json` is the same board, structured** — if you are building
+anything on top of a run, read that instead. Do not parse the markdown.
+
+```jsonc
+{
+  "runId": "...", "chain": "...", "passed": false,
+  "criteria":  [ "each acceptance criterion, as written before the debate" ],
+  "proposals": [ { "id": "DEEPSEEK-1", "lab": "deepseek", "model": "...",
+                   "title": "...", "serves": "...", "what": "...", "why": "..." } ],
+  "debate": {
+    "posts":   [ { "by": "deepseek", "on": "QWEN-1", "stance": "object|support|merge",
+                   "text": "...", "merge_with": "GLM-2" } ],
+    "replies": [ { "id": "DEEPSEEK-1", "action": "keep|amend|withdraw",
+                   "text": "...", "replaced_by": "GLM-1" } ]
+  },
+  "signoff": [ { "provider": "qwen", "model": "...", "signedOff": false,
+                 "objections": [ { "criterion": "...", "problem": "...", "fix": "..." } ] } ],
+  "lastCritique": { "meets": false, "failures": [ { "criterion": "...", "lab": "qwen" } ] },
+  "scoreboard": { "rows": [ ... ] },
+  "totals": { "input": 0, "output": 0, "usd": 0, "unpriced": [] }
+}
+```
+
+`proposals` plus `debate.posts` is a directed graph with verifiable edges: one node per proposal,
+one edge per posture, and `replies[].action` says what each author did with their own proposal
+once they had read the argument against it. That is the whole artifact, already machine-readable.
+
+`signoff[].objections` is why a seat declined, on the seat's own record. `signedOff: null` means
+the seat gave no usable reply and abstained — neither a pass nor an objection, and `objections` is
+`null` rather than empty so the two stay apart. A seat that agreed has an empty list.
+The same objections also appear flattened in `lastCritique.failures[]`, tagged with `lab`, because
+the reviser wants the union across the whole panel. Both are built in one pass; they cannot drift.
+
+**Before you publish a run,** note that `report.json` records `task` as the path to your task file
+on your own disk. Nothing transmits it anywhere — but if you are rendering a board onto a public
+page, drop that field. The debate itself is the part worth showing.
+
 ## Requirements
 
 - Node 20+
@@ -82,6 +121,28 @@ node src/cli.js --task tasks/your-idea.md --chain verify
 them stay on your machine — if you fork this repo, you will not accidentally publish them.
 
 `verify` is the cheap default: two labs, a hard two-round cap. Start there.
+
+### Telling the council what your build session can actually use
+
+One optional convention, worth the four lines it costs. If your task file ends with a section
+headed **`## Available tools`**, the handoff seat will name the right one in the acceptance test
+for each item of work, instead of inventing a check from nothing:
+
+```markdown
+## Available tools
+
+- `scope-gate` — decides GO / NEEDS-SPEC / KILL before anything is built
+- `bug-audit` — reads code line by line, reports verified defects, edits nothing
+- `npm test` — the project's own suite
+```
+
+The council is told what exists, not how it is invoked, and is instructed never to name a tool
+that is not on your list. Leave the section out and the handoff assumes nothing beyond your test
+suite — which is what it did before this existed, and what it will keep doing.
+
+This costs no tokens you were not already spending: the task file is already in the handoff seat's
+prompt. It is the difference between *"write a test for this"* and *"run `scope-gate` on this
+before building it."*
 
 ### The spend cap
 

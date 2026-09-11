@@ -322,7 +322,17 @@ decisions file, a built-log per commit naming the plan section and proposal
 ids served, and the board file the plan defines), what it must never do
 (scope outside the plan), and the one line a human types to start it. Under
 600 words. No preamble. Do not restate the plan's content; point at its
-section numbers.`;
+section numbers.
+
+If the request contains an "Available tools" section, the build session has
+those tools and no others. Name the right one in the acceptance test for each
+item of work it fits - the reviewer, checker or generator that should run
+against that item - using the exact name as listed. Where no listed tool fits
+an item, write the check the session performs by hand instead. Never name a
+tool that is not in that section, and never invent a command line for one:
+you are told what exists, not how it is invoked. If the request has no such
+section, write acceptance tests that assume nothing beyond the project's own
+test suite.`;
 
 const labLetter = i => `Lab ${String.fromCharCode(65 + i)}`;
 

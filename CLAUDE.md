@@ -70,6 +70,12 @@ union of all objections and the whole panel re-reviews).
   failure branch offline.
 - `src/roles.js` — every system and user prompt. Prompt changes belong here, never inline in
   `chain.js`. `criticSystem(open)` / `criteriaSystem(open)` etc. swap a scope rule by template.
+  `HANDOFF_SYSTEM` reads an optional `## Available tools` section out of the task file and names
+  the listed tool in each item's acceptance test. The task text is already in that seat's prompt,
+  so the convention costs nothing; the instruction's real content is the restraint — exact names
+  only, never invent a tool or a command line, and assume nothing when the section is absent.
+  `test/roles.test.js` pins that, since a prompt cannot be tested by running it (the mock provider
+  ignores prompt text by design).
 - `src/cost.js` — `pricing.json` lookup, `costOf`/`summarise` (measurement, after the fact) and
   `worstCaseOf`/`wouldBreach` (projection, before the fact — what the spend cap enforces against).
 - `src/cli.js` — flags, `.env` loading, the run folder, the stage cache.
@@ -79,6 +85,15 @@ union of all objections and the whole panel re-reviews).
 **The run folder is the database.** Each run writes `runs/<iso-timestamp>/` containing
 `run.json` (how to resume), `<label>.md` + `<label>.usage.json` per stage, `run.log`,
 `deliverable.md`, `BOARD.md`, `HANDOFF.md`, `report.json`. There is no other state store.
+
+**`report.json` is the machine-readable board; `BOARD.md` is the same thing for people.** Anything
+built on a run reads the JSON — `proposals[]`, `debate.posts[]` (`by`/`on`/`stance`/`merge_with`),
+`debate.replies[]` (`keep`/`amend`/`withdraw`), `signoff[]`, `scoreboard`, `totals`. Together those
+are a directed graph with verifiable edges. Nothing should ever parse `BOARD.md`'s headings, and
+the README now says so, because a four-lab council given a published run folder concluded the data
+existed only in prose and specified a markdown parser against it (2026-09-11). That was a
+documentation failure, not a model failure: the JSON was right there and undocumented. Its shape is
+a public contract now — adding fields is fine, renaming or removing one is a breaking change.
 
 **Resume and the stage cache.** `setCache()` gives `chain.js` a `get(label)` that replays a stage
 from `<label>.md` on disk at zero cost. This is what makes resume free and is why stage labels

@@ -629,9 +629,18 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       const allFailures = voting.flatMap(v => v.critique.failures.map(f => ({ ...f, lab: labOf(v.seat) })));
       const allSignedOff = voting.length > 0 && voting.every(v => v.critique.meets === true);
       lastCritique = { meets: allSignedOff, failures: allFailures };
+      // `objections` is why a seat declined, co-located with the decision itself.
+      // The same failures also appear flattened in lastCritique.failures, tagged
+      // with `lab`, because the reviser and the CLI want the union across the
+      // panel. Both are built here from the same `voting` array in one pass, so
+      // they cannot drift. Added 2026-09-11: a four-lab panel reading a run
+      // folder concluded a holdout's reason was not machine-readable, because
+      // signoff carried the verdict and nothing else - the join through
+      // lastCritique.failures[].lab existed but was undiscoverable.
       signoff = verdicts.map(v => ({
         provider: labOf(v.seat), model: v.seat.model,
         signedOff: v.abstained ? null : v.critique.meets === true,
+        objections: v.abstained ? null : v.critique.failures,
       }));
 
       history.push(`## Round ${round} panel\n${verdicts.map(v =>

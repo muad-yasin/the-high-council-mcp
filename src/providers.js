@@ -97,7 +97,10 @@ async function callMock({ model, system, messages, maxTokens }) {
   } else if (isCritic) {
     // The scripted critic fails the first draft and passes the revision, so a
     // test run exercises the revise path and then the early stop.
-    const revised = user.includes('REVISED MOCK DELIVERABLE');
+    // `mock-critic-holdout` never passes, so a panel seated with it always ends
+    // on a real holdout - the branch where a run ships with an objection on the
+    // record rather than a unanimous sign-off.
+    const revised = model !== 'mock-critic-holdout' && user.includes('REVISED MOCK DELIVERABLE');
     text = JSON.stringify(revised
       ? { meets: true, criteria: [], failures: [], verdict_line: 'All criteria met.' }
       : { meets: false, criteria: [], failures: [{ criterion: 'It states the assumptions it was written under.', problem: 'No assumptions section.', fix: 'Add one.' }], verdict_line: 'One criterion failed.' });
