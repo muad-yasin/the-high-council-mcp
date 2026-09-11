@@ -15,6 +15,7 @@ import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSy
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSections, flatten, parseLedger, words } from '../ui/parse.js';
+import { spendReport } from '../spend.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Same split as the CLI: `pkg` ships with the package (chains/, the CLI
@@ -170,6 +171,22 @@ async function resume(run, maxUsd) {
   child.unref();
   return { resumed: true, run, pid: child.pid, log: logPath, note: 'poll run_status(run); it may pause again at the next external stage' };
 }
+
+server.tool('spend_report', 'What every run has cost across a window of days, not just one run. Derived from the run folders on disk - nothing is recorded anywhere else and nothing leaves this machine. Use this to answer "what have I spent today" before starting another run.', {
+  days: z.number().min(0.1).max(365).optional().describe('how far back to look, in days. Defaults to 1.'),
+}, async ({ days = 1 }) => {
+  const r = spendReport(runsDir, { days });
+  return text({
+    since: r.since.toISOString(),
+    days,
+    totalUsd: r.totalUsd,
+    runs: r.runs.map(x => ({ id: x.id, chain: x.chain, usd: x.usd, state: x.state })),
+    count: r.count,
+    ...(r.unreadable ? { unreadableRunFolders: r.unreadable } : {}),
+    ...(r.note ? { note: r.note } : {}),
+    source: 'derived from runs/ on disk; no ledger is kept and nothing is transmitted',
+  });
+});
 
 server.tool('list_runs', 'Runs on disk, newest first, with state and cost.', { limit: z.number().int().min(1).max(100).optional() }, async ({ limit = 15 }) => {
   if (!existsSync(runsDir)) return text([]);

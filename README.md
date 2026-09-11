@@ -104,6 +104,18 @@ with a higher ceiling — completed stages replay from disk and cost nothing the
 node src/cli.js --resume runs/<id> --max-usd 10
 ```
 
+The cap governs one run. To see what you have spent across all of them:
+
+```bash
+node src/cli.js --spend            # today
+node src/cli.js --spend --days 7   # the last week
+```
+
+That is read back off the run folders on disk — there is no ledger file, nothing is recorded
+anywhere else, and nothing leaves your machine. Runs still going, or stopped by the cap, are
+counted from the stages they already paid for. The same figures are available to an MCP client as
+`spend_report`.
+
 To watch this work without spending anything, the `mock-budget` chain calls no API but carries
 fixture prices:
 
@@ -155,7 +167,8 @@ Then drive it with these tools:
 | `dry_run` | Price a run before spending anything |
 | `start_run` | Start a run in the background (`max_usd` sets its ceiling) |
 | `run_status` | Stage reached, panel verdicts, scoreboard, cost, budget remaining |
-| `external_prompt` | The prompt a paused external stage is waiting on |
+| `spend_report` | What every run has cost across a window of days, derived from disk |
+| `external_prompt` | The prompt a paused external stage is waiting on — **read it with this, not by opening the file**; the prompts are routinely tens of thousands of tokens and most clients silently truncate a file read |
 | `submit_stage` | Answer a paused stage and resume |
 | `resume_run` | Resume a paused run, or raise `max_usd` on one the cap stopped |
 | `read_run_file` | Read any file from a run folder |

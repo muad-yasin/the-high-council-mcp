@@ -150,3 +150,24 @@ self-canonicals to the Pages URL, and both the README and the page's footer desc
 sower-industries copy as forthcoming rather than linking it. When that deploy lands, flip
 `rel=canonical` and `og:url` back, promote the link in the README, and make the footer link point
 at the page rather than the site root. Until then, nothing in this repo may assert that URL works.
+
+## Cross-run spend (`src/spend.js`)
+
+`spendReport()` answers "what have I spent across every run", which `run_status` (one run) and the
+per-run cap (one run) cannot. It is **derived, never recorded**: every figure is read back out of
+`runs/<id>/` on disk. There is no ledger file.
+
+That was a deliberate choice over an append-only ledger in a dotfile, and it should not be quietly
+reversed. A ledger is a second copy of the truth that can drift from the run folders; it needs a
+write path, and a write path can fail during a run; it cannot account for runs that predate it; and
+because it would outlive the run folders, it would keep a record of work a user deleted precisely
+because it was sensitive. Deriving has none of those properties, and it keeps the project's
+existing invariant that a run's truth lives in its own folder.
+
+Consequences worth knowing: delete a run folder and its spend disappears from the report, which is
+intended. Runs with no `report.json` (still going, or stopped by the cap) are counted from their
+`<label>.usage.json` files, so the total stays honest mid-run.
+
+Spend output carries the chain and the cost only — never the task path or any run content. A test
+pins that, along with the degradation contract: a missing, unreadable or corrupt `runs/` must
+produce a usable answer rather than an error, and `spendReport` must never write to disk.

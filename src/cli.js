@@ -4,6 +4,7 @@ import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, checkSeats, setCache, setBudget, budgetState, ExternalPause, BudgetExceeded } from './chain.js';
 import { summarise, formatUsd, priceOf } from './cost.js';
+import { spendReport } from './spend.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +35,31 @@ function flag(name, fallback) {
   if (i === -1) return fallback;
   const next = argv[i + 1];
   return (next && !next.startsWith('--')) ? next : true;
+}
+
+// `council --spend [--days N]` answers "what have I spent across every run",
+// which neither run_status (one run) nor the per-run cap (one run) can.
+if (argv.includes('--spend')) {
+  const days = Number(flag('days', 1));
+  if (!Number.isFinite(days) || days <= 0) {
+    console.error('--days: expected a positive number of days');
+    process.exit(2);
+  }
+  const r = spendReport(join(work, 'runs'), { days });
+  console.log(`\nSpend across ${r.count} run(s) since ${r.since.toISOString().slice(0, 16).replace('T', ' ')}  (${join(work, 'runs')})`);
+  if (!r.count) {
+    console.log(`  no runs in this window.${r.note ? `  ${r.note}` : ''}`);
+  } else {
+    const w = Math.max(...r.runs.map(x => (x.chain || '?').length));
+    for (const x of r.runs) {
+      console.log(`  ${x.id}  ${(x.chain || '?').padEnd(w)}  ${formatUsd(x.usd).padStart(9)}  ${x.state}`);
+    }
+    console.log(`  ${''.padEnd(24)}  ${''.padEnd(w)}  ${formatUsd(r.totalUsd).padStart(9)}  total`);
+    if (r.runs.some(x => !x.complete)) console.log(`\n  Runs still going or stopped short are counted from the stages they already paid for.`);
+  }
+  if (r.unreadable) console.log(`  ${r.unreadable} run folder(s) could not be read and are not counted.`);
+  console.log(`\n  Derived from the run folders on disk. Nothing is recorded anywhere else, and nothing leaves this machine.`);
+  process.exit(0);
 }
 
 // `council --mcp` starts the MCP server instead of running a chain. The
@@ -81,6 +107,9 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        (after writing runs/<r>/<label>.md); completed
                                        stages replay from disk and cost nothing
   council --chain seven --dry-run      estimate tokens and cost, call nothing
+  council --spend [--days 7]           what every run has cost, across runs,
+                                       read back off disk. Nothing is recorded
+                                       and nothing leaves this machine.
   council --task tasks/x.md --max-usd 2 stop the run before any stage that could
                                        take it past $2. Default $5, or
                                        MAX_USD_PER_RUN. --max-usd none disables
