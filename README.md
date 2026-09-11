@@ -12,6 +12,10 @@ own API keys. Nothing is resold, nothing is hosted for you, and no key ever leav
 > disagreement between models *visible and recorded* instead of averaged away — you can read who
 > objected to what, who withdrew a proposal under argument, and who held their position.
 
+**A visual walkthrough of all of this — the stages, one real run's debate board, and what that run
+cost — is at [sower-industries.de/en/MCP/](https://sower-industries.de/en/MCP/), mirrored at
+[muad-yasin.github.io/the-high-council-mcp](https://muad-yasin.github.io/the-high-council-mcp/).**
+
 ## How it works
 
 A run moves through fixed stages. Which stages fire depends on the chain you pick.

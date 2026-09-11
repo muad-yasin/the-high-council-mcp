@@ -123,3 +123,22 @@ date. Read the comment before changing the behaviour, and keep the regression te
 - Internal references in code comments and chain descriptions are public on purpose. Do not
   "clean" them.
 - Branch convention is `master`.
+
+## The landing page (`docs/`)
+
+`docs/` is a GitHub Pages site: a single standalone `index.html` plus self-hosted fonts. It is a
+Claude Design treatment of the README, and it has two properties that must survive any edit:
+
+- **No scripts and no third-party requests.** The design arrived depending on Claude Design's
+  `dc-runtime` (`support.js`, an unlicensed build artifact that also pulled React and Babel from
+  unpkg at runtime) and on Google Fonts. The runtime was removed by pre-rendering its three
+  `<sc-for>` loops to static HTML and converting `style-hover` to CSS; the fonts are self-hosted.
+  Never reintroduce either — hotlinked Google Fonts in particular are a live legal problem for the
+  German site this design is shared with.
+- **Its numbers are claims about this repo and drift silently.** The counts (chain configs, MCP
+  tools, providers, default cap) are hardcoded in the HTML, not derived. Changing `chains/`, the
+  tool list in `src/mcp/server.js`, or the default ceiling means updating `docs/index.html` too.
+  This has already gone wrong once: the page shipped saying 29 chains and 12 tools when the repo
+  had 30 and 11.
+
+The canonical URL is `sower-industries.de/en/MCP/`; the Pages copy carries `rel=canonical` to it.
