@@ -135,10 +135,12 @@ Claude Design treatment of the README, and it has two properties that must survi
   `<sc-for>` loops to static HTML and converting `style-hover` to CSS; the fonts are self-hosted.
   Never reintroduce either — hotlinked Google Fonts in particular are a live legal problem for the
   German site this design is shared with.
-- **Its numbers are claims about this repo and drift silently.** The counts (chain configs, MCP
-  tools, providers, default cap) are hardcoded in the HTML, not derived. Changing `chains/`, the
-  tool list in `src/mcp/server.js`, or the default ceiling means updating `docs/index.html` too.
-  This has already gone wrong once: the page shipped saying 29 chains and 12 tools when the repo
-  had 30 and 11.
+- **Its numbers are claims about this repo.** The counts (chain configs, MCP tools, providers,
+  default cap) are typed into the HTML, not derived — a static page cannot compute them. So
+  `test/landing-page.test.js` derives each one from the repo and fails if the page disagrees,
+  along with checking the page stays script-free and third-party-free. Change `chains/`, the tool
+  list, or the default ceiling and the suite will tell you the page needs updating. This is not
+  hypothetical: the page shipped saying 29 chains and 12 tools when the repo had 30 and 11, with
+  its own tools table listing eleven rows directly beneath the "12".
 
 The canonical URL is `sower-industries.de/en/MCP/`; the Pages copy carries `rel=canonical` to it.
