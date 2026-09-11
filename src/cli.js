@@ -194,7 +194,16 @@ if (missing.length) {
 }
 
 const taskPathEff = resumeMeta?.task || taskPath;
-let request = readFileSync(resolve(root, taskPathEff), 'utf8');
+const taskFile = resolve(root, taskPathEff);
+if (!existsSync(taskFile)) {
+  console.error(`\nNo task file at ${taskFile}`);
+  console.error(`The task file is the request the council plans against - plain prose, written by you.`);
+  console.error(`Create one and run again, e.g.:\n`);
+  console.error(`    mkdir -p tasks`);
+  console.error(`    echo "What I want planned, in plain words." > ${taskPathEff}`);
+  process.exit(1);
+}
+let request = readFileSync(taskFile, 'utf8');
 // --context: standing direction documents, appended to every request so the
 // harness plans within the same direction the humans discuss (context/README.md).
 const contextArg = resumeMeta ? resumeMeta.context : flag('context', null);

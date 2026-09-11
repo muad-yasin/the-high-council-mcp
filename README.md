@@ -59,9 +59,13 @@ halfway through a paid run.
 
 ## Quick start (CLI)
 
-Write what you want into a task file, then run a chain against it:
+A task file is the request the council plans against: plain prose, written by you. There is no
+template and no format — write what you actually want, including the constraints that matter.
 
 ```bash
+mkdir -p tasks
+echo "Plan the data model for a bookmarking app. Single user, offline-first." > tasks/your-idea.md
+
 # see what's available and what it would cost
 node src/cli.js --help
 npm run dry -- --task tasks/your-idea.md --chain verify
@@ -69,6 +73,9 @@ npm run dry -- --task tasks/your-idea.md --chain verify
 # a real run
 node src/cli.js --task tasks/your-idea.md --chain verify
 ```
+
+`tasks/` and `runs/` are both gitignored. Your requests and everything the council writes about
+them stay on your machine — if you fork this repo, you will not accidentally publish them.
 
 `verify` is the cheap default: two labs, a hard two-round cap. Start there.
 
@@ -132,7 +139,7 @@ Register it with your MCP client, then drive it with these tools:
 
 ## Chains
 
-29 chain configs live in `chains/`. Each one is plain JSON — the seat roster, which models fill
+30 chain configs live in `chains/`. Each one is plain JSON — the seat roster, which models fill
 which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be
 copied and edited.
 
