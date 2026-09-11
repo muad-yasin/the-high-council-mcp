@@ -179,6 +179,19 @@ Read a chain's `description` field before running it; they say what they cost yo
   the criteria stage.
 - Some chains pause for human input by design. They are not stuck.
 
+## If this makes you money
+
+The licence is MIT. You owe nothing, and that is the whole licence — nothing below changes it.
+
+If The High Council ends up helping you build something that earns, I'd ask for **0.7%** of what it
+earns. Not a fee, not a clause, not a subscription. A request between people who build things.
+
+There is no reporting, no audit, no tracking, and nothing checks. **No is a complete answer** — use
+it, fork it, sell what you build with it, and never think about this section again. That is a fine
+outcome and it's why the licence says what it says.
+
+If you'd rather say yes: [pay what you think it's worth](https://buy.stripe.com/cNi14neoycSF0sseYrfjG01).
+
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). The section above is a request, not a term of it.
