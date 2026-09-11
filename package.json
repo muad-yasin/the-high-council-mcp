@@ -5,7 +5,7 @@
   "type": "module",
   "license": "MIT",
   "bin": {
-    "council": "./src/cli.js"
+    "council": "src/cli.js"
   },
   "scripts": {
     "run": "node src/cli.js",
