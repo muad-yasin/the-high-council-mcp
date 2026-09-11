@@ -61,7 +61,17 @@ test('landing page: ships no scripts and no third-party requests', { skip: !page
   // and it pulled React and Babel from unpkg at runtime) and on Google Fonts.
   // Both were removed deliberately; this keeps them removed.
   assert.equal((page.match(/<script/g) || []).length, 0, 'the page must stay script-free');
-  const external = [...page.matchAll(/https?:\/\/[^"')\s]+/g)].map(m => m[0])
-    .filter(u => !/^https:\/\/(github\.com|sower-industries\.de)/.test(u));
-  assert.deepEqual(external, [], 'the page must make no third-party requests');
+
+  // Only fetching contexts count. An <a href> or a rel=canonical names a URL
+  // but never requests it, so checking every http(s) string in the file would
+  // fail on an ordinary outbound link - which is not what this guards against.
+  const fetched = [
+    ...[...page.matchAll(/\ssrc="([^"]+)"/g)].map(m => m[1]),
+    ...[...page.matchAll(/url\(([^)]+)\)/g)].map(m => m[1].replace(/['"]/g, '')),
+    ...[...page.matchAll(/<link\b[^>]*\brel="(stylesheet|preconnect|preload|dns-prefetch|prefetch)"[^>]*>/g)]
+      .map(m => (m[0].match(/href="([^"]+)"/) || [])[1])
+      .filter(Boolean),
+  ];
+  const remote = fetched.filter(u => /^(https?:)?\/\//.test(u));
+  assert.deepEqual(remote, [], 'every asset the page fetches must be local');
 });

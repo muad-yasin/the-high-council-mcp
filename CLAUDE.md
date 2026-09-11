@@ -143,4 +143,10 @@ Claude Design treatment of the README, and it has two properties that must survi
   hypothetical: the page shipped saying 29 chains and 12 tools when the repo had 30 and 11, with
   its own tools table listing eleven rows directly beneath the "12".
 
-The canonical URL is `sower-industries.de/en/MCP/`; the Pages copy carries `rel=canonical` to it.
+**Canonical URL, and the thing to flip later.** The intended canonical is `sower-industries.de/en/MCP/`,
+but that route 404s today — the Astro build exists and has not been deployed. A `rel=canonical`
+pointing at a missing URL can deindex the page that does exist, so `docs/index.html` currently
+self-canonicals to the Pages URL, and both the README and the page's footer describe the
+sower-industries copy as forthcoming rather than linking it. When that deploy lands, flip
+`rel=canonical` and `og:url` back, promote the link in the README, and make the footer link point
+at the page rather than the site root. Until then, nothing in this repo may assert that URL works.
