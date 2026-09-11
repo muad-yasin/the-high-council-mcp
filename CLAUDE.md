@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`the-high-council-mcp` — a multi-model planning harness, published as an MCP server and a CLI.
+`the-high-council-mcp` - a multi-model planning harness, published as an MCP server and a CLI.
 It runs one request past seats filled by models from different labs, makes them argue on the
 record, and writes a deliverable plus a full debate board. MIT, BYOK-only.
 
@@ -45,14 +45,14 @@ offline for $0 and needs no keys. Use those to exercise plumbing changes before 
 The whole harness is one function, `runChain()` in `src/chain.js` (~700 lines), driven by a JSON
 config. Everything else is an entry point into it or a support module.
 
-**Config is the product.** `chains/*.json` are not examples — they are how behaviour is chosen.
+**Config is the product.** `chains/*.json` are not examples - they are how behaviour is chosen.
 A chain names its seats (`criteria`, `skeleton`, `builder`, `reviser`, `handoff`, `critics[]`),
 the `maxRounds` cap, and feature flags (`questions`, `proposals`, `debate`, `handoff`,
 `signoff: "unanimous"`, `panel: "relay"`). `runChain` reads those flags and skips whole stages.
 Adding a capability usually means a stage in `chain.js` plus a flag, not a new chain file.
 
 A **seat** is `{ provider, model, maxTokens?, temperature?, extra?, lab? }`. `lab` overrides the
-identity used for independence accounting — three seats on OpenRouter are three labs, and mock
+identity used for independence accounting - three seats on OpenRouter are three labs, and mock
 chains put two labs on one provider. Blind-panel and debate logic key off `labOf(seat)`, so
 getting `lab` wrong silently corrupts the thing the harness exists to measure.
 
@@ -63,23 +63,23 @@ passes) and `unanimous` (every critic signs off on the *same* draft, else the re
 union of all objections and the whole panel re-reviews).
 
 **Layers:**
-- `src/providers.js` — one adapter shape in, one out. Anthropic speaks the Messages API; every
+- `src/providers.js` - one adapter shape in, one out. Anthropic speaks the Messages API; every
   other provider shares one OpenAI-chat-completions adapter (`OPENAI_COMPAT`). Adding a provider
   is usually one line there. `mock` is a fake provider with named models
   (`mock-unreadable`, `mock-provider-error`, `mock-proposer-empty`) that each exercise a specific
   failure branch offline.
-- `src/roles.js` — every system and user prompt. Prompt changes belong here, never inline in
+- `src/roles.js` - every system and user prompt. Prompt changes belong here, never inline in
   `chain.js`. `criticSystem(open)` / `criteriaSystem(open)` etc. swap a scope rule by template.
   `HANDOFF_SYSTEM` reads an optional `## Available tools` section out of the task file and names
   the listed tool in each item's acceptance test. The task text is already in that seat's prompt,
-  so the convention costs nothing; the instruction's real content is the restraint — exact names
+  so the convention costs nothing; the instruction's real content is the restraint - exact names
   only, never invent a tool or a command line, and assume nothing when the section is absent.
   `test/roles.test.js` pins that, since a prompt cannot be tested by running it (the mock provider
   ignores prompt text by design).
-- `src/cost.js` — `pricing.json` lookup, `costOf`/`summarise` (measurement, after the fact) and
-  `worstCaseOf`/`wouldBreach` (projection, before the fact — what the spend cap enforces against).
-- `src/cli.js` — flags, `.env` loading, the run folder, the stage cache.
-- `src/mcp/server.js` — the same operations as MCP tools. It **spawns `src/cli.js` detached** so a
+- `src/cost.js` - `pricing.json` lookup, `costOf`/`summarise` (measurement, after the fact) and
+  `worstCaseOf`/`wouldBreach` (projection, before the fact - what the spend cap enforces against).
+- `src/cli.js` - flags, `.env` loading, the run folder, the stage cache.
+- `src/mcp/server.js` - the same operations as MCP tools. It **spawns `src/cli.js` detached** so a
   long run outlives the tool call; the client polls `run_status`. It does not run chains in-process.
 
 **The run folder is the database.** Each run writes `runs/<iso-timestamp>/` containing
@@ -87,24 +87,24 @@ union of all objections and the whole panel re-reviews).
 `deliverable.md`, `BOARD.md`, `HANDOFF.md`, `report.json`. There is no other state store.
 
 **`report.json` is the machine-readable board; `BOARD.md` is the same thing for people.** Anything
-built on a run reads the JSON — `proposals[]`, `debate.posts[]` (`by`/`on`/`stance`/`merge_with`),
+built on a run reads the JSON - `proposals[]`, `debate.posts[]` (`by`/`on`/`stance`/`merge_with`),
 `debate.replies[]` (`keep`/`amend`/`withdraw`), `signoff[]`, `scoreboard`, `totals`. Together those
 are a directed graph with verifiable edges. Nothing should ever parse `BOARD.md`'s headings, and
 the README now says so, because a four-lab council given a published run folder concluded the data
 existed only in prose and specified a markdown parser against it (2026-09-11). That was a
 documentation failure, not a model failure: the JSON was right there and undocumented. Its shape is
-a public contract now — adding fields is fine, renaming or removing one is a breaking change.
+a public contract now - adding fields is fine, renaming or removing one is a breaking change.
 
 **Resume and the stage cache.** `setCache()` gives `chain.js` a `get(label)` that replays a stage
 from `<label>.md` on disk at zero cost. This is what makes resume free and is why stage labels
-must stay stable — renaming a label orphans every run that paused before it.
+must stay stable - renaming a label orphans every run that paused before it.
 
 **The spend cap is enforced in `invoke()`, before the call.** `setBudget(cap)` arms a per-run
 ceiling; `invoke()` projects the worst case for the stage it is about to run (whole prompt as
 input, whole `maxTokens` as output, doubled for Anthropic's retry) and throws `BudgetExceeded`
 rather than spending past it. Replayed stages count toward the ceiling too, so resuming cannot lap
 it. Any new paid call must go through `invoke()` or it escapes the cap entirely. An unpriced seat
-projects $0 and is therefore uncapped — which is why the `mock-*` chains run free under any
+projects $0 and is therefore uncapped - which is why the `mock-*` chains run free under any
 ceiling, and why `mock-budget` exists with fixture prices to test the cap offline.
 
 **External seats pause the run.** `provider: "external"` throws `ExternalPause` (thrown, not
@@ -117,7 +117,7 @@ failure modes (unescaped quotes inside markdown-quoted spans, raw newlines in st
 real string-state tracking rather than regex, and deliberately still fails on genuinely garbled
 output. `classifyUnreadable` separates provider errors from truncation from malformed JSON.
 `invoke()` retries once with thinking disabled when an Anthropic seat burns its whole `maxTokens`
-budget on thinking. Every one of these encodes a real incident — the comments name the run and the
+budget on thinking. Every one of these encodes a real incident - the comments name the run and the
 date. Read the comment before changing the behaviour, and keep the regression tests in
 `test/chain.test.js`, which are built from the actual broken replies.
 
@@ -133,7 +133,7 @@ date. Read the comment before changing the behaviour, and keep the regression te
   `plans/`, `Docs/`, `benchmark/`, `Dockerfile`, or `fly.toml`.
 - **Never move harness run output into this repo.** Run folders (`runs/<id>/` here, and
   `~/Projects/relay/runs/<id>/` upstream) hold deliverables about the author's business and
-  personal plans — pledge stress-tests, company structure, strategy. This repo is public; a run
+  personal plans - pledge stress-tests, company structure, strategy. This repo is public; a run
   folder is not publishable by default. `runs/` is gitignored for this reason; keep it that way.
 - Internal references in code comments and chain descriptions are public on purpose. Do not
   "clean" them.
@@ -148,31 +148,31 @@ Claude Design treatment of the README, and it has two properties that must survi
   `dc-runtime` (`support.js`, an unlicensed build artifact that also pulled React and Babel from
   unpkg at runtime) and on Google Fonts. The runtime was removed by pre-rendering its three
   `<sc-for>` loops to static HTML and converting `style-hover` to CSS; the fonts are self-hosted.
-  Never reintroduce either — hotlinked Google Fonts in particular are a live legal problem for the
+  Never reintroduce either - hotlinked Google Fonts in particular are a live legal problem for the
   German site this design is shared with.
 - **Its numbers are claims about this repo.** The counts (chain configs, MCP tools, providers,
-  default cap) are typed into the HTML, not derived — a static page cannot compute them. So
+  default cap) are typed into the HTML, not derived - a static page cannot compute them. So
   `test/landing-page.test.js` derives each one from the repo and fails if the page disagrees,
   along with checking the page stays script-free and third-party-free. Change `chains/`, the tool
   list, or the default ceiling and the suite will tell you the page needs updating. This is not
   hypothetical: the page shipped saying 29 chains and 12 tools when the repo had 30 and 11, with
   its own tools table listing eleven rows directly beneath the "12".
 
-**Canonical URL — the planned flip was cancelled, on evidence.** The original plan was: once
+**Canonical URL - the planned flip was cancelled, on evidence.** The original plan was: once
 `sower-industries.de/en/MCP/` deployed, point this page's `rel=canonical` and `og:url` there, on
 the assumption the two were the same page in two places.
 
 That deploy landed 2026-09-11 and both URLs now return 200, so the assumption was checked instead
 of acted on. **They are not duplicates.** This page is a treatment of the README (~1,300 words,
 what the harness is and how to install it). The sower-industries page is a different article
-(~1,850 words) built around one specific run's debate board — the withdrawals, the holdouts, the
+(~1,850 words) built around one specific run's debate board - the withdrawals, the holdouts, the
 $0.0442. A cross-canonical between two pages that are not duplicates is at best ignored by search
 engines and at worst deindexes a page with its own content and its own audience, on the domain
 that actually hosts the code.
 
 So `docs/index.html` stays self-canonical, permanently, and the two pages link to each other as
 what they are: two different write-ups. The README and the page footer now link the live URL
-rather than calling it forthcoming. Do not "finish" the flip — it was reconsidered, not forgotten.
+rather than calling it forthcoming. Do not "finish" the flip - it was reconsidered, not forgotten.
 
 ## Cross-run spend (`src/spend.js`)
 
@@ -191,6 +191,6 @@ Consequences worth knowing: delete a run folder and its spend disappears from th
 intended. Runs with no `report.json` (still going, or stopped by the cap) are counted from their
 `<label>.usage.json` files, so the total stays honest mid-run.
 
-Spend output carries the chain and the cost only — never the task path or any run content. A test
+Spend output carries the chain and the cost only - never the task path or any run content. A test
 pins that, along with the degradation contract: a missing, unreadable or corrupt `runs/` must
 produce a usable answer rather than an error, and `spendReport` must never write to disk.

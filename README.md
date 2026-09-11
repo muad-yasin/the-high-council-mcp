@@ -9,11 +9,11 @@ own API keys. Nothing is resold, nothing is hosted for you, and no key ever leav
 > **On what this does and doesn't claim.** This repo publishes the mechanism: the chains, the seat
 > rosters, the stage order. It does not claim to produce better plans than a single good model
 > would. That is an open question and we have not measured it. What it does, concretely, is make
-> disagreement between models *visible and recorded* instead of averaged away — you can read who
+> disagreement between models *visible and recorded* instead of averaged away - you can read who
 > objected to what, who withdrew a proposal under argument, and who held their position.
 
-**A visual walkthrough of all of this — the stages, one real run's debate board, and what that run
-cost — is at [muad-yasin.github.io/the-high-council-mcp](https://muad-yasin.github.io/the-high-council-mcp/).**
+**A visual walkthrough of all of this - the stages, one real run's debate board, and what that run
+cost - is at [muad-yasin.github.io/the-high-council-mcp](https://muad-yasin.github.io/the-high-council-mcp/).**
 A different write-up, built around one run's actual debate board, is at
 [sower-industries.de/en/MCP/](https://sower-industries.de/en/MCP/).
 
@@ -21,27 +21,27 @@ A different write-up, built around one run's actual debate board, is at
 
 A run moves through fixed stages. Which stages fire depends on the chain you pick.
 
-1. **Questions** — a seat reads the request and asks only the questions whose answers would change
+1. **Questions** - a seat reads the request and asks only the questions whose answers would change
    the output. You answer them (or take its stated defaults).
-2. **Criteria** — the request becomes a short list of acceptance criteria, each one a yes/no check
+2. **Criteria** - the request becomes a short list of acceptance criteria, each one a yes/no check
    rather than a matter of taste.
-3. **Skeleton** — an outline the other models will propose against. Names the parts, decides
+3. **Skeleton** - an outline the other models will propose against. Names the parts, decides
    nothing.
-4. **Proposals** — every lab proposes buildable parts, blind to each other.
-5. **Debate** — the labs read each other's proposals, anonymised, and post support / object /
+4. **Proposals** - every lab proposes buildable parts, blind to each other.
+5. **Debate** - the labs read each other's proposals, anonymised, and post support / object /
    merge. Then each author replies: keep, amend, or withdraw.
-6. **Build** — one seat integrates the surviving proposals into a single document.
-7. **Panel review** — every critic independently grades the draft against the acceptance criteria,
+6. **Build** - one seat integrates the surviving proposals into a single document.
+7. **Panel review** - every critic independently grades the draft against the acceptance criteria,
    blind. Not unanimous? It revises against the union of every objection and the panel reviews
    again, up to the chain's round cap.
-8. **Handoff** — a `HANDOFF.md` written for whoever executes the result.
+8. **Handoff** - a `HANDOFF.md` written for whoever executes the result.
 
-Every run writes a folder: the deliverable, `BOARD.md` (the full debate — every post, every
+Every run writes a folder: the deliverable, `BOARD.md` (the full debate - every post, every
 withdrawal), `HANDOFF.md`, a per-lab scoreboard, and the real token/cost accounting.
 
 ### Reading a run with a program
 
-`BOARD.md` is for people. **`report.json` is the same board, structured** — if you are building
+`BOARD.md` is for people. **`report.json` is the same board, structured** - if you are building
 anything on top of a run, read that instead. Do not parse the markdown.
 
 ```jsonc
@@ -69,13 +69,13 @@ one edge per posture, and `replies[].action` says what each author did with thei
 once they had read the argument against it. That is the whole artifact, already machine-readable.
 
 `signoff[].objections` is why a seat declined, on the seat's own record. `signedOff: null` means
-the seat gave no usable reply and abstained — neither a pass nor an objection, and `objections` is
+the seat gave no usable reply and abstained - neither a pass nor an objection, and `objections` is
 `null` rather than empty so the two stay apart. A seat that agreed has an empty list.
 The same objections also appear flattened in `lastCritique.failures[]`, tagged with `lab`, because
 the reviser wants the union across the whole panel. Both are built in one pass; they cannot drift.
 
 **Before you publish a run,** note that `report.json` records `task` as the path to your task file
-on your own disk. Nothing transmits it anywhere — but if you are rendering a board onto a public
+on your own disk. Nothing transmits it anywhere - but if you are rendering a board onto a public
 page, drop that field. The debate itself is the part worth showing.
 
 ## Requirements
@@ -104,7 +104,7 @@ halfway through a paid run.
 ## Quick start (CLI)
 
 A task file is the request the council plans against: plain prose, written by you. There is no
-template and no format — write what you actually want, including the constraints that matter.
+template and no format - write what you actually want, including the constraints that matter.
 
 ```bash
 mkdir -p tasks
@@ -119,7 +119,7 @@ node src/cli.js --task tasks/your-idea.md --chain verify
 ```
 
 `tasks/` and `runs/` are both gitignored. Your requests and everything the council writes about
-them stay on your machine — if you fork this repo, you will not accidentally publish them.
+them stay on your machine - if you fork this repo, you will not accidentally publish them.
 
 `verify` is the cheap default: two labs, a hard two-round cap. Start there.
 
@@ -132,14 +132,14 @@ for each item of work, instead of inventing a check from nothing:
 ```markdown
 ## Available tools
 
-- `scope-gate` — decides GO / NEEDS-SPEC / KILL before anything is built
-- `bug-audit` — reads code line by line, reports verified defects, edits nothing
-- `npm test` — the project's own suite
+- `scope-gate` - decides GO / NEEDS-SPEC / KILL before anything is built
+- `bug-audit` - reads code line by line, reports verified defects, edits nothing
+- `npm test` - the project's own suite
 ```
 
 The council is told what exists, not how it is invoked, and is instructed never to name a tool
 that is not on your list. Leave the section out and the handoff assumes nothing beyond your test
-suite — which is what it did before this existed, and what it will keep doing.
+suite - which is what it did before this existed, and what it will keep doing.
 
 This costs no tokens you were not already spending: the task file is already in the handoff seat's
 prompt. It is the difference between *"write a test for this"* and *"run `scope-gate` on this
@@ -148,7 +148,7 @@ before building it."*
 ### The spend cap
 
 Every run has a per-run ceiling in USD. It defaults to **$5**, and is checked *before* each paid
-stage — a stage that could take the run past the ceiling is never called, so the cap holds rather
+stage - a stage that could take the run past the ceiling is never called, so the cap holds rather
 than reporting the overspend afterwards.
 
 ```bash
@@ -160,7 +160,7 @@ export MAX_USD_PER_RUN=20                         # change the default
 A run that hits the ceiling stops cleanly and writes `STOPPED-budget.md` saying what it spent, which
 stage it stopped at, and what that stage would have cost. Nothing is half-written: it produces no
 `deliverable.md` and no `report.json`, so a stopped run never reads as a finished one. Continue it
-with a higher ceiling — completed stages replay from disk and cost nothing the second time:
+with a higher ceiling - completed stages replay from disk and cost nothing the second time:
 
 ```bash
 node src/cli.js --resume runs/<id> --max-usd 10
@@ -173,7 +173,7 @@ node src/cli.js --spend            # today
 node src/cli.js --spend --days 7   # the last week
 ```
 
-That is read back off the run folders on disk — there is no ledger file, nothing is recorded
+That is read back off the run folders on disk - there is no ledger file, nothing is recorded
 anywhere else, and nothing leaves your machine. Runs still going, or stopped by the cap, are
 counted from the stages they already paid for. The same figures are available to an MCP client as
 `spend_report`.
@@ -230,7 +230,7 @@ Then drive it with these tools:
 | `start_run` | Start a run in the background (`max_usd` sets its ceiling) |
 | `run_status` | Stage reached, panel verdicts, scoreboard, cost, budget remaining |
 | `spend_report` | What every run has cost across a window of days, derived from disk |
-| `external_prompt` | The prompt a paused external stage is waiting on — **read it with this, not by opening the file**; the prompts are routinely tens of thousands of tokens and most clients silently truncate a file read |
+| `external_prompt` | The prompt a paused external stage is waiting on - **read it with this, not by opening the file**; the prompts are routinely tens of thousands of tokens and most clients silently truncate a file read |
 | `submit_stage` | Answer a paused stage and resume |
 | `resume_run` | Resume a paused run, or raise `max_usd` on one the cap stopped |
 | `read_run_file` | Read any file from a run folder |
@@ -239,18 +239,18 @@ Then drive it with these tools:
 
 ## Chains
 
-30 chain configs live in `chains/`. Each one is plain JSON — the seat roster, which models fill
+30 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
 which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be
 copied and edited.
 
 A few worth knowing:
 
-- **`verify`** — two labs, two rounds. The recommended starting point.
-- **`cheap`** — small models throughout. For testing the harness itself, not for real work.
-- **`plan-debate`** — five labs propose blind, debate each other's proposals anonymised, then a
+- **`verify`** - two labs, two rounds. The recommended starting point.
+- **`cheap`** - small models throughout. For testing the harness itself, not for real work.
+- **`plan-debate`** - five labs propose blind, debate each other's proposals anonymised, then a
   blind panel grades the integrated draft.
-- **`plan-auto`** — the full open-scope chain, every seat on a real API, runs unattended end to end.
-- **`plan-unanimous`** — every critic must independently sign off on the *same* draft. Three rounds
+- **`plan-auto`** - the full open-scope chain, every seat on a real API, runs unattended end to end.
+- **`plan-unanimous`** - every critic must independently sign off on the *same* draft. Three rounds
   here means up to fifteen critic calls, not five.
 
 Read a chain's `description` field before running it; they say what they cost you in calls.
@@ -260,7 +260,7 @@ Read a chain's `description` field before running it; they say what they cost yo
 - The spend cap is enforced against a **worst case**, not a prediction: the whole prompt billed as
   input plus the seat's entire `maxTokens` budget billed as output (doubled for Anthropic seats,
   which may retry once). Real stages almost never cost that much, so a run can stop with headroom
-  left. That is the intended trade — resume it with a higher ceiling.
+  left. That is the intended trade - resume it with a higher ceiling.
 - A seat whose model has no entry in `src/pricing.json` is **unpriced, and therefore uncapped**.
   It contributes $0 to the running total no matter what it really costs. Check `dry_run` output
   for `unpriced` before trusting a ceiling.
@@ -271,18 +271,18 @@ Read a chain's `description` field before running it; they say what they cost yo
   before you run.
 - A panel that signs off is not a guarantee the output is correct. It means every critic seat
   checked it against the stated acceptance criteria and found nothing. Criteria that are vague
-  produce sign-offs that mean nothing — the quality of the run depends heavily on the quality of
+  produce sign-offs that mean nothing - the quality of the run depends heavily on the quality of
   the criteria stage.
 - Some chains pause for human input by design. They are not stuck.
 
 ## If this makes you money
 
-The licence is MIT. You owe nothing, and that is the whole licence — nothing below changes it.
+The licence is MIT. You owe nothing, and that is the whole licence - nothing below changes it.
 
 If The High Council ends up helping you build something that earns, I'd ask for **0.7%** of what it
 earns. Not a fee, not a clause, not a subscription. A request between people who build things.
 
-There is no reporting, no audit, no tracking, and nothing checks. **No is a complete answer** — use
+There is no reporting, no audit, no tracking, and nothing checks. **No is a complete answer** - use
 it, fork it, sell what you build with it, and never think about this section again. That is a fine
 outcome and it's why the licence says what it says.
 
