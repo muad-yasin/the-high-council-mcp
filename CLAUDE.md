@@ -158,13 +158,21 @@ Claude Design treatment of the README, and it has two properties that must survi
   hypothetical: the page shipped saying 29 chains and 12 tools when the repo had 30 and 11, with
   its own tools table listing eleven rows directly beneath the "12".
 
-**Canonical URL, and the thing to flip later.** The intended canonical is `sower-industries.de/en/MCP/`,
-but that route 404s today — the Astro build exists and has not been deployed. A `rel=canonical`
-pointing at a missing URL can deindex the page that does exist, so `docs/index.html` currently
-self-canonicals to the Pages URL, and both the README and the page's footer describe the
-sower-industries copy as forthcoming rather than linking it. When that deploy lands, flip
-`rel=canonical` and `og:url` back, promote the link in the README, and make the footer link point
-at the page rather than the site root. Until then, nothing in this repo may assert that URL works.
+**Canonical URL — the planned flip was cancelled, on evidence.** The original plan was: once
+`sower-industries.de/en/MCP/` deployed, point this page's `rel=canonical` and `og:url` there, on
+the assumption the two were the same page in two places.
+
+That deploy landed 2026-09-11 and both URLs now return 200, so the assumption was checked instead
+of acted on. **They are not duplicates.** This page is a treatment of the README (~1,300 words,
+what the harness is and how to install it). The sower-industries page is a different article
+(~1,850 words) built around one specific run's debate board — the withdrawals, the holdouts, the
+$0.0442. A cross-canonical between two pages that are not duplicates is at best ignored by search
+engines and at worst deindexes a page with its own content and its own audience, on the domain
+that actually hosts the code.
+
+So `docs/index.html` stays self-canonical, permanently, and the two pages link to each other as
+what they are: two different write-ups. The README and the page footer now link the live URL
+rather than calling it forthcoming. Do not "finish" the flip — it was reconsidered, not forgotten.
 
 ## Cross-run spend (`src/spend.js`)
 

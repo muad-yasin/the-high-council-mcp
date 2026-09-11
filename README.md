@@ -14,7 +14,8 @@ own API keys. Nothing is resold, nothing is hosted for you, and no key ever leav
 
 **A visual walkthrough of all of this — the stages, one real run's debate board, and what that run
 cost — is at [muad-yasin.github.io/the-high-council-mcp](https://muad-yasin.github.io/the-high-council-mcp/).**
-A copy is also coming to sower-industries.de.
+A different write-up, built around one run's actual debate board, is at
+[sower-industries.de/en/MCP/](https://sower-industries.de/en/MCP/).
 
 ## How it works
 
