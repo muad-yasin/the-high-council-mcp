@@ -1,0 +1,86 @@
+{
+  "name": "plan-debate-c2",
+  "description": "plan-debate with every Sonnet stage as an EXTERNAL seat (his call, 2026-09-07): the run pauses at criteria, skeleton, build, each revision and the handoff, writes the exact prompt to NEEDS-<label>.md, and a Claude Code session on the Max plan writes <label>.md and resumes. The five labs stay on the API for cents. Same board, ledger, scoreboard and report as plan-debate; API cost is the labs only.",
+  "maxRounds": 3,
+  "signoff": "unanimous",
+  "proposals": {
+    "parts": 3,
+    "maxTokens": 1500
+  },
+  "debate": true,
+  "handoff": true,
+  "estimate": {
+    "promptTokens": 16000,
+    "draftTokens": 16000,
+    "critiqueTokens": 2000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "skeleton": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "builder": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "reviser": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "handoff": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "maxTokens": 20000,
+        "extra": {
+          "chat_template_kwargs": {
+            "thinking": false
+          }
+        },
+        "lab": "deepseek"
+      },
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.5-plus-20260420",
+        "maxTokens": 20000,
+        "extra": {
+          "reasoning": {
+            "enabled": false
+          }
+        },
+        "lab": "qwen"
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 20000,
+        "lab": "glm",
+        "extra": {
+          "reasoning": {
+            "effort": "low"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "mistralai/mistral-large-2512",
+        "maxTokens": 20000,
+        "lab": "mistral"
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 20000,
+        "lab": "gemini"
+      }
+    ]
+  }
+}

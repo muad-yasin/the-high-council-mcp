@@ -1,0 +1,79 @@
+{
+  "name": "gp-judge-v1",
+  "description": "Golden Path (GP) vibecoded-project judging. Panel-only, one round, five independent labs each answer MET/FAILED against the published rubric (~/Projects/GP/rubric.json) with quoted evidence. Invoked with --draft <dossier> --rounds 1 so the criteria stage, skeleton/proposal/debate stages, and the builder/reviser never run - only the panel critiques the dossier once. Chain data only; no new relay stage type.",
+  "maxRounds": 1,
+  "signoff": "unanimous",
+  "estimate": {
+    "promptTokens": 3000,
+    "draftTokens": 1200,
+    "critiqueTokens": 900
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "extra": { "thinking": { "type": "disabled" } },
+      "maxTokens": 4000
+    },
+    "builder": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "extra": { "thinking": { "type": "disabled" } },
+      "maxTokens": 8000
+    },
+    "reviser": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "extra": { "thinking": { "type": "disabled" } },
+      "maxTokens": 8000
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "maxTokens": 4000,
+        "extra": { "chat_template_kwargs": { "thinking": false } },
+        "lab": "deepseek"
+      },
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.5-plus-20260420",
+        "maxTokens": 4000,
+        "extra": { "reasoning": { "enabled": false } },
+        "lab": "qwen"
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 4000,
+        "lab": "glm",
+        "extra": { "reasoning": { "effort": "low" } }
+      },
+      {
+        "provider": "openrouter",
+        "model": "mistralai/mistral-large-2512",
+        "maxTokens": 4000,
+        "lab": "mistral"
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 4000,
+        "lab": "gemini"
+      }
+    ]
+  },
+  "criteria": [
+    "The submitted live URL, or a URL described in the README, loads and renders something within a few seconds (not a blank page, a build error, or a 404).",
+    "What loads is an interactive thing (a game, app, tool, or demo the visitor can do something with), not a static description of an idea.",
+    "The interface or output is visually coherent: no obviously broken layout, unstyled default HTML, or placeholder Lorem-ipsum-style content.",
+    "No visible runtime errors, broken links, or crashes are observed during the judge's brief interaction with the live URL.",
+    "The submission reads as a finished small thing rather than an abandoned half-built scaffold (e.g. has a title, a clear entry point, no dangling TODO screens).",
+    "The description or README states a clear creative or personal intent behind the project (why it was made, what idea it explores), not just a generic feature list.",
+    "The submission has at least one distinctive design or content choice (a theme, joke, aesthetic, or mechanic) that isn't a generic unmodified template or tutorial clone.",
+    "The README or description names the AI tools or models used to build the project (e.g. Claude, Cursor, Copilot, or 'vibecoded with X').",
+    "The README or description gives at least one concrete detail about the build process (a prompt approach, a workflow step, or a specific decision made during building), beyond just naming a tool.",
+    "If a repo URL is given, it is publicly reachable and contains a README.",
+    "If a live URL is given, it is publicly reachable without a login wall or paywall blocking the judge's view."
+  ]
+}

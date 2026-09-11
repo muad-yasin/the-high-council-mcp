@@ -1,0 +1,60 @@
+{
+  "name": "mock-open",
+  "description": "Offline. Proposal stage plus the debate and reply rounds (anonymised), the board handed to the builder, withdrawn/amended proposals, a handoff file at the end.",
+  "maxRounds": 2,
+  "signoff": "unanimous",
+  "proposals": {
+    "parts": 2,
+    "maxTokens": 400
+  },
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "seats": {
+    "criteria": {
+      "provider": "mock",
+      "model": "mock-criteria"
+    },
+    "skeleton": {
+      "provider": "mock",
+      "model": "mock-skeleton"
+    },
+    "builder": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "reviser": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "proposers": [
+      {
+        "provider": "mock",
+        "model": "mock-proposer-a",
+        "lab": "mock-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-proposer-b",
+        "lab": "mock-b"
+      }
+    ],
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-critic-a",
+        "lab": "mock-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-critic-b",
+        "lab": "mock-b"
+      }
+    ]
+  },
+  "debate": true,
+  "handoff": true,
+  "scope": "open"
+}

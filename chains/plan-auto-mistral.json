@@ -1,0 +1,101 @@
+{
+  "name": "plan-auto-mistral",
+  "description": "plan-auto with every Sonnet-role seat (questions, criteria, skeleton, builder, reviser, handoff) on Mistral Large via OpenRouter, for the hosted shop where no Anthropic balance is spent. The Mistral critic seat is dropped so no lab grades its own draft; four labs remain on the panel.",
+  "maxRounds": 3,
+  "signoff": "unanimous",
+  "proposals": {
+    "parts": 6,
+    "maxTokens": 1500
+  },
+  "debate": true,
+  "handoff": true,
+  "estimate": {
+    "promptTokens": 16000,
+    "draftTokens": 16000,
+    "critiqueTokens": 2000
+  },
+  "seats": {
+    "questions": {
+      "provider": "openrouter",
+      "model": "mistralai/mistral-large-2512",
+      "lab": "mistral",
+      "maxTokens": 2000
+    },
+    "criteria": {
+      "provider": "openrouter",
+      "model": "mistralai/mistral-large-2512",
+      "lab": "mistral",
+      "maxTokens": 8000
+    },
+    "skeleton": {
+      "provider": "openrouter",
+      "model": "mistralai/mistral-large-2512",
+      "lab": "mistral",
+      "maxTokens": 8000
+    },
+    "builder": {
+      "provider": "openrouter",
+      "model": "mistralai/mistral-large-2512",
+      "lab": "mistral",
+      "maxTokens": 40000
+    },
+    "reviser": {
+      "provider": "openrouter",
+      "model": "mistralai/mistral-large-2512",
+      "lab": "mistral",
+      "maxTokens": 40000
+    },
+    "handoff": {
+      "provider": "openrouter",
+      "model": "mistralai/mistral-large-2512",
+      "lab": "mistral",
+      "maxTokens": 8000
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "maxTokens": 20000,
+        "extra": {
+          "chat_template_kwargs": {
+            "thinking": false
+          }
+        },
+        "lab": "deepseek"
+      },
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.5-plus-20260420",
+        "maxTokens": 20000,
+        "extra": {
+          "reasoning": {
+            "enabled": false
+          }
+        },
+        "lab": "qwen"
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 20000,
+        "lab": "glm",
+        "extra": {
+          "reasoning": {
+            "effort": "low"
+          }
+        }
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 20000,
+        "lab": "gemini"
+      }
+    ]
+  },
+  "scope": "open",
+  "questions": {
+    "max": 8,
+    "wait": true
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "name": "plan-thorough",
+  "description": "Sophi-A preset, not a judging chain. Same flow and roster as plan-cheap plus one extra revision round, for a design worth extra scrutiny before it's built. Builder/reviser/criteria on Sonnet 5; 5 critic seats, cheap-tier, no xAI/Grok.",
+  "maxRounds": 6,
+  "stopOnPass": true,
+  "estimate": {
+    "promptTokens": 16000,
+    "draftTokens": 16000,
+    "critiqueTokens": 2000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 8000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "builder": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 40000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "reviser": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 40000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "Qwen/Qwen3.5-9B",
+        "maxTokens": 20000,
+        "extra": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          }
+        },
+        "lab": "qwen"
+      },
+      {
+        "provider": "zai",
+        "model": "glm-4.7-flash",
+        "maxTokens": 20000,
+        "extra": {
+          "thinking": {
+            "type": "disabled"
+          }
+        }
+      },
+      {
+        "provider": "cohere",
+        "model": "command-r7b-12-2024",
+        "maxTokens": 4096
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 20000
+      },
+      {
+        "provider": "openrouter",
+        "model": "meta-llama/llama-3.3-70b-instruct",
+        "maxTokens": 20000,
+        "lab": "meta"
+      }
+    ]
+  }
+}

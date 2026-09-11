@@ -1,0 +1,67 @@
+{
+  "name": "seven-cheap",
+  "description": "Six labs, each lab's cheap model, one seat per lab: Qwen, GLM, Cohere, Google and Llama on the panel, Anthropic in the builder seat. (Named for the seven-lab shape it was cut down from - the roster below is the real one.) Builder and reviser stay on the cheap Anthropic seat because the deliverable here is a plan/prompt, not code - the actual build happens afterward in Claude Code on the existing subscription, not through this chain. No finalist seat for the same reason: the human takes the plan to Claude Code themselves.",
+  "maxRounds": 5,
+  "stopOnPass": true,
+  "estimate": {
+    "promptTokens": 4000,
+    "draftTokens": 6000,
+    "critiqueTokens": 1200
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "maxTokens": 2000
+    },
+    "builder": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "maxTokens": 8000
+    },
+    "reviser": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "maxTokens": 8000
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "Qwen/Qwen3.5-9B",
+        "maxTokens": 20000,
+        "extra": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          }
+        },
+        "lab": "qwen"
+      },
+      {
+        "provider": "zai",
+        "model": "glm-4.7-flash",
+        "maxTokens": 20000,
+        "extra": {
+          "thinking": {
+            "type": "disabled"
+          }
+        }
+      },
+      {
+        "provider": "cohere",
+        "model": "command-r7b-12-2024",
+        "maxTokens": 4096
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 20000
+      },
+      {
+        "provider": "openrouter",
+        "model": "meta-llama/llama-3.3-70b-instruct",
+        "maxTokens": 20000,
+        "lab": "meta"
+      }
+    ]
+  }
+}

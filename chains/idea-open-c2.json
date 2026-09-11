@@ -1,0 +1,106 @@
+{
+  "name": "idea-open-c2",
+  "description": "For a genuinely NEW idea: questions first (external seat; the answers come from the human or the command-and-control session and become part of the request), then plan-debate-open-c2 - open scope, every seat may add on record, labs debate, Sonnet stages external, blind panel, handoff. The verdict pass afterwards cuts to a prototype phase. Kimi K3 added 2026-09-08 as a sixth critic/proposer seat (OpenRouter, real Sept-2026 pricing ~$2.50/$14 per M - pricier than the other five; kept because it is a genuinely different lab, not for its price).",
+  "maxRounds": 3,
+  "signoff": "unanimous",
+  "proposals": {
+    "parts": 6,
+    "maxTokens": 1500
+  },
+  "debate": true,
+  "handoff": true,
+  "estimate": {
+    "promptTokens": 16000,
+    "draftTokens": 16000,
+    "critiqueTokens": 2000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "skeleton": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "builder": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "reviser": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "handoff": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "maxTokens": 20000,
+        "extra": {
+          "chat_template_kwargs": {
+            "thinking": false
+          }
+        },
+        "lab": "deepseek"
+      },
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.5-plus-20260420",
+        "maxTokens": 20000,
+        "extra": {
+          "reasoning": {
+            "enabled": false
+          }
+        },
+        "lab": "qwen"
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 20000,
+        "lab": "glm",
+        "extra": {
+          "reasoning": {
+            "effort": "low"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "mistralai/mistral-large-2512",
+        "maxTokens": 20000,
+        "lab": "mistral"
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 20000,
+        "lab": "gemini"
+      },
+      {
+        "provider": "openrouter",
+        "model": "moonshotai/kimi-k3",
+        "maxTokens": 20000,
+        "lab": "kimi",
+        "extra": {
+          "reasoning": {
+            "enabled": false
+          }
+        }
+      }
+    ],
+    "questions": {
+      "provider": "external",
+      "model": "claude-code-session"
+    }
+  },
+  "scope": "open",
+  "questions": {
+    "max": 8,
+    "wait": true
+  }
+}

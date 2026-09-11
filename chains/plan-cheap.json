@@ -1,0 +1,82 @@
+{
+  "name": "plan-cheap",
+  "description": "Generic long-form building-plan pass, one system/slice per run - not tied to any one project. Renamed from smo-v2-cheap once it stopped being SMO-specific. Builder/reviser/criteria on Sonnet 5 (worth paying for the seat that writes the plan); 5 critic seats, cheap-tier, no xAI/Grok. Mistral parked (2026-09-07: account-side 429 across three keys/workspaces, unresolved on their end) - add back once it clears, nothing else needs to change. Criteria are generated fresh from whatever request/constraints the task file gives it.",
+  "maxRounds": 5,
+  "stopOnPass": true,
+  "estimate": {
+    "promptTokens": 16000,
+    "draftTokens": 16000,
+    "critiqueTokens": 2000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 8000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "builder": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 40000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "reviser": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 40000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "Qwen/Qwen3.5-9B",
+        "maxTokens": 20000,
+        "extra": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          }
+        },
+        "lab": "qwen"
+      },
+      {
+        "provider": "zai",
+        "model": "glm-4.7-flash",
+        "maxTokens": 20000,
+        "extra": {
+          "thinking": {
+            "type": "disabled"
+          }
+        }
+      },
+      {
+        "provider": "cohere",
+        "model": "command-r7b-12-2024",
+        "maxTokens": 4096
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 20000
+      },
+      {
+        "provider": "openrouter",
+        "model": "meta-llama/llama-3.3-70b-instruct",
+        "maxTokens": 20000,
+        "lab": "meta"
+      }
+    ]
+  }
+}

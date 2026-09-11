@@ -1,0 +1,59 @@
+{
+  "name": "mock-external",
+  "description": "Offline. The builder and reviser are external seats: the run pauses, writes NEEDS-<label>.md, and resumes from disk after <label>.md is written. Every other stage is mock.",
+  "maxRounds": 2,
+  "signoff": "unanimous",
+  "proposals": {
+    "parts": 2,
+    "maxTokens": 400
+  },
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "seats": {
+    "criteria": {
+      "provider": "mock",
+      "model": "mock-criteria"
+    },
+    "skeleton": {
+      "provider": "mock",
+      "model": "mock-skeleton"
+    },
+    "builder": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "reviser": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "proposers": [
+      {
+        "provider": "mock",
+        "model": "mock-proposer-a",
+        "lab": "mock-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-proposer-b",
+        "lab": "mock-b"
+      }
+    ],
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-critic-a",
+        "lab": "mock-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-critic-b",
+        "lab": "mock-b"
+      }
+    ]
+  },
+  "debate": true,
+  "handoff": true
+}

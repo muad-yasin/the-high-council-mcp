@@ -1,0 +1,35 @@
+{
+  "name": "cheap",
+  "description": "Same structure, small models throughout. For testing the harness itself, not for real deliverables.",
+  "maxRounds": 2,
+  "stopOnPass": true,
+  "estimate": {
+    "promptTokens": 4000,
+    "draftTokens": 6000,
+    "critiqueTokens": 1200
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "maxTokens": 2000
+    },
+    "builder": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "maxTokens": 8000
+    },
+    "critics": [
+      {
+        "provider": "openai",
+        "model": "gpt-5-mini",
+        "maxTokens": 3000
+      },
+      {
+        "provider": "google",
+        "model": "gemini-2.5-flash",
+        "maxTokens": 3000
+      }
+    ]
+  }
+}

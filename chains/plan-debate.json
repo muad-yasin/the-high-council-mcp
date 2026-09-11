@@ -1,0 +1,116 @@
+{
+  "name": "plan-debate",
+  "description": "The labs talk to each other (his call, 2026-09-07). Sonnet skeleton; five labs propose blind (3 parts each); a debate round where every lab posts support/object/merge on the others' proposals, anonymised; a reply round where each author keeps, amends or withdraws; Sonnet integrates with the board and a scope ledger; the panel grades BLIND (talk on verdicts anchored in our relay test); Sonnet revises up to 3 rounds and writes HANDOFF.md. Seats upgraded 2026-09-07 to the current frontier-cheap tier: DeepSeek V4 Flash, Qwen 3.5 Plus, GLM 5.3 Flash, Mistral Large, Gemini 3.6 Flash. Cohere and Llama dropped (rubber stamp; unquoted objections).",
+  "maxRounds": 3,
+  "signoff": "unanimous",
+  "proposals": {
+    "parts": 3,
+    "maxTokens": 1500
+  },
+  "debate": true,
+  "handoff": true,
+  "estimate": {
+    "promptTokens": 16000,
+    "draftTokens": 16000,
+    "critiqueTokens": 2000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      },
+      "maxTokens": 8000
+    },
+    "skeleton": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      },
+      "maxTokens": 6000
+    },
+    "builder": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      },
+      "maxTokens": 40000
+    },
+    "reviser": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      },
+      "maxTokens": 40000
+    },
+    "handoff": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      },
+      "maxTokens": 4000
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "maxTokens": 20000,
+        "extra": {
+          "chat_template_kwargs": {
+            "thinking": false
+          }
+        },
+        "lab": "deepseek"
+      },
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.5-plus-20260420",
+        "maxTokens": 20000,
+        "extra": {
+          "reasoning": {
+            "enabled": false
+          }
+        },
+        "lab": "qwen"
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 20000,
+        "lab": "glm",
+        "extra": {
+          "reasoning": {
+            "effort": "low"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "mistralai/mistral-large-2512",
+        "maxTokens": 20000,
+        "lab": "mistral"
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 20000,
+        "lab": "gemini"
+      }
+    ]
+  }
+}

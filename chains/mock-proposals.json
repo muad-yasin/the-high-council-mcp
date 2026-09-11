@@ -1,0 +1,57 @@
+{
+  "name": "mock-proposals",
+  "description": "Offline. Exercises the proposal stage: skeleton, blind proposals from every critic seat (one of them unreadable), integration with a scope ledger, the scoreboard. Best-of-N: three attempts per lab, a mock judge keeps two.",
+  "maxRounds": 2,
+  "signoff": "unanimous",
+  "proposals": {
+    "parts": 2,
+    "maxTokens": 400,
+    "samples": 3,
+    "keep": 2
+  },
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "seats": {
+    "criteria": {
+      "provider": "mock",
+      "model": "mock-criteria"
+    },
+    "skeleton": {
+      "provider": "mock",
+      "model": "mock-skeleton"
+    },
+    "builder": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "reviser": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "proposers": [
+      {
+        "provider": "mock",
+        "model": "mock-proposer-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-proposer-empty"
+      }
+    ],
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-critic-a",
+        "lab": "mock-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-critic-b",
+        "lab": "mock-b"
+      }
+    ]
+  }
+}

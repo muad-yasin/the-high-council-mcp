@@ -1,0 +1,28 @@
+{
+  "name": "the-high-council",
+  "version": "0.1.0",
+  "description": "The High Council: a multi-model planning harness. One builder, independent critics from other labs, checkable acceptance criteria, a debate on the record, and a hard stop.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "council": "./src/cli.js",
+    "relay": "./src/cli.js"
+  },
+  "scripts": {
+    "run": "node src/cli.js",
+    "cost": "node src/cost.js",
+    "dry": "node src/cli.js --dry-run",
+    "ui": "node src/ui/server.js",
+    "mcp": "node src/mcp/server.js",
+    "http-server": "node src/http-server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "express": "^4.22.2",
+    "zod": "^4.5.4"
+  }
+}

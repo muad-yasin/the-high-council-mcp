@@ -1,0 +1,82 @@
+{
+  "name": "plan-unanimous",
+  "description": "Same seats as plan-cheap, but every critic must independently sign off on the SAME draft before it's done (his call, 2026-09-07) - not 'first lab to pass it, stop'. Each round is a full panel pass (all 5 critics), so 3 rounds here means up to 15 critic calls, not 5. A round that isn't unanimous revises against the union of every objection any lab raised, then the whole panel reviews again.",
+  "maxRounds": 3,
+  "signoff": "unanimous",
+  "estimate": {
+    "promptTokens": 16000,
+    "draftTokens": 16000,
+    "critiqueTokens": 2000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 8000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "builder": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 40000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "reviser": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 40000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "Qwen/Qwen3.5-9B",
+        "maxTokens": 20000,
+        "extra": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          }
+        },
+        "lab": "qwen"
+      },
+      {
+        "provider": "zai",
+        "model": "glm-4.7-flash",
+        "maxTokens": 20000,
+        "extra": {
+          "thinking": {
+            "type": "disabled"
+          }
+        }
+      },
+      {
+        "provider": "cohere",
+        "model": "command-r7b-12-2024",
+        "maxTokens": 4096
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 20000
+      },
+      {
+        "provider": "openrouter",
+        "model": "meta-llama/llama-3.3-70b-instruct",
+        "maxTokens": 20000,
+        "lab": "meta"
+      }
+    ]
+  }
+}

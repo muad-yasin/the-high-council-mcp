@@ -1,0 +1,42 @@
+{
+  "name": "mock-relay",
+  "description": "Offline. Exercises the relay panel branch (each critic is handed the verdicts before it) before spending anything real on it.",
+  "maxRounds": 2,
+  "signoff": "unanimous",
+  "panel": "relay",
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "seats": {
+    "criteria": {
+      "provider": "mock",
+      "model": "mock-criteria"
+    },
+    "builder": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "reviser": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-critic-a",
+        "lab": "mock-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-critic-b",
+        "lab": "mock-b"
+      }
+    ],
+    "finalist": {
+      "provider": "mock",
+      "model": "mock-finalist"
+    }
+  }
+}

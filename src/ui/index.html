@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>relay viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>relay</h1>
+  <select id="runs"></select>
+  <span id="runmeta" class="meta"></span>
+  <nav id="tabs">
+    <button data-tab="outline" class="on">Outline</button>
+    <button data-tab="revisions">Revisions</button>
+    <button data-tab="proposals">Proposals</button>
+    <button data-tab="panel">Panel</button>
+    <button data-tab="cost">Cost</button>
+    <button data-tab="files">Files</button>
+  </nav>
+</header>
+<main>
+  <section id="tab-outline" class="tab on">
+    <div class="split">
+      <div id="outline" class="pane"></div>
+      <div id="reader" class="pane reader"><p class="hint">Pick a section.</p></div>
+    </div>
+  </section>
+  <section id="tab-revisions" class="tab"><div id="revisions"></div></section>
+  <section id="tab-proposals" class="tab"><div id="proposals"></div></section>
+  <section id="tab-panel" class="tab"><div id="panel"></div></section>
+  <section id="tab-cost" class="tab"><div id="cost"></div></section>
+  <section id="tab-files" class="tab">
+    <div class="split">
+      <div id="filelist" class="pane"></div>
+      <div id="fileview" class="pane reader"></div>
+    </div>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

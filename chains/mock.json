@@ -1,0 +1,17 @@
+{
+  "name": "mock",
+  "description": "Offline. Calls no API and costs nothing. Exercises every branch of the chain so the plumbing can be tested before any key exists.",
+  "maxRounds": 2,
+  "stopOnPass": true,
+  "estimate": { "promptTokens": 1000, "draftTokens": 1000, "critiqueTokens": 300 },
+  "seats": {
+    "criteria": { "provider": "mock", "model": "mock-criteria" },
+    "builder":  { "provider": "mock", "model": "mock-builder" },
+    "reviser":  { "provider": "mock", "model": "mock-builder" },
+    "critics": [
+      { "provider": "mock", "model": "mock-critic-a" },
+      { "provider": "mock", "model": "mock-critic-b" }
+    ],
+    "finalist": { "provider": "mock", "model": "mock-finalist" }
+  }
+}

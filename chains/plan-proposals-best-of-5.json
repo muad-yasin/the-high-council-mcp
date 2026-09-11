@@ -1,0 +1,98 @@
+{
+  "name": "plan-proposals-best-of-5",
+  "description": "plan-proposals with best-of-N (his call, 2026-09-07): every lab makes 5 independent attempts of up to 3 parts, a judge from the same lab keeps the 5 strongest distinct ones, Sonnet integrates those 25 with a scope ledger. The full pool (up to 75) is saved to proposals-pool.md. Many shots at a good idea per lab, one reader.",
+  "maxRounds": 3,
+  "signoff": "unanimous",
+  "estimate": {
+    "promptTokens": 16000,
+    "draftTokens": 16000,
+    "critiqueTokens": 2000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 8000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "skeleton": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 6000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "builder": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 40000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "reviser": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 40000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "Qwen/Qwen3.5-9B",
+        "maxTokens": 20000,
+        "extra": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          }
+        },
+        "lab": "qwen"
+      },
+      {
+        "provider": "zai",
+        "model": "glm-4.7-flash",
+        "maxTokens": 20000,
+        "extra": {
+          "thinking": {
+            "type": "disabled"
+          }
+        }
+      },
+      {
+        "provider": "cohere",
+        "model": "command-r7b-12-2024",
+        "maxTokens": 4096
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 20000
+      },
+      {
+        "provider": "openrouter",
+        "model": "meta-llama/llama-3.3-70b-instruct",
+        "maxTokens": 20000,
+        "lab": "meta"
+      }
+    ]
+  },
+  "proposals": {
+    "parts": 3,
+    "maxTokens": 1500,
+    "samples": 5,
+    "keep": 5
+  }
+}

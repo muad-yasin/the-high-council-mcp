@@ -1,0 +1,83 @@
+{
+  "name": "plan-relay",
+  "description": "EXPERIMENTAL - caught 0/3 of what the blind panel caught 2/3 on the same draft (Docs/Runs.md); kept for comparison runs, not for producing plans. plan-unanimous with the panel run as a relay: critics go in seat order and each is handed the verdicts of the labs before it, so later seats can build on or dispute earlier ones. The chain as he originally sketched it (2026-09-07). Same seats, same unanimous bar, same round cap; the only change is that critics are no longer blind to each other. Kept alongside plan-unanimous so the two topologies can be compared on the same task rather than argued about.",
+  "maxRounds": 3,
+  "signoff": "unanimous",
+  "panel": "relay",
+  "estimate": {
+    "promptTokens": 16000,
+    "draftTokens": 16000,
+    "critiqueTokens": 2000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 8000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "builder": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 40000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "reviser": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 40000,
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "Qwen/Qwen3.5-9B",
+        "maxTokens": 20000,
+        "extra": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          }
+        },
+        "lab": "qwen"
+      },
+      {
+        "provider": "zai",
+        "model": "glm-4.7-flash",
+        "maxTokens": 20000,
+        "extra": {
+          "thinking": {
+            "type": "disabled"
+          }
+        }
+      },
+      {
+        "provider": "cohere",
+        "model": "command-r7b-12-2024",
+        "maxTokens": 4096
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 20000
+      },
+      {
+        "provider": "openrouter",
+        "model": "meta-llama/llama-3.3-70b-instruct",
+        "maxTokens": 20000,
+        "lab": "meta"
+      }
+    ]
+  }
+}
