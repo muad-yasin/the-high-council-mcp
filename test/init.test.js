@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +55,34 @@ test('test_council_init: exit 0 with no keys, a starter chain and task written, 
   // stdout names the next command to run with real keys.
   assert.match(out, /--chain my-first-chain/);
   assert.match(out, /council doctor/);
+});
+
+test('a user edit to the starter chain/task survives rerunning council init - bug-audit finding, 2026-09-13', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-init-edit-'));
+  execFileSync('node', [cli, 'init', '--yes'], { encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH } });
+
+  const chainPath = join(dir, 'chains', 'my-first-chain.json');
+  const taskPath = join(dir, 'tasks', 'my-first-task.md');
+  const editedChain = JSON.parse(readFileSync(chainPath, 'utf8'));
+  editedChain.name = 'edited-by-the-user';
+  writeFileSync(chainPath, JSON.stringify(editedChain, null, 2));
+  writeFileSync(taskPath, 'The user\'s own edited task text.\n');
+
+  const out = execFileSync('node', [cli, 'init', '--yes'], { encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH } });
+
+  assert.equal(JSON.parse(readFileSync(chainPath, 'utf8')).name, 'edited-by-the-user', 'a rerun must not overwrite an edited starter chain');
+  assert.equal(readFileSync(taskPath, 'utf8'), 'The user\'s own edited task text.\n', 'a rerun must not overwrite an edited starter task');
+  assert.match(out, /already exists - left as-is/);
+});
+
+test('an init-produced report.json carries the same fields a real run writes, so --from-run works against it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-init-report-shape-'));
+  execFileSync('node', [cli, 'init', '--yes'], { encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH } });
+  const runId = readdirSync(join(dir, 'runs')).find(f => f.endsWith('-init'));
+  const report = JSON.parse(readFileSync(join(dir, 'runs', runId, 'report.json'), 'utf8'));
+  assert.ok(Array.isArray(report.criteria) && report.criteria.length > 0, '--from-run reads report.criteria - it must not be missing from an init-produced report.json');
+  assert.ok('proposals' in report);
+  assert.ok('debate' in report);
 });
 
 test('council init is idempotent-safe: running twice does not throw or overwrite the first run folder', () => {

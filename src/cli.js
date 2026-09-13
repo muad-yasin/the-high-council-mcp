@@ -69,6 +69,37 @@ function flag(name, fallback) {
   return (next && !next.startsWith('--')) ? next : true;
 }
 
+// The shape of a run's report.json, in one place - bug-audit finding
+// (2026-09-13, v5 Phase 2): `council init`'s canned demo run used to
+// hand-roll a second, independently-maintained literal missing fields
+// (criteria, proposals, ...) the real writer below includes, so
+// `--from-run` against an init-produced run silently reran the criteria
+// stage instead of reusing it - no crash, just a broken promise. Both
+// writers now build from this one function.
+function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = null }) {
+  return {
+    runId,
+    chain,
+    task,
+    fromRun,
+    criteria: result.criteria,
+    questions: result.questions,
+    passed: result.passed,
+    lastCritique: result.lastCritique,
+    signoff: result.signoff,
+    proposals: result.proposals,
+    dropouts: result.dropouts,
+    debate: result.debate,
+    scoreboard: result.scoreboard,
+    disputes: result.disputes,
+    orphanSections: result.orphanSections,
+    withdrawalCycles: result.withdrawalCycles,
+    totals: result.totals,
+    maxUsd,
+    stages: result.stages.map(({ text, ...rest }) => rest),
+  };
+}
+
 // A run folder's report.json can exist but still be unreadable - truncated
 // by a killed run, or hand-edited - and every read-only reporting command
 // (doctor --run, export-board, replay) must degrade to a clean error
@@ -257,13 +288,24 @@ if (argv[0] === 'init') {
       critics: [{ _note: 'Reviews the draft against the criteria. Add a second seat here for a real second opinion.', provider: 'anthropic', model: 'claude-sonnet-5', maxTokens: 8000 }],
     },
   };
+  // Never overwrite a file the user was told to edit - the starter chain's
+  // own _note says "edit the seats below", and a silent overwrite on a
+  // rerun would erase exactly that edit with no warning.
   const starterChainPath = join(chainsDir, 'my-first-chain.json');
-  writeFileSync(starterChainPath, JSON.stringify(starterChain, null, 2));
-  console.log(`\nWrote ${starterChainPath}`);
+  if (existsSync(starterChainPath)) {
+    console.log(`\n${starterChainPath} already exists - left as-is.`);
+  } else {
+    writeFileSync(starterChainPath, JSON.stringify(starterChain, null, 2));
+    console.log(`\nWrote ${starterChainPath}`);
+  }
 
   const starterTaskPath = join(tasksDir, 'my-first-task.md');
-  writeFileSync(starterTaskPath, `A short plan for a personal weekly reading list: what it tracks, how an entry gets added, how "done" is marked. Plain prose - this file is read by the criteria stage as-is, nothing else parses it.\n`);
-  console.log(`Wrote ${starterTaskPath}`);
+  if (existsSync(starterTaskPath)) {
+    console.log(`${starterTaskPath} already exists - left as-is.`);
+  } else {
+    writeFileSync(starterTaskPath, `A short plan for a personal weekly reading list: what it tracks, how an entry gets added, how "done" is marked. Plain prose - this file is read by the criteria stage as-is, nothing else parses it.\n`);
+    console.log(`Wrote ${starterTaskPath}`);
+  }
 
   console.log(`\nPrice of your starter chain (no network call, no key needed for this step):`);
   const rows = estimateChainRows(starterChain);
@@ -293,15 +335,9 @@ if (argv[0] === 'init') {
     log: line => console.log(`  ${line}`),
   });
   writeFileSync(join(initRunDir, 'deliverable.md'), initResult.deliverable);
-  writeFileSync(join(initRunDir, 'report.json'), JSON.stringify({
-    runId: initRunId,
-    chain: cannedConfig.name,
-    task: starterTaskPath,
-    passed: initResult.passed,
-    signoff: initResult.signoff,
-    totals: initResult.totals,
-    stages: initResult.stages.map(({ text, ...rest }) => rest),
-  }, null, 2));
+  writeFileSync(join(initRunDir, 'report.json'), JSON.stringify(reportJsonShape({
+    runId: initRunId, chain: cannedConfig.name, task: starterTaskPath, result: initResult,
+  }), null, 2));
 
   console.log(`\nWrote ${initRunDir} - a real run folder (report.json, deliverable.md) from the canned demo task, $0, no network call.`);
   console.log(`\nNext, with a real key set: node src/cli.js --chain my-first-chain --task ${starterTaskPath.replace(work + '/', '')} --dry-run`);
@@ -902,27 +938,10 @@ if (result.proposals?.length) {
   writeFileSync(join(runDir, 'proposals.md'), result.proposals.map(p =>
     `## ${p.id} (${p.lab}/${p.model})\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}`).join('\n\n'));
 }
-writeFileSync(join(runDir, 'report.json'), JSON.stringify({
-  runId,
-  chain: config.name,
-  task: taskPathEff,
-  fromRun: fromRun || resumeMeta?.fromRun || null,
-  criteria: result.criteria,
-  questions: result.questions,
-  passed: result.passed,
-  lastCritique: result.lastCritique,
-  signoff: result.signoff,
-  proposals: result.proposals,
-  dropouts: result.dropouts,
-  debate: result.debate,
-  scoreboard: result.scoreboard,
-  disputes: result.disputes,
-  orphanSections: result.orphanSections,
-  withdrawalCycles: result.withdrawalCycles,
-  totals: result.totals,
-  maxUsd: maxUsdEff,
-  stages: result.stages.map(({ text, ...rest }) => rest),
-}, null, 2));
+writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
+  runId, chain: config.name, task: taskPathEff, result,
+  fromRun: fromRun || resumeMeta?.fromRun || null, maxUsd: maxUsdEff,
+}), null, 2));
 // Final regeneration: the last onStage-triggered RESUME.md was written before
 // deliverable.md/report.json existed, so without this it would keep reporting
 // "in progress" forever on an already-finished run. Run after report.json so
