@@ -14,6 +14,7 @@ import { stageKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs, withStalenessCheck } from './cache-integrity.js';
 import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
+import { withdrawalLedger } from './withdrawal-ledger.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -63,6 +64,29 @@ function flag(name, fallback) {
 // var names and chains/*.json and does the same static pricing math as
 // --dry-run (estimateChainRows, shared from cost.js, not re-derived here).
 if (argv[0] === 'doctor') {
+  // `council doctor --run <folder>` (v5 §1 candidate 3): read-only check of
+  // one run's withdrawal chains for a section that ended up with no
+  // surviving owner - recomputed from proposals on disk rather than
+  // trusting a stored field, so it still catches an older report.json
+  // written before orphanSections existed.
+  const runArg = flag('run', null);
+  if (runArg) {
+    const runDir = resolve(work, runArg);
+    const reportPath = join(runDir, 'report.json');
+    if (!existsSync(reportPath)) {
+      console.error(`council doctor --run: no report.json in ${runDir}`);
+      process.exit(2);
+    }
+    const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+    const ledger = withdrawalLedger(report.proposals || []);
+    if (ledger.orphanSections.length) {
+      console.error(`withdrawal cycle detected: ${ledger.withdrawalCycles} cycle(s), ${ledger.orphanSections.length} orphaned proposal(s) with no surviving owner: ${ledger.orphanSections.join(', ')}`);
+      process.exit(1);
+    }
+    console.log(`No orphaned withdrawal chains in ${runDir}.`);
+    process.exit(0);
+  }
+
   console.log(`\nAPI keys (name only - the value is never read here beyond presence/absence):`);
   const names = providerNames();
   const nw = Math.max(...names.map(n => n.length));
@@ -585,10 +609,6 @@ Or \`--max-usd none\` to continue with no ceiling.
 }
 
 writeFileSync(join(runDir, 'deliverable.md'), result.deliverable);
-// Final regeneration: the last onStage-triggered RESUME.md is written before
-// deliverable.md exists, so without this it would keep reporting "in progress"
-// forever on an already-finished run.
-writeFileSync(join(runDir, 'RESUME.md'), generateResumeBrief({ runId, dir: runDir, runMeta: { chain: chainNameEff, task: taskPathEff }, chainConfig: config }));
 if (result.proposalPool?.length && result.proposalPool.length > result.proposals.length) {
   writeFileSync(join(runDir, 'proposals-pool.md'), `# Every proposal every lab wrote (${result.proposalPool.length}); "kept" ones went to the builder\n\n` + result.proposalPool.map(p =>
     `## ${p.kept ? 'KEPT' : 'dropped'} - ${p.lab}/${p.model}, attempt ${p.attempt}\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}`).join('\n\n'));
@@ -620,10 +640,17 @@ writeFileSync(join(runDir, 'report.json'), JSON.stringify({
   debate: result.debate,
   scoreboard: result.scoreboard,
   disputes: result.disputes,
+  orphanSections: result.orphanSections,
+  withdrawalCycles: result.withdrawalCycles,
   totals: result.totals,
   maxUsd: maxUsdEff,
   stages: result.stages.map(({ text, ...rest }) => rest),
 }, null, 2));
+// Final regeneration: the last onStage-triggered RESUME.md was written before
+// deliverable.md/report.json existed, so without this it would keep reporting
+// "in progress" forever on an already-finished run. Run after report.json so
+// an orphaned-withdrawal warning (v5 §1 candidate 3) can be read back from it.
+writeFileSync(join(runDir, 'RESUME.md'), generateResumeBrief({ runId, dir: runDir, runMeta: { chain: chainNameEff, task: taskPathEff }, chainConfig: config }));
 
 const t = result.totals;
 log(`\n---`);

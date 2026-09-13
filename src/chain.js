@@ -2,6 +2,7 @@ import { call, keyFor } from './providers.js';
 import * as R from './roles.js';
 import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach } from './cost.js';
 import { requiredDeliverableSections } from './preflight.js';
+import { withdrawalLedger } from './withdrawal-ledger.js';
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
 // full chain. Tells the criteria seat what the chain's own contract will require in the
@@ -577,6 +578,17 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       debate = { posts, replies };
       const w = proposals.filter(p => p.withdrawn).length;
       log(`  board: ${posts.length} post(s), ${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}, ${w} proposal(s) withdrawn, ${proposals.filter(p => p.amended).length} amended.`);
+
+      // v5 §1 candidate 3: a withdrawal chain that cycles or dead-ends
+      // (e.g. two labs mutually withdrawing in each other's favour) leaves
+      // a section with no surviving owner - silently, unless the next
+      // stage is told. Told here rather than aborting the run: the
+      // integration stage can still assign or explicitly drop it.
+      const ledger = withdrawalLedger(proposals);
+      if (ledger.orphanSections.length) {
+        log(`  WARNING: ${ledger.orphanSections.length} withdrawn proposal(s) have no surviving owner (${ledger.withdrawalCycles} withdrawal cycle(s)): ${ledger.orphanSections.join(', ')}`);
+        board += `\n\n# Orphaned withdrawals - no surviving owner\n\nThese proposal ids withdrew in a chain that never reaches a proposal still standing (a cycle, or a dead end): ${ledger.orphanSections.join(', ')}. For each one, either assign the section it covered to something else in the plan, or state explicitly in the Scope ledger that it is dropped and why - do not silently leave it uncovered.`;
+      }
     }
   }
 
@@ -803,6 +815,8 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     for (const row of scoreboard.labs) log(`  ${row.lab.padEnd(12)} proposed ${row.proposed}  accepted ${row.accepted}  cut ${row.cut}  withdrawn ${row.withdrawn}  unaccounted ${row.unaccounted}`);
   }
 
+  const ledger = proposals.length ? withdrawalLedger(proposals) : null;
+
   return {
     deliverable: draft,
     criteria,
@@ -822,5 +836,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     history,
     stages,
     totals: summarise(stages),
+    orphanSections: ledger?.orphanSections ?? [],
+    withdrawalCycles: ledger?.withdrawalCycles ?? 0,
   };
 }

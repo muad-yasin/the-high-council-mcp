@@ -92,6 +92,18 @@ export function generateResumeBrief({ runId, dir, runMeta, chainConfig }) {
     lines.push('Waiting on: nothing external right now');
   }
   lines.push(`Warnings: ${existsSync(join(dir, 'WARNINGS.md')) ? 'see WARNINGS.md' : 'none recorded'}`);
+  // v5 §1 candidate 3: read back from report.json rather than recomputing -
+  // by the time this runs (post-deliverable), the ledger is already settled
+  // and recorded there; a resume brief has no reason to duplicate the walk.
+  const reportPath = join(dir, 'report.json');
+  if (existsSync(reportPath)) {
+    try {
+      const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+      if (report.orphanSections?.length) {
+        lines.push(`Orphaned withdrawals: ${report.withdrawalCycles} cycle(s), no surviving owner for ${report.orphanSections.join(', ')} - see BOARD.md`);
+      }
+    } catch { /* malformed report.json: say nothing rather than guess */ }
+  }
   lines.push('');
   lines.push('## Next action for the driving session');
   if (deliverableDone) lines.push(`Run is complete. Deliverable at ${join(dir, 'deliverable.md')}.`);
