@@ -195,6 +195,8 @@ The cap governs one run. To see what you have spent across all of them:
 ```bash
 node src/cli.js --spend            # today
 node src/cli.js --spend --days 7   # the last week
+node src/cli.js --cost-today       # today by calendar day, with a per-model breakdown
+node src/cli.js --cost-today --date 2026-09-01
 ```
 
 That is read back off the run folders on disk - there is no ledger file, nothing is recorded
@@ -253,13 +255,23 @@ Then drive it with these tools:
 | `dry_run` | Price a run before spending anything |
 | `start_run` | Start a run in the background (`max_usd` sets its ceiling) |
 | `run_status` | Stage reached, panel verdicts, scoreboard, cost, budget remaining |
-| `spend_report` | What every run has cost across a window of days, derived from disk |
+| `spend_report` | What every run has cost across a window of days, plus `session_cost_today` (calendar-day, per-model breakdown), derived from disk |
 | `external_prompt` | The prompt a paused external stage is waiting on - **read it with this, not by opening the file**; the prompts are routinely tens of thousands of tokens and most clients silently truncate a file read |
+| `prepare_stage_prompt` | Write a self-contained bundle for a paused stage, so a driving session doing other work at the same time can dispatch it to a fresh subagent instead of authoring it inline - see [`docs/dispatch-pattern.md`](docs/dispatch-pattern.md) |
 | `submit_stage` | Answer a paused stage and resume |
 | `resume_run` | Resume a paused run, or raise `max_usd` on one the cap stopped |
 | `read_run_file` | Read any file from a run folder |
 | `list_runs` | Past runs |
 | `plan_outline` | Outline pass |
+
+**External vs. API-backed seats.** `{ "provider": "external" }` pauses a run at that seat so a
+Claude Code session on a flat-rate subscription plays it - free at the point of use, since the
+subagent runs on the same subscription. If you don't hold a flat-rate subscription and pay
+metered rates for everything anyway, `{ "provider": "anthropic" }` (or another API provider) may
+be simpler for those seats: no dispatch pattern to learn, at roughly 5x the metered cost of the
+same debate on external, based on one measured comparison, not a guarantee. Not the default
+anywhere in this repo's config, README ordering, or example chains - external stays recommended
+for anyone with a subscription, since the project's cost story depends on it.
 
 ## Chains
 

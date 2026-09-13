@@ -24,3 +24,31 @@ that same failed run then failed with "Multiple artifacts named github-pages," b
 rerun re-uploads the artifact into the same run. A fresh `workflow_dispatch` run succeeded
 and the demo went live. Lesson: on a Pages OIDC failure, dispatch a new run rather than
 rerunning the failed one.
+
+## 2026-09-13: v2 (0.2.0) re-curation from ~/Projects/relay - scope and one real regression caught
+
+Brought over the v2 build's own files only (see CHANGELOG.md 0.2.0): six new `src/` modules,
+updated `cli.js`/`mcp/server.js`/`spend.js`, matching tests, `docs/dispatch-pattern.md`, README
+and landing-page updates. Deliberately did **not** bring over:
+
+- `src/verdict-stats.js` and its `verdict_stats` MCP tool / `--stats` CLI subcommand. These exist
+  in relay but predate this v2 build and are not one of its nine numbered items - bringing them
+  over would have been unreviewed scope creep under a v2 commit. Stripped from the copied
+  `cli.js`/`mcp/server.js` before committing.
+- Any `chains/*.json` drift between the two repos (real-model version bumps, maxToken fixes from
+  unrelated work in relay). Out of scope for this build; someone else's re-curation to do.
+- relay's own `docs/`, `README.md` wholesale - relay's README is an internal 151-line doc, this
+  repo's is a public ~350-line document with its own voice; copied only the specific sections
+  (tool table row, external-vs-API note, `--cost-today` mention) by hand instead of overwriting.
+
+**Regression caught before commit:** copying relay's `cli.js`/`mcp/server.js` wholesale as a
+starting point briefly reintroduced `const work = pkg` (relay-only: its MCP server always runs
+from the repo itself) over this repo's own `const work = process.cwd()` (required for `npx`
+installs - resolving a task path against `pkg` would send an installed user looking inside
+`node_modules` for their own file, the exact bug a prior fix here corrected). Caught by diffing
+against `git show HEAD:src/cli.js` / `src/mcp/server.js` before committing; restored both.
+
+MCP tool count: 12 (this repo's actual pre-v2 count, not the "eleven" some prose elsewhere says -
+see the landing-page test's own incident note) plus `prepare_stage_prompt` = 13. `docs/index.html`
+and `README.md` updated to match; `test/landing-page.test.js` derives and checks this count so it
+cannot drift silently again.

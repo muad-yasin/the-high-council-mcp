@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spendReport, runIdToDate } from '../src/spend.js';
+import { spendReport, runIdToDate, costToday } from '../src/spend.js';
 
 const ID = n => `2026-09-11T1${n}-00-00-000Z`;
 
@@ -138,6 +138,46 @@ test('spend accounting writes nothing at all', () => {
   const before = tree(dir);
   spendReport(runs, { days: 30 });
   assert.deepEqual(tree(dir), before, 'spendReport must not touch the disk');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// v2 plan §8, narrowed per DECISIONS.md: the granularity the plan wanted a ledger file for
+// (per-model breakdown, calendar-day boundary) derived from the same on-disk files instead.
+test('test_cost_today_sums_by_calendar_day_with_per_model_breakdown: only today\'s runs count, aggregated by model', () => {
+  const { runs, add } = fixture();
+  // Built entirely from local-time arithmetic (matching costToday's own local-day boundary),
+  // so this is not sensitive to which timezone the test happens to run in.
+  const target = new Date(2026, 8, 11, 15, 0, 0);
+  const startOfDay = new Date(2026, 8, 11, 0, 0, 0);
+  const toId = d => d.toISOString().replace(/[:.]/g, '-');
+  const twoHoursIn = toId(new Date(startOfDay.getTime() + 2 * 3600 * 1000));
+  const tenHoursIn = toId(new Date(startOfDay.getTime() + 10 * 3600 * 1000));
+  const fiveHoursBefore = toId(new Date(startOfDay.getTime() - 5 * 3600 * 1000));
+
+  add(twoHoursIn, { 'run.json': { chain: 'verify' },
+    'criteria.usage.json': { provider: 'together', model: 'deepseek', usd: 0.1 },
+    'build.usage.json': { provider: 'openrouter', model: 'qwen', usd: 0.2 } });
+  add(tenHoursIn, { 'run.json': { chain: 'verify' },
+    'criteria.usage.json': { provider: 'together', model: 'deepseek', usd: 0.3 } });
+  // Before local midnight - must not be counted.
+  add(fiveHoursBefore, { 'run.json': { chain: 'verify' },
+    'criteria.usage.json': { provider: 'together', model: 'deepseek', usd: 99 } });
+
+  const r = costToday(runs, { date: target });
+  assert.equal(r.count, 2, 'only the two runs from the target local day count');
+  assert.ok(Math.abs(r.totalUsd - 0.6) < 1e-9);
+  const byModel = Object.fromEntries(r.perModel.map(m => [m.model, m.usd]));
+  assert.ok(Math.abs(byModel['together/deepseek'] - 0.4) < 1e-9);
+  assert.ok(Math.abs(byModel['openrouter/qwen'] - 0.2) < 1e-9);
+  assert.equal(JSON.stringify(byModel).includes('99'), false, 'the previous day must not leak into the total');
+});
+
+test('costToday writes nothing at all, same degradation contract as spendReport', () => {
+  const { dir, runs, add } = fixture();
+  add('2026-09-11T09-00-00-000Z', { 'run.json': { chain: 'verify' }, 'criteria.usage.json': { provider: 'mock', model: 'mock', usd: 0 } });
+  const before = tree(dir);
+  costToday(runs, { date: new Date('2026-09-11T20:00:00Z') });
+  assert.deepEqual(tree(dir), before, 'costToday must not touch the disk');
   rmSync(dir, { recursive: true, force: true });
 });
 

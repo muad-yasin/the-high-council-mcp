@@ -53,6 +53,44 @@ function costOfRun(dir) {
   return { usd, chain: readJson(join(dir, 'run.json'))?.chain ?? null, complete: false, stages };
 }
 
+// v2 plan §8 (~/Projects/relay/runs/2026-09-11T12-19-34-184Z/deliverable.md), narrowed per
+// decision in DECISIONS.md: §8 proposed a new ledger file to get per-call cost granularity
+// and a calendar-day "cost-today" view. Both are already derivable from what's on disk -
+// report.json's `stages` array for a finished run, individual `<label>.usage.json` files for
+// one still going - so this extends the existing derivation instead of adding a ledger.
+//
+// Per-call/per-stage cost breakdown for one run: [{ label, provider, model, usd }, ...].
+function stagesOfRun(dir) {
+  const report = readJson(join(dir, 'report.json'));
+  if (Array.isArray(report?.stages)) {
+    return report.stages.map(s => ({ label: s.label, provider: s.provider ?? null, model: s.model ?? null, usd: s.usd ?? 0 }));
+  }
+  const stages = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.usage.json')) continue;
+    const u = readJson(join(dir, f));
+    if (!u) continue;
+    stages.push({ label: f.replace(/\.usage\.json$/, ''), provider: u.provider ?? null, model: u.model ?? null, usd: u.usd ?? 0 });
+  }
+  return stages;
+}
+
+// Aggregate per-model spend across a list of run directories - the "per-call granularity"
+// §8 wanted, without a ledger: sum every stage's cost by provider/model across every run
+// given, in one pass over files already being read for their totals anyway.
+function perModelBreakdown(dirs) {
+  const byModel = new Map();
+  for (const dir of dirs) {
+    for (const s of stagesOfRun(dir)) {
+      const key = `${s.provider ?? '?'}/${s.model ?? '?'}`;
+      byModel.set(key, (byModel.get(key) ?? 0) + s.usd);
+    }
+  }
+  return [...byModel.entries()]
+    .map(([model, usd]) => ({ model, usd }))
+    .sort((a, b) => b.usd - a.usd);
+}
+
 function stateOf(dir) {
   if (existsSync(join(dir, 'report.json'))) return 'complete';
   if (existsSync(join(dir, 'STOPPED-budget.json'))) return 'stopped: spend cap';
@@ -99,6 +137,57 @@ export function spendReport(runsDir, { days = 1, now = Date.now() } = {}) {
     runs,
     totalUsd: runs.reduce((s, r) => s + r.usd, 0),
     count: runs.length,
+    unreadable,
+  };
+}
+
+/**
+ * What has been spent today, by the local calendar day (midnight to midnight), not a
+ * rolling 24h window like spendReport's default - the distinction §8 asked for by name.
+ * Adds a per-model breakdown across every run counted, which is the per-call granularity
+ * §8 wanted a ledger for; both are derived from the same on-disk files spendReport already
+ * reads, so no new file is written anywhere.
+ *
+ * Never throws, same degradation contract as spendReport.
+ */
+export function costToday(runsDir, { date = new Date(), now = Date.now() } = {}) {
+  const day = new Date(date);
+  const startOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  const endOfDay = startOfDay + 24 * 3600 * 1000;
+  const runs = [];
+  const countedDirs = [];
+  let unreadable = 0;
+
+  let ids = [];
+  try {
+    ids = existsSync(runsDir) ? readdirSync(runsDir) : [];
+  } catch {
+    return { runsDir, date: new Date(startOfDay), runs: [], totalUsd: 0, count: 0,
+             unreadable: 0, perModel: [], note: 'runs directory could not be read' };
+  }
+
+  for (const id of ids) {
+    const when = runIdToDate(id);
+    if (!when || when.getTime() < startOfDay || when.getTime() >= endOfDay) continue;
+    const dir = join(runsDir, id);
+    try {
+      if (!statSync(dir).isDirectory()) continue;
+      const { usd, chain, complete } = costOfRun(dir);
+      runs.push({ id, when, chain, usd, state: stateOf(dir), complete });
+      countedDirs.push(dir);
+    } catch {
+      unreadable += 1;
+    }
+  }
+
+  runs.sort((a, b) => b.when - a.when);
+  return {
+    runsDir,
+    date: new Date(startOfDay),
+    runs,
+    totalUsd: runs.reduce((s, r) => s + r.usd, 0),
+    count: runs.length,
+    perModel: perModelBreakdown(countedDirs),
     unreadable,
   };
 }

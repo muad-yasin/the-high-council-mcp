@@ -4,7 +4,13 @@ import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, checkSeats, setCache, setBudget, budgetState, ExternalPause, BudgetExceeded } from './chain.js';
 import { summarise, formatUsd, priceOf } from './cost.js';
-import { spendReport } from './spend.js';
+import { spendReport, costToday } from './spend.js';
+import { withIntegrityFooter } from './integrity.js';
+import { generateResumeBrief } from './resume-brief.js';
+import { preflightCheck } from './preflight.js';
+import { stageKindOf } from './stage-contract.js';
+import { validateDeliverable } from './partial-deliverable.js';
+import { fingerprintInputs, withStalenessCheck } from './cache-integrity.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -62,6 +68,40 @@ if (argv.includes('--spend')) {
   process.exit(0);
 }
 
+// `council --cost-today [--date YYYY-MM-DD]` answers "what have I spent today", by the
+// local calendar day rather than --spend's rolling 24h window, with a per-model breakdown
+// across every run counted - the granularity v2 plan §8 wanted a ledger file for, derived
+// instead from the same run-folder files --spend already reads (see DECISIONS.md).
+if (argv.includes('--cost-today')) {
+  const dateArg = flag('date', null);
+  const date = dateArg && dateArg !== true ? new Date(`${dateArg}T00:00:00`) : new Date();
+  if (Number.isNaN(date.getTime())) {
+    console.error('--date: expected YYYY-MM-DD');
+    process.exit(2);
+  }
+  const r = costToday(join(work, 'runs'), { date });
+  // r.date is local midnight; toISOString() converts to UTC and can print the wrong
+  // calendar day in any non-UTC timezone, so format from local parts instead.
+  const dayLabel = `${r.date.getFullYear()}-${String(r.date.getMonth() + 1).padStart(2, '0')}-${String(r.date.getDate()).padStart(2, '0')}`;
+  console.log(`\nSpend on ${dayLabel} across ${r.count} run(s)  (${join(work, 'runs')})`);
+  if (!r.count) {
+    console.log(`  no runs on this day.${r.note ? `  ${r.note}` : ''}`);
+  } else {
+    const w = Math.max(...r.runs.map(x => (x.chain || '?').length));
+    for (const x of r.runs) {
+      console.log(`  ${x.id}  ${(x.chain || '?').padEnd(w)}  ${formatUsd(x.usd).padStart(9)}  ${x.state}`);
+    }
+    console.log(`  ${''.padEnd(24)}  ${''.padEnd(w)}  ${formatUsd(r.totalUsd).padStart(9)}  total`);
+    if (r.perModel.length) {
+      console.log(`\n  By model:`);
+      for (const m of r.perModel) console.log(`    ${m.model.padEnd(40)}  ${formatUsd(m.usd).padStart(9)}`);
+    }
+  }
+  if (r.unreadable) console.log(`  ${r.unreadable} run folder(s) could not be read and are not counted.`);
+  console.log(`\n  Derived from the run folders on disk. Nothing is recorded anywhere else, and nothing leaves this machine.`);
+  process.exit(0);
+}
+
 // `council --mcp` starts the MCP server instead of running a chain. The
 // package ships one bin, so this is what makes a single npx invocation work
 // as an MCP command: `npx -y the-high-council --mcp`. Checked before any
@@ -110,6 +150,8 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council --spend [--days 7]           what every run has cost, across runs,
                                        read back off disk. Nothing is recorded
                                        and nothing leaves this machine.
+  council --cost-today [--date Y-M-D]  what has been spent today, by calendar day,
+                                       with a per-model breakdown. Same disk-only source.
   council --task tasks/x.md --max-usd 2 stop the run before any stage that could
                                        take it past $2. Default $5, or
                                        MAX_USD_PER_RUN. --max-usd none disables
@@ -255,6 +297,9 @@ if (!existsSync(taskFile)) {
   process.exit(1);
 }
 let request = readFileSync(taskFile, 'utf8');
+// v2 plan §7.2: fingerprint scope is the task's own text and the chain config, not the
+// --context document bundle appended below - captured before that append happens.
+const rawTaskTextForCacheFingerprint = request;
 // --context: standing direction documents, appended to every request so the
 // harness plans within the same direction the humans discuss (context/README.md).
 const contextArg = resumeMeta ? resumeMeta.context : flag('context', null);
@@ -279,13 +324,21 @@ if (!resumeMeta) {
 } else if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
 // Stage cache: <label>.md holds the text, <label>.usage.json what it cost.
 // Both are written as each stage completes, so a resume replays them.
+const cacheFingerprint = fingerprintInputs(rawTaskTextForCacheFingerprint, config);
 setCache({
-  get: label => {
-    const t = join(runDir, `${label}.md`);
-    if (!existsSync(t)) return null;
-    const u = existsSync(join(runDir, `${label}.usage.json`)) ? JSON.parse(readFileSync(join(runDir, `${label}.usage.json`), 'utf8')) : {};
-    return { text: readFileSync(t, 'utf8'), ...u };
-  },
+  get: withStalenessCheck(
+    label => {
+      const t = join(runDir, `${label}.md`);
+      if (!existsSync(t)) return null;
+      const u = existsSync(join(runDir, `${label}.usage.json`)) ? JSON.parse(readFileSync(join(runDir, `${label}.usage.json`), 'utf8')) : {};
+      return { text: readFileSync(t, 'utf8'), ...u };
+    },
+    cacheFingerprint,
+    label => {
+      console.log(`  CACHE STALENESS WARNING: stage "${label}" was cached against different task/chain-config inputs than are now in force; re-running it.`);
+      appendFileSync(join(runDir, 'WARNINGS.md'), `- cache_stale: stage "${label}" invalidated - task text or chain config changed since it was cached\n`);
+    },
+  ),
 });
 // A resumed run inherits the ceiling it was started under unless this
 // invocation names a different one - otherwise resuming would silently drop
@@ -314,6 +367,18 @@ log(`chain: ${config.name} (${config.maxRounds} round cap)`);
 log(`cap:   ${maxUsdEff === null ? 'none - this run has no spend ceiling' : `${formatUsd(maxUsdEff)} per run (--max-usd)`}`);
 log(`task:  ${taskPathEff}`);
 
+// v2 plan §6: before any stage runs, before a single metered API call, a static keyword
+// check for the specific class of conflict this project already hit once (a chain requiring
+// an appended section against text demanding a standalone document). Warns, never blocks.
+if (!resumeMeta) {
+  const preflightWarnings = preflightCheck(config, request);
+  if (preflightWarnings.length) {
+    for (const w of preflightWarnings) log(`  PRE-FLIGHT WARNING: ${w.message}`);
+    if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
+    appendFileSync(join(runDir, 'WARNINGS.md'), preflightWarnings.map(w => `- pre_flight: ${w.message}\n`).join(''));
+  }
+}
+
 log(resumeMeta ? `resume: stages already on disk replay for free` : '');
 let result;
 try {
@@ -324,14 +389,29 @@ try {
     log,
     onStage: s => {
       if (s.cached) return;
+      // v2 plan §7.1: validate against the stage contract's required_sections before
+      // trusting this deliverable - same class of bug as the lab-dropout fix, just one
+      // stage later in the pipeline. Warns loudly and records it; does not, and cannot
+      // from here, change chain.js's own in-run control flow (§11: mechanism untouched).
+      const kind = stageKindOf(s.label);
+      if (kind) {
+        const check = validateDeliverable(kind, s.text);
+        if (!check.ok) {
+          log(`  PARTIAL OUTPUT WARNING: stage "${s.label}" (${kind}) - ${check.reason}`);
+          appendFileSync(join(runDir, 'WARNINGS.md'), `- partial_output: stage "${s.label}" (${kind}) - ${check.reason}\n`);
+        }
+      }
       writeFileSync(join(runDir, `${s.label}.md`), s.text);
-      writeFileSync(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms }));
+      writeFileSync(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint }));
+      // v2 plan §5: regenerate at every stage-completion boundary, always from
+      // disk state, never itself trusted as the source of truth.
+      writeFileSync(join(runDir, 'RESUME.md'), generateResumeBrief({ runId, dir: runDir, runMeta: { chain: chainNameEff, task: taskPathEff }, chainConfig: config }));
     },
   });
 } catch (err) {
   if (err instanceof ExternalPause) {
     const need = join(runDir, `NEEDS-${err.label}.md`);
-    writeFileSync(need, `# External stage: ${err.label}\n\nWrite the reply to \`${join(runDir, `${err.label}.md`)}\` and run:\n\n    node src/cli.js --resume runs/${runId}\n\n## System prompt\n\n${err.system}\n\n## User prompt\n\n${err.user}\n`);
+    writeFileSync(need, withIntegrityFooter(`# External stage: ${err.label}\n\nWrite the reply to \`${join(runDir, `${err.label}.md`)}\` and run:\n\n    node src/cli.js --resume runs/${runId}\n\n## System prompt\n\n${err.system}\n\n## User prompt\n\n${err.user}`));
     log(`\nPAUSED: stage "${err.label}" is an external seat.`);
     log(`  prompt:  ${need}`);
     log(`  answer:  write ${join(runDir, `${err.label}.md`)}`);
@@ -383,6 +463,10 @@ Or \`--max-usd none\` to continue with no ceiling.
 }
 
 writeFileSync(join(runDir, 'deliverable.md'), result.deliverable);
+// Final regeneration: the last onStage-triggered RESUME.md is written before
+// deliverable.md exists, so without this it would keep reporting "in progress"
+// forever on an already-finished run.
+writeFileSync(join(runDir, 'RESUME.md'), generateResumeBrief({ runId, dir: runDir, runMeta: { chain: chainNameEff, task: taskPathEff }, chainConfig: config }));
 if (result.proposalPool?.length && result.proposalPool.length > result.proposals.length) {
   writeFileSync(join(runDir, 'proposals-pool.md'), `# Every proposal every lab wrote (${result.proposalPool.length}); "kept" ones went to the builder\n\n` + result.proposalPool.map(p =>
     `## ${p.kept ? 'KEPT' : 'dropped'} - ${p.lab}/${p.model}, attempt ${p.attempt}\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}`).join('\n\n'));

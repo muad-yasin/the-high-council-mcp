@@ -15,7 +15,10 @@ import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSy
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSections, flatten, parseLedger, words } from '../ui/parse.js';
-import { spendReport } from '../spend.js';
+import { spendReport, costToday } from '../spend.js';
+import { stageKindOf, buildStageContract, renderStagePromptBundle } from '../stage-contract.js';
+import { verifyIntegrityFooter } from '../integrity.js';
+import { generateResumeBrief } from '../resume-brief.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Same split as the CLI: `pkg` ships with the package (chains/, the CLI
@@ -94,7 +97,7 @@ function isAlive(id) {
   } catch { return false; }
 }
 
-const server = new McpServer({ name: 'the-high-council', version: '0.1.0' });
+const server = new McpServer({ name: 'the-high-council', version: '0.2.0' });
 
 server.tool('list_chains', 'Chains available to run, with their description and worst-case price from a dry run.', {}, async () => {
   const chains = readdirSync(join(pkg, 'chains')).filter(f => f.endsWith('.json')).map(f => {
@@ -144,7 +147,38 @@ server.tool('external_prompt', 'When a run is paused at an external seat: the ex
   const dir = join(runsDir, run);
   const label = waiting(dir);
   if (!label) return text({ error: 'this run is not waiting for an external stage', state: runSummary(run).state });
-  return text({ run, stage: label, prompt: readFileSync(join(dir, `NEEDS-${label}.md`), 'utf8'), answerWith: `submit_stage(run, "${label}", <text>)` });
+  const prompt = readFileSync(join(dir, `NEEDS-${label}.md`), 'utf8');
+  // v2 plan §10 Phase 2 item 4: a large prompt file silently truncated by a read is the
+  // exact failure this project already suffered once - a session that could not see its
+  // own prompt. Never hand that content back looking fine when it isn't.
+  const check = verifyIntegrityFooter(prompt);
+  return text({ run, stage: label, prompt, answerWith: `submit_stage(run, "${label}", <text>)`, ...(check.ok ? {} : { integrity_warning: check.warning }) });
+});
+
+// v2 plan §3 (~/Projects/relay/runs/2026-09-11T12-19-34-184Z/deliverable.md). A driving
+// session with other work sharing its context can hand this one file's path to a fresh
+// subagent instead of authoring the external stage inline itself - see docs/dispatch-pattern.md.
+// Deliberately does NOT inline the stage's own system/user prompt (that is what NEEDS-<stage>.md
+// already holds, and can be tens of thousands of tokens - the arbitrage this project protects,
+// not a bug); it is referenced by path so the bundle itself stays small enough for a fresh
+// subagent's own context to hold comfortably, and reads it in full only if it chooses to delegate.
+server.tool('prepare_stage_prompt', 'For a run paused at an external seat: write stage_prompt.md, a self-contained bundle a fresh subagent can act on with zero prior context, so a driving session can dispatch the stage instead of authoring it inline. Fork a subagent, give it only this file\'s path; take its returned deliverable back to submit_stage.', { run: z.string() }, async ({ run }) => {
+  if (!safeRun(run)) return text({ error: 'no such run' });
+  const dir = join(runsDir, run);
+  const label = waiting(dir);
+  if (!label) return text({ error: 'this run is not waiting for an external stage', state: runSummary(run).state });
+  const runMeta = readJson(join(dir, 'run.json'));
+  const chainConfig = runMeta ? readJson(join(pkg, 'chains', `${runMeta.chain}.json`)) : null;
+  const kind = stageKindOf(label);
+  if (!chainConfig || !kind) return text({ error: 'could not resolve this stage to a known stage kind - the chain config or stage label is not one prepare_stage_prompt recognises', label });
+  const contract = buildStageContract(chainConfig, kind);
+  const taskText = runMeta?.task && existsSync(runMeta.task) ? readFileSync(runMeta.task, 'utf8') : '(task file not found on disk - see run.json for its original path)';
+  const needsPath = join(dir, `NEEDS-${label}.md`);
+  const boardPath = join(dir, 'BOARD.md');
+  const references = [needsPath, ...(existsSync(boardPath) ? [boardPath] : []), ...(runMeta?.context ? [runMeta.context] : [])];
+  const bundle = renderStagePromptBundle({ contract, taskText, chainName: runMeta?.chain, label, run, references });
+  writeFileSync(join(dir, 'stage_prompt.md'), bundle);
+  return text({ written: join(dir, 'stage_prompt.md'), stage: label, dispatch: 'Fork a subagent and give it only this file\'s path - not its contents inline.' });
 });
 
 server.tool('submit_stage', 'Write the answer for an external stage into the run folder, then resume the run in the background. The stage must be the one external_prompt reported.', { run: z.string(), stage: z.string().regex(/^[a-z0-9-]+$/), content: z.string() }, async ({ run, stage, content }) => {
@@ -176,6 +210,9 @@ server.tool('spend_report', 'What every run has cost across a window of days, no
   days: z.number().min(0.1).max(365).optional().describe('how far back to look, in days. Defaults to 1.'),
 }, async ({ days = 1 }) => {
   const r = spendReport(runsDir, { days });
+  // v2 plan §8, narrowed per DECISIONS.md: session_cost_today, by local calendar day with
+  // a per-model breakdown, additive on this existing tool rather than a new one or a ledger.
+  const today = costToday(runsDir);
   return text({
     since: r.since.toISOString(),
     days,
@@ -184,6 +221,7 @@ server.tool('spend_report', 'What every run has cost across a window of days, no
     count: r.count,
     ...(r.unreadable ? { unreadableRunFolders: r.unreadable } : {}),
     ...(r.note ? { note: r.note } : {}),
+    session_cost_today: { totalUsd: today.totalUsd, count: today.count, perModel: today.perModel },
     source: 'derived from runs/ on disk; no ledger is kept and nothing is transmitted',
   });
 });
@@ -194,8 +232,18 @@ server.tool('list_runs', 'Runs on disk, newest first, with state and cost.', { l
   return text(ids.map(runSummary));
 });
 
-server.tool('run_status', 'State of one run: stage reached, panel verdicts, scoreboard, files produced, cost.', { run: z.string() }, async ({ run }) => {
+server.tool('run_status', 'State of one run: stage reached, panel verdicts, scoreboard, files produced, cost. Pass brief=true for a short, regenerated-on-demand resume brief instead - what a returning session with fresh context needs to re-enter the run.', { run: z.string(), brief: z.boolean().optional() }, async ({ run, brief }) => {
   if (!safeRun(run)) return text({ error: 'no such run' });
+  if (brief) {
+    // v2 plan §5: always regenerated from run.json + files on disk, never itself
+    // authoritative, so RESUME.md can never become a stale source of truth.
+    const dir = join(runsDir, run);
+    const runMeta = readJson(join(dir, 'run.json'));
+    const chainConfig = runMeta ? readJson(join(pkg, 'chains', `${runMeta.chain}.json`)) : null;
+    const rb = generateResumeBrief({ runId: run, dir, runMeta, chainConfig });
+    writeFileSync(join(dir, 'RESUME.md'), rb);
+    return text(rb);
+  }
   const s = runSummary(run);
   const log = readFileSync(join(runsDir, run, 'run.log'), 'utf8');
   s.keyLines = log.split('\n').filter(l => /^(Stage:|Round|  [a-z0-9-]+\/.*: (SIGNED OFF|\d+ failure)|    FAILED:|  board:|  .*post\(s\)|panel:|verdict:|labs:|cost:|Error)/.test(l)).slice(-40);
