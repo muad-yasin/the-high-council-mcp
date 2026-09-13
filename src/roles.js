@@ -263,6 +263,30 @@ export function judgeUser({ request, criteria, skeleton, pool, keep }) {
   return `# Request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n# Skeleton of the plan\n\n${skeleton}\n\n# Pool (${pool.length} proposals from one lab)\n\n${listed}\n\n# Your task\n\nPick up to ${keep} distinct proposals, best first.`;
 }
 
+// v5 §1 candidate 10 (2026-09-13, his call: no default cap - a chain must
+// opt in to max_proposals_per_seat, and unlimited stays unlimited otherwise).
+// When a chain does set the cap and one seat's own list still exceeds it,
+// that seat gets one prompt to fold its own proposals down before the board
+// ever sees the extras - cheaper than pruning them on the board itself,
+// which is what most of the largest observed run's volume actually was.
+export const PROPOSAL_MERGE_SYSTEM = `You are folding your own proposals down to a smaller set, in a multi-model planning chain.
+
+You already wrote more proposals than this chain's cap allows. Pick which of
+your own proposals to keep, merging any that overlap into one entry rather
+than simply dropping the others - a merged proposal should name what each
+of its sources contributed. Keep the strongest, most concretely specified
+set; drop the rest.
+
+Reply with a single JSON object and nothing else:
+{ "kept": [<numbers of your own proposals to keep, best first>], "merged_because": "<one line on what you folded together or dropped and why>" }`;
+
+export function proposalMergeUser({ request, criteria, skeleton, list, cap }) {
+  const listed = list.map((p, i) =>
+    `## ${i + 1}\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}`
+  ).join('\n\n');
+  return `# Request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n# Skeleton of the plan\n\n${skeleton}\n\n# Your own proposals (${list.length}, over this chain's cap of ${cap})\n\n${listed}\n\n# Your task\n\nFold down to at most ${cap}, best first.`;
+}
+
 // ---------------------------------------------------------------------------
 // Debate (his call, 2026-09-07: "the labs should talk to each other"). The
 // evidence says where: talk about WHAT TO BUILD helped in the literature

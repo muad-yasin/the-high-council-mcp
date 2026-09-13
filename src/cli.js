@@ -15,6 +15,7 @@ import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs, withStalenessCheck } from './cache-integrity.js';
 import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
+import { schemaVersionWarning } from './schema-version.js';
 import { forecastCost } from './cost-forecast.js';
 import { renderBoardHtml } from './board-export.js';
 import { buildTranscript, renderTranscriptText } from './replay.js';
@@ -129,6 +130,9 @@ if (argv[0] === 'doctor') {
     const worst = estimateChainRows(cfg).reduce((sum, r) => sum + r.usd, 0);
     const label = f.replace(/\.json$/, '');
     console.log(`  ${label.padEnd(cw)}  ${(runnable ? 'runnable' : 'blocked ').padEnd(8)}  worst-case ${formatUsd(worst).padStart(9)}/run${runnable ? '' : `  (missing: ${missing.join(', ')})`}`);
+    // v5 §1 candidate 13: warn, never fail - an old chain file is read exactly as it always was.
+    const warning = schemaVersionWarning(cfg);
+    if (warning) console.log(`    schemaVersion: ${warning.split('\n').join('\n    ')}`);
   }
   console.log(`\nNo network calls were made - this only reads environment variable names and chains/*.json.`);
   process.exit(0);
@@ -637,6 +641,15 @@ try {
       }
       writeFileSync(join(runDir, `${s.label}.md`), s.text);
       writeFileSync(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint }));
+      // v5 §1 candidate 14: one JSONL line per stage, alongside the existing markdown/usage
+      // artifacts - structured so future tooling (candidate #9's replay, #2's independence
+      // report) can read a run without re-parsing prose. No prompt content, same privacy
+      // posture as verdict-stats.js: seat/lab/counts/cost/timing only.
+      appendFileSync(join(runDir, 'stage-log.jsonl'), `${JSON.stringify({
+        stage: s.label, seat: `${s.provider}/${s.model}`, lab: s.lab,
+        tokensIn: s.usage?.input ?? 0, tokensOut: s.usage?.output ?? 0,
+        usd: s.usd, ms: s.ms, outcome: s.text ? 'ok' : 'empty',
+      })}\n`);
       // v2 plan §5: regenerate at every stage-completion boundary, always from
       // disk state, never itself trusted as the source of truth.
       writeFileSync(join(runDir, 'RESUME.md'), generateResumeBrief({ runId, dir: runDir, runMeta: { chain: chainNameEff, task: taskPathEff }, chainConfig: config }));

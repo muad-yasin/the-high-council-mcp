@@ -45,10 +45,28 @@ async function callMock({ model, system, messages, maxTokens }) {
     await new Promise(r => setTimeout(r, 10));
     const text = model === 'mock-proposer-empty'
       ? 'I have nothing to add.'
+      // v5 §1 candidate 10: a seat that returns more proposals than a
+      // chain's opt-in max_proposals_per_seat cap, to exercise the fold-down
+      // path offline. Four proposals, distinct titles so a merge test can
+      // tell which ones survived.
+      : model === 'mock-proposer-quad'
+      ? JSON.stringify({ proposals: [1, 2, 3, 4].map(n => (
+          { title: `Part ${n} from ${model}`, serves: 'the format criterion', what: 'A mock part.', why: 'Exercises the ledger.', how: 'mock.js', acceptance_test: 'It appears in the ledger.' }))})
       : JSON.stringify({ proposals: [
           { title: `Part from ${model}`, serves: 'the format criterion', what: 'A mock part.', why: 'Exercises the ledger.', how: 'mock.js', acceptance_test: 'It appears in the ledger.' },
         ]});
     return { text, usage: { input: 20, output: 30 }, provider: 'mock', model };
+  }
+  // v5 §1 candidate 10: the fold-down prompt itself. Keeps the first `cap`
+  // of the seat's own numbered proposals - enough to exercise the wiring
+  // offline without needing real judgement.
+  if (system.startsWith('You are folding your own proposals down')) {
+    await new Promise(r => setTimeout(r, 10));
+    const capMatch = user.match(/cap of (\d+)/);
+    const cap = capMatch ? Number(capMatch[1]) : 1;
+    const n = (user.match(/^## \d+$/gm) || []).length;
+    const kept = Array.from({ length: Math.min(cap, n) }, (_, i) => i + 1);
+    return { text: JSON.stringify({ kept, merged_because: 'mock: folded to the cap' }), usage: { input: 20, output: 10 }, provider: 'mock', model };
   }
   if (system.startsWith('You are one lab on a planning panel. Every lab proposed')) {
     await new Promise(r => setTimeout(r, 10));

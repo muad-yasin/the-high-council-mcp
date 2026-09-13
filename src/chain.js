@@ -246,7 +246,7 @@ async function invoke(seat, { system, user, log, label }) {
   if (hit) {
     budget.spent += hit.usd || 0;
     log(`  ${label}: ${hit.provider || seat.provider}/${hit.model || seat.model} - from disk (${hit.usage?.input ?? 0} in, ${hit.usage?.output ?? 0} out, ${formatUsd(hit.usd || 0)} already spent)`);
-    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, usage: hit.usage || { input: 0, output: 0 }, usd: hit.usd || 0, priced: true, ms: 0, text: hit.text, cached: true };
+    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage: hit.usage || { input: 0, output: 0 }, usd: hit.usd || 0, priced: true, ms: 0, text: hit.text, cached: true };
   }
   if (seat.provider === 'external') throw new ExternalPause(label, system, user);
 
@@ -293,6 +293,7 @@ async function invoke(seat, { system, user, log, label }) {
     label,
     provider: res.provider,
     model: res.model,
+    lab: labOf(seat),
     usage: res.usage,
     usd: cost.usd + wasted,
     priced: cost.priced,
@@ -487,6 +488,25 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       }
       if (!list.length) say(`  ${labOf(seat)}/${seat.model}: no proposals.`);
       else say(`  ${labOf(seat)}/${seat.model}: ${list.length} proposal(s)${samples > 1 ? ` kept from a pool of ${pool.length}` : ''}${list.map(p => `\n    - ${p.title}`).join('')}${judged ? `\n    judge: ${judged}` : ''}`);
+      // v5 §1 candidate 10: opt-in only, no default (his call, 2026-09-13) -
+      // a chain that never sets max_proposals_per_seat behaves exactly as it
+      // did before this candidate existed. Only a chain that does set it, and
+      // only a seat whose own list still exceeds that cap, pays for one more
+      // prompt to fold its own proposals down before the board sees them.
+      const cap = Number.isInteger(config.proposals.maxProposalsPerSeat) && config.proposals.maxProposalsPerSeat > 0
+        ? config.proposals.maxProposalsPerSeat : null;
+      if (cap && list.length > cap) {
+        const ms = record(await invoke(capped, {
+          system: R.PROPOSAL_MERGE_SYSTEM,
+          user: R.proposalMergeUser({ request, criteria, skeleton, list, cap }),
+          log: say, label: `propose-${labOf(seat)}-merge`,
+        }));
+        const parsed = parseJson(ms.text);
+        const picks = Array.isArray(parsed?.kept) ? [...new Set(parsed.kept.map(Number).filter(n => n >= 1 && n <= list.length))].slice(0, cap) : null;
+        const before = list.length;
+        list = picks && picks.length ? picks.map(n => list[n - 1]) : list.slice(0, cap);
+        say(`  ${labOf(seat)}/${seat.model}: folded ${before} proposal(s) down to ${list.length} (cap ${cap})${parsed?.merged_because ? ` - ${parsed.merged_because}` : ''}`);
+      }
       return { seat, list, pool, lines };
     }));
     // Labs that ended the stage with nothing, after the retry. Recorded so
