@@ -52,3 +52,44 @@ MCP tool count: 12 (this repo's actual pre-v2 count, not the "eleven" some prose
 see the landing-page test's own incident note) plus `prepare_stage_prompt` = 13. `docs/index.html`
 and `README.md` updated to match; `test/landing-page.test.js` derives and checks this count so it
 cannot drift silently again.
+
+## 2026-09-13: chains/ drift sync from relay - one real fix ported, one deliberately not
+
+Diffed every chain config against relay's current state. Two real differences found, no
+actual model-ID version bumps in either (every "different" model string was presence-vs-paused,
+not an upgrade):
+
+**Ported: `chains/gp-judge-v1.json` critic `maxTokens` 4000 -> 8000.** relay's own note (redacted
+of an internal run-id and a private project path before porting - see the file's own
+`_maxTokensNote`) explains why: 11 rubric criteria routinely need more than 4000 output tokens
+for a full reply, and cheap critics (glm-5.3-flash especially) were hitting `stop:length`
+mid-JSON and scoring as an unparseable abstention rather than a real verdict.
+
+`council doctor` before/after for `gp-judge-v1` (unchanged either way):
+```
+gp-judge-v1  blocked  worst-case  $0.0424/run  (missing: anthropic, together, openrouter x3, google)
+```
+No visible difference, expected: `estimateChainRows` (`src/cost.js`) prices a critic stage from
+the chain's own `estimate.critiqueTokens` (900 here), not from the seat's `maxTokens` ceiling -
+`maxTokens` bounds a real call's output, it isn't an input to the worst-case estimate. The fix is
+real (it prevents mid-reply truncation during an actual run) even though it doesn't move the
+static price shown before spending anything.
+
+`council doctor` for `verify` (untouched by this pass, shown as the second reference chain):
+```
+verify  blocked  worst-case  $1.27/run  (missing: anthropic (claude-opus-5), openai (gpt-5), google (gemini-2.5-pro))
+```
+
+**Not ported: relay's Gemini-seat pause across 18 chains.** relay disables the Gemini critic
+seat on `_pausedCritics`/`_pauseNote`, quoting the project owner directly about his own AI
+Studio account's prepayment-credit status. That's personal billing information about a named
+individual, and this session's own publication-safety check blocked the raw copy attempt before
+any sanitization was applied - taken as a real signal, not a false positive. It also doesn't
+belong in a public template regardless: a public user's own Gemini key and credit status are
+theirs, not the maintainer's, so the public chains keep the Gemini seat active as they already
+were. Confirmed with cnc-harness-a7 before finalizing this decision.
+
+`chains/plan-debate-c2-4lab.json` (relay-only) is a one-off scoped copy for a single run per its
+own description, not a general-purpose chain - not added here. `seven-cheap.json`'s description
+text differs too, but THCMCP's own copy ("six labs... cut down from seven") is already more
+accurate than relay's stale "seven labs" text, so it was left as-is rather than reverted.

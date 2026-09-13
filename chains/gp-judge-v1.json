@@ -31,34 +31,34 @@
       {
         "provider": "together",
         "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
-        "maxTokens": 4000,
+        "maxTokens": 8000,
         "extra": { "chat_template_kwargs": { "thinking": false } },
         "lab": "deepseek"
       },
       {
         "provider": "openrouter",
         "model": "qwen/qwen3.5-plus-20260420",
-        "maxTokens": 4000,
+        "maxTokens": 8000,
         "extra": { "reasoning": { "enabled": false } },
         "lab": "qwen"
       },
       {
         "provider": "openrouter",
         "model": "z-ai/glm-5.3-flash",
-        "maxTokens": 4000,
+        "maxTokens": 8000,
         "lab": "glm",
         "extra": { "reasoning": { "effort": "low" } }
       },
       {
         "provider": "openrouter",
         "model": "mistralai/mistral-large-2512",
-        "maxTokens": 4000,
+        "maxTokens": 8000,
         "lab": "mistral"
       },
       {
         "provider": "google",
         "model": "gemini-3.6-flash",
-        "maxTokens": 4000,
+        "maxTokens": 8000,
         "lab": "gemini"
       }
     ]
@@ -75,5 +75,6 @@
     "The README or description gives at least one concrete detail about the build process (a prompt approach, a workflow step, or a specific decision made during building), beyond just naming a tool.",
     "If a repo URL is given, it is publicly reachable and contains a README.",
     "If a live URL is given, it is publicly reachable without a login wall or paywall blocking the judge's view."
-  ]
+  ],
+  "_maxTokensNote": "Bumped critics 4000->8000 2026-09-13: 11 rubric criteria means a full criteria+failures reply routinely needs more than 4000 output tokens, and cheap critics (esp. glm-5.3-flash) were hitting stop:length mid-JSON and getting scored as an unparseable abstention rather than a real verdict, confirmed against real panel-1-*.md files that were cut off mid-string. The fix belongs here, not in the judging pipeline that supplies the dossier - the critic maxTokens budget is entirely this chain config. A re-run after the bump came back with every active critic fully parsed, zero abstentions."
 }
