@@ -124,6 +124,16 @@ export function providerNames() {
   return ['anthropic', ...Object.keys(OPENAI_COMPAT)];
 }
 
+// The env var NAME a provider's key lives in - never the value. `council
+// doctor` uses this to report which keys are present without ever reading
+// (or printing) what they contain.
+export function envKeyName(provider) {
+  if (provider === 'mock' || provider === 'external') return null;
+  const spec = provider === 'anthropic' ? ANTHROPIC : OPENAI_COMPAT[provider];
+  if (!spec) throw new Error(`Unknown provider: ${provider}`);
+  return spec.key;
+}
+
 async function withRetry(fn, { tries = 3, label = '' } = {}) {
   let last;
   for (let i = 0; i < tries; i++) {

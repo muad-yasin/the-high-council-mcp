@@ -1,10 +1,16 @@
 # The High Council
 
+See it work right now - no keys, no setup, no cost:
+
+    npx the-high-council demo
+
 A planning harness that runs one idea past several AI models from different labs, makes them
 argue about it on the record, and stops at a checkable result.
 
 Runs as an **MCP server** (so an agent like Claude Code can drive it) or as a **CLI**. Bring your
 own API keys. Nothing is resold, nothing is hosted for you, and no key ever leaves your machine.
+Run `npx the-high-council doctor` to see which of your own keys are set, which shipped chains you
+can already run with them, and what each would cost - before spending anything.
 
 > **On what this does and doesn't claim.** This repo publishes the mechanism: the chains, the seat
 > rosters, the stage order. It does not claim to produce better plans than a single good model

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, checkSeats, setCache, setBudget, budgetState, ExternalPause, BudgetExceeded } from './chain.js';
-import { summarise, formatUsd, priceOf } from './cost.js';
+import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
+import { providerNames, envKeyName } from './providers.js';
 import { spendReport, costToday } from './spend.js';
 import { withIntegrityFooter } from './integrity.js';
 import { generateResumeBrief } from './resume-brief.js';
@@ -35,12 +36,92 @@ if (existsSync(envPath)) {
   }
 }
 
-const argv = process.argv.slice(2);
+// `npx <local-tarball-or-package-spec> council demo` is a real invocation, not
+// a hypothetical one: once npx has resolved a package spec to this package's
+// one bin, it does not also strip a literal repeat of the bin's own name from
+// the arguments that follow, so that repeat lands as argv[0] here. The
+// `doctor`/`demo` checks below key off argv[0], so a redundant leading
+// `council` (or its `relay` alias) silently fell through to the usage banner
+// instead of running - caught by the 2026-09-13 tarball verification pass.
+// Drop one such leading token before anything else looks at argv[0].
+const rawArgv = process.argv.slice(2);
+const argv = (rawArgv[0] === 'council' || rawArgv[0] === 'relay') ? rawArgv.slice(1) : rawArgv;
 function flag(name, fallback) {
   const i = argv.indexOf(`--${name}`);
   if (i === -1) return fallback;
   const next = argv[i + 1];
   return (next && !next.startsWith('--')) ? next : true;
+}
+
+// `council doctor` answers "can this actually run, right now, on this
+// machine" for a stranger who just installed it - which keys are present (by
+// name only, never the value), which shipped chains are runnable with those
+// keys (or need nothing at all: mock and external seats never need a key),
+// and the worst-case price of each. Zero network calls: this only reads env
+// var names and chains/*.json and does the same static pricing math as
+// --dry-run (estimateChainRows, shared from cost.js, not re-derived here).
+if (argv[0] === 'doctor') {
+  console.log(`\nAPI keys (name only - the value is never read here beyond presence/absence):`);
+  const names = providerNames();
+  const nw = Math.max(...names.map(n => n.length));
+  const present = new Set();
+  for (const name of names) {
+    const envName = envKeyName(name);
+    const has = !!process.env[envName];
+    if (has) present.add(name);
+    console.log(`  ${name.padEnd(nw)}  ${envName.padEnd(20)}  ${has ? 'set' : 'not set'}`);
+  }
+
+  console.log(`\nChains (runnable = every seat's provider has its key set, or is mock/external):`);
+  const chainsDir = join(pkg, 'chains');
+  const files = readdirSync(chainsDir).filter(f => f.endsWith('.json')).sort();
+  const cw = Math.max(...files.map(f => f.length - 5));
+  for (const f of files) {
+    const cfg = JSON.parse(readFileSync(join(chainsDir, f), 'utf8'));
+    const seats = [
+      cfg.seats.criteria, cfg.seats.builder, cfg.seats.reviser, cfg.seats.finalist,
+      cfg.seats.skeleton, cfg.seats.handoff, cfg.seats.questions, cfg.seats.judge,
+      ...(cfg.seats.proposers || []), ...(cfg.seats.critics || []),
+    ].filter(Boolean);
+    const missing = checkSeats(seats);
+    const runnable = missing.length === 0;
+    const worst = estimateChainRows(cfg).reduce((sum, r) => sum + r.usd, 0);
+    const label = f.replace(/\.json$/, '');
+    console.log(`  ${label.padEnd(cw)}  ${(runnable ? 'runnable' : 'blocked ').padEnd(8)}  worst-case ${formatUsd(worst).padStart(9)}/run${runnable ? '' : `  (missing: ${missing.join(', ')})`}`);
+  }
+  console.log(`\nNo network calls were made - this only reads environment variable names and chains/*.json.`);
+  process.exit(0);
+}
+
+// `council demo` runs a $0, offline, no-keys-needed chain end to end with the
+// mock provider (calls nothing real) and prints the resulting deliverable and
+// debate board to stdout, so a stranger who just installed this can see the
+// whole mechanism - proposals, anonymised debate, panel sign-off - work
+// before ever touching a real key.
+if (argv[0] === 'demo') {
+  const demoChainName = 'mock-debate';
+  const demoConfig = JSON.parse(readFileSync(join(pkg, 'chains', `${demoChainName}.json`), 'utf8'));
+  console.log(`\nThe High Council - offline demo (chain: ${demoChainName}, provider: mock)`);
+  console.log(`No API key, no network call, $0. This is what the mechanism looks like end to end.\n`);
+  const demoResult = await runChain({
+    request: 'Demo request. The mock provider ignores this text - see chains/mock-debate.json for what it always returns.',
+    config: demoConfig,
+    log: line => console.log(line),
+  });
+  console.log(`\n${'='.repeat(72)}\nDELIVERABLE\n${'='.repeat(72)}\n`);
+  console.log(demoResult.deliverable);
+  if (demoResult.board) {
+    console.log(`\n${'='.repeat(72)}\nDEBATE BOARD\n${'='.repeat(72)}\n`);
+    console.log(demoResult.board);
+  }
+  if (demoResult.handoff) {
+    console.log(`\n${'='.repeat(72)}\nHANDOFF\n${'='.repeat(72)}\n`);
+    console.log(demoResult.handoff);
+  }
+  console.log(`\nThat was $0 and touched no network - the mock provider calls nothing real.`);
+  console.log(`Next: "council doctor" to see which real chains you can run with your own keys,`);
+  console.log(`or "council --chain verify --dry-run" to price a real run before spending anything.`);
+  process.exit(0);
 }
 
 // `council --spend [--days N]` answers "what have I spent across every run",
@@ -135,6 +216,12 @@ else {
 if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   console.log(`The High Council - a chained multi-model harness
 
+  council demo                         $0, offline, no keys needed: run a full
+                                       mock chain (proposals, debate, sign-off)
+                                       and print the deliverable and board
+  council doctor                       which API keys you have (names only),
+                                       which chains you can run with them, and
+                                       each one's worst-case price. No network call.
   council --task tasks/example.md [--chain verify|seven] [--rounds N]
   council --task tasks/x.md --chain plan-relay --from-run runs/<earlier run>
                                        reuse that run's criteria and first draft,
@@ -161,7 +248,11 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
 
 Chains live in chains/*.json. Runs are written to runs/<timestamp>/.
 The 'relay' command is kept as an alias for 'council'; both run this file.`);
-  process.exit(taskPath ? 0 : 1);
+  // Asking for --help is success (exit 0) even with no task given; landing
+  // here with neither --help nor a task/dry-run/resume is the error case
+  // (exit 1) - these used to be conflated into one `taskPath ? 0 : 1`, which
+  // made a bare `--help` exit 1.
+  process.exit(argv.includes('--help') ? 0 : 1);
 }
 
 // --resume: everything about the run comes from its own run.json.
@@ -221,52 +312,9 @@ const allSeats = [
 if (dryRun) {
   // A dry run prices the chain from the config's own declared token
   // assumptions. It calls nothing, so it costs nothing.
-  const a = config.estimate || { promptTokens: 4000, draftTokens: 6000, critiqueTokens: 1200 };
   console.log(`\nChain: ${config.name} - ${config.description}`);
   console.log(`Rounds: ${config.maxRounds}\n`);
-  const rows = [];
-  const push = (label, seat, input, output) => {
-    if (!seat) return;
-    const p = seat.provider === 'external' ? { in: 0, out: 0 } : priceOf(seat.provider, seat.model);
-    const usd = p ? (input / 1e6) * p.in + (output / 1e6) * p.out : 0;
-    rows.push({ label, seat: `${seat.provider}/${seat.model}`, input, output, usd, priced: !!p });
-  };
-  if (config.questions && !fromRun) push('questions', config.seats.questions || config.seats.criteria, a.promptTokens, 800);
-  // A chain with hand-written criteria skips that stage entirely.
-  if (!config.criteria?.length) push('criteria', config.seats.criteria, a.promptTokens, 400);
-  let proposalTokens = 0;
-  if (config.proposals && !fromRun) {
-    const parts = config.proposals.parts ?? 3, per = config.proposals.maxTokens ?? 1500;
-    push('skeleton', config.seats.skeleton || config.seats.builder, a.promptTokens + 400, 1200);
-    const samples = config.proposals.samples ?? 1, keep = config.proposals.keep ?? parts;
-    for (const seat of config.seats.proposers || config.seats.critics) {
-      for (let k = 0; k < samples; k++) push(`propose-${seat.lab || seat.provider}${samples > 1 ? `-${k + 1}` : ''}`, seat, a.promptTokens + 1600, parts * per);
-      if (samples > 1) push(`judge-${seat.lab || seat.provider}`, config.seats.judge || seat, a.promptTokens + 1600 + samples * parts * per, 300);
-      proposalTokens += (samples > 1 ? keep : parts) * per;
-    }
-  }
-  if (config.debate && !fromRun) {
-    for (const seat of config.seats.proposers || config.seats.critics) {
-      push(`debate-${seat.lab || seat.provider}`, seat, a.promptTokens + 1600 + proposalTokens, 1500);
-      push(`reply-${seat.lab || seat.provider}`, seat, a.promptTokens + 3000, 800);
-    }
-    proposalTokens += proposalTokens; // the board roughly doubles what the builder reads
-  }
-  if (!fromRun) push('build', config.seats.builder, a.promptTokens + 400 + proposalTokens, a.draftTokens);
-  const unanimous = config.signoff === 'unanimous';
-  for (let r = 1; r <= config.maxRounds; r++) {
-    if (unanimous) {
-      for (const critic of config.seats.critics) {
-        push(`panel-${r}-${critic.lab || critic.provider}`, critic, a.promptTokens + a.draftTokens, a.critiqueTokens);
-      }
-    } else {
-      const critic = config.seats.critics[(r - 1) % config.seats.critics.length];
-      push(`critique-${r}`, critic, a.promptTokens + a.draftTokens, a.critiqueTokens);
-    }
-    if (r < config.maxRounds) push(`revise-${r}`, config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens + a.critiqueTokens + proposalTokens, a.draftTokens);
-  }
-  push('final', config.seats.finalist, a.promptTokens + a.draftTokens, a.draftTokens);
-  if (config.handoff) push('handoff', config.seats.handoff || config.seats.builder, a.promptTokens + a.draftTokens, 1200);
+  const rows = estimateChainRows(config, { fromRun });
   const w = Math.max(...rows.map(r => r.seat.length));
   for (const r of rows) {
     console.log(`  ${r.label.padEnd(12)} ${r.seat.padEnd(w)}  ${String(r.input).padStart(7)} in  ${String(r.output).padStart(6)} out  ${r.priced ? formatUsd(r.usd) : 'unpriced'}`);
@@ -282,7 +330,8 @@ if (dryRun) {
 const missing = checkSeats(allSeats);
 if (missing.length) {
   console.error(`\nMissing API keys for: ${missing.join(', ')}`);
-  console.error(`Fill them in ${envPath} (copy .env.example), or pick a chain that uses fewer labs.`);
+  console.error(`Set them as environment variables, or put them in ${envPath} (see README's "Setup" section), or pick a chain that uses fewer labs.`);
+  console.error(`Run "council doctor" to see exactly which keys each shipped chain needs.`);
   process.exit(1);
 }
 

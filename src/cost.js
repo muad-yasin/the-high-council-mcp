@@ -35,6 +35,60 @@ export function formatUsd(n) {
 }
 
 // ---------------------------------------------------------------------------
+// Per-chain worst-case estimate, from the config's own declared token
+// assumptions. Calls nothing, so it costs nothing. This is the one place that
+// walks a chain's stage shape (questions/criteria/skeleton/proposals/debate/
+// panel rounds/handoff) to price it - `--dry-run` and `council doctor` both
+// call this rather than each re-deriving the shape themselves.
+export function estimateChainRows(config, { fromRun = false } = {}) {
+  const a = config.estimate || { promptTokens: 4000, draftTokens: 6000, critiqueTokens: 1200 };
+  const rows = [];
+  const push = (label, seat, input, output) => {
+    if (!seat) return;
+    const p = seat.provider === 'external' ? { in: 0, out: 0 } : priceOf(seat.provider, seat.model);
+    const usd = p ? (input / 1e6) * p.in + (output / 1e6) * p.out : 0;
+    rows.push({ label, seat: `${seat.provider}/${seat.model}`, input, output, usd, priced: !!p });
+  };
+  if (config.questions && !fromRun) push('questions', config.seats.questions || config.seats.criteria, a.promptTokens, 800);
+  // A chain with hand-written criteria skips that stage entirely.
+  if (!config.criteria?.length) push('criteria', config.seats.criteria, a.promptTokens, 400);
+  let proposalTokens = 0;
+  if (config.proposals && !fromRun) {
+    const parts = config.proposals.parts ?? 3, per = config.proposals.maxTokens ?? 1500;
+    push('skeleton', config.seats.skeleton || config.seats.builder, a.promptTokens + 400, 1200);
+    const samples = config.proposals.samples ?? 1, keep = config.proposals.keep ?? parts;
+    for (const seat of config.seats.proposers || config.seats.critics) {
+      for (let k = 0; k < samples; k++) push(`propose-${seat.lab || seat.provider}${samples > 1 ? `-${k + 1}` : ''}`, seat, a.promptTokens + 1600, parts * per);
+      if (samples > 1) push(`judge-${seat.lab || seat.provider}`, config.seats.judge || seat, a.promptTokens + 1600 + samples * parts * per, 300);
+      proposalTokens += (samples > 1 ? keep : parts) * per;
+    }
+  }
+  if (config.debate && !fromRun) {
+    for (const seat of config.seats.proposers || config.seats.critics) {
+      push(`debate-${seat.lab || seat.provider}`, seat, a.promptTokens + 1600 + proposalTokens, 1500);
+      push(`reply-${seat.lab || seat.provider}`, seat, a.promptTokens + 3000, 800);
+    }
+    proposalTokens += proposalTokens; // the board roughly doubles what the builder reads
+  }
+  if (!fromRun) push('build', config.seats.builder, a.promptTokens + 400 + proposalTokens, a.draftTokens);
+  const unanimous = config.signoff === 'unanimous';
+  for (let r = 1; r <= config.maxRounds; r++) {
+    if (unanimous) {
+      for (const critic of config.seats.critics) {
+        push(`panel-${r}-${critic.lab || critic.provider}`, critic, a.promptTokens + a.draftTokens, a.critiqueTokens);
+      }
+    } else {
+      const critic = config.seats.critics[(r - 1) % config.seats.critics.length];
+      push(`critique-${r}`, critic, a.promptTokens + a.draftTokens, a.critiqueTokens);
+    }
+    if (r < config.maxRounds) push(`revise-${r}`, config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens + a.critiqueTokens + proposalTokens, a.draftTokens);
+  }
+  push('final', config.seats.finalist, a.promptTokens + a.draftTokens, a.draftTokens);
+  if (config.handoff) push('handoff', config.seats.handoff || config.seats.builder, a.promptTokens + a.draftTokens, 1200);
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
 // Per-run spend cap.
 //
 // costOf() above is measurement: what a stage cost once it had already been
