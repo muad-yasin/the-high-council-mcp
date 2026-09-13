@@ -4,7 +4,7 @@ import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, checkSeats, setCache, setBudget, budgetState, ExternalPause, BudgetExceeded } from './chain.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
-import { providerNames, envKeyName } from './providers.js';
+import { providerNames, envKeyName, keyFor } from './providers.js';
 import { spendReport, costToday } from './spend.js';
 import { verdictStats, independenceStatsCsv } from './verdict-stats.js';
 import { withIntegrityFooter } from './integrity.js';
@@ -19,6 +19,15 @@ import { forecastCost } from './cost-forecast.js';
 import { renderBoardHtml } from './board-export.js';
 import { buildTranscript, renderTranscriptText } from './replay.js';
 import { lintChain } from './chain-lint.js';
+import { formatCouncilError, ERROR_CATALOG } from './errors.js';
+
+// v5 §1 candidate 4: distinct exit codes for a degradable condition (a
+// stranger can fix it and continue - a missing key, an unpriced model)
+// vs. a fatal one (nothing more can happen this invocation - a chain
+// file that can't even be parsed). 1-4 are already used by this file's
+// own existing exit paths (usage errors, ExternalPause, BudgetExceeded).
+const EXIT_DEGRADABLE = 5;
+const EXIT_FATAL = 6;
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -162,6 +171,14 @@ if (argv[0] === 'doctor') {
     console.log(`  ${label.padEnd(cw)}  ${(runnable ? 'runnable' : 'blocked ').padEnd(8)}  worst-case ${formatUsd(worst).padStart(9)}/run${runnable ? '' : `  (missing: ${missing.join(', ')})`}`);
   }
   console.log(`\nNo network calls were made - this only reads environment variable names and chains/*.json.`);
+
+  // v5 §1 candidate 4: doctor's own diagnostic block also names every code
+  // a stranger might see from a hard-fail path, so a code seen in a
+  // terminal is greppable straight back to this same command.
+  console.log(`\nError codes (see TROUBLESHOOTING.md for the full message and fix for each):`);
+  for (const [code, entry] of Object.entries(ERROR_CATALOG)) {
+    console.log(`  ${code}  [${entry.kind}]  ${entry.title}`);
+  }
   process.exit(0);
 }
 
@@ -458,7 +475,18 @@ if (!existsSync(configPath)) {
   console.error(`No such chain: ${configPath}`);
   process.exit(1);
 }
-const config = JSON.parse(readFileSync(configPath, 'utf8'));
+// v5 §1 candidate 4, COUNCIL-E003: a malformed chain file is a fatal,
+// stranger-facing condition - caught here rather than left to an
+// uncaught SyntaxError. Handled inline (not left to the later try/catch
+// around the run itself, which starts well after this point) so the
+// tone-shaped message prints even though nothing has been invoked yet.
+let config;
+try {
+  config = JSON.parse(readFileSync(configPath, 'utf8'));
+} catch {
+  console.error(`\n${formatCouncilError('COUNCIL-E003', { path: configPath })}`);
+  process.exit(EXIT_FATAL);
+}
 if (flag('rounds', null)) config.maxRounds = Number(flag('rounds'));
 
 // v5 §1 candidate 5: fail loud, before a single metered call, on a chain
@@ -528,17 +556,33 @@ if (dryRun) {
   const t = rows.reduce((s, r) => ({ i: s.i + r.input, o: s.o + r.output, u: s.u + r.usd }), { i: 0, o: 0, u: 0 });
   console.log(`\n  TOTAL        ${''.padEnd(w)}  ${String(t.i).padStart(7)} in  ${String(t.o).padStart(6)} out  ${formatUsd(t.u)}  per run`);
   console.log(`\n  Worst case is the full round cap. A clean first critique stops early and costs less.`);
-  const unpriced = rows.filter(r => !r.priced).map(r => r.seat);
-  if (unpriced.length) console.log(`  No price on file for: ${[...new Set(unpriced)].join(', ')}`);
+  // mock/external are synthetic seats that are never billed and were never
+  // going to be in pricing.json - only a real provider's missing price is
+  // worth telling anyone about.
+  const unpriced = [...new Set(rows.filter(r => !r.priced && !r.seat.startsWith('mock/') && !r.seat.startsWith('external/')).map(r => r.seat))];
+  if (unpriced.length) {
+    console.log('');
+    for (const seat of unpriced) {
+      const [provider, model] = seat.split('/');
+      console.log(`  ${formatCouncilError('COUNCIL-E002', { provider, model }).replace(/\n/g, '\n  ')}`);
+    }
+  }
   process.exit(0);
 }
 
 const missing = checkSeats(allSeats);
 if (missing.length) {
-  console.error(`\nMissing API keys for: ${missing.join(', ')}`);
-  console.error(`Set them as environment variables, or put them in ${envPath} (see README's "Setup" section), or pick a chain that uses fewer labs.`);
+  // v5 §1 candidate 4, COUNCIL-E001: one tone-shaped message per missing
+  // provider, deduplicated - a chain with three seats on the same
+  // unset key gets told once, not three times.
+  const missingProviders = [...new Set(allSeats.filter(Boolean).map(s => s.provider).filter(p => !keyFor(p)))];
+  console.error('');
+  for (const provider of missingProviders) {
+    console.error(formatCouncilError('COUNCIL-E001', { provider, chain: config.name, envVar: envKeyName(provider) }));
+    console.error('');
+  }
   console.error(`Run "council doctor" to see exactly which keys each shipped chain needs.`);
-  process.exit(1);
+  process.exit(EXIT_DEGRADABLE);
 }
 
 const taskPathEff = resumeMeta?.task || taskPath;

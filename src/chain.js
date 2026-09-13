@@ -639,7 +639,11 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           // objects, and it cannot block the panel. It used to count as a
           // pass, which would have waved a truncated FAILED straight through.
           const why = classifyUnreadable(cs.usage, criticSeat.maxTokens);
-          say(`  ${labOf(criticSeat)}/${criticSeat.model}: unreadable reply (${cs.usage.output} tokens out; ${why}) - counted as an abstention, not a sign-off.`);
+          // v5 §1 candidate 4: the code is prepended, the diagnosis itself
+          // is untouched - classifyUnreadable's three distinct reasons are
+          // load-bearing (each one traces to a real incident on disk) and
+          // this candidate changes what's printed, never what's diagnosed.
+          say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] unreadable reply (${cs.usage.output} tokens out; ${why}) - counted as an abstention, not a sign-off.`);
           return { seat: criticSeat, critique: null, abstained: true };
         }
         const critique = normaliseCritique(parsed, say);
