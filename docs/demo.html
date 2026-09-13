@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Try a council run - The High Council (simulated demo)</title>
+<meta name="description" content="Click through a reconstructed council run in your browser: proposals, blind debate, keep/amend/withdraw, and a sign-off vote. No network calls, no real run data.">
+<link rel="canonical" href="https://muad-yasin.github.io/the-high-council-mcp/demo.html">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Try a council run (simulated demo)">
+<meta property="og:description" content="Click through a reconstructed council run in your browser: proposals, blind debate, keep/amend/withdraw, and a sign-off vote.">
+<meta property="og:url" content="https://muad-yasin.github.io/the-high-council-mcp/demo.html">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Try a council run (simulated demo)">
+<meta name="twitter:description" content="Click through a reconstructed council run in your browser: proposals, blind debate, keep/amend/withdraw, and a sign-off vote.">
+
+<style>
+  body { margin:0; background:#0a0a0b; color:#e8e6e1; }
+  a { color:#e3b23c; text-decoration:none; }
+  a:hover { color:#f3cd6d; text-decoration:underline; }
+  ::selection { background:#e3b23c33; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { text-align:left; vertical-align:top; }
+  details > summary { cursor:pointer; list-style:none; }
+  details > summary::-webkit-details-marker { display:none; }
+  details > summary::before { content:"▸ "; color:#e3b23c; }
+  details[open] > summary::before { content:"▾ "; }
+</style>
+<style>
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(fonts/HankenGrotesk-500-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(fonts/HankenGrotesk-500-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(fonts/HankenGrotesk-700-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(fonts/HankenGrotesk-700-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(fonts/IBMPlexMono-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(fonts/IBMPlexMono-400-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(fonts/IBMPlexSans-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(fonts/IBMPlexSans-400-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(fonts/SpaceGrotesk-400-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(fonts/SpaceGrotesk-500-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(fonts/SpaceGrotesk-600-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+</head>
+<body>
+
+<div style="min-height:100%;background:#0a0a0b;font-family:'IBM Plex Sans',system-ui,sans-serif;color:#e8e6e1;-webkit-font-smoothing:antialiased">
+
+  <div style="position:relative;overflow:hidden;border-bottom:1px solid #1e1e21">
+    <div style="position:absolute;top:-340px;left:50%;transform:translateX(-50%);width:1200px;height:700px;background:radial-gradient(ellipse at center,rgba(227,178,60,0.30),rgba(227,178,60,0.10) 42%,transparent 72%);pointer-events:none"></div>
+    <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,0.03),transparent 40%);pointer-events:none"></div>
+
+    <div style="position:relative;max-width:1040px;margin:0 auto;padding:24px 32px 0;display:flex;align-items:center;justify-content:center;gap:10px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#8d8a84">
+      <a href="index.html" style="color:#8d8a84">The High Council</a><span style="color:#3a3a3e">/</span><span style="color:#e8e6e1;font-weight:500">try it</span>
+    </div>
+
+    <div style="position:relative;max-width:820px;margin:0 auto;padding:48px 32px 24px;text-align:center;display:flex;flex-direction:column;align-items:center">
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border:1px solid rgba(227,178,60,0.28);border-radius:999px;background:rgba(227,178,60,0.06);font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:0.04em;color:#e3b23c;box-shadow:0 0 24px rgba(227,178,60,0.08)">SIMULATED DEMO &nbsp;·&nbsp; NOT A REAL RUN</div>
+      <h1 style="margin:24px 0 0;font-family:'Hanken Grotesk',sans-serif;font-weight:700;font-size:clamp(30px,5.5vw,48px);line-height:1.08;letter-spacing:-0.03em;color:#faf8f4;text-wrap:balance">Click through a council run yourself</h1>
+      <p style="margin:22px 0 0;max-width:680px;font-size:clamp(16px,2vw,19px);line-height:1.55;color:#b9b5ad;text-wrap:pretty">Everything below is reconstructed for this demo, not a real run - hand-authored to match the shape of a real <code style="font-family:'IBM Plex Mono',monospace;font-size:0.85em;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">report.json</code>, so you can see the mechanism working before running your own. For an account of an actual run with real spend, see <a href="board.html">the board</a>. Nothing on this page makes a network request; every section below expands right here.</p>
+    </div>
+  </div>
+
+  <div style="max-width:1040px;margin:0 auto;padding:0 32px">
+
+    <section style="margin-top:56px">
+      <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:30px;letter-spacing:-0.02em;color:#faf8f4">The question</h2>
+      <p style="margin:14px 0 0;font-size:16px;line-height:1.65;color:#b9b5ad;text-wrap:pretty">Should a cache invalidation endpoint be synchronous (caller waits for every edge node to confirm) or asynchronous (caller gets an immediate ack, edges converge within a bounded window)?</p>
+    </section>
+
+    <section style="margin-top:56px">
+      <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:30px;letter-spacing:-0.02em;color:#faf8f4">Proposals</h2>
+      <p style="margin:14px 0 0;max-width:760px;font-size:15.5px;line-height:1.65;color:#8d8a84">Each seat proposed blind, without seeing the others. Click a proposal to open it.</p>
+
+      <div style="margin-top:20px;display:flex;flex-direction:column;gap:12px">
+        <details style="padding:20px 22px;border-radius:12px;border:1px solid #2a2a2e;background:#0f0f11">
+          <summary style="font-family:'Space Grotesk',sans-serif;font-size:16px;color:#faf8f4"><strong style="color:#e3b23c">A-1</strong> Synchronous invalidation with a 2-second timeout, falling back to async</summary>
+          <p style="margin:14px 0 0;font-size:14.5px;line-height:1.6;color:#a8a49c">Seat A (lab: <em>seat-lab-alpha</em>, demo label). Callers block for confirmation from all edges up to 2s; past that, the call returns success anyway and the invalidation finishes asynchronously. Rationale: most invalidations converge in under 200ms in the reference deployment, so the common case gets a real guarantee and the tail doesn't stall callers.</p>
+        </details>
+        <details style="padding:20px 22px;border-radius:12px;border:1px solid #2a2a2e;background:#0f0f11">
+          <summary style="font-family:'Space Grotesk',sans-serif;font-size:16px;color:#faf8f4"><strong style="color:#e3b23c">B-1</strong> Fully asynchronous, with a read-your-writes exception for the calling node only</summary>
+          <p style="margin:14px 0 0;font-size:14.5px;line-height:1.6;color:#a8a49c">Seat B (lab: <em>seat-lab-beta</em>, demo label). Caller's own node invalidates synchronously (so it never re-reads its own stale write); every other edge converges asynchronously within a stated SLA window. No caller-visible timeout to tune.</p>
+        </details>
+        <details style="padding:20px 22px;border-radius:12px;border:1px solid #2a2a2e;background:#0f0f11">
+          <summary style="font-family:'Space Grotesk',sans-serif;font-size:16px;color:#faf8f4"><strong style="color:#e3b23c">C-1</strong> Fully synchronous, no timeout, with a circuit breaker per edge</summary>
+          <p style="margin:14px 0 0;font-size:14.5px;line-height:1.6;color:#a8a49c">Seat C (lab: <em>seat-lab-gamma</em>, demo label). Caller always waits for every edge; an edge that fails to ack within its own breaker threshold is marked degraded and excluded from future invalidations until it recovers, rather than changing the contract for a slow-but-healthy edge.</p>
+        </details>
+      </div>
+    </section>
+
+    <section style="margin-top:56px">
+      <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:30px;letter-spacing:-0.02em;color:#faf8f4">Blind debate</h2>
+      <p style="margin:14px 0 0;max-width:760px;font-size:15.5px;line-height:1.65;color:#8d8a84">Seats argue without knowing who wrote what. Click a post to see the reply from the proposal's own author.</p>
+
+      <div style="margin-top:20px;display:flex;flex-direction:column;gap:12px">
+        <details style="padding:20px 22px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11">
+          <summary style="font-family:'Space Grotesk',sans-serif;font-size:15px;color:#faf8f4">Seat C <span style="color:#8d8a84;font-weight:400">objects to</span> <strong style="color:#e3b23c">A-1</strong></summary>
+          <p style="margin:12px 0 0;font-size:14.5px;line-height:1.6;color:#a8a49c"><strong style="color:#8d8a84">Post:</strong> "A caller-visible timeout that silently degrades the guarantee is worse than no guarantee at all - a caller who checks the return value has no way to tell which case happened."</p>
+          <p style="margin:10px 0 0;font-size:14.5px;line-height:1.6;color:#a8a49c"><strong style="color:#8d8a84">Author's reply (A):</strong> <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;border:1px solid rgba(227,178,60,0.32);background:rgba(227,178,60,0.07);font-family:'Space Grotesk',sans-serif;font-size:12.5px;color:#f0c75a">amend</span> "Fair - I'm adding a response field naming which path was taken (`confirmed` vs `pending`) rather than hiding it behind a shared 200."</p>
+        </details>
+        <details style="padding:20px 22px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11">
+          <summary style="font-family:'Space Grotesk',sans-serif;font-size:15px;color:#faf8f4">Seat A <span style="color:#8d8a84;font-weight:400">objects to</span> <strong style="color:#e3b23c">C-1</strong></summary>
+          <p style="margin:12px 0 0;font-size:14.5px;line-height:1.6;color:#a8a49c"><strong style="color:#8d8a84">Post:</strong> "No timeout at all means one slow-but-not-yet-tripped edge can stall every caller in the system during the breaker's own detection window. That window is itself a hidden timeout, just an unbounded and unstated one."</p>
+          <p style="margin:10px 0 0;font-size:14.5px;line-height:1.6;color:#a8a49c"><strong style="color:#8d8a84">Author's reply (C):</strong> <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;border:1px solid rgba(227,178,60,0.32);background:rgba(227,178,60,0.07);font-family:'Space Grotesk',sans-serif;font-size:12.5px;color:#f0c75a">withdraw</span> "Correct, and I don't have a bounded number for the breaker's detection window that would fix this. Withdrawing in favour of B-1's stated SLA."</p>
+        </details>
+        <details style="padding:20px 22px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11">
+          <summary style="font-family:'Space Grotesk',sans-serif;font-size:15px;color:#faf8f4">Seat A <span style="color:#8d8a84;font-weight:400">supports</span> <strong style="color:#e3b23c">B-1</strong></summary>
+          <p style="margin:12px 0 0;font-size:14.5px;line-height:1.6;color:#a8a49c"><strong style="color:#8d8a84">Post:</strong> "Read-your-writes on the caller's own node while everything else converges async is the right split - it solves the actual bug this endpoint exists to prevent without a tunable timeout at all."</p>
+          <p style="margin:10px 0 0;font-size:14.5px;line-height:1.6;color:#a8a49c"><strong style="color:#8d8a84">Author's reply (B):</strong> <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;border:1px solid #2a2a2e;background:#131316;font-family:'Space Grotesk',sans-serif;font-size:12.5px;color:#e8e6e1">keep</span> "Kept as written - no objection raised against it."</p>
+        </details>
+      </div>
+    </section>
+
+    <section style="margin-top:56px">
+      <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:30px;letter-spacing:-0.02em;color:#faf8f4">Sign-off</h2>
+      <p style="margin:14px 0 0;max-width:760px;font-size:15.5px;line-height:1.65;color:#8d8a84">Under <code style="font-family:'IBM Plex Mono',monospace;font-size:0.85em;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">signoff: "unanimous"</code>, every seat has to agree on the same draft or the reviser fixes the union of all objections and the whole panel re-reviews. Click a seat's verdict for its stated reason.</p>
+
+      <div style="margin-top:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">
+        <details style="padding:16px 18px;border-radius:12px;border:1px solid rgba(227,178,60,0.3);background:linear-gradient(180deg,rgba(227,178,60,0.06),#0f0f11)">
+          <summary style="font-family:'Space Grotesk',sans-serif;color:#f6d78a">seat-lab-alpha <span style="color:#8d8a84;font-weight:400">signed off</span></summary>
+          <p style="margin:10px 0 0;font-size:13.5px;line-height:1.55;color:#a8a49c">"The response-field amendment fixes my only objection to B-1's alternative. No remaining concerns."</p>
+        </details>
+        <details style="padding:16px 18px;border-radius:12px;border:1px solid rgba(227,178,60,0.3);background:linear-gradient(180deg,rgba(227,178,60,0.06),#0f0f11)">
+          <summary style="font-family:'Space Grotesk',sans-serif;color:#f6d78a">seat-lab-beta <span style="color:#8d8a84;font-weight:400">signed off</span></summary>
+          <p style="margin:10px 0 0;font-size:13.5px;line-height:1.55;color:#a8a49c">"My own proposal is the accepted draft with no changes required of it. Signing off."</p>
+        </details>
+        <details style="padding:16px 18px;border-radius:12px;border:1px solid rgba(227,178,60,0.3);background:linear-gradient(180deg,rgba(227,178,60,0.06),#0f0f11)">
+          <summary style="font-family:'Space Grotesk',sans-serif;color:#f6d78a">seat-lab-gamma <span style="color:#8d8a84;font-weight:400">signed off</span></summary>
+          <p style="margin:10px 0 0;font-size:13.5px;line-height:1.55;color:#a8a49c">"I withdrew my own proposal once the unbounded-window problem was pointed out. B-1 doesn't have that problem. Signing off."</p>
+        </details>
+      </div>
+      <p style="margin:16px 0 0;max-width:760px;font-size:15.5px;line-height:1.65;color:#8d8a84;text-wrap:pretty">3 of 3 seats signed off on the same draft in this reconstruction. A real run can end unanimous, split, or capped at <code style="font-family:'IBM Plex Mono',monospace;font-size:0.85em;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">maxRounds</code> with objections still open - see <a href="board.html">the board</a> for a real run that ended split.</p>
+    </section>
+
+    <section style="margin-top:56px;margin-bottom:96px;position:relative;overflow:hidden;border-radius:16px;border:1px solid #2a2a2e;background:linear-gradient(180deg,#121214,#0b0b0d);padding:48px 40px;text-align:center">
+      <div style="position:absolute;bottom:-220px;left:50%;transform:translateX(-50%);width:720px;height:420px;background:radial-gradient(ellipse at center,rgba(227,178,60,0.16),transparent 70%);pointer-events:none"></div>
+      <div style="position:relative">
+        <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:700;font-size:30px;letter-spacing:-0.025em;color:#faf8f4">Run it on your own question.</h2>
+        <p style="margin:12px auto 0;max-width:520px;font-size:16px;line-height:1.6;color:#8d8a84">This demo is fixed and offline. A real run argues your actual task, with your own provider keys, and writes its own report.json.</p>
+        <div style="display:flex;justify-content:center;flex-wrap:wrap;gap:12px;margin-top:28px">
+          <a href="https://github.com/muad-yasin/the-high-council-mcp" style="display:inline-flex;align-items:center;padding:13px 24px;border-radius:10px;background:linear-gradient(180deg,#f0c75a,#dba52c);color:#17130a;font-weight:600;font-size:15px;font-family:'Space Grotesk',sans-serif;box-shadow:0 0 0 1px rgba(255,255,255,0.14) inset,0 12px 32px rgba(227,178,60,0.22);text-decoration:none">Clone the repo</a>
+          <a href="board.html" style="display:inline-flex;align-items:center;padding:13px 24px;border-radius:10px;background:#131316;border:1px solid #2a2a2e;color:#e8e6e1;font-weight:500;font-size:15px;font-family:'Space Grotesk',sans-serif;text-decoration:none">See a real run</a>
+          <a href="index.html" style="display:inline-flex;align-items:center;padding:13px 24px;border-radius:10px;background:#131316;border:1px solid #2a2a2e;color:#e8e6e1;font-weight:500;font-size:15px;font-family:'Space Grotesk',sans-serif;text-decoration:none">Back to The High Council</a>
+        </div>
+        <div style="margin-top:22px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#5f5c57">MIT. See LICENSE.</div>
+      </div>
+    </section>
+  </div>
+</div>
+
+</body>
+</html>
