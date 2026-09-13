@@ -315,6 +315,51 @@ A few worth knowing:
 
 Read a chain's `description` field before running it; they say what they cost you in calls.
 
+### Optional chain-config fields
+
+- **`schemaVersion`** - an integer, optional. `council doctor` warns (never fails) when a chain
+  omits it or names an older/newer one than this build knows about. A chain file without it keeps
+  working exactly as it always did - this is a warning, not a requirement.
+- **`max_proposals_per_seat`** - an integer, **opt-in, no default**. Debate size stays unlimited
+  unless a chain file explicitly sets this. When it is set and one seat's own proposals still
+  exceed it, that seat gets one merge prompt to fold its own list down before the debate board
+  ever sees the extras.
+
+## New in 0.5.0
+
+- **`council init [--yes]`** - the first thing to run in a fresh clone with no keys yet. Prints a
+  key check, writes a starter chain and task file you own (`chains/my-first-chain.json`,
+  `tasks/my-first-task.md` - a rerun never overwrites an edit you made to either), prices the
+  starter chain with no network call, then runs a canned, all-mock, $0 task end to end so the
+  first thing you inspect is a real run folder, not just terminal output.
+- **`council doctor --chain <file>`** - lints one chain config before you ever run it: a seat
+  under a misspelled key (never wired to any stage), a missing or empty `seats.critics` (the
+  review round can't run), or a seat naming a provider this codebase doesn't know. The same check
+  also runs automatically, fail-loud, the moment you try to actually run a broken chain - before
+  any paid call.
+- **`council doctor --scan-artifacts`** - scans your `tasks/` and `chains/` for API-key-shaped
+  strings before you commit or share them. Reports the file and line, never the matched text.
+- **`council --forecast-cost --chain <name> [--days N]`** - a realistic-case USD range for a
+  chain, built from its own historical runs on your machine and repriced at today's rates -
+  distinct from `--dry-run`'s worst-case estimate from a chain's declared token assumptions.
+- **`council export-board --run <folder> --out <file>`** - a run's proposals, debate, replies and
+  verdict as one self-contained HTML file. No external assets, no server, `<details>` sections.
+- **`council replay --run <folder> [--json]`** - a numbered, step-by-step transcript of a run's
+  reasoning in your terminal, with a `--json` mode for scripting.
+- **A structured error catalog** (`COUNCIL-E001`-`COUNCIL-E004`, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md))
+  for the hard-fail paths this project actually has - a missing key, an unpriced model, a
+  malformed chain file, an unreadable stage reply - each with a plain-words cause, a concrete fix
+  naming the real file, and a doc pointer. Degradable conditions exit 5; fatal ones exit 6.
+- **Structured per-stage JSON logs** - every run now also writes `stage-log.jsonl` (one line per
+  stage: seat, lab, token counts, cost, timing - no prompt content) alongside the existing
+  markdown/`report.json` artifacts.
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - the three smallest landable contribution shapes, for
+  anyone who wants to send a PR rather than only file an issue.
+
+None of the above change any existing chain's behaviour. `schemaVersion` and
+`max_proposals_per_seat` are both opt-in; a chain file that predates 0.5.0 runs exactly as it did
+before.
+
 ## How this was built
 
 Vibecoded, with **Claude Code** doing the writing, by one person at

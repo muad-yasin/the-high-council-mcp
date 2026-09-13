@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.5.0 - 2026-09-13
+
+v5's fifteen-candidate feature horizon (`relay/runs/2026-09-13T14-51-08-757Z/`, unanimous
+five-lab sign-off, $0.2181), built across five phases, each offline-tested against
+`chains/mock-*.json` fixtures and each merge point run through `sower-review:bug-audit`. 213
+tests, offline, no API key, no live provider call. The mechanism itself - debate, proposals,
+signoff, BYOK, the no-ledger-file invariant - is unchanged. No efficacy claim is made anywhere
+below, including for the quality probe (see its own section further down).
+
+**Failure legibility and first-run experience**
+
+- **`council init [--yes]`** - a starter chain and task file a stranger owns, a real (no-network)
+  price of that chain, and a canned $0 mock run so the first artifact anyone inspects is a real
+  run folder, not just terminal output. Reruns never overwrite an edit you made to either
+  starter file.
+- **A structured error catalog** (`COUNCIL-E001`-`COUNCIL-E004`, `TROUBLESHOOTING.md`) for this
+  project's actual hard-fail paths - missing key, unpriced model, malformed chain file,
+  unreadable stage reply - each wrapped from its existing raise site with no change to what
+  fails, only to what's printed: a plain-words cause, what the missing concept IS, a concrete
+  fix naming the real file, a doc pointer. Distinct exit codes: 5 for a condition you can fix and
+  continue from, 6 for one that stops this invocation outright.
+- **`council doctor --chain <file>`** - fail-loud chain-config linting, before any metered call:
+  a seat under a misspelled key that would silently never run, a missing/empty `seats.critics`
+  that would crash or vacuously pass the review round, an unrecognized provider. Wired into both
+  a read-only doctor check and the run codepath itself.
+- **`council doctor --scan-artifacts`** - scans `tasks/` and `chains/` for API-key-shaped strings
+  before you commit or share them; reports file and line, never the matched text.
+
+**Cost and observability**
+
+- **`council --forecast-cost --chain <name>`** - a realistic-case USD range from a chain's own
+  historical runs, repriced at today's rates, distinct from `--dry-run`'s worst case.
+- **`council export-board --run <folder> --out <file>`** - one self-contained HTML file of a
+  run's proposals, debate, replies and verdict. No external assets, no server.
+- **`council replay --run <folder> [--json]`** - a numbered, step-by-step transcript of a run.
+- **`--stats`'s independence-skew report** - per-lab novel-objection rate and solo-signoff rate,
+  with a low-independence flag, plus a shape-only-critique-round counter. Both purely descriptive
+  - neither reweights a panel or changes a verdict.
+- **`stage-log.jsonl`** - one structured JSON line per stage per run folder (seat, lab, token
+  counts, cost, timing - no prompt content), alongside the existing markdown/`report.json`.
+
+**Chain-config evolution, both opt-in**
+
+- **`schemaVersion`** - an optional integer field; `council doctor` warns, never fails, when a
+  chain omits it or names an older/newer one. A chain file without it behaves exactly as before.
+- **`max_proposals_per_seat`** - **opt-in, no default.** Debate size stays unlimited unless a
+  chain file explicitly sets this field; no existing chain's behaviour changes. When a chain does
+  set it and one seat's own proposals still exceed the cap, that seat gets one merge prompt to
+  fold its own list down before the debate board sees the extras.
+
+**Withdrawal-chain integrity**
+
+- **A withdrawal-chain termination check** (`council doctor --run <folder>`, and wired into a
+  run's own reply-round close) detects a cycle or a dead end in mutual proposal withdrawals - a
+  section that ends up with no surviving owner. Caught a real instance of exactly this bug inside
+  the v5 planning run that authored this feature (two proposals mutually withdrew in each
+  other's favour); the fix is regression-tested against that real run folder.
+
+**Seeded-defect quality probe (test-only, Phase 1 of 2)**
+
+`test/quality-probe/`: five synthetic fixtures seeded with 25 planted defects, graded by three
+deterministic heuristic detectors, reporting catch-rate and unanimity as two separate numbers -
+conflating "the detectors agreed" with "the detectors were right" is the reason this exists.
+**This is not an efficacy claim and never may be quoted as one.** The detectors are deterministic
+heuristics standing in for a mock panel, not real model seats - these numbers say nothing yet
+about what an actual multi-lab council catches on a real plan with a real, un-cataloged defect.
+Not under `src/`, not in `package.json`'s `files`, isolated from every runtime surface (`runs/`
+scanners, the local UI, `verdict_stats`) by construction. Phase 2 (replaying real recorded
+objections, which would let a real-panel claim be made honestly) needs a replay-driver design
+that does not exist yet and is explicitly out of this release.
+
+**Other**
+
+- **`CONTRIBUTING.md`** - the three smallest landable contribution shapes.
+
 ## 0.3.0 - 2026-09-13
 
 v3 build, designed from nine real runs driven the same day (chain `plan-debate-c2-4lab`,
