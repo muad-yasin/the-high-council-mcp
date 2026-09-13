@@ -20,6 +20,7 @@ import { forecastCost } from './cost-forecast.js';
 import { renderBoardHtml } from './board-export.js';
 import { buildTranscript, renderTranscriptText } from './replay.js';
 import { lintChain } from './chain-lint.js';
+import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { formatCouncilError, ERROR_CATALOG } from './errors.js';
 
 // v5 §1 candidate 4: distinct exit codes for a degradable condition (a
@@ -78,7 +79,33 @@ function flag(name, fallback) {
 // `--from-run` against an init-produced run silently reran the criteria
 // stage instead of reusing it - no crash, just a broken promise. Both
 // writers now build from this one function.
-function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = null }) {
+function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = null, config = null }) {
+  // v6 §7: failure-mode diagnostics, computed from this run's own real
+  // debate output - never from the phase 4 measurement harness, which
+  // is a deterministic heuristic probe and cannot speak to real debate
+  // diversity (see docs/v6-decisions.md). Additive-only: a chain with
+  // no debate stage keeps debate as-is (null); one that did debate
+  // always gets a diagnostics object, with nulls/empty flags rather
+  // than an absent key when there's nothing to compute.
+  //
+  // v6 phase 7 bug-audit fix: role only ever takes effect on a
+  // seats.proposers entry - chain.js's debate-stage seatOf(lab) looks
+  // seats up exclusively from proposers, so a role set on any other
+  // seat kind (builder, judge, critics, ...) is already a silent no-op
+  // (see chain-lint.js's new warning for that). This used to pull role
+  // from every seat kind, which could misclassify a proposer's own
+  // debate posts as role-bearing via a shared provider-as-lab fallback
+  // string with an unrelated non-proposer seat that happened to carry
+  // a role. Restricted to proposers, the only seats debate ever touches.
+  const roleLabs = new Set(
+    (config?.seats?.proposers || [])
+      .filter(s => s?.role)
+      .map(s => s.lab || s.provider) // same lab || provider fallback chain.js's own labOf uses
+  );
+  const debate = result.debate
+    ? { ...result.debate, diagnostics: computeRoleDiagnostics(result.debate, roleLabs) }
+    : result.debate;
+
   return {
     runId,
     chain,
@@ -91,7 +118,7 @@ function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = 
     signoff: result.signoff,
     proposals: result.proposals,
     dropouts: result.dropouts,
-    debate: result.debate,
+    debate,
     scoreboard: result.scoreboard,
     disputes: result.disputes,
     orphanSections: result.orphanSections,
@@ -358,7 +385,7 @@ if (argv[0] === 'init') {
   });
   writeFileSync(join(initRunDir, 'deliverable.md'), initResult.deliverable);
   writeFileSync(join(initRunDir, 'report.json'), JSON.stringify(reportJsonShape({
-    runId: initRunId, chain: cannedConfig.name, task: starterTaskPath, result: initResult,
+    runId: initRunId, chain: cannedConfig.name, task: starterTaskPath, result: initResult, config: cannedConfig,
   }), null, 2));
 
   console.log(`\nWrote ${initRunDir} - a real run folder (report.json, deliverable.md) from the canned demo task, $0, no network call.`);
@@ -970,7 +997,7 @@ if (result.proposals?.length) {
     `## ${p.id} (${p.lab}/${p.model})\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}`).join('\n\n'));
 }
 writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
-  runId, chain: config.name, task: taskPathEff, result,
+  runId, chain: config.name, task: taskPathEff, result, config,
   fromRun: fromRun || resumeMeta?.fromRun || null, maxUsd: maxUsdEff,
 }), null, 2));
 // Final regeneration: the last onStage-triggered RESUME.md was written before

@@ -299,7 +299,7 @@ for anyone with a subscription, since the project's cost story depends on it.
 
 ## Chains
 
-30 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
+31 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
 which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be
 copied and edited.
 
@@ -324,6 +324,30 @@ Read a chain's `description` field before running it; they say what they cost yo
   unless a chain file explicitly sets this. When it is set and one seat's own proposals still
   exceed it, that seat gets one merge prompt to fold its own list down before the debate board
   ever sees the extras.
+- **`role`** - optional, on any `seats.proposers` entry only (set anywhere else and `council
+  doctor` rejects it fail-loud, since it would silently do nothing there): `{ lens?, persona? }`.
+  `lens` is one of `adversary | integrator | long-horizon | user-advocate | security-and-legal` -
+  a critique function. `persona` is a name - a voice, resolved against the default set in
+  `PERSONAS.md` when it matches, otherwise used as free text. Applies only to that seat's
+  debate-stage prompt; the panel/critique stage that sets `passed` never sees it, enforced by a
+  source-level guard, not just an intention. A chain with no `role` set is byte-identical to
+  before. **No efficacy claim**: this ships the mechanism, not evidence that it helps - see
+  CHANGELOG.md's 0.6.0 entry.
+
+## New in 0.6.0
+
+- **Role-assigned debate seats** - see the `role` field above. Ships the mechanism only; whether
+  it changes anything about a real debate is untested by this release.
+- **`report.json`'s `debate.diagnostics`** - four failure-mode signals computed from a run's own
+  real debate output (never from an offline probe): a seat quoting no evidence despite objecting
+  or merging, textual overlap between differently-lensed seats' posts on the same proposal, a
+  same-run gap between role-bearing and role-less seats' evidence quoting, and the share of a
+  seat's own words that fall inside quoted evidence versus voice. Present (with nulls/empty
+  flags where there's nothing to compute) on any run that had a debate stage; absent otherwise.
+- **`debate.tie_break`** - a `report.json` field recording a weighted-tiebreak event, when one
+  fires. Not yet wired into a live vote-counting decision in this release.
+- **`PERSONAS.md`** - the five default public persona names and their voice directives, and how
+  an operator replaces the whole set with their own via `COUNCIL_PERSONAS_FILE`.
 
 ## New in 0.5.0
 

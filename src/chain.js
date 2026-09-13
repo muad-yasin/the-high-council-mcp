@@ -3,6 +3,8 @@ import * as R from './roles.js';
 import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach } from './cost.js';
 import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
+import { applySeatRole } from './seat-role.js';
+import { NO_TIE_BREAK } from './tie-break.js';
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
 // full chain. Tells the criteria seat what the chain's own contract will require in the
@@ -542,8 +544,13 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         const lines = []; const say = m => lines.push(m);
         let posts = [], revisions = [];
         try {
+          // v6 §1/§3: role augmentation applies only here, the debate-stage
+          // system prompt - never to the panel/critique stage. A seat with
+          // no role gets R.DEBATE_SYSTEM back unchanged (applySeatRole is a
+          // no-op), which is what the golden-hash compatibility test in
+          // test/seat-role.test.js checks.
           const st = record(await invoke(seatOf(lab), {
-            system: R.DEBATE_SYSTEM,
+            system: applySeatRole(R.DEBATE_SYSTEM, seatOf(lab)?.role),
             user: R.debateUser({ request, criteria, skeleton, proposals, lab, maps }),
             log: say, label: `debate-${lab}`,
           }));
@@ -595,7 +602,14 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         if (r.action === 'withdraw') { p.withdrawn = true; p.replaced_by = r.replaced_by; }
       }
       board = R.renderBoard(proposals, posts, replies);
-      debate = { posts, replies };
+      // v6 §4: the field is always present once a debate stage has run, even
+      // when no tie ever occurred - an absent field reads as "no tie-break
+      // happened" and as "the feature isn't wired up" identically, which is
+      // exactly the silent-drop failure class this project was burned by
+      // tonight. Phase 3 delivers the arithmetic and this always-present
+      // field; no call site in this stage decides pass/fail by vote yet, so
+      // debate runs record the no-op result until a future phase wires one.
+      debate = { posts, replies, tie_break: NO_TIE_BREAK };
       const w = proposals.filter(p => p.withdrawn).length;
       log(`  board: ${posts.length} post(s), ${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}, ${w} proposal(s) withdrawn, ${proposals.filter(p => p.amended).length} amended.`);
 
