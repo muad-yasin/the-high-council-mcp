@@ -15,6 +15,7 @@ import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs, withStalenessCheck } from './cache-integrity.js';
 import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
+import { forecastCost } from './cost-forecast.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -256,6 +257,28 @@ if (argv.includes('--stats')) {
   }
   if (r.unreadable) console.log(`\n  ${r.unreadable} run folder(s) could not be read and are not counted.`);
   console.log(`\n  Derived from the run folders on disk. Nothing is recorded anywhere else, and nothing leaves this machine.`);
+  process.exit(0);
+}
+
+// `council --forecast-cost --chain <name>` (v5 §1 candidate 7): a
+// realistic-case range from this chain's own history on this machine,
+// repriced at today's pricing.json - distinct from `--dry-run`'s
+// worst-case estimate from the chain's declared token assumptions.
+if (argv.includes('--forecast-cost')) {
+  const chainNameArg = flag('chain', 'verify');
+  const days = Number(flag('days', 90));
+  if (!Number.isFinite(days) || days <= 0) {
+    console.error('--days: expected a positive number of days');
+    process.exit(2);
+  }
+  const f = forecastCost(chainNameArg, join(work, 'runs'), { days });
+  console.log(`\nCost forecast for chain "${f.chain}", from ${f.runsUsed} historical run(s) in the last ${f.days} day(s):`);
+  if (f.low === null) {
+    console.log(`  no estimate - ${f.note}. Try "council --chain ${f.chain} --dry-run" for a worst-case estimate with no history needed.`);
+  } else {
+    console.log(`  ${formatUsd(f.low)} - ${formatUsd(f.high)}  (mean ${formatUsd(f.mean)})`);
+    console.log(`  This is a range from what this chain has actually cost before, repriced at today's rates - not a promise. A run outside this range is possible.`);
+  }
   process.exit(0);
 }
 
