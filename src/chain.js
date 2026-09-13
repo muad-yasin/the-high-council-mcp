@@ -3,6 +3,7 @@ import * as R from './roles.js';
 import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach } from './cost.js';
 import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
+import { applySeatRole } from './seat-role.js';
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
 // full chain. Tells the criteria seat what the chain's own contract will require in the
@@ -542,8 +543,13 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         const lines = []; const say = m => lines.push(m);
         let posts = [], revisions = [];
         try {
+          // v6 §1/§3: role augmentation applies only here, the debate-stage
+          // system prompt - never to the panel/critique stage. A seat with
+          // no role gets R.DEBATE_SYSTEM back unchanged (applySeatRole is a
+          // no-op), which is what the golden-hash compatibility test in
+          // test/seat-role.test.js checks.
           const st = record(await invoke(seatOf(lab), {
-            system: R.DEBATE_SYSTEM,
+            system: applySeatRole(R.DEBATE_SYSTEM, seatOf(lab)?.role),
             user: R.debateUser({ request, criteria, skeleton, proposals, lab, maps }),
             log: say, label: `debate-${lab}`,
           }));
