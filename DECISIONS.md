@@ -173,3 +173,100 @@ Not chasing a unanimous MET here: there's no real code gap (error handling alrea
 is already documented) and no real evidence gap (2 of 4 labs found the evidence fine) - this is
 one lab missing real text plus one lab wanting a static page to do something only a live process
 can do. Left as scored.
+
+## 2026-09-13: v6 phase 4 harness - mock-seat model, lens routing, and why persona ties by design
+
+**Context:** §5 asks for four arms (plain, lens-only, persona-only, lens+persona) run against
+v5's five fixtures/25 defect instances, "template-driven, not live model calls," where "a
+lens-aware mock checks its assigned defect category first." The plan names the five lenses
+(adversary, integrator, long-horizon, user-advocate, security-and-legal) but leaves the
+lens->defect-type mapping and the exact mock-seat mechanics to the builder.
+
+**Decision:** each lens is the pre-registered specialist for exactly one of the five defect types
+(role-experiment.js's `LENS_TO_DEFECT_TYPE`, chosen and committed before any run, with a one-line
+stated reason per pairing - e.g. "security-and-legal" -> `unresolved_objection`). A lens-bearing
+seat's specialist vote reuses the existing detector's 'strict' tier for its assigned type; every
+seat also has a generic 'loose'-tier read available for every type. `caught = specialist OR
+generic`; `unanimous = specialist === generic`. Persona is modeled as having **zero** effect on
+either value - Arm C (persona-only) is mechanically identical to Arm A, and Arm D (lens+persona)
+identical to Arm B, verified by an equality assertion in the test suite, not just asserted in a
+comment.
+
+**Why:** the plan's own rationale for this section is "the experiment tests whether role-
+conditioning changes *where a detector looks* (routing), not whether a model gets smarter." A
+persona is a name and a voice; it carries no checklist of what to look for, and inventing one
+would silently build a claim ("persona alone makes the mock notice more") the landed design
+(§3/§6) never makes about personas. Making C=A and D=B by construction is the honest expression of
+that: if this offline model gave persona a detection effect, it would be fabricating the exact
+kind of result the LIMIT statement explicitly disclaims this harness can speak to. Reusing
+'strict' as the specialist tier and 'loose' as the generic tier (rather than inventing a fourth
+sensitivity level) keeps every number traceable to the same three detector functions the v5 probe
+already ships and has already been reviewed - no new heuristic logic, only new routing over
+existing ones.
+
+**Threshold set before any run, and the negative-control proof:** POSITIVE/NEGATIVE/INCONCLUSIVE
+(§5's own text) is implemented once in `decide()`, called by both the real 5-fixture run and a
+direct unit test with synthetic per-arm data proving all three verdicts are reachable. The
+"prove it can say NEGATIVE" requirement is satisfied two ways: (1) a hand-built negative-control
+fixture whose decoy text shares zero significant words with its own constraint phrase (closing
+the one real gap - case-1-plan-shop's dropped_constraint decoy happens to share two words with
+its constraint, which is the only place a lens ever gains an edge over plain in the real
+fixtures) - run alone, it ties on all 5 defect types and yields NEGATIVE with `winFixtureCount`
+literally 0 for every role-bearing arm, not just "below the 3-fixture bar by fixture-count
+starvation"; (2) the real, unmodified 5-fixture run itself already reads NEGATIVE today under
+this model (regression-anchored in a test, not asserted from memory) - arm B/D's specialist vote
+(always 'strict', which the real detectors already mark true on nearly every planted defect) only
+out-catches arm A on one fixture out of five, short of the >=3 bar.
+
+**Error visibility:** every cell is wrapped individually; a throw is recorded with `status:
+'error'` in `rows` (never dropped from the array) and duplicated into a top-level `errors` array,
+and every rate (`catchRate`, `unanimityRate`) is computed only over `status: 'ok'` rows, returning
+`null` rather than a misleading `0` when nothing could be scored. Tested directly against a
+fixture missing its `defects` object entirely (every cell throws), matching the shape of tonight's
+real incident (a chain reporting `passed:true` while a lab's unparseable reply was silently
+dropped from the mean) as the thing this harness must not reproduce.
+
+## 2026-09-13: v6 phase 4 harness - bug-audit fix: a fixture-level win comparison must exclude
+   any defect type either arm failed to score, not silently treat an error as "arm A missed it"
+
+**Found by:** `sower-review:bug-audit` pass over the phase 4 harness diff, before this commit.
+
+**The bug:** `decide()`'s fixture-level win comparison originally counted each arm's caught-type
+total independently, filtering each side to its own `status: 'ok'` rows. If Arm A errored on a
+cell while a role-bearing arm scored that same cell cleanly, Arm A's own total was silently
+deflated (the errored type was simply absent, not counted as "attempted and missed") - which
+could make the role arm look like it beat Arm A on a fixture it was never actually compared
+against for that type. This does not fire on the five checked-in fixtures (none error), so it was
+latent, not observed - exactly the kind of asymmetry a review pass exists to catch before a
+future fixture change makes it real.
+
+**Fix:** `compareCaughtTypes()` now walks the fixed five defect types per fixture and counts a
+type toward either side's total only when BOTH arms have a scoreable ('ok') cell for it; a type
+where either side errored is excluded from that fixture's comparison entirely, contributing to
+neither a win nor a loss. Regression test added (`decide(): a fixture where arm A errors on one
+defect type must not count as a "win" for a role arm that scores it`) using hand-built rows, not
+dependent on ever engineering a real fixture that triggers this path.
+
+**Also reviewed and left as-is, per the same bug-audit pass:** `decide()`'s `for (const arm of
+['B','C','D'])` loop only ever reports the first satisfying arm as `cleanWinner`/`mixedWinner`.
+Because Arm C is defined identical to A (never wins) and Arm D identical to B, only B can ever
+actually win today - a latent trap only if that C=A/D=B invariant is ever broken by a future
+change, not a live bug now. Left unguarded rather than adding speculative code for an invariant
+this harness's own test (`persona-only arm C is mechanically identical to arm A...`) already
+protects; noted here so a future editor sees the reasoning rather than rediscovering it.
+
+**Also reviewed and confirmed correct, not touched:** error-visibility across all three surfaces
+a reader might check (`rows`, the dedicated `errors` array, and `summarize()`'s printed count);
+the persona-has-no-effect claim (re-derived from the branching in `runArmAgainstFixtures`, not
+just the comment); and `LENS_TO_DEFECT_TYPE`'s completeness against `DEFECT_TYPES`.
+
+**Separately, `sower-review:scope-gate` verdict: GO** on the experiment design itself - the
+decision thresholds are copied verbatim from plan §5 (not loosened or tightened here), the
+lens->defect-type mapping isn't tuned toward a result (the real run reads NEGATIVE despite it),
+and the engineered negative-control fixture is a genuine content-driven tie (`winFixtureCount`
+asserted as exactly 0, not just "below the bar"), reinforced by an independent synthetic-data
+unit test of `decide()` covering all three verdicts. One thing that review surfaced and this
+worktree does not resolve, because it isn't this worktree's decision: the real 5-fixture run
+already reads NEGATIVE today, which is itself the author decision point named in the plan
+("Decisions left to the author" - what happens if phase 4 comes back negative). Flagged to
+cnc-harness-a7/Muad, not decided here.
