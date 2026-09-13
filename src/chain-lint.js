@@ -81,5 +81,27 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
+  // 5. Role on a seat kind that never reaches the debate stage (v6 phase
+  // 7 bug-audit fix): chain.js's debate stage looks a seat's role up
+  // exclusively via seats.proposers - a role set on any other seat kind
+  // (criteria, builder, reviser, finalist, skeleton, handoff, questions,
+  // judge, critics) is accepted by validateSeatRole but has no effect at
+  // all, silently, since nothing ever reads it there.
+  const nonProposerSeats = [
+    ['criteria', seats.criteria], ['builder', seats.builder], ['reviser', seats.reviser],
+    ['finalist', seats.finalist], ['skeleton', seats.skeleton], ['handoff', seats.handoff],
+    ['questions', seats.questions], ['judge', seats.judge],
+    ...(seats.critics || []).map(s => ['critics', s]),
+  ];
+  for (const [kind, s] of nonProposerSeats) {
+    if (s?.role) {
+      findings.push({
+        kind: 'role-on-non-proposer-seat',
+        message: `seats.${kind} has a "role" set, but only seats.proposers ever reach the debate stage where a role has any effect - this role is a silent no-op.`,
+        fix: `Move "role" to the matching seat under "seats.proposers" in ${filePath}, or remove it from seats.${kind} if it was set by mistake.`,
+      });
+    }
+  }
+
   return findings;
 }

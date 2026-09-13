@@ -1,3 +1,5 @@
+import { DEFAULT_PERSONAS as PERSONAS_DEFAULT, resolvePersona } from './personas.js';
+
 // v6 §1: an optional per-seat `role` field, alongside `provider`/`model`/
 // `maxTokens`/`lab`. Absent, prompt assembly is byte-identical to today -
 // proven by test/seat-role.test.js's golden-hash comparison against every
@@ -23,12 +25,15 @@ export const LENSES = {
   'security-and-legal': 'Judge this proposal for what it exposes, leaks, or obligates - data, keys, liability. Name the concrete exposure, not a general risk.',
 };
 
-// The five public persona names Muad has already chosen (v6 plan §6).
-// This is the shipped default; an operator may replace the whole set
-// (§6 is v6 phase 6, not built by this module) - but this module is the
-// one place a persona *name* is validated against, so the default lives
-// here rather than being duplicated.
-export const DEFAULT_PERSONAS = ['moses', 'noah', 'matthew', 'van-gogh', 'parzival'];
+// v6 phase 7 integration fix: this used to be a second, independently
+// maintained literal of the same five names src/personas.js (phase 6,
+// built in parallel off master, unaware of this module) already owns
+// with full name/voice data - exactly the "two places quietly agree
+// today, nothing stops them drifting" class this project has been
+// bitten by before (v5 Phase 2's report.json writers). Derived from
+// personas.js's own keys now, so there is one source of the five names,
+// not two.
+export const DEFAULT_PERSONAS = Object.keys(PERSONAS_DEFAULT);
 
 /**
  * Validate a seat's `role` field. Returns an array of problem strings -
@@ -64,12 +69,28 @@ export function validateSeatRole(role) {
  * produces `basePrompt` unchanged - not a copy with an empty suffix,
  * the exact same string, so a golden-hash comparison is a real
  * byte-identity check and not merely a "looks the same" one.
+ *
+ * v6 phase 7 bug-audit fix: `role.persona` used to be embedded as a
+ * bare, unresolved string, entirely disconnected from personas.js's
+ * curated name/voice data (built by phase 6, in parallel, unaware
+ * this module existed) - the exact safety net phase 6 exists for
+ * (keeping third-party names out of a public MIT repo) had nothing
+ * to do with what actually reached a live model prompt. Now resolved
+ * against `personas` (defaulting to the shipped set) when the key
+ * matches; an unresolved key still falls back to the raw string
+ * unchanged, since phase 6 also explicitly allows an operator to
+ * replace the whole set, and this module has no way to know which
+ * operator-supplied personas.json (if any) was loaded for this run.
  */
-export function applySeatRole(basePrompt, role) {
+export function applySeatRole(basePrompt, role, personas = PERSONAS_DEFAULT) {
   if (role === undefined || role === null) return basePrompt;
   const blocks = [];
   if (role.lens && LENSES[role.lens]) blocks.push(LENSES[role.lens]);
-  if (role.persona) blocks.push(`You are arguing as ${role.persona}. Let that voice and point of view shape how you argue, without changing what you are actually judging.`);
+  if (role.persona) {
+    const resolved = resolvePersona(role.persona, personas);
+    const detail = resolved ? ` (${resolved.name}). ${resolved.voice}` : '.';
+    blocks.push(`You are arguing as ${role.persona}${detail} Let that voice and point of view shape how you argue, without changing what you are actually judging.`);
+  }
   if (!blocks.length) return basePrompt;
   return `${basePrompt}\n\n[SEAT ROLE]\n${blocks.join('\n\n')}\n[END SEAT ROLE]`;
 }

@@ -131,3 +131,29 @@ Verified end-to-end, not just unit-tested: ran a real `council` invocation again
 mock-debate.json` with a role added to one proposer, confirmed `report.json`'s
 `debate.diagnostics` populated correctly with real per-seat numbers computed from the actual mock
 debate output produced by that run.
+
+## Phase 7 - release integration
+
+**Integration-time fix, found during the merge, not left for later**: phase 1's `src/seat-role.js`
+and phase 6's `src/personas.js` were built in parallel off `master`, each unaware of the other,
+and each shipped its own `DEFAULT_PERSONAS` constant naming the same five names - phase 1's a bare
+array of keys, phase 6's a full name/voice object. Two independently-maintained ideas of the same
+five names is exactly the "quietly agree today, nothing stops them drifting" class this project
+has been bitten by before (v5 Phase 2's `report.json` writers). Fixed at merge time:
+`seat-role.js`'s `DEFAULT_PERSONAS` is now `Object.keys()` of `personas.js`'s own constant, so
+there is one source of the five names, not two. `validateSeatRole()` was deliberately left
+permissive on `role.persona` (any string, not checked against `DEFAULT_PERSONAS`) rather than
+tightened during this fix - phase 6's personas are explicitly operator-replaceable, and chain-lint
+has no access to which `personas.json` an operator loaded at lint time, so validating strictly
+against the shipped default would wrongly reject a legitimate custom persona.
+
+Merge order: phase 1 -> phase 2 (fast-forward, phase 2 built directly on phase 1) -> phase 3
+(one trivial two-line import conflict in `src/chain.js`, both lines kept) -> phase 4 (clean) ->
+phase 5 (clean, phase 5 built directly on phase 2) -> phase 6 (clean, one `.gitignore` line
+merged automatically). Full suite after every merge step and after the `DEFAULT_PERSONAS` fix:
+288/288 (287 pass, 1 environment-dependent skip - the same skip present on every prior v5/v6
+branch, not new).
+
+Verified on this fresh worktree (`/tmp/v6-release`, its own real `npm install`, not a symlink)
+per this project's own standing discipline against exactly the mistake that cost an hour
+elsewhere tonight.

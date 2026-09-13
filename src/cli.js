@@ -87,12 +87,20 @@ function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = 
   // no debate stage keeps debate as-is (null); one that did debate
   // always gets a diagnostics object, with nulls/empty flags rather
   // than an absent key when there's nothing to compute.
+  //
+  // v6 phase 7 bug-audit fix: role only ever takes effect on a
+  // seats.proposers entry - chain.js's debate-stage seatOf(lab) looks
+  // seats up exclusively from proposers, so a role set on any other
+  // seat kind (builder, judge, critics, ...) is already a silent no-op
+  // (see chain-lint.js's new warning for that). This used to pull role
+  // from every seat kind, which could misclassify a proposer's own
+  // debate posts as role-bearing via a shared provider-as-lab fallback
+  // string with an unrelated non-proposer seat that happened to carry
+  // a role. Restricted to proposers, the only seats debate ever touches.
   const roleLabs = new Set(
-    [
-      config?.seats?.criteria, config?.seats?.builder, config?.seats?.reviser, config?.seats?.finalist,
-      config?.seats?.skeleton, config?.seats?.handoff, config?.seats?.questions, config?.seats?.judge,
-      ...(config?.seats?.proposers || []), ...(config?.seats?.critics || []),
-    ].filter(s => s?.role).map(s => s.lab || s.provider) // same lab || provider fallback chain.js's own labOf uses
+    (config?.seats?.proposers || [])
+      .filter(s => s?.role)
+      .map(s => s.lab || s.provider) // same lab || provider fallback chain.js's own labOf uses
   );
   const debate = result.debate
     ? { ...result.debate, diagnostics: computeRoleDiagnostics(result.debate, roleLabs) }

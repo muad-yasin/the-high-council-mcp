@@ -152,3 +152,26 @@ test('end-to-end: a chain with no debate stage keeps debate as-is (null), no dia
   const report = JSON.parse(readFileSync(join(dir, 'runs', runId, 'report.json'), 'utf8'));
   assert.equal(report.debate, null, 'a chain with no debate stage must keep debate as null, not gain a diagnostics-only object');
 });
+
+test('end-to-end, v6 phase 7 bug-audit fix: a role on a non-proposer seat is rejected fail-loud, before the scenario that used to misclassify roleVsPlainSubstanceGap can even run', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-role-diag-nonproposer-'));
+  mkdirSync(join(dir, 'chains'));
+  mkdirSync(join(dir, 'tasks'));
+  const cfg = JSON.parse(readFileSync(join(repoRoot, 'chains', 'mock-debate.json'), 'utf8'));
+  cfg.name = 'mock-debate-nonproposer-role';
+  // Role set on a critic, not a proposer - has zero effect on the debate
+  // stage (chain-lint's role-on-non-proposer-seat check, seat-role.test.js,
+  // covers that in isolation) and used to be able to misclassify a real
+  // proposer's debate posts as role-bearing via a shared provider-as-lab
+  // string. Now caught fail-loud before a run can even start.
+  cfg.seats.critics[0].role = { lens: 'adversary' };
+  writeFileSync(join(dir, 'chains', 'mock-debate-nonproposer-role.json'), JSON.stringify(cfg));
+  writeFileSync(join(dir, 'tasks', 't.md'), 'A tiny task.\n');
+
+  assert.throws(() => execFileSync('node', [cli, '--chain', 'mock-debate-nonproposer-role', '--task', 'tasks/t.md'], { encoding: 'utf8', cwd: dir }));
+  try {
+    execFileSync('node', [cli, '--chain', 'mock-debate-nonproposer-role', '--task', 'tasks/t.md'], { encoding: 'utf8', cwd: dir });
+  } catch (err) {
+    assert.match(err.stderr, /role-on-non-proposer-seat/);
+  }
+});

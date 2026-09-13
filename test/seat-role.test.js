@@ -153,3 +153,60 @@ test('test_role_compat, golden hash across every shipped chain: no seat in any o
 test('DEFAULT_PERSONAS is exactly the five author-approved names, no more, no fewer', () => {
   assert.deepEqual(DEFAULT_PERSONAS, ['moses', 'noah', 'matthew', 'van-gogh', 'parzival']);
 });
+
+// v6 phase 7 bug-audit fixes (2026-09-13), regression coverage.
+
+test('applySeatRole resolves a known persona key against personas.js, enriching but not replacing the raw key', () => {
+  const out = applySeatRole(R.DEBATE_SYSTEM, { persona: 'parzival' });
+  assert.match(out, /arguing as parzival \(Parzival\)\. Asks the question everyone else assumed was already answered\./);
+});
+
+test('applySeatRole falls back to the raw string for an unresolved persona - operator-supplied personas still work', () => {
+  const out = applySeatRole(R.DEBATE_SYSTEM, { persona: 'my-custom-operator-persona' });
+  const appended = out.slice(R.DEBATE_SYSTEM.length);
+  assert.match(appended, /arguing as my-custom-operator-persona\. Let that voice/);
+  assert.doesNotMatch(appended, /\(/, 'no parenthetical display name for an unresolved persona');
+});
+
+test('applySeatRole accepts a custom personas map, not just the shipped default', () => {
+  const custom = { 'my-key': { name: 'My Name', voice: 'Speaks only in questions.' } };
+  const out = applySeatRole(R.DEBATE_SYSTEM, { persona: 'my-key' }, custom);
+  assert.match(out, /arguing as my-key \(My Name\)\. Speaks only in questions\./);
+});
+
+test('chain-lint: role on a non-proposer seat is flagged as a silent no-op', () => {
+  const findings = lintChain({
+    seats: {
+      criteria: { provider: 'anthropic', model: 'x' },
+      builder: { provider: 'anthropic', model: 'x', role: { lens: 'adversary' } },
+      critics: [{ provider: 'anthropic', model: 'y' }],
+    },
+  }, 'chains/fixture.json');
+  const noop = findings.filter(f => f.kind === 'role-on-non-proposer-seat');
+  assert.equal(noop.length, 1);
+  assert.match(noop[0].message, /seats\.builder/);
+  assert.match(noop[0].fix, /seats\.proposers/);
+});
+
+test('chain-lint: the same check catches a role on seats.critics too', () => {
+  const findings = lintChain({
+    seats: {
+      criteria: { provider: 'anthropic', model: 'x' },
+      builder: { provider: 'anthropic', model: 'x' },
+      critics: [{ provider: 'anthropic', model: 'y', role: { persona: 'noah' } }],
+    },
+  }, 'chains/fixture.json');
+  assert.equal(findings.filter(f => f.kind === 'role-on-non-proposer-seat').length, 1);
+});
+
+test('chain-lint: a role on seats.proposers is never flagged as a no-op', () => {
+  const findings = lintChain({
+    seats: {
+      criteria: { provider: 'anthropic', model: 'x' },
+      builder: { provider: 'anthropic', model: 'x' },
+      proposers: [{ provider: 'anthropic', model: 'z', role: { lens: 'integrator' } }],
+      critics: [{ provider: 'anthropic', model: 'y' }],
+    },
+  }, 'chains/fixture.json');
+  assert.equal(findings.filter(f => f.kind === 'role-on-non-proposer-seat').length, 0);
+});
