@@ -18,6 +18,7 @@ import { withdrawalLedger } from './withdrawal-ledger.js';
 import { forecastCost } from './cost-forecast.js';
 import { renderBoardHtml } from './board-export.js';
 import { buildTranscript, renderTranscriptText } from './replay.js';
+import { lintChain } from './chain-lint.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -99,6 +100,36 @@ if (argv[0] === 'doctor') {
       process.exit(1);
     }
     console.log(`No orphaned withdrawal chains in ${runDir}.`);
+    process.exit(0);
+  }
+
+  // `council doctor --chain <file>` (v5 §1 candidate 5): fail-loud lint of
+  // one chain config - missing stage contracts, unreachable stages, and
+  // unrecognized provider references - before anything is ever run against
+  // it. Takes a path (own chains/ or a shipped one), not a bare chain name,
+  // so a chain still being drafted (not yet named/installed) can be linted.
+  const chainArg = flag('chain', null);
+  if (chainArg) {
+    const chainPath = resolve(work, chainArg);
+    if (!existsSync(chainPath)) {
+      console.error(`council doctor --chain: no such file ${chainPath}`);
+      process.exit(2);
+    }
+    let cfg;
+    try { cfg = JSON.parse(readFileSync(chainPath, 'utf8')); } catch {
+      console.error(`council doctor --chain: ${chainPath} is not valid JSON`);
+      process.exit(2);
+    }
+    const findings = lintChain(cfg, chainPath);
+    if (findings.length) {
+      console.error(`\n${chainPath}: ${findings.length} problem(s)\n`);
+      for (const f of findings) {
+        console.error(`  [${f.kind}] ${f.message}`);
+        console.error(`    fix: ${f.fix}\n`);
+      }
+      process.exit(1);
+    }
+    console.log(`${chainPath}: no lint problems.`);
     process.exit(0);
   }
 
@@ -429,6 +460,23 @@ if (!existsSync(configPath)) {
 }
 const config = JSON.parse(readFileSync(configPath, 'utf8'));
 if (flag('rounds', null)) config.maxRounds = Number(flag('rounds'));
+
+// v5 §1 candidate 5: fail loud, before a single metered call, on a chain
+// config that is broken rather than merely risky - distinct from
+// preflightCheck's warn-never-block posture below, which is about task
+// text, not chain config validity. Skipped on --resume: the chain already
+// ran a first round successfully, so its config already proved runnable.
+if (!resumeMeta) {
+  const lintFindings = lintChain(config, configPath);
+  if (lintFindings.length) {
+    console.error(`\nchain lint: ${configPath} has ${lintFindings.length} problem(s) and will not run:\n`);
+    for (const f of lintFindings) {
+      console.error(`  [${f.kind}] ${f.message}`);
+      console.error(`    fix: ${f.fix}\n`);
+    }
+    process.exit(1);
+  }
+}
 
 // --from-run: the earlier run's criteria and first draft are reused verbatim,
 // so whatever differs in the outcome is the panel, not a fresh coin toss.
