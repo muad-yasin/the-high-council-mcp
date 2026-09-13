@@ -2,9 +2,15 @@
 
 Source: `relay/runs/2026-09-13T20-20-07-757Z/` (revise-2.md is the plan, handoff.md the build
 order). **Status: NOT five-lab signed off** - four labs passed, qwen refused over a section-
-ordering objection recorded in the plan's own text; `report.json`'s `passed:true` is a known
-reporting defect (relay-9c is fixing it), not a real sign-off. Muad said build anyway; the
-objection is about document ordering, not design, and does not block phase 1.
+ordering objection recorded in the plan's own text; `report.json`'s `passed:true` was a known
+false-pass bug, now fixed in relay at 87c6e2e. Muad said build anyway; the objection is about
+document ordering, not design.
+
+**Framing correction (Muad, 2026-09-13), carried through phases 4/5**: the feature's purpose is
+debate diversity among real model seats, not catching planted defects. Phase 4's probe (a
+deterministic heuristic mock) cannot see that purpose; its NEGATIVE result on defect-catch fixtures
+is not a feature failure, and persona was never measured by it at all. See docs/v6-decisions.md's
+Phase 5 section for the full argument and how it reshaped two of §7's four detectors.
 
 Roadmap phases (plan §"Roadmap"):
 
@@ -23,9 +29,18 @@ Roadmap phases (plan §"Roadmap"):
       call, and a check that `src/roles.js` never imports `applySeatRole` at all - four CI-failing
       assertions (`test/stage-isolation.test.js`), verified locally to actually fail when a second
       call site is injected, not just pass vacuously. Full suite: 234/234 (233 pass, 1 skip).
-- [ ] Phase 3 - weighted voting (§4). thcmcp-cb, in parallel, independent of role content.
-- [ ] Phase 4 - measurement (§5), THE GATE. Not started. Decides whether phases 5-6 are worth
-      finishing.
-- [ ] Phase 5 - failure-mode detectors (§7). Not started.
-- [ ] Phase 6 - public naming config (§6). Not started.
-- [ ] Phase 7 - release. Not started.
+- [x] Phase 3 - weighted voting (§4). thcmcp-cb, `v6/phase3-weighted-voting`.
+- [x] Phase 4 - measurement (§5). wolv-a0, `v6/phase4-measurement-harness` (d24f61e), built ahead
+      of phases 1-3 per handoff.md's own allowance. Test-only, offline, 226 tests at that commit.
+      Framing correction above applies to this phase's own result.
+- [x] Phase 5 - failure-mode detectors (§7). `v6/phase5-failure-detectors`, built by thc-17.
+      **Reasoned deviation, recorded in docs/v6-decisions.md**: two of the four detectors
+      (role-correlation collapse, role-degrades-a-weaker-model) originally read per-seat data
+      from the phase 4 probe; both redesigned to read a real run's own debate output instead
+      (`src/role-diagnostics.js`), since the probe cannot see what the feature is actually for.
+      Wired into `report.json`'s `debate.diagnostics` via the shared `reportJsonShape()`
+      function, additive-only (verified end-to-end: a chain with no debate stage still gets
+      `debate: null`, one that does always gets a diagnostics object). Full suite: 249/249
+      (248 pass, 1 environment-dependent skip).
+- [ ] Phase 6 - public naming config (§6). thcmcp-cb, in progress.
+- [ ] Phase 7 - release. In progress (this session) - integrating phases 1-6.
