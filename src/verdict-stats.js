@@ -10,6 +10,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { runIdToDate } from './spend.js';
+import { shapeRounds } from './shape-rounds.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 
@@ -25,6 +26,7 @@ function emptyChainAgg() {
     unparseable: 0,
     costs: [],
     wallMs: [],
+    shapeOnlyRounds: 0,
   };
 }
 
@@ -124,6 +126,7 @@ export function verdictStats(runsDir, { days = 30, now = Date.now() } = {}) {
     }
 
     chain.dropouts += (report.dropouts || []).length;
+    chain.shapeOnlyRounds += shapeRounds(dir).shapeOnlyRounds;
 
     const rows = report.scoreboard?.rows || [];
     for (const row of rows) {
@@ -170,6 +173,7 @@ export function verdictStats(runsDir, { days = 30, now = Date.now() } = {}) {
     withdrawals: c.withdrawals,
     accepted: c.accepted,
     dropouts: c.dropouts,
+    shapeOnlyRounds: c.shapeOnlyRounds,
     unparseable: c.unparseable,
     meanCostUsd: mean(c.costs),
     meanWallMs: mean(c.wallMs),

@@ -205,7 +205,7 @@ if (argv.includes('--stats')) {
       console.log(`  ${c.chain.padEnd(w)}  runs=${c.runs}  signoff=${c.signoffRate === null ? '-' : `${Math.round(c.signoffRate * 100)}%`}` +
         `  rounds=${c.meanRoundsToSignoff === null ? '-' : c.meanRoundsToSignoff.toFixed(1)}` +
         `  objections=${c.objections}  withdrawn=${c.withdrawals}  accepted=${c.accepted}` +
-        `  dropouts=${c.dropouts}  unparseable=${c.unparseable}` +
+        `  dropouts=${c.dropouts}  unparseable=${c.unparseable}  shapeOnlyRounds=${c.shapeOnlyRounds}` +
         `  cost=${c.meanCostUsd === null ? '-' : formatUsd(c.meanCostUsd)}` +
         `  wall=${c.meanWallMs === null ? '-' : `${Math.round(c.meanWallMs / 1000)}s`}`);
     }
