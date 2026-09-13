@@ -1,6 +1,6 @@
 {
   "name": "plan-debate-roles-c1",
-  "description": "v6 role-seat plan, phase 5 real-run candidate (docs/v6-decisions.md 'Phase 5 - role debate chain'). Same shape as plan-debate-open-c2, minus Kimi (five seats, not six, to match the plan's five lenses/five personas one-to-one). BUILD-FIX 2026-09-14: originally written against phase 1/2's seats.critics-does-double-duty shape, before the full v6 release integration split seats.proposers (proposes and debates, role-bearing) from seats.critics (panel/critique stage, role-free) as its own array - chain-lint's role-on-non-proposer-seat check (v6 phase 7) is correct that a role on seats.critics alone is a no-op under the current, intentional contract. Fixed by declaring both arrays explicitly: seats.proposers carries the five role-bearing debate seats; seats.critics is the same five labs for the later panel/critique stage, with role stripped (the panel stage must never see it, per v6 phase 2's stage-isolation guarantee - role appearing there at all would itself be a lint/architecture violation, not just redundant). Pairings and their reasoning are in docs/v6-decisions.md, not repeated here so there is one place to keep them current.",
+  "description": "v6 role-seat plan, phase 5 real-run candidate (docs/v6-decisions.md 'Phase 5 - role debate chain'). Same shape as plan-debate-open-c2, minus Kimi (five seats, not six, to match the plan's five lenses/five personas one-to-one). BUILD-FIX 2026-09-14: originally written against phase 1/2's seats.critics-does-double-duty shape, before the full v6 release integration split seats.proposers (proposes and debates, role-bearing) from seats.critics (panel/critique stage, role-free) as its own array - chain-lint's role-on-non-proposer-seat check (v6 phase 7) is correct that a role on seats.critics alone is a no-op under the current, intentional contract. Fixed by declaring both arrays explicitly: seats.proposers carries the five role-bearing debate seats; seats.critics is the same five labs for the later panel/critique stage, with role stripped (the panel stage must never see it, per v6 phase 2's stage-isolation guarantee - role appearing there at all would itself be a lint/architecture violation, not just redundant). SUBSTITUTION 2026-09-14: the gemini/adversary/parzival seat is now minimax (MiniMax M3, via openrouter) - Google AI Studio's prepayment credits were depleted mid-run (real HTTP 429, not a code bug); Muad chose swapping the lab over topping up credit so the run could happen the same night. Only this one seat changed; the other four labs and their pairings are unaffected. Reasoning for the replacement pick is in docs/v6-decisions.md, not repeated here. Pairings and their reasoning are in docs/v6-decisions.md, not repeated here so there is one place to keep them current.",
   "maxRounds": 3,
   "signoff": "unanimous",
   "proposals": {
@@ -80,10 +80,15 @@
         "role": { "lens": "user-advocate", "persona": "van-gogh" }
       },
       {
-        "provider": "google",
-        "model": "gemini-3.6-flash",
+        "provider": "openrouter",
+        "model": "minimax/minimax-m3",
         "maxTokens": 20000,
-        "lab": "gemini",
+        "extra": {
+          "reasoning": {
+            "enabled": false
+          }
+        },
+        "lab": "minimax",
         "role": { "lens": "adversary", "persona": "parzival" }
       }
     ],
@@ -128,10 +133,15 @@
         "lab": "mistral"
       },
       {
-        "provider": "google",
-        "model": "gemini-3.6-flash",
+        "provider": "openrouter",
+        "model": "minimax/minimax-m3",
         "maxTokens": 20000,
-        "lab": "gemini"
+        "extra": {
+          "reasoning": {
+            "enabled": false
+          }
+        },
+        "lab": "minimax"
       }
     ]
   },

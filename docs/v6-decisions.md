@@ -218,3 +218,43 @@ seats. A clean early signoff costs less; this is the ceiling, not an expectation
 
 **Not run live.** No API call has been made against this chain. cnc-harness-a7's go is required
 before any spend.
+
+**Build-fix, before this ran (2026-09-14):** the chain above was written against phase 1/2's
+`seats.critics`-does-double-duty shape; the full v6 release integration (phases 6/7) formalized
+`seats.proposers` as its own array once a role is set, and `council doctor --chain` refused to run
+this chain at all (5 `role-on-non-proposer-seat` findings) - a real compatibility gap, verified by
+replicating chain.js's own seat-resolution lines against this exact config before assuming either
+way. Fixed on branch `v6/phase5-proposers-critics-fix`: `seats.proposers` now carries the five
+role-bearing seats; `seats.critics` mirrors the same five labs for the panel stage with `role`
+stripped. Cost unaffected ($0.4747/run, identical seats and tokens).
+
+**Substitution, before the real run (2026-09-14): Gemini out, MiniMax in, adversary/Parzival
+unchanged.** Google AI Studio's prepayment credits were depleted mid-proposal-stage on the first
+real attempt (a genuine HTTP 429, `RESOURCE_EXHAUSTED` - Muad's account, not a code defect). Given
+the choice between topping up credit and swapping the lab, Muad chose the swap so the run could
+happen the same night with the five-lens/five-persona design intact.
+
+Replacement chosen against four constraints: genuinely distinct from the four already-seated labs
+(deepseek/qwen/glm/mistral), not one of the three labs that returned zero usable verdicts in the
+69-seat showcase run (kwaipilot, sakana, rekaai), no xAI (standing company rule), and at or under
+the ~$0.48 budget already approved. **MiniMax M3, via openrouter**, chosen over the other
+reachable candidates for three concrete reasons, not by elimination alone: (1) it appears in the
+showcase's own list of 25 labs that returned a real, successfully-parsed verdict with working
+credit - not a guess about reachability; (2) it already has a real pricing.json entry
+(`openrouter/minimax/minimax-m3`, $0.30/$1.20 per M in/out) - no new pricing had to be invented or
+estimated; (3) it is a comparable, current flagship-class model, not a small/cheap model like the
+only other pre-priced alternative on hand (`cohere/command-r7b-12-2024`, a 7B model) - seating a
+much weaker model for the adversary lens would have confounded the very thing this run exists to
+measure (would a difference in argument be the lens, or just a weaker model). Kimi (moonshotai)
+was considered and is a real, comparably-capable distinct lab, but was re-priced first per
+instruction and found to cost roughly 3.7x MiniMax's output rate ($14/M vs $1.20/M) - would have
+meaningfully eaten into the approved budget for no offsetting reason once a same-tier, cheaper,
+already-reachable option existed. Re-priced total with MiniMax in place: **$0.3427/run** worst
+case (down from $0.4747 with Gemini - MiniMax is cheaper on both axes), comfortably under the
+$0.48 ceiling. `council doctor` clean, 296/296 tests pass.
+
+Only the fifth seat changed. The other four labs and their lens/persona pairings (deepseek/
+security-and-legal/Moses, qwen/long-horizon/Noah, glm/integrator/Matthew, mistral/user-advocate/
+Van Gogh) are untouched - a later reader should not assume adversary/Parzival was designed around
+MiniMax specifically; it was designed around the lens and persona, and the lab underneath it was
+swapped once, for an availability reason, not a pairing reason.
