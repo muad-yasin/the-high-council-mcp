@@ -17,3 +17,10 @@ business and personal plans; a real `report.json` shipped as a public site asset
 exactly that, unreviewed. `docs/board.html` already exists as the real-run counterpart (drawn
 from an actual `report.json`, published as prose rather than a raw file) and the demo links to
 it both ways so neither is mistaken for the other.
+
+Deploy note: the push-triggered Pages workflow for f238a05 failed with "Failed to get ID
+Token, request timeout" (transient GitHub OIDC issue; permissions were correct). Rerunning
+that same failed run then failed with "Multiple artifacts named github-pages," because a
+rerun re-uploads the artifact into the same run. A fresh `workflow_dispatch` run succeeded
+and the demo went live. Lesson: on a Pages OIDC failure, dispatch a new run rather than
+rerunning the failed one.
