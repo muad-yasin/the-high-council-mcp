@@ -4,6 +4,7 @@ import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach } from './cost.j
 import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { applySeatRole } from './seat-role.js';
+import { NO_TIE_BREAK } from './tie-break.js';
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
 // full chain. Tells the criteria seat what the chain's own contract will require in the
@@ -601,7 +602,14 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         if (r.action === 'withdraw') { p.withdrawn = true; p.replaced_by = r.replaced_by; }
       }
       board = R.renderBoard(proposals, posts, replies);
-      debate = { posts, replies };
+      // v6 §4: the field is always present once a debate stage has run, even
+      // when no tie ever occurred - an absent field reads as "no tie-break
+      // happened" and as "the feature isn't wired up" identically, which is
+      // exactly the silent-drop failure class this project was burned by
+      // tonight. Phase 3 delivers the arithmetic and this always-present
+      // field; no call site in this stage decides pass/fail by vote yet, so
+      // debate runs record the no-op result until a future phase wires one.
+      debate = { posts, replies, tie_break: NO_TIE_BREAK };
       const w = proposals.filter(p => p.withdrawn).length;
       log(`  board: ${posts.length} post(s), ${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}, ${w} proposal(s) withdrawn, ${proposals.filter(p => p.amended).length} amended.`);
 
