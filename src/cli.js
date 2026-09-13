@@ -29,6 +29,7 @@ import { formatCouncilError, ERROR_CATALOG } from './errors.js';
 // own existing exit paths (usage errors, ExternalPause, BudgetExceeded).
 const EXIT_DEGRADABLE = 5;
 const EXIT_FATAL = 6;
+import { scanArtifacts } from './key-redaction.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -140,6 +141,23 @@ if (argv[0] === 'doctor') {
       process.exit(1);
     }
     console.log(`${chainPath}: no lint problems.`);
+    process.exit(0);
+  }
+
+  // `council doctor --scan-artifacts` (v5 §1 candidate 11): a key-shaped string pasted into a
+  // task file or chain config is the one thing that can turn BYOK into a leaked secret, and this
+  // repo is public. Scans the user's own task files and chain configs; never prints the matched
+  // text, only where it was found.
+  if (argv.includes('--scan-artifacts')) {
+    const roots = [join(work, 'tasks'), join(work, 'chains'), join(pkg, 'chains')].filter(existsSync);
+    const { findings, filesScanned } = scanArtifacts(roots);
+    if (findings.length) {
+      console.error(`key-redaction scan: ${findings.length} possible key(s) found across ${filesScanned} file(s) scanned:`);
+      for (const f of findings) console.error(`  ${f.file}:${f.line}:${f.column} - looks like ${f.pattern} (value not shown)`);
+      console.error(`\nRemove or rotate any real key found above before committing or sharing these files.`);
+      process.exit(1);
+    }
+    console.log(`key-redaction scan: no key-shaped strings found across ${filesScanned} file(s) in ${roots.join(', ')}.`);
     process.exit(0);
   }
 

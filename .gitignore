@@ -1,6 +1,7 @@
 node_modules/
 .env
 runs/
+quality-probe-runs/
 *.log
 .idempotency/
 tasks/
