@@ -2,15 +2,23 @@
 
 See it work right now - no keys, no setup, no cost:
 
-    npx the-high-council demo
+    npx github:muad-yasin/the-high-council-mcp council demo
+
+Add it to Claude Code as an MCP server the same way:
+
+    claude mcp add council -- npx -y github:muad-yasin/the-high-council-mcp council --mcp
+
+*(An npm package is coming - not yet published. Both lines above work today, straight from this
+GitHub repo, no npm account needed.)*
 
 A planning harness that runs one idea past several AI models from different labs, makes them
 argue about it on the record, and stops at a checkable result.
 
 Runs as an **MCP server** (so an agent like Claude Code can drive it) or as a **CLI**. Bring your
 own API keys. Nothing is resold, nothing is hosted for you, and no key ever leaves your machine.
-Run `npx the-high-council doctor` to see which of your own keys are set, which shipped chains you
-can already run with them, and what each would cost - before spending anything.
+Run `npx github:muad-yasin/the-high-council-mcp council doctor` to see which of your own keys are
+set, which shipped chains you can already run with them, and what each would cost - before
+spending anything.
 
 > **On what this does and doesn't claim.** This repo publishes the mechanism: the chains, the seat
 > rosters, the stage order. It does not claim to produce better plans than a single good model
@@ -228,7 +236,13 @@ node src/cli.js --resume runs/<id>
 
 ## Quick start (MCP)
 
-Register the server with your MCP client. For Claude Code, from a clone of this repo:
+Register the server with your MCP client. No clone needed - straight from GitHub:
+
+```bash
+claude mcp add council -- npx -y github:muad-yasin/the-high-council-mcp council --mcp
+```
+
+Or from a clone of this repo:
 
 ```bash
 claude mcp add high-council -- node /absolute/path/to/the-high-council-mcp/src/mcp/server.js
@@ -237,7 +251,7 @@ claude mcp add high-council -- node /absolute/path/to/the-high-council-mcp/src/m
 **The path must be absolute.** The client starts the server from its own working directory, not
 from this one, so a relative path resolves somewhere unexpected and the server never starts.
 
-Once the package is published to npm, no clone is needed:
+An npm package is coming - not yet published, no date. Once it lands:
 
 ```bash
 claude mcp add high-council -- npx -y the-high-council --mcp
