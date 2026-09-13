@@ -213,6 +213,103 @@ if (argv[0] === 'demo') {
   process.exit(0);
 }
 
+// `council init [--yes]` (v5 §1 candidate 6): the gap between "the demo
+// ran" and "I can run my own task" is where a clone gets abandoned -
+// `doctor` says what's broken and `demo` shows output, but neither
+// leaves a stranger with a chain file they own and understand. This
+// does: doctor's key check, a starter chain + task file written to the
+// user's own directory, a real (no-network) price of that starter
+// chain, then a canned, all-mock, 3-seat run executed end to end so the
+// first artifact a stranger inspects is a real run folder, not just
+// terminal output. `--yes` skips nothing interactive - there is nothing
+// interactive to skip - it only exists so a script can invoke this
+// without wondering whether it will ever prompt.
+if (argv[0] === 'init') {
+  console.log(`\ncouncil init - a first chain and task you own, plus one real run to look at.\n`);
+
+  console.log(`API keys (name only - the value is never read here beyond presence/absence):`);
+  const names = providerNames();
+  const nw = Math.max(...names.map(n => n.length));
+  let anyKeySet = false;
+  for (const name of names) {
+    const envName = envKeyName(name);
+    const has = !!process.env[envName];
+    if (has) anyKeySet = true;
+    console.log(`  ${name.padEnd(nw)}  ${envName.padEnd(20)}  ${has ? 'set' : 'not set - a chain using this lab would abort (COUNCIL-E001), not degrade'}`);
+  }
+
+  const chainsDir = join(work, 'chains');
+  const tasksDir = join(work, 'tasks');
+  mkdirSync(chainsDir, { recursive: true });
+  mkdirSync(tasksDir, { recursive: true });
+
+  // JSON has no comment syntax, so "commented" here means the same
+  // "_note" convention src/pricing.json already uses: a real, readable
+  // field that JSON.parse happily ignores as unused chain config.
+  const starterChain = {
+    _note: 'Your first chain. One lab writes a plan, another lab reviews it once. Edit the seats below to use whichever labs you have keys for - see README.md#chains for the full field list.',
+    name: 'my-first-chain',
+    description: 'A minimal real chain: one builder, one critic, one round.',
+    maxRounds: 1,
+    seats: {
+      criteria: { _note: 'Writes the acceptance criteria before anything else exists.', provider: 'anthropic', model: 'claude-sonnet-5', maxTokens: 2000 },
+      builder: { _note: 'Writes the first draft.', provider: 'anthropic', model: 'claude-sonnet-5', maxTokens: 8000 },
+      critics: [{ _note: 'Reviews the draft against the criteria. Add a second seat here for a real second opinion.', provider: 'anthropic', model: 'claude-sonnet-5', maxTokens: 8000 }],
+    },
+  };
+  const starterChainPath = join(chainsDir, 'my-first-chain.json');
+  writeFileSync(starterChainPath, JSON.stringify(starterChain, null, 2));
+  console.log(`\nWrote ${starterChainPath}`);
+
+  const starterTaskPath = join(tasksDir, 'my-first-task.md');
+  writeFileSync(starterTaskPath, `A short plan for a personal weekly reading list: what it tracks, how an entry gets added, how "done" is marked. Plain prose - this file is read by the criteria stage as-is, nothing else parses it.\n`);
+  console.log(`Wrote ${starterTaskPath}`);
+
+  console.log(`\nPrice of your starter chain (no network call, no key needed for this step):`);
+  const rows = estimateChainRows(starterChain);
+  const w = Math.max(...rows.map(r => r.seat.length));
+  for (const r of rows) {
+    console.log(`  ${r.label.padEnd(12)} ${r.seat.padEnd(w)}  ${r.priced ? formatUsd(r.usd) : 'unpriced'}`);
+  }
+  const worst = rows.reduce((s, r) => s + r.usd, 0);
+  console.log(`  worst case: ${formatUsd(worst)} for the whole chain`);
+
+  console.log(`\nRunning a canned, offline, $0 task end to end so you can see a real run folder before touching a key:`);
+  const cannedConfig = {
+    name: 'council-init-demo',
+    maxRounds: 1,
+    seats: {
+      criteria: { provider: 'mock', model: 'mock-criteria' },
+      builder: { provider: 'mock', model: 'mock-builder' },
+      critics: [{ provider: 'mock', model: 'mock-critic-a' }],
+    },
+  };
+  const initRunId = `${new Date().toISOString().replace(/[:.]/g, '-')}-init`;
+  const initRunDir = join(work, 'runs', initRunId);
+  mkdirSync(initRunDir, { recursive: true });
+  const initResult = await runChain({
+    request: readFileSync(starterTaskPath, 'utf8'),
+    config: cannedConfig,
+    log: line => console.log(`  ${line}`),
+  });
+  writeFileSync(join(initRunDir, 'deliverable.md'), initResult.deliverable);
+  writeFileSync(join(initRunDir, 'report.json'), JSON.stringify({
+    runId: initRunId,
+    chain: cannedConfig.name,
+    task: starterTaskPath,
+    passed: initResult.passed,
+    signoff: initResult.signoff,
+    totals: initResult.totals,
+    stages: initResult.stages.map(({ text, ...rest }) => rest),
+  }, null, 2));
+
+  console.log(`\nWrote ${initRunDir} - a real run folder (report.json, deliverable.md) from the canned demo task, $0, no network call.`);
+  console.log(`\nNext, with a real key set: node src/cli.js --chain my-first-chain --task ${starterTaskPath.replace(work + '/', '')} --dry-run`);
+  console.log(`Then, for real: node src/cli.js --chain my-first-chain --task ${starterTaskPath.replace(work + '/', '')}`);
+  if (!anyKeySet) console.log(`\nNo API keys are set yet - see README.md#setup, or "council doctor" any time to re-check.`);
+  process.exit(0);
+}
+
 // `council export-board --run <folder> --out <file>` (v5 §1 candidate 8):
 // a run's proposals/debate/replies/verdict as one self-contained HTML
 // file - no external assets, no template-engine dependency, no server.
