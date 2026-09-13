@@ -47,6 +47,21 @@ test('an empty/partial report renders without throwing', () => {
   assert.match(html, /No proposal debate ran this run\./);
 });
 
+test('council export-board --run against a malformed report.json degrades cleanly, no thrown stack trace', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-export-bad-'));
+  const runDir = join(dir, 'run');
+  mkdirSync(runDir);
+  writeFileSync(join(runDir, 'report.json'), '{not valid json');
+  assert.throws(() => execFileSync('node', [cli, 'export-board', '--run', runDir, '--out', join(dir, 'board.html')], { encoding: 'utf8' }));
+  try {
+    execFileSync('node', [cli, 'export-board', '--run', runDir, '--out', join(dir, 'board.html')], { encoding: 'utf8' });
+  } catch (err) {
+    assert.equal(err.status, 2);
+    assert.match(err.stderr, /not valid JSON/);
+    assert.doesNotMatch(err.stderr, /SyntaxError/);
+  }
+});
+
 test('council export-board --run --out writes a real file', () => {
   const dir = mkdtempSync(join(tmpdir(), 'thc-export-'));
   const runDir = join(dir, 'run');

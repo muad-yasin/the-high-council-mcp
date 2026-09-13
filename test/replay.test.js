@@ -48,6 +48,21 @@ test('--json output is valid JSON containing the same content', () => {
   assert.ok(parsed.some(s => s.text.startsWith('Verdict:')));
 });
 
+test('council replay --run against a malformed report.json degrades cleanly, no thrown stack trace', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-replay-bad-'));
+  const runDir = join(dir, 'run');
+  mkdirSync(runDir);
+  writeFileSync(join(runDir, 'report.json'), '{not valid json');
+  assert.throws(() => execFileSync('node', [cli, 'replay', '--run', runDir], { encoding: 'utf8' }));
+  try {
+    execFileSync('node', [cli, 'replay', '--run', runDir], { encoding: 'utf8' });
+  } catch (err) {
+    assert.equal(err.status, 2);
+    assert.match(err.stderr, /not valid JSON/);
+    assert.doesNotMatch(err.stderr, /SyntaxError/);
+  }
+});
+
 test('council replay --run --json prints valid JSON from a real report.json', () => {
   const dir = mkdtempSync(join(tmpdir(), 'thc-replay-'));
   const runDir = join(dir, 'run');

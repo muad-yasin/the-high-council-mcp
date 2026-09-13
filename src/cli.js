@@ -59,6 +59,22 @@ function flag(name, fallback) {
   return (next && !next.startsWith('--')) ? next : true;
 }
 
+// A run folder's report.json can exist but still be unreadable - truncated
+// by a killed run, or hand-edited - and every read-only reporting command
+// (doctor --run, export-board, replay) must degrade to a clean error
+// rather than an uncaught SyntaxError and a raw stack trace.
+function readReportOrExit(reportPath, cmdLabel) {
+  let text;
+  try { text = readFileSync(reportPath, 'utf8'); } catch {
+    console.error(`${cmdLabel}: no report.json in ${dirname(reportPath)}`);
+    process.exit(2);
+  }
+  try { return JSON.parse(text); } catch {
+    console.error(`${cmdLabel}: report.json in ${dirname(reportPath)} is not valid JSON`);
+    process.exit(2);
+  }
+}
+
 // `council doctor` answers "can this actually run, right now, on this
 // machine" for a stranger who just installed it - which keys are present (by
 // name only, never the value), which shipped chains are runnable with those
@@ -76,11 +92,7 @@ if (argv[0] === 'doctor') {
   if (runArg) {
     const runDir = resolve(work, runArg);
     const reportPath = join(runDir, 'report.json');
-    if (!existsSync(reportPath)) {
-      console.error(`council doctor --run: no report.json in ${runDir}`);
-      process.exit(2);
-    }
-    const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+    const report = readReportOrExit(reportPath, 'council doctor --run');
     const ledger = withdrawalLedger(report.proposals || []);
     if (ledger.orphanSections.length) {
       console.error(`withdrawal cycle detected: ${ledger.withdrawalCycles} cycle(s), ${ledger.orphanSections.length} orphaned proposal(s) with no surviving owner: ${ledger.orphanSections.join(', ')}`);
@@ -165,11 +177,7 @@ if (argv[0] === 'export-board') {
   }
   const runDir = resolve(work, runArg);
   const reportPath = join(runDir, 'report.json');
-  if (!existsSync(reportPath)) {
-    console.error(`export-board: no report.json in ${runDir}`);
-    process.exit(2);
-  }
-  const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+  const report = readReportOrExit(reportPath, 'export-board');
   const outPath = resolve(work, outArg);
   writeFileSync(outPath, renderBoardHtml(report));
   console.log(`Wrote ${outPath}`);
@@ -187,11 +195,7 @@ if (argv[0] === 'replay') {
   }
   const runDir = resolve(work, runArg);
   const reportPath = join(runDir, 'report.json');
-  if (!existsSync(reportPath)) {
-    console.error(`replay: no report.json in ${runDir}`);
-    process.exit(2);
-  }
-  const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+  const report = readReportOrExit(reportPath, 'replay');
   const steps = buildTranscript(report);
   if (argv.includes('--json')) {
     console.log(JSON.stringify(steps, null, 2));
@@ -328,6 +332,7 @@ if (argv.includes('--forecast-cost')) {
   } else {
     console.log(`  ${formatUsd(f.low)} - ${formatUsd(f.high)}  (mean ${formatUsd(f.mean)})`);
     console.log(`  This is a range from what this chain has actually cost before, repriced at today's rates - not a promise. A run outside this range is possible.`);
+    if (f.partial) console.log(`  PARTIAL: ${f.note}`);
   }
   process.exit(0);
 }

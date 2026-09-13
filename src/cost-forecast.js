@@ -34,6 +34,7 @@ export function forecastCost(chainName, runsDir, { days = 90, now = Date.now() }
   }
 
   const perRunUsd = [];
+  const unpriced = new Set();
   for (const id of ids) {
     const when = runIdToDate(id);
     if (!when || when.getTime() < cutoff) continue;
@@ -43,7 +44,9 @@ export function forecastCost(chainName, runsDir, { days = 90, now = Date.now() }
     let total = 0;
     for (const s of report.stages || []) {
       if (!s.usage) continue;
-      total += costOf(s.provider, s.model, s.usage).usd;
+      const c = costOf(s.provider, s.model, s.usage);
+      total += c.usd;
+      if (!c.priced) unpriced.add(`${s.provider}/${s.model}`);
     }
     perRunUsd.push(total);
   }
@@ -56,5 +59,12 @@ export function forecastCost(chainName, runsDir, { days = 90, now = Date.now() }
   const high = Math.max(...perRunUsd);
   const mean = perRunUsd.reduce((a, b) => a + b, 0) / perRunUsd.length;
 
-  return { chain: chainName, days, runsUsed: perRunUsd.length, low, high, mean };
+  // A stage whose provider/model isn't in pricing.json prices as $0 - not
+  // "free", just unpriced. Flagging this rather than letting it silently
+  // understate the range, same discipline summarise() (cost.js) already
+  // applies to a single run's own total.
+  return {
+    chain: chainName, days, runsUsed: perRunUsd.length, low, high, mean,
+    ...(unpriced.size ? { partial: true, unpriced: [...unpriced], note: `${unpriced.size} model(s) in this history have no entry in pricing.json and were counted as $0: ${[...unpriced].join(', ')}` } : {}),
+  };
 }

@@ -100,6 +100,22 @@ test('council doctor --run: exits 0 on a run with no orphaned withdrawals', () =
   assert.match(out, /No orphaned withdrawal chains/);
 });
 
+// v5 Phase 4 bug-audit finding: this JSON.parse was unguarded pre-existing
+// (candidate 3 added the --run flag, not this gap) - closed here alongside
+// the same fix in export-board/replay.
+test('council doctor --run against a malformed report.json degrades cleanly, no thrown stack trace', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-doctor-run-bad-'));
+  writeFileSync(join(dir, 'report.json'), '{not valid json');
+  assert.throws(() => execFileSync('node', [cli, 'doctor', '--run', dir], { encoding: 'utf8' }));
+  try {
+    execFileSync('node', [cli, 'doctor', '--run', dir], { encoding: 'utf8' });
+  } catch (err) {
+    assert.equal(err.status, 2);
+    assert.match(err.stderr, /not valid JSON/);
+    assert.doesNotMatch(err.stderr, /SyntaxError/);
+  }
+});
+
 // Handoff.md, explicitly: run candidate 3 against the run folder that
 // authored it. Inside relay/runs/2026-09-13T14-51-08-757Z/'s own debate,
 // KIMI-4 and MISTRAL-2 mutually withdrew in each other's favour - a

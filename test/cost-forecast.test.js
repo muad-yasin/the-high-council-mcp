@@ -90,6 +90,20 @@ test('a missing runs directory degrades instead of throwing', () => {
   assert.equal(f.low, null);
 });
 
+test('an unpriced provider/model pair is flagged, not silently counted as $0', () => {
+  const { runs, add } = fixture();
+  add(ID(0), {
+    chain: 'verify',
+    stages: [{ label: 'criteria', provider: 'nobody', model: 'no-such-model', usage: { input: 999999, output: 999999 } }],
+  });
+  const f = forecastCost('verify', runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
+  assert.equal(f.low, 0);
+  assert.equal(f.high, 0);
+  assert.equal(f.partial, true, 'an unpriced model must set partial:true rather than reading as a real $0 estimate');
+  assert.ok(f.unpriced.includes('nobody/no-such-model'));
+  assert.match(f.note, /no entry in pricing\.json/);
+});
+
 test('council --forecast-cost --chain prints a range from real history', () => {
   const { runs, add } = fixture();
   add(ID(0), {
