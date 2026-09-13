@@ -16,6 +16,8 @@ import { fingerprintInputs, withStalenessCheck } from './cache-integrity.js';
 import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { forecastCost } from './cost-forecast.js';
+import { renderBoardHtml } from './board-export.js';
+import { buildTranscript, renderTranscriptText } from './replay.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -148,6 +150,54 @@ if (argv[0] === 'demo') {
   console.log(`\nThat was $0 and touched no network - the mock provider calls nothing real.`);
   console.log(`Next: "council doctor" to see which real chains you can run with your own keys,`);
   console.log(`or "council --chain verify --dry-run" to price a real run before spending anything.`);
+  process.exit(0);
+}
+
+// `council export-board --run <folder> --out <file>` (v5 §1 candidate 8):
+// a run's proposals/debate/replies/verdict as one self-contained HTML
+// file - no external assets, no template-engine dependency, no server.
+if (argv[0] === 'export-board') {
+  const runArg = flag('run', null);
+  const outArg = flag('out', 'board.html');
+  if (!runArg) {
+    console.error('export-board: --run <folder> is required');
+    process.exit(2);
+  }
+  const runDir = resolve(work, runArg);
+  const reportPath = join(runDir, 'report.json');
+  if (!existsSync(reportPath)) {
+    console.error(`export-board: no report.json in ${runDir}`);
+    process.exit(2);
+  }
+  const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+  const outPath = resolve(work, outArg);
+  writeFileSync(outPath, renderBoardHtml(report));
+  console.log(`Wrote ${outPath}`);
+  process.exit(0);
+}
+
+// `council replay --run <folder> [--json]` (v5 §1 candidate 9): a
+// numbered, indented, step-by-step transcript of a run's reasoning - a
+// CLI-native complement to export-board's shareable HTML artifact.
+if (argv[0] === 'replay') {
+  const runArg = flag('run', null);
+  if (!runArg) {
+    console.error('replay: --run <folder> is required');
+    process.exit(2);
+  }
+  const runDir = resolve(work, runArg);
+  const reportPath = join(runDir, 'report.json');
+  if (!existsSync(reportPath)) {
+    console.error(`replay: no report.json in ${runDir}`);
+    process.exit(2);
+  }
+  const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+  const steps = buildTranscript(report);
+  if (argv.includes('--json')) {
+    console.log(JSON.stringify(steps, null, 2));
+  } else {
+    console.log(renderTranscriptText(steps));
+  }
   process.exit(0);
 }
 
