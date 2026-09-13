@@ -13,7 +13,7 @@ import { applySeatRole } from '../src/seat-role.js';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cfg = JSON.parse(readFileSync(join(root, 'chains', 'plan-debate-roles-c1.json'), 'utf8'));
 
-for (const seat of cfg.seats.critics) {
+for (const seat of cfg.seats.proposers) {
   const prompt = applySeatRole(R.DEBATE_SYSTEM, seat.role);
   console.log('='.repeat(72));
   console.log(`SEAT: ${seat.lab}  (lens: ${seat.role.lens}, persona: ${seat.role.persona})`);

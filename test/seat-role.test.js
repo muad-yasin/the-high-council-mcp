@@ -158,23 +158,40 @@ test('test_role_compat, golden hash across every shipped chain: no seat in any n
   }
 });
 
-test('plan-debate-roles-c1.json: every critic seat declares a valid role, and applying it changes the debate-stage prompt away from the golden hash', () => {
+test('plan-debate-roles-c1.json: every proposer seat declares a valid role, applying it changes the debate-stage prompt away from the golden hash, and the mirrored critics array stays role-free', () => {
+  // BUILD-FIX 2026-09-14: this chain was originally written with role on seats.critics alone
+  // (phase 1/2's critics-does-double-duty shape). chain.js's debate stage resolves its seats via
+  // `config.seats.proposers || config.seats.critics`, so that legacy shape happened to still
+  // work at runtime - but v6 phase 7's chain-lint (role-on-non-proposer-seat) correctly treats
+  // it as unsupported now that proposers/critics are meant to be declared separately once a role
+  // is in play, and CLI doctor's fail-loud gate blocks the chain from running at all with that
+  // finding present. Fixed by declaring both arrays: seats.proposers carries the role, the
+  // mirrored seats.critics (same five labs, used later for the panel/critique stage) does not.
   const cfg = JSON.parse(readFileSync(join(chainsDir, 'plan-debate-roles-c1.json'), 'utf8'));
+  const proposers = cfg.seats.proposers;
   const critics = cfg.seats.critics;
-  assert.equal(critics.length, 5, 'one critic seat per lens/persona, no more, no fewer');
+  assert.equal(proposers.length, 5, 'one proposer/debate seat per lens/persona, no more, no fewer');
+  assert.equal(critics.length, 5, 'the panel/critique stage still runs one seat per lab');
   const findings = lintChain(cfg, 'chains/plan-debate-roles-c1.json');
   assert.equal(findings.filter(f => f.kind === 'invalid-seat-role').length, 0);
-  for (const seat of critics) {
-    assert.notEqual(seat.role, undefined, `${seat.lab}: this chain exists specifically to give every critic seat a role`);
+  assert.equal(findings.filter(f => f.kind === 'role-on-non-proposer-seat').length, 0, 'no role may leak onto seats.critics or any other non-proposer seat');
+  for (const seat of proposers) {
+    assert.notEqual(seat.role, undefined, `${seat.lab}: this chain exists specifically to give every proposer seat a role`);
     assert.equal(validateSeatRole(seat.role).length, 0, `${seat.lab}: role must be valid`);
     const out = applySeatRole(R.DEBATE_SYSTEM, seat.role);
     assert.notEqual(sha256(out), GOLDEN_DEBATE_SYSTEM_SHA256, `${seat.lab}: a seat with a role must NOT produce the no-role golden hash`);
     assert.ok(out.startsWith(R.DEBATE_SYSTEM), 'role text is appended after the base prompt, never replacing or reordering it');
   }
+  for (const seat of critics) {
+    assert.equal(seat.role, undefined, `${seat.lab}: the panel/critique-stage seat must never carry a role (v6 phase 2 stage isolation)`);
+  }
   // No two seats share a lens or a persona - one of each per seat, matching the plan's 1:1
   // five-lens/five-persona design, not a coincidence a future edit could quietly break.
-  assert.equal(new Set(critics.map(s => s.role.lens)).size, 5);
-  assert.equal(new Set(critics.map(s => s.role.persona)).size, 5);
+  assert.equal(new Set(proposers.map(s => s.role.lens)).size, 5);
+  assert.equal(new Set(proposers.map(s => s.role.persona)).size, 5);
+  // The panel stage is still the same five labs as the debate stage, not a silently different
+  // roster - only the role field differs between the two arrays.
+  assert.deepEqual(new Set(proposers.map(s => s.lab)), new Set(critics.map(s => s.lab)));
 });
 
 test('DEFAULT_PERSONAS is exactly the five author-approved names, no more, no fewer', () => {
