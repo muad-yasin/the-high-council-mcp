@@ -75,3 +75,23 @@ test('landing page: ships no scripts and no third-party requests', { skip: !page
   const remote = fetched.filter(u => /^(https?:)?\/\//.test(u));
   assert.deepEqual(remote, [], 'every asset the page fetches must be local');
 });
+
+// The privacy claim in README.md ("the demo page collects nothing... loads no third-party
+// resource") is about every page under docs/, not just index.html - so every HTML page there
+// is checked the same way, not only the one this file happened to start with.
+for (const file of existsSync(join(root, 'docs')) ? readdirSync(join(root, 'docs')).filter(f => f.endsWith('.html')) : []) {
+  if (file === 'index.html') continue; // already covered above
+  test(`landing page: docs/${file} ships no scripts and no third-party requests`, () => {
+    const html = readFileSync(join(root, 'docs', file), 'utf8');
+    assert.equal((html.match(/<script/g) || []).length, 0, `${file} must stay script-free`);
+    const fetched = [
+      ...[...html.matchAll(/\ssrc="([^"]+)"/g)].map(m => m[1]),
+      ...[...html.matchAll(/url\(([^)]+)\)/g)].map(m => m[1].replace(/['"]/g, '')),
+      ...[...html.matchAll(/<link\b[^>]*\brel="(stylesheet|preconnect|preload|dns-prefetch|prefetch)"[^>]*>/g)]
+        .map(m => (m[0].match(/href="([^"]+)"/) || [])[1])
+        .filter(Boolean),
+    ];
+    const remote = fetched.filter(u => /^(https?:)?\/\//.test(u));
+    assert.deepEqual(remote, [], `every asset ${file} fetches must be local`);
+  });
+}

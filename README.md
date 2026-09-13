@@ -1,5 +1,7 @@
 # The High Council
 
+[![Test](https://github.com/muad-yasin/the-high-council-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/muad-yasin/the-high-council-mcp/actions/workflows/test.yml)
+
 See it work right now - no keys, no setup, no cost:
 
     npx github:muad-yasin/the-high-council-mcp council demo
@@ -365,6 +367,28 @@ No claim is made here that any of this produces better plans. It has not been me
   produce sign-offs that mean nothing - the quality of the run depends heavily on the quality of
   the criteria stage.
 - Some chains pause for human input by design. They are not stuck.
+
+## Privacy
+
+This tool and the [demo page](https://muad-yasin.github.io/the-high-council-mcp/demo.html)
+collect nothing. Stated plainly, not as a claim about quality:
+
+- No telemetry, no analytics, no tracking of any kind, anywhere in this repo.
+- The only network calls this tool ever makes are to the AI provider APIs you configure with
+  your own keys (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, and so on) - and only when you start
+  a real run with a non-mock, non-external seat. `council doctor` and `council demo` make zero
+  network calls; both are implemented to read only local files and environment variable names.
+- The GitHub Pages site (`docs/`) ships no JavaScript and loads no third-party resource - see
+  `test/landing-page.test.js`, which fails the build if either ever changes.
+- Everything a run produces - the task, the debate, the deliverable, the cost - is written to a
+  folder on your own disk (`runs/<id>/`) and nowhere else. Deleting that folder deletes the
+  record. See `src/spend.js`'s own documentation for why spend accounting is derived from those
+  folders rather than kept in a separate log.
+
+## Reporting a bug
+
+Open an issue: [github.com/muad-yasin/the-high-council-mcp/issues](https://github.com/muad-yasin/the-high-council-mcp/issues).
+Or write to [contact@sower-industries.de](mailto:contact@sower-industries.de).
 
 ## If this makes you money
 
