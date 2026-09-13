@@ -1,6 +1,6 @@
 {
   "name": "the-high-council",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "The High Council: a multi-model planning harness. One builder, independent critics from other labs, checkable acceptance criteria, a debate on the record, and a hard stop.",
   "type": "module",
   "license": "MIT",
@@ -28,6 +28,8 @@
     "src/",
     "chains/",
     "README.md",
+    "TROUBLESHOOTING.md",
+    "CONTRIBUTING.md",
     "LICENSE",
     ".env.example"
   ],

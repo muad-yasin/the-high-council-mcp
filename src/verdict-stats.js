@@ -10,6 +10,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { runIdToDate } from './spend.js';
+import { shapeRounds } from './shape-rounds.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 
@@ -25,6 +26,7 @@ function emptyChainAgg() {
     unparseable: 0,
     costs: [],
     wallMs: [],
+    shapeOnlyRounds: 0,
   };
 }
 
@@ -36,7 +38,50 @@ function emptyLabAgg() {
     cut: 0,
     dropouts: 0,
     unparseable: 0,
+    objections: 0,
+    novelObjections: 0,
+    signoffs: 0,
+    soloSignoffs: 0,
   };
+}
+
+// Independence skew: does a lab mostly echo objections other labs already
+// raised, and does it sign off even when another lab is still objecting?
+// Descriptive only - this never reweights a panel or changes a verdict, it
+// only makes a pattern visible that was previously invisible without
+// reading every debate post by hand.
+function accumulateIndependence(report, byLab) {
+  const posts = report.debate?.posts;
+  if (Array.isArray(posts)) {
+    const objectorsByTarget = new Map(); // target ("on") -> Set(lab)
+    const objectionsByLab = new Map();   // lab -> [target, ...]
+    for (const p of posts) {
+      if (p.stance !== 'object' || !p.by || !p.on) continue;
+      if (!objectorsByTarget.has(p.on)) objectorsByTarget.set(p.on, new Set());
+      objectorsByTarget.get(p.on).add(p.by);
+      if (!objectionsByLab.has(p.by)) objectionsByLab.set(p.by, []);
+      objectionsByLab.get(p.by).push(p.on);
+    }
+    for (const [labName, targets] of objectionsByLab) {
+      const lab = byLab.get(labName) || emptyLabAgg();
+      for (const target of targets) {
+        lab.objections += 1;
+        if (objectorsByTarget.get(target).size === 1) lab.novelObjections += 1;
+      }
+      byLab.set(labName, lab);
+    }
+  }
+
+  const signoff = Array.isArray(report.signoff) ? report.signoff : [];
+  for (const s of signoff) {
+    if (s.signedOff !== true || !s.provider) continue;
+    const lab = byLab.get(s.provider) || emptyLabAgg();
+    lab.signoffs += 1;
+    const anotherStillObjects = signoff.some(o =>
+      o.provider !== s.provider && (o.signedOff === false || (Array.isArray(o.objections) && o.objections.length > 0)));
+    if (anotherStillObjects) lab.soloSignoffs += 1;
+    byLab.set(s.provider, lab);
+  }
 }
 
 // Round number a stage label belongs to, e.g. "panel-2-glm" -> 2,
@@ -62,7 +107,7 @@ function largestPromptByStageType(dir, files, out) {
  * Verdict/quality stats across every run in `runsDir` within the last `days`.
  * Never throws - a missing or unreadable runs/ means no data, not an error.
  */
-export function verdictStats(runsDir, { days = 30, now = Date.now() } = {}) {
+export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObjectionFloor = 0.10, soloSignoffCeiling = 0.60 } = {}) {
   const cutoff = now - days * 24 * 3600 * 1000;
   const byChain = new Map();
   const byLab = new Map();
@@ -124,6 +169,7 @@ export function verdictStats(runsDir, { days = 30, now = Date.now() } = {}) {
     }
 
     chain.dropouts += (report.dropouts || []).length;
+    chain.shapeOnlyRounds += shapeRounds(dir).shapeOnlyRounds;
 
     const rows = report.scoreboard?.rows || [];
     for (const row of rows) {
@@ -136,6 +182,7 @@ export function verdictStats(runsDir, { days = 30, now = Date.now() } = {}) {
     if (wallMs) chain.wallMs.push(wallMs);
 
     byChain.set(chainName, chain);
+    accumulateIndependence(report, byLab);
 
     for (const l of report.scoreboard?.labs || []) {
       const lab = byLab.get(l.lab) || emptyLabAgg();
@@ -170,24 +217,51 @@ export function verdictStats(runsDir, { days = 30, now = Date.now() } = {}) {
     withdrawals: c.withdrawals,
     accepted: c.accepted,
     dropouts: c.dropouts,
+    shapeOnlyRounds: c.shapeOnlyRounds,
     unparseable: c.unparseable,
     meanCostUsd: mean(c.costs),
     meanWallMs: mean(c.wallMs),
   })).sort((a, b) => b.runs - a.runs);
 
-  const labs = [...byLab.entries()].map(([name, l]) => ({
-    lab: name,
-    proposed: l.proposed,
-    accepted: l.accepted,
-    withdrawn: l.withdrawn,
-    cut: l.cut,
-    dropouts: l.dropouts,
-    unparseable: l.unparseable,
-  })).sort((a, b) => b.proposed - a.proposed);
+  const labs = [...byLab.entries()].map(([name, l]) => {
+    const novelObjectionRate = l.objections ? l.novelObjections / l.objections : null;
+    const soloSignoffRate = l.signoffs ? l.soloSignoffs / l.signoffs : null;
+    const lowIndependence = novelObjectionRate !== null && soloSignoffRate !== null &&
+      novelObjectionRate < novelObjectionFloor && soloSignoffRate > soloSignoffCeiling;
+    return {
+      lab: name,
+      proposed: l.proposed,
+      accepted: l.accepted,
+      withdrawn: l.withdrawn,
+      cut: l.cut,
+      dropouts: l.dropouts,
+      unparseable: l.unparseable,
+      objections: l.objections,
+      novelObjections: l.novelObjections,
+      novelObjectionRate,
+      signoffs: l.signoffs,
+      soloSignoffs: l.soloSignoffs,
+      soloSignoffRate,
+      lowIndependence,
+    };
+  }).sort((a, b) => b.proposed - a.proposed);
 
   const largestPrompts = [...largestPrompt.entries()]
     .map(([type, v]) => ({ stageType: type, bytes: v.bytes, tokensApprox: Math.round(v.bytes / 4), file: v.file, run: v.run }))
     .sort((a, b) => b.bytes - a.bytes);
 
   return { runsDir, days, since: new Date(cutoff), chains, labs, largestPrompts, runsSeen, unreadable };
+}
+
+const csvNum = x => (x === null ? '' : String(x));
+
+/**
+ * `labs` from verdictStats() as an independence-skew CSV: one row per lab,
+ * numbers only, no interpretation strings.
+ */
+export function independenceStatsCsv(labs) {
+  const header = 'lab,objections,novelObjections,novelObjectionRate,signoffs,soloSignoffs,soloSignoffRate,lowIndependence';
+  const rows = labs.map(l =>
+    [l.lab, l.objections, l.novelObjections, csvNum(l.novelObjectionRate), l.signoffs, l.soloSignoffs, csvNum(l.soloSignoffRate), l.lowIndependence].join(','));
+  return [header, ...rows].join('\n');
 }

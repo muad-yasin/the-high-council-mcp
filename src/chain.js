@@ -2,6 +2,7 @@ import { call, keyFor } from './providers.js';
 import * as R from './roles.js';
 import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach } from './cost.js';
 import { requiredDeliverableSections } from './preflight.js';
+import { withdrawalLedger } from './withdrawal-ledger.js';
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
 // full chain. Tells the criteria seat what the chain's own contract will require in the
@@ -245,7 +246,7 @@ async function invoke(seat, { system, user, log, label }) {
   if (hit) {
     budget.spent += hit.usd || 0;
     log(`  ${label}: ${hit.provider || seat.provider}/${hit.model || seat.model} - from disk (${hit.usage?.input ?? 0} in, ${hit.usage?.output ?? 0} out, ${formatUsd(hit.usd || 0)} already spent)`);
-    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, usage: hit.usage || { input: 0, output: 0 }, usd: hit.usd || 0, priced: true, ms: 0, text: hit.text, cached: true };
+    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage: hit.usage || { input: 0, output: 0 }, usd: hit.usd || 0, priced: true, ms: 0, text: hit.text, cached: true };
   }
   if (seat.provider === 'external') throw new ExternalPause(label, system, user);
 
@@ -292,6 +293,7 @@ async function invoke(seat, { system, user, log, label }) {
     label,
     provider: res.provider,
     model: res.model,
+    lab: labOf(seat),
     usage: res.usage,
     usd: cost.usd + wasted,
     priced: cost.priced,
@@ -486,6 +488,25 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       }
       if (!list.length) say(`  ${labOf(seat)}/${seat.model}: no proposals.`);
       else say(`  ${labOf(seat)}/${seat.model}: ${list.length} proposal(s)${samples > 1 ? ` kept from a pool of ${pool.length}` : ''}${list.map(p => `\n    - ${p.title}`).join('')}${judged ? `\n    judge: ${judged}` : ''}`);
+      // v5 §1 candidate 10: opt-in only, no default (his call, 2026-09-13) -
+      // a chain that never sets max_proposals_per_seat behaves exactly as it
+      // did before this candidate existed. Only a chain that does set it, and
+      // only a seat whose own list still exceeds that cap, pays for one more
+      // prompt to fold its own proposals down before the board sees them.
+      const cap = Number.isInteger(config.proposals.maxProposalsPerSeat) && config.proposals.maxProposalsPerSeat > 0
+        ? config.proposals.maxProposalsPerSeat : null;
+      if (cap && list.length > cap) {
+        const ms = record(await invoke(capped, {
+          system: R.PROPOSAL_MERGE_SYSTEM,
+          user: R.proposalMergeUser({ request, criteria, skeleton, list, cap }),
+          log: say, label: `propose-${labOf(seat)}-merge`,
+        }));
+        const parsed = parseJson(ms.text);
+        const picks = Array.isArray(parsed?.kept) ? [...new Set(parsed.kept.map(Number).filter(n => n >= 1 && n <= list.length))].slice(0, cap) : null;
+        const before = list.length;
+        list = picks && picks.length ? picks.map(n => list[n - 1]) : list.slice(0, cap);
+        say(`  ${labOf(seat)}/${seat.model}: folded ${before} proposal(s) down to ${list.length} (cap ${cap})${parsed?.merged_because ? ` - ${parsed.merged_because}` : ''}`);
+      }
       return { seat, list, pool, lines };
     }));
     // Labs that ended the stage with nothing, after the retry. Recorded so
@@ -577,6 +598,17 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       debate = { posts, replies };
       const w = proposals.filter(p => p.withdrawn).length;
       log(`  board: ${posts.length} post(s), ${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}, ${w} proposal(s) withdrawn, ${proposals.filter(p => p.amended).length} amended.`);
+
+      // v5 §1 candidate 3: a withdrawal chain that cycles or dead-ends
+      // (e.g. two labs mutually withdrawing in each other's favour) leaves
+      // a section with no surviving owner - silently, unless the next
+      // stage is told. Told here rather than aborting the run: the
+      // integration stage can still assign or explicitly drop it.
+      const ledger = withdrawalLedger(proposals);
+      if (ledger.orphanSections.length) {
+        log(`  WARNING: ${ledger.orphanSections.length} withdrawn proposal(s) have no surviving owner (${ledger.withdrawalCycles} withdrawal cycle(s)): ${ledger.orphanSections.join(', ')}`);
+        board += `\n\n# Orphaned withdrawals - no surviving owner\n\nThese proposal ids withdrew in a chain that never reaches a proposal still standing (a cycle, or a dead end): ${ledger.orphanSections.join(', ')}. For each one, either assign the section it covered to something else in the plan, or state explicitly in the Scope ledger that it is dropped and why - do not silently leave it uncovered.`;
+      }
     }
   }
 
@@ -627,7 +659,11 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           // objects, and it cannot block the panel. It used to count as a
           // pass, which would have waved a truncated FAILED straight through.
           const why = classifyUnreadable(cs.usage, criticSeat.maxTokens);
-          say(`  ${labOf(criticSeat)}/${criticSeat.model}: unreadable reply (${cs.usage.output} tokens out; ${why}) - counted as an abstention, not a sign-off.`);
+          // v5 §1 candidate 4: the code is prepended, the diagnosis itself
+          // is untouched - classifyUnreadable's three distinct reasons are
+          // load-bearing (each one traces to a real incident on disk) and
+          // this candidate changes what's printed, never what's diagnosed.
+          say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] unreadable reply (${cs.usage.output} tokens out; ${why}) - counted as an abstention, not a sign-off.`);
           return { seat: criticSeat, critique: null, abstained: true };
         }
         const critique = normaliseCritique(parsed, say);
@@ -803,6 +839,8 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     for (const row of scoreboard.labs) log(`  ${row.lab.padEnd(12)} proposed ${row.proposed}  accepted ${row.accepted}  cut ${row.cut}  withdrawn ${row.withdrawn}  unaccounted ${row.unaccounted}`);
   }
 
+  const ledger = proposals.length ? withdrawalLedger(proposals) : null;
+
   return {
     deliverable: draft,
     criteria,
@@ -822,5 +860,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     history,
     stages,
     totals: summarise(stages),
+    orphanSections: ledger?.orphanSections ?? [],
+    withdrawalCycles: ledger?.withdrawalCycles ?? 0,
   };
 }
