@@ -70,3 +70,64 @@ Verified these guards actually catch a regression rather than passing vacuously:
 added a second `applySeatRole` call to the panel-stage call site locally, confirmed guard 1 fails
 loudly (`not ok`), then reverted. Not committed - a manual verification step only, recorded here
 so it doesn't have to be repeated to trust the guard.
+
+## Phase 5 - failure-mode detectors (§7), reconsidered against Muad's corrected framing
+
+Muad's own words, relayed 2026-09-13: "It's not about catching planted bugs. It's about
+philosophy of different models in software infrastructure. They will just roleplay and talk
+differently. But still talk about the different ideas." The phase 4 measurement harness (§5)
+answers a real question - does lens-routing change what a deterministic heuristic probe catches
+- but that question is not this feature's purpose. A heuristic mock cannot have a philosophy, so
+phase 4's NEGATIVE result (lens-routing showed no benefit on the probe's defect-catch fixtures)
+does not mean the feature failed. Persona was modeled as zero-effect by construction in phase 4
+and was never measured at all. Neither result speaks to debate diversity among real model seats,
+which is what the feature is actually for. This is not a rationalization written after the fact -
+it is exactly what `test/quality-probe/role-experiment.js`'s own `LIMIT` constant already says,
+independent of and before this framing correction arrived.
+
+**Two of §7's four detectors originally read per-seat data from the phase 4 probe**
+(role-correlation collapse compared against the probe's plain-arm baseline; a role degrading a
+weaker model, read as a catch-rate delta from the probe's results). Per the instruction to
+reconsider rather than wire dutifully: **both are redesigned here to read a real run's own debate
+output (`report.debate.posts`) instead of the phase 4 probe**, so all four detectors measure
+something the feature's actual purpose can be judged by:
+
+1. **Character-performed-not-reviewed** (kept, same intent as §7's original) - `substanceRatio`
+   per seat: the fraction of a seat's `object`/`merge` debate posts that contain a quoted span,
+   since `DEBATE_SYSTEM`'s own system prompt already requires quoting the phrase being objected
+   to or merged. A seat that never quotes despite the prompt asking for it is roleplaying instead
+   of reviewing, whatever its role - this is a real, checkable failure mode independent of catch
+   rate, and Muad wants roleplay, not theatre.
+2. **Role-correlation collapse** (reconsidered) - originally a comparison against the phase 4
+   probe's plain-arm baseline. Redesigned as `pairwiseAgreement`: the mean textual overlap
+   (Jaccard over 4+ letter words) between different labs' posts on the SAME real proposal, within
+   one real debate stage. A lens meant to diversify argument that instead makes every seat's
+   objection read the same is a real signal computed from what seats actually wrote, not from a
+   heuristic mock's agreement rate.
+3. **A role degrading a weaker model** (reconsidered) - originally a per-seat catch-rate delta
+   read from the phase 4 probe. Redesigned as `roleVsPlainSubstanceGap`: within the SAME real run,
+   the mean `substanceRatio` of role-bearing seats minus role-less seats. This is a same-run,
+   cross-sectional comparison, not longitudinal - it cannot say whether seat X got worse than seat
+   X used to be without a role (that needs a baseline run of the identical chain with the role
+   removed, which is out of this phase's scope), only whether role-bearing seats collectively
+   argued less substantively than role-less seats in the one run being measured. Stated plainly
+   here rather than left implicit, the same "state plainly what it does and does not measure"
+   discipline the probe's own `LIMIT` statement already uses.
+4. **Token spend shifting from substance to voice** (kept, same intent as §7's original) -
+   `evidenceTokenShare`: the fraction of a seat's total post-text words that fall inside a quoted
+   span, across every post regardless of stance. Computed from real debate output throughout.
+
+**Wiring**: `computeRoleDiagnostics()` (`src/role-diagnostics.js`) is called once per run, from
+the single `reportJsonShape()` function both the real run writer and `council init`'s canned-demo
+writer already share (the same function the v5 Phase 2 bug-audit fix consolidated onto, to
+prevent exactly the kind of report-shape drift a second hand-rolled writer would risk). Attached
+at `report.json`'s `debate.diagnostics`, additive-only: a chain with no debate stage keeps
+`debate: null` exactly as before (verified by an end-to-end test); a chain that does debate always
+gets a `diagnostics` object, with nulls/empty flags rather than an absent key when a metric has
+nothing to compute from (e.g. a seat that only ever supported, never objected or merged, has
+`substanceRatio: null`, not a misleading `0`).
+
+Verified end-to-end, not just unit-tested: ran a real `council` invocation against `chains/
+mock-debate.json` with a role added to one proposer, confirmed `report.json`'s
+`debate.diagnostics` populated correctly with real per-seat numbers computed from the actual mock
+debate output produced by that run.
