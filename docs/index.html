@@ -603,6 +603,53 @@ node src/cli.js --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5
     </section>
 
     <section style="margin-top:72px">
+      <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:34px;letter-spacing:-0.02em;color:#faf8f4">New in v5</h2>
+      <p style="margin:10px 0 24px;max-width:760px;font-size:16px;line-height:1.65;color:#8d8a84;text-wrap:pretty">Ten additions, mostly opt-in and read-only - a chain you already have keeps behaving exactly as it always has unless you deliberately use one of these.</p>
+      <div style="margin-top:0;display:grid;gap:1px;background:#1a1a1d;border:1px solid #1a1a1d;border-radius:14px;overflow:hidden">
+        <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">council init</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">Writes a starter chain and task file into your own directory, prices it with no network call, then runs a real all-mock $0 run end to end - the first artifact a fresh clone produces is a real run folder, not just terminal output.</div>
+        </div>
+        <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">council doctor --chain &lt;file&gt;</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">Fail-loud lint of one chain config - missing stage contracts, unreachable stages, unrecognized providers - before anything metered ever runs against it.</div>
+        </div>
+        <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">council doctor --scan-artifacts</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">Scans your own task files and chain configs for key-shaped strings before you commit or share them. Reports the file and line only - the matched text itself is never printed.</div>
+        </div>
+        <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">--forecast-cost --chain &lt;name&gt;</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">A realistic USD range from that chain's own run history on this machine, repriced at today's rates - distinct from <code style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">--dry-run</code>'s worst-case estimate from the chain's declared token assumptions.</div>
+        </div>
+        <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">export-board --run &lt;folder&gt; --out &lt;file&gt;</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">A run's proposals, debate and verdict rendered into one self-contained HTML file - no external assets, no server, nothing to install to read it.</div>
+        </div>
+        <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">replay --run &lt;folder&gt; [--json]</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">A numbered, step-by-step transcript of a run's reasoning, for reading a run without opening its raw files - <code style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">--json</code> for a machine-readable form.</div>
+        </div>
+        <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">schemaVersion</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">An optional field on a chain config. <code style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">council doctor</code> warns, never fails, when it's missing or older than current - a chain file that predates this is read exactly as it always was.</div>
+        </div>
+        <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">max_proposals_per_seat</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">Opt-in only - there is no default. A chain may declare how many proposals one seat's own list may carry to the debate board; a seat that returns more gets one prompt to fold its own proposals down first. A chain that never sets this field behaves exactly as it always has - debate size stays unlimited unless you deliberately choose otherwise.</div>
+        </div>
+        <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">stage-log.jsonl</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">One JSONL line per stage, written into every run folder alongside the existing markdown and report.json artifacts - seat, lab, token counts, cost and timing only, never prompt content.</div>
+        </div>
+        <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">CONTRIBUTING.md</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">Names the three smallest contribution shapes this one-maintainer repo can review quickly: a new provider adapter, a new chain config, a new mock fixture.</div>
+        </div>
+      </div>
+    </section>
+
+    <section style="margin-top:72px">
       <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:34px;letter-spacing:-0.02em;color:#faf8f4">Known limits, stated plainly</h2>
       <div style="margin-top:24px;display:grid;gap:1px;background:#1a1a1d;border:1px solid #1a1a1d;border-radius:14px;overflow:hidden">
         
