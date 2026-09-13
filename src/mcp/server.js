@@ -251,7 +251,7 @@ server.tool('spend_report', 'What every run has cost across a window of days, no
   });
 });
 
-server.tool('verdict_stats', 'How the debate mechanism itself is doing, per chain and per lab, across a window of days: sign-off rate, mean rounds to sign-off, objections raised, withdrawals vs accepted proposals, dropouts, unparseable replies, shape-only critique rounds (rounds spent entirely on document shape rather than substance), mean cost and wall time per run, and the largest prompt file per stage type. Derived from report.json and *.usage.json on disk - nothing is recorded anywhere else and nothing leaves this machine. Does not change any chain or the debate mechanism.', {
+server.tool('verdict_stats', 'How the debate mechanism itself is doing, per chain and per lab, across a window of days: sign-off rate, mean rounds to sign-off, objections raised, withdrawals vs accepted proposals, dropouts, unparseable replies, shape-only critique rounds (rounds spent entirely on document shape rather than substance), per-lab independence skew (novel-objection rate, solo-signoff rate, a low-independence flag), mean cost and wall time per run, and the largest prompt file per stage type. Derived from report.json and *.usage.json on disk - nothing is recorded anywhere else and nothing leaves this machine. Descriptive only: never reweights a panel or changes a verdict.', {
   days: z.number().min(0.1).max(3650).optional().describe('how far back to look, in days. Defaults to 30.'),
 }, async ({ days = 30 }) => {
   const r = verdictStats(runsDir, { days });
