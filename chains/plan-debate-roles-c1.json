@@ -1,0 +1,92 @@
+{
+  "name": "plan-debate-roles-c1",
+  "description": "v6 role-seat plan, phase 5 real-run candidate (docs/v6-decisions.md 'Phase 5 - role debate chain'). Same shape as plan-debate-open-c2, minus Kimi (five critic seats, not six, to match the plan's five lenses/five personas one-to-one) - each critic seat now carries a role: {lens, persona} pair (v6 §1/§2, applied only to the debate-stage system prompt; the panel stage and every pipeline seat below are unaffected by construction). Pipeline seats (criteria/skeleton/builder/reviser/handoff) are untouched external Claude-Code seats, exactly as in the source chain - roles only ever apply to the critics array's debate-stage prompt. Pairings and their reasoning are in docs/v6-decisions.md, not repeated here so there is one place to keep them current.",
+  "maxRounds": 3,
+  "signoff": "unanimous",
+  "proposals": {
+    "parts": 6,
+    "maxTokens": 1500
+  },
+  "debate": true,
+  "handoff": true,
+  "estimate": {
+    "promptTokens": 16000,
+    "draftTokens": 16000,
+    "critiqueTokens": 2000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "skeleton": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "builder": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "reviser": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "handoff": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "critics": [
+      {
+        "provider": "together",
+        "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "maxTokens": 20000,
+        "extra": {
+          "chat_template_kwargs": {
+            "thinking": false
+          }
+        },
+        "lab": "deepseek",
+        "role": { "lens": "security-and-legal", "persona": "moses" }
+      },
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.5-plus-20260420",
+        "maxTokens": 20000,
+        "extra": {
+          "reasoning": {
+            "enabled": false
+          }
+        },
+        "lab": "qwen",
+        "role": { "lens": "long-horizon", "persona": "noah" }
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 20000,
+        "lab": "glm",
+        "extra": {
+          "reasoning": {
+            "effort": "low"
+          }
+        },
+        "role": { "lens": "integrator", "persona": "matthew" }
+      },
+      {
+        "provider": "openrouter",
+        "model": "mistralai/mistral-large-2512",
+        "maxTokens": 20000,
+        "lab": "mistral",
+        "role": { "lens": "user-advocate", "persona": "van-gogh" }
+      },
+      {
+        "provider": "google",
+        "model": "gemini-3.6-flash",
+        "maxTokens": 20000,
+        "lab": "gemini",
+        "role": { "lens": "adversary", "persona": "parzival" }
+      }
+    ]
+  },
+  "scope": "open"
+}
