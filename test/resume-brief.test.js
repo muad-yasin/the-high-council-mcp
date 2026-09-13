@@ -67,3 +67,15 @@ test('a completed run (deliverable.md present) reports full status and no pendin
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('v3 §2: a recorded scope amendment surfaces in the resume brief, not just the run folder', () => {
+  const { dir, runMeta } = fixtureRun();
+  try {
+    writeFileSync(join(dir, 'AMENDMENTS.md'), 'old -> abc123 | added the mobile-web-app requirement, deliberately | 2026-09-13T13:00:00Z\n');
+    const brief = generateResumeBrief({ runId: 'fixture-run', dir, runMeta, chainConfig: mockConfig });
+    assert.match(brief, /Scope amendment\(s\) recorded/);
+    assert.match(brief, /added the mobile-web-app requirement, deliberately/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

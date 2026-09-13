@@ -9,10 +9,11 @@ import { spendReport, costToday } from './spend.js';
 import { verdictStats } from './verdict-stats.js';
 import { withIntegrityFooter } from './integrity.js';
 import { generateResumeBrief } from './resume-brief.js';
-import { preflightCheck } from './preflight.js';
+import { preflightCheck, checkArtifactReferences } from './preflight.js';
 import { stageKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs, withStalenessCheck } from './cache-integrity.js';
+import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -394,6 +395,11 @@ let request = readFileSync(taskFile, 'utf8');
 // v2 plan §7.2: fingerprint scope is the task's own text and the chain config, not the
 // --context document bundle appended below - captured before that append happens.
 const rawTaskTextForCacheFingerprint = request;
+// v3 §2: frozen-scope enforcement. Hashes the raw task text alone (not the chain config -
+// that's §7.2's cache fingerprint, a different property) so a run can tell whether its own
+// task file changed since it started, independent of --context docs. Reuses src/integrity.js's
+// own hashing rather than a second implementation.
+const taskHash = taskHashOf(rawTaskTextForCacheFingerprint);
 // --context: standing direction documents, appended to every request so the
 // harness plans within the same direction the humans discuss (context/README.md).
 const contextArg = resumeMeta ? resumeMeta.context : flag('context', null);
@@ -414,8 +420,28 @@ const runId = resumeMeta ? basename(resolve(resumeRun)) : new Date().toISOString
 const runDir = join(work, 'runs', runId);
 mkdirSync(runDir, { recursive: true });
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskPathEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskPathEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash }, null, 2));
 } else if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
+
+// v3 §2: refuse to silently resume past a changed task file. A stored taskHash on an older
+// run (pre-v3) is absent, not mismatched - trusted, not treated as stale, the same posture
+// §7.2's cache staleness check already takes for a missing fingerprint. AMENDMENTS.md is the
+// one path past a real mismatch: an entry covering the current hash means the operator
+// declared the change on the record rather than editing the task file quietly.
+if (resumeMeta) {
+  const amendmentsPath = join(runDir, 'AMENDMENTS.md');
+  const amendmentsText = existsSync(amendmentsPath) ? readFileSync(amendmentsPath, 'utf8') : null;
+  const scopeCheck = checkFrozenScope({ storedHash: resumeMeta.taskHash, currentHash: taskHash, amendmentsText });
+  if (!scopeCheck.ok) {
+    console.error(`\n${scopeCheck.message}\n(${amendmentsPath})`);
+    process.exit(1);
+  }
+  if (scopeCheck.amended) {
+    // The new hash becomes this run's baseline going forward.
+    writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...resumeMeta, taskHash }, null, 2));
+    console.log(`task hash mismatch covered by a recorded amendment in ${amendmentsPath} - proceeding.`);
+  }
+}
 // Stage cache: <label>.md holds the text, <label>.usage.json what it cost.
 // Both are written as each stage completes, so a resume replays them.
 const cacheFingerprint = fingerprintInputs(rawTaskTextForCacheFingerprint, config);
@@ -465,7 +491,9 @@ log(`task:  ${taskPathEff}`);
 // check for the specific class of conflict this project already hit once (a chain requiring
 // an appended section against text demanding a standalone document). Warns, never blocks.
 if (!resumeMeta) {
-  const preflightWarnings = preflightCheck(config, request);
+  // v3 §3: same call site, same warn-never-block posture, checking for a task that names a
+  // file it never inlines verbatim rather than a section/criteria conflict.
+  const preflightWarnings = [...preflightCheck(config, request), ...checkArtifactReferences(request)];
   if (preflightWarnings.length) {
     for (const w of preflightWarnings) log(`  PRE-FLIGHT WARNING: ${w.message}`);
     if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
@@ -565,7 +593,13 @@ if (result.proposalPool?.length && result.proposalPool.length > result.proposals
   writeFileSync(join(runDir, 'proposals-pool.md'), `# Every proposal every lab wrote (${result.proposalPool.length}); "kept" ones went to the builder\n\n` + result.proposalPool.map(p =>
     `## ${p.kept ? 'KEPT' : 'dropped'} - ${p.lab}/${p.model}, attempt ${p.attempt}\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}`).join('\n\n'));
 }
-if (result.board) writeFileSync(join(runDir, 'BOARD.md'), `# Debate board - run ${runId}\n\nEvery proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}`);
+// §5 (v3 plan): declined objections are a first-class record, never part of the deliverable text
+// itself, so they get their own section wherever the board already lives - the same file that
+// already lists proposals and debate posts (or a standalone one, if no debate happened this run).
+const disputesSection = result.disputes?.length
+  ? `\n\n## Disputed objections (declined by the reviser, kept out of the deliverable)\n\n${result.disputes.map(d => `- Round ${d.round}: ${d.reason}`).join('\n')}`
+  : '';
+if (result.board || disputesSection) writeFileSync(join(runDir, 'BOARD.md'), `# Debate board - run ${runId}\n\n${result.board ? `Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${disputesSection}`);
 if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff);
 if (result.proposals?.length) {
   writeFileSync(join(runDir, 'proposals.md'), result.proposals.map(p =>
@@ -585,6 +619,7 @@ writeFileSync(join(runDir, 'report.json'), JSON.stringify({
   dropouts: result.dropouts,
   debate: result.debate,
   scoreboard: result.scoreboard,
+  disputes: result.disputes,
   totals: result.totals,
   maxUsd: maxUsdEff,
   stages: result.stages.map(({ text, ...rest }) => rest),
@@ -608,7 +643,8 @@ if (result.scoreboard) {
 }
 log(`tokens:   ${t.input} in, ${t.output} out, ${t.total} total`);
 log(`cost:     ${formatUsd(t.usd)}${t.unpriced.length ? ` (+ unpriced: ${t.unpriced.join(', ')})` : ''}${maxUsdEff === null ? '' : ` of ${formatUsd(maxUsdEff)} ceiling`}`);
-log(`output:   ${join(runDir, 'deliverable.md')}${result.handoff ? `  (+ HANDOFF.md${result.board ? ', BOARD.md' : ''})` : result.board ? '  (+ BOARD.md)' : ''}`);
+const boardWritten = result.board || disputesSection;
+log(`output:   ${join(runDir, 'deliverable.md')}${result.handoff ? `  (+ HANDOFF.md${boardWritten ? ', BOARD.md' : ''})` : boardWritten ? '  (+ BOARD.md)' : ''}`);
 
 }
 // end of the non-MCP path (see the --mcp branch at the top of this file)

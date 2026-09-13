@@ -58,3 +58,27 @@ export function preflightCheck(chainConfig, text) {
   }
   return warnings;
 }
+
+// v3 §3 (artifact inlining, ~/Projects/relay/tasks/thcmcp-v3-draft-fixed.md). Real incident:
+// a task that only summarised a specific JSON rubric file, rather than inlining it, led every
+// critic lab to invent plausible-but-nonexistent identifiers against it - only the external
+// build seat, which could read the real file, caught it. This check warns (never blocks, same
+// posture as preflightCheck above) when a task names a path it never fences verbatim elsewhere
+// in its own text, so the operator can paste the real content before any labs see the task.
+const PATH_PATTERN = /\b[\w.-]+\.[a-zA-Z]{1,6}\b/g;
+
+export function checkArtifactReferences(text) {
+  const body = text || '';
+  const fenced = [...body.matchAll(/```[\s\S]*?```/g)].map(m => m[0]).join('\n');
+  const candidates = new Set([...body.matchAll(PATH_PATTERN)].map(m => m[0]));
+  const warnings = [];
+  for (const path of candidates) {
+    if (!fenced.includes(path)) {
+      warnings.push({
+        path,
+        message: `Possible missing artifact: the task names '${path}' but never fences its content verbatim anywhere in the task text. A lab reading only the task may invent plausible-but-nonexistent content for it. This is a heuristic check and may miss a path phrased unusually. Proceeding - inline the real file if this run is about it.`,
+      });
+    }
+  }
+  return warnings;
+}

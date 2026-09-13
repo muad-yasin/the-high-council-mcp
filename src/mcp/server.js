@@ -20,6 +20,8 @@ import { stageKindOf, buildStageContract, renderStagePromptBundle } from '../sta
 import { verifyIntegrityFooter } from '../integrity.js';
 import { generateResumeBrief } from '../resume-brief.js';
 import { verdictStats } from '../verdict-stats.js';
+import { checkClaimStaleness } from '../peer-claim.js';
+import { submitStageAnswer } from '../stage-submission.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Same split as the CLI: `pkg` ships with the package (chains/, the CLI
@@ -98,7 +100,7 @@ function isAlive(id) {
   } catch { return false; }
 }
 
-const server = new McpServer({ name: 'the-high-council', version: '0.2.0' });
+const server = new McpServer({ name: 'the-high-council', version: '0.3.0' });
 
 server.tool('list_chains', 'Chains available to run, with their description and worst-case price from a dry run.', {}, async () => {
   const chains = readdirSync(join(pkg, 'chains')).filter(f => f.endsWith('.json')).map(f => {
@@ -153,7 +155,10 @@ server.tool('external_prompt', 'When a run is paused at an external seat: the ex
   // exact failure this project already suffered once - a session that could not see its
   // own prompt. Never hand that content back looking fine when it isn't.
   const check = verifyIntegrityFooter(prompt);
-  return text({ run, stage: label, prompt, answerWith: `submit_stage(run, "${label}", <text>)`, ...(check.ok ? {} : { integrity_warning: check.warning }) });
+  // v3 plan §1: a claim's staleness/contest status alongside the prompt this tool already
+  // returns - no new tool call needed to see whether this stage is stalled or contested.
+  const claimWarning = checkClaimStaleness(dir, label);
+  return text({ run, stage: label, prompt, answerWith: `submit_stage(run, "${label}", <text>)`, ...(check.ok ? {} : { integrity_warning: check.warning }), claim: claimWarning || { type: 'none' } });
 });
 
 // v2 plan §3 (~/Projects/relay/runs/2026-09-11T12-19-34-184Z/deliverable.md). A driving
@@ -182,13 +187,32 @@ server.tool('prepare_stage_prompt', 'For a run paused at an external seat: write
   return text({ written: join(dir, 'stage_prompt.md'), stage: label, dispatch: 'Fork a subagent and give it only this file\'s path - not its contents inline.' });
 });
 
-server.tool('submit_stage', 'Write the answer for an external stage into the run folder, then resume the run in the background. The stage must be the one external_prompt reported.', { run: z.string(), stage: z.string().regex(/^[a-z0-9-]+$/), content: z.string() }, async ({ run, stage, content }) => {
+server.tool('submit_stage', 'Write the answer for an external stage into the run folder, then resume the run in the background. The stage must be the one external_prompt reported. claimed_by is optional (v3 §1): a self-declared peer-session name, recorded as this stage\'s claim; every check here is warn-only and never blocks the write, so a caller that omits it sees exactly today\'s behavior.', { run: z.string(), stage: z.string().regex(/^[a-z0-9-]+$/), content: z.string(), claimed_by: z.string().optional().describe('self-declared peer-session name, recorded as this stage\'s claim before the answer is written') }, async ({ run, stage, content, claimed_by }) => {
   if (!safeRun(run)) return text({ error: 'no such run' });
   const dir = join(runsDir, run);
-  if (waiting(dir) !== stage) return text({ error: `run is not waiting for "${stage}"`, waitingFor: waiting(dir) });
-  writeFileSync(join(dir, `${stage}.md`), content);
-  writeFileSync(join(dir, `${stage}.usage.json`), JSON.stringify({ provider: 'external', model: 'claude-code-session', usage: { input: 0, output: words(content) }, usd: 0, ms: 0 }));
-  return text({ written: `${stage}.md`, words: words(content), ...(await resume(run)) });
+  // A stage this run never paused for is still rejected outright - that is not one of §1's
+  // three warn-only checks, it is the pre-existing safety check this tool already had. What
+  // changes for §1 is narrower: a stage that WAS an external pause point, and already has an
+  // answer on disk (a late/duplicate submission), is no longer rejected here - it falls through
+  // to the duplicate_answer warning below instead, so neither answer is silently lost.
+  const wasExternalStage = existsSync(join(dir, `NEEDS-${stage}.md`));
+  const alreadyAnswered = existsSync(join(dir, `${stage}.md`));
+  if (!wasExternalStage || (!alreadyAnswered && waiting(dir) !== stage)) {
+    return text({ error: `run is not waiting for "${stage}"`, waitingFor: waiting(dir) });
+  }
+
+  // v3 plan §1: three warn-only checks, all evaluated before the answer file is accepted as
+  // final - none of them reject the write, none change submit_stage's existing required
+  // arguments or return shape for a caller that omits claimed_by. Factored into
+  // src/stage-submission.js so it's testable without the MCP transport (test/peer-claim.test.js).
+  const runMeta = readJson(join(dir, 'run.json'));
+  const chainConfig = runMeta ? readJson(join(pkg, 'chains', `${runMeta.chain}.json`)) : null;
+  const { warnings, writtenFile, isDuplicate } = submitStageAnswer(dir, stage, content, { claimedBy: claimed_by, chainConfig });
+
+  if (isDuplicate) {
+    return text({ written: `${stage}.late.md`, words: words(content), warnings, note: `"${stage}.md" already existed and was left untouched; this submission was kept as "${stage}.late.md" for a human or driving session to resolve.` });
+  }
+  return text({ written: `${stage}.md`, words: words(content), ...(warnings.length ? { warnings } : {}), ...(await resume(run)) });
 });
 
 server.tool('resume_run', 'Resume a paused run after its external stage was answered (submit_stage does this for you), or a run stopped by the spend cap (pass a higher max_usd). Completed stages replay from disk and cost nothing.', { run: z.string(), max_usd: z.number().min(0).optional().describe('raise the per-run ceiling for the rest of this run. 0 removes it.') }, async ({ run, max_usd }) => {

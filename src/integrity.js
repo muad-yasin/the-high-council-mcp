@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 
 const FOOTER_RE = /\n<!-- INTEGRITY: lines=(\d+) bytes=(\d+) sha256=([0-9a-f]{12}) -->\n?$/;
 
-function fingerprint(content) {
+export function fingerprint(content) {
   const lines = content.split('\n').length;
   const bytes = Buffer.byteLength(content, 'utf8');
   const sha256 = createHash('sha256').update(content, 'utf8').digest('hex').slice(0, 12);

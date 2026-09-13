@@ -11,7 +11,13 @@
 // 2026-09-10, for the full incident.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseJson, classifyUnreadable } from '../src/chain.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { parseJson, parseDisputes, classifyUnreadable, runChain, criteriaUserPrompt } from '../src/chain.js';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const mockConfig = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'utf8'));
 
 test('parseJson: stray unescaped quote inside a markdown-quoted span is repaired', () => {
   // Trimmed from a real Qwen3.5-9B reply (run 2026-09-10T20-02-20-992Z, critique-1.md) - the
@@ -108,4 +114,59 @@ test('classifyUnreadable: near-cap output with no error still reads as truncatio
 test('classifyUnreadable: low output with no error still reads as a formatting problem', () => {
   const why = classifyUnreadable({ output: 8 }, 8000);
   assert.equal(why, 'malformed JSON - read the saved reply, it may still be an objection');
+});
+
+// v3 §4 (contract-vs-criteria fix, ~/Projects/relay/tasks/thcmcp-v3-draft-fixed.md). Real
+// incident: across four runs, a criteria seat that never learned a chain's own required
+// sections wrote a criterion forbidding one - a deadlock that cost rounds and, once, could not
+// be resolved by any revision. The criteria seat now can't produce that conflict in the first
+// place, because it's told what's required before it writes anything.
+test('criteriaUserPrompt: a proposal-mode chain is told its required sections, so it cannot forbid one', () => {
+  const config = JSON.parse(readFileSync(join(root, 'chains', 'mock-proposals.json'), 'utf8'));
+  const prompt = criteriaUserPrompt('Do the thing.', config);
+  assert.match(prompt, /# Sections this chain always adds/);
+  assert.match(prompt, /Scope ledger/);
+  assert.match(prompt, /Do not write a criterion that forbids this section's presence/);
+});
+
+test('criteriaUserPrompt: a chain with no required sections adds no block at all', () => {
+  const config = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'utf8'));
+  const prompt = criteriaUserPrompt('Do the thing.', config);
+  assert.equal(prompt, '# Request\n\nDo the thing.');
+  assert.doesNotMatch(prompt, /Sections this chain always adds/);
+});
+
+// §5 (v3 plan, MISTRAL-3 accepted): a reviser that declines an objection ends its reply with
+// trailing "DECLINED: <reason>" lines (src/roles.js). Those lines must never reach the next
+// round's draft and must be recorded separately, in order, in the run result's `disputes` array.
+test('parseDisputes: strips trailing DECLINED lines from the draft and returns them in order', () => {
+  const text = 'THE DELIVERABLE\n\nBody text.\n\nDECLINED: the critic quoted no evidence.\nDECLINED: this is a matter of taste, not a defect.';
+  const { draft, disputes } = parseDisputes(text);
+  assert.equal(draft, 'THE DELIVERABLE\n\nBody text.');
+  assert.deepEqual(disputes, ['the critic quoted no evidence.', 'this is a matter of taste, not a defect.']);
+});
+
+test('parseDisputes: a reply with no DECLINED trailer is returned unchanged with an empty disputes array', () => {
+  const text = 'THE DELIVERABLE\n\nBody text.';
+  const { draft, disputes } = parseDisputes(text);
+  assert.equal(draft, text);
+  assert.deepEqual(disputes, []);
+});
+
+test('runChain: a fixture reviser reply ending in DECLINED lines is stripped from the draft and collected into result.disputes, in order (mock provider, mock.json revise stage)', async () => {
+  const config = { ...mockConfig, signoff: undefined }; // non-panel path: mock.json's own critic/reviser cycle
+  const result = await runChain({
+    request: 'TRIGGER_DECLINED_TEST: write a short fixture deliverable.',
+    config,
+    log: () => {},
+  });
+  // The reviser's own DECLINED trailer must never survive into the deliverable a later critic
+  // grades, or into any later round's draft.
+  assert.doesNotMatch(result.deliverable, /DECLINED:/);
+  assert.ok(Array.isArray(result.disputes) && result.disputes.length >= 1, 'expected at least one dispute to be recorded');
+  assert.deepEqual(result.disputes.map(d => d.reason), [
+    'the critic quoted no evidence for this claim.',
+    'this is a matter of taste, not a defect.',
+  ]);
+  assert.ok(result.disputes.every(d => typeof d.round === 'number'));
 });

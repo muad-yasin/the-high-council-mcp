@@ -110,3 +110,52 @@ objection, counted separately as `unparseable` - and must not silently read as e
 zero-objection result; a dropped-out lab is counted per lab and per chain even though it produced
 nothing; a run with no `report.json` yet (paused/still going) is skipped for verdict scoring but
 still contributes to prompt-size tracking. 9/9 new tests pass; full suite 103/103.
+
+## 2026-09-13: v3 (0.3.0) re-curation - verdict on relay-9c's four logged deviations
+
+Read relay's DECISIONS.md (stream-a and stream-b entries) before merging. All four agreed with,
+landed as-is:
+
+1. **§5 disputes entry shape** (`{ round, reason }`, only the `draft` variable stripped of the
+   trailer - the raw stage record keeps the model's literal reply - and `BOARD.md` written on a
+   dispute even with no debate). Sound: matches this project's existing convention that a raw
+   stage record is "what the model actually said" and a derived field is the cleaned view;
+   PLAN.md didn't specify `round` but its absence would have been the one unattributed record in
+   `BOARD.md`, worth adding.
+2. **§1 contested-claim mechanics** (`writeClaim` records a contest, first claim wins the record,
+   a `contested_by` array holds the rest). Sound: keeps PLAN.md's exact `checkClaimStaleness`
+   signature, needs no second file or in-memory history, and PLAN.md's own prose only specified
+   the behavior, not the mechanism.
+3. **Narrowing `submit_stage`'s existing "not waiting for X" guard** so an already-answered
+   external stage falls through to `duplicate_answer` (warn, keep both files) instead of being
+   rejected outright. **Agreed, with a condition.** This is a real behaviour change to an
+   existing, shipped tool's contract for every caller, not only new peer-dispatch ones - a
+   second `submit_stage` call for the same stage used to error, now it succeeds with a warning
+   and an extra file. Landed anyway because: it's the narrowest possible scope (only the one case
+   §1 needs - a stage that was never a pause point at all still hard-rejects, unchanged), it loses
+   no data (strictly more informative than a bare rejection), and it matches PLAN.md's own
+   explicit "all three checks warn, never reject" instruction, which the tool's pre-existing guard
+   would otherwise have silently violated for exactly this one case. The condition: this is called
+   out as its own paragraph in CHANGELOG.md's 0.3.0 entry, not folded silently into the feature
+   list - a compatibility-relevant change earns visibility, even a disclosed and justified one.
+4. **Skipping `buildStageContract` inside the new checks**, since `validateDeliverable` already
+   derives the same required-sections data via `requiredSectionsFor`. Agreed: PLAN.md's prose
+   named both functions, but the actual constraint it asks for - reuse existing data, no new
+   validator - is satisfied either way; calling `buildStageContract` too would have been a
+   redundant, unused call.
+
+## 2026-09-13: v3 re-curation scope - only the five plan items, nothing else that happened to
+   land on relay concurrently
+
+relay's `main` picked up several unrelated things during this same session alongside the v3
+merge: `verdict_stats`-adjacent fixes, a chain rename (`plan-debate-c2-7lab` → `-6lab`), three
+previously-uncommitted-only features this session found and committed while chasing the v3 merge
+(`dropouts` tracking, `signoff[].objections`, `mock-critic-holdout`, the `roles.js` "Available
+tools" handoff instruction, and a prompt-injection-defense tag-wrapping feature for
+critic/reviewer text). THCMCP's own `chain.js`/`roles.js`/`providers.js` already carried most of
+these from an earlier sync, confirmed by diff before touching anything - only `mock-critic-holdout`
+needed adding here to keep `test/signoff.test.js`'s own mock-provider fixture consistent with
+relay's. The prompt-injection-defense feature (`<critic-claim>`/`<prior-review>` tags) is real,
+already-committed-on-relay, security-relevant work but was not part of the five v3 plan items and
+is not re-curated in this pass - it already exists in THCMCP's `src/roles.js` from an earlier
+sync (confirmed via diff), so nothing was lost by leaving it out of this decision's scope.

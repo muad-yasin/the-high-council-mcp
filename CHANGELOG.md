@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.3.0 - 2026-09-13
+
+v3 build, designed from nine real runs driven the same day (chain `plan-debate-c2-4lab`,
+~$0.36 total metered spend, external Claude-role stages). Five items, all offline-tested
+against `chains/mock*.json`; the debate/proposal/reply/blind-panel mechanism, external-seat
+economics, BYOK, and the no-ledger-file invariant are all unchanged. No efficacy claim is
+made anywhere below.
+
+- **Contract-versus-criteria conflict, resolved.** The criteria stage is now told a chain's
+  own required deliverable sections (reusing `requiredDeliverableSections()`, already
+  computed for v2's pre-flight check) before it writes anything, so it can no longer write
+  a criterion that conflicts with a section the builder is required to produce. This
+  replaced v2's warn-only pre-flight check as the primary fix (that check remains, for runs
+  that skip the criteria stage) after the same conflict class cost rounds in four separate
+  runs, including a genuine deadlock during this plan's own review where two acceptance
+  criteria contradicted each other and no revision could satisfy both.
+- **Artifact inlining, warned about.** `checkArtifactReferences()` (`src/preflight.js`) warns
+  when a task names a file path it never fences verbatim in its own text - the real failure
+  mode that led four labs to invent plausible-but-nonexistent identifiers against a
+  summarised rubric file. Warn-only, consistent with the rest of `preflight.js`.
+- **A first-class dispute record.** A reviser that judges an objection to not be a real
+  defect now ends its reply with `DECLINED: <reason>` lines, stripped before the text
+  becomes the next round's draft and collected into `report.json`'s new `disputes` field
+  and a `BOARD.md` section - never inside the deliverable text itself, so no format
+  criterion can ever fail a draft for containing it.
+- **Peer-session dispatch, made first-class.** External stages were, in practice, handed to
+  independent peer sessions rather than the driver's own subagents. `<stage>.claim.json`
+  (`src/peer-claim.js`) records who claimed a stage and when, surfaced in `external_prompt`
+  and the resume brief; `submit_stage` gains an optional `claimed_by` argument and three
+  warn-only checks (claimer mismatch, missing required sections, a late/duplicate answer
+  kept as `<stage>.late.md` rather than silently overwritten). No harness-initiated spawning
+  or messaging of any agent.
+- **Frozen-scope enforcement.** A run now hashes its task file's text at start
+  (`src/scope-freeze.js`) and refuses to silently `--resume` past a change to it unless an
+  `AMENDMENTS.md` entry covers the new hash - the real fix for an operator's late,
+  undeclared requirement burning two rounds and a restart because a critic couldn't tell it
+  came from the owner rather than a lab inventing scope. The one item in this release that
+  can refuse an otherwise-legitimate resume outright; that tradeoff is deliberate, not an
+  oversight.
+
+Deviation from the signed plan, recorded plainly: `submit_stage`'s pre-existing guard
+(reject an already-answered stage outright) is narrowed for the one case peer-dispatch
+needs - a stage that already has an answer now falls through to the `duplicate_answer`
+warning instead of being rejected. This is a real behaviour change for every caller, not
+only new peer-dispatch ones; a caller that never double-submits sees no difference.
+
 ## 0.2.0 - 2026-09-13
 
 v2 build per the council-signed plan (`~/Projects/relay/runs/2026-09-11T12-19-34-184Z/`),

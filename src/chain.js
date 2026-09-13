@@ -1,6 +1,21 @@
 import { call, keyFor } from './providers.js';
 import * as R from './roles.js';
 import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach } from './cost.js';
+import { requiredDeliverableSections } from './preflight.js';
+
+// v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
+// full chain. Tells the criteria seat what the chain's own contract will require in the
+// deliverable, so it never writes a criterion that conflicts with a section the builder is
+// required to produce - the recurring contract-vs-criteria conflict v2's pre-flight check
+// could only warn about after the fact. Reuses the same required-sections data the pre-flight
+// check already computes - no new state, no second source of truth.
+export function criteriaUserPrompt(request, config) {
+  const required = requiredDeliverableSections(config);
+  const requiredBlock = required.length
+    ? `\n\n# Sections this chain always adds\nThe deliverable will also contain: ${required.join(', ')}.\nDo not write a criterion that forbids this section's presence or dictates an ordering it cannot satisfy.`
+    : '';
+  return `# Request\n\n${request}${requiredBlock}`;
+}
 
 // A "seat" is one lab's model occupying one slot in the chain.
 //   { provider, model, maxTokens?, temperature? }
@@ -53,6 +68,27 @@ function repairStrayQuotesAndControlChars(text) {
     out += c;
   }
   return out;
+}
+
+// §5 (v3 plan, MISTRAL-3 accepted): a reviser that judges an objection to not
+// be a real defect ends its reply with one or more trailing "DECLINED: <reason>"
+// lines (src/roles.js's reviser system prompt). Those lines are never part of
+// the deliverable a critic grades - they're stripped here and returned
+// separately so the caller can carry them into report.json's `disputes`
+// field instead. Only lines strictly at the end of the reply count: a
+// "DECLINED:"-shaped line does not get pulled out of the middle of the
+// deliverable's own body text.
+export function parseDisputes(text) {
+  const lines = text.split('\n');
+  let i = lines.length - 1;
+  const declined = [];
+  while (i >= 0 && /^DECLINED:\s*.+/.test(lines[i].trim())) {
+    declined.unshift(lines[i].trim().replace(/^DECLINED:\s*/, ''));
+    i--;
+  }
+  let draftLines = lines.slice(0, i + 1);
+  while (draftLines.length && draftLines[draftLines.length - 1].trim() === '') draftLines.pop();
+  return { draft: draftLines.join('\n'), disputes: declined };
 }
 
 export function parseJson(text) {
@@ -355,7 +391,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     log('\nStage: acceptance criteria');
     const s = record(await invoke(config.seats.criteria, {
       system: R.criteriaSystem(open),
-      user: `# Request\n\n${request}`,
+      user: criteriaUserPrompt(request, config),
       log, label: 'criteria',
     }));
     const parsed = parseJson(s.text);
@@ -564,6 +600,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   let passed = false;
   let lastCritique = null;
   let signoff = null;
+  const disputes = [];
 
   if (config.signoff === 'unanimous') {
     for (let round = 1; round <= maxRounds; round++) {
@@ -662,11 +699,14 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
 
       log(`\nRound ${round}: revise (union of everything any lab flagged)`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
-      draft = record(await invoke(reviserSeat, {
+      const revised = record(await invoke(reviserSeat, {
         system: R.reviserSystem(open),
         user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }),
         log, label: `revise-${round}`,
       })).text;
+      const parsedRevise = parseDisputes(revised);
+      draft = parsedRevise.draft;
+      parsedRevise.disputes.forEach(reason => disputes.push({ round, reason }));
       passed = false;
     }
   } else {
@@ -721,11 +761,14 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
 
       log(`\nRound ${round}: revise`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
-      draft = record(await invoke(reviserSeat, {
+      const revised = record(await invoke(reviserSeat, {
         system: R.reviserSystem(open),
         user: R.reviserUser({ request, criteria, draft, critique }),
         log, label: `revise-${round}`,
       })).text;
+      const parsedRevise = parseDisputes(revised);
+      draft = parsedRevise.draft;
+      parsedRevise.disputes.forEach(reason => disputes.push({ round, reason }));
       passed = false;
     }
   }
@@ -775,6 +818,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     passed,
     lastCritique,
     signoff,
+    disputes,
     history,
     stages,
     totals: summarise(stages),

@@ -282,7 +282,7 @@ Then drive it with these tools:
 | `verdict_stats` | How the debate mechanism itself is doing, per chain and per lab: sign-off rate, rounds, objections, dropouts, cost/wall time, largest prompt files - derived from disk |
 | `external_prompt` | The prompt a paused external stage is waiting on - **read it with this, not by opening the file**; the prompts are routinely tens of thousands of tokens and most clients silently truncate a file read |
 | `prepare_stage_prompt` | Write a self-contained bundle for a paused stage, so a driving session doing other work at the same time can dispatch it to a fresh subagent instead of authoring it inline - see [`docs/dispatch-pattern.md`](docs/dispatch-pattern.md) |
-| `submit_stage` | Answer a paused stage and resume |
+| `submit_stage` | Answer a paused stage and resume. Optional `claimed_by` records who's answering; a second submission for an already-answered stage no longer errors - it's kept as `<stage>.late.md` with a warning instead of being rejected |
 | `resume_run` | Resume a paused run, or raise `max_usd` on one the cap stopped |
 | `read_run_file` | Read any file from a run folder |
 | `list_runs` | Past runs |

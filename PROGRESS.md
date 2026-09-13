@@ -12,3 +12,9 @@ One line per milestone as it lands. Append-only.
   Gemini-pause note across 18 chains - personal billing information, doesn't belong in a public
   repo or template. Also ported src/verdict-stats.js + the verdict_stats MCP tool + --stats CLI
   subcommand, with 9 new tests written fresh (none existed upstream). 103/103 tests passing.
+- 2026-09-13: v3 (0.3.0) re-curated from `~/Projects/relay` main (two merged streams: v3/stream-a
+  §4/§3/§2, v3/stream-b §5/§1, merged at relay commit 6c15fbd). Five items; full build detail in
+  relay's own PROGRESS.md/DECISIONS.md. 130/130 tests passing, offline, zero API spend. Real
+  smoke tests (not just unit tests) confirmed frozen-scope refusal, the dispute record, and
+  demo/doctor all work end to end post-merge. CHANGELOG.md 0.3.0 entry added; package.json and
+  the MCP server's own version bumped to match.

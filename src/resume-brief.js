@@ -13,6 +13,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { stageKindOf, stageKindsFor } from './stage-contract.js';
+import { checkClaimStaleness } from './peer-claim.js';
 
 // Mirrors src/mcp/server.js's waiting(dir), duplicated rather than imported: server.js is
 // the MCP entrypoint (constructs and owns the server instance as a side effect of import),
@@ -67,6 +68,14 @@ export function generateResumeBrief({ runId, dir, runMeta, chainConfig }) {
   lines.push('## Decided so far');
   if (done.length === 0) lines.push('- (nothing completed yet)');
   else for (const kind of done) lines.push(`- ${kind}: complete`);
+  // v3 §2: a declared scope amendment goes on the record here - the one block every
+  // subsequent stage's prompt already reads - so a critic sees it instead of an
+  // unexplained late requirement.
+  const amendmentsPath = join(dir, 'AMENDMENTS.md');
+  if (existsSync(amendmentsPath)) {
+    lines.push('- Scope amendment(s) recorded, see below:');
+    lines.push(readFileSync(amendmentsPath, 'utf8').trim());
+  }
   lines.push('');
   lines.push('## Currently pending');
   if (deliverableDone) {
@@ -74,6 +83,10 @@ export function generateResumeBrief({ runId, dir, runMeta, chainConfig }) {
   } else if (pending) {
     lines.push(`Stage: ${pending}`);
     lines.push('Waiting on: an external seat\'s reply (see NEEDS-<stage>.md, or dispatch it with prepare_stage_prompt)');
+    // v3 plan §1: surfaced here too, not only from external_prompt, so a returning session
+    // sees a stalled or contested claim without an extra tool call.
+    const claim = checkClaimStaleness(dir, pending);
+    lines.push(`Claim: ${claim ? claim.type : 'none'}`);
   } else {
     lines.push('Stage: in progress or between stages');
     lines.push('Waiting on: nothing external right now');

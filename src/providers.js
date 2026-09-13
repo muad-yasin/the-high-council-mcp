@@ -107,7 +107,14 @@ async function callMock({ model, system, messages, maxTokens }) {
   } else {
     const ids = [...user.matchAll(/^## ([A-Z0-9-]+-\d+) \((?:from|[a-z0-9-]+\))/gm)].map(m => m[1]);
     const ledger = ids.length ? `\n\n## Scope ledger\n${ids.map((id, i) => `${id} - ${i === 0 ? 'accepted - section 1' : 'cut - duplicate of the first'}`).join('\n')}` : '';
-    text = `${isReviser ? 'REVISED ' : ''}MOCK DELIVERABLE for model ${model}\n\nBody text.${isReviser ? '\n\nAssumptions: none.' : ''}${ledger}`;
+    // test/chain.test.js's §5 dispute-record fixture: a reviser reply ending in one or more
+    // "DECLINED: <reason>" trailer lines, as src/roles.js's reviser system prompt now instructs
+    // for an objection the reviser judges not to be a real defect. Gated on a marker in the
+    // request text so every other mock-provider test (which never sets it) is unaffected.
+    const declineTrailer = isReviser && user.includes('TRIGGER_DECLINED_TEST')
+      ? '\n\nDECLINED: the critic quoted no evidence for this claim.\nDECLINED: this is a matter of taste, not a defect.'
+      : '';
+    text = `${isReviser ? 'REVISED ' : ''}MOCK DELIVERABLE for model ${model}\n\nBody text.${isReviser ? '\n\nAssumptions: none.' : ''}${ledger}${declineTrailer}`;
   }
   await new Promise(r => setTimeout(r, 10));
   return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };

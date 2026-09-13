@@ -8,7 +8,12 @@
 // sense of completeness.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { preflightCheck, requiredDeliverableSections } from '../src/preflight.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { preflightCheck, requiredDeliverableSections, checkArtifactReferences } from '../src/preflight.js';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 test('requiredDeliverableSections: proposal-mode chains require a Scope ledger, others require nothing', () => {
   assert.deepEqual(requiredDeliverableSections({ proposals: { parts: 3 } }), ['Scope ledger']);
@@ -38,4 +43,22 @@ test('test_preflight_known_misses_semantic_conflicts: the same conflict, rephras
 test('a chain with no required sections never warns, regardless of the text', () => {
   const warnings = preflightCheck({}, 'must be a standalone, publication-ready, self-contained document');
   assert.deepEqual(warnings, []);
+});
+
+// v3 §3 (artifact inlining, ~/Projects/relay/tasks/thcmcp-v3-draft-fixed.md). Real incident:
+// a task summarising a specific JSON rubric file, rather than inlining it, led every critic
+// lab to invent plausible-but-nonexistent identifiers against it. Anchored to chains/mock.json
+// (a real, existing fixture) as its acceptance criterion requires, not an ad hoc string.
+test('test_artifact_reference_without_inline_warns: a path named but never fenced is flagged', () => {
+  const mockDescription = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'utf8')).description;
+  const taskText = `${mockDescription}\n\nReview rubric.json against these criteria.`;
+  const warnings = checkArtifactReferences(taskText);
+  assert.ok(warnings.some(w => w.path === 'rubric.json'), 'must name the un-fenced path');
+});
+
+test('test_artifact_reference_with_inline_passes: the same path, fenced verbatim, warns nothing', () => {
+  const mockDescription = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'utf8')).description;
+  const taskText = `${mockDescription}\n\nReview rubric.json against these criteria.\n\n\`\`\`\nrubric.json\n\`\`\``;
+  const warnings = checkArtifactReferences(taskText);
+  assert.deepEqual(warnings.filter(w => w.path === 'rubric.json'), []);
 });
