@@ -6,7 +6,7 @@ import { runChain, checkSeats, setCache, setBudget, budgetState, ExternalPause, 
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName } from './providers.js';
 import { spendReport, costToday } from './spend.js';
-import { verdictStats } from './verdict-stats.js';
+import { verdictStats, independenceStatsCsv } from './verdict-stats.js';
 import { withIntegrityFooter } from './integrity.js';
 import { generateResumeBrief } from './resume-brief.js';
 import { preflightCheck, checkArtifactReferences } from './preflight.js';
@@ -212,6 +212,16 @@ if (argv.includes('--stats')) {
     console.log(`\nBy lab:`);
     for (const l of r.labs) {
       console.log(`  ${l.lab}: proposed=${l.proposed} accepted=${l.accepted} withdrawn=${l.withdrawn} cut=${l.cut} dropouts=${l.dropouts} unparseable=${l.unparseable}`);
+    }
+    console.log(`\nIndependence skew (novel-objection rate, solo-signoff rate - descriptive only, never auto-reweighted):`);
+    for (const l of r.labs) {
+      const novel = l.novelObjectionRate === null ? '-' : `${Math.round(l.novelObjectionRate * 100)}%`;
+      const solo = l.soloSignoffRate === null ? '-' : `${Math.round(l.soloSignoffRate * 100)}%`;
+      console.log(`  ${l.lab}: novelObjections=${novel} (${l.novelObjections}/${l.objections})  soloSignoff=${solo} (${l.soloSignoffs}/${l.signoffs})${l.lowIndependence ? '  [low independence]' : ''}`);
+    }
+    if (argv.includes('--csv')) {
+      console.log(`\nIndependence skew CSV:`);
+      console.log(independenceStatsCsv(r.labs));
     }
     if (r.largestPrompts.length) {
       console.log(`\nLargest prompt file per stage type:`);
