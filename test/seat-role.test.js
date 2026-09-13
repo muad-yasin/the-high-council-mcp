@@ -132,8 +132,16 @@ test('chain-lint: no role at all produces no invalid-seat-role finding (role is 
   assert.equal(findings.filter(f => f.kind === 'invalid-seat-role').length, 0);
 });
 
-test('test_role_compat, golden hash across every shipped chain: no seat in any of the 30 chains/*.json declares a role today, and applying the (absent) role to each is byte-identical to DEBATE_SYSTEM', () => {
-  const files = readdirSync(chainsDir).filter(f => f.endsWith('.json'));
+// v6 phase 5 (docs/v6-decisions.md "Phase 5 - role debate chain"): this is the first shipped
+// chain that deliberately declares a role on every critic seat, so it is excluded from the
+// "nothing declares a role yet" compatibility proof below - not because compatibility stops
+// mattering, but because this file now proves the OPPOSITE property for that one chain (see the
+// test right after this one). Every other chain must still prove byte-identical prompts; only
+// this named exception is allowed to differ, and only because it does so on purpose.
+const CHAINS_WITH_ROLES_BY_DESIGN = ['plan-debate-roles-c1.json'];
+
+test('test_role_compat, golden hash across every shipped chain: no seat in any non-role-bearing chains/*.json declares a role, and applying the (absent) role to each is byte-identical to DEBATE_SYSTEM', () => {
+  const files = readdirSync(chainsDir).filter(f => f.endsWith('.json') && !CHAINS_WITH_ROLES_BY_DESIGN.includes(f));
   assert.ok(files.length >= 30, `expected at least 30 shipped chains, found ${files.length}`);
   for (const f of files) {
     const cfg = JSON.parse(readFileSync(join(chainsDir, f), 'utf8'));
@@ -148,6 +156,25 @@ test('test_role_compat, golden hash across every shipped chain: no seat in any o
       assert.equal(sha256(out), GOLDEN_DEBATE_SYSTEM_SHA256, `${f}: debate-stage system prompt must be byte-identical with no role set`);
     }
   }
+});
+
+test('plan-debate-roles-c1.json: every critic seat declares a valid role, and applying it changes the debate-stage prompt away from the golden hash', () => {
+  const cfg = JSON.parse(readFileSync(join(chainsDir, 'plan-debate-roles-c1.json'), 'utf8'));
+  const critics = cfg.seats.critics;
+  assert.equal(critics.length, 5, 'one critic seat per lens/persona, no more, no fewer');
+  const findings = lintChain(cfg, 'chains/plan-debate-roles-c1.json');
+  assert.equal(findings.filter(f => f.kind === 'invalid-seat-role').length, 0);
+  for (const seat of critics) {
+    assert.notEqual(seat.role, undefined, `${seat.lab}: this chain exists specifically to give every critic seat a role`);
+    assert.equal(validateSeatRole(seat.role).length, 0, `${seat.lab}: role must be valid`);
+    const out = applySeatRole(R.DEBATE_SYSTEM, seat.role);
+    assert.notEqual(sha256(out), GOLDEN_DEBATE_SYSTEM_SHA256, `${seat.lab}: a seat with a role must NOT produce the no-role golden hash`);
+    assert.ok(out.startsWith(R.DEBATE_SYSTEM), 'role text is appended after the base prompt, never replacing or reordering it');
+  }
+  // No two seats share a lens or a persona - one of each per seat, matching the plan's 1:1
+  // five-lens/five-persona design, not a coincidence a future edit could quietly break.
+  assert.equal(new Set(critics.map(s => s.role.lens)).size, 5);
+  assert.equal(new Set(critics.map(s => s.role.persona)).size, 5);
 });
 
 test('DEFAULT_PERSONAS is exactly the five author-approved names, no more, no fewer', () => {
