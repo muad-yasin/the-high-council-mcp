@@ -93,3 +93,20 @@ were. Confirmed with cnc-harness-a7 before finalizing this decision.
 own description, not a general-purpose chain - not added here. `seven-cheap.json`'s description
 text differs too, but THCMCP's own copy ("six labs... cut down from seven") is already more
 accurate than relay's stale "seven labs" text, so it was left as-is rather than reverted.
+
+## 2026-09-13: verdict_stats ported from relay - no tests existed upstream, wrote them fresh
+
+`src/verdict-stats.js` copied verbatim from relay (self-contained, documented as chain/lab
+names/counts/cost/timing only, never task content or prompt bodies - already safe for a public
+repo, unlike the chain-config pause note above). Wired in as a 14th MCP tool (`verdict_stats`)
+and a `--stats [--days N]` CLI subcommand, mirroring `spend_report`/`--spend`'s existing pattern
+exactly (same file, same disk-only derivation, same "nothing is recorded/transmitted" language).
+
+relay itself has no test file for this module. Wrote `test/verdict-stats.test.js` fresh, matching
+`test/spend.test.js`'s existing fixture conventions (real tmp `runs/` fixtures, not mocks) rather
+than porting nothing and leaving the module untested in the one place it's actually exercised.
+Notable behavior pinned: a `signedOff: null` entry is an abstention - not a sign-off, not an
+objection, counted separately as `unparseable` - and must not silently read as either a pass or a
+zero-objection result; a dropped-out lab is counted per lab and per chain even though it produced
+nothing; a run with no `report.json` yet (paused/still going) is skipped for verdict scoring but
+still contributes to prompt-size tracking. 9/9 new tests pass; full suite 103/103.

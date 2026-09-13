@@ -7,3 +7,8 @@ One line per milestone as it lands. Append-only.
   DECISIONS.md (not copied here - this repo's own DECISIONS.md records the re-curation-specific
   judgment calls instead). 94/94 tests passing, offline, zero API spend. CHANGELOG.md 0.2.0 entry
   added; package.json and the MCP server's own version bumped to match.
+- 2026-09-13: Ported chains/gp-judge-v1.json's critic maxTokens fix (4000->8000) from relay,
+  redacted of an internal run-id/path (DECISIONS.md). Deliberately did not port relay's
+  Gemini-pause note across 18 chains - personal billing information, doesn't belong in a public
+  repo or template. Also ported src/verdict-stats.js + the verdict_stats MCP tool + --stats CLI
+  subcommand, with 9 new tests written fresh (none existed upstream). 103/103 tests passing.

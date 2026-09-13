@@ -19,6 +19,7 @@ import { spendReport, costToday } from '../spend.js';
 import { stageKindOf, buildStageContract, renderStagePromptBundle } from '../stage-contract.js';
 import { verifyIntegrityFooter } from '../integrity.js';
 import { generateResumeBrief } from '../resume-brief.js';
+import { verdictStats } from '../verdict-stats.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Same split as the CLI: `pkg` ships with the package (chains/, the CLI
@@ -222,6 +223,23 @@ server.tool('spend_report', 'What every run has cost across a window of days, no
     ...(r.unreadable ? { unreadableRunFolders: r.unreadable } : {}),
     ...(r.note ? { note: r.note } : {}),
     session_cost_today: { totalUsd: today.totalUsd, count: today.count, perModel: today.perModel },
+    source: 'derived from runs/ on disk; no ledger is kept and nothing is transmitted',
+  });
+});
+
+server.tool('verdict_stats', 'How the debate mechanism itself is doing, per chain and per lab, across a window of days: sign-off rate, mean rounds to sign-off, objections raised, withdrawals vs accepted proposals, dropouts, unparseable replies, mean cost and wall time per run, and the largest prompt file per stage type. Derived from report.json and *.usage.json on disk - nothing is recorded anywhere else and nothing leaves this machine. Does not change any chain or the debate mechanism.', {
+  days: z.number().min(0.1).max(3650).optional().describe('how far back to look, in days. Defaults to 30.'),
+}, async ({ days = 30 }) => {
+  const r = verdictStats(runsDir, { days });
+  return text({
+    since: r.since.toISOString(),
+    days,
+    runsSeen: r.runsSeen,
+    chains: r.chains,
+    labs: r.labs,
+    largestPrompts: r.largestPrompts,
+    ...(r.unreadable ? { unreadableRunFolders: r.unreadable } : {}),
+    ...(r.note ? { note: r.note } : {}),
     source: 'derived from runs/ on disk; no ledger is kept and nothing is transmitted',
   });
 });

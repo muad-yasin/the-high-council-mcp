@@ -6,6 +6,7 @@ import { runChain, checkSeats, setCache, setBudget, budgetState, ExternalPause, 
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName } from './providers.js';
 import { spendReport, costToday } from './spend.js';
+import { verdictStats } from './verdict-stats.js';
 import { withIntegrityFooter } from './integrity.js';
 import { generateResumeBrief } from './resume-brief.js';
 import { preflightCheck } from './preflight.js';
@@ -183,6 +184,46 @@ if (argv.includes('--cost-today')) {
   process.exit(0);
 }
 
+// `council --stats [--days N]` answers "how is the debate mechanism itself
+// doing" - sign-off rate, rounds, objections, cost and the biggest prompt
+// files - per chain and per lab, across every run on disk.
+if (argv.includes('--stats')) {
+  const days = Number(flag('days', 30));
+  if (!Number.isFinite(days) || days <= 0) {
+    console.error('--days: expected a positive number of days');
+    process.exit(2);
+  }
+  const r = verdictStats(join(work, 'runs'), { days });
+  console.log(`\nVerdict stats across ${r.runsSeen} run(s) since ${r.since.toISOString().slice(0, 16).replace('T', ' ')}  (${join(work, 'runs')})`);
+  if (!r.chains.length) {
+    console.log(`  no completed runs in this window.${r.note ? `  ${r.note}` : ''}`);
+  } else {
+    console.log(`\nBy chain:`);
+    const w = Math.max(...r.chains.map(c => c.chain.length));
+    for (const c of r.chains) {
+      console.log(`  ${c.chain.padEnd(w)}  runs=${c.runs}  signoff=${c.signoffRate === null ? '-' : `${Math.round(c.signoffRate * 100)}%`}` +
+        `  rounds=${c.meanRoundsToSignoff === null ? '-' : c.meanRoundsToSignoff.toFixed(1)}` +
+        `  objections=${c.objections}  withdrawn=${c.withdrawals}  accepted=${c.accepted}` +
+        `  dropouts=${c.dropouts}  unparseable=${c.unparseable}` +
+        `  cost=${c.meanCostUsd === null ? '-' : formatUsd(c.meanCostUsd)}` +
+        `  wall=${c.meanWallMs === null ? '-' : `${Math.round(c.meanWallMs / 1000)}s`}`);
+    }
+    console.log(`\nBy lab:`);
+    for (const l of r.labs) {
+      console.log(`  ${l.lab}: proposed=${l.proposed} accepted=${l.accepted} withdrawn=${l.withdrawn} cut=${l.cut} dropouts=${l.dropouts} unparseable=${l.unparseable}`);
+    }
+    if (r.largestPrompts.length) {
+      console.log(`\nLargest prompt file per stage type:`);
+      for (const p of r.largestPrompts.slice(0, 10)) {
+        console.log(`  ${p.stageType}: ${p.file} (${p.run}) - ${(p.bytes / 1024).toFixed(1)}KB, ~${p.tokensApprox} tokens`);
+      }
+    }
+  }
+  if (r.unreadable) console.log(`\n  ${r.unreadable} run folder(s) could not be read and are not counted.`);
+  console.log(`\n  Derived from the run folders on disk. Nothing is recorded anywhere else, and nothing leaves this machine.`);
+  process.exit(0);
+}
+
 // `council --mcp` starts the MCP server instead of running a chain. The
 // package ships one bin, so this is what makes a single npx invocation work
 // as an MCP command: `npx -y the-high-council --mcp`. Checked before any
@@ -239,6 +280,10 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        and nothing leaves this machine.
   council --cost-today [--date Y-M-D]  what has been spent today, by calendar day,
                                        with a per-model breakdown. Same disk-only source.
+  council --stats [--days 30]          how the debate mechanism itself is doing:
+                                       sign-off rate, rounds, objections, dropouts,
+                                       cost/wall time and the biggest prompt files,
+                                       per chain and per lab. Same disk-only source.
   council --task tasks/x.md --max-usd 2 stop the run before any stage that could
                                        take it past $2. Default $5, or
                                        MAX_USD_PER_RUN. --max-usd none disables

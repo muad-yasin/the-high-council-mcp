@@ -203,6 +203,7 @@ node src/cli.js --spend            # today
 node src/cli.js --spend --days 7   # the last week
 node src/cli.js --cost-today       # today by calendar day, with a per-model breakdown
 node src/cli.js --cost-today --date 2026-09-01
+node src/cli.js --stats --days 30    # how the debate mechanism itself is doing
 ```
 
 That is read back off the run folders on disk - there is no ledger file, nothing is recorded
@@ -262,6 +263,7 @@ Then drive it with these tools:
 | `start_run` | Start a run in the background (`max_usd` sets its ceiling) |
 | `run_status` | Stage reached, panel verdicts, scoreboard, cost, budget remaining |
 | `spend_report` | What every run has cost across a window of days, plus `session_cost_today` (calendar-day, per-model breakdown), derived from disk |
+| `verdict_stats` | How the debate mechanism itself is doing, per chain and per lab: sign-off rate, rounds, objections, dropouts, cost/wall time, largest prompt files - derived from disk |
 | `external_prompt` | The prompt a paused external stage is waiting on - **read it with this, not by opening the file**; the prompts are routinely tens of thousands of tokens and most clients silently truncate a file read |
 | `prepare_stage_prompt` | Write a self-contained bundle for a paused stage, so a driving session doing other work at the same time can dispatch it to a fresh subagent instead of authoring it inline - see [`docs/dispatch-pattern.md`](docs/dispatch-pattern.md) |
 | `submit_stage` | Answer a paused stage and resume |
