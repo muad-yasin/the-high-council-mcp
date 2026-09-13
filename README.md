@@ -385,6 +385,28 @@ collect nothing. Stated plainly, not as a claim about quality:
   record. See `src/spend.js`'s own documentation for why spend accounting is derived from those
   folders rather than kept in a separate log.
 
+## Accessibility
+
+The GitHub Pages site (`docs/`) uses only native HTML elements for interaction - `<a href>`
+links and `<details>/<summary>` for the expandable demo sections - specifically because those
+are keyboard-operable by the browser itself, with no custom JavaScript to get wrong. Tested by
+hand, 2026-09-13, on the live site:
+
+- **`index.html`**: tabbed from the page's first link; focus reached the "Clone the repo",
+  "How it works" and "Try it (demo)" buttons in order, each showing a visible focus ring;
+  pressing Enter on "Try it (demo)" navigated to `demo.html`, the same as a click.
+- **`demo.html`**: tabbed to the first proposal's `<summary>` ("A-1 Synchronous invalidation...");
+  pressing Enter expanded it in place (the ▶ marker flipped to ▼ and the body text appeared),
+  identical to clicking it.
+- No custom widget on any page (`index.html`, `board.html`, `demo.html`) uses a `<div>` or
+  `<span>` with a click handler in place of a real interactive element - checked directly in the
+  page source, not inferred.
+- No image ships anywhere in `docs/` (checked directly - zero `<img>` tags across all three
+  pages), so there is no informative image that could be missing alt text.
+- Primary body text (`#8d8a84`/`#b9b5ad`) against the page background (`#0a0a0b`) measures
+  roughly 5.7:1 contrast by the WCAG relative-luminance formula, above the 4.5:1 AA threshold
+  for normal text.
+
 ## Reporting a bug
 
 Open an issue: [github.com/muad-yasin/the-high-council-mcp/issues](https://github.com/muad-yasin/the-high-council-mcp/issues).

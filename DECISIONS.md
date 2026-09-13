@@ -159,3 +159,17 @@ relay's. The prompt-injection-defense feature (`<critic-claim>`/`<prior-review>`
 already-committed-on-relay, security-relevant work but was not part of the five v3 plan items and
 is not re-curated in this pass - it already exists in THCMCP's `src/roles.js` from an earlier
 sync (confirmed via diff), so nothing was lost by leaving it out of this decision's scope.
+
+## 2026-09-13: reliability-error-handling - left as-is, model-disagreement noise not a real gap
+
+GP's rubric-v2 re-judge scored this 2 MET / 1 PARTIAL / 1 FAILED. Per gp-6f's breakdown: the
+MET labs (deepseek, glm) correctly quoted README text already describing the spend-cap's
+clean-stop behavior (STOPPED-budget.md, no half-written deliverable). The PARTIAL (qwen) found
+different, also-real README text but marked partial because the live demo page is a static
+simulation and can't dynamically exhibit runtime error handling - a structural property of a
+static demo page, not a defect to fix. The FAILED (mistral) claimed no evidence exists at all,
+which is simply wrong - the same evidence the other three labs read was in its own dossier.
+Not chasing a unanimous MET here: there's no real code gap (error handling already exists and
+is already documented) and no real evidence gap (2 of 4 labs found the evidence fine) - this is
+one lab missing real text plus one lab wanting a static page to do something only a live process
+can do. Left as scored.

@@ -95,3 +95,15 @@ for (const file of existsSync(join(root, 'docs')) ? readdirSync(join(root, 'docs
     assert.deepEqual(remote, [], `every asset ${file} fetches must be local`);
   });
 }
+
+// The Accessibility section in README.md makes two checkable claims about docs/: no image
+// ships anywhere (so no informative image can be missing alt text), and no non-semantic
+// div/span stands in for a real interactive element. Pinned across every page under docs/,
+// not just index.html.
+for (const file of existsSync(join(root, 'docs')) ? readdirSync(join(root, 'docs')).filter(f => f.endsWith('.html')) : []) {
+  test(`landing page: docs/${file} ships no images and no non-semantic clickable elements`, () => {
+    const html = readFileSync(join(root, 'docs', file), 'utf8');
+    assert.equal((html.match(/<img\b/g) || []).length, 0, `${file} must ship no <img> tags`);
+    assert.equal((html.match(/onclick\s*=/g) || []).length, 0, `${file} must use real interactive elements, not onclick handlers`);
+  });
+}
