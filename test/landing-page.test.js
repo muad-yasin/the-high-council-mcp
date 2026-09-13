@@ -96,14 +96,29 @@ for (const file of existsSync(join(root, 'docs')) ? readdirSync(join(root, 'docs
   });
 }
 
-// The Accessibility section in README.md makes two checkable claims about docs/: no image
-// ships anywhere (so no informative image can be missing alt text), and no non-semantic
-// div/span stands in for a real interactive element. Pinned across every page under docs/,
-// not just index.html.
+// The Accessibility section in README.md makes checkable claims about docs/: every image that
+// ships is the local logo-diamond.png (the brand mark in the header, or a decorative background
+// copy on index.html), never a third-party or unexpected image; the header logo is informative
+// content and must carry real alt text; any purely-decorative copy must use empty alt="" per the
+// usual convention; and no non-semantic div/span stands in for a real interactive element. Pinned
+// across every page under docs/, not just index.html.
 for (const file of existsSync(join(root, 'docs')) ? readdirSync(join(root, 'docs')).filter(f => f.endsWith('.html')) : []) {
-  test(`landing page: docs/${file} ships no images and no non-semantic clickable elements`, () => {
+  test(`landing page: docs/${file} ships only the known logo image(s), each with correct alt text`, () => {
     const html = readFileSync(join(root, 'docs', file), 'utf8');
-    assert.equal((html.match(/<img\b/g) || []).length, 0, `${file} must ship no <img> tags`);
+    const imgs = [...html.matchAll(/<img\b[^>]*>/g)].map(m => m[0]);
+    for (const img of imgs) {
+      assert.match(img, /src="logo-diamond\.png"/, `${file} must only ship the known logo-diamond.png image, found: ${img}`);
+      const alt = (img.match(/alt="([^"]*)"/) || [])[1];
+      assert.ok(alt !== undefined, `${file}: every <img> needs an alt attribute, missing on: ${img}`);
+      if (/opacity:0\.05|mix-blend-mode/.test(img)) {
+        assert.equal(alt, '', `${file}: the decorative background diamond must use empty alt="", found: ${img}`);
+      } else {
+        assert.ok(alt.length > 0, `${file}: the informative header logo must have non-empty alt text, found: ${img}`);
+      }
+    }
+  });
+  test(`landing page: docs/${file} uses no non-semantic clickable elements`, () => {
+    const html = readFileSync(join(root, 'docs', file), 'utf8');
     assert.equal((html.match(/onclick\s*=/g) || []).length, 0, `${file} must use real interactive elements, not onclick handlers`);
   });
 }
