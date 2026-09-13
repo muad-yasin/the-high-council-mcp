@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.6.0 - 2026-09-13
+
+Role-assigned debate seats (`relay/runs/2026-09-13T20-20-07-757Z/`, plan revise-2.md), built
+across seven phases. 296 tests, offline, no API key, no live provider call. Every merge point
+run through `sower-review:bug-audit`; two real integration-seam bugs were found where phases
+built in parallel (without seeing each other's code) had made quietly conflicting assumptions,
+both fixed before this release (see docs/v6-decisions.md, Phase 7, for the full account).
+
+**Status - stated plainly, as every commit tonight has:** the plan behind this release was **not
+five-lab signed off**. Four labs passed clean; qwen refused over a single objection (the
+"Decisions left to the author" section wasn't the plan's last section, which one criterion
+required). That run's own `report.json` said `passed:true` regardless - a separate, real
+false-pass bug in the chain's own reporting (qwen's reply was silently unparsed, not evaluated),
+since fixed in `relay`. Muad reviewed the objection directly and said build - it is about
+document ordering, not the design - and building proceeded on that basis, not on a false
+sign-off.
+
+**No efficacy claim.** This release ships the mechanism only. Whether role-assigned debate seats
+actually improve anything about a real multi-lab debate is untested by this release. The
+offline measurement harness built for this feature (phase 4) returned a NEGATIVE result for
+lens-routing against a deterministic heuristic defect-catch probe, and never measured persona at
+all - and after review, that experiment was found not to speak to the feature's real purpose in
+the first place (debate diversity among real model seats reasoning differently about real
+decisions, not defect-catching by a heuristic mock). See docs/v6-decisions.md's Phase 4 and
+Phase 5 entries for the full reasoning. Nothing here states or implies role-assigned seats
+produce better output than plain ones.
+
+**What shipped:**
+
+- **An optional per-seat `role` field** (`{ lens?, persona? }`) on any `seats.proposers` entry,
+  applied only to that seat's debate-stage system prompt. A chain with no `role` set produces
+  byte-identical prompts to before - proven by a golden-hash test against every shipped chain
+  config, the same discipline `max_proposals_per_seat` used in 0.5.0.
+  - `lens`: one of a fixed enum (`adversary`, `integrator`, `long-horizon`, `user-advocate`,
+    `security-and-legal`) - a defined critique function.
+  - `persona`: a name, resolved against a curated default set when it matches one (see personas,
+    below) with a fallback to free text for an operator's own persona - a voice, not a function.
+    Modeled as strictly separable from `lens` so any measured effect (if one is ever found) can
+    be attributed to the function or the voice, not a blended "character."
+  - `role` set on any seat kind other than `seats.proposers` is now caught fail-loud by
+    `council doctor` and the run codepath - it would silently do nothing, since only the debate
+    stage ever reaches the seats that use it.
+- **Stage isolation, enforced, not just true today.** Four source-level guards (not runtime
+  behavior tests) assert `applySeatRole` has exactly one call site in the whole codebase, that
+  call site is the debate stage, and the panel/critique-stage prompt builders reference `role`
+  nowhere in their own source - so a future edit that accidentally lets a role reach the
+  evidence-only grading stage fails CI loudly rather than silently.
+- **A weighted debate tiebreak** (`src/tie-break.js`): the arithmetic and a `report.json` field
+  (`debate.tie_break`) recording whenever a tie is broken - not yet wired into a real
+  vote-counting decision point in this release; that wiring is separate, future work.
+- **Four failure-mode detectors**, computed from a run's own real debate output (never from the
+  offline probe) and attached at `report.json`'s `debate.diagnostics`: a seat quoting no evidence
+  despite objecting or merging (performing a character instead of reviewing), textual overlap
+  between differently-lensed seats arguing the same proposal (roles collapsing into agreement
+  instead of diversifying), a same-run gap between role-bearing and role-less seats' evidence
+  quoting, and the fraction of a seat's own words that fall inside quoted evidence versus voice.
+- **Five default public personas** (Moses, Noah, Matthew, Van Gogh, Parzival - `PERSONAS.md`),
+  each with a curated name and voice directive, replaceable wholesale by an operator via a
+  `COUNCIL_PERSONAS_FILE`-pointed file. Chosen specifically so this public MIT repo never ships
+  a third-party trademark or private name.
+- **A third-party-name lint** (`src/name-lint.js`) scanning the repo's own source, config and
+  docs recursively for name patterns that don't belong in a public repo, extensible via a local,
+  gitignored exclusion file.
+- **A real five-lab debate-role chain** (`chains/plan-debate-roles-c1.json`) pairing each of five
+  labs' critic seats with a distinct lens and persona - the actual artifact the feature was built
+  to run, reviewed (`sower-review:scope-gate`: GO) and priced (`--dry-run`: $0.47/run worst case)
+  but **not run live** - that spend is a separate, later decision.
+
+**Test count**: 213 at 0.5.0, 296 now.
+
 ## 0.5.0 - 2026-09-13
 
 v5's fifteen-candidate feature horizon (`relay/runs/2026-09-13T14-51-08-757Z/`, unanimous
