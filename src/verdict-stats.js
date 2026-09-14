@@ -42,7 +42,30 @@ function emptyLabAgg() {
     novelObjections: 0,
     signoffs: 0,
     soloSignoffs: 0,
+    verdictOpportunities: 0,
+    droppedVerdicts: 0,
   };
+}
+
+// v7 item 2: a critic/panel invocation is a "verdict opportunity" for its lab, whether or not
+// it came back usable. Read straight off report.stages (every invoke() call this run made),
+// keyed by the stage's own recorded `lab` - the same field debate/independence accounting
+// already trusts. Covers both chain shapes: "critique-N" (default/first mode, one critic per
+// round) and "panel-N-<lab>" (unanimous mode).
+function accumulateVerdictOpportunities(report, byLab) {
+  for (const s of report.stages || []) {
+    if (!/^(critique|panel)-/.test(s.label || '')) continue;
+    if (!s.lab) continue;
+    const lab = byLab.get(s.lab) || emptyLabAgg();
+    lab.verdictOpportunities += 1;
+    byLab.set(s.lab, lab);
+  }
+  for (const d of report.dropouts || []) {
+    if (!/^(critique|panel)-/.test(d.stage || '')) continue;
+    const lab = byLab.get(d.lab) || emptyLabAgg();
+    lab.droppedVerdicts += 1;
+    byLab.set(d.lab, lab);
+  }
 }
 
 // Independence skew: does a lab mostly echo objections other labs already
@@ -183,6 +206,7 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
 
     byChain.set(chainName, chain);
     accumulateIndependence(report, byLab);
+    accumulateVerdictOpportunities(report, byLab);
 
     for (const l of report.scoreboard?.labs || []) {
       const lab = byLab.get(l.lab) || emptyLabAgg();
@@ -228,6 +252,12 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
     const soloSignoffRate = l.signoffs ? l.soloSignoffs / l.signoffs : null;
     const lowIndependence = novelObjectionRate !== null && soloSignoffRate !== null &&
       novelObjectionRate < novelObjectionFloor && soloSignoffRate > soloSignoffCeiling;
+    // v7 item 2: usable-verdict rate - of every critique/panel call this lab was actually
+    // invoked for, how many came back usable (not dropped by a provider failure, not
+    // unreadable JSON). Distinct from soloSignoffRate/novelObjectionRate, which are about
+    // debate posture, not seat reliability.
+    const unusable = l.droppedVerdicts + l.unparseable;
+    const usableVerdictRate = l.verdictOpportunities ? (l.verdictOpportunities - unusable) / l.verdictOpportunities : null;
     return {
       lab: name,
       proposed: l.proposed,
@@ -236,6 +266,9 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
       cut: l.cut,
       dropouts: l.dropouts,
       unparseable: l.unparseable,
+      verdictOpportunities: l.verdictOpportunities,
+      droppedVerdicts: l.droppedVerdicts,
+      usableVerdictRate,
       objections: l.objections,
       novelObjections: l.novelObjections,
       novelObjectionRate,
