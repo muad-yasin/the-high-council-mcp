@@ -469,7 +469,12 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
       stop: json.choices?.[0]?.finish_reason ?? null,
     },
     provider,
-    model,
+    // v3 §Item 3: a provider-array fallback (`extra.models`) can answer with a model other
+    // than the one requested - `json.model` is the response's own record of which model
+    // actually answered, and takes priority. Falls back to the requested `model` only when
+    // the response carries none, so a response shape lacking `model` is byte-identical to
+    // today.
+    model: json.model ?? model,
   };
 }
 

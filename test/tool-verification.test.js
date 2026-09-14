@@ -158,3 +158,52 @@ test('runTool: an unlisted tool name is rejected before any implementation runs'
   assert.equal(res.ok, false);
   assert.match(res.error, /not allowed/);
 });
+
+// v3 §Item 2 (relay/runs/2026-09-14T21-38-45-696Z/revise-1.md): an optional `expect.contains`
+// marker + `fact` name on a verify.tools spec turns a raw read_file result into an explicit
+// diff-applied ground-truth fact. Additive: a spec without `expect` produces byte-identical
+// output to before this change (proven by the existing 'verify absent' tests above, which never
+// set expect/fact and still see the same frozen key set).
+test('runVerification: expect.contains present in the read file -> fact is true', () => {
+  const config = { verify: { tools: [
+    { tool: 'read_file', args: { path: 'package.json' }, expect: { contains: '"name"' }, fact: 'diff_applied' },
+  ] } };
+  const out = runVerification(config, { log: () => {} });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].diff_applied, true);
+  assert.equal(out[0].result.ok, true);
+});
+
+test("runVerification: expect.contains absent from the read file -> fact is 'not_applied'", () => {
+  const config = { verify: { tools: [
+    { tool: 'read_file', args: { path: 'package.json' }, expect: { contains: 'this string is not in package.json, guaranteed' }, fact: 'diff_applied' },
+  ] } };
+  const out = runVerification(config, { log: () => {} });
+  assert.equal(out[0].diff_applied, 'not_applied');
+});
+
+test("runVerification: unreadable target file -> fact is 'unknown', not folded into false", () => {
+  const config = { verify: { tools: [
+    { tool: 'read_file', args: { path: 'no-such-file-here.txt' }, expect: { contains: 'anything' }, fact: 'diff_applied' },
+  ] } };
+  const out = runVerification(config, { log: () => {} });
+  assert.equal(out[0].diff_applied, 'unknown');
+  assert.equal(out[0].result.ok, false);
+});
+
+test('runVerification: a spec without expect/fact is untouched - no new key added to its ground-truth entry', () => {
+  const config = { verify: { tools: [
+    { tool: 'read_file', args: { path: 'package.json' } },
+  ] } };
+  const out = runVerification(config, { log: () => {} });
+  assert.deepEqual(Object.keys(out[0]).sort(), ['args', 'result', 'tool']);
+});
+
+test('runVerification: expect.contains with a run_tests spec (no result.text) resolves to not_applied, never throws', () => {
+  const stub = (tool) => (tool === 'run_tests' ? { ok: true, passed: 1, failed: 0 } : { ok: false });
+  const config = { verify: { tools: [
+    { tool: 'run_tests', expect: { contains: 'anything' }, fact: 'diff_applied' },
+  ] } };
+  const out = runVerification(config, { runTool: stub, log: () => {} });
+  assert.equal(out[0].diff_applied, 'not_applied');
+});
