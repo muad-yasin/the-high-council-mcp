@@ -34,6 +34,57 @@ const OPENAI_COMPAT = {
 
 const ANTHROPIC = { base: 'https://api.anthropic.com/v1', key: 'ANTHROPIC_API_KEY' };
 
+// 7.x single-vendor mode: maps a seat's own `provider:model` to a vendor's own model-ID
+// naming, so an operator can route every seat's traffic through one billing account/key
+// (OpenRouter is the reference vendor this slice ships; Bedrock/Vertex/Azure are documented
+// follow-ups in the same shape - see docs/single-vendor-mode.md). Configuration is data, not
+// code: add a lab here to route it, nothing else changes. Deliberately NOT auto-derived from
+// `provider` (e.g. "together" -> "together") because the vendor's own naming frequently
+// disagrees with ours (z.ai's GLM ships on OpenRouter as "z-ai/...", not "zai/...", and
+// "openrouter" itself needs an identity entry since a seat already seated there has nothing to
+// translate).
+const VENDOR_MODEL_MAPS = {
+  openrouter: {
+    'anthropic:claude-opus-5': 'anthropic/claude-opus-5',
+    'anthropic:claude-sonnet-5': 'anthropic/claude-sonnet-5',
+    'anthropic:claude-haiku-4-5-20251001': 'anthropic/claude-haiku-4.5',
+    'openai:gpt-5': 'openai/gpt-5',
+    'openai:gpt-5-mini': 'openai/gpt-5-mini',
+    'openai:gpt-5-nano': 'openai/gpt-5-nano',
+    'google:gemini-3.6-flash': 'google/gemini-3.6-flash',
+    'xai:grok-4': 'x-ai/grok-4',
+    'mistral:mistral-large-latest': 'mistralai/mistral-large',
+    'mistral:mistral-small-latest': 'mistralai/mistral-small',
+    'deepseek:deepseek-chat': 'deepseek/deepseek-chat',
+    'groq:llama-3.3-70b-versatile': 'meta-llama/llama-3.3-70b-instruct',
+    'together:Qwen/Qwen3.5-9B': 'qwen/qwen3.5-9b',
+    'together:meta-llama/Llama-3.3-70B-Instruct-Turbo': 'meta-llama/llama-3.3-70b-instruct',
+    'zai:glm-4.7-flash': 'z-ai/glm-4.7-flash',
+    'cohere:command-r7b-12-2024': 'cohere/command-r7b-12-2024',
+    // Already on OpenRouter under its own name - an identity route, not a translation, so a
+    // chain that mixes a direct OpenRouter seat with single-vendor mode doesn't hit a false
+    // "no route" for the one seat that needed no rewriting at all.
+    'openrouter:meta-llama/llama-3.3-70b-instruct': 'meta-llama/llama-3.3-70b-instruct',
+  },
+};
+
+// Resolves one seat to the vendor's own model-ID naming under `transport` (e.g.
+// `"openrouter"`), preserving `lab` explicitly so debate/independence accounting
+// (`labOf()` in chain.js: `seat.lab || seat.provider`) reads the seat's real identity rather
+// than the vendor it happens to be billed through - see chain.js's resolveChainSeats(), the
+// one composition point that calls this before any seat is invoked. `mock`/`external` seats
+// are never rewritten: they carry no real provider to translate and a mock chain's own
+// fixtures assert on the literal `provider`/`model` it was given.
+export function resolveVendorSeat(seat, transport) {
+  if (!transport || !seat || seat.provider === 'mock' || seat.provider === 'external') return seat;
+  const map = VENDOR_MODEL_MAPS[transport];
+  if (!map) throw new Error(`unknown transport: ${transport}`);
+  const lab = seat.lab || seat.provider;
+  const vendorModel = map[`${seat.provider}:${seat.model}`];
+  if (!vendorModel) throw new Error(`no route for ${lab} under transport ${transport}`);
+  return { ...seat, provider: transport, model: vendorModel, lab };
+}
+
 // An offline provider used to test the chain's plumbing without spending
 // anything. It fakes a builder and a critic well enough to exercise every
 // branch, including the early stop.

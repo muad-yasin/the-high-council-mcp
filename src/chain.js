@@ -1,4 +1,4 @@
-import { call, keyFor } from './providers.js';
+import { call, keyFor, resolveVendorSeat } from './providers.js';
 import * as R from './roles.js';
 import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach } from './cost.js';
 import { requiredDeliverableSections } from './preflight.js';
@@ -383,6 +383,35 @@ async function invoke(seat, { system, user, log, label }) {
   return stage;
 }
 
+// 7.x single-vendor mode: the one composition point that rewrites a config's whole seat roster
+// through resolveVendorSeat() - every seat-bearing slot, single or array, checked once here
+// rather than at each of runChain()'s many invoke() call sites. A seat's own `transport`
+// overrides the chain-level `config.transport`; neither present is a no-op (returns `config`
+// unchanged, not even a shallow clone) so a chain that never sets either behaves exactly as it
+// does today. Called once, up front, by both cli.js (before checkSeats/--dry-run, so both see
+// the resolved vendor routing) and runChain() itself (so a caller that skips cli.js, e.g. the
+// MCP path or a direct test, still gets the same resolution without remembering to call it).
+export function resolveChainSeats(config) {
+  if (!config.transport && !allSeatsOf(config).some(s => s?.transport)) return config;
+  const rw = s => (s ? resolveVendorSeat(s, s.transport || config.transport) : s);
+  const seats = { ...config.seats };
+  for (const key of ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge']) {
+    if (seats[key]) seats[key] = rw(seats[key]);
+  }
+  for (const key of ['critics', 'proposers']) {
+    if (Array.isArray(seats[key])) seats[key] = seats[key].map(rw);
+  }
+  return { ...config, seats };
+}
+
+function allSeatsOf(config) {
+  const s = config.seats || {};
+  return [
+    s.criteria, s.builder, s.reviser, s.finalist, s.skeleton, s.handoff, s.questions, s.judge,
+    ...(s.critics || []), ...(s.proposers || []),
+  ].filter(Boolean);
+}
+
 export function checkSeats(seats) {
   const missing = [];
   for (const s of seats) {
@@ -557,6 +586,9 @@ export async function runDescendingChain({ request, config, log = console.log, o
 }
 
 export async function runChain({ request: requestIn, config, draft: initialDraft = null, log = console.log, onStage = () => {} }) {
+  // 7.x single-vendor mode: resolved once, before either chain shape runs, so descending mode
+  // and the normal stage flow both see vendor-routed seats without duplicating the call.
+  config = resolveChainSeats(config);
   if (config.descending) return runDescendingChain({ request: requestIn, config, log, onStage });
 
   const stages = [];
