@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.7.0 - 2026-09-14
+
+v7 build per the council-signed plan (`relay/runs/2026-09-14T00-20-44-997Z/deliverable.md`).
+Six items, each gated behind its own opt-in config key so a chain that sets none of them behaves
+exactly as it did in 0.6.0; 335 tests, offline, no API key, no live provider call (296 baseline +
+39 new). No efficacy claim is made anywhere below - every item here is a correctness, cost, or
+process-honesty change, not a claim that debate output improves.
+
+- **Tool-grounded verification** (`verify.enabled`) - seats may invoke a fixed, sandboxed
+  allowlist of four offline tools (`run_tests`, `check_versions`, `grep_repo`, `read_file`, no
+  network access, no generic shell executor); results are appended to the run record verbatim
+  under `ground_truth` and re-presented to later seats unedited by the debate. The literature this
+  plan draws on names external ground-truth contact as the one mechanism that holds up in
+  open-ended, no-ground-truth debate; this is its direct implementation.
+- **Seat reliability recording and provider-failure dropout degradation**
+  (`degrade_on_provider_error`) - a provider failure in the non-unanimous critique loop used to
+  crash the whole run; it now degrades to a recorded `dropped` seat and the run completes.
+  `verdict_stats` gained a per-lab `usableVerdictRate`. Absent the flag, a provider failure
+  crashes exactly as it always did - this is a real behavior change only for opt-in callers.
+- **Descending rounds** (`descending: true`) - a chain mode where each round debates a new,
+  frozen object in sequence (plan -> architecture -> edge cases -> code) instead of re-opening the
+  same object; an amendment against an already-frozen stage is rejected at the executor level, not
+  by an unenforced prompt rule. Extended per the author's direction after the initial build: round
+  1 flows into the existing criteria/proposals/debate/reply pipeline rather than a bespoke
+  descending-only prompt, and the final stage runs signoff + handoff once, over the whole frozen
+  stack, rather than per stage.
+- **Scoped debate freedoms** (`freedoms: { blocking_questions, pass }`) - two rights only: a
+  critic may ask one blocking question that pauses its verdict until the proposer answers, or may
+  pass with a stated reason (recorded distinctly from both sign-off and objection, excluded from
+  the unanimity vote like an abstention). Novelty-based stopping, seconding, and
+  question-challenging were cut - none is deterministically offline-testable.
+- **Bounded post-signoff challenge stage** (`challenge.enabled`) - modeled on the Athenian graphe
+  paranomon: after signoff, exactly one recorded challenge may re-open exactly one decision for
+  one round. The one-challenge, one-decision, one-round bound is hard-coded in the executor, not
+  configurable upward - `chain-lint.js` rejects any attempt to set a max-challenges or
+  additional-rounds key, since the narrowness of the re-open is itself the decay mitigation.
+- **Zero-cost retrospective metrics** (new `metrics_report` MCP tool and `council --metrics`
+  CLI subcommand, +1 to the tool count) - amendment rate, withdrawal rate, objection-follow-through
+  rate, and tool-call usage, computed from existing run logs on disk, modeled on `spend.js`'s
+  "derive, never record" discipline. Explicitly labeled descriptive telemetry throughout, never a
+  baseline: Direction 1 (a paid harness comparing the council against a single strong model at
+  matched cost) was **cut** - the author declined both the ~$300 full and ~$20 pilot cost, and no
+  free version of an actual comparison run was proposed that didn't smuggle in real cost or an
+  implicit efficacy claim. This metrics extension is the free, non-comparative salvage of that
+  direction's measurement intent, not a revival of it.
+
+**Also cut from this release, recorded plainly:** the scale/governance "many models jointly
+propose and vote on building something large" direction. Its granularity question is answered on
+paper (the unit of proposal-and-vote is a module: named, single-responsibility, with a declared
+interface and test plan) but it is not built - running unanchored, open-ended votes before the
+anchoring machinery above existed would have repeated exactly the failure mode the 2025-26
+literature warns about for open-ended multi-agent debate. Items 1 and 3 above are the named
+prerequisites for revisiting it, not a deferral without a stated condition.
+
+Built across six independent branches (`v7/item1-tool-verification` through
+`v7/item6-metrics`), each test-verified in isolation before merge, then merged one at a time
+into master with two integration-only conflicts resolved (a frozen-key test fixture that didn't
+yet know about the challenge stage's new key, and two independent mock-provider branches that
+needed to sit side by side) - no feature logic was changed to resolve either.
+
 ## 0.6.0 - 2026-09-13
 
 Role-assigned debate seats (`relay/runs/2026-09-13T20-20-07-757Z/`, plan revise-2.md), built
