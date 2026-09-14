@@ -210,7 +210,18 @@ async function callMock({ model, system, messages, maxTokens }) {
     const declineTrailer = isReviser && user.includes('TRIGGER_DECLINED_TEST')
       ? '\n\nDECLINED: the critic quoted no evidence for this claim.\nDECLINED: this is a matter of taste, not a defect.'
       : '';
-    text = `${isReviser ? 'REVISED ' : ''}MOCK DELIVERABLE for model ${model}\n\nBody text.${isReviser ? '\n\nAssumptions: none.' : ''}${ledger}${declineTrailer}`;
+    // v7.3: the allocator's own targeted-round prompt (src/chain.js) always names the split
+    // explicitly ("The panel split on this criterion..."), a marker no other reviser call ever
+    // sends - lets a scripted reviser distinguish an allocator round from the uniform union
+    // revise it follows, so a test can assert the draft actually changed (engaged) rather than
+    // the mock always returning identical text regardless of input.
+    // `mock-reviser-stubborn` deliberately never applies the fix, even on an
+    // allocator round - stands in for a reviser that rubber-stamps a
+    // targeted round rather than actually engaging with it.
+    const allocatorFix = isReviser && model !== 'mock-reviser-stubborn' && user.includes('The panel split on this criterion this round')
+      ? '\n\nAllocator fix applied to the contested criterion.'
+      : '';
+    text = `${isReviser ? 'REVISED ' : ''}MOCK DELIVERABLE for model ${model}\n\nBody text.${isReviser ? '\n\nAssumptions: none.' : ''}${ledger}${declineTrailer}${allocatorFix}`;
   }
   await new Promise(r => setTimeout(r, 10));
   return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };

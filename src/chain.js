@@ -37,6 +37,43 @@ export function renderGroundTruth(groundTruth) {
   ).join('\n')}`;
 }
 
+// v7.3: resource allocator. The disagreement signal is a criterion split
+// across the panel THIS round - some voting critics marked it FAILED,
+// others didn't - derived from data the unanimous-signoff loop already
+// computes (each critique's own `failures[]`), not a new field. Chosen over
+// the other two candidates in the proposal (stance values in
+// debate.posts[], amend/withdraw counts in debate.replies[]) because it is
+// the only one of the three that exists on every unanimous-signoff run: the
+// debate stage is itself optional (config.debate), so a chain with no
+// debate has no posts/replies to derive disagreement from, but every
+// unanimous-signoff run has per-critic failures by construction. A
+// criterion unanimously failed (every voting critic) or unanimously passed
+// (no voting critic) is not disagreement - it is consensus, agreeing or
+// not - and is excluded. Among genuinely split criteria, the one closest to
+// an even split (min(failedCount, votingCount - failedCount), maximized) is
+// the single most contested, and gets the one extra round this stage
+// spends - never the whole set, so the mechanism can't turn into a second
+// uniform round depth by accident. Exported for direct, offline testing.
+export function pickContestedCriterion(voting) {
+  if (!Array.isArray(voting) || voting.length < 2) return null;
+  const failedBy = new Map();
+  for (const v of voting) {
+    for (const f of v.critique?.failures || []) {
+      if (!f?.criterion) continue;
+      if (!failedBy.has(f.criterion)) failedBy.set(f.criterion, new Set());
+      failedBy.get(f.criterion).add(labOf(v.seat));
+    }
+  }
+  let best = null;
+  for (const [criterion, labs] of failedBy) {
+    const failCount = labs.size;
+    if (failCount === 0 || failCount === voting.length) continue; // unanimous - not disagreement
+    const score = Math.min(failCount, voting.length - failCount);
+    if (!best || score > best.score) best = { criterion, failedBy: [...labs], votingCount: voting.length, score };
+  }
+  return best;
+}
+
 export function runVerification(config, { runTool = defaultRunTool, log = () => {} } = {}) {
   const specs = config?.verify?.tools || [];
   const cwd = config?.verify?.cwd || process.cwd();
@@ -507,6 +544,12 @@ export async function runDescendingChain({ request, config, log = console.log, o
     passed: finalResult.passed,
     lastCritique: finalResult.lastCritique,
     signoff: finalResult.signoff,
+    // v7.3: forwarded from finalResult so allocator (and challenge, the same
+    // pre-existing gap) work when stacked with descending - the final round
+    // over the whole descending stack is a normal runChain() unanimous-panel
+    // call and already computes both; this just stops dropping them here.
+    challenge: finalResult.challenge,
+    allocator: finalResult.allocator,
     disputes: finalResult.disputes,
     history: finalResult.history,
     totals: summarise(stages),
@@ -826,6 +869,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   let lastCritique = null;
   let signoff = null;
   const disputes = [];
+  const allocatorRounds = [];
 
   if (config.signoff === 'unanimous') {
     for (let round = 1; round <= maxRounds; round++) {
@@ -964,6 +1008,68 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       draft = parsedRevise.draft;
       parsedRevise.disputes.forEach(reason => disputes.push({ round, reason }));
       passed = false;
+
+      // v7.3: resource allocator - one extra, targeted round on top of the
+      // uniform revise above, spent only where the panel actually disagreed
+      // this round. Gated on config.allocator.enabled (chain-lint.js fails
+      // any config that sets it without signoff: 'unanimous', since the
+      // disagreement signal below doesn't exist under round-robin signoff).
+      if (config.allocator?.enabled) {
+        const contested = pickContestedCriterion(voting);
+        if (contested) {
+          log(`\nRound ${round} allocator: targeting the panel's most contested criterion (${contested.failedBy.length}/${contested.votingCount} critics FAILED it) for one extra round.`);
+          // v7.3 item 3: fire item 1's tool-grounded verification dynamically,
+          // scoped to this specific contested claim, rather than only the
+          // config-declared-up-front verify.tools set every run always runs
+          // regardless of relevance. A tool fires only if one of
+          // allocator.tools names a keyword that appears in the contested
+          // criterion's own text.
+          let toolFired = null;
+          let groundTruthBlock = '';
+          const spec = (config.allocator.tools || []).find(t =>
+            (t.keywords || []).some(k => contested.criterion.toLowerCase().includes(String(k).toLowerCase())));
+          if (spec) {
+            const runTool = config.verify?.runTool || defaultRunTool;
+            const cwd = config.allocator.cwd || config.verify?.cwd || process.cwd();
+            const result = runTool(spec.tool, spec.args || {}, { cwd });
+            log(`  allocator verification: ${spec.tool}${spec.args ? ` ${JSON.stringify(spec.args)}` : ''} -> ${result.ok ? 'ok' : `error - ${result.error}`}`);
+            toolFired = { tool: spec.tool, args: spec.args || {}, result };
+            groundTruthBlock = `\n\n# Ground truth for the contested claim (tool output, verbatim)\n## ${spec.tool}${spec.args ? ` ${JSON.stringify(spec.args)}` : ''}\n${JSON.stringify(result)}`;
+          }
+          const draftBefore = draft;
+          const targeted = record(await invoke(reviserSeat, {
+            system: R.reviserSystem(open),
+            user: R.reviserUser({
+              request, criteria, draft,
+              critique: { failures: [{
+                criterion: contested.criterion,
+                problem: `The panel split on this criterion this round: ${contested.failedBy.length} of ${contested.votingCount} voting critics marked it FAILED, the rest did not.`,
+                fix: '',
+              }] },
+            }) + groundTruthBlock,
+            log, label: `allocator-${round}`,
+          })).text;
+          const parsedTargeted = parseDisputes(targeted);
+          draft = parsedTargeted.draft;
+          parsedTargeted.disputes.forEach(reason => disputes.push({ round: `allocator-${round}`, reason }));
+          // v7.3 item 4: the falsification watch this stage's own proposal
+          // flagged as required, not optional. A targeted round that leaves
+          // the draft byte-for-byte unchanged is the same rubber-stamping
+          // signature item 3's descending-rounds falsifier watches for -
+          // recorded here, never hidden, and exposed across runs in
+          // metrics.js's allocator rubber-stamp rate.
+          const engaged = draft !== draftBefore;
+          log(`  allocator round ${engaged ? 'changed the draft (engaged)' : 'left the draft byte-for-byte unchanged (rubber-stamp signature)'}.`);
+          allocatorRounds.push({
+            round,
+            criterion: contested.criterion,
+            failedBy: contested.failedBy,
+            votingCount: contested.votingCount,
+            tool: toolFired ? toolFired.tool : null,
+            engaged,
+          });
+        }
+      }
     }
   } else {
     for (let round = 1; round <= maxRounds; round++) {
@@ -1136,6 +1242,11 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     lastCritique,
     signoff,
     challenge,
+    allocator: config.allocator?.enabled ? {
+      targetedRounds: allocatorRounds,
+      engagedCount: allocatorRounds.filter(r => r.engaged).length,
+      rubberStampCount: allocatorRounds.filter(r => !r.engaged).length,
+    } : null,
     disputes,
     history,
     stages,
