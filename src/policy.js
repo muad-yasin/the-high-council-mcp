@@ -13,7 +13,8 @@
 //     fallback to "no policy."
 //   evaluatePolicy(policy, ctx) -> { ok: boolean, reasons: string[] }
 //     Pure - no filesystem, no network, no provider call - so it is fully offline-testable.
-//     `ctx`: { config, allSeats, worstCaseUsd, monthToDateUsd }. `reasons` is empty iff ok.
+//     `ctx`: { config, allSeats, worstCaseUsd, monthToDateUsd, changeRequest?, signoff? }.
+//     `reasons` is empty iff ok.
 //
 // Fail-closed by design: every check below refuses on anything it cannot verify (an
 // undeclared seat region, an unparsed file) rather than treating "unknown" as "allowed". This is
@@ -78,7 +79,8 @@ export function buildPolicyContext(config, allSeats, runsDir, now = Date.now()) 
   };
 }
 
-export function evaluatePolicy(policy, { config, allSeats, worstCaseUsd, monthToDateUsd: mtdUsd }) {
+export function evaluatePolicy(policy, ctx) {
+  const { config, allSeats, worstCaseUsd, monthToDateUsd: mtdUsd } = ctx;
   const reasons = [];
   const billedSeats = (allSeats || []).filter(s => s?.provider && !SYNTHETIC_PROVIDERS.has(s.provider));
 
@@ -124,5 +126,68 @@ export function evaluatePolicy(policy, { config, allSeats, worstCaseUsd, monthTo
     }
   }
 
+  reasons.push(...checkRequiredSignoffPaths(policy, ctx));
+
   return { ok: reasons.length === 0, reasons };
+}
+
+// MLLM Coder v3 item 4 (relay/runs/2026-09-14T21-38-45-696Z/revise-1.md): a change request whose
+// target_file matches a `required_signoff_paths` glob needs a named signoff before it may run.
+//   ctx.changeRequest - the coder-gate change request ({ target_file, ... }), or absent for a
+//     chain that isn't changing a file. Absent = nothing path-sensitive to gate, so it passes.
+//   ctx.signoff - a non-empty string naming who signed off. Anything else counts as no signoff.
+// Returns reason strings (empty = passes). Absent key = no reasons, exactly as before this check.
+// Fail closed like every check above: a change request without a usable target_file, or a
+// target_file that escapes the repo root (absolute, `..`), cannot be matched against
+// repo-relative patterns, so it is refused rather than let through as "matched nothing".
+export function checkRequiredSignoffPaths(policy, ctx = {}) {
+  const patterns = policy.required_signoff_paths;
+  if (!Array.isArray(patterns) || patterns.length === 0) return [];
+  const cr = ctx.changeRequest;
+  if (!cr) return [];
+  const bad = patterns.filter(p => typeof p !== 'string' || p.trim() === '');
+  if (bad.length) return [`required_signoff_paths: every entry must be a non-empty glob string; got ${JSON.stringify(bad)}.`];
+  if (typeof cr.target_file !== 'string' || cr.target_file.trim() === '') {
+    return ['required_signoff_paths: the change request has no target_file, so it cannot be checked against the signoff paths.'];
+  }
+  const path = normalizeRelPath(cr.target_file);
+  if (path === null) {
+    return [`required_signoff_paths: target_file "${cr.target_file}" is not a repo-relative path, so it cannot be checked against the signoff paths.`];
+  }
+  const matched = patterns.find(p => globMatch(normalizeRelPath(p) ?? p, path));
+  if (!matched) return [];
+  if (typeof ctx.signoff === 'string' && ctx.signoff.trim() !== '') return [];
+  return [`required_signoff_paths: target_file "${path}" matches "${matched}", which requires a signoff, and none was given.`];
+}
+
+// Forward slashes, no leading "./", no empty or "." segments. null for anything that isn't a
+// repo-relative path (absolute, drive-lettered, or climbing out with "..").
+function normalizeRelPath(p) {
+  const parts = p.trim().replace(/\\/g, '/').split('/').filter(s => s !== '' && s !== '.');
+  if (/^([A-Za-z]:)?\//.test(p.trim().replace(/\\/g, '/')) || parts.includes('..')) return null;
+  return parts.join('/');
+}
+
+// Local glob, no dependency ($0/offline constraint): `*` matches within one path segment, `**`
+// matches any number of whole segments (including none). Everything else is literal.
+export function globMatch(pattern, path) {
+  let re = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === '*' && pattern[i + 1] === '*') {
+      const before = i === 0 || pattern[i - 1] === '/';
+      const after = pattern[i + 2] === '/' || i + 2 === pattern.length;
+      if (before && after) {
+        // "**/" -> zero or more whole segments; a trailing "**" (as in "src/auth/**") -> anything.
+        if (pattern[i + 2] === '/') { re += '(?:[^/]*/)*'; i += 2; } else { re += '.*'; i += 1; }
+        continue;
+      }
+      re += '[^/]*'; i += 1; // "a**b" inside a segment is just a single-segment wildcard
+    } else if (c === '*') {
+      re += '[^/]*';
+    } else {
+      re += c.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  return new RegExp(`^${re}$`).test(path);
 }

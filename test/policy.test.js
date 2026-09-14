@@ -11,7 +11,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadPolicy, evaluatePolicy, monthToDateUsd, POLICY_PATH } from '../src/policy.js';
+import { loadPolicy, evaluatePolicy, globMatch, monthToDateUsd, POLICY_PATH } from '../src/policy.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = resolve(here, '../src/cli.js');
@@ -147,6 +147,101 @@ test('evaluatePolicy: multiple violated fields all appear in reasons, not just t
   });
   assert.equal(ok, false);
   assert.equal(reasons.length, 2);
+});
+
+// --- required_signoff_paths: MLLM Coder v3 item 4 ---
+
+const base = { config: { name: 'x' }, allSeats: [], worstCaseUsd: 0, monthToDateUsd: 0 };
+
+test('required_signoff_paths: a matching target_file with no signoff is refused, and the reason names the pattern (acceptance)', () => {
+  const { ok, reasons } = evaluatePolicy({ required_signoff_paths: ['src/auth/**'] }, {
+    ...base, changeRequest: { target_file: 'src/auth/login.js' },
+  });
+  assert.equal(ok, false);
+  assert.equal(reasons.length, 1);
+  assert.match(reasons[0], /^required_signoff_paths: /);
+  assert.ok(reasons[0].includes('"src/auth/**"'));
+  assert.ok(reasons[0].includes('src/auth/login.js'));
+});
+
+test('required_signoff_paths: a non-matching target_file passes (acceptance)', () => {
+  const { ok } = evaluatePolicy({ required_signoff_paths: ['src/auth/**'] }, { ...base, changeRequest: { target_file: 'README.md' } });
+  assert.equal(ok, true);
+});
+
+test('required_signoff_paths: a matching target_file with a named signoff passes (acceptance)', () => {
+  const { ok } = evaluatePolicy({ required_signoff_paths: ['src/auth/**'] }, {
+    ...base, changeRequest: { target_file: 'src/auth/login.js' }, signoff: 'security-lead',
+  });
+  assert.equal(ok, true);
+});
+
+test('required_signoff_paths: an empty or non-string signoff counts as none', () => {
+  for (const signoff of ['', '   ', true, { by: 'x' }]) {
+    const { ok } = evaluatePolicy({ required_signoff_paths: ['src/auth/**'] }, {
+      ...base, changeRequest: { target_file: 'src/auth/login.js' }, signoff,
+    });
+    assert.equal(ok, false, `signoff ${JSON.stringify(signoff)} must not count`);
+  }
+});
+
+test('required_signoff_paths backward compat: key absent, the same ctx that the check would refuse evaluates exactly as before', () => {
+  const ctx = { ...base, changeRequest: { target_file: 'src/auth/login.js' } };
+  assert.deepEqual(evaluatePolicy({}, ctx), { ok: true, reasons: [] });
+  assert.deepEqual(evaluatePolicy({ required_signoff_paths: [] }, ctx), { ok: true, reasons: [] });
+  // The other checks' reasons are unchanged, in order, when the new key is absent.
+  const policy = { allowed_providers: ['anthropic'], max_usd_per_run: 0 };
+  const other = { config: { name: 'x' }, allSeats: [seat('deepseek', 'deepseek-v3')], worstCaseUsd: 5, monthToDateUsd: 0 };
+  assert.deepEqual(evaluatePolicy(policy, { ...other, changeRequest: { target_file: 'src/auth/login.js' } }), evaluatePolicy(policy, other));
+  assert.equal(evaluatePolicy(policy, other).reasons.length, 2);
+});
+
+test('required_signoff_paths: a run with no change request is not path-gated', () => {
+  assert.equal(evaluatePolicy({ required_signoff_paths: ['**'] }, base).ok, true);
+});
+
+test('required_signoff_paths fails closed: change request without a usable target_file, or one outside the repo', () => {
+  const policy = { required_signoff_paths: ['src/auth/**'] };
+  for (const target_file of [undefined, '', '/etc/passwd', 'C:\\repo\\src\\auth\\x.js', '../src/auth/x.js', 'src/auth/../../x.js']) {
+    const { ok, reasons } = evaluatePolicy(policy, { ...base, changeRequest: { target_file } });
+    assert.equal(ok, false, `target_file ${JSON.stringify(target_file)} must be refused`);
+    assert.match(reasons[0], /^required_signoff_paths: /);
+  }
+});
+
+test('required_signoff_paths: a malformed pattern entry is refused, not ignored', () => {
+  const { ok, reasons } = evaluatePolicy({ required_signoff_paths: ['src/**', 42] }, { ...base, changeRequest: { target_file: 'README.md' } });
+  assert.equal(ok, false);
+  assert.match(reasons[0], /non-empty glob string/);
+});
+
+test('required_signoff_paths: target_file is normalized before matching (backslashes, leading ./, doubled slashes)', () => {
+  const policy = { required_signoff_paths: ['src/auth/**'] };
+  for (const target_file of ['src\\auth\\login.js', './src/auth/login.js', 'src//auth/login.js']) {
+    assert.equal(evaluatePolicy(policy, { ...base, changeRequest: { target_file } }).ok, false, target_file);
+  }
+});
+
+test('globMatch: * stays inside one segment, ** spans segments, everything else is literal', () => {
+  const cases = [
+    ['src/auth/**', 'src/auth/login.js', true],
+    ['src/auth/**', 'src/auth/deep/nested/x.js', true],
+    ['src/auth/**', 'src/authz/login.js', false],
+    ['src/auth/**', 'src/auth', false],
+    ['src/*.js', 'src/cli.js', true],
+    ['src/*.js', 'src/deep/cli.js', false],
+    ['**/secrets.json', 'secrets.json', true],
+    ['**/secrets.json', 'a/b/secrets.json', true],
+    ['**/secrets.json', 'a/b/not-secrets.json', false],
+    ['src/**/policy.js', 'src/policy.js', true],
+    ['src/**/policy.js', 'src/a/b/policy.js', true],
+    ['*.md', 'README.md', true],
+    ['*.md', 'docs/README.md', false],
+    ['file.(js)', 'file.(js)', true],
+    ['file.js', 'fileXjs', false],
+    ['**', 'anything/at/all', true],
+  ];
+  for (const [pattern, path, want] of cases) assert.equal(globMatch(pattern, path), want, `${pattern} vs ${path}`);
 });
 
 // --- monthToDateUsd: reuses spendReport(), calendar-month window ---
