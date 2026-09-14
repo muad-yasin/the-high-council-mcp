@@ -41,6 +41,14 @@ async function callMock({ model, system, messages, maxTokens }) {
     await new Promise(r => setTimeout(r, 10));
     return { text: '', usage: { input: 10, output: 20, thinking: 20, stop: 'error' }, provider: 'mock', model };
   }
+  // A provider that is down outright - network failure, 5xx after retries exhausted, etc. -
+  // stands in for the crash a real provider outage caused in a paid run (v7 item 2). Unlike
+  // mock-provider-error above (a reply that came back but was empty), this throws before any
+  // reply exists at all, exercising the code path where invoke() itself rejects.
+  if (model === 'mock-network-error') {
+    await new Promise(r => setTimeout(r, 10));
+    throw new Error('mock: provider unreachable (simulated network failure)');
+  }
   if (system.startsWith('You are a proposer')) {
     await new Promise(r => setTimeout(r, 10));
     const text = model === 'mock-proposer-empty'
