@@ -8,6 +8,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 It runs one request past seats filled by models from different labs, makes them argue on the
 record, and writes a deliverable plus a full debate board. MIT, BYOK-only.
 
+**As of the `skills/backend-frontend-developer` branch, this repo also carries `skills/` - two
+generic engineering skills (`backend-developer`, `frontend-developer`) shipped alongside the
+harness, not part of it.** Explicit, informed scope expansion (Muad's call, after being told
+plainly this widens the repo from "debate harness" to "debate harness + skills distributor"):
+these two are the same MIT/BYOK public-tooling ethos as the harness itself, and they cover
+general backend/frontend engineering - not any single project's stack, and not game-specific
+systems work (that lives in the separate `sower-backend`/`sower-frontend` plugins, which this
+repo does not bundle). A future session should not be confused by a `skills/` directory with no
+mention here - if more skills are ever added here, they belong to this same "generic, public,
+BYOK-consistent" bar, not project-specific content.
+
 Read `HANDOFF.md` before starting work. It carries the release order and the hard rules. Its two
 "open decisions" are now settled and should not be reopened: the `LICENSE` holder stays
 **Sower Industries** (the legal company, confirmed by the author), and the package was renamed to

@@ -442,6 +442,16 @@ claiming 29 chains and 12 tools when there were 30 and 11.
 
 No claim is made here that any of this produces better plans. It has not been measured.
 
+## Skills
+
+`skills/` carries two Claude Code skill files shipped alongside this harness, not part of it:
+`backend-developer` and `frontend-developer` - general backend and frontend engineering rules
+(contract-first design, save/persistence integrity, accessibility, verification discipline) that
+apply to any codebase, not just this one. Same MIT/BYOK ethos as the harness itself. They don't
+claim to make code better; they describe what each rule guards against and why. Point Claude Code
+at this repo's `skills/` directory (or copy the two folders into your own project's
+`.claude/skills/`) to use them.
+
 ## Known limits, stated plainly
 
 - The spend cap is enforced against a **worst case**, not a prediction: the whole prompt billed as
