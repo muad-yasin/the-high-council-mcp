@@ -1,0 +1,66 @@
+{
+  "name": "coder-gate-v2",
+  "description": "MLLM Coder v2 (relay/runs/2026-09-14T17-25-10-314Z/deliverable.md). Reuses every v1 role (chains/coder-gate-v1.json) unchanged - one diff/one hunk governed unit, external propose/build, no write tool, unanimous critic signoff. The only thing v2 adds is interchangeability of which model/router fills a seat, expressed entirely in this file's seat entries: `seats.criteria` uses shape 1 (a plain model id, byte-identical to any other chain's seat), `seats.critics[0]` uses shape 2 (`extra.models`, OpenRouter's own provider-array fallback field - transport-failure-only, sequenced OpenRouter-side), `seats.critics[1]` uses shape 3 (the Pareto Code router slug in `model` plus `extra.plugins` configuring it). All three shapes validate against config/seat-model-schema.json. No new selection/fallback logic exists anywhere in this project for any of the three - src/chain.js and src/tools.js are untouched, and src/providers.js needed no change either (test/openrouter-adapter-capabilities.test.js, IN-1, found the adapter already forwards `extra` verbatim). Proposer and critic seats stay different labs per docs/coder-gate-diff-format.md's write-boundary note and this plan's §5 (judge-bias grounding, arXiv:2510.24367) - a routed seat's real, response-time model (visible in OpenRouter's own response `model` field) is still a single lab's model, never mixed with the proposer's.",
+  "maxRounds": 2,
+  "signoff": "unanimous",
+  "proposals": {
+    "parts": 1,
+    "maxTokens": 4000
+  },
+  "estimate": {
+    "promptTokens": 3000,
+    "draftTokens": 3000,
+    "critiqueTokens": 1000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 2000
+    },
+    "skeleton": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 1000
+    },
+    "proposers": [
+      {
+        "provider": "external",
+        "model": "claude-code-session",
+        "lab": "external-proposer"
+      }
+    ],
+    "builder": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "anthropic/claude-opus-5",
+        "maxTokens": 8000,
+        "lab": "openrouter-fallback",
+        "extra": {
+          "models": ["openai/gpt-5", "google/gemini-3.6-flash"]
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "openrouter/pareto-code",
+        "maxTokens": 8000,
+        "lab": "openrouter-pareto",
+        "extra": {
+          "plugins": [
+            { "id": "pareto-router", "min_coding_score": 0.8 }
+          ]
+        }
+      }
+    ]
+  },
+  "debate": true,
+  "handoff": false,
+  "verify": {
+    "enabled": true,
+    "tools": []
+  }
+}

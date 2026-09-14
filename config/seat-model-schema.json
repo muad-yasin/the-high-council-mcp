@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://the-high-council.dev/schema/seat-model-v2.json",
+  "title": "Seat model shape (MLLM Coder v2, IN-2)",
+  "description": "Validates the three allowed shapes a seat's own config may use to route through OpenRouter's already-existing model-routing primitives (relay/runs/2026-09-14T17-25-10-314Z/deliverable.md §3), as confirmed against the real adapter behavior in test/openrouter-adapter-capabilities.test.js (IN-1). `model` is ALWAYS a plain string to src/providers.js's OpenRouter adapter - there is no 'model as array' shape in OpenRouter's own real API (docs.openrouter.ai/docs/guides/routing/model-fallbacks: fallback is a separate `models` array field; docs.openrouter.ai/docs/guides/routing/routers/pareto-router: the Pareto Code router is invoked via a plain model-slug string plus an optional `plugins` array) - so this schema corrects the plan's own draft wording rather than encoding it literally, per IN-1's finding.",
+  "type": "object",
+  "required": ["provider", "model"],
+  "properties": {
+    "provider": { "type": "string" },
+    "lab": { "type": "string" },
+    "maxTokens": { "type": "integer", "minimum": 1 },
+    "temperature": { "type": "number" },
+    "baseUrl": { "type": "string" },
+
+    "model": {
+      "description": "Shape 1 (plain id): any OpenRouter model id or router slug (e.g. \"anthropic/claude-sonnet-5\", \"openrouter/pareto-code\", \"openrouter/auto\") as a plain string. A plain string with no `extra.models`/`extra.plugins` is byte-identical to every seat's `model` field before this schema existed - see the 'plain id, no routing' example in chains/coder-gate-v2.json.",
+      "type": "string",
+      "minLength": 1
+    },
+
+    "extra": {
+      "type": "object",
+      "description": "The adapter's existing, unmodified per-seat escape hatch (spread verbatim into the OpenRouter request body by callOpenAICompat - unchanged by this schema or by v2). Shapes 2 and 3 both live here, as siblings of `model`, never inside it.",
+      "properties": {
+        "models": {
+          "description": "Shape 2 (provider-array fallback): OpenRouter's own `models` field - an ordered array of fallback model ids, tried in order only on transport failure (rate limit, moderation flag, downtime), per OpenRouter's own docs. Sequencing is entirely OpenRouter-side; this adapter performs no selection or retry logic of its own (see IN-1's finding).",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "plugins": {
+          "description": "Shape 3 (routing-param route): OpenRouter's own `plugins` array, e.g. the Pareto Code Router's `[{ \"id\": \"pareto-router\", \"min_coding_score\": 0..1 }]`. Used together with a router slug in `model` (e.g. \"openrouter/pareto-code\") - the router choice itself is still a plain string in `model`, per IN-1's finding; `plugins` only configures it.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 }
+            }
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

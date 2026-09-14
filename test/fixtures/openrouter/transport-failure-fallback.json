@@ -1,0 +1,14 @@
+{
+  "_note": "MLLM Coder v2, IN-4. A recorded example of the response OpenRouter returns after a primary model's transport failure (rate limit) triggers its own provider-array fallback (extra.models on the seat) and a fallback model successfully answers instead. The outbound request this responds to is what test/openrouter-adapter-capabilities.test.js's 'provider-array variant 1' test already proves the adapter sends verbatim - this fixture is the other side, the response. OpenRouter's own response `model` field names whichever model actually answered, which may differ from the request's primary `model` - that's the whole point of fallback, and is why chain.js/report.json must read the RESPONSE's model, never assume the request's primary model answered. No live OpenRouter URL was fetched to produce this fixture.",
+  "id": "gen-fixture-fallback-0002",
+  "model": "openai/gpt-5",
+  "created": 1789400010,
+  "choices": [
+    {
+      "index": 0,
+      "message": { "role": "assistant", "content": "Answering via the first fallback model after the primary model rate-limited." },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": { "prompt_tokens": 418, "completion_tokens": 41, "total_tokens": 459 }
+}

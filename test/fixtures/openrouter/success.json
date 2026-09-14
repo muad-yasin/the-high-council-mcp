@@ -1,0 +1,14 @@
+{
+  "_note": "MLLM Coder v2, IN-4. A recorded example of a normal, successful OpenRouter chat-completions response, matching the shape callOpenAICompat already parses (choices[0].message.content, choices[0].finish_reason, usage.prompt_tokens/completion_tokens). No live OpenRouter URL was fetched to produce this fixture - shape confirmed against OpenRouter's own published API reference.",
+  "id": "gen-fixture-success-0001",
+  "model": "anthropic/claude-opus-5",
+  "created": 1789400000,
+  "choices": [
+    {
+      "index": 0,
+      "message": { "role": "assistant", "content": "The diff applies cleanly and the named test passes." },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": { "prompt_tokens": 420, "completion_tokens": 37, "total_tokens": 457 }
+}
