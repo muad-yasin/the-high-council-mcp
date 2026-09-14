@@ -1,11 +1,19 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { isFreeProvider } from './providers.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PRICES = JSON.parse(readFileSync(join(here, 'pricing.json'), 'utf8'));
 
+// v7.1: a local-model provider (ollama) prices at exactly $0 for any model name - pricing.json
+// is keyed by exact "provider/model" and cannot enumerate every locally-pulled model, so this is
+// checked before the lookup rather than requiring one entry per local model. `priced: true` is
+// what matters here: it is what keeps a local seat out of summarise()'s and dry_run's "unpriced"
+// warning list, which otherwise reads identically to "uncapped" - a worse user experience for a
+// seat that is genuinely, structurally free.
 export function priceOf(provider, model) {
+  if (isFreeProvider(provider)) return { in: 0, out: 0 };
   return PRICES[`${provider}/${model}`] || null;
 }
 

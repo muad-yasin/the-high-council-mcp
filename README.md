@@ -139,7 +139,31 @@ Fill in `.env` with only the keys your chosen chain needs. Supported providers:
 `OPENROUTER_API_KEY` · `ZAI_API_KEY` · `XAI_API_KEY`
 
 The CLI refuses to start if any seat in the chosen chain is missing its key, rather than failing
-halfway through a paid run.
+halfway through a paid run. `ollama` (below) is the one exception - it needs no key at all.
+
+### Local models (Ollama, LM Studio, ...)
+
+A seat can run on a model you're hosting yourself instead of a paid API. Set its provider to
+`ollama`:
+
+```json
+{ "provider": "ollama", "model": "llama3.1" }
+```
+
+This talks to Ollama's own OpenAI-compatibility endpoint (`http://localhost:11434/v1` by
+default) - no `OLLAMA_API_KEY` needed; Ollama's docs describe a key as "required, but unused."
+If your local runner listens somewhere else (LM Studio, a different port, a remote box), add
+`baseUrl` to that seat:
+
+```json
+{ "provider": "ollama", "model": "mistral", "baseUrl": "http://localhost:1234/v1" }
+```
+
+A local seat prices at $0 in every estimate and run report - `dry_run` shows it as priced, not
+"unpriced," and it can never trip the spend cap. See `chains/local-ollama.json` for a full
+example chain with every seat local. As with every other seat in this project: BYOK is really
+BYO-compute here, and no efficacy claim is made about local models versus hosted ones - nothing
+has been measured.
 
 ## Quick start (CLI)
 
@@ -426,7 +450,9 @@ No claim is made here that any of this produces better plans. It has not been me
   left. That is the intended trade - resume it with a higher ceiling.
 - A seat whose model has no entry in `src/pricing.json` is **unpriced, and therefore uncapped**.
   It contributes $0 to the running total no matter what it really costs. Check `dry_run` output
-  for `unpriced` before trusting a ceiling.
+  for `unpriced` before trusting a ceiling. `ollama` seats are the one deliberate exception: they
+  price at an explicit $0 for any model name (they are genuinely free to run), so they never show
+  up in that `unpriced` list and never need a pricing.json entry.
 - Prices in `src/pricing.json` are hand-maintained list prices, last verified 2026-09-06. They are
   estimates, not invoices. Your provider's bill is the real number.
 - Chains with many labs and high round caps get expensive quickly. `plan-unanimous` at three rounds

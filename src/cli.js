@@ -4,7 +4,7 @@ import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, checkSeats, setCache, setBudget, budgetState, ExternalPause, BudgetExceeded } from './chain.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
-import { providerNames, envKeyName, keyFor } from './providers.js';
+import { providerNames, envKeyName, keyFor, isKeyOptional } from './providers.js';
 import { spendReport, costToday } from './spend.js';
 import { verdictStats, independenceStatsCsv } from './verdict-stats.js';
 import { metricsReport } from './metrics.js';
@@ -233,7 +233,8 @@ if (argv[0] === 'doctor') {
     const envName = envKeyName(name);
     const has = !!process.env[envName];
     if (has) present.add(name);
-    console.log(`  ${name.padEnd(nw)}  ${envName.padEnd(20)}  ${has ? 'set' : 'not set'}`);
+    const status = has ? 'set' : isKeyOptional(name) ? 'not required (local - a dummy or missing key is fine)' : 'not set';
+    console.log(`  ${name.padEnd(nw)}  ${envName.padEnd(20)}  ${status}`);
   }
 
   console.log(`\nChains (runnable = every seat's provider has its key set, or is mock/external):`);
@@ -321,7 +322,8 @@ if (argv[0] === 'init') {
     const envName = envKeyName(name);
     const has = !!process.env[envName];
     if (has) anyKeySet = true;
-    console.log(`  ${name.padEnd(nw)}  ${envName.padEnd(20)}  ${has ? 'set' : 'not set - a chain using this lab would abort (COUNCIL-E001), not degrade'}`);
+    const status = has ? 'set' : isKeyOptional(name) ? 'not required (local - a dummy or missing key is fine)' : 'not set - a chain using this lab would abort (COUNCIL-E001), not degrade';
+    console.log(`  ${name.padEnd(nw)}  ${envName.padEnd(20)}  ${status}`);
   }
 
   const chainsDir = join(work, 'chains');

@@ -1,0 +1,43 @@
+{
+  "name": "local-ollama",
+  "description": "BYO-hardware: every seat runs on a local Ollama instance. No API key, no spend - `dry_run` prices this chain at $0. Swap the model names for whatever you've pulled (`ollama pull <model>`); swap `baseUrl` if Ollama (or an LM Studio / other OpenAI-compatible local runner) listens somewhere other than the default `http://localhost:11434/v1`.",
+  "maxRounds": 2,
+  "stopOnPass": true,
+  "estimate": {
+    "promptTokens": 4000,
+    "draftTokens": 6000,
+    "critiqueTokens": 1200
+  },
+  "seats": {
+    "criteria": {
+      "provider": "ollama",
+      "model": "llama3.1",
+      "maxTokens": 2000
+    },
+    "builder": {
+      "provider": "ollama",
+      "model": "llama3.1",
+      "maxTokens": 16000
+    },
+    "reviser": {
+      "provider": "ollama",
+      "model": "llama3.1",
+      "maxTokens": 16000
+    },
+    "critics": [
+      {
+        "provider": "ollama",
+        "model": "qwen2.5",
+        "maxTokens": 8000,
+        "lab": "ollama-qwen"
+      },
+      {
+        "provider": "ollama",
+        "model": "mistral",
+        "maxTokens": 8000,
+        "baseUrl": "http://localhost:1234/v1",
+        "lab": "lmstudio-mistral"
+      }
+    ]
+  }
+}
