@@ -1,13 +1,13 @@
 # Changelog
 
-## 0.8.0 - 2026-09-14
+## 0.7.5 - 2026-09-14
 
 Two batches merged same day as 0.7.0, both continuing the "7.x" generation (naming note: an
 earlier task file in the private planning repo called part of this "v8" - it does not ship under
-that name anywhere in this repo, by explicit instruction). Real minor version bump per semver
-(new backward-compatible functionality, not a patch) - "7.x" in prose refers to the generation of
-work, not the version number. 516 tests, offline, no API key, no live provider call (452 baseline
-immediately before this entry + 64 new across both batches below).
+that name anywhere in this repo, by explicit instruction). Versioned 0.7.5 per the author's own
+call, not strict semver - "7.x" in prose refers to the generation of work, matched deliberately by
+the version number itself here. 516 tests, offline, no API key, no live provider call (452
+baseline immediately before this entry + 64 new across both batches below).
 
 **Enterprise-readiness MVP** (5 items, all gated, all off by default): a central `policy.json`
 mechanism (allowed providers/regions, per-run and month-to-date USD caps reusing the existing
