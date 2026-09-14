@@ -1,0 +1,8 @@
+{
+  "_note": "MLLM Coder v2, IN-4. A recorded example of OpenRouter's real error response shape (docs.openrouter.ai/docs/api-reference/errors, checked 2026-09-14: { error: { code, message, metadata? } }) for a bad request - e.g. an invalid plugins/routing-param config on a Pareto Code Router seat. Confirms the adapter's existing error path (post() in src/providers.js throws on !res.ok, with res.status attached) surfaces this as a normal provider error in the chain log, not a crash and not something the adapter tries to interpret or retry itself. No live OpenRouter URL was fetched to produce this fixture.",
+  "error": {
+    "code": 400,
+    "message": "Bad Request (invalid or missing params, CORS)",
+    "metadata": { "error_type": "invalid_request" }
+  }
+}
