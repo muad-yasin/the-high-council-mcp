@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, setCache, setBudget, budgetState, ExternalPause, BudgetExceeded } from './chain.js';
+import { runChain, checkSeats, resolveChainSeats, setCache, setBudget, budgetState, ExternalPause, BudgetExceeded } from './chain.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName, keyFor, isKeyOptional } from './providers.js';
 import { spendReport, costToday } from './spend.js';
@@ -29,6 +29,7 @@ import { lintChain } from './chain-lint.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { formatCouncilError, ERROR_CATALOG } from './errors.js';
 import { loadPolicy, buildPolicyContext, evaluatePolicy, POLICY_PATH } from './policy.js';
+import { shouldEnableAudit, loadHmacKey, createAuditWriter } from './audit.js';
 
 // v5 §1 candidate 4: distinct exit codes for a degradable condition (a
 // stranger can fix it and continue - a missing key, an unpriced model)
@@ -779,6 +780,12 @@ if (resumeMeta?.fromRun && !fromRun) {
   if (existsSync(rp)) config.criteria = JSON.parse(readFileSync(rp, 'utf8')).criteria;
 }
 
+// 7.x single-vendor mode: resolved once, before checkSeats and --dry-run both read config.seats,
+// so a missing-key check and the resolution printout (the existing --dry-run output, which
+// already lists each seat's provider/model) both see the real vendor routing rather than the
+// direct-lab config on disk. A no-op for any chain that never sets `transport`.
+config = resolveChainSeats(config);
+
 const allSeats = [
   config.seats.criteria,
   config.seats.builder,
@@ -908,6 +915,28 @@ if (contextArg) {
 const runId = resumeMeta ? basename(resolve(resumeRun)) : new Date().toISOString().replace(/[:.]/g, '-');
 const runDir = join(work, 'runs', runId);
 mkdirSync(runDir, { recursive: true });
+
+// 7.x item 5: audit export. `policy.json`'s documented, locked path is the user's own working
+// directory (`work`, same resolution root as `.env` above) - a presence check only, item 1's own
+// src/policy.js owns parsing that file, never duplicated here. Opt-in via `"audit": true` on a
+// chain with no policy.json; inert (no audit.jsonl, no other change to the run folder) for
+// everyone else. The writer is created even on resume, so a resumed run's remaining stages are
+// still audited - only the stages already replayed from disk (onStage's `s.cached` check below)
+// are skipped, same as every other per-stage artifact this callback already writes.
+const auditEnabled = shouldEnableAudit({ config, policyPath: join(work, 'policy.json') });
+let auditWriter = null;
+if (auditEnabled) {
+  let hmacKey = null;
+  try {
+    hmacKey = loadHmacKey({ runDir });
+  } catch (err) {
+    console.error(`\naudit: ${err.message}`);
+    process.exit(EXIT_FATAL);
+  }
+  if (!hmacKey) console.error('\naudit: no AUDIT_HMAC_KEY or AUDIT_HMAC_KEY_FILE set - audit.jsonl will be written with signature: null on every line (unsigned, still hash-chained).');
+  auditWriter = createAuditWriter({ runDir, run: runId, chain: chainNameEff, hmacKey });
+}
+
 if (!resumeMeta) {
   writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskPathEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash }, null, 2));
 } else if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
@@ -1014,6 +1043,7 @@ try {
       }
       writeFileSync(join(runDir, `${s.label}.md`), s.text);
       writeFileSync(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint }));
+      if (auditWriter) auditWriter.recordStage(s);
       // v5 §1 candidate 14: one JSONL line per stage, alongside the existing markdown/usage
       // artifacts - structured so future tooling (candidate #9's replay, #2's independence
       // report) can read a run without re-parsing prose. No prompt content, same privacy
@@ -1103,6 +1133,10 @@ writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
   runId, chain: config.name, task: taskPathEff, result, config,
   fromRun: fromRun || resumeMeta?.fromRun || null, maxUsd: maxUsdEff,
 }), null, 2));
+// report.json existing is this codebase's own definition of "finished" (STOPPED-budget.json's
+// comment above says so explicitly) - the audit chain closes here, not in a finally block, so a
+// paused or budget-stopped run's audit.jsonl is correctly left without a close line.
+if (auditWriter) auditWriter.close();
 // Final regeneration: the last onStage-triggered RESUME.md was written before
 // deliverable.md/report.json existed, so without this it would keep reporting
 // "in progress" forever on an already-finished run. Run after report.json so
