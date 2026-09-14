@@ -444,13 +444,21 @@ No claim is made here that any of this produces better plans. It has not been me
 
 ## Skills
 
-`skills/` carries two Claude Code skill files shipped alongside this harness, not part of it:
-`backend-developer` and `frontend-developer` - general backend and frontend engineering rules
-(contract-first design, save/persistence integrity, accessibility, verification discipline) that
-apply to any codebase, not just this one. Same MIT/BYOK ethos as the harness itself. They don't
-claim to make code better; they describe what each rule guards against and why. Point Claude Code
-at this repo's `skills/` directory (or copy the two folders into your own project's
-`.claude/skills/`) to use them.
+`skills/` carries a small set of Claude Code skills shipped alongside this harness, not part of
+it - usable in any project, with or without the harness, and needing no API key:
+
+- **Core agentic work:** `task-scoping`, `research-and-sourcing`, `verification-and-critique`,
+  `context-and-handoff`, `tool-and-action-discipline` - the work around the work, for any agent
+  task, including setups where several models propose, critique, and hand off to each other.
+- **Building software:** `backend-developer`, `frontend-developer`, `ux-design`, `visual-craft`.
+- **Writing:** `good-news-writing`.
+
+The full catalog, with when to use each and what it guards against, is
+[`skills/README.md`](skills/README.md); a shareable presentation page is `docs/skills.html`. Both
+are checked by the test suite against the real `skills/` folder. Same MIT/BYOK ethos as the
+harness: the skills don't claim to make results better - nothing has been measured - they describe
+what each rule guards against and why. Copy the folders you want into your project's
+`.claude/skills/`, or point Claude Code at this repo's `skills/` directory.
 
 ## Known limits, stated plainly
 

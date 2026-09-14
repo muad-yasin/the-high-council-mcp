@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The High Council skills - the thinking step, written down</title>
+<meta name="description" content="Ten free Claude Code skills for the part of building that decides whether it works: scoping, sourcing, verification, handoff, safe tool use, and backend, frontend, UX and visual engineering. MIT. No efficacy claims.">
+<style>
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 600; font-display: swap; src: url(fonts/SpaceGrotesk-600-latin.woff2) format('woff2'); }
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 700; font-display: swap; src: url(fonts/SpaceGrotesk-700-latin.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400; font-display: swap; src: url(fonts/IBMPlexSans-400-latin.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 600; font-display: swap; src: url(fonts/IBMPlexSans-600-latin.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url(fonts/IBMPlexMono-400-latin.woff2) format('woff2'); }
+
+:root { --bg:#0a0a0b; --panel:#111113; --line:#26262b; --text:#e8e6e1; --muted:#a9a59c; --gold:#e3b23c; --gold-soft:#f3cd6d; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans', system-ui, sans-serif; font-size:17px; line-height:1.6; }
+a { color:var(--gold); text-decoration:none; }
+a:hover { color:var(--gold-soft); text-decoration:underline; }
+::selection { background:#e3b23c33; }
+code { font-family:'IBM Plex Mono', ui-monospace, monospace; font-size:0.9em; color:var(--gold-soft); }
+.wrap { max-width:1080px; margin:0 auto; padding:0 24px; }
+h1, h2, h3 { font-family:'Space Grotesk', system-ui, sans-serif; line-height:1.15; margin:0; }
+h1 { font-size:clamp(34px, 5.5vw, 60px); font-weight:700; letter-spacing:-0.02em; }
+h2 { font-size:clamp(26px, 3.2vw, 36px); font-weight:700; margin-bottom:12px; }
+h3 { font-size:20px; font-weight:600; }
+.eyebrow { font-family:'IBM Plex Mono', monospace; font-size:13px; letter-spacing:0.12em; text-transform:uppercase; color:var(--gold); }
+header { padding:88px 0 56px; border-bottom:1px solid var(--line); }
+header p.lede { font-size:clamp(18px, 2vw, 22px); color:var(--text); max-width:760px; margin:24px 0 0; }
+header p.sub { color:var(--muted); max-width:760px; margin:16px 0 0; }
+section { padding:64px 0; border-bottom:1px solid var(--line); }
+section > .wrap > p { max-width:760px; color:var(--muted); }
+.honest { margin-top:28px; padding:16px 20px; border:1px solid #3a3128; border-radius:12px; background:#131110; color:var(--text); max-width:760px; }
+.honest strong { color:var(--gold); }
+.grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:16px; margin-top:28px; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px; }
+.card h3 code { color:var(--text); font-size:18px; }
+.card .when { color:var(--muted); margin:10px 0 12px; font-size:15px; }
+.card ul { margin:0; padding-left:18px; }
+.card li { margin:4px 0; font-size:15px; }
+.card .label { font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:0.08em; text-transform:uppercase; color:var(--gold); margin-top:14px; }
+.flow { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-top:24px; }
+.step { border:1px solid var(--line); border-radius:12px; padding:16px; background:var(--panel); }
+.step .n { font-family:'IBM Plex Mono', monospace; color:var(--gold); font-size:13px; }
+.principles { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-top:24px; }
+.principles div { border-left:2px solid var(--gold); padding:4px 0 4px 16px; }
+.principles p { margin:6px 0 0; color:var(--muted); font-size:15px; }
+pre { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; overflow-x:auto; font-family:'IBM Plex Mono', monospace; font-size:14px; line-height:1.5; color:var(--text); }
+footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
+@media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="eyebrow">The High Council &middot; Skills</div>
+    <h1>You can build anything in a weekend.<br>So can everyone else.</h1>
+    <p class="lede">What decides the outcome now is the part most people skip: deciding what is worth building, and proving it actually works. These ten skills write that part down, so your AI coding agent does it too.</p>
+    <p class="sub">Free and MIT-licensed. They work in any Claude Code project, with or without The High Council harness. No account, no API key, nothing to install beyond copying folders.</p>
+    <div class="honest"><strong>No efficacy claim.</strong> Nothing here has been measured against working without these skills, so we don't say they make results better. Every rule says what it guards against and why - most began as a real failure on a real project - so you can judge each one yourself.</div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">What a skill is</div>
+    <h2>Rules your agent loads only when they apply</h2>
+    <p>A skill is a folder with a <code>SKILL.md</code> file: a focused set of rules, checklists, and a list of mistakes to flag. Claude Code reads the short description of every installed skill and loads a skill's full rules only when a task matches it. Deeper material sits in a <code>references/</code> folder that is opened only when needed, so a large collection costs little until it's used.</p>
+    <p>The rules are concrete on purpose. Not "be careful with migrations," but "prove compatibility with a frozen real example that would fail if you were wrong - a careful read-through is not a substitute."</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Core agentic work</div>
+    <h2>For any task an agent takes on</h2>
+    <p>Five skills for the work around the work: defining it, sourcing it, checking it, carrying it across sessions and agents, and acting on the world safely. They apply to coding and non-coding tasks alike, and to setups where several models propose, critique, and hand work to each other.</p>
+    <div class="grid">
+      <article class="card" data-skill="task-scoping">
+        <h3><code>task-scoping</code></h3>
+        <p class="when">Starting a multi-step or unclear task, delegating, or deciding whether something is really done.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Acting before "done" and a stop condition are written down</li>
+          <li>Silent assumptions; questions asked without a stated default</li>
+          <li>Risky, irreversible steps discovered only when reached</li>
+          <li>Partial results reported as if they closed the whole problem</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="research-and-sourcing">
+        <h3><code>research-and-sourcing</code></h3>
+        <p class="when">Any claim about the outside world: APIs, versions, prices, studies, real people and companies.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>A search summary mistaken for having read the source</li>
+          <li>Two copies of one press release counted as corroboration</li>
+          <li>An inference quietly hardening into a "fact"</li>
+          <li>Numbers stripped of the benchmark and date they belong to</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="verification-and-critique">
+        <h3><code>verification-and-critique</code></h3>
+        <p class="when">Before reporting anything done, when reviewing any output, when designing a review, vote, or debate.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Self-review treated as proof; logs trusted over artifacts</li>
+          <li>Tests edited in the same change that makes them pass</li>
+          <li>Unreadable or missing verdicts counted as passes</li>
+          <li>Debate where agreement flips a correct answer to a wrong one</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="context-and-handoff">
+        <h3><code>context-and-handoff</code></h3>
+        <p class="when">Long or multi-session work, delegation, pausing and resuming, several agents sharing one workspace.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Quality decay from overloaded context</li>
+          <li>State that lives only in a conversation that will be lost</li>
+          <li>Vague briefs and handoffs that hide what already failed</li>
+          <li>A peer agent's word treated as the owner's approval</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="tool-and-action-discipline">
+        <h3><code>tool-and-action-discipline</code></h3>
+        <p class="when">Any action that changes state, spends money, or is visible to others - and designing tools for agents.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Destructive commands aimed at a pattern instead of a confirmed list</li>
+          <li>Spending checked after the call instead of before it</li>
+          <li>Retrying a wrong answer as if it were a network error</li>
+          <li>Human approval gates skipped, faked, or routed around</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Building software</div>
+    <h2>For the code, the screens, and how they look</h2>
+    <p>Four engineering and design skills that work across stacks - web, mobile, desktop, game UI, command-line tools - because they target failure classes, not frameworks.</p>
+    <div class="grid">
+      <article class="card" data-skill="backend-developer">
+        <h3><code>backend-developer</code></h3>
+        <p class="when">Server logic, CLIs, data models, storage and migrations, background jobs, integrations, data scripts, generators.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Errors swallowed so code looks like it works while doing nothing</li>
+          <li>Events fired before the state they describe is saved</li>
+          <li>Constants with no traceable origin</li>
+          <li>"Ran successfully" with no output artifact actually checked</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="frontend-developer">
+        <h3><code>frontend-developer</code></h3>
+        <p class="when">Anything that renders or reacts to input, down to wiring one button or showing one number.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Screens that only work once there is already data in them</li>
+          <li>Text overflowing fixed boxes; layouts correct at one screen size only</li>
+          <li>Numbers parsed or shown in the wrong locale</li>
+          <li>Design mockups reproduced by eye instead of by their real values</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="ux-design">
+        <h3><code>ux-design</code></h3>
+        <p class="when">Before building any user-facing surface - including "just add a button."</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Visual design before the user's path is mapped</li>
+          <li>Missing empty, locked, loading, and error states</li>
+          <li>Notifications louder than the information deserves</li>
+          <li>Manipulative patterns shipped because they were profitable</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="visual-craft">
+        <h3><code>visual-craft</code></h3>
+        <p class="when">When flow and implementation are right and the question is whether it actually looks right.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>A generic default look arriving unexamined</li>
+          <li>Contrast and colorblind safety judged by eye</li>
+          <li>One screenshot at one size trusted as proof</li>
+          <li>A vision model's opinion treated as a taste verdict</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Writing</div>
+    <h2>For words about real people</h2>
+    <div class="grid">
+      <article class="card" data-skill="good-news-writing">
+        <h3><code>good-news-writing</code></h3>
+        <p class="when">Warm, positive coverage of a real person or organization doing something good.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Praise that reads like a press release</li>
+          <li>A villain invented to make the good deed look bigger</li>
+          <li>Backhanded compliments and untraceable quotes</li>
+          <li>Overstating a true, modest act</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">How they fit</div>
+    <h2>Scope, build, verify - with the facts sourced</h2>
+    <div class="flow">
+      <div class="step"><div class="n">01</div><h3>Scope</h3><p><code>task-scoping</code> writes what done means, what is out, and where the risky steps are.</p></div>
+      <div class="step"><div class="n">02</div><h3>Source</h3><p><code>research-and-sourcing</code> grades every outside fact the work depends on.</p></div>
+      <div class="step"><div class="n">03</div><h3>Design &amp; build</h3><p><code>ux-design</code> then <code>frontend-developer</code> and <code>backend-developer</code>, acting through <code>tool-and-action-discipline</code>.</p></div>
+      <div class="step"><div class="n">04</div><h3>Verify</h3><p><code>verification-and-critique</code> and <code>visual-craft</code> check against ground truth, not confidence.</p></div>
+      <div class="step"><div class="n">05</div><h3>Hand off</h3><p><code>context-and-handoff</code> carries the state to the next session, agent, or person.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">How they are written</div>
+    <h2>Why the rules look the way they do</h2>
+    <div class="principles">
+      <div><h3>Keep the scar, drop the coordinates</h3><p>Each rule keeps the failure that produced it and the reasoning behind it. Project names, file paths, and tool trivia are removed.</p></div>
+      <div><h3>Structure over good intentions</h3><p>A checklist, a gate, a second reviewer, or a hard cap beats "be careful." A mistake that happened twice gets a mechanical guard.</p></div>
+      <div><h3>Evidence, graded</h3><p>Where a rule rests on published research, the finding is paraphrased with its strength stated. Practitioner reports and inference are labeled as such.</p></div>
+      <div><h3>Judgment ages well</h3><p>Syntax gets automated first. Deciding what is true, what is good, and what is safe to ship is the part these skills focus on.</p></div>
+      <div><h3>Delete what stops being true</h3><p>Many rules encode something models currently do badly. When that changes, the rule goes.</p></div>
+      <div><h3>One rule, one place</h3><p>Each skill says what it is not for and points to the skill that is, so a rule never lives in two copies that drift apart.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Install</div>
+    <h2>Copy the folders you want</h2>
+    <p>Each skill is self-contained. Copy any of them into your project's <code>.claude/skills/</code> directory, or point Claude Code at the repository's <code>skills/</code> folder.</p>
+<pre>git clone https://github.com/muad-yasin/the-high-council-mcp
+cp -r the-high-council-mcp/skills/task-scoping your-project/.claude/skills/
+cp -r the-high-council-mcp/skills/verification-and-critique your-project/.claude/skills/</pre>
+    <p>The catalog in <code>skills/README.md</code> lists every skill with when to use it. Changes are recorded in the repository's <code>CHANGELOG.md</code>; this page and the catalog are checked by the test suite against the real <code>skills/</code> folder, so they can't list a skill that doesn't exist or miss one that does.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>The High Council skills &middot; MIT license &middot; Last updated 2026-09-14 &middot; <a href="index.html">The High Council harness</a></p>
+    <p>No claim is made that these skills improve results. It has not been measured.</p>
+  </div>
+</footer>
+
+</body>
+</html>

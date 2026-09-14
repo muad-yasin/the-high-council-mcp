@@ -21,9 +21,23 @@ scope) covers the warm-register content craft for writing genuine positive cover
 person or organization - composes with the `sower-writer` plugin's drafting/fact-checking/
 line-editing/final-read skills rather than duplicating them; three of SMO's four source skills
 were found, on inspection, to already be fully generalized into `sower-writer`, so only the one
-genuinely novel register shipped here. A future session should not be confused by a `skills/`
-directory with no mention here - if more skills are ever added here, they belong to this same
-"generic, public, BYOK-consistent" bar, not project-specific content.
+genuinely novel register shipped here. `ux-design` and `visual-craft` followed the same way. The
+`skills/core-task-skills` branch (2026-09-14, Muad's direct request) added five cross-domain core
+agentic skills - `task-scoping`, `research-and-sourcing`, `verification-and-critique`,
+`context-and-handoff`, `tool-and-action-discipline` - built from a research pass on agent and
+multi-agent failure modes plus the rest of Stock Market Oasis's skill library, and upgraded
+`backend-developer`/`frontend-developer` with that library's remaining generalizable rules. A future
+session should not be confused by a `skills/` directory with no mention here - if more skills are
+ever added, they belong to this same "generic, public, BYOK-consistent" bar, not project-specific
+content, and go through the same leftover-content grep (source project names, internal paths,
+private seat build names, third-party text) before they ship.
+
+**The skill list lives in `skills/` itself.** `skills/README.md` (the catalog) and
+`docs/skills.html` (the customer-facing presentation) both enumerate it by hand, so
+`test/skills-catalog.test.js` derives the real set from the folders and fails if either document
+drifts - same reasoning as `test/landing-page.test.js`. Add or remove a skill and the suite tells
+you which document needs updating. `docs/skills.html` carries the landing page's two properties:
+no scripts, no third-party requests.
 
 Read `HANDOFF.md` before starting work. It carries the release order and the hard rules. Its two
 "open decisions" are now settled and should not be reopened: the `LICENSE` holder stays
