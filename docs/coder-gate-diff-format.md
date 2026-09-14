@@ -44,4 +44,4 @@ note in `chains/coder-gate-v1.json`'s own description for the exact gap this lea
 ## Write boundary
 
 No tool in this project ever applies a diff to a real working tree — that stays a human or
-external-session action. Full reasoning: `~/Projects/relay/runs/2026-09-14T16-14-10-757Z/deliverable.md` §6.
+external-session action. Full reasoning: `docs/coder-gate-write-boundary.md`.
