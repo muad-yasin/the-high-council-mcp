@@ -20,6 +20,7 @@ import { stageKindOf, buildStageContract, renderStagePromptBundle } from '../sta
 import { verifyIntegrityFooter } from '../integrity.js';
 import { generateResumeBrief } from '../resume-brief.js';
 import { verdictStats } from '../verdict-stats.js';
+import { metricsReport } from '../metrics.js';
 import { checkClaimStaleness } from '../peer-claim.js';
 import { submitStageAnswer } from '../stage-submission.js';
 
@@ -265,6 +266,26 @@ server.tool('verdict_stats', 'How the debate mechanism itself is doing, per chai
     ...(r.unreadable ? { unreadableRunFolders: r.unreadable } : {}),
     ...(r.note ? { note: r.note } : {}),
     source: 'derived from runs/ on disk; no ledger is kept and nothing is transmitted',
+  });
+});
+
+server.tool('metrics_report', 'DESCRIPTIVE TELEMETRY ONLY, not an evaluation, benchmark or baseline: amendment rate, withdrawal rate, objection-follow-through rate, and tool-call usage, derived from existing run logs (report.json and HANDOFF.md) on disk across a window of days. This is the zero-cost substitute for a cut evaluation-first direction - it never compares the council against any other tool or person, and no number it returns should be read as a claim that the council\'s output is better than anything else. Nothing is recorded anywhere else and nothing leaves this machine.', {
+  days: z.number().min(0.1).max(3650).optional().describe('how far back to look, in days. Defaults to 30.'),
+}, async ({ days = 30 }) => {
+  const r = metricsReport(runsDir, { days });
+  return text({
+    label: 'descriptive telemetry',
+    since: r.since.toISOString(),
+    days,
+    runsSeen: r.runsSeen,
+    amendmentRate: r.amendmentRate,
+    withdrawalRate: r.withdrawalRate,
+    objectionFollowThroughRate: r.objectionFollowThroughRate,
+    toolCallUsageRate: r.toolCallUsageRate,
+    counts: r.counts,
+    ...(r.unreadable ? { unreadableRunFolders: r.unreadable } : {}),
+    note: r.note,
+    source: 'derived from runs/ on disk; no ledger is kept and nothing is transmitted. Descriptive telemetry only - not an evaluation, benchmark or baseline.',
   });
 });
 
