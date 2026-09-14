@@ -27,6 +27,7 @@ import { buildTranscript, renderTranscriptText } from './replay.js';
 import { lintChain } from './chain-lint.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { formatCouncilError, ERROR_CATALOG } from './errors.js';
+import { loadPolicy, buildPolicyContext, evaluatePolicy, POLICY_PATH } from './policy.js';
 
 // v5 §1 candidate 4: distinct exit codes for a degradable condition (a
 // stranger can fix it and continue - a missing key, an unpriced model)
@@ -770,6 +771,29 @@ const allSeats = [
   ...(config.seats.proposers || []),
   ...(config.seats.critics || []),
 ].filter(Boolean);
+
+// v7.x item 1, COUNCIL-E005: the central policy file. No file at the locked path (work/
+// policy.json) = today's behavior, byte-identical - this is the very first thing checked, and
+// it changes nothing when absent. Skipped on --resume for the same reason lintChain is skipped
+// above: the chain already proved runnable against this same policy on its first round. Runs
+// before checkSeats/dryRun so a policy violation is caught before either a missing-key check or
+// a price estimate - no provider is ever invoked either way, so ordering relative to those two
+// doesn't change what gets spent, only what gets reported first.
+if (!resumeMeta) {
+  const { policy, error: policyParseError } = loadPolicy(work);
+  if (policyParseError) {
+    console.error(`\n${formatCouncilError('COUNCIL-E005', { path: POLICY_PATH(work), parseError: policyParseError })}`);
+    process.exit(EXIT_FATAL);
+  }
+  if (policy) {
+    const ctx = buildPolicyContext(config, allSeats, join(work, 'runs'));
+    const { ok, reasons } = evaluatePolicy(policy, ctx);
+    if (!ok) {
+      console.error(`\n${formatCouncilError('COUNCIL-E005', { path: POLICY_PATH(work), chain: config.name, reasons })}`);
+      process.exit(EXIT_FATAL);
+    }
+  }
+}
 
 if (dryRun) {
   // A dry run prices the chain from the config's own declared token

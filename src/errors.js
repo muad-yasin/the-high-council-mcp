@@ -53,6 +53,20 @@ export const ERROR_CATALOG = {
       doc: 'TROUBLESHOOTING.md#council-e004',
     }),
   },
+  'COUNCIL-E005': {
+    kind: 'fatal',
+    title: 'Policy refusal',
+    render: ctx => ({
+      what: ctx.parseError
+        ? `The policy file "${ctx.path}" isn't valid JSON, so it can't be enforced at all.`
+        : `Chain "${ctx.chain}" was refused by the policy file at "${ctx.path}": ${Array.isArray(ctx.reasons) ? ctx.reasons.join(' ') : ctx.reasons}`,
+      concept: `A policy file is a locked, operator-set set of limits (allowed providers, regions, spend, required tags) checked before any provider is called - a run that would violate it never starts.`,
+      fix: ctx.parseError
+        ? `Fix the JSON syntax in ${ctx.path}.`
+        : `Change the chain, or the policy file at ${ctx.path}, so this run no longer violates it.`,
+      doc: 'docs/policy.md',
+    }),
+  },
 };
 
 /**

@@ -43,3 +43,16 @@ lab actually returned. The run log also says why it was unreadable: truncated
 (hit its token cap), malformed JSON, or the provider itself returned an error
 mid-generation - each needs a different fix (a higher `maxTokens`, a smaller
 prompt, or just retrying).
+
+## COUNCIL-E005 - Policy refusal (fatal)
+
+Either `policy.json` itself isn't valid JSON, or the chain you're about to run
+violates one of its limits (an unlisted provider or region, over the per-run or
+per-month spend cap, a missing required tag, or an unpriced seat when
+`refuse_unpriced_seats` is set). A policy file is a locked, operator-set set of
+limits checked before any provider is called - a run that would violate it never
+starts, so nothing was spent.
+
+**Fix:** if the file itself won't parse, fix its JSON syntax. Otherwise, either
+change the chain so it no longer violates the listed limit(s), or change
+`policy.json` if the limit itself was wrong. See [docs/policy.md](docs/policy.md).
