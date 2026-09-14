@@ -276,6 +276,56 @@ export function scoreProposals(proposals, plan) {
 // OpenRouter are three labs, and mock chains need two labs on one provider.
 const labOf = seat => seat.lab || seat.provider;
 
+// Item 5/6 (relay/runs/2026-09-14T14-56-18-834Z/deliverable.md): a seat-role
+// override lets a chain name, by lab/provider id, which already-configured
+// seat fills a given stage - a selection change, never a new field on
+// report.json. Searches every seat this chain declares, named and rostered,
+// so an override can point at a critic or a proposer as well as a
+// dedicated seat kind.
+export function findSeatByLab(config, id) {
+  const seats = config?.seats || {};
+  const named = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger']
+    .map(k => seats[k]).filter(Boolean);
+  const all = [...named, ...(seats.critics || []), ...(seats.proposers || [])];
+  return all.find(s => labOf(s) === id) || null;
+}
+
+// roster.criteria_seat (item 5): absent leaves the existing configured
+// criteria seat exactly as today. Present, it must resolve to a real seat
+// somewhere in this chain's config - chain-lint.js checks this ahead of any
+// metered call, but resolveCriteriaSeat re-checks here too since a config
+// can be handed to runChain() directly without going through the CLI's
+// lint gate (the MCP path, tests).
+export function resolveCriteriaSeat(config) {
+  const id = config.roster?.criteria_seat;
+  if (!id) return config.seats.criteria;
+  const seat = findSeatByLab(config, id);
+  if (!seat) throw new Error(`roster.criteria_seat "${id}" does not match any seat's lab/provider in this chain's seats.`);
+  return seat;
+}
+
+// Ambiguity union (config.ambiguity_union, item 5): string/set-level dedup,
+// deliberately with no dependency on any claim schema - confirmed in the
+// debate for this item, since it operates on raw request text, not on a
+// claims[] array from any other item. Normalises on trim + lowercase +
+// collapsed whitespace so near-duplicate phrasing collapses to one entry;
+// the FIRST seat's original casing/wording is what survives, so the union
+// stays readable rather than becoming a bag of lowercase fragments.
+export function unionAmbiguities(lists) {
+  const seen = new Map();
+  for (const list of lists || []) {
+    if (!Array.isArray(list)) continue;
+    for (const raw of list) {
+      if (typeof raw !== 'string') continue;
+      const text = raw.trim();
+      if (!text) continue;
+      const key = text.toLowerCase().replace(/\s+/g, ' ');
+      if (!seen.has(key)) seen.set(key, text);
+    }
+  }
+  return [...seen.values()];
+}
+
 // A run pauses at an external seat: the prompt is written for whoever plays
 // that seat (a Claude Code session on the Max plan, a human), and the run
 // resumes from disk once <label>.md exists. Thrown, not returned, so the
@@ -607,6 +657,39 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     request += renderGroundTruth(ground_truth);
   }
 
+  // 0a. Ambiguity union (config.ambiguity_union.enabled, item 5). Absent or
+  // false: skipped entirely, request is untouched, and the questions/criteria
+  // stages' input is unchanged from today. Three cheap seats each list the
+  // ambiguities they see in the raw request before any proposal exists; the
+  // union is appended to `request`, which every later stage already reads,
+  // so this costs no new plumbing beyond the stage itself.
+  let ambiguities = null;
+  if (config.ambiguity_union?.enabled && !initialDraft) {
+    const seats = config.seats.ambiguity || (config.seats.critics || []).slice(0, 3);
+    log(`\nStage: ambiguity union (${seats.length} seat(s) list ambiguities before any proposal exists)`);
+    const results = await Promise.all(seats.map(async seat => {
+      const lines = []; const say = m => lines.push(m);
+      let list = [];
+      try {
+        const res = record(await invoke(seat, {
+          system: R.AMBIGUITY_SYSTEM,
+          user: R.ambiguityUser({ request }),
+          log: say, label: `ambiguity-${labOf(seat)}`,
+        }));
+        const parsed = parseJson(res.text);
+        list = Array.isArray(parsed?.ambiguities) ? parsed.ambiguities.filter(a => typeof a === 'string' && a.trim()) : [];
+        say(`  ${labOf(seat)}/${seat.model}: ${list.length} ambiguit${list.length === 1 ? 'y' : 'ies'}.`);
+      } catch (err) {
+        say(`  ${labOf(seat)}/${seat.model}: no ambiguity reply (${String(err.message).slice(0, 100)}).`);
+      }
+      return { lines, list };
+    }));
+    for (const r of results) r.lines.forEach(m => log(m));
+    ambiguities = unionAmbiguities(results.map(r => r.list));
+    log(`  union: ${ambiguities.length} unique ambiguit${ambiguities.length === 1 ? 'y' : 'ies'} after dedup.`);
+    if (ambiguities.length) request += R.ambiguitiesSection(ambiguities);
+  }
+
   // 0. Questions first (config.questions: { max, wait }). The answers become
   //    part of the request before criteria are written, so the checklist is
   //    written against the resolved request, not the ambiguous one.
@@ -649,7 +732,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   let criteria = config.criteria;
   if (!criteria || criteria.length === 0) {
     log('\nStage: acceptance criteria');
-    const s = record(await invoke(config.seats.criteria, {
+    const s = record(await invoke(resolveCriteriaSeat(config), {
       system: R.criteriaSystem(open),
       user: criteriaUserPrompt(request, config),
       log, label: 'criteria',
@@ -1305,6 +1388,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   return {
     deliverable: draft,
     criteria,
+    ambiguities,
     questions,
     skeleton,
     proposals,

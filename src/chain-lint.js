@@ -7,13 +7,14 @@ import { providerNames } from './providers.js';
 import { validateSeatRole } from './seat-role.js';
 import { ALLOWED_TOOLS } from './tools.js';
 import { priceOf } from './cost.js';
+import { findSeatByLab } from './chain.js';
 
 // Labs the source procurement report names as not EU-based (v7.x compliance
 // chains). Used only to enforce an EU-region compliance claim against the
 // seats that would violate it - not a general allow/deny list.
 const NON_EU_PROVIDERS = ['deepseek', 'zai'];
 
-const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger'];
+const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger', 'ambiguity'];
 
 /**
  * Lint findings for a chain config, each `{ kind, message, fix }`. Never
@@ -58,7 +59,7 @@ export function lintChain(config, filePath = '<chain>') {
   const allSeats = [
     seats.criteria, seats.builder, seats.reviser, seats.finalist, seats.skeleton,
     seats.handoff, seats.questions, seats.judge, seats.challenger,
-    ...(seats.proposers || []), ...(seats.critics || []),
+    ...(seats.proposers || []), ...(seats.critics || []), ...(seats.ambiguity || []),
   ].filter(Boolean);
   const known = new Set([...providerNames(), 'mock', 'external']);
   const seenUnknown = new Set();
@@ -284,6 +285,57 @@ export function lintChain(config, filePath = '<chain>') {
             fix: `Remove the "${s.provider}" seat from ${filePath}, or drop "EU" from "compliance.regions" if this chain isn't actually EU-only.`,
           });
         }
+      }
+    }
+  }
+
+  // 9. Roster overrides (item 5/6 of relay/runs/2026-09-14T14-56-18-834Z/
+  // deliverable.md): `roster.criteria_seat` is a seat-selection override -
+  // it must resolve to a real seat's lab/provider id somewhere in this
+  // chain, or the criteria stage fails at call time instead of at lint
+  // time. `roster.minimal_two_strong` is the gate a two-strong chain sets
+  // so this file can assert it never also declares a five-seat critic
+  // roster - checked here, not in chain.js, so the rule applies only to a
+  // chain that opts in and never touches a chain that doesn't.
+  const ROSTER_KEYS = ['criteria_seat', 'minimal_two_strong'];
+  if (config?.roster && typeof config.roster === 'object') {
+    for (const key of Object.keys(config.roster)) {
+      if (!ROSTER_KEYS.includes(key)) {
+        findings.push({
+          kind: 'invalid-roster-config',
+          message: `roster.${key} is not a recognized key - only ${ROSTER_KEYS.map(k => `"${k}"`).join(', ')} are exposed.`,
+          fix: `Remove "roster.${key}" from ${filePath}.`,
+        });
+      }
+    }
+    if ('criteria_seat' in config.roster) {
+      if (typeof config.roster.criteria_seat !== 'string' || !config.roster.criteria_seat) {
+        findings.push({
+          kind: 'invalid-roster-config',
+          message: `roster.criteria_seat must be a non-empty string naming a seat's lab/provider id.`,
+          fix: `Set "roster.criteria_seat" to a lab/provider id that matches one of this chain's seats in ${filePath}.`,
+        });
+      } else if (!findSeatByLab(config, config.roster.criteria_seat)) {
+        findings.push({
+          kind: 'invalid-roster-config',
+          message: `roster.criteria_seat "${config.roster.criteria_seat}" does not match any seat's lab/provider in this chain.`,
+          fix: `Fix "roster.criteria_seat" in ${filePath} to a lab/provider id present among this chain's seats (its "lab" field, or its "provider" if "lab" is unset).`,
+        });
+      }
+    }
+    if ('minimal_two_strong' in config.roster) {
+      if (typeof config.roster.minimal_two_strong !== 'boolean') {
+        findings.push({
+          kind: 'invalid-roster-config',
+          message: `roster.minimal_two_strong must be a boolean.`,
+          fix: `Set "roster.minimal_two_strong" to true or false in ${filePath}.`,
+        });
+      } else if (config.roster.minimal_two_strong === true && Array.isArray(seats.critics) && seats.critics.length >= 5) {
+        findings.push({
+          kind: 'invalid-roster-config',
+          message: `roster.minimal_two_strong is set but seats.critics has ${seats.critics.length} seats - a five-seat critic roster defeats the point of a minimal two-strong chain.`,
+          fix: `Trim "seats.critics" in ${filePath} to a small adjudicator roster, or remove "roster.minimal_two_strong".`,
+        });
       }
     }
   }

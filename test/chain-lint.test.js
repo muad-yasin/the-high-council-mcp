@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,7 @@ import { lintChain } from '../src/chain-lint.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = resolve(here, '../src/cli.js');
+const root = resolve(here, '..');
 
 test('a clean chain config has no findings', () => {
   const findings = lintChain({
@@ -138,4 +139,10 @@ test('council --chain <broken chain name> refuses to run, fail-loud, before any 
     assert.match(err.stderr, /chain lint/);
     assert.match(err.stderr, /unreachable-stage/);
   }
+});
+
+test('item 6: chains/plan-two-strong.json (the roster-inversion chain) passes chain-lint', () => {
+  const config = JSON.parse(readFileSync(join(root, 'chains', 'plan-two-strong.json'), 'utf8'));
+  const findings = lintChain(config, 'chains/plan-two-strong.json');
+  assert.deepEqual(findings, []);
 });
