@@ -69,18 +69,18 @@ test('transport-failure-fallback.json: a fallback response\'s own `model` field 
     assert.equal(sentBody.model, 'anthropic/claude-opus-5');
     assert.deepEqual(sentBody.models, ['openai/gpt-5', 'google/gemini-3.6-flash']);
     // The response text still comes through the normal path - the caller does not need to know
-    // fallback happened to get a usable reply, but the fixture's own `model` field (not read by
-    // this adapter at all, which is a real, documented limit worth naming: `res.model` is
-    // returned as the *requested* model, not the fixture's `model` field, because
-    // callOpenAICompat's return shape hardcodes `model` from its own input, never from
-    // json.model - see below) is what a build session would need if it wanted to log which model
-    // actually answered.
+    // fallback happened to get a usable reply, and `res.model` now reports the fixture's own
+    // `model` field (the model that actually answered), not the request's primary model - v3
+    // §Item 3's fix, see the test below.
     assert.equal(res.text, 'Answering via the first fallback model after the primary model rate-limited.');
     assert.notEqual(fixture.model, sentBody.model, 'sanity: this fixture is deliberately a DIFFERENT model than the primary, proving fallback occurred');
   } finally { restore(); }
 });
 
-test('finding: callOpenAICompat\'s returned `model` field echoes the request\'s primary model, never the response body\'s own `model` field - so a fallback answer is silently attributed to the primary model everywhere this adapter\'s return value is used', async () => {
+// v3 §Item 3 (relay/runs/2026-09-14T21-38-45-696Z/revise-1.md): was a documented bug (this test
+// used to assert the misattribution) - callOpenAICompat now reads the response body's own
+// `model` field and prefers it over the requested primary model.
+test('callOpenAICompat returns the response body\'s own `model` field when present - a fallback answer is attributed to the model that actually answered, not the requested primary model', async () => {
   const fixture = loadFixture('transport-failure-fallback.json');
   const restore = stubFetch(async () => ({ ok: true, json: async () => fixture }));
   try {
@@ -88,7 +88,20 @@ test('finding: callOpenAICompat\'s returned `model` field echoes the request\'s 
       model: 'anthropic/claude-opus-5', system: 's', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100,
       extra: { models: ['openai/gpt-5'] },
     }));
-    assert.equal(res.model, 'anthropic/claude-opus-5'); // NOT fixture.model ("openai/gpt-5")
+    assert.equal(res.model, fixture.model); // 'openai/gpt-5', the model that actually answered
+    assert.notEqual(res.model, 'anthropic/claude-opus-5');
+  } finally { restore(); }
+});
+
+test('callOpenAICompat backward compat: a response with no `model` field falls back to the requested model, exactly as before this fix', async () => {
+  const fixture = loadFixture('success.json');
+  const { model: _drop, ...bodyWithoutModel } = fixture;
+  const restore = stubFetch(async () => ({ ok: true, json: async () => bodyWithoutModel }));
+  try {
+    const res = await withStubbedKey(() => call('openrouter', {
+      model: 'anthropic/claude-opus-5', system: 's', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100,
+    }));
+    assert.equal(res.model, 'anthropic/claude-opus-5');
   } finally { restore(); }
 });
 

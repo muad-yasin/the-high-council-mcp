@@ -88,7 +88,19 @@ export function runVerification(config, { runTool = defaultRunTool, log = () => 
     }
     const result = runTool(spec.tool, spec.args || {}, { cwd });
     log(`  ${spec.tool}${spec.args ? ` ${JSON.stringify(spec.args)}` : ''}: ${result.ok ? 'ok' : `error - ${result.error}`}`);
-    groundTruth.push({ tool: spec.tool, args: spec.args || {}, result });
+    const entry = { tool: spec.tool, args: spec.args || {}, result };
+    // v3 §Item 2: an optional `expect.contains` marker on the spec, paired with a `fact`
+    // name, turns a raw read_file result into an explicit ground-truth fact - additive,
+    // specs without `expect` are untouched so every existing caller stays byte-identical.
+    // `result.ok === false` (e.g. the target file is missing) can't distinguish "not
+    // applied" from "can't tell", so it's surfaced as its own 'unknown' value rather than
+    // folded into false.
+    if (spec.expect?.contains !== undefined && spec.fact) {
+      entry[spec.fact] = !result.ok
+        ? 'unknown'
+        : (typeof result.text === 'string' && result.text.includes(spec.expect.contains)) || 'not_applied';
+    }
+    groundTruth.push(entry);
   }
   return groundTruth;
 }
