@@ -67,8 +67,17 @@ test('test_stage_split: the panel-stage prompt builders take no seat or role par
   // "role" in its own definition - confirmed by scanning their exact
   // source spans, not just "role doesn't appear in roles.js" (which
   // would be too broad and could pass by accident).
-  const criticSystemMatch = rolesSrc.match(/export const criticSystem = open => ([^\n]*\n?)+?;\n/);
-  assert.ok(criticSystemMatch, 'could not locate the criticSystem definition to check - update this guard if criticSystem moved or was renamed');
+  // v7 item 4: criticSystem grew a second parameter, `freedoms` (the two opt-in debate-freedoms
+  // flags below), so the definition is now a function declaration rather than an arrow assigned
+  // to a const. `freedoms` is not a seat and not a role - it is a per-chain config flag, the same
+  // shape as `open` - so the guard below still holds; only how the definition is located needed
+  // to follow the shape change (indexOf + brace-matched slice, same technique criticUser below
+  // already uses, rather than a regex that can silently overshoot).
+  const criticSystemStart = rolesSrc.indexOf('export function criticSystem(');
+  assert.notEqual(criticSystemStart, -1, 'could not locate the criticSystem definition to check - update this guard if criticSystem moved or was renamed');
+  const criticSystemNextExport = rolesSrc.indexOf('\nexport ', criticSystemStart + 10);
+  const criticSystemMatch = [rolesSrc.slice(criticSystemStart, criticSystemNextExport)];
+  assert.doesNotMatch(criticSystemMatch[0], /\bseat\b/i, 'criticSystem must not reference a seat');
   assert.doesNotMatch(criticSystemMatch[0], /\brole\b/i, 'criticSystem must not reference role in any form');
   assert.doesNotMatch(criticSystemMatch[0], /\bapplySeatRole\b/, 'criticSystem must not call applySeatRole');
 
