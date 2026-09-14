@@ -1,0 +1,43 @@
+{
+  "name": "single-vendor-anthropic",
+  "description": "Compliance chain (v7.x, procurement readiness): every seat routes through anthropic (models claude-opus-5, claude-sonnet-5, claude-haiku-4-5-20251001), pinned to exact model versions in src/pricing.json - a single vendor account and a single provider key for the whole run.",
+  "maxRounds": 2,
+  "stopOnPass": true,
+  "compliance": {
+    "providers": ["anthropic"]
+  },
+  "estimate": {
+    "promptTokens": 4000,
+    "draftTokens": 6000,
+    "critiqueTokens": 1200
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-opus-5",
+      "maxTokens": 2000
+    },
+    "builder": {
+      "provider": "anthropic",
+      "model": "claude-opus-5",
+      "maxTokens": 16000
+    },
+    "reviser": {
+      "provider": "anthropic",
+      "model": "claude-opus-5",
+      "maxTokens": 16000
+    },
+    "critics": [
+      {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "maxTokens": 20000
+      },
+      {
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "maxTokens": 20000
+      }
+    ]
+  }
+}

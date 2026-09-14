@@ -6,6 +6,12 @@
 import { providerNames } from './providers.js';
 import { validateSeatRole } from './seat-role.js';
 import { ALLOWED_TOOLS } from './tools.js';
+import { priceOf } from './cost.js';
+
+// Labs the source procurement report names as not EU-based (v7.x compliance
+// chains). Used only to enforce an EU-region compliance claim against the
+// seats that would violate it - not a general allow/deny list.
+const NON_EU_PROVIDERS = ['deepseek', 'zai'];
 
 const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger'];
 
@@ -190,6 +196,94 @@ export function lintChain(config, filePath = '<chain>') {
             });
           }
         });
+      }
+    }
+  }
+
+  // 8. Compliance chain metadata (v7.x, procurement readiness): an optional
+  // top-level `compliance: { regions: [...], providers: [...] }` on the four
+  // shipped compliance chains (eu-only, us-only, single-vendor-*). Absent on
+  // every other chain, so this whole check is a no-op for them - the same
+  // opt-in shape as challenge/allocator above. A compliance chain's
+  // description is a claim a procurement reviewer reads and trusts, so it
+  // must actually match what the seats do, not just what the author wrote.
+  if (config?.compliance && typeof config.compliance === 'object') {
+    const COMPLIANCE_KEYS = ['regions', 'providers'];
+    for (const key of Object.keys(config.compliance)) {
+      if (!COMPLIANCE_KEYS.includes(key)) {
+        findings.push({
+          kind: 'invalid-compliance-config',
+          message: `compliance.${key} is not a recognized key - only ${COMPLIANCE_KEYS.map(k => `"${k}"`).join(', ')} are exposed.`,
+          fix: `Remove "compliance.${key}" from ${filePath}.`,
+        });
+      }
+    }
+
+    const declaredProviders = new Set(config.compliance.providers || []);
+    const declaredRegions = new Set(config.compliance.regions || []);
+    const actualProviders = new Set(allSeats.map(s => s.provider).filter(Boolean));
+    const description = config.description || '';
+
+    for (const p of declaredProviders) {
+      if (!actualProviders.has(p)) {
+        findings.push({
+          kind: 'invalid-compliance-config',
+          message: `compliance.providers names "${p}", but no seat in this chain uses it.`,
+          fix: `Remove "${p}" from "compliance.providers" in ${filePath}, or add a seat that uses it.`,
+        });
+      }
+    }
+    for (const p of actualProviders) {
+      if (!declaredProviders.has(p)) {
+        findings.push({
+          kind: 'invalid-compliance-config',
+          message: `a seat uses provider "${p}", but "compliance.providers" doesn't name it - a compliance chain must declare every provider it actually touches.`,
+          fix: `Add "${p}" to "compliance.providers" in ${filePath}.`,
+        });
+      }
+    }
+    for (const p of declaredProviders) {
+      if (!description.includes(p)) {
+        findings.push({
+          kind: 'invalid-compliance-config',
+          message: `compliance.providers names "${p}", but the chain's own "description" doesn't mention it.`,
+          fix: `Name "${p}" in the "description" field of ${filePath} - a compliance chain's description is a claim about what it touches and must say so in prose, not only in config.`,
+        });
+      }
+    }
+    for (const r of declaredRegions) {
+      if (!description.includes(r)) {
+        findings.push({
+          kind: 'invalid-compliance-config',
+          message: `compliance.regions names "${r}", but the chain's own "description" doesn't mention it.`,
+          fix: `Name "${r}" in the "description" field of ${filePath}.`,
+        });
+      }
+    }
+
+    // Every seat in a compliance chain must be priced: an unpriced seat is
+    // uncapped (src/cost.js's priceOf), an unaccountable-spend gap a
+    // procurement-facing chain must not carry.
+    for (const s of allSeats) {
+      if (s.provider && known.has(s.provider) && s.provider !== 'mock' && s.provider !== 'external' && !priceOf(s.provider, s.model)) {
+        findings.push({
+          kind: 'invalid-compliance-config',
+          message: `a seat uses ${s.provider}/${s.model}, which has no entry in src/pricing.json - a compliance chain must have every seat priced.`,
+          fix: `Add "${s.provider}/${s.model}" to src/pricing.json, or use a priced model in ${filePath}.`,
+        });
+      }
+    }
+
+    // A region claim of "EU" is a claim no seat routes through a non-EU lab.
+    if (declaredRegions.has('EU')) {
+      for (const s of allSeats) {
+        if (NON_EU_PROVIDERS.includes(s.provider)) {
+          findings.push({
+            kind: 'invalid-compliance-config',
+            message: `compliance.regions claims "EU", but a seat uses "${s.provider}", which is not an EU-based lab.`,
+            fix: `Remove the "${s.provider}" seat from ${filePath}, or drop "EU" from "compliance.regions" if this chain isn't actually EU-only.`,
+          });
+        }
       }
     }
   }
