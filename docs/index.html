@@ -675,6 +675,48 @@ node src/cli.js --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5
       </div>
     </section>
 
+    <section id="mechanism" style="margin-top:72px">
+      <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:34px;letter-spacing:-0.02em;color:#faf8f4">Inside a debate round</h2>
+      <p style="margin:10px 0 24px;max-width:760px;font-size:16px;line-height:1.65;color:#8d8a84;text-wrap:pretty">Seven mechanisms that shape what a debate round actually does, each opt-in and gated behind its own config key - a chain that sets none of them behaves exactly as it always has. Described mechanically, what each one does, not what it's for.</p>
+      <div style="margin-top:0;display:grid;gap:1px;background:#1a1a1d;border:1px solid #1a1a1d;border-radius:14px;overflow:hidden">
+        <div id="mech-verify" data-mechanism="tool-grounded-verification" style="background:#0d0d0f;padding:22px 24px;display:grid;grid-template-columns:36px minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600;color:#e3b23c">1</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">verify.enabled</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">A seat's own reply can invoke a fixed, sandboxed allowlist of four offline tools - <code style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">run_tests</code>, <code style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">check_versions</code>, <code style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">grep_repo</code>, <code style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">read_file</code>, no generic shell, no network. Every result is appended verbatim to the run's <code style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">ground_truth</code> array and re-presented unedited to every later seat - a claim gets checked against real output mid-debate, not just argued back and forth.</div>
+        </div>
+        <div id="mech-allocator" data-mechanism="resource-allocator" style="background:#0d0d0f;padding:22px 24px;display:grid;grid-template-columns:36px minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600;color:#e3b23c">2</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">allocator.enabled</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">After a normal panel round, one extra round runs targeted at whichever single criterion the critics actually split on - the one with the most FAILED votes - instead of re-reviewing the whole draft uniformly. Scrutiny goes where the panel actually disagreed, not everywhere at the same depth.</div>
+        </div>
+        <div id="mech-descending" data-mechanism="descending-rounds" style="background:#0d0d0f;padding:22px 24px;display:grid;grid-template-columns:36px minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600;color:#e3b23c">3</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">descending: true</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">Each round debates a new, frozen object in sequence - plan, then architecture, then edge cases, then code by default - rather than re-litigating the same draft. An amendment that targets an already-frozen stage is rejected before it can apply, enforced at the executor level, not left to a critic's own system prompt to self-police.</div>
+        </div>
+        <div id="mech-freedoms" data-mechanism="debate-freedoms" style="background:#0d0d0f;padding:22px 24px;display:grid;grid-template-columns:36px minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600;color:#e3b23c">4</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">freedoms.blocking_questions / .pass</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">A critic seat may ask one blocking question that pauses its own round until the proposer answers, or pass with a stated reason - instead of being forced to render a meets/fails verdict on something it has no real basis to judge.</div>
+        </div>
+        <div id="mech-challenge" data-mechanism="post-signoff-challenge" style="background:#0d0d0f;padding:22px 24px;display:grid;grid-template-columns:36px minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600;color:#e3b23c">5</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">challenge.enabled</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">After signoff, exactly one seat may raise exactly one challenge against exactly one decision, for exactly one extra round - the bound is hard-coded in the executor, not a configurable limit, so the narrowness of the re-open can't be loosened by a chain file.</div>
+        </div>
+        <div id="mech-canary" data-mechanism="canary-objections" style="background:#0d0d0f;padding:22px 24px;display:grid;grid-template-columns:36px minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600;color:#e3b23c">6</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">canary.enabled + sampleRate</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">In a sampled fraction of runs, one deliberately wrong, evidence-free objection is injected against a real surviving proposal after the real debate round already finished, and the author answers it exactly like a real post. Whether it capitulates or holds is recorded, never applied to the plan itself - and structurally excluded from every real metric this project reports, so a canary can never inflate a number about the debate mechanism's own engagement.</div>
+        </div>
+        <div id="mech-claims" data-mechanism="typed-claim-schema" style="background:#0d0d0f;padding:22px 24px;display:grid;grid-template-columns:36px minmax(150px,220px) 1fr;gap:14px;align-items:start">
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600;color:#e3b23c">7</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">claims.enabled</div>
+          <div style="font-size:14.5px;line-height:1.65;color:#a8a49c">An objection gets restated as a typed <code style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">{claim, evidence}</code> pair rather than staying free text. The evidence is checked offline, no second model call: a quote must appear verbatim in the actual draft, or a tool reference must name a real entry this run's own tool-grounded verification produced - not prose asserting something happened.</div>
+        </div>
+      </div>
+    </section>
+
     <section style="margin-top:72px">
       <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:34px;letter-spacing:-0.02em;color:#faf8f4">Known limits, stated plainly</h2>
       <div style="margin-top:24px;display:grid;gap:1px;background:#1a1a1d;border:1px solid #1a1a1d;border-radius:14px;overflow:hidden">
