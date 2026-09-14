@@ -763,11 +763,27 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     for (let round = 1; round <= maxRounds; round++) {
       const criticSeat = config.seats.critics[(round - 1) % config.seats.critics.length];
       log(`\nRound ${round}: critique`);
-      const cs = record(await invoke(criticSeat, {
-        system: R.criticSystem(open),
-        user: R.criticUser({ request, criteria, draft }),
-        log, label: `critique-${round}`,
-      }));
+      let cs;
+      try {
+        cs = record(await invoke(criticSeat, {
+          system: R.criticSystem(open),
+          user: R.criticUser({ request, criteria, draft }),
+          log, label: `critique-${round}`,
+        }));
+      } catch (err) {
+        // v7 item 2: a provider failure here used to propagate straight out of runChain and
+        // crash the whole run (a real paid run was lost to exactly this). Gated on
+        // degrade_on_provider_error so a chain that doesn't opt in reproduces today's crash
+        // exactly.
+        if (!config.degrade_on_provider_error) throw err;
+        log(`  ${criticSeat.provider}/${criticSeat.model}: [COUNCIL-E005] provider failure (${String(err.message).slice(0, 120)}) - seat dropped, not counted as a pass or an objection.`);
+        dropouts.push({ lab: labOf(criticSeat), model: criticSeat.model, stage: `critique-${round}`, reason: `provider failure: ${String(err.message).slice(0, 200)}` });
+        lastCritique = { meets: false, dropped: true, failures: [{
+          criterion: '(critic seat dropped)',
+          problem: `${criticSeat.provider}/${criticSeat.model}'s round ${round} call failed (provider error) and was degraded to a dropped seat rather than crashing the run.`,
+        }] };
+        break;
+      }
 
       const parsed = parseJson(cs.text);
       if (!parsed) {
