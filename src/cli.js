@@ -11,7 +11,6 @@ import { metricsReport } from './metrics.js';
 import { withIntegrityFooter } from './integrity.js';
 import { generateResumeBrief } from './resume-brief.js';
 import { preflightCheck, checkArtifactReferences } from './preflight.js';
-import { scanForPii, applyPiiGate } from './pii-gate.js';
 import { stageKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs, withStalenessCheck } from './cache-integrity.js';
@@ -623,17 +622,6 @@ const fromRun = flag('from-run', null);
 const resumeRun = flag('resume', null);
 const dryRun = argv.includes('--dry-run');
 
-// v7.x item 2: PII/secrets pre-flight gate. Absent entirely (no --pii-gate flag) means this
-// gate is never invoked at all - byte-identical to every prior release. `warn` logs and
-// proceeds; `hard-stop` refuses the run before any provider call if it finds a match.
-const piiGateMode = flag('pii-gate', null);
-if (piiGateMode !== null && piiGateMode !== 'warn' && piiGateMode !== 'hard-stop') {
-  console.error(`--pii-gate: expected "warn" or "hard-stop", got "${piiGateMode}"`);
-  process.exit(2);
-}
-const piiAllow = flag('allow-pii', null);
-const piiAllowList = piiAllow ? String(piiAllow).split(',').map(x => x.trim()).filter(Boolean) : [];
-
 // Per-run spend ceiling. A BYOK tool that a stranger points their own API
 // keys at ships with a ceiling ON by default; --max-usd none is the explicit
 // way to run without one, and says so in the log.
@@ -686,13 +674,6 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        Not an evaluation, benchmark or baseline; no
                                        comparison to anything outside this harness's
                                        own run history. Same disk-only source.
-  council --task tasks/x.md --pii-gate warn|hard-stop
-                                       scan the task file for PII-shaped (email, checksum-
-                                       valid IBAN, Luhn-valid card) and secret-shaped content
-                                       before any provider call. warn logs and proceeds;
-                                       hard-stop refuses the run. Off entirely unless passed.
-                                       --allow-pii email,iban,card,secret suppresses named
-                                       pattern classes (always printed, never a silent hole).
   council --task tasks/x.md --max-usd 2 stop the run before any stage that could
                                        take it past $2. Default $5, or
                                        MAX_USD_PER_RUN. --max-usd none disables
@@ -850,20 +831,6 @@ if (!existsSync(taskFile)) {
   process.exit(1);
 }
 let request = readFileSync(taskFile, 'utf8');
-
-// v7.x item 2: scan the raw task file text before anything else touches it - strictly before
-// any provider adapter is constructed, before a run folder is even created. Not invoked at all
-// unless --pii-gate was passed (see flag parsing above).
-if (piiGateMode !== null) {
-  const scanResult = scanForPii(request, { allow: piiAllowList });
-  const { block, messages } = applyPiiGate(scanResult, piiGateMode);
-  for (const m of messages) console.error(`  PII-GATE (${piiGateMode}): ${m}`);
-  if (block) {
-    console.error(`\nPII-GATE: refusing to run - ${scanResult.findings.length} match(es) found in ${taskPathEff} under --pii-gate hard-stop.`);
-    console.error(`Fix the task file, or rerun with --pii-gate warn / --allow-pii <type,...> to proceed deliberately.`);
-    process.exit(1);
-  }
-}
 // v2 plan §7.2: fingerprint scope is the task's own text and the chain config, not the
 // --context document bundle appended below - captured before that append happens.
 const rawTaskTextForCacheFingerprint = request;
