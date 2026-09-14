@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased - skills
+
+**Five core agentic skills** added to `skills/`, for any agent task (coding or not), including
+setups where several models propose, critique, and hand off to each other: `task-scoping`,
+`research-and-sourcing`, `verification-and-critique`, `context-and-handoff`,
+`tool-and-action-discipline`. Built from a research pass on published agent and multi-agent failure
+modes (self-correction limits, false success, reward hacking against tests, judge bias, debate
+conformity, context rot, tool-interface design) plus generalizable rules from a larger private
+skill library. **`backend-developer` and `frontend-developer` upgraded** with that library's
+remaining general rules (state tiers, emit-after-commit bookkeeping, traced derivations, gate
+invariants, stale-build and on-disk verification traps; surplus-space layout, literal design-mockup
+import, input and lifecycle idempotency, multi-shape verification). New catalog `skills/README.md`
+and presentation page `docs/skills.html` (script-free, self-hosted fonts), both checked against the
+real `skills/` folder by `test/skills-catalog.test.js`. No efficacy claim is made for any skill.
+
 ## 0.7.5 - 2026-09-14
 
 Two batches merged same day as 0.7.0, both continuing the "7.x" generation (naming note: an
