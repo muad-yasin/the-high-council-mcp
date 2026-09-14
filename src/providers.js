@@ -193,6 +193,17 @@ async function callMock({ model, system, messages, maxTokens }) {
       : JSON.stringify({ challenge: false });
     return { text, usage: { input: 20, output: 15 }, provider: 'mock', model };
   }
+  // v7.x: claim extraction (src/claims.js). `mock-claims-bad-quote` always returns a quote that
+  // is not actually in the draft, exercising validateEvidence's drop-and-warn path offline;
+  // every other model returns one honest "reasoning" claim per objection it was handed.
+  if (system.startsWith('You restate a list of objections as typed claims')) {
+    await new Promise(r => setTimeout(r, 10));
+    const problems = [...user.matchAll(/^\d+\. Criterion: (.*)$/gm)].map(m => m[1]);
+    const claims = model === 'mock-claims-bad-quote'
+      ? problems.map(c => ({ claim: `The draft fails "${c}".`, evidence: { kind: 'quote', quote: 'this exact phrase is not in the draft, guaranteed' } }))
+      : problems.map(c => ({ claim: `The draft fails "${c}".`, evidence: { kind: 'reasoning' } }));
+    return { text: JSON.stringify({ claims }), usage: { input: 20, output: 20 }, provider: 'mock', model };
+  }
   // v7 §3, descending rounds: the builder for one frozen stage.
   if (system.startsWith('You are building one frozen stage')) {
     await new Promise(r => setTimeout(r, 10));
