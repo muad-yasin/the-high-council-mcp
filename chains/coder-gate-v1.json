@@ -1,0 +1,56 @@
+{
+  "name": "coder-gate-v1",
+  "description": "MLLM Coder v1 (relay/runs/2026-09-14T16-14-10-757Z/deliverable.md). The governed unit is one diff against one pre-named file/hunk, not prose. The `propose` seat is external: THCMCP never writes code itself, it hands the change-request task file to an outside coding session and gets one fenced diff back (docs/coder-gate-diff-format.md). The `builder` seat is also external, held to the same session, and must return the proposal's diff verbatim as this chain's draft - there is no second, independent code-writing step; `builder` exists only because every chain needs one to reach a draft, not because a second author writes anything. `verify` (config.verify) runs the named test command via the existing run_tests tool and injects the real pass/fail output as ground truth before the critic panel ever sees the diff. No write-capable tool is used anywhere - applying the diff to a real working tree stays a human/external action. Built entirely from existing stage types (proposal, debate, critic, unanimous signoff); no change to src/chain.js or src/tools.js.",
+  "maxRounds": 2,
+  "signoff": "unanimous",
+  "proposals": {
+    "parts": 1,
+    "maxTokens": 4000
+  },
+  "estimate": {
+    "promptTokens": 3000,
+    "draftTokens": 3000,
+    "critiqueTokens": 1000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 2000
+    },
+    "skeleton": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "maxTokens": 1000
+    },
+    "proposers": [
+      {
+        "provider": "external",
+        "model": "claude-code-session",
+        "lab": "external-proposer"
+      }
+    ],
+    "builder": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "critics": [
+      {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "maxTokens": 8000
+      },
+      {
+        "provider": "openai",
+        "model": "gpt-5",
+        "maxTokens": 8000
+      }
+    ]
+  },
+  "debate": true,
+  "handoff": false,
+  "verify": {
+    "enabled": true,
+    "tools": []
+  }
+}
