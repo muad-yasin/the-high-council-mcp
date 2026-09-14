@@ -170,3 +170,35 @@ test('runChain: a fixture reviser reply ending in DECLINED lines is stripped fro
   ]);
   assert.ok(result.disputes.every(d => typeof d.round === 'number'));
 });
+
+// v7 item 2: seat reliability recording and provider-failure dropout degradation.
+// mock.json's non-unanimous ("first" mode) critique path used to let a thrown provider error
+// (network failure, 5xx, etc.) propagate straight out of runChain and crash the whole run - a
+// real paid run was lost to exactly this. `mock-network-error` (src/providers.js) simulates
+// that failure offline. Backward compat is the point: a chain that doesn't set
+// degrade_on_provider_error must crash exactly as it always did.
+test('runChain: a provider failure crashes the run when degrade_on_provider_error is unset (today\'s exact behavior, unchanged)', async () => {
+  const config = {
+    ...mockConfig,
+    signoff: undefined,
+    seats: { ...mockConfig.seats, critics: [{ provider: 'mock', model: 'mock-network-error' }] },
+  };
+  await assert.rejects(
+    runChain({ request: 'a request', config, log: () => {} }),
+    /mock: provider unreachable/,
+  );
+});
+
+test('runChain: degrade_on_provider_error: true drops the failing seat and completes the run instead of crashing', async () => {
+  const config = {
+    ...mockConfig,
+    signoff: undefined,
+    degrade_on_provider_error: true,
+    seats: { ...mockConfig.seats, critics: [{ provider: 'mock', model: 'mock-network-error' }] },
+  };
+  const result = await runChain({ request: 'a request', config, log: () => {} });
+  assert.ok(result.deliverable, 'expected the run to complete with a deliverable rather than throw');
+  assert.equal(result.passed, false);
+  assert.ok(result.dropouts.some(d => d.stage === 'critique-1' && /provider failure/.test(d.reason)),
+    'expected the dropped critic seat to be recorded in result.dropouts');
+});
