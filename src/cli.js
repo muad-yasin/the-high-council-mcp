@@ -7,6 +7,7 @@ import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName, keyFor } from './providers.js';
 import { spendReport, costToday } from './spend.js';
 import { verdictStats, independenceStatsCsv } from './verdict-stats.js';
+import { metricsReport } from './metrics.js';
 import { withIntegrityFooter } from './integrity.js';
 import { generateResumeBrief } from './resume-brief.js';
 import { preflightCheck, checkArtifactReferences } from './preflight.js';
@@ -544,6 +545,33 @@ if (argv.includes('--stats')) {
   process.exit(0);
 }
 
+// `council --metrics [--days N]` prints DESCRIPTIVE TELEMETRY ONLY: amendment
+// rate, withdrawal rate, objection-follow-through rate and tool-call usage,
+// derived from existing run logs on disk. This is not an evaluation, not a
+// benchmark, and not a baseline - it is the zero-cost substitute for the
+// evaluation-first direction the author declined to fund (see src/metrics.js
+// header). Never read any number below as a claim that the council's output
+// is better than any other tool's or person's - nothing here compares
+// against anything outside this harness's own run history.
+if (argv.includes('--metrics')) {
+  const days = Number(flag('days', 30));
+  if (!Number.isFinite(days) || days <= 0) {
+    console.error('--days: expected a positive number of days');
+    process.exit(2);
+  }
+  const r = metricsReport(join(work, 'runs'), { days });
+  const pct = x => (x === null ? 'no data' : `${Math.round(x * 100)}%`);
+  console.log(`\nDescriptive telemetry across ${r.runsSeen} run(s) since ${r.since.toISOString().slice(0, 16).replace('T', ' ')}  (${join(work, 'runs')})`);
+  console.log(`  NOT an evaluation, benchmark or baseline - see "council --help" and README. Counts and rates only, no comparison to anything outside this harness's own run history.\n`);
+  console.log(`  amendment rate:                ${pct(r.amendmentRate)}  (${r.counts.amended}/${r.counts.proposals} proposals)`);
+  console.log(`  withdrawal rate:                ${pct(r.withdrawalRate)}  (${r.counts.withdrawn}/${r.counts.proposals} proposals)`);
+  console.log(`  objection-follow-through rate:  ${pct(r.objectionFollowThroughRate)}  (${r.counts.objectedFollowedThrough}/${r.counts.objected} objected proposals later amended or withdrawn)`);
+  console.log(`  tool-call usage:                ${pct(r.toolCallUsageRate)}  (${r.counts.acceptanceItemsNamingTool}/${r.counts.acceptanceItems} handoff acceptance items name a declared tool; ${r.counts.runsWithoutToolsSection} run(s) declared no "Available tools" section)`);
+  if (r.unreadable) console.log(`\n  ${r.unreadable} run folder(s) could not be read and are not counted.`);
+  console.log(`\n  Derived from the run folders on disk. Nothing is recorded anywhere else, and nothing leaves this machine.`);
+  process.exit(0);
+}
+
 // `council --forecast-cost --chain <name>` (v5 §1 candidate 7): a
 // realistic-case range from this chain's own history on this machine,
 // repriced at today's pricing.json - distinct from `--dry-run`'s
@@ -627,6 +655,12 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        sign-off rate, rounds, objections, dropouts,
                                        cost/wall time and the biggest prompt files,
                                        per chain and per lab. Same disk-only source.
+  council --metrics [--days 30]        DESCRIPTIVE TELEMETRY ONLY - amendment rate,
+                                       withdrawal rate, objection-follow-through rate
+                                       and tool-call usage, from existing run logs.
+                                       Not an evaluation, benchmark or baseline; no
+                                       comparison to anything outside this harness's
+                                       own run history. Same disk-only source.
   council --task tasks/x.md --max-usd 2 stop the run before any stage that could
                                        take it past $2. Default $5, or
                                        MAX_USD_PER_RUN. --max-usd none disables
