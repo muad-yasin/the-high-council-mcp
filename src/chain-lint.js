@@ -5,6 +5,7 @@
 // defect, not new scope for this candidate.
 import { providerNames } from './providers.js';
 import { validateSeatRole } from './seat-role.js';
+import { ALLOWED_TOOLS } from './tools.js';
 
 const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger'];
 
@@ -125,6 +126,71 @@ export function lintChain(config, filePath = '<chain>') {
         message: `challenge.enabled must be a boolean.`,
         fix: `Set "challenge.enabled" to true or false in ${filePath}.`,
       });
+    }
+  }
+
+  // 7. Resource allocator (v7.3): disagreement-targeted rounds, gated on
+  // `allocator.enabled`. Only `enabled`, `tools` and `cwd` are read - unlike
+  // challenge's single-key surface, this stage needs a way to name which
+  // sandboxed tool applies to which contested claim, so `tools` is exposed
+  // deliberately (each entry a fixed-shape {tool, args?, keywords} - never a
+  // free-form command). Requires `signoff: "unanimous"`: the disagreement
+  // signal this stage targets (a criterion some panel critics failed and
+  // others didn't) only exists when every critic reviews every round: the
+  // round-robin signoff path runs one critic per round and has no per-round
+  // split to detect. Silently doing nothing on a round-robin chain would be
+  // exactly the kind of "config key with no path to run" chain-lint's own
+  // check 1 already exists to catch, so this is a hard-fail, not a no-op.
+  if (config?.allocator && typeof config.allocator === 'object') {
+    const ALLOCATOR_KEYS = ['enabled', 'tools', 'cwd'];
+    for (const key of Object.keys(config.allocator)) {
+      if (!ALLOCATOR_KEYS.includes(key)) {
+        findings.push({
+          kind: 'invalid-allocator-config',
+          message: `allocator.${key} is not a recognized key - only ${ALLOCATOR_KEYS.map(k => `"${k}"`).join(', ')} are exposed.`,
+          fix: `Remove "allocator.${key}" from ${filePath}.`,
+        });
+      }
+    }
+    if ('enabled' in config.allocator && typeof config.allocator.enabled !== 'boolean') {
+      findings.push({
+        kind: 'invalid-allocator-config',
+        message: `allocator.enabled must be a boolean.`,
+        fix: `Set "allocator.enabled" to true or false in ${filePath}.`,
+      });
+    }
+    if (config.allocator.enabled === true && config.signoff !== 'unanimous') {
+      findings.push({
+        kind: 'invalid-allocator-config',
+        message: `allocator.enabled requires "signoff": "unanimous" - the disagreement signal it targets (a criterion split across the panel) does not exist under round-robin signoff.`,
+        fix: `Set "signoff": "unanimous" in ${filePath}, or remove "allocator" if this chain is meant to stay round-robin.`,
+      });
+    }
+    if (config.allocator.tools !== undefined) {
+      if (!Array.isArray(config.allocator.tools)) {
+        findings.push({
+          kind: 'invalid-allocator-config',
+          message: `allocator.tools must be an array.`,
+          fix: `Set "allocator.tools" to an array of { tool, args?, keywords } in ${filePath}, or omit it.`,
+        });
+      } else {
+        config.allocator.tools.forEach((spec, i) => {
+          if (!spec || !ALLOWED_TOOLS.includes(spec.tool)) {
+            findings.push({
+              kind: 'invalid-allocator-config',
+              message: `allocator.tools[${i}] names an unrecognized tool "${spec?.tool}" - only ${ALLOWED_TOOLS.join(', ')} are on the sandboxed allowlist.`,
+              fix: `Fix "allocator.tools[${i}].tool" in ${filePath} to one of: ${ALLOWED_TOOLS.join(', ')}.`,
+            });
+          }
+          if (!Array.isArray(spec?.keywords) || !spec.keywords.length || !spec.keywords.every(k => typeof k === 'string' && k)) {
+            findings.push({
+              kind: 'invalid-allocator-config',
+              message: `allocator.tools[${i}].keywords must be a non-empty array of strings - it decides which contested criterion this tool fires on.`,
+              fix: `Add "keywords": ["..."] to allocator.tools[${i}] in ${filePath}.`,
+            });
+          }
+        });
+      }
     }
   }
 

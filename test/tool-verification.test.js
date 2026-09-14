@@ -25,12 +25,13 @@ const mockConfig = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'u
 // challenge stage) - it is present as `null` on every result once that item is merged, same as
 // this file's own `ground_truth` gate, and is unrelated to the verify.enabled behavior this test
 // checks. Included here so this test keeps checking item 1's own gate instead of drifting into
-// asserting other items' absence.
+// asserting other items' absence. 'allocator' (v7.3, the resource allocator) was added the same
+// way, present as `null` when config.allocator is absent or disabled.
 const FROZEN_V6_KEYS = [
   'deliverable', 'criteria', 'questions', 'skeleton', 'proposals', 'proposalPool',
   'dropouts', 'board', 'debate', 'handoff', 'scoreboard', 'passed', 'lastCritique',
   'signoff', 'disputes', 'history', 'stages', 'totals', 'orphanSections', 'withdrawalCycles',
-  'challenge',
+  'challenge', 'allocator',
 ].sort();
 
 test('verify absent: result has no ground_truth key and matches the frozen v6 key set', async () => {

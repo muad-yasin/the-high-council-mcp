@@ -75,6 +75,20 @@ function toolCallUsageOfRun(dir) {
   return { hasToolsSection: true, items: items.length, itemsNamingTool };
 }
 
+// v7.3: the resource allocator's own required falsification watch, read
+// back out of report.json's `allocator.targetedRounds[]` (chain.js). Not a
+// new stage - purely reading what chain.js already wrote, same convention
+// as every other figure in this module.
+function allocatorMetricsOfRun(report) {
+  const rounds = report?.allocator?.targetedRounds;
+  if (!Array.isArray(rounds) || !rounds.length) return null;
+  return {
+    targeted: rounds.length,
+    engaged: rounds.filter(r => r.engaged).length,
+    toolFired: rounds.filter(r => r.tool).length,
+  };
+}
+
 function proposalMetricsOfRun(report) {
   const proposals = Array.isArray(report?.proposals) ? report.proposals : [];
   const amended = proposals.filter(p => p.amended === true).length;
@@ -123,6 +137,7 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
   let totalObjected = 0, totalObjectedFollowedThrough = 0;
   let runsWithHandoff = 0, runsWithToolsSection = 0, runsWithoutToolsSection = 0;
   let totalAcceptanceItems = 0, totalItemsNamingTool = 0;
+  let totalAllocatorTargeted = 0, totalAllocatorEngaged = 0, totalAllocatorToolFired = 0;
 
   for (const id of ids) {
     const when = runIdToDate(id);
@@ -141,6 +156,12 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
       totalWithdrawn += pm.withdrawn;
       totalObjected += pm.objected;
       totalObjectedFollowedThrough += pm.objectedFollowedThrough;
+      const am = allocatorMetricsOfRun(report);
+      if (am) {
+        totalAllocatorTargeted += am.targeted;
+        totalAllocatorEngaged += am.engaged;
+        totalAllocatorToolFired += am.toolFired;
+      }
     }
     // report.json being absent (paused/incomplete run) or unparseable (corrupt
     // file) just means this run contributes nothing to the proposal-derived
@@ -175,6 +196,13 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
     withdrawalRate: rate(totalWithdrawn, totalProposals),
     objectionFollowThroughRate: rate(totalObjectedFollowedThrough, totalObjected),
     toolCallUsageRate: rate(totalItemsNamingTool, totalAcceptanceItems),
+    // v7.3: the allocator's own required falsification watch (Review/
+    // v7x-gatekeeper-allocator-proposal.md's own falsifier condition) - a
+    // high rubber-stamp rate here means the targeted extra rounds are pure
+    // cost with no engagement gain, exactly the failure the proposal named.
+    // Descriptive only, same as every other rate in this module: never a
+    // claim that allocator rounds are worth their spend, only what happened.
+    allocatorRubberStampRate: rate(totalAllocatorTargeted - totalAllocatorEngaged, totalAllocatorTargeted),
     counts: {
       proposals: totalProposals,
       amended: totalAmended,
@@ -186,6 +214,9 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
       runsWithoutToolsSection,
       acceptanceItems: totalAcceptanceItems,
       acceptanceItemsNamingTool: totalItemsNamingTool,
+      allocatorRoundsTargeted: totalAllocatorTargeted,
+      allocatorRoundsEngaged: totalAllocatorEngaged,
+      allocatorRoundsToolFired: totalAllocatorToolFired,
     },
     note: 'descriptive telemetry only - counts and rates derived from existing run logs. ' +
       'Not an evaluation, not a benchmark, not a baseline, and not a claim that the council ' +
@@ -200,9 +231,11 @@ function emptyReport(runsDir, days, cutoff, note) {
     runsDir, days, since: new Date(cutoff),
     runsSeen: 0, unreadable: 0,
     amendmentRate: null, withdrawalRate: null, objectionFollowThroughRate: null, toolCallUsageRate: null,
+    allocatorRubberStampRate: null,
     counts: { proposals: 0, amended: 0, withdrawn: 0, objected: 0, objectedFollowedThrough: 0,
       runsWithHandoff: 0, runsWithToolsSection: 0, runsWithoutToolsSection: 0,
-      acceptanceItems: 0, acceptanceItemsNamingTool: 0 },
+      acceptanceItems: 0, acceptanceItemsNamingTool: 0,
+      allocatorRoundsTargeted: 0, allocatorRoundsEngaged: 0, allocatorRoundsToolFired: 0 },
     ...(note ? { note } : {}),
   };
 }
