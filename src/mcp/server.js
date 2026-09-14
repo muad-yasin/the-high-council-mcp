@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseSections, flatten, parseLedger, words } from '../ui/parse.js';
 import { spendReport, costToday } from '../spend.js';
 import { stageKindOf, buildStageContract, renderStagePromptBundle } from '../stage-contract.js';
@@ -101,6 +101,15 @@ function isAlive(id) {
   } catch { return false; }
 }
 
+// Packaging note (v7, binary release): everything below that actually starts the server
+// (construction, tool registration, stdio connect) lives inside this exported function rather
+// than at module top level, so a static `import { runMcpServer } from './mcp/server.js'` -
+// which `pkg`'s bundler needs to see in order to include this file in a packaged binary at all,
+// since it can't follow a dynamic `import()` - loads this module's dependencies without also
+// starting an MCP server on every CLI invocation. The self-invoking guard at the bottom keeps
+// `node src/mcp/server.js` / `npm run mcp` (this file run directly, not imported) working
+// exactly as before.
+export async function runMcpServer() {
 const server = new McpServer({ name: 'the-high-council', version: '0.3.0' });
 
 server.tool('list_chains', 'Chains available to run, with their description and worst-case price from a dry run.', {}, async () => {
@@ -338,3 +347,15 @@ server.tool('write_task', 'Write or overwrite a task file under tasks/ (the requ
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+}
+
+// Run directly (`node src/mcp/server.js`, `npm run mcp`, or the packaged CLI's own `--mcp`
+// path via a static import) starts the server; imported without being the entry point, it
+// does not - see the comment on runMcpServer above. No top-level `await` here on purpose: a
+// module with both top-level await and an `export` cannot be safely bytecode-compiled by
+// pkg's CJS transform (it falls back to shipping the file as plain source, which is fine, but
+// still triggers a subpath-exports resolution bug in the packaged binary - see the packaging
+// plan). An IIFE avoids it without changing observable behavior in the direct/non-packaged case.
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  (async () => { await runMcpServer(); })();
+}

@@ -18,6 +18,10 @@ import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { schemaVersionWarning } from './schema-version.js';
 import { forecastCost } from './cost-forecast.js';
+// A static import, not a dynamic one - see the comment on runMcpServer in mcp/server.js for why.
+// mcp/server.js's own self-invocation guard means this import alone never starts a server; only
+// the explicit call below, inside the --mcp branch, does.
+import { runMcpServer } from './mcp/server.js';
 import { renderBoardHtml } from './board-export.js';
 import { buildTranscript, renderTranscriptText } from './replay.js';
 import { lintChain } from './chain-lint.js';
@@ -607,7 +611,7 @@ if (argv.includes('--forecast-cost')) {
 // as an MCP command: `npx -y the-high-council --mcp`. Checked before any
 // other argument handling, since the server takes none of them.
 if (argv.includes('--mcp')) {
-  await import('./mcp/server.js');
+  await runMcpServer();
 } else {
 
 const chainName = flag('chain', 'verify');
