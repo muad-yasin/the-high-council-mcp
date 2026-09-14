@@ -16,7 +16,7 @@
 // runs/<id>/HANDOFF.md at read time. No ledger, no config key, nothing
 // written. A run folder that is deleted takes its numbers with it.
 //
-// Four descriptive figures, each a plain rate or count:
+// Descriptive figures, each a plain rate or count:
 //   - amendment rate: proposals marked amended / total proposals
 //   - withdrawal rate: proposals marked withdrawn / total proposals
 //   - objection-follow-through rate: of proposals that drew at least one
@@ -26,6 +26,10 @@
 //     a task that declared an "## Available tools" section, how many name
 //     one of those tools by its exact listed name (per roles.js's
 //     HANDOFF_SYSTEM convention) rather than a manual/generic check
+//   - allocator rubber-stamp rate (v7.3): of the resource allocator's
+//     targeted extra rounds, how many left the draft byte-for-byte unchanged
+//   - consensus-induced-regression count (v7.2, this addition): see the
+//     block below this header for the full definition
 //
 // Privacy: chain name, counts and rates only. Never task content, proposal
 // text, debate text or HANDOFF prose beyond the tool names it lists.
@@ -113,6 +117,156 @@ function proposalMetricsOfRun(report) {
   };
 }
 
+// v7.2: consensus-induced-regression signal. Purely structural, derived at read time from
+// report.json's existing debate.posts[]/debate.replies[]/ground_truth - no NLP or semantic
+// matching, no new persisted field. See CIR_DISCLAIMER below for what this can and cannot claim.
+// Design: relay/runs/2026-09-14T12-55-34-482Z/deliverable.md, Item 1.
+//
+// Two places where this repo's actual field shapes are narrower than the deliverable's own
+// illustrative sketch (its Assumptions section delegates exact shapes to the implementer):
+//
+// - No round field exists on debate.posts[]/debate.replies[] - the whole proposal/debate/reply
+//   sequence is one pass (chain.js runs it once, before the panel-review round loop even
+//   starts), not repeated per round. "Same round or a later round" therefore collapses to plain
+//   array precedence: every post in debate.posts[] precedes every reply in debate.replies[] by
+//   construction, so no round-bounding logic is needed (or possible) to establish that ordering.
+//   roundWithdrawn/roundContradicted in this module's case records are always null as a result -
+//   there is no round number anywhere in this schema to put there, and inventing one would be
+//   exactly the kind of placeholder field this file's own convention (see proposalMetricsOfRun
+//   above, and spend.js/verdict-stats.js) avoids.
+// - ground_truth[] entries as chain.js actually writes them ({tool, args, result}, from
+//   verify.enabled's single pre-debate run) carry no proposalRef, AND are always emitted once,
+//   before the whole request (including debate) even starts - there is no "later, mid-run"
+//   ground_truth anywhere in the current schema. The ground_truth-contradiction channel below
+//   reads an optional `proposalRef` field on each entry *if present*; on every real report.json
+//   today it is absent, so that channel is dormant on real data until/unless a future chain.js
+//   change tags ground_truth entries by position AND by when they were produced - out of this
+//   item's scope (Item 2 confines changes to this file). It is fully exercised by this file's
+//   own tests, which supply the optional field directly on fixture reports.
+//   One consequence of "always precedes, by construction" worth being explicit about: for a
+//   `withdraw`, the disqualifying position (the withdrawn id) and the converged-on position (a
+//   different id, from the merge/replacement record) are different, so "did ground_truth already
+//   contradict the WITHDRAWN id" and "does ground_truth now contradict the REPLACEMENT id" read
+//   two different (albeit still real-data-dormant) entries and cannot collide. For an `amend`,
+//   they are the SAME id (an amend doesn't change identity) - and since this schema's ground_truth
+//   has no round tag to say "this entry is from after the amend, not before it", checking that id
+//   against ground_truth would be self-contradictory: the same entry can't honestly mean both "it
+//   already invalidated the pre-amend text" and "it now invalidates the post-amend text". Resolved
+//   by not disqualifying an amend on a ground_truth hit at all (only withdraw gets that
+//   disqualifier) - an amend is, by definition, the author already responding to known feedback,
+//   so any ground_truth naming that id is read purely as evidence for whether the POST-amend
+//   content still fails, which is exactly Item 1's own distinction between pre- and post-amend
+//   state.
+// - "the objecting post... was itself withdrawn or amended away" (objecting_post_not_live): a
+//   debate post has no retract action anywhere in this schema (only a proposal's own author can
+//   amend/withdraw the proposal itself, via debate.replies[]). Read instead as: the same author
+//   later posted a different stance on the same target, superseding their own objection - the
+//   one form of "an objection stopped standing" this schema can represent without a new field.
+// - "the board's replacement/merge record" for a withdrawal's converged-on position: read from
+//   the existing `merge_with` field a `stance: 'merge'` post already carries (roles.js's own
+//   debate-post schema) - a merge post `on` the withdrawn id naming `merge_with` IS the
+//   replacement record already produced by this pipeline; no new field is introduced to track it.
+
+export const CIR_DISCLAIMER = 'This signal compares debate outcome to later same-run evidence '
+  + 'only. It cannot prove the council underperforms (or outperforms) a single model; no '
+  + 'single-model counterfactual is measured or implied.';
+
+// A post is "live" against its target unless the same author later posted a different stance on
+// the same target - array order is generation order (chain.js appends in that order), so a
+// later index is a later post.
+function isPostLive(post, posts) {
+  const idx = posts.indexOf(post);
+  return !posts.some((p, i) => i > idx && p.by === post.by && p.on === post.on && p.stance !== post.stance);
+}
+
+function replacementOf(posts, proposalRef) {
+  const merge = posts.find(p => p.on === proposalRef && p.stance === 'merge' && p.merge_with);
+  return merge ? merge.merge_with : null;
+}
+
+// Item 2's first named helper: does replies[]'s position change on `positionId` qualify (a
+// preceding, still-live `object` post, no ground_truth hit against it), and if not, why. Reads
+// only report.json fields, never throws on a report missing debate/ground_truth entirely.
+export function isQualifyingPositionChange(report, positionId) {
+  const posts = Array.isArray(report?.debate?.posts) ? report.debate.posts : [];
+  const replies = Array.isArray(report?.debate?.replies) ? report.debate.replies : [];
+  const groundTruth = Array.isArray(report?.ground_truth) ? report.ground_truth : [];
+
+  const reply = replies.find(r => r.id === positionId && (r.action === 'withdraw' || r.action === 'amend'));
+  if (!reply) return { qualifies: false, reason: null }; // not a position change at all - not this helper's concern
+
+  const precedingObjects = posts.filter(p => p.on === positionId && p.stance === 'object');
+  if (!precedingObjects.length) return { qualifies: false, reason: 'no_preceding_object' };
+
+  const liveObjects = precedingObjects.filter(p => isPostLive(p, posts));
+  if (!liveObjects.length) return { qualifies: false, reason: 'objecting_post_not_live' };
+
+  // Only withdraw, not amend - see the module comment above on why the same id's ground_truth
+  // entry can't honestly serve as both "already contradicted the pre-change text" and "now
+  // contradicts the post-amend text" in a schema with no round tag to tell them apart.
+  if (reply.action === 'withdraw') {
+    const gtHit = groundTruth.find(g => g && g.proposalRef === positionId);
+    if (gtHit) return { qualifies: false, reason: 'ground_truth_preceded_withdrawal' };
+  }
+
+  return { qualifies: true, reason: null, reply };
+}
+
+// Item 2's second named helper: channel (a)/(b) matcher against one converged-on position.
+// `groundTruth` entries only match via the optional, currently-never-real `proposalRef` field
+// described above.
+export function findContradictingEvidence(report, positionId) {
+  const groundTruth = Array.isArray(report?.ground_truth) ? report.ground_truth : [];
+  const gtHit = groundTruth.find(g => g && g.proposalRef === positionId);
+  if (gtHit) return { contradiction: 'ground_truth', roundContradicted: gtHit.round ?? null };
+
+  const posts = Array.isArray(report?.debate?.posts) ? report.debate.posts : [];
+  const replies = Array.isArray(report?.debate?.replies) ? report.debate.replies : [];
+  const objectingPosts = posts.filter(p => p.on === positionId && p.stance === 'object' && isPostLive(p, posts));
+  if (!objectingPosts.length) return null;
+  // "never followed by a withdraw/corresponding amend reply to itself" - the converged
+  // position's own reply record, if any, is that resolution.
+  const convergedReply = replies.find(r => r.id === positionId);
+  const retracted = convergedReply && (convergedReply.action === 'amend' || convergedReply.action === 'withdraw');
+  if (retracted) return null;
+  return { contradiction: 'unretracted_objection', roundContradicted: null };
+}
+
+// One report -> { count, cases[], excluded[] } per Item 1's output shape. Iterates
+// debate.replies[] (not signoff[], which carries no posts/replies linkage) joined to
+// debate.posts[] by proposal reference via the two helpers above, exactly as Item 2 specifies.
+export function consensusInducedRegressionOfRun(report) {
+  const posts = Array.isArray(report?.debate?.posts) ? report.debate.posts : [];
+  const replies = Array.isArray(report?.debate?.replies) ? report.debate.replies : [];
+
+  const cases = [];
+  const excluded = [];
+
+  for (const reply of replies) {
+    if (reply.action !== 'withdraw' && reply.action !== 'amend') continue; // not a position change
+    const proposalRef = reply.id;
+    if (!proposalRef) { excluded.push({ proposalRef: null, reason: 'unmatchable_position_reference' }); continue; }
+
+    const { qualifies, reason } = isQualifyingPositionChange(report, proposalRef);
+    if (!qualifies) { excluded.push({ proposalRef, reason }); continue; }
+
+    // Qualifies. Find the converged-on position and check for later contradiction.
+    const convergedRef = reply.action === 'amend' ? proposalRef : replacementOf(posts, proposalRef);
+    if (!convergedRef) { excluded.push({ proposalRef, reason: 'unmatchable_position_reference' }); continue; }
+
+    const contradiction = findContradictingEvidence(report, convergedRef);
+    if (!contradiction) continue; // qualifying change, but nothing later contradicts it - not a case, not excluded either
+    cases.push({
+      proposalRef: convergedRef,
+      roundWithdrawn: null, // no round field exists in this schema - see the module comment above
+      contradiction: contradiction.contradiction,
+      roundContradicted: contradiction.roundContradicted,
+    });
+  }
+
+  return { count: cases.length, cases, excluded };
+}
+
 /**
  * Descriptive telemetry across every run in `runsDir` within the last `days`.
  * Never throws - a missing, empty or unreadable runs/ is not an error, and a
@@ -138,6 +292,9 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
   let runsWithHandoff = 0, runsWithToolsSection = 0, runsWithoutToolsSection = 0;
   let totalAcceptanceItems = 0, totalItemsNamingTool = 0;
   let totalAllocatorTargeted = 0, totalAllocatorEngaged = 0, totalAllocatorToolFired = 0;
+  let totalCirCount = 0;
+  const cirCases = [];
+  const cirExcluded = [];
 
   for (const id of ids) {
     const when = runIdToDate(id);
@@ -162,6 +319,10 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
         totalAllocatorEngaged += am.engaged;
         totalAllocatorToolFired += am.toolFired;
       }
+      const cir = consensusInducedRegressionOfRun(report);
+      totalCirCount += cir.count;
+      cir.cases.forEach(c => cirCases.push({ run: id, ...c }));
+      cir.excluded.forEach(e => cirExcluded.push({ run: id, ...e }));
     }
     // report.json being absent (paused/incomplete run) or unparseable (corrupt
     // file) just means this run contributes nothing to the proposal-derived
@@ -203,6 +364,12 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
     // Descriptive only, same as every other rate in this module: never a
     // claim that allocator rounds are worth their spend, only what happened.
     allocatorRubberStampRate: rate(totalAllocatorTargeted - totalAllocatorEngaged, totalAllocatorTargeted),
+    // v7.2: a plain number at the top level, like every other figure here; the per-case
+    // cases[]/excluded[] drill-down (each tagged with its run id for cross-run aggregation)
+    // lives nested under this object rather than inline, so consensusInducedRegressionCount
+    // stays a bare count a consumer can read without knowing the drill-down shape.
+    consensusInducedRegressionCount: totalCirCount,
+    consensusInducedRegression: { cases: cirCases, excluded: cirExcluded },
     counts: {
       proposals: totalProposals,
       amended: totalAmended,
@@ -221,7 +388,9 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
     note: 'descriptive telemetry only - counts and rates derived from existing run logs. ' +
       'Not an evaluation, not a benchmark, not a baseline, and not a claim that the council ' +
       'produces higher-quality output than any other tool or person; nothing here has been ' +
-      'measured against anything outside this harness\'s own run history.',
+      'measured against anything outside this harness\'s own run history. ' +
+      'consensusInducedRegressionCount counts cases where debate pressure and later same-run ' +
+      'evidence disagree; says nothing about single-model performance. ' + CIR_DISCLAIMER,
   };
 }
 
@@ -232,6 +401,8 @@ function emptyReport(runsDir, days, cutoff, note) {
     runsSeen: 0, unreadable: 0,
     amendmentRate: null, withdrawalRate: null, objectionFollowThroughRate: null, toolCallUsageRate: null,
     allocatorRubberStampRate: null,
+    consensusInducedRegressionCount: 0,
+    consensusInducedRegression: { cases: [], excluded: [] },
     counts: { proposals: 0, amended: 0, withdrawn: 0, objected: 0, objectedFollowedThrough: 0,
       runsWithHandoff: 0, runsWithToolsSection: 0, runsWithoutToolsSection: 0,
       acceptanceItems: 0, acceptanceItemsNamingTool: 0,
