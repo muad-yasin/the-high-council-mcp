@@ -6,6 +6,8 @@ import { withdrawalLedger } from './withdrawal-ledger.js';
 import { applySeatRole } from './seat-role.js';
 import { NO_TIE_BREAK } from './tie-break.js';
 import { runTool as defaultRunTool, ALLOWED_TOOLS } from './tools.js';
+import { runLints } from './lints.js';
+import { extractClaims, dropInvalidClaims } from './claims.js';
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
 // full chain. Tells the criteria seat what the chain's own contract will require in the
@@ -863,6 +865,18 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     })).text;
   }
 
+  // v7.x: deterministic plan lints (src/lints.js), gated on config.lints.enabled. Runs here -
+  // right after the first build, before any critic sees the draft - so a $0 check catches what
+  // it can before a paid critic round is spent on the same plan. Absent/false key: `lints` stays
+  // undefined, never added to the returned result, v6 report.json shape unchanged.
+  let lints;
+  if (config.lints?.enabled) {
+    log('\nStage: lints ($0 deterministic checks, before any critic sees the draft)');
+    lints = runLints({ deliverable: draft, proposals, forks: config.lints.forks || [] });
+    if (lints.length) lints.forEach(l => log(`  LINT [${l.id}]: ${l.message}`));
+    else log('  clean - no lint failures.');
+  }
+
   // 3. Critic / revise rounds, hard-capped.
   const history = [];
   let passed = false;
@@ -1151,6 +1165,36 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     }
   }
 
+  // v7.x: claim schema with typed evidence (src/claims.js), gated on config.claims.enabled.
+  // Runs once, after the critic/revise rounds are done, over the union of objections this run
+  // actually raised (lastCritique.failures) - restates each one as a typed claim and validates
+  // its evidence offline (a "quote" claim against `draft`, a "tool" claim against `ground_truth`
+  // from config.verify.enabled). Absent/false key: `claims`/`claimWarnings` stay undefined, never
+  // added to the returned result, v6 report.json shape and every existing chain's behavior
+  // unchanged. A claim whose evidence doesn't check out is dropped, not crashed - one bad quote
+  // must not lose every other claim in the same reply.
+  let claims;
+  let claimWarnings = [];
+  if (config.claims?.enabled) {
+    log('\nStage: claims (typed evidence over this run\'s objections)');
+    const failuresForClaims = lastCritique?.failures || [];
+    if (!failuresForClaims.length) {
+      claims = [];
+      log('  no objections this run; nothing to extract.');
+    } else {
+      const claimSeat = config.seats.claims || config.seats.reviser || config.seats.builder;
+      const extracted = await extractClaims(claimSeat, { request, draft, failures: failuresForClaims }, {
+        invoke: (seat, args) => invoke(seat, { ...args }).then(s => { record(s); return s; }),
+        parseJson, roles: R, log, label: 'claims',
+      });
+      const validated = dropInvalidClaims(extracted.claims, { draft, groundTruth: ground_truth });
+      claims = validated.claims;
+      claimWarnings = validated.warnings;
+      log(`  ${claims.length} claim(s) kept, ${claimWarnings.length} dropped.`);
+      claimWarnings.forEach(w => log(`  WARNING: ${w}`));
+    }
+  }
+
   // 3b. Post-signoff challenge (config.challenge: { enabled: true }), v7
   // item 5. `enabled` is the only key chain.js or chain-lint.js ever reads -
   // one challenge, re-opening one decision, for one extra round, hard-coded
@@ -1254,5 +1298,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     orphanSections: ledger?.orphanSections ?? [],
     withdrawalCycles: ledger?.withdrawalCycles ?? 0,
     ...(ground_truth !== undefined ? { ground_truth } : {}),
+    ...(lints !== undefined ? { lints } : {}),
+    ...(claims !== undefined ? { claims, claimWarnings } : {}),
   };
 }

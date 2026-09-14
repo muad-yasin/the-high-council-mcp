@@ -654,3 +654,33 @@ export function descendingCriticUser({ request, stageName, content, frozen, orde
     (frozenSection ? `# Already-frozen stages (locked)\n\n${frozenSection}\n\n` : '') +
     `# Current stage: ${stageName}\n\n${content}\n\nPropose an amendment to "${stageName}" if one is warranted, or reply with "amend": null.`;
 }
+
+// v7.x: claim schema with typed evidence (src/claims.js). This stage runs only when
+// config.claims.enabled is true, after this run's critic/revise rounds are done, restating the
+// union of objections raised (already-generated `failures[]`, not new opinions) as typed claims
+// so each one carries checkable evidence rather than free text alone. src/claims.js validates the
+// evidence offline; this prompt only asks for the shape.
+export const CLAIM_EXTRACTION_SYSTEM = `You restate a list of objections as typed claims, each with the evidence behind it.
+
+For each objection given to you, write exactly one claim:
+{ "claim": "<the objection, restated as a factual assertion>",
+  "evidence": {
+    "kind": "quote" | "tool" | "reasoning",
+    "quote": "<a phrase copied VERBATIM from the draft, only if kind is \\"quote\\">",
+    "result_ref": "<the tool name a ground-truth block above was run with, only if kind is \\"tool\\">"
+  } }
+
+Choose the evidence kind honestly:
+- "quote" only if you can copy the exact words from the draft that support the claim - not a
+  paraphrase, not "similar to". If you cannot quote it exactly, do not claim "quote".
+- "tool" only if a "Ground truth (tool output, verbatim)" block above actually contains the fact
+  this claim rests on - name the tool it came from.
+- "reasoning" for anything else: your own inference, not a fact quoted from the draft or a tool.
+
+Reply with a single JSON object and nothing else:
+{ "claims": [ { "claim": "...", "evidence": { "kind": "...", "quote": "...", "result_ref": "..." } } ] }`;
+
+export function claimExtractionUser({ request, draft, failures = [] }) {
+  const list = failures.map((f, i) => `${i + 1}. Criterion: ${f.criterion}\n   Problem: ${f.problem}`).join('\n\n') || '(none)';
+  return `# Original request\n\n${request}\n\n# Draft the objections were raised against\n\n${draft}\n\n# Objections to restate as typed claims\n\n${list}`;
+}

@@ -137,6 +137,11 @@ function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = 
     // present only when the run actually did verification (config.verify.
     // enabled), absent otherwise so v6 report.json shape is unchanged.
     ...(result.ground_truth !== undefined ? { ground_truth: result.ground_truth } : {}),
+    // v7.x: additive-only, same pattern as ground_truth above - present only when the run
+    // actually enabled the stage (config.lints.enabled / config.claims.enabled), absent
+    // otherwise so a chain that never opts in keeps today's report.json shape exactly.
+    ...(result.lints !== undefined ? { lints: result.lints } : {}),
+    ...(result.claims !== undefined ? { claims: result.claims } : {}),
   };
 }
 
@@ -1041,6 +1046,13 @@ if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff);
 if (result.proposals?.length) {
   writeFileSync(join(runDir, 'proposals.md'), result.proposals.map(p =>
     `## ${p.id} (${p.lab}/${p.model})\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}`).join('\n\n'));
+}
+// v7.x: lint failures and dropped claims are informational, same WARNINGS.md the pre_flight/
+// cache_stale/partial_output warnings above already append to - never a reason to fail the run.
+if (result.lints?.length || result.claimWarnings?.length) {
+  if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
+  appendFileSync(join(runDir, 'WARNINGS.md'), (result.lints || []).map(l => `- lint (${l.id}): ${l.message}\n`).join(''));
+  appendFileSync(join(runDir, 'WARNINGS.md'), (result.claimWarnings || []).map(w => `- claim: ${w}\n`).join(''));
 }
 writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
   runId, chain: config.name, task: taskPathEff, result, config,
