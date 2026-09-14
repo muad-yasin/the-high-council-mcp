@@ -1,0 +1,43 @@
+{
+  "name": "single-vendor-openai",
+  "description": "Compliance chain (v7.x, procurement readiness): every seat routes through openai (models gpt-5, gpt-5-mini, gpt-5-nano), pinned to exact model versions in src/pricing.json - a single vendor account and a single provider key for the whole run.",
+  "maxRounds": 2,
+  "stopOnPass": true,
+  "compliance": {
+    "providers": ["openai"]
+  },
+  "estimate": {
+    "promptTokens": 4000,
+    "draftTokens": 6000,
+    "critiqueTokens": 1200
+  },
+  "seats": {
+    "criteria": {
+      "provider": "openai",
+      "model": "gpt-5",
+      "maxTokens": 2000
+    },
+    "builder": {
+      "provider": "openai",
+      "model": "gpt-5",
+      "maxTokens": 16000
+    },
+    "reviser": {
+      "provider": "openai",
+      "model": "gpt-5",
+      "maxTokens": 16000
+    },
+    "critics": [
+      {
+        "provider": "openai",
+        "model": "gpt-5-mini",
+        "maxTokens": 20000
+      },
+      {
+        "provider": "openai",
+        "model": "gpt-5-nano",
+        "maxTokens": 20000
+      }
+    ]
+  }
+}
