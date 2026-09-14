@@ -823,6 +823,49 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     }
   }
 
+  // 3b. Post-signoff challenge (config.challenge: { enabled: true }), v7
+  // item 5. `enabled` is the only key chain.js or chain-lint.js ever reads -
+  // one challenge, re-opening one decision, for one extra round, hard-coded
+  // right here rather than pulled from config. Runs once, after the
+  // critic/revise rounds are done (passed or round-capped), never inside the
+  // loop above - it is a distinct, narrower stage, not another review round.
+  let challenge = null;
+  if (config.challenge?.enabled === true) {
+    log('\nStage: challenge (post-signoff, one decision, one round)');
+    const challengerSeat = config.seats.challenger || config.seats.critics[0];
+    const cs = record(await invoke(challengerSeat, {
+      system: R.CHALLENGE_SYSTEM,
+      user: R.challengeUser({ request, criteria, draft, signoff }),
+      log, label: 'challenge',
+    }));
+    const parsed = parseJson(cs.text);
+    if (parsed?.challenge === true && parsed.decision && parsed.evidence) {
+      log(`  challenge raised against "${parsed.decision}" - evidence that would settle it: ${parsed.evidence}`);
+      const reviserSeat = config.seats.reviser || config.seats.builder;
+      const revised = record(await invoke(reviserSeat, {
+        system: R.reviserSystem(open),
+        user: R.reviserUser({
+          request, criteria, draft,
+          critique: { failures: [{ criterion: parsed.decision, problem: parsed.evidence, fix: '' }] },
+        }),
+        log, label: 'challenge-revise',
+      })).text;
+      const parsedRevise = parseDisputes(revised);
+      draft = parsedRevise.draft;
+      parsedRevise.disputes.forEach(reason => disputes.push({ round: 'challenge', reason }));
+      challenge = {
+        raised: true,
+        by: labOf(challengerSeat),
+        decision: parsed.decision,
+        evidence_needed: parsed.evidence,
+        reopened_rounds: 1,
+      };
+    } else {
+      log('  no challenge raised; the signed-off draft stands.');
+      challenge = { raised: false };
+    }
+  }
+
   // 4. Optional final edit: strips chain artifacts. Never adds material.
   if (config.seats.finalist) {
     log('\nStage: final edit');
@@ -870,6 +913,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     passed,
     lastCritique,
     signoff,
+    challenge,
     disputes,
     history,
     stages,
