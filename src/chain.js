@@ -307,6 +307,10 @@ async function invoke(seat, { system, user, log, label }) {
     maxTokens: seat.maxTokens ?? 8000,
     temperature: seat.temperature,
     extra,
+    // v7.1: a seat's own override of its provider's default base URL - e.g. LM Studio on
+    // :1234 instead of Ollama's :11434, or a remote Ollama box. Ignored by every adapter except
+    // callOpenAICompat, which is the only one that reads it.
+    baseUrl: seat.baseUrl,
   });
   let res = await ask(seat.extra);
   let wasted = 0;
