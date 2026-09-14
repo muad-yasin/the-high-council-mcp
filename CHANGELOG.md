@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.8.0 - 2026-09-14
+
+Two batches merged same day as 0.7.0, both continuing the "7.x" generation (naming note: an
+earlier task file in the private planning repo called part of this "v8" - it does not ship under
+that name anywhere in this repo, by explicit instruction). Real minor version bump per semver
+(new backward-compatible functionality, not a patch) - "7.x" in prose refers to the generation of
+work, not the version number. 516 tests, offline, no API key, no live provider call (452 baseline
+immediately before this entry + 64 new across both batches below).
+
+**Enterprise-readiness MVP** (5 items, all gated, all off by default): a central `policy.json`
+mechanism (allowed providers/regions, per-run and month-to-date USD caps reusing the existing
+`spendReport()`, required chain tags, optional refusal of unpriced seats - fail-closed on any seat
+with an undeclared region under a regional policy); a PII/secrets pre-flight gate (real mod-97 IBAN
+checksum, real Luhn card check, masked/never-echoed output, `--pii-gate warn|hard-stop`); four
+compliance chains (`eu-only`, `us-only`, `single-vendor-anthropic`, `single-vendor-openai`) with a
+`chain-lint.js` rule enforcing that a chain's compliance claims match its actual seats, every seat
+priced, and no non-EU lab in an EU-claimed chain; single-vendor routing via OpenRouter as the
+reference adapter, preserving each seat's real `lab` identity so debate-independence accounting
+stays correct even when multiple labs route through one billing endpoint; and a structured,
+HMAC-signed, hash-chained `audit.jsonl` export per run (resume-safe - continues an in-progress
+run's hash chain rather than forking it, refuses to reopen an already-closed log).
+
+**Debate-mechanism upgrade** (6 items, all gated, all off by default): typed claim extraction
+(`config.claims.enabled`) restating objections as `{claim, evidence}` checked against the real
+draft text or the existing `ground_truth` array, never an invented shape; four deterministic,
+$0, informational-only plan lints (`config.lints.enabled`) that never block a run; seat-requested
+bounded tool calls (`tools.seat_requests.enabled`, gated by the existing `verify.tools` allowlist)
+appending results to the same `ground_truth` array item 1 already produces; canary objections
+(`canary.enabled`, default 10% sample rate) injected in debate and explicitly excluded from
+`metrics.js`'s objection-follow-through-rate calculation, verified by its own test as the most
+important assertion in that item; ambiguity-union criteria (`ambiguity_union.enabled`, three seats'
+ambiguity lists deduplicated before criteria are written) and strongest-seat criteria routing
+(`roster.criteria_seat`); and a minimal two-strong-model comparison chain
+(`chains/plan-two-strong.json`, `roster.minimal_two_strong`), blocked by `chain-lint.js` from
+coexisting with a five-seat critic roster.
+
+No efficacy claims anywhere in either batch - both are correctness, cost-governance, and
+process-honesty changes, consistent with every release before this one.
+
 ## 0.7.0 - 2026-09-14
 
 v7 build per the council-signed plan (`relay/runs/2026-09-14T00-20-44-997Z/deliverable.md`).
