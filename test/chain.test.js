@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { parseJson, parseDisputes, classifyUnreadable, runChain, criteriaUserPrompt } from '../src/chain.js';
+import { parseJson, parseDisputes, classifyUnreadable, runChain, runDescendingChain, criteriaUserPrompt } from '../src/chain.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const mockConfig = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'utf8'));
@@ -201,4 +201,88 @@ test('runChain: degrade_on_provider_error: true drops the failing seat and compl
   assert.equal(result.passed, false);
   assert.ok(result.dropouts.some(d => d.stage === 'critique-1' && /provider failure/.test(d.reason)),
     'expected the dropped critic seat to be recorded in result.dropouts');
+});
+
+// v7 §3, descending rounds (config.descending: true). A round debates a NEW, frozen object in
+// sequence - plan, architecture, edge cases, code - with prior stages locked and carried as
+// context, never reopened. The lock must be enforced at the executor level (src/chain.js), not
+// by an unenforced prompt rule - this project has a documented history of that exact bug shape.
+test('runDescendingChain: an amendment against the frozen stage-1 plan during stage 3 is rejected and recorded, not applied', async () => {
+  const config = {
+    ...mockConfig,
+    descending: true,
+    seats: {
+      ...mockConfig.seats,
+      // Always tries to amend "plan" no matter which stage is actually open.
+      critics: [{ provider: 'mock', model: 'mock-descending-amend-frozen' }],
+    },
+  };
+  const result = await runDescendingChain({ request: 'Plan a small offline tool.', config, log: () => {} });
+
+  assert.equal(result.descending, true);
+  assert.deepEqual(result.order, ['plan', 'architecture', 'edge_cases', 'code']);
+
+  // Every stage was built and frozen.
+  for (const stage of result.order) assert.ok(typeof result.frozen[stage] === 'string' && result.frozen[stage].length > 0);
+
+  // The critic tried to amend "plan" at every stage, including stage 3 (edge_cases) - the case
+  // the task calls out explicitly. Every attempt after stage 1 targets an already-frozen stage
+  // and must be rejected, not applied.
+  const rejectedAtStage3 = result.rejectedAmendments.find(r => r.stage === 'edge_cases' && r.target === 'plan');
+  assert.ok(rejectedAtStage3, 'expected the stage-3 amendment attempt against the frozen plan to be recorded as rejected');
+  assert.match(rejectedAtStage3.reason, /frozen/);
+
+  // At stage 1, "plan" IS the current stage, so that one amendment is legitimately applied - the
+  // frozen plan carries the critic's text once, from stage 1 only.
+  assert.match(result.frozen.plan, /Rewrite the frozen plan/);
+
+  // Every stage after stage 1 (architecture, edge_cases, code) tried to amend the now-frozen
+  // "plan" and was rejected - three rejections, none applied.
+  assert.equal(result.rejectedAmendments.filter(r => r.target === 'plan').length, 3, 'expected the amendment to be rejected at every stage after stage 1 (architecture, edge_cases, code)');
+  assert.deepEqual(result.rejectedAmendments.map(r => r.stage), ['architecture', 'edge_cases', 'code']);
+});
+
+test('runChain: descending mode absent preserves existing behavior exactly (mock.json runs its normal path)', async () => {
+  const result = await runChain({ request: 'Write a short fixture deliverable.', config: mockConfig, log: () => {} });
+  assert.equal(result.descending, undefined);
+  assert.ok(typeof result.deliverable === 'string' && result.deliverable.length > 0);
+});
+
+// v7 §3, extended per the author's direction (2026-09-14): round 1 (plan) flows into the
+// existing criteria/proposals/debate/reply machinery instead of a bespoke descending prompt, and
+// the final round (code) is where signoff + handoff happen - once, over the whole descending
+// stack - rather than per stage.
+test('runDescendingChain: round 1 runs the existing criteria/proposals pipeline; the final stage runs signoff and handoff once over the whole stack', async () => {
+  const config = {
+    ...mockConfig,
+    descending: true,
+    signoff: 'unanimous',
+    handoff: true,
+    proposals: { parts: 2 },
+    debate: true,
+    seats: {
+      ...mockConfig.seats,
+      proposers: [{ provider: 'mock', model: 'mock-proposer-a' }, { provider: 'mock', model: 'mock-proposer-b' }],
+      critics: [{ provider: 'mock', model: 'mock-critic-holdout' }],
+    },
+  };
+  const result = await runDescendingChain({ request: 'Plan a small offline tool.', config, log: () => {} });
+
+  // Round 1 went through the real pipeline: criteria came from the criteria stage (mock.json's
+  // fixture criteria, not something a descending-only prompt invented), and proposals/board are
+  // populated by the mock proposer seats - proof the proposal machinery actually ran once, for
+  // round 1 only (result.proposals is not per-stage).
+  assert.ok(Array.isArray(result.criteria) && result.criteria.length > 0);
+  assert.ok(Array.isArray(result.proposals) && result.proposals.length > 0);
+  assert.ok(typeof result.board === 'string' && result.board.length > 0);
+
+  // Signoff and handoff exist exactly once, on the final result, judging the whole stack - not
+  // one per stage.
+  assert.ok(Array.isArray(result.signoff) && result.signoff.length > 0);
+  assert.ok(typeof result.handoff === 'string' && result.handoff.length > 0);
+  assert.ok(typeof result.passed === 'boolean');
+
+  // The final deliverable is what the signoff/handoff stage produced (its own critique/revise
+  // loop over the concatenated stack), not the bare, un-critiqued concatenation.
+  assert.ok(typeof result.deliverable === 'string' && result.deliverable.length > 0);
 });

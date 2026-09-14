@@ -379,7 +379,139 @@ export function checkSeats(seats) {
  * drifts, whether that's one critic asked again and again or a panel asked
  * to keep agreeing.
  */
+// v7 §3, descending rounds (config.descending: true; absent key preserves runChain's
+// existing behaviour exactly). Each round debates a NEW, frozen object in sequence -
+// plan, then architecture, then edge cases, then code by default - rather than
+// re-debating the same draft. A stage is built once, then reviewed by every critic
+// seat; a critic's amendment is applied only if it targets the stage still open.
+// An amendment naming any earlier, already-frozen stage is rejected here, at the
+// executor level - not by the critic's own system prompt (src/roles.js's
+// DESCENDING_CRITIC_SYSTEM asks nicely, but this is the line that actually enforces
+// it, per this project's documented history of unenforced prompt rules).
+const DEFAULT_DESCENDING_ORDER = ['plan', 'architecture', 'edge_cases', 'code'];
+
+export async function runDescendingChain({ request, config, log = console.log, onStage = () => {} }) {
+  const stages = [];
+  // Every stage this function runs - its own descending-build/critic calls, and every stage
+  // invoke()'d inside the two runChain() sub-calls below via the shared onStage hook - lands in
+  // this one array, so result.totals is priced across the whole descending run, not just the
+  // stages this function invokes directly.
+  const record = s => { stages.push(s); onStage(s); return s; };
+  const subOnStage = s => { stages.push(s); onStage(s); };
+  const opt = config.descending === true ? {} : config.descending;
+  const order = Array.isArray(opt.stages) && opt.stages.length ? opt.stages : DEFAULT_DESCENDING_ORDER;
+  const criticSeats = config.seats.critics || [];
+
+  const frozen = {};
+  const rejectedAmendments = [];
+  let planResult = null;
+
+  for (let i = 0; i < order.length; i++) {
+    const stageName = order[i];
+    log(`\nStage (descending): ${stageName}`);
+
+    let content;
+    if (i === 0) {
+      // Round 1 (the first stage, "plan" by default) runs through the EXISTING pipeline once -
+      // criteria, skeleton, proposals, debate, reply, build - rather than a bespoke descending
+      // prompt, so criteria and proposals are established exactly the way every other chain
+      // establishes them. Critique/revise, the final edit and handoff are deliberately skipped
+      // here (maxRounds: 0, no finalist, no handoff seat) - those run once, after the loop, over
+      // the whole descending stack, not per stage.
+      const planConfig = {
+        ...config,
+        descending: undefined,
+        maxRounds: 0,
+        seats: { ...config.seats, finalist: undefined },
+        handoff: false,
+      };
+      planResult = await runChain({ request, config: planConfig, log, onStage: subOnStage });
+      content = planResult.deliverable;
+    } else {
+      const builderSeat = (config.seats.descending && config.seats.descending[stageName]) || config.seats.builder;
+      const built = record(await invoke(builderSeat, {
+        system: R.DESCENDING_BUILD_SYSTEM,
+        user: R.descendingBuildUser({ request, stageName, frozen, order }),
+        log, label: `descending-${stageName}`,
+      }));
+      content = built.text;
+    }
+
+    for (const critic of criticSeats) {
+      const res = record(await invoke(critic, {
+        system: R.DESCENDING_CRITIC_SYSTEM,
+        user: R.descendingCriticUser({ request, stageName, content, frozen, order }),
+        log, label: `descending-${stageName}-critic-${labOf(critic)}`,
+      }));
+      const parsed = parseJson(res.text);
+      const amend = parsed?.amend;
+      if (!amend || !amend.target) continue;
+
+      // The lock: an amendment targeting anything other than the currently open
+      // stage is rejected outright, regardless of which stage it names or whether
+      // that stage even exists. Frozen means frozen.
+      if (amend.target !== stageName) {
+        const rejection = {
+          stage: stageName,
+          critic: labOf(critic),
+          target: amend.target,
+          text: amend.text || '',
+          reason: frozen[amend.target] !== undefined
+            ? `stage "${amend.target}" is frozen; amendments must target the current stage ("${stageName}")`
+            : `"${amend.target}" is not the current stage ("${stageName}")`,
+        };
+        rejectedAmendments.push(rejection);
+        log(`  rejected: ${labOf(critic)} tried to amend "${amend.target}" - ${rejection.reason}`);
+        continue;
+      }
+      if (amend.text) {
+        content += `\n\nAmendment (${labOf(critic)}): ${amend.text}`;
+        log(`  amended ${stageName} per ${labOf(critic)}`);
+      }
+    }
+
+    frozen[stageName] = content;
+  }
+
+  const stackDeliverable = order.map(s => `# ${s}\n\n${frozen[s]}`).join('\n\n');
+
+  // Final round: signoff and handoff run once, over the whole descending stack together - never
+  // per stage. Reuses the existing critic/revise, finalist and handoff machinery by handing the
+  // stack in as `draft`, which is what already makes runChain skip questions/criteria/proposals
+  // and go straight to critique.
+  const finalConfig = {
+    ...config,
+    descending: undefined,
+    criteria: (planResult?.criteria && planResult.criteria.length) ? planResult.criteria : config.criteria,
+  };
+  const finalResult = await runChain({ request, config: finalConfig, draft: stackDeliverable, log, onStage: subOnStage });
+
+  return {
+    descending: true,
+    order,
+    frozen,
+    stages,
+    rejectedAmendments,
+    deliverable: finalResult.deliverable,
+    criteria: finalResult.criteria,
+    proposals: planResult?.proposals ?? [],
+    proposalPool: planResult?.proposalPool ?? [],
+    dropouts: planResult?.dropouts ?? [],
+    board: planResult?.board ?? null,
+    debate: planResult?.debate ?? null,
+    handoff: finalResult.handoff,
+    passed: finalResult.passed,
+    lastCritique: finalResult.lastCritique,
+    signoff: finalResult.signoff,
+    disputes: finalResult.disputes,
+    history: finalResult.history,
+    totals: summarise(stages),
+  };
+}
+
 export async function runChain({ request: requestIn, config, draft: initialDraft = null, log = console.log, onStage = () => {} }) {
+  if (config.descending) return runDescendingChain({ request: requestIn, config, log, onStage });
+
   const stages = [];
   const record = s => { stages.push(s); onStage(s); return s; };
   let request = requestIn;

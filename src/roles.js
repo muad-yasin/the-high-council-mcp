@@ -602,3 +602,55 @@ export function answersSection(questions, answersText) {
     : questions.map((q, i) => `${i + 1}. (unanswered - default taken) ${q.default}`).join('\n');
   return `\n\n---\n\n# Questions the planner asked before starting, and the answers\n\nThese answers are part of the request. Where an answer says "default", the planner's own default was taken; the plan states that under "Assumptions".\n\n## Questions\n\n${renderQuestions(questions)}\n\n## Answers\n\n${body}`;
 }
+
+// v7 §3, descending rounds (config.descending: true). Each round debates a NEW,
+// frozen object - plan, then architecture, then edge cases, then code - rather
+// than re-debating the same draft. Prior stages are carried as locked context,
+// never reopened; the lock is enforced by the executor (src/chain.js), not by
+// this prompt telling a seat not to touch them. Research support is silent on
+// this exact structure (see relay v7 deliverable, 2026-09-14): it removes
+// same-object repetition, which is the mechanism the literature blames for
+// debate decay, but no study tests descending rounds specifically, so no
+// efficacy is claimed here or anywhere else in this repo.
+export const DESCENDING_BUILD_SYSTEM = `You are building one frozen stage of a descending-rounds plan.
+Each round produces ONE stage of the deliverable; once a stage is built it is
+locked and later stages must work within it, never contradict or redo it.
+
+Rules:
+- Write only the stage you were asked for. Do not draft later stages.
+- Treat every already-frozen stage given to you as settled fact, not a
+  suggestion you may revise.
+- No preamble, no meta-commentary about the process.`;
+
+export function descendingBuildUser({ request, stageName, frozen, order }) {
+  const frozenSection = order
+    .filter(s => s !== stageName && frozen[s] !== undefined)
+    .map(s => `## ${s} (frozen)\n\n${frozen[s]}`)
+    .join('\n\n');
+  return `# Request\n\n${request}\n\n# Stage to build now: ${stageName}\n\n` +
+    (frozenSection ? `# Already-frozen stages (locked, do not restate or contradict)\n\n${frozenSection}\n\n` : '') +
+    `Write the "${stageName}" stage now.`;
+}
+
+// A critic reviewing the current (unfrozen) stage. It may propose an amendment,
+// but only to the stage still open - see DESCENDING_BUILD_SYSTEM. An amendment
+// naming any other stage names a frozen target; src/chain.js's descending
+// executor rejects it and records the rejection rather than applying it, so a
+// seat's misbehaviour (or a hostile prompt) cannot reopen a locked stage no
+// matter what this text says.
+export const DESCENDING_CRITIC_SYSTEM = `You are reviewing one stage in a descending-rounds plan. Earlier
+stages are frozen and shown to you as context only, not as something you may
+change - your amendment target must be the current stage or none at all.
+
+Reply with a single JSON object and nothing else:
+{ "amend": { "target": "<stage name>", "text": "..." } | null }`;
+
+export function descendingCriticUser({ request, stageName, content, frozen, order }) {
+  const frozenSection = order
+    .filter(s => s !== stageName && frozen[s] !== undefined)
+    .map(s => `## ${s} (frozen)\n\n${frozen[s]}`)
+    .join('\n\n');
+  return `# Request\n\n${request}\n\n` +
+    (frozenSection ? `# Already-frozen stages (locked)\n\n${frozenSection}\n\n` : '') +
+    `# Current stage: ${stageName}\n\n${content}\n\nPropose an amendment to "${stageName}" if one is warranted, or reply with "amend": null.`;
+}
