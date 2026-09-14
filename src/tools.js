@@ -131,3 +131,61 @@ export function runTool(tool, args = {}, { cwd = process.cwd() } = {}) {
     return { tool, args, ok: false, error: String(err.message || err) };
   }
 }
+
+// v7.x: seat-requested bounded tool calls (relay/runs/2026-09-14T14-56-18-834Z/deliverable.md
+// item 3). Extends v7 item 1's config-time-only tool grounding: a seat's reply can *request* a
+// bounded number of additional calls mid-stage, gated by src/chain.js on
+// `config.tools.seat_requests.enabled` PLUS the existing `config.verify.tools` allowlist (v7
+// item 1, unchanged) - a seat can only request a tool already on that allowlist. This function
+// owns the request-parsing/cap-enforcement policy only; src/chain.js decides when to call it and
+// owns the gate check itself, same split as runVerification/renderGroundTruth already have.
+//
+// Every request is checked against `allowedTools` BEFORE any invocation - same guarantee
+// `runTool` above already gives config-time tools, reused rather than reimplemented (this
+// function still calls `runTool` per request, it never bypasses it). A request past the cap is
+// truncated (dropped, not invoked) and reported back as a warning string - the caller appends
+// those to WARNINGS.md exactly the way pre_flight/cache_stale/claim warnings already do in
+// src/cli.js. Nothing here throws: a seat that asks for zero, too many, or disallowed tools
+// degrades to "fewer results than asked for", never a crashed run.
+/**
+ * @param {Array<{tool:string, args?:object}>} requests - parsed out of a seat's reply JSON.
+ * @param {{cap?:number, allowedTools?:string[], runTool?:Function, cwd?:string, seat?:string}} opts
+ * @returns {{results: Array<{tool,args,result,result_ref}>, warnings: string[], requested: number, used: number}}
+ */
+export function runSeatToolRequests(requests, {
+  cap = 3,
+  allowedTools = ALLOWED_TOOLS,
+  runTool: rt = runTool,
+  cwd = process.cwd(),
+  seat = 'seat',
+} = {}) {
+  const list = Array.isArray(requests) ? requests : [];
+  const results = [];
+  const warnings = [];
+  const perTool = new Map();
+  let used = 0;
+  let truncatedCount = 0;
+
+  for (const req of list) {
+    const tool = req?.tool;
+    if (!allowedTools.includes(tool)) {
+      warnings.push(`seat ${seat}: requested tool not allowed: ${tool} - rejected before invocation`);
+      continue;
+    }
+    if (used >= cap) {
+      truncatedCount += 1;
+      continue;
+    }
+    used += 1;
+    const idx = perTool.get(tool) || 0;
+    perTool.set(tool, idx + 1);
+    const result = rt(tool, req.args || {}, { cwd });
+    results.push({ tool, args: req.args || {}, result, result_ref: `${tool}:${idx}` });
+  }
+
+  if (truncatedCount > 0) {
+    warnings.push(`seat ${seat}: exceeded tool-request cap (${cap}) - ${truncatedCount} request(s) truncated`);
+  }
+
+  return { results, warnings, requested: list.length, used };
+}

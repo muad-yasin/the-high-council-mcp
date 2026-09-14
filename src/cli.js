@@ -1136,10 +1136,13 @@ if (result.proposals?.length) {
 }
 // v7.x: lint failures and dropped claims are informational, same WARNINGS.md the pre_flight/
 // cache_stale/partial_output warnings above already append to - never a reason to fail the run.
-if (result.lints?.length || result.claimWarnings?.length) {
+if (result.lints?.length || result.claimWarnings?.length || result.toolRequestWarnings?.length) {
   if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
   appendFileSync(join(runDir, 'WARNINGS.md'), (result.lints || []).map(l => `- lint (${l.id}): ${l.message}\n`).join(''));
   appendFileSync(join(runDir, 'WARNINGS.md'), (result.claimWarnings || []).map(w => `- claim: ${w}\n`).join(''));
+  // v7.x item 3: seat-requested tool calls that exceeded the per-stage cap, or named a
+  // disallowed tool, same WARNINGS.md the lint/claim lines above already append to.
+  appendFileSync(join(runDir, 'WARNINGS.md'), (result.toolRequestWarnings || []).map(w => `- tool_request: ${w}\n`).join(''));
 }
 writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
   runId, chain: config.name, task: taskPathEff, result, config,
