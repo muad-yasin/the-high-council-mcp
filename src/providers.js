@@ -102,6 +102,25 @@ async function callMock({ model, system, messages, maxTokens }) {
     await new Promise(r => setTimeout(r, 10));
     return { text: 'MOCK SKELETON\n- system A\n- system B', usage: { input: 20, output: 10 }, provider: 'mock', model };
   }
+  // v7 §3, descending rounds: the builder for one frozen stage.
+  if (system.startsWith('You are building one frozen stage')) {
+    await new Promise(r => setTimeout(r, 10));
+    const stageMatch = user.match(/# Stage to build now: (\S+)/);
+    const stage = stageMatch ? stageMatch[1] : 'stage';
+    return { text: `MOCK ${stage.toUpperCase()} STAGE for model ${model}.`, usage: { input: 20, output: 20 }, provider: 'mock', model };
+  }
+  // v7 §3, descending rounds: a critic reviewing the current (unfrozen) stage.
+  // `mock-descending-amend-frozen` always tries to amend "plan" regardless of
+  // which stage is actually open - the scripted misbehaviour the offline test
+  // uses to exercise the executor-level rejection of amendments to a frozen
+  // stage (src/chain.js's descending executor, not this prompt).
+  if (system.startsWith('You are reviewing one stage in a descending-rounds plan')) {
+    await new Promise(r => setTimeout(r, 10));
+    const text = model === 'mock-descending-amend-frozen'
+      ? JSON.stringify({ amend: { target: 'plan', text: 'Rewrite the frozen plan to add a new system.' } })
+      : JSON.stringify({ amend: null });
+    return { text, usage: { input: 20, output: 10 }, provider: 'mock', model };
+  }
   const isReviser = system.startsWith('You are the builder in a multi-model review chain,\nrevising');
   const isCritic = !isReviser && system.startsWith('You are an independent critic');
   const isCriteria = system.includes('turn a request into acceptance criteria');
