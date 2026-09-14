@@ -9,3 +9,4 @@ tasks/
 # v6 §6: an operator's own persona set and forbidden-name list - real names,
 # never committed. See PERSONAS.md.
 .council/
+Review/
