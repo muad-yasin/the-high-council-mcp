@@ -8,16 +8,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 It runs one request past seats filled by models from different labs, makes them argue on the
 record, and writes a deliverable plus a full debate board. MIT, BYOK-only.
 
-**As of the `skills/backend-frontend-developer` branch, this repo also carries `skills/` - two
-generic engineering skills (`backend-developer`, `frontend-developer`) shipped alongside the
-harness, not part of it.** Explicit, informed scope expansion (Muad's call, after being told
-plainly this widens the repo from "debate harness" to "debate harness + skills distributor"):
-these two are the same MIT/BYOK public-tooling ethos as the harness itself, and they cover
-general backend/frontend engineering - not any single project's stack, and not game-specific
-systems work (that lives in the separate `sower-backend`/`sower-frontend` plugins, which this
-repo does not bundle). A future session should not be confused by a `skills/` directory with no
-mention here - if more skills are ever added here, they belong to this same "generic, public,
-BYOK-consistent" bar, not project-specific content.
+**As of the `skills/backend-frontend-developer` branch, this repo also carries `skills/` - a
+growing set of generic, non-game-specific skills shipped alongside the harness, not part of it.**
+Explicit, informed scope expansion (Muad's call, after being told plainly this widens the repo
+from "debate harness" to "debate harness + skills distributor"): `backend-developer` and
+`frontend-developer` cover general backend/frontend engineering - not any single project's stack,
+and not game-specific systems work (that lives in the separate `sower-backend`/`sower-frontend`
+plugins, which this repo does not bundle). `good-news-writing` (added on the
+`skills/news-content-generic` branch, de-SMO'd from Stock Market Oasis's four `news-*` skills per
+that project's own migration plan, which named it as deferred, real work rather than invented
+scope) covers the warm-register content craft for writing genuine positive coverage of a real
+person or organization - composes with the `sower-writer` plugin's drafting/fact-checking/
+line-editing/final-read skills rather than duplicating them; three of SMO's four source skills
+were found, on inspection, to already be fully generalized into `sower-writer`, so only the one
+genuinely novel register shipped here. A future session should not be confused by a `skills/`
+directory with no mention here - if more skills are ever added here, they belong to this same
+"generic, public, BYOK-consistent" bar, not project-specific content.
 
 Read `HANDOFF.md` before starting work. It carries the release order and the hard rules. Its two
 "open decisions" are now settled and should not be reopened: the `LICENSE` holder stays
