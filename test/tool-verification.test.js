@@ -26,9 +26,11 @@ const mockConfig = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'u
 // this file's own `ground_truth` gate, and is unrelated to the verify.enabled behavior this test
 // checks. Included here so this test keeps checking item 1's own gate instead of drifting into
 // asserting other items' absence. 'allocator' (v7.3, the resource allocator) was added the same
-// way, present as `null` when config.allocator is absent or disabled.
+// way, present as `null` when config.allocator is absent or disabled. 'ambiguities' (item 5,
+// relay/runs/2026-09-14T14-56-18-834Z/deliverable.md) is the same shape again - present as `null`
+// when config.ambiguity_union is absent or disabled.
 const FROZEN_V6_KEYS = [
-  'deliverable', 'criteria', 'questions', 'skeleton', 'proposals', 'proposalPool',
+  'deliverable', 'criteria', 'ambiguities', 'questions', 'skeleton', 'proposals', 'proposalPool',
   'dropouts', 'board', 'debate', 'handoff', 'scoreboard', 'passed', 'lastCritique',
   'signoff', 'disputes', 'history', 'stages', 'totals', 'orphanSections', 'withdrawalCycles',
   'challenge', 'allocator',

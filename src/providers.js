@@ -112,6 +112,20 @@ async function callMock({ model, system, messages, maxTokens }) {
     await new Promise(r => setTimeout(r, 10));
     return { text: 'MOCK HANDOFF\n\nRead the plan. Start with "begin".', usage: { input: 30, output: 10 }, provider: 'mock', model };
   }
+  // Item 5's ambiguity-union stage. Three fixed model names, each returning two
+  // ambiguities with exactly one pairwise overlap, so a test wiring all three
+  // into one mock chain gets a known union: three unique entries after dedup.
+  // Any other mock model name on this prompt returns an empty list rather than
+  // failing, so a chain that only seats one or two of these still runs.
+  if (system.startsWith('You read a raw request, before anything has been proposed')) {
+    await new Promise(r => setTimeout(r, 10));
+    const table = {
+      'mock-ambiguity-a': ['Is the deliverable code or prose?', 'Should assumption X default to A?'],
+      'mock-ambiguity-b': ['Is the deliverable code or prose?', 'What audience is this for?'],
+      'mock-ambiguity-c': ['Should assumption X default to A?', 'What audience is this for?'],
+    };
+    return { text: JSON.stringify({ ambiguities: table[model] || [] }), usage: { input: 20, output: 20 }, provider: 'mock', model };
+  }
   if (system.startsWith('You read a request and ask the questions')) {
     await new Promise(r => setTimeout(r, 10));
     return { text: JSON.stringify({ questions: [

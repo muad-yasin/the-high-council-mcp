@@ -603,6 +603,35 @@ export function answersSection(questions, answersText) {
   return `\n\n---\n\n# Questions the planner asked before starting, and the answers\n\nThese answers are part of the request. Where an answer says "default", the planner's own default was taken; the plan states that under "Assumptions".\n\n## Questions\n\n${renderQuestions(questions)}\n\n## Answers\n\n${body}`;
 }
 
+// ---------------------------------------------------------------------------
+// Ambiguity union (config.ambiguity_union.enabled, item 5 of the
+// 2026-09-14T14-56-18-834Z plan). Three cheap seats each read the raw
+// request, before any proposal or criterion exists, and list the ambiguities
+// they see. src/chain.js unions and dedupes the lists (string/set-level) and
+// appends the result to the request text, which is what the questions and
+// criteria stages already read - no claim schema, no new report.json field.
+
+export const AMBIGUITY_SYSTEM = `You read a raw request, before anything has been proposed or built, and list
+the ambiguities in it - the places where two reasonable readings would lead
+to different deliverables.
+
+Rules:
+- Each entry is one sentence, naming the actual fork ("X could mean A or B").
+- Do not list things the request already answers, and do not invent scope
+  the request never raised.
+- No preamble.
+
+Reply with a single JSON object and nothing else:
+{ "ambiguities": ["...", "..."] }`;
+
+export function ambiguityUser({ request }) {
+  return `# Request\n\n${request}`;
+}
+
+export function ambiguitiesSection(ambiguities) {
+  return `\n\n---\n\n# Ambiguities found before proposing (union of ${ambiguities.length} seat(s), deduplicated)\n\n${ambiguities.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\nThe questions you ask should resolve these where they matter to the plan.`;
+}
+
 // v7 §3, descending rounds (config.descending: true). Each round debates a NEW,
 // frozen object - plan, then architecture, then edge cases, then code - rather
 // than re-debating the same draft. Prior stages are carried as locked context,
