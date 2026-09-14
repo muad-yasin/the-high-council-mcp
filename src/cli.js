@@ -116,6 +116,7 @@ function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = 
     passed: result.passed,
     lastCritique: result.lastCritique,
     signoff: result.signoff,
+    challenge: result.challenge,
     proposals: result.proposals,
     dropouts: result.dropouts,
     debate,

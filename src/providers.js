@@ -115,6 +115,20 @@ async function callMock({ model, system, messages, maxTokens }) {
     await new Promise(r => setTimeout(r, 10));
     return { text: 'MOCK SKELETON\n- system A\n- system B', usage: { input: 20, output: 10 }, provider: 'mock', model };
   }
+  // The post-signoff challenge stage (v7 item 5). `mock-challenge-yes` raises
+  // the one challenge the mechanism allows; every other model declines, so a
+  // scripted test can exercise both branches offline.
+  if (system.startsWith('You are the challenger in a multi-model review chain')) {
+    await new Promise(r => setTimeout(r, 10));
+    const text = model === 'mock-challenge-yes'
+      ? JSON.stringify({
+          challenge: true,
+          decision: 'The deliverable states the assumptions it was written under.',
+          evidence: 'Re-read the draft\'s "Assumptions" section and check it names a concrete reading, not a placeholder.',
+        })
+      : JSON.stringify({ challenge: false });
+    return { text, usage: { input: 20, output: 15 }, provider: 'mock', model };
+  }
   const isReviser = system.startsWith('You are the builder in a multi-model review chain,\nrevising');
   const isCritic = !isReviser && system.startsWith('You are an independent critic');
   const isCriteria = system.includes('turn a request into acceptance criteria');

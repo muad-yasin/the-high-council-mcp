@@ -6,7 +6,7 @@
 import { providerNames } from './providers.js';
 import { validateSeatRole } from './seat-role.js';
 
-const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics'];
+const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger'];
 
 /**
  * Lint findings for a chain config, each `{ kind, message, fix }`. Never
@@ -50,7 +50,7 @@ export function lintChain(config, filePath = '<chain>') {
   // catching before spending, not after the first API call.
   const allSeats = [
     seats.criteria, seats.builder, seats.reviser, seats.finalist, seats.skeleton,
-    seats.handoff, seats.questions, seats.judge,
+    seats.handoff, seats.questions, seats.judge, seats.challenger,
     ...(seats.proposers || []), ...(seats.critics || []),
   ].filter(Boolean);
   const known = new Set([...providerNames(), 'mock', 'external']);
@@ -99,6 +99,31 @@ export function lintChain(config, filePath = '<chain>') {
         kind: 'role-on-non-proposer-seat',
         message: `seats.${kind} has a "role" set, but only seats.proposers ever reach the debate stage where a role has any effect - this role is a silent no-op.`,
         fix: `Move "role" to the matching seat under "seats.proposers" in ${filePath}, or remove it from seats.${kind} if it was set by mistake.`,
+      });
+    }
+  }
+
+  // 6. Challenge stage (v7 item 5): `challenge.enabled` is the only key this
+  // chain reads. The one-challenge, one-decision bound is the whole point of
+  // the mechanism - the narrowness of the re-open is the decay mitigation -
+  // so it is hard-coded in chain.js, never a config number. Any attempt to
+  // make it tunable (a max-challenges count, extra rounds, anything besides
+  // `enabled`) must fail here rather than silently do nothing.
+  if (config?.challenge && typeof config.challenge === 'object') {
+    for (const key of Object.keys(config.challenge)) {
+      if (key !== 'enabled') {
+        findings.push({
+          kind: 'invalid-challenge-config',
+          message: `challenge.${key} is not a recognized key - only "challenge.enabled" is exposed.`,
+          fix: `Remove "challenge.${key}" from ${filePath}. The one-challenge, one-round bound is hard-coded and intentionally not configurable.`,
+        });
+      }
+    }
+    if ('enabled' in config.challenge && typeof config.challenge.enabled !== 'boolean') {
+      findings.push({
+        kind: 'invalid-challenge-config',
+        message: `challenge.enabled must be a boolean.`,
+        fix: `Set "challenge.enabled" to true or false in ${filePath}.`,
       });
     }
   }
