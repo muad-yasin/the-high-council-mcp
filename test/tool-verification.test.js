@@ -21,10 +21,16 @@ const mockConfig = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'u
 // text). If this ever needs to change, it means v6's serialized shape
 // changed, which the deliverable's own backward-compat clause says must not
 // happen silently.
+// 'challenge' was added after this fixture was frozen, by v7 item 5 (the bounded post-signoff
+// challenge stage) - it is present as `null` on every result once that item is merged, same as
+// this file's own `ground_truth` gate, and is unrelated to the verify.enabled behavior this test
+// checks. Included here so this test keeps checking item 1's own gate instead of drifting into
+// asserting other items' absence.
 const FROZEN_V6_KEYS = [
   'deliverable', 'criteria', 'questions', 'skeleton', 'proposals', 'proposalPool',
   'dropouts', 'board', 'debate', 'handoff', 'scoreboard', 'passed', 'lastCritique',
   'signoff', 'disputes', 'history', 'stages', 'totals', 'orphanSections', 'withdrawalCycles',
+  'challenge',
 ].sort();
 
 test('verify absent: result has no ground_truth key and matches the frozen v6 key set', async () => {
