@@ -653,32 +653,54 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       const relay = config.panel === 'relay';
       log(`\nRound ${round}: panel review (${config.seats.critics.length} labs, ${relay ? 'relay - each sees the verdicts before it' : 'independent'})`);
       const verdicts = [];
+      const freedoms = config.freedoms || null;
       const reviewSeat = async (criticSeat, prior, say) => {
-        let cs;
-        try {
-          cs = record(await invoke(criticSeat, {
-            system: R.criticSystem(open),
-            user: R.criticUser({ request, criteria, draft, prior }),
-            log: say, label: `panel-${round}-${labOf(criticSeat)}`,
-          }));
-        } catch (err) {
-          // A lab that is down (429 after retries, 5xx, network) must not take
-          // the panel down with it. It abstains, and the log says why.
-          say(`  ${labOf(criticSeat)}/${criticSeat.model}: no reply (${String(err.message).slice(0, 120)}) - counted as an abstention.`);
-          return { seat: criticSeat, critique: null, abstained: true, error: String(err.message) };
+        let cs, parsed, answeredQuestion = null;
+        // v7 item 4: at most one blocking-question round trip per seat per round - the critic is
+        // told it may not ask a second one, and this loop does not offer it the chance to anyway.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            cs = record(await invoke(criticSeat, {
+              system: R.criticSystem(open, freedoms),
+              user: R.criticUser({ request, criteria, draft, prior, answeredQuestion }),
+              log: say, label: attempt === 0 ? `panel-${round}-${labOf(criticSeat)}` : `panel-${round}-${labOf(criticSeat)}-answered`,
+            }));
+          } catch (err) {
+            // A lab that is down (429 after retries, 5xx, network) must not take
+            // the panel down with it. It abstains, and the log says why.
+            say(`  ${labOf(criticSeat)}/${criticSeat.model}: no reply (${String(err.message).slice(0, 120)}) - counted as an abstention.`);
+            return { seat: criticSeat, critique: null, abstained: true, error: String(err.message) };
+          }
+          parsed = parseJson(cs.text);
+          if (!parsed) {
+            // An unreadable verdict is an abstention: it neither signs off nor
+            // objects, and it cannot block the panel. It used to count as a
+            // pass, which would have waved a truncated FAILED straight through.
+            const why = classifyUnreadable(cs.usage, criticSeat.maxTokens);
+            // v5 §1 candidate 4: the code is prepended, the diagnosis itself
+            // is untouched - classifyUnreadable's three distinct reasons are
+            // load-bearing (each one traces to a real incident on disk) and
+            // this candidate changes what's printed, never what's diagnosed.
+            say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] unreadable reply (${cs.usage.output} tokens out; ${why}) - counted as an abstention, not a sign-off.`);
+            return { seat: criticSeat, critique: null, abstained: true };
+          }
+          if (freedoms?.blocking_questions && parsed.blocking_question && attempt === 0) {
+            say(`  ${labOf(criticSeat)}/${criticSeat.model}: blocking question - ${parsed.blocking_question}`);
+            const proposerSeat = config.seats.builder;
+            const answer = record(await invoke(proposerSeat, {
+              system: R.BLOCKING_ANSWER_SYSTEM,
+              user: R.blockingAnswerUser({ request, draft, question: parsed.blocking_question }),
+              log: say, label: `panel-${round}-${labOf(criticSeat)}-question`,
+            }));
+            say(`  ${labOf(proposerSeat)}/${proposerSeat.model}: answered - ${answer.text}`);
+            answeredQuestion = { question: parsed.blocking_question, answer: answer.text };
+            continue;
+          }
+          break;
         }
-        const parsed = parseJson(cs.text);
-        if (!parsed) {
-          // An unreadable verdict is an abstention: it neither signs off nor
-          // objects, and it cannot block the panel. It used to count as a
-          // pass, which would have waved a truncated FAILED straight through.
-          const why = classifyUnreadable(cs.usage, criticSeat.maxTokens);
-          // v5 §1 candidate 4: the code is prepended, the diagnosis itself
-          // is untouched - classifyUnreadable's three distinct reasons are
-          // load-bearing (each one traces to a real incident on disk) and
-          // this candidate changes what's printed, never what's diagnosed.
-          say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] unreadable reply (${cs.usage.output} tokens out; ${why}) - counted as an abstention, not a sign-off.`);
-          return { seat: criticSeat, critique: null, abstained: true };
+        if (freedoms?.pass && parsed.pass) {
+          say(`  ${labOf(criticSeat)}/${criticSeat.model}: PASSED - ${parsed.pass_reason || '(no reason given)'}`);
+          return { seat: criticSeat, critique: null, passed: true, passReason: capField(parsed.pass_reason) || '' };
         }
         const critique = normaliseCritique(parsed, say);
         say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
@@ -726,12 +748,17 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       // lastCritique.failures[].lab existed but was undiscoverable.
       signoff = verdicts.map(v => ({
         provider: labOf(v.seat), model: v.seat.model,
-        signedOff: v.abstained ? null : v.critique.meets === true,
-        objections: v.abstained ? null : v.critique.failures,
+        signedOff: v.abstained || v.passed ? null : v.critique.meets === true,
+        objections: v.abstained || v.passed ? null : v.critique.failures,
+        // v7 item 4: a pass is a stated, recorded refusal to verdict - distinct from an
+        // abstention (no usable reply at all), which is why it carries its own reason field
+        // instead of overloading `objections`.
+        passed: v.passed === true,
+        passReason: v.passed ? v.passReason : null,
       }));
 
       history.push(`## Round ${round} panel\n${verdicts.map(v =>
-        `- ${labOf(v.seat)}/${v.seat.model}: ${v.abstained ? 'abstained (unreadable reply)' : v.critique.meets ? 'signed off' : `${v.critique.failures.length} failure(s)`}`
+        `- ${labOf(v.seat)}/${v.seat.model}: ${v.abstained ? 'abstained (unreadable reply)' : v.passed ? `passed - ${v.passReason || '(no reason given)'}` : v.critique.meets ? 'signed off' : `${v.critique.failures.length} failure(s)`}`
       ).join('\n')}`);
 
       if (allSignedOff) {

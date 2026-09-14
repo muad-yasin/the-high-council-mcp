@@ -82,6 +82,11 @@ async function callMock({ model, system, messages, maxTokens }) {
     const replies = ids.map((id, i) => i === 0 ? { id, action: 'amend', text: 'Fair.', how: 'mock.js (amended)' } : { id, action: 'keep', text: 'The file is created by the plan.' });
     return { text: JSON.stringify({ replies }), usage: { input: 30, output: 20 }, provider: 'mock', model };
   }
+  if (system.startsWith('You are the proposer, answering one question')) {
+    await new Promise(r => setTimeout(r, 10));
+    const text = '"The artifact" refers to the deliverable itself, as stated in the draft.';
+    return { text, usage: { input: 20, output: 15 }, provider: 'mock', model };
+  }
   if (system.startsWith('You write the handoff file')) {
     await new Promise(r => setTimeout(r, 10));
     return { text: 'MOCK HANDOFF\n\nRead the plan. Start with "begin".', usage: { input: 30, output: 10 }, provider: 'mock', model };
@@ -105,6 +110,25 @@ async function callMock({ model, system, messages, maxTokens }) {
   const isReviser = system.startsWith('You are the builder in a multi-model review chain,\nrevising');
   const isCritic = !isReviser && system.startsWith('You are an independent critic');
   const isCriteria = system.includes('turn a request into acceptance criteria');
+  // v7 item 4 (debate freedoms, scoped): `mock-critic-blocking` asks one blocking question on
+  // its first reply, then signs off once the prompt carries the proposer's answer back to it -
+  // exercises the pause/resume round trip offline. `mock-critic-passer` always passes with a
+  // stated reason instead of judging, exercising the pass path. Both are only ever seated in
+  // chains/tests that opt into `freedoms`; the mock does not gate on the flag itself, since the
+  // chain-side gating (whether these fields are even read) is what the tests are pinning.
+  if (isCritic && model === 'mock-critic-blocking') {
+    await new Promise(r => setTimeout(r, 10));
+    const answered = user.includes('# Answer to your blocking question');
+    const text = answered
+      ? JSON.stringify({ meets: true, criteria: [], failures: [], verdict_line: 'Answered; all criteria met.' })
+      : JSON.stringify({ blocking_question: 'What does "the artifact" refer to in criterion 1?' });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
+  if (isCritic && model === 'mock-critic-passer') {
+    await new Promise(r => setTimeout(r, 10));
+    const text = JSON.stringify({ pass: true, pass_reason: 'Outside my domain expertise; deferring to the rest of the panel.' });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
   let text;
   if (isCriteria) {
     text = JSON.stringify({ criteria: [
