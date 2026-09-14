@@ -12,6 +12,10 @@ against a single model, against Fusion, or against any other tool surveyed for t
 claim made throughout is narrower: a differently-shaped, more governed mechanism exists, and it
 is already built and tested for non-coding tasks.
 
+v1's own conventions and boundary are documented separately and are not reopened here: the
+governed diff shape is `docs/coder-gate-diff-format.md`, and the reasoning for never adding a
+write-capable tool is `docs/coder-gate-write-boundary.md`. Both stand unchanged under v2.
+
 ## 1. Fusion, compared in this project's own words
 
 `openrouter/fusion` is **parallel fan-out, then curate**: each of its panel models (one to eight)
@@ -131,8 +135,9 @@ false if the pass-through ships.
 
 Explicitly excluded from v2, by name:
 
-- **Any write-capable tool.** v1's decision stands: applying a diff to a real working tree stays
-  a human or external-session action, never something this project's own process does.
+- **Any write-capable tool.** v1's decision stands (`docs/coder-gate-write-boundary.md`):
+  applying a diff to a real working tree stays a human or external-session action, never
+  something this project's own process does.
 - **Any subscription-OAuth orchestrator-seat feature.** Documenting or offering "plug in your own
   subscription as an automated seat" as a supported pattern is excluded outright, not deferred to
   a later version, on terms-of-service grounds already recorded for this project. Ordinary
