@@ -5,6 +5,7 @@ import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { applySeatRole } from './seat-role.js';
 import { NO_TIE_BREAK } from './tie-break.js';
+import { runTool as defaultRunTool, ALLOWED_TOOLS } from './tools.js';
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
 // full chain. Tells the criteria seat what the chain's own contract will require in the
@@ -18,6 +19,38 @@ export function criteriaUserPrompt(request, config) {
     ? `\n\n# Sections this chain always adds\nThe deliverable will also contain: ${required.join(', ')}.\nDo not write a criterion that forbids this section's presence or dictates an ordering it cannot satisfy.`
     : '';
   return `# Request\n\n${request}${requiredBlock}`;
+}
+
+// v7 item 1: tool-grounded verification (relay/runs/2026-09-14T00-20-44-997Z/
+// deliverable.md §1). Gated on config.verify.enabled - absent or false keeps
+// v6 behaviour byte-for-byte (no ground_truth key on the returned result, no
+// tool invocation, this function never called). When enabled, each entry in
+// config.verify.tools ({ tool, args? }) is run through the fixed allowlist in
+// src/tools.js - never a generic shell executor - and the raw, unedited
+// result is both kept for the run record and rendered into a block appended
+// to `request`, which every later stage's prompt already threads through, so
+// "re-presented unedited to later seats' context" costs no new plumbing.
+export function renderGroundTruth(groundTruth) {
+  if (!groundTruth.length) return '';
+  return `\n\n# Ground truth (tool output, verbatim)\n${groundTruth.map(g =>
+    `\n## ${g.tool}${g.args && Object.keys(g.args).length ? ` ${JSON.stringify(g.args)}` : ''}\n${JSON.stringify(g.result)}`
+  ).join('\n')}`;
+}
+
+export function runVerification(config, { runTool = defaultRunTool, log = () => {} } = {}) {
+  const specs = config?.verify?.tools || [];
+  const cwd = config?.verify?.cwd || process.cwd();
+  const groundTruth = [];
+  for (const spec of specs) {
+    if (!spec || !ALLOWED_TOOLS.includes(spec.tool)) {
+      log(`  skipped: "${spec?.tool}" is not on the tool allowlist (${ALLOWED_TOOLS.join(', ')})`);
+      continue;
+    }
+    const result = runTool(spec.tool, spec.args || {}, { cwd });
+    log(`  ${spec.tool}${spec.args ? ` ${JSON.stringify(spec.args)}` : ''}: ${result.ok ? 'ok' : `error - ${result.error}`}`);
+    groundTruth.push({ tool: spec.tool, args: spec.args || {}, result });
+  }
+  return groundTruth;
 }
 
 // A "seat" is one lab's model occupying one slot in the chain.
@@ -350,6 +383,16 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   const stages = [];
   const record = s => { stages.push(s); onStage(s); return s; };
   let request = requestIn;
+
+  // v7 item 1: tool-grounded verification, gated on config.verify.enabled.
+  // Absent/false key: skip entirely, `ground_truth` stays undefined and is
+  // therefore never added to the returned result - v6 behaviour unchanged.
+  let ground_truth;
+  if (config.verify?.enabled) {
+    log('\nStage: verification (ground truth from sandboxed tools)');
+    ground_truth = runVerification(config, { runTool: config.verify.runTool, log });
+    request += renderGroundTruth(ground_truth);
+  }
 
   // 0. Questions first (config.questions: { max, wait }). The answers become
   //    part of the request before criteria are written, so the checklist is
@@ -892,5 +935,6 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     totals: summarise(stages),
     orphanSections: ledger?.orphanSections ?? [],
     withdrawalCycles: ledger?.withdrawalCycles ?? 0,
+    ...(ground_truth !== undefined ? { ground_truth } : {}),
   };
 }

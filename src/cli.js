@@ -126,6 +126,10 @@ function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = 
     totals: result.totals,
     maxUsd,
     stages: result.stages.map(({ text, ...rest }) => rest),
+    // v7 item 1: additive-only, same pattern as debate's diagnostics above -
+    // present only when the run actually did verification (config.verify.
+    // enabled), absent otherwise so v6 report.json shape is unchanged.
+    ...(result.ground_truth !== undefined ? { ground_truth: result.ground_truth } : {}),
   };
 }
 
