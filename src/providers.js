@@ -265,6 +265,23 @@ async function callMock({ model, system, messages, maxTokens }) {
     const text = JSON.stringify({ pass: true, pass_reason: 'Outside my domain expertise; deferring to the rest of the panel.' });
     return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
   }
+  // MLLM Coder v1, IN-3 (relay/runs/2026-09-14T16-14-10-757Z/deliverable.md): unlike the other
+  // scripted critics above, this one actually reads the rendered ground-truth block in its own
+  // prompt (config.verify.enabled splices it into `request`, which flows into every stage's
+  // prompt - see renderGroundTruth in chain.js) and fails when it sees a failing run_tests
+  // result, passes when it sees a passing one. Needed because every other mock critic is
+  // scripted purely by model name and ignores prompt content entirely, which can't prove the
+  // verify-stage wiring's acceptance test: that a REAL failing test's output reaching
+  // ground_truth is what blocks signoff, not an unrelated always-fail fixture.
+  if (isCritic && model === 'mock-critic-verify-aware') {
+    await new Promise(r => setTimeout(r, 10));
+    const groundTruthBlock = (user.match(/# Ground truth \(tool output, verbatim\)\n([\s\S]*)/) || [])[1] || '';
+    const failed = /"ok":\s*false/.test(groundTruthBlock);
+    const text = JSON.stringify(failed
+      ? { meets: false, criteria: [], failures: [{ criterion: 'The named test_command passes against the applied diff.', problem: 'ground_truth shows run_tests exited non-zero.', fix: 'Fix the diff so the named test passes.' }], verdict_line: 'run_tests failed in ground_truth.' }
+      : { meets: true, criteria: [], failures: [], verdict_line: 'run_tests passed in ground_truth.' });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
   let text;
   if (isCriteria) {
     text = JSON.stringify({ criteria: [
