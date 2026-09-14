@@ -5,9 +5,10 @@ import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { applySeatRole } from './seat-role.js';
 import { NO_TIE_BREAK } from './tie-break.js';
-import { runTool as defaultRunTool, ALLOWED_TOOLS } from './tools.js';
+import { runTool as defaultRunTool, ALLOWED_TOOLS, runSeatToolRequests } from './tools.js';
 import { runLints } from './lints.js';
 import { extractClaims, dropInvalidClaims } from './claims.js';
+import { injectCanary, shouldSampleCanary } from './canary.js';
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
 // full chain. Tells the criteria seat what the chain's own contract will require in the
@@ -575,6 +576,23 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     request += renderGroundTruth(ground_truth);
   }
 
+  // v7.x item 3: seat-requested bounded tool calls (src/tools.js). Gated on
+  // config.tools.seat_requests.enabled PLUS config.verify.tools (the v7 item 1 allowlist itself,
+  // unchanged) - a seat can only request a tool already on that allowlist, and only when
+  // config-time tool grounding is itself configured. Absent either key: `toolRequestWarnings`
+  // stays undefined and is never added to the returned result, and no seat can request a tool
+  // mid-stage - v7's config-time-only tool behaviour is unchanged byte-for-byte.
+  let toolRequestWarnings;
+  if (config.tools?.seat_requests?.enabled && config.verify?.enabled && Array.isArray(config.verify?.tools)) {
+    toolRequestWarnings = [];
+  }
+
+  // v7.x item 4: canary objections (src/canary.js). Stays `null` (not undefined) whenever
+  // config.canary is absent/false so `'canary' in result` reads the same either way this run
+  // went - absent-key and "gated but not sampled this run" are both "nothing to report", exactly
+  // the always-present-field posture `challenge`/`allocator` already use above.
+  let canary = config.canary?.enabled ? { injected: false } : undefined;
+
   // 0. Questions first (config.questions: { max, wait }). The answers become
   //    part of the request before criteria are written, so the checklist is
   //    written against the resolved request, not the ambiguous one.
@@ -766,7 +784,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       log(`\nStage: debate (${labs.length} labs read each other's proposals, anonymised)`);
       const postResults = await Promise.all(labs.map(async lab => {
         const lines = []; const say = m => lines.push(m);
-        let posts = [], revisions = [];
+        let posts = [], revisions = [], toolResults = [], toolWarnings = [];
         try {
           // v6 §1/§3: role augmentation applies only here, the debate-stage
           // system prompt - never to the panel/critique stage. A seat with
@@ -786,14 +804,42 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             revisions = (parsed.revisions || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id })).filter(r => proposals.some(p => p.id === r.id && p.lab === lab));
             const n = st => posts.filter(x => x.stance === st).length;
             say(`  ${lab}: ${posts.length} post(s) - ${n('support')} support, ${n('object')} object, ${n('merge')} merge${revisions.length ? `; revised ${revisions.length} of its own` : ''}`);
+
+            // v7.x item 3: this lab's seat may have asked for bounded, allowlisted tool calls in
+            // the same reply (`tool_requests: [{tool, args}]`). Gated (see the declaration of
+            // `toolRequestWarnings` above) on config.tools.seat_requests.enabled +
+            // config.verify.tools - a seat can only request a tool already on that allowlist.
+            if (toolRequestWarnings) {
+              const allowedTools = config.verify.tools.map(t => t.tool);
+              const cap = config.tools.seat_requests.cap ?? 3;
+              const outcome = runSeatToolRequests(parsed.tool_requests, {
+                cap, allowedTools,
+                runTool: config.verify?.runTool || defaultRunTool,
+                cwd: config.verify?.cwd || process.cwd(),
+                seat: lab,
+              });
+              toolResults = outcome.results;
+              toolWarnings = outcome.warnings;
+              toolWarnings.forEach(w => say(`  WARNING: ${w}`));
+            }
           }
         } catch (err) {
           say(`  ${lab}: no debate reply (${String(err.message).slice(0, 100)}).`);
         }
-        return { lines, posts, revisions };
+        return { lines, posts, revisions, toolResults, toolWarnings };
       }));
       const posts = [];
-      for (const r of postResults) { r.lines.forEach(m => log(m)); posts.push(...r.posts); for (const rev of r.revisions) { const p = proposals.find(x => x.id === rev.id); if (rev.how) p.how = rev.how; if (rev.acceptance_test) p.acceptance_test = rev.acceptance_test; p.amended = true; } }
+      for (const r of postResults) {
+        r.lines.forEach(m => log(m));
+        posts.push(...r.posts);
+        for (const rev of r.revisions) { const p = proposals.find(x => x.id === rev.id); if (rev.how) p.how = rev.how; if (rev.acceptance_test) p.acceptance_test = rev.acceptance_test; p.amended = true; }
+        // v7.x item 3: appended to the same ground_truth array v7 item 1's config-time tools use,
+        // in the same { tool, args, result } shape, plus `result_ref` - re-presented verbatim to
+        // later stages the same way config-time ground truth already is (renderGroundTruth reads
+        // this same array; nothing new to thread through for that part).
+        if (ground_truth && r.toolResults.length) ground_truth.push(...r.toolResults);
+        if (toolRequestWarnings && r.toolWarnings.length) toolRequestWarnings.push(...r.toolWarnings);
+      }
 
       log(`\nStage: replies (each author answers the posts on its proposals)`);
       const replies = [];
@@ -836,6 +882,38 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       debate = { posts, replies, tie_break: NO_TIE_BREAK };
       const w = proposals.filter(p => p.withdrawn).length;
       log(`  board: ${posts.length} post(s), ${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}, ${w} proposal(s) withdrawn, ${proposals.filter(p => p.amended).length} amended.`);
+
+      // v7.x item 4: canary objections (src/canary.js). Gated on config.canary.enabled +
+      // config.canary.sampleRate. Runs after the board is already rendered (above), so a canary
+      // never appears in the board/deliverable text - only in report.json's debate.posts/replies,
+      // each entry carrying `canary: true`. Deliberately does not mutate the target proposal's
+      // own amended/withdrawn flags - see src/canary.js's header for why.
+      if (config.canary?.enabled && shouldSampleCanary(config, config.canary.rng)) {
+        const decide = config.canary.decide || (async (target, post) => {
+          const lab = target.lab;
+          const seat = seatOf(lab);
+          if (!seat) return 'keep';
+          try {
+            const cst = record(await invoke(seat, {
+              system: R.REPLY_SYSTEM,
+              user: R.replyUser({ request, proposals, posts: [post], lab, maps }),
+              log, label: `canary-reply-${lab}`,
+            }));
+            const parsed = parseJson(cst.text);
+            const mine = (parsed?.replies || []).find(r => (maps.idFrom[r.id] || r.id) === target.id);
+            return mine ? String(mine.action || '').toLowerCase() : 'keep';
+          } catch {
+            return 'keep';
+          }
+        });
+        const result = await injectCanary(proposals, decide);
+        if (result) {
+          debate.posts.push(result.post);
+          debate.replies.push(result.reply);
+          canary = { injected: true, on: result.post.on, capitulated: result.capitulated };
+          log(`  canary: injected an evidence-free objection against ${result.post.on} - author ${result.capitulated ? 'capitulated' : 'held'}.`);
+        }
+      }
 
       // v5 §1 candidate 3: a withdrawal chain that cycles or dead-ends
       // (e.g. two labs mutually withdrawing in each other's favour) leaves
@@ -1298,6 +1376,8 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     orphanSections: ledger?.orphanSections ?? [],
     withdrawalCycles: ledger?.withdrawalCycles ?? 0,
     ...(ground_truth !== undefined ? { ground_truth } : {}),
+    ...(toolRequestWarnings !== undefined ? { toolRequestWarnings } : {}),
+    ...(canary !== undefined ? { canary } : {}),
     ...(lints !== undefined ? { lints } : {}),
     ...(claims !== undefined ? { claims, claimWarnings } : {}),
   };

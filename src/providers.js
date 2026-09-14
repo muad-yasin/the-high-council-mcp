@@ -95,7 +95,13 @@ async function callMock({ model, system, messages, maxTokens }) {
     const mineIdx = user.indexOf('# The other labs');
     const theirs = others.filter(id => user.indexOf(`## ${id} `) > mineIdx);
     const posts = theirs.map((id, i) => ({ on: id, stance: i % 2 ? 'support' : 'object', text: i % 2 ? 'Fine as written.' : 'Quote: "mock.js" - no such file exists.' }));
-    return { text: JSON.stringify({ posts, revisions: [] }), usage: { input: 30, output: 30 }, provider: 'mock', model };
+    // v7.x item 3 test fixture: a debate seat that asks for bounded, allowlisted tool calls in
+    // the same reply - one allowed request and one disallowed one, to exercise both branches of
+    // runSeatToolRequests offline (test/seat-tool-calls.test.js).
+    const tool_requests = model === 'mock-debate-tool-request'
+      ? [{ tool: 'check_versions', args: {} }, { tool: 'exec_shell', args: { cmd: 'rm -rf /' } }]
+      : undefined;
+    return { text: JSON.stringify({ posts, revisions: [], tool_requests }), usage: { input: 30, output: 30 }, provider: 'mock', model };
   }
   if (system.startsWith('You are one lab on a planning panel, answering')) {
     await new Promise(r => setTimeout(r, 10));

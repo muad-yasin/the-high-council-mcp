@@ -94,8 +94,12 @@ function proposalMetricsOfRun(report) {
   const amended = proposals.filter(p => p.amended === true).length;
   const withdrawn = proposals.filter(p => p.withdrawn === true).length;
 
-  const posts = Array.isArray(report?.debate?.posts) ? report.debate.posts : [];
-  const replies = Array.isArray(report?.debate?.replies) ? report.debate.replies : [];
+  // v7.x item 4: canary objections (src/canary.js) are injected into this exact same
+  // posts/replies shape, each carrying `canary: true`, so they can be answered by an author the
+  // same way a real objection is. They are NOT real objections and must never count toward this
+  // rate - additive-only exclusion filter, the rest of this function's logic is unchanged.
+  const posts = (Array.isArray(report?.debate?.posts) ? report.debate.posts : []).filter(p => p.canary !== true);
+  const replies = (Array.isArray(report?.debate?.replies) ? report.debate.replies : []).filter(r => r.canary !== true);
   const objectedIds = new Set(posts.filter(p => p.stance === 'object' && p.on).map(p => p.on));
   let objectedFollowedThrough = 0;
   for (const id of objectedIds) {
