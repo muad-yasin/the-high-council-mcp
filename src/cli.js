@@ -7,7 +7,8 @@ import { deriveRunStatus } from './run-status.js';
 import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sumCostFromStageLogText } from './run-state.js';
 import { computeOutcome } from './outcome.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
-import { providerNames, envKeyName, keyFor, isKeyOptional } from './providers.js';
+import { providerNames, envKeyName, keyFor, isKeyOptional, call } from './providers.js';
+import { readCompletedRun, generateDigestText, writeDigest } from './dissent-digest.js';
 import { spendReport, costToday } from './spend.js';
 import { verdictStats, independenceStatsCsv } from './verdict-stats.js';
 import { metricsReport } from './metrics.js';
@@ -463,6 +464,41 @@ if (argv[0] === 'replay') {
   } else {
     console.log(renderTranscriptText(steps));
   }
+  process.exit(0);
+}
+
+// `council digest --run <folder> [--provider p --model m]` (v6 item E): a short, plain-English
+// paragraph explaining why the panel disagreed (or that it didn't), written into the completed
+// run's own folder as digest.md. Deliberately its own top-level subcommand, never a stage inside
+// runChain - see src/dissent-digest.js's header comment and test/no-digest-in-prompt-paths.test.js
+// for the structural read-only guarantee this depends on. --provider/--model are optional: with
+// neither given, the digest is the fixed deterministic template (renderDigestTemplate), no model
+// call at all - the one real BYOK call this feature ever makes is opt-in, named explicitly by the
+// operator, never automatic.
+if (argv[0] === 'digest') {
+  const runArg = flag('run', null);
+  if (!runArg) {
+    console.error('digest: --run <folder> is required');
+    process.exit(2);
+  }
+  const runDir = resolve(work, runArg);
+  let report;
+  try {
+    report = readCompletedRun(runDir);
+  } catch (e) {
+    console.error(`digest: ${e.message}`);
+    process.exit(2);
+  }
+  const providerArg = flag('provider', null);
+  const modelArg = flag('model', null);
+  const text = await generateDigestText({
+    report,
+    call: providerArg ? call : null,
+    provider: providerArg,
+    model: modelArg,
+  });
+  const path = writeDigest(runDir, text);
+  console.log(`Wrote ${path}`);
   process.exit(0);
 }
 
