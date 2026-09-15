@@ -97,6 +97,22 @@ measured quality. This is independent, external support for a rule this project 
 and that v1 already assumed without needing to state the research behind it: **the proposer seat
 and the critic seat for a governed diff must never be filled by the same lab.**
 
+Two more papers describe the same class of risk from the multi-agent side. They are cited as
+evidence that the risk is real, not as evidence that this project's design removes it or performs
+better than anything:
+
+- **arXiv:2505.19477**, "Judging with Many Minds: Do More Perspectives Mean Less Prejudice? On Bias
+  Amplifications and Resistance in Multi-Agent Based LLM-as-Judge" (Ma et al., 2025). It reports
+  that in multi-agent *debate* framings, judge biases amplify sharply after the first round, while
+  meta-judge framings resist them better. For this project that cuts both ways, stated plainly: it
+  is the reason the signoff panel reviews each draft independently rather than conferring, and it is
+  also a known risk for the debate stage itself, where labs do read each other's posts.
+- **arXiv:2510.07517**, "When Identity Skews Debate: Anonymization for Bias-Reduced Multi-Agent
+  Reasoning" (Choi et al., 2025). It reports identity-driven sycophancy and self-bias in multi-agent
+  debate, and proposes anonymizing responses so agents weigh content rather than who wrote it. The
+  debate stage already anonymises proposals before other labs read them (`anonymise()` in
+  `src/chain.js`); this is independent support for why that step exists.
+
 v2 makes it easier to change which model fills any given seat, through the `model` field
 mechanism described above. This research is the reason that rule stays strict rather than being
 relaxed for convenience — for example, routing both a proposer seat and its critic seat through

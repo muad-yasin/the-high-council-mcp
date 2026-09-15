@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased - coder-gate v5: disagreement groups, policy capabilities, citations, seat boundary
+
+From the v5 plan (`relay/runs/2026-09-15T03-43-44-216Z/deliverable.md`, signed off 4 of 5 - the
+fifth lab never returned a verdict because of a provider credit error, not an objection). Items 4,
+5, 6 and 8 here; items 1-3 are built separately. Every `report.json` change is additive.
+
+**`disagreement_groups` in `report.json` (item 4).** For runs that debate: one entry per proposal
+that drew an objection or a merge, ordered by proposal id, with its title, author lab, outcome
+(kept / amended / withdrawn) and the posts under it - the "where they disagree" view, grouped by
+what is argued about rather than by time. It groups at proposal level, because `debate.posts[].on`
+names a proposal and nothing finer. A finer per-claim tag is deferred: it would need a prompt change
+and a third `src/chain.js` edit, and free-text claim names from different labs don't group. It
+reopens if a front end finds a group mixing unrelated objections. Derived in
+`src/disagreement-groups.js`; `debate.posts` is unchanged.
+
+**Policy checks named by capability (item 5).** `POLICY_CAPABILITIES` in `src/policy.js` names all
+seven checks (`provider-choice`, `data-residency`, `run-spend-limit`, `monthly-spend-limit`,
+`chain-classification`, `priced-seats-only`, `path-signoff`). `evaluatePolicy` also returns
+`checks` for the checks a policy actually configures, and a run under a policy gets a
+`policy: { checks }` block in `report.json`. The list is recorded in `run.json` when the run starts,
+so a resumed run reports what its first round enforced. No `policy.json` means no `policy` key. A
+test fails if a new check has no capability name.
+
+**Citations (item 6).** `docs/coder-gate-v2-differentiation.md` §3 now cites arXiv:2505.19477 and
+arXiv:2510.07517 as evidence of a real risk, not as evidence that this project avoids it - including,
+stated plainly, that the first paper's finding (bias amplifies in multi-agent debate) applies to the
+debate stage itself. The README's Privacy section now points at the audit export's hash-chained
+`audit.jsonl` and `verifyAuditLog`, which already shipped; a hash-chained log was proposed again in
+the plan's research and declined as a duplicate.
+
+**Seat permission boundary (item 8).** `docs/seat-permission-boundary.md` records why "a side seat
+reaches only its own agents" holds by construction for planning seats, and that enforcing it for
+build seats belongs to the coding-agent plan, not here. `test/mcp-seat-boundary.test.js` checks it
+against a live MCP server: no tool's input schema names a seat or agent, and `submit_stage` refuses a
+stage the run is not waiting for.
+
+**Item 7 needs no code.** The chain a caller picks already is the dispatch shape (a debate chain or
+a diff-gate chain), so the plan's proposed `shape` field was cut for having no consumer, and "swarm"
+dispatch belongs to the coding-agent plan.
+
 ## Unreleased - coder-gate v4: signoff wiring and eval fixtures
 
 **`required_signoff_paths` now fires from a real run.** v3 built the check but nothing handed it

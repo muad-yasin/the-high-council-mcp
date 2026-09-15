@@ -32,6 +32,7 @@ import { lintChain } from './chain-lint.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { formatCouncilError, ERROR_CATALOG } from './errors.js';
 import { loadPolicy, buildPolicyContext, evaluatePolicy, parseChangeRequestFields, POLICY_PATH } from './policy.js';
+import { deriveDisagreementGroups } from './disagreement-groups.js';
 import { shouldEnableAudit, loadHmacKey, createAuditWriter } from './audit.js';
 
 // v5 §1 candidate 4: distinct exit codes for a degradable condition (a
@@ -90,7 +91,7 @@ function flag(name, fallback) {
 // `--from-run` against an init-produced run silently reran the criteria
 // stage instead of reusing it - no crash, just a broken promise. Both
 // writers now build from this one function.
-function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = null, config = null }) {
+function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = null, config = null, policyChecks = null }) {
   // v6 §7: failure-mode diagnostics, computed from this run's own real
   // debate output - never from the phase 4 measurement harness, which
   // is a deterministic heuristic probe and cannot speak to real debate
@@ -149,6 +150,11 @@ function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = 
     // otherwise so a chain that never opts in keeps today's report.json shape exactly.
     ...(result.lints !== undefined ? { lints: result.lints } : {}),
     ...(result.claims !== undefined ? { claims: result.claims } : {}),
+    // MLLM Coder v5 item 4: additive, present only when the run debated (src/disagreement-groups.js).
+    ...(result.debate ? { disagreement_groups: deriveDisagreementGroups(result.debate, result.proposals) } : {}),
+    // MLLM Coder v5 item 5: present only when a policy.json was in force for this run - what it
+    // restricted, by capability. Absent means no policy, never "a policy with no checks".
+    ...(policyChecks ? { policy: { checks: policyChecks } } : {}),
   };
 }
 
@@ -820,6 +826,13 @@ const allSeats = [
   ...(config.seats.critics || []),
 ].filter(Boolean);
 
+// MLLM Coder v5 item 5: the checks the policy configured, for report.json's `policy` block. Set
+// only when a policy was in force; recorded in run.json below because the gate is skipped on
+// --resume, so a resumed run can only report what its first round actually enforced. That is a
+// fact about a moment (the policy file may change later), which is why it is persisted rather
+// than re-derived.
+let policyChecks = null;
+
 // v7.x item 1, COUNCIL-E005: the central policy file. No file at the locked path (work/
 // policy.json) = today's behavior, byte-identical - this is the very first thing checked, and
 // it changes nothing when absent. Skipped on --resume for the same reason lintChain is skipped
@@ -845,7 +858,8 @@ if (!resumeMeta) {
     if (fields.target_file !== undefined) ctx.changeRequest = { target_file: fields.target_file };
     const signoff = signoffFlag || fields.signoff;
     if (signoff !== undefined) ctx.signoff = signoff;
-    const { ok, reasons } = evaluatePolicy(policy, ctx);
+    const { ok, reasons, checks } = evaluatePolicy(policy, ctx);
+    policyChecks = checks;
     if (!ok) {
       console.error(`\n${formatCouncilError('COUNCIL-E005', { path: POLICY_PATH(work), chain: config.name, reasons })}`);
       process.exit(EXIT_FATAL);
@@ -979,7 +993,7 @@ if (auditEnabled) {
 }
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskPathEff, label: labelEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskPathEff, label: labelEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, ...(policyChecks ? { policyChecks } : {}) }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
@@ -1291,6 +1305,7 @@ if (result.lints?.length || result.claimWarnings?.length || result.toolRequestWa
 writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
   runId, chain: config.name, task: taskPathEff, result, config,
   fromRun: fromRun || resumeMeta?.fromRun || null, maxUsd: maxUsdEff,
+  policyChecks: policyChecks ?? resumeMeta?.policyChecks ?? null,
 }), null, 2));
 // v5 item 3: one last write now that report.json exists on disk, so `phase` in state.json
 // reflects `done` rather than staying on whatever it said mid-run (`deriveRunStatus` checks

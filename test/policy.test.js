@@ -187,8 +187,10 @@ test('required_signoff_paths: an empty or non-string signoff counts as none', ()
 
 test('required_signoff_paths backward compat: key absent, the same ctx that the check would refuse evaluates exactly as before', () => {
   const ctx = { ...base, changeRequest: { target_file: 'src/auth/login.js' } };
-  assert.deepEqual(evaluatePolicy({}, ctx), { ok: true, reasons: [] });
-  assert.deepEqual(evaluatePolicy({ required_signoff_paths: [] }, ctx), { ok: true, reasons: [] });
+  // v5 item 5 added `checks` to the result; this test pins ok/reasons, which is what it is about.
+  const okReasons = ({ ok, reasons }) => ({ ok, reasons });
+  assert.deepEqual(okReasons(evaluatePolicy({}, ctx)), { ok: true, reasons: [] });
+  assert.deepEqual(okReasons(evaluatePolicy({ required_signoff_paths: [] }, ctx)), { ok: true, reasons: [] });
   // The other checks' reasons are unchanged, in order, when the new key is absent.
   const policy = { allowed_providers: ['anthropic'], max_usd_per_run: 0 };
   const other = { config: { name: 'x' }, allSeats: [seat('deepseek', 'deepseek-v3')], worstCaseUsd: 5, monthToDateUsd: 0 };
