@@ -433,6 +433,15 @@ let budget = { cap: null, spent: 0 };
 export function setBudget(cap) { budget = { cap: cap ?? null, spent: 0 }; }
 export function budgetState() { return { ...budget, remaining: budget.cap === null ? null : Math.max(0, budget.cap - budget.spent) }; }
 
+// v5 item 3, touch point 1: an optional module-level progress callback, same setter style as
+// setBudget/setCache. Unset (the default, and every caller other than the CLI, including every
+// existing test), this is a no-op - invoke() behaves byte-identically. Called once per real
+// paid call, right before the call actually goes out (a cache hit or an external pause never
+// "starts working" - there is no provider call to be in flight), so state.json's `stage.label`
+// only ever names a stage that is genuinely in flight.
+let progressHook = () => {};
+export function setProgressHook(fn) { progressHook = fn || (() => {}); }
+
 async function invoke(seat, { system, user, log, label }) {
   const started = Date.now();
   // Resume: a stage that already ran in this run folder is replayed from
@@ -459,6 +468,8 @@ async function invoke(seat, { system, user, log, label }) {
     log(`  ${label}: STOPPED - ${formatUsd(budget.spent)} spent, this stage could cost up to ${formatUsd(projected)}, ceiling is ${formatUsd(budget.cap)}.`);
     throw new BudgetExceeded({ label, seat: `${seat.provider}/${seat.model}`, spent: budget.spent, cap: budget.cap, projected });
   }
+
+  progressHook({ label, lab: labOf(seat), startedAt: new Date().toISOString() });
 
   const ask = extra => call(seat.provider, {
     model: seat.model,
@@ -1061,6 +1072,12 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             .filter(r => mineWithPosts.some(p => p.id === r.id) && ['keep', 'amend', 'withdraw'].includes(r.action));
           const n = a => mine.filter(r => r.action === a).length;
           say(`  ${lab}: ${n('keep')} keep, ${n('amend')} amend, ${n('withdraw')} withdraw`);
+          // v5 item 3, touch point 2: decisions already counted just above, no new parsing.
+          // "held" (the design's council-seal wedge for "kept a proposal against an objection")
+          // is a reply seat's own decision, not a provider outcome - kept distinct from
+          // objected/signed, which belong to the critic side of a round (item 3's own
+          // Assumptions note).
+          progressHook({ kind: 'verdict', label: `reply-${lab}`, lab, decisions: { keep: n('keep'), amend: n('amend'), withdraw: n('withdraw') } });
           return { lines, replies: mine };
         } catch (err) {
           say(`  ${lab}: no reply-round answer (${String(err.message).slice(0, 100)}).`);
@@ -1205,6 +1222,12 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             // A lab that is down (429 after retries, 5xx, network) must not take
             // the panel down with it. It abstains, and the log says why.
             say(`  ${labOf(criticSeat)}/${criticSeat.model}: no reply (${String(err.message).slice(0, 120)}) - counted as an abstention.`);
+            // v5 item 3, touch point 2: a verdict update for the live view, using a value
+            // chain.js has already computed at this point - no new parsing. A provider exception
+            // is infrastructure failure, not a stated position - the live wedge's `dropped`
+            // state, kept separate from `objected` (item 1's report.json rule, item 3's own
+            // scope addition kept true in the live view too).
+            progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), dropped: true });
             return { seat: criticSeat, critique: null, abstained: true, error: String(err.message) };
           }
           parsed = parseJson(cs.text);
@@ -1218,6 +1241,11 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             // load-bearing (each one traces to a real incident on disk) and
             // this candidate changes what's printed, never what's diagnosed.
             say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] unreadable reply (${cs.usage.output} tokens out; ${why}) - counted as an abstention, not a sign-off.`);
+            // Same live-wedge treatment as the provider-exception abstention above: a real
+            // reply came back, but not a usable one - item 1's outcome logic already treats
+            // this identically to a dropout (`signedOff === null && passed === false`), so the
+            // live view stays consistent with what report.json will say at the end.
+            progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), dropped: true });
             return { seat: criticSeat, critique: null, abstained: true };
           }
           if (freedoms?.blocking_questions && parsed.blocking_question && attempt === 0) {
@@ -1236,10 +1264,18 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         }
         if (freedoms?.pass && parsed.pass) {
           say(`  ${labOf(criticSeat)}/${criticSeat.model}: PASSED - ${parsed.pass_reason || '(no reason given)'}`);
+          // A stated, recorded refusal to verdict - not a stated position either way, so the
+          // live wedge treats it as "waiting" territory rather than objected/signed. Reported
+          // as its own kind so the writer doesn't have to special-case `passed` on top of
+          // `verdict`.
+          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), passStated: true });
           return { seat: criticSeat, critique: null, passed: true, passReason: capField(parsed.pass_reason) || '' };
         }
         const critique = normaliseCritique(parsed, say);
         say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
+        // v5 item 3, touch point 2: the verdict update the live view needs - `passed` (chain.js's
+        // own name for "meets every criterion") is already computed here, no new parsing.
+        progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), passed: critique.meets === true });
         critique.failures.forEach(f => say(`    FAILED: ${f.criterion} - ${f.problem}`));
         return { seat: criticSeat, critique };
       };

@@ -23,6 +23,7 @@ import { verdictStats } from '../verdict-stats.js';
 import { metricsReport } from '../metrics.js';
 import { checkClaimStaleness } from '../peer-claim.js';
 import { submitStageAnswer } from '../stage-submission.js';
+import { deriveRunStatus, waitingStage, isAlivePid, isAliveByGrep } from '../run-status.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Same split as the CLI: `pkg` ships with the package (chains/, the CLI
@@ -67,15 +68,33 @@ function budgetOf(dir, report) {
   };
 }
 
+// v5 item 2: `waiting`/`isAlive` are now thin aliases over src/run-status.js, the one module
+// both this file and src/cli.js's item-3 writer read status from, so the two can't drift on
+// what "running" means. Kept as local names so every existing call site below is unchanged.
+function waiting(dir) { return waitingStage(dir); }
+function isAlive(id) {
+  const dir = join(runsDir, id);
+  const runMeta = readJson(join(dir, 'run.json'));
+  // v5 item 2: a real per-run liveness check against this run's own recorded pid. Falls back to
+  // the old any-cli.js-alive approximation only for a pre-v5 folder whose run.json has no pid.
+  return runMeta && runMeta.pid ? isAlivePid(runMeta.pid) : isAliveByGrep();
+}
+
 function runSummary(id) {
   const dir = join(runsDir, id);
   const report = readJson(join(dir, 'report.json'));
+  const runMeta = readJson(join(dir, 'run.json'));
   const log = existsSync(join(dir, 'run.log')) ? readFileSync(join(dir, 'run.log'), 'utf8') : '';
   const last = log.trim().split('\n').slice(-3).join(' | ');
   const alive = isAlive(id);
   const budget = budgetOf(dir, report);
   return {
     id,
+    label: runMeta?.label ?? null,
+    // v5 item 2: the derived status enum (done/budget_stopped/paused/running/stopped),
+    // alongside the existing free-text `state` string below - additive, `state`'s own shape
+    // and every existing reader of it are unchanged.
+    status: deriveRunStatus(dir, runMeta),
     chain: report?.chain || (log.match(/^chain: (\S+)/m) || [])[1] || null,
     task: report?.task || (log.match(/^task: +(\S+)/m) || [])[1] || null,
     state: report ? (report.passed ? 'done: every lab signed off' : 'done: open objections')
@@ -91,22 +110,6 @@ function runSummary(id) {
     files: existsSync(dir) ? readdirSync(dir).filter(f => !f.endsWith('.usage.json')).sort() : [],
     lastLogLines: last,
   };
-}
-
-function waiting(dir) {
-  if (!existsSync(dir)) return null;
-  const w = readdirSync(dir).filter(f => f.startsWith('NEEDS-')).map(f => f.slice(6, -3)).filter(l => !existsSync(join(dir, `${l}.md`)));
-  return w[0] || null;
-}
-
-function isAlive(id) {
-  try {
-    const out = execFileSync('pgrep', ['-af', process.pkg ? process.execPath : 'src/cli.js'], { encoding: 'utf8' });
-    // The run id is not on the command line; match by the newest cli process
-    // whose run.log is this run's. Cheap approximation: any cli.js alive and
-    // this run has no report yet.
-    return out.trim().length > 0 && !existsSync(join(runsDir, id, 'report.json'));
-  } catch { return false; }
 }
 
 // Packaging note (v7, binary release): everything below that actually starts the server

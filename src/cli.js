@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync, statSync, renameSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, resolveChainSeats, setCache, setBudget, budgetState, ExternalPause, BudgetExceeded, PreflightBlocked } from './chain.js';
+import { runChain, checkSeats, resolveChainSeats, setCache, setBudget, budgetState, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked } from './chain.js';
+import { deriveRunStatus } from './run-status.js';
+import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sumCostFromStageLogText } from './run-state.js';
+import { computeOutcome } from './outcome.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName, keyFor, isKeyOptional } from './providers.js';
 import { spendReport, costToday } from './spend.js';
@@ -128,6 +131,7 @@ function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = 
     allocator: result.allocator,
     proposals: result.proposals,
     dropouts: result.dropouts,
+    outcome: computeOutcome(result),
     debate,
     scoreboard: result.scoreboard,
     disputes: result.disputes,
@@ -903,6 +907,16 @@ if (!existsSync(taskFile)) {
 }
 let request = readFileSync(taskFile, 'utf8');
 
+// v5 item 2: a readable name for this run. Precedence: --label flag, then the task file's own
+// `label:` line, then the task file's own basename with no input required. Only computed on a
+// fresh start - a resumed run carries its label forward unchanged via run.json's spread below,
+// since --label/the task file may have changed by the time someone resumes.
+const labelFlagRaw = flag('label', null);
+const labelFlagValue = typeof labelFlagRaw === 'string' ? labelFlagRaw : null;
+const labelFieldMatch = request.match(/^label:[ \t]*(.*?)[ \t]*$/m);
+const labelDefault = basename(taskPathEff).replace(/\.[^./]+$/, '');
+const labelEff = labelFlagValue || (labelFieldMatch ? labelFieldMatch[1] : null) || labelDefault;
+
 // v7.x item 2: scan the raw task file text before anything else touches it - strictly before
 // any provider adapter is constructed, before a run folder is even created. Not invoked at all
 // unless --pii-gate was passed (see flag parsing above).
@@ -965,8 +979,14 @@ if (auditEnabled) {
 }
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskPathEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash }, null, 2));
-} else if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskPathEff, label: labelEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid }, null, 2));
+} else {
+  if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
+  // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
+  // every other field carry forward unchanged via the spread.
+  resumeMeta = { ...resumeMeta, pid: process.pid };
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify(resumeMeta, null, 2));
+}
 
 // v3 §2: refuse to silently resume past a changed task file. A stored taskHash on an older
 // run (pre-v3) is absent, not mismatched - trusted, not treated as stale, the same posture
@@ -1046,6 +1066,71 @@ if (!resumeMeta) {
   }
 }
 
+// v5 item 3: state.json, a live progress file rewritten atomically from files already on disk
+// plus the in-flight stage - never read back as chain input (deleting it loses nothing). The
+// classification/parsing logic itself is in src/run-state.js (pure, unit-tested with no CLI or
+// process running); this block is the thin stateful wrapper: it owns the seat-status Map,
+// installs chain.js's progressHook, and does the file I/O.
+const seatState = new Map(
+  [...(config.seats.proposers || []), ...(config.seats.critics || [])].map(s => [s.lab || s.provider, 'waiting']),
+);
+let currentStage = null;
+let currentRound = 1;
+
+function applyStageCompletion(label, lab) {
+  if (!lab) return;
+  const r = parseRoundFromLabel(label);
+  if (r) currentRound = r;
+  const status = classifyStageCompletion(label);
+  if (status) seatState.set(lab, status);
+}
+
+function writeStateJson() {
+  const cost = sumCostFromStageLogText(existsSync(join(runDir, 'stage-log.jsonl')) ? readFileSync(join(runDir, 'stage-log.jsonl'), 'utf8') : '');
+  const runMetaNow = { pid: process.pid, ...(resumeMeta || {}) };
+  const state = {
+    runId, label: labelEff,
+    phase: deriveRunStatus(runDir, runMetaNow),
+    stage: currentStage,
+    round: currentRound, maxRounds: config.maxRounds,
+    seats: [...seatState.entries()].map(([lab, status]) => ({ lab, status })),
+    cost: { perLab: cost.perLab, spentUsd: cost.spentUsd, maxUsd: maxUsdEff },
+    updatedAt: new Date().toISOString(),
+  };
+  const tmp = join(runDir, '.state.json.tmp');
+  writeFileSync(tmp, JSON.stringify(state, null, 2));
+  renameSync(tmp, join(runDir, 'state.json'));
+}
+
+// Rebuild seatState/round from whatever this run folder already recorded, so a --resume run's
+// first state.json write (before any new stage even starts) reflects real history rather than
+// a blank roster - stage-log.jsonl already exists for a resumed run's completed stages.
+if (existsSync(join(runDir, 'stage-log.jsonl'))) {
+  for (const line of readFileSync(join(runDir, 'stage-log.jsonl'), 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    applyStageCompletion(entry.stage, entry.lab);
+  }
+}
+
+// v5 item 3, touch point 1's receiver: chain.js calls this once per real paid call, right
+// before it goes out, and a second time per critique/panel/reply stage once its verdict is
+// parsed (touch point 2) - see src/chain.js's progressHook call sites for the exact payloads.
+setProgressHook(event => {
+  if (event.startedAt) {
+    currentStage = { label: event.label, lab: event.lab, startedAt: event.startedAt };
+    seatState.set(event.lab, 'working');
+    const r = parseRoundFromLabel(event.label);
+    if (r) currentRound = r;
+  } else {
+    const status = classifyVerdictEvent(event, seatState.get(event.lab));
+    if (status) seatState.set(event.lab, status);
+  }
+  writeStateJson();
+});
+writeStateJson();
+
 log(resumeMeta ? `resume: stages already on disk replay for free` : '');
 let result;
 try {
@@ -1055,6 +1140,13 @@ try {
     draft: handedDraft,
     log,
     onStage: s => {
+      // v5 item 3: the in-flight stage just finished (cached or not - a cache hit on resume is
+      // still "no longer in flight"), so it's cleared here regardless of the cached early
+      // return just below, which only skips the older, non-state.json side effects that are
+      // already on disk for a cache hit.
+      currentStage = null;
+      applyStageCompletion(s.label, s.lab);
+      writeStateJson();
       if (s.cached) return;
       // v2 plan §7.1: validate against the stage contract's required_sections before
       // trusting this deliverable - same class of bug as the lab-dropout fix, just one
@@ -1200,6 +1292,12 @@ writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
   runId, chain: config.name, task: taskPathEff, result, config,
   fromRun: fromRun || resumeMeta?.fromRun || null, maxUsd: maxUsdEff,
 }), null, 2));
+// v5 item 3: one last write now that report.json exists on disk, so `phase` in state.json
+// reflects `done` rather than staying on whatever it said mid-run (`deriveRunStatus` checks
+// report.json first; without this call, a completed run's state.json would show "running"
+// forever, since nothing else touches it after the last stage's own onStage-triggered write).
+currentStage = null;
+writeStateJson();
 // report.json existing is this codebase's own definition of "finished" (STOPPED-budget.json's
 // comment above says so explicitly) - the audit chain closes here, not in a finally block, so a
 // paused or budget-stopped run's audit.jsonl is correctly left without a close line.
