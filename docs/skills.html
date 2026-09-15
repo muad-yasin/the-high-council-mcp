@@ -247,6 +247,9 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
 <pre>git clone https://github.com/muad-yasin/the-high-council-mcp
 cp -r the-high-council-mcp/skills/task-scoping your-project/.claude/skills/
 cp -r the-high-council-mcp/skills/verification-and-critique your-project/.claude/skills/</pre>
+    <p>Or install all of them as a Claude Code plugin. The plugin also registers The High Council MCP server, which does nothing until one of its tools is called.</p>
+<pre>claude plugin marketplace add muad-yasin/the-high-council-mcp
+claude plugin install the-high-council@the-high-council</pre>
     <p>The catalog in <code>skills/README.md</code> lists every skill with when to use it. Changes are recorded in the repository's <code>CHANGELOG.md</code>; this page and the catalog are checked by the test suite against the real <code>skills/</code> folder, so they can't list a skill that doesn't exist or miss one that does.</p>
   </div>
 </section>

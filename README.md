@@ -293,6 +293,21 @@ claude mcp add high-council -- node /absolute/path/to/the-high-council-mcp/src/m
 **The path must be absolute.** The client starts the server from its own working directory, not
 from this one, so a relative path resolves somewhere unexpected and the server never starts.
 
+Or as a Claude Code plugin, which registers the same server and also installs the skills in
+[`skills/`](skills/README.md):
+
+```bash
+claude plugin marketplace add muad-yasin/the-high-council-mcp
+claude plugin install the-high-council@the-high-council
+```
+
+Claude Code copies the plugin into its plugin cache and runs `npm ci` there itself, so the first
+install takes a little longer. Start a new session (or run `/reload-plugins`) and the server shows
+up in `claude mcp list` as `plugin:the-high-council:high-council`. Remove it with
+`claude plugin uninstall the-high-council@the-high-council`. If you add the marketplace from a
+local clone instead (`claude plugin marketplace add /path/to/clone`), the server runs from the
+clone itself, so run `npm install` in it first.
+
 Registering with a client other than Claude Code (DeepSeek Harness, OpenHands, Cline, goose,
 Continue): [docs/mcp-clients.md](docs/mcp-clients.md) has the real config for each.
 

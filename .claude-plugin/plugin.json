@@ -1,0 +1,17 @@
+{
+  "name": "the-high-council",
+  "displayName": "The High Council",
+  "description": "The High Council MCP server (multi-model planning harness, BYOK) plus the generic skills in skills/, packaged as one Claude Code plugin.",
+  "version": "0.7.5",
+  "author": { "name": "Muad Yasin" },
+  "homepage": "https://muad-yasin.github.io/the-high-council-mcp/",
+  "repository": "https://github.com/muad-yasin/the-high-council-mcp",
+  "license": "MIT",
+  "keywords": ["mcp", "planning", "multi-model", "debate", "skills"],
+  "mcpServers": {
+    "high-council": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/src/mcp/server.js"]
+    }
+  }
+}

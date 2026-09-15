@@ -61,6 +61,16 @@ this repository's `skills/` directory. Each skill loads only when a task matches
 so installing all of them costs little. They work on their own; none requires The High Council
 harness, an MCP server, or an API key.
 
+To install all of them at once, add this repository as a Claude Code plugin:
+
+```bash
+claude plugin marketplace add muad-yasin/the-high-council-mcp
+claude plugin install the-high-council@the-high-council
+```
+
+The plugin also registers The High Council MCP server. It does nothing until you call one of its
+tools, and it needs your own API keys only for chains that call a paid model.
+
 ## How these are written
 
 - **Keep the scar, drop the coordinates.** Each rule keeps the failure that produced it and the

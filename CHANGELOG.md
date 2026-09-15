@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased - Claude Code plugin packaging
+
+The repository root is now also a Claude Code plugin and its own one-entry marketplace:
+`.claude-plugin/plugin.json` registers the existing MCP server (`node
+${CLAUDE_PLUGIN_ROOT}/src/mcp/server.js`) and the default `skills/` scan picks up every skill, with
+no new functionality. Install with `claude plugin marketplace add muad-yasin/the-high-council-mcp`
+then `claude plugin install the-high-council@the-high-council`; Claude Code runs `npm ci` in its
+own cached copy, which is why `package-lock.json` must stay committed. The server is declared inline
+rather than in a root `.mcp.json`, which every clone would also load as broken project MCP config.
+`test/claude-plugin.test.js` pins the manifest's version to `package.json` and checks what the
+install depends on. `claude plugin validate --strict` passes on the marketplace; on the plugin it
+reports one warning, that the root `CLAUDE.md` is not loaded as plugin context, which is intended.
+
 ## Unreleased - coder-gate v5: disagreement groups, policy capabilities, citations, seat boundary
 
 From the v5 plan (`relay/runs/2026-09-15T03-43-44-216Z/deliverable.md`, signed off 4 of 5 - the

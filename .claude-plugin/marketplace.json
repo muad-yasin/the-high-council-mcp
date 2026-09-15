@@ -1,0 +1,12 @@
+{
+  "name": "the-high-council",
+  "owner": { "name": "Muad Yasin" },
+  "description": "The High Council MCP server and skills as a Claude Code plugin.",
+  "plugins": [
+    {
+      "name": "the-high-council",
+      "source": "./",
+      "description": "The High Council MCP server (BYOK) plus the generic skills in skills/."
+    }
+  ]
+}
