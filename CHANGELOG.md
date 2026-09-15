@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased - MLLM Coder v6 items V6-1 and V6-2: status ledger, span-tree progress records
+
+From the v6 plan (`relay/runs/2026-09-15T15-13-25-950Z/deliverable.md`, unanimous 5/5). V6-3,
+V6-4 and V6-7 deferred (the plan's own Mistral objection applies to V6-4 only) - not built here.
+
+**V6-1.** `STATUS-LEDGER.md` (new, tracked): a real, re-checkable status table for every v5 GUI
+feature (built/partial/not started/cut) and the Project A overlap, each row citing the exact
+commit and file that backs it. `test/status-ledger.test.js` re-verifies every cited path exists
+at HEAD (in this repo or the named `coder-gate-agent-stub` sibling), that every status is one of
+the four allowed values, and that no row reads "assumed" or "TBD" - the ledger cannot silently
+drift from what it claims.
+
+**V6-2.** `stage-log.jsonl` gains a span tree: every stage line now carries `span_id` and
+`parent_span_id` (`src/spans.js`), and a `kind:"round"` summary record is appended once every
+critic seat has posted for a panel round, giving `state.json`'s existing per-round polling a
+matching append-only history without a third file or format. `run.json` gains `rootSpanId`,
+carried forward unchanged across `--resume`. Additive only: existing stage-line fields are
+unchanged, round records omit `usd` and are skipped by `sumCostFromStageLogText` so they are
+never double-counted. The span-tree idea is attributed to Langfuse/LangSmith/AgentOps; none is
+adopted as a dependency. No `src/chain.js` or `src/tools.js` change.
+
 ## Unreleased - Claude Code plugin packaging
 
 The repository root is now also a Claude Code plugin and its own one-entry marketplace:

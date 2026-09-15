@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync, statSync, renameSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, checkSeats, resolveChainSeats, setCache, setBudget, budgetState, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked } from './chain.js';
 import { deriveRunStatus } from './run-status.js';
 import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sumCostFromStageLogText } from './run-state.js';
+import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFromStageLogText, sumRoundUsdFromStageLogText } from './spans.js';
 import { computeOutcome } from './outcome.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName, keyFor, isKeyOptional, call } from './providers.js';
@@ -1167,13 +1169,21 @@ if (auditEnabled) {
   auditWriter = createAuditWriter({ runDir, run: runId, chain: chainNameEff, hmacKey });
 }
 
+// v6 item V6-2: one span-tree root per run, not per process - a resumed run keeps the same tree
+// rather than starting a second, disconnected one each time it's resumed. Generated fresh only
+// when the run has never carried one (a genuinely new run, or an older run.json from before this
+// feature existed); once set it is spread forward on every resume below, unchanged.
+const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
+
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskPathEff, label: labelEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, ...(policyChecks ? { policyChecks } : {}) }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskPathEff, label: labelEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}) }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
-  // every other field carry forward unchanged via the spread.
-  resumeMeta = { ...resumeMeta, pid: process.pid };
+  // every other field carry forward unchanged via the spread. v6 item V6-2: rootSpanId is
+  // likewise carried forward (or set, the first time an older run.json is resumed under this
+  // feature) rather than regenerated.
+  resumeMeta = { ...resumeMeta, pid: process.pid, rootSpanId };
   writeFileSync(join(runDir, 'run.json'), JSON.stringify(resumeMeta, null, 2));
 }
 
@@ -1294,14 +1304,21 @@ function writeStateJson() {
 // Rebuild seatState/round from whatever this run folder already recorded, so a --resume run's
 // first state.json write (before any new stage even starts) reflects real history rather than
 // a blank roster - stage-log.jsonl already exists for a resumed run's completed stages.
-if (existsSync(join(runDir, 'stage-log.jsonl'))) {
-  for (const line of readFileSync(join(runDir, 'stage-log.jsonl'), 'utf8').split('\n')) {
+const existingStageLogText = existsSync(join(runDir, 'stage-log.jsonl')) ? readFileSync(join(runDir, 'stage-log.jsonl'), 'utf8') : '';
+if (existingStageLogText) {
+  for (const line of existingStageLogText.split('\n')) {
     if (!line.trim()) continue;
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
+    if (entry.kind) continue;
     applyStageCompletion(entry.stage, entry.lab);
   }
 }
+// V6-2: same replay-from-disk reconstruction as seatState above, so a round left partially
+// complete before a pause closes correctly once its remaining critics report post-resume,
+// instead of starting a second, disconnected span for a round already in progress.
+const { roundSpanIds, roundPanelCounts } = replaySpanStateFromStageLogText(existingStageLogText);
+const criticsCount = (config.seats?.critics || []).length;
 
 // v5 item 3, touch point 1's receiver: chain.js calls this once per real paid call, right
 // before it goes out, and a second time per critique/panel/reply stage once its verdict is
@@ -1315,6 +1332,26 @@ setProgressHook(event => {
   } else {
     const status = classifyVerdictEvent(event, seatState.get(event.lab));
     if (status) seatState.set(event.lab, status);
+    // V6-2: checked here, not in onStage's stage-file writer - chain.js posts a panel stage's
+    // 'verdict' progressHook event (touch point 2) strictly after that stage's own onStage/
+    // record() call (touch point 1) already ran, so seatState wouldn't yet reflect the very
+    // critic whose verdict just closed the round if this ran at onStage time instead. Checking
+    // here means the round record's seats[] snapshot always includes every critic's real,
+    // just-posted status - never "working" for the seat that only just finished.
+    const closedRound = recordRoundStageAndCheckClose(event.label, roundPanelCounts, criticsCount);
+    if (closedRound) {
+      const roundSeats = (config.seats?.critics || []).map(c => {
+        const lab = c.lab || c.provider;
+        return { lab, status: seatState.get(lab) || 'unknown' };
+      });
+      const stageLogPath = join(runDir, 'stage-log.jsonl');
+      const spentUsd = sumRoundUsdFromStageLogText(existsSync(stageLogPath) ? readFileSync(stageLogPath, 'utf8') : '', closedRound);
+      appendFileSync(stageLogPath, `${JSON.stringify({
+        kind: 'round', round: closedRound,
+        span_id: roundSpanIds.get(closedRound), parent_span_id: rootSpanId,
+        seats: roundSeats, spentUsd,
+      })}\n`);
+    }
   }
   writeStateJson();
 });
@@ -1356,10 +1393,14 @@ try {
       // artifacts - structured so future tooling (candidate #9's replay, #2's independence
       // report) can read a run without re-parsing prose. No prompt content, same privacy
       // posture as verdict-stats.js: seat/lab/counts/cost/timing only.
+      // V6-2: span_id/parent_span_id turn this flat log into a span tree - every panel/critique
+      // stage's parent is its enclosing round's span, everything else's parent is the run root
+      // (src/spans.js resolves which).
       appendFileSync(join(runDir, 'stage-log.jsonl'), `${JSON.stringify({
         stage: s.label, seat: `${s.provider}/${s.model}`, lab: s.lab,
         tokensIn: s.usage?.input ?? 0, tokensOut: s.usage?.output ?? 0,
         usd: s.usd, ms: s.ms, outcome: s.text ? 'ok' : 'empty',
+        span_id: randomUUID(), parent_span_id: resolveParentSpanId(s.label, rootSpanId, roundSpanIds, randomUUID),
       })}\n`);
       // v2 plan §5: regenerate at every stage-completion boundary, always from
       // disk state, never itself trusted as the source of truth.
