@@ -37,6 +37,7 @@ import { formatCouncilError, ERROR_CATALOG } from './errors.js';
 import { loadPolicy, buildPolicyContext, evaluatePolicy, parseChangeRequestFields, POLICY_PATH } from './policy.js';
 import { deriveDisagreementGroups } from './disagreement-groups.js';
 import { shouldEnableAudit, loadHmacKey, createAuditWriter } from './audit.js';
+import { runCouncilReplay } from './council-replay.js';
 
 // v5 §1 candidate 4: distinct exit codes for a degradable condition (a
 // stranger can fix it and continue - a missing key, an unpriced model)
@@ -590,6 +591,53 @@ if (rematchArg) {
   if (diff.critics_objecting_added.length) console.log(`critics newly objecting: ${diff.critics_objecting_added.join(', ')}`);
   if (diff.critics_objecting_removed.length) console.log(`critics no longer objecting: ${diff.critics_objecting_removed.join(', ')}`);
   console.log(`\nWrote ${rematchRunDir} (deliverable.md, report.json, rematch-diff.json).`);
+  process.exit(0);
+}
+
+// `--replay <run-dir> [--replay-date YYYY-MM-DD] [--allow-task-drift]` (v6 item D, harness
+// feature round: relay/runs/2026-09-15T15-12-52-325Z/deliverable.md, "Item D — Council
+// replay"): rerun an already-decided task's exact original input against today's chain config,
+// then diff the new verdict against the one already recorded. Read-only with respect to
+// src/chain.js and src/tools.js (0-line delta, per the plan) - the mechanism lives entirely in
+// src/council-replay.js and the diff semantics it shares with item C's --rematch in
+// src/verdict-diff.js. Not a claim that the new run is better or worse - see both modules'
+// own headers.
+if (argv.includes('--replay')) {
+  const runArg = flag('replay', null);
+  if (!runArg || runArg === true) {
+    console.error('--replay: a run folder path is required, e.g. --replay runs/2026-09-01T00-00-00-000Z');
+    process.exit(2);
+  }
+  const runDir = resolve(work, runArg);
+  if (!existsSync(join(runDir, 'report.json')) || !existsSync(join(runDir, 'run.json'))) {
+    console.error(`--replay: ${runDir} is not a completed run folder (needs run.json and report.json)`);
+    process.exit(2);
+  }
+  const dateArg = flag('replay-date', null);
+  const date = dateArg ? new Date(`${dateArg}T00:00:00.000Z`) : new Date();
+  if (Number.isNaN(date.getTime())) {
+    console.error('--replay-date: expected YYYY-MM-DD');
+    process.exit(2);
+  }
+  // Same work-then-pkg chain-config search order as a normal run (line ~749 above) - a chain
+  // named by the original run may live in the user's own chains/ or in the shipped set.
+  const runMetaForChain = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
+  const chainsDirCandidates = [join(work, 'chains'), join(pkg, 'chains')];
+  const chainsDir = chainsDirCandidates.find(d => existsSync(join(d, `${runMetaForChain.chain}.json`))) || chainsDirCandidates[1];
+  try {
+    const { replayDir, diff } = await runCouncilReplay(runDir, {
+      chainsDir,
+      workDir: work,
+      date,
+      log: console.log,
+      allowTaskDrift: argv.includes('--allow-task-drift'),
+    });
+    console.log(`\nWrote ${replayDir} (report.json, deliverable.md, replay-diff.json).`);
+    console.log(`signoff_match: ${diff.signoff_match}  verdict_category_changed: ${diff.verdict_category_changed}`);
+  } catch (err) {
+    console.error(`--replay: ${err.message}`);
+    process.exit(1);
+  }
   process.exit(0);
 }
 
