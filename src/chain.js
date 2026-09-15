@@ -271,6 +271,31 @@ export function classifyUnreadable(usage, maxTokens) {
   return 'malformed JSON - read the saved reply, it may still be an objection';
 }
 
+// v8 item (a) (deep-research-v8-directional-followup-2026-09-15.md §5.3 item 1): a reserved,
+// closed set of machine-readable reason codes for report.json's signoff[] entries, named so an
+// abstention's cause is a schema value rather than only a log line someone has to remember to
+// read. Deliberately a SEPARATE function from classifyUnreadable rather than a change to its
+// return shape - classifyUnreadable's plain-string return is pinned by test/chain.test.js
+// (added 2026-09-10 after a real incident) and changing it would be a needless breaking edit to
+// an already-correct, already-tested function. This function reads the same two inputs
+// classifyUnreadable already reads and returns the code for the same three diagnoses, plus the
+// one abstention path classifyUnreadable was never meant to cover (a thrown provider/transport
+// exception - see the catch block above reviewSeat, "a lab that is down"). No new abstention
+// category exists beyond these four; the set is closed on purpose.
+export const RESERVED_ABSTENTION_REASONS = Object.freeze([
+  'SEAT_UNREACHABLE',   // the catch block: 429/5xx/network - invoke() threw before any reply came back
+  'PROVIDER_ERROR',     // classifyUnreadable's stop:"error" branch - a reply came back but the provider aborted mid-generation
+  'REPLY_TRUNCATED',    // classifyUnreadable's near-cap-output branch - the reply hit maxTokens before finishing
+  'REPLY_UNPARSEABLE',  // classifyUnreadable's fallback branch - a complete reply that still isn't valid JSON
+]);
+
+export function abstentionReasonCode(usage, maxTokens) {
+  if (usage.stop === 'error') return 'PROVIDER_ERROR';
+  const cap = maxTokens ?? 8000;
+  if (usage.output >= cap * 0.95) return 'REPLY_TRUNCATED';
+  return 'REPLY_UNPARSEABLE';
+}
+
 // Small critics fill the schema literally: every criterion MET, meets:false,
 // and a placeholder failure {criterion:"None"} because the array "had to"
 // hold something (Llama 3.3 70B did exactly this on 2026-09-07, and the
@@ -1228,7 +1253,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             // state, kept separate from `objected` (item 1's report.json rule, item 3's own
             // scope addition kept true in the live view too).
             progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), dropped: true });
-            return { seat: criticSeat, critique: null, abstained: true, error: String(err.message) };
+            return { seat: criticSeat, critique: null, abstained: true, error: String(err.message), reasonCode: 'SEAT_UNREACHABLE' };
           }
           parsed = parseJson(cs.text);
           if (!parsed) {
@@ -1236,6 +1261,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             // objects, and it cannot block the panel. It used to count as a
             // pass, which would have waved a truncated FAILED straight through.
             const why = classifyUnreadable(cs.usage, criticSeat.maxTokens);
+            const reasonCode = abstentionReasonCode(cs.usage, criticSeat.maxTokens);
             // v5 §1 candidate 4: the code is prepended, the diagnosis itself
             // is untouched - classifyUnreadable's three distinct reasons are
             // load-bearing (each one traces to a real incident on disk) and
@@ -1246,7 +1272,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             // this identically to a dropout (`signedOff === null && passed === false`), so the
             // live view stays consistent with what report.json will say at the end.
             progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), dropped: true });
-            return { seat: criticSeat, critique: null, abstained: true };
+            return { seat: criticSeat, critique: null, abstained: true, reasonCode };
           }
           if (freedoms?.blocking_questions && parsed.blocking_question && attempt === 0) {
             say(`  ${labOf(criticSeat)}/${criticSeat.model}: blocking question - ${parsed.blocking_question}`);
@@ -1327,6 +1353,9 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         // instead of overloading `objections`.
         passed: v.passed === true,
         passReason: v.passed ? v.passReason : null,
+        // v8 item (a): additive field, report.json contract. null for a real sign-off/objection
+        // or a stated pass; one of RESERVED_ABSTENTION_REASONS (src/chain.js) when v.abstained.
+        reason_code: v.abstained ? (v.reasonCode || null) : null,
       }));
 
       history.push(`## Round ${round} panel\n${verdicts.map(v =>

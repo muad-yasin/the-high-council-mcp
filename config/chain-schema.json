@@ -1,0 +1,258 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://the-high-council.dev/schema/chain-v1.json",
+  "title": "Chain config shape (v8 item (b), deep-research-v8-directional-followup-2026-09-15.md \u00a72.4(c))",
+  "description": "Validates the real top-level fields `src/chain.js` and `src/chain-lint.js` actually read (derived by grepping `config.<field>` across src/chain.js, not copied from one example chain file - so this covers mock chains and compliance chains too, not just the coder-gate/plan-debate shapes). Precedent and style: config/seat-model-schema.json (draft-07, one $id, descriptive `description` fields explaining why a shape is allowed, not just what it is). additionalProperties is false at the top level, so an unrecognized/typo'd top-level key fails loud here (chain-lint.js has no equivalent check - its rule 1 only validates seats.* sub-keys). Deliberately permissive at the leaves this repo's own chain-lint.js already validates at runtime with better, config-specific error messages (challenge, allocator, compliance, roster) - duplicating that validation here would drift from chain-lint.js's real rules the first time either changes; this schema's job is catching the shape errors chain-lint.js does NOT check (typos in top-level key names, wrong types, an unrecognized field), which is exactly where config drift has actually gone unnoticed (test/landing-page.test.js's own precedent: a page shipped a stale count nobody caught until a derived test existed).",
+  "type": "object",
+  "required": [
+    "seats"
+  ],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^_": { "description": "A leading-underscore top-level key is a free-form human note, not engine-read config - real precedent: chains/gp-judge-v1.json's \"_maxTokensNote\". Left unconstrained in type/shape on purpose (it's prose, not data any code parses) rather than special-cased to one exact field name, so the next author adding a similarly-named note doesn't retrigger this exact validation failure." }
+  },
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Chain identifier, matches the filename stem by convention (not enforced here - test/chain-schema.test.js checks structural validity, not naming)."
+    },
+    "description": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "v8 item (b), part 2. Optional; absence defaults to 1 (src/chain-lint.js reads and defaults it, does not require it). No schemaVersion-2 shape exists yet - this field buys the ABILITY to change the flag vocabulary later without silently misreading an old file, nothing more; no reader branches on its value today."
+    },
+    "maxRounds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "signoff": {
+      "type": "string",
+      "enum": [
+        "first",
+        "unanimous"
+      ]
+    },
+    "panel": {
+      "type": "string",
+      "enum": [
+        "relay"
+      ],
+      "description": "Absent means independent (blind) panel, the default. Only 'relay' is a real alternative chain.js reads."
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "open"
+      ],
+      "description": "Absent means closed scope (the default)."
+    },
+    "stopOnPass": {
+      "type": "boolean"
+    },
+    "descending": {
+      "type": "boolean"
+    },
+    "degrade_on_provider_error": {
+      "type": "boolean"
+    },
+    "estimate": {
+      "type": "object",
+      "description": "Worst-case token estimate used by dry-run pricing only - never read by runChain's real behavior.",
+      "properties": {
+        "promptTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "draftTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "critiqueTokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "proposals": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "parts": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxTokens": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "samples": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "keep": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "debate": {
+      "type": "boolean"
+    },
+    "handoff": {
+      "type": "boolean"
+    },
+    "handoffPlanFile": {
+      "type": "string"
+    },
+    "questions": {
+      "type": "object",
+      "properties": {
+        "max": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "wait": {
+          "type": "boolean"
+        }
+      }
+    },
+    "freedoms": {
+      "type": "object",
+      "description": "Scoped debate freedoms (v7 item 3+4). Shape not re-validated here - engine-read, additive over time."
+    },
+    "verify": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "tools": {
+          "type": "array"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "runTool": {}
+      }
+    },
+    "verify_post": {
+      "type": "object",
+      "description": "v4 item 3: post-build re-invocation of runVerification. Same shape as verify."
+    },
+    "preflight": {
+      "description": "v4 item 2 (task-description-only review pre-propose). Boolean or object with optional 'seats'."
+    },
+    "ambiguity_union": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "canary": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "claims": {
+      "description": "v7 item 1 claim-extraction config. Engine-read, not re-validated here."
+    },
+    "lints": {
+      "type": "object",
+      "properties": {
+        "forks": {
+          "type": "array"
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "description": "v7.x seat_requests toggle. { seat_requests: { enabled } }."
+    },
+    "transport": {
+      "description": "Reserved for future transport-level config; not read by any shipped chain today."
+    },
+    "challenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "description": "src/chain-lint.js rule 6 already hard-validates this exhaustively (only 'enabled' is a real key) - this schema mirrors that exact shape rather than re-deriving it."
+    },
+    "allocator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "tools": {
+          "type": "array"
+        },
+        "cwd": {
+          "type": "string"
+        }
+      },
+      "description": "src/chain-lint.js rule 7 already hard-validates tool names and keyword shape at runtime with better messages; this schema only pins the three known keys."
+    },
+    "compliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "regions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "src/chain-lint.js rule 8 cross-checks these against real seat providers and the description text at runtime; this schema only pins the two known keys."
+    },
+    "roster": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "criteria_seat": {
+          "type": "string"
+        },
+        "minimal_two_strong": {
+          "type": "boolean"
+        }
+      },
+      "description": "src/chain-lint.js rule 9 already resolves criteria_seat against real seat labs at runtime; this schema only pins the two known keys."
+    },
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Hand-written criteria, bypassing the criteria stage - see chains/gp-judge-*.json."
+    },
+    "seats": {
+      "type": "object",
+      "description": "Keys validated against KNOWN_SEAT_KEYS by src/chain-lint.js rule 1 at runtime with a better error message (names the real unrecognized key); this schema only requires the value be an object so a typo'd top-level shape (an array, a string) is still caught here."
+    }
+  }
+}

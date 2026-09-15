@@ -340,5 +340,47 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
+  // 10. schemaVersion (v8 item (b), part 2): optional integer, defaulted to 1 when absent so
+  // every chain file already in chains/ keeps validating and running unmodified - config is
+  // data, optional with a documented default, never a required field that breaks an existing
+  // caller. Type/range enforcement lives in config/chain-schema.json (checked by
+  // test/chain-schema.test.js), not here - this only reads and defaults the value; no
+  // version-dependent behaviour exists yet for it to gate.
+  if ('schemaVersion' in (config || {}) && !Number.isInteger(config.schemaVersion)) {
+    findings.push({
+      kind: 'invalid-schema-version',
+      message: `schemaVersion must be an integer when present (got ${JSON.stringify(config.schemaVersion)}).`,
+      fix: `Set "schemaVersion" to an integer (e.g. 1) in ${filePath}, or omit it - absence defaults to 1.`,
+    });
+  }
+
+  // 11. Inert verify.tools (v8 item (b), part 3): the real incident this rule exists for is
+  // MLLM Coder v3 item 2 - a chain specced `verify.tools` entries meant to fact-check a diff,
+  // but `runVerification` runs before any change-request/diff exists in that chain's real
+  // stage order (proposals -> debate -> build), so the entries were inert from the moment the
+  // config was written; a human reading chain.js caught it, not the config or any check. This
+  // is a config-shape check only, scoped to what the config alone can prove: a chain with no
+  // `proposals` stage and no seat that could produce a build/diff (`seats.builder`) has nothing
+  // upstream of verify that could plausibly generate the diff-shaped artifact a verify.tools
+  // entry would fact-check. Named plainly: lintChain has no warn/error severity tier (every
+  // finding here is fatal per src/cli.js's own "has N problem(s) and will not run" gate, same
+  // as this file's other 10 rules) - adding one would be a chain.js/cli.js engine change beyond
+  // this item's scope, so this rule fires only on the narrow, provable case above, never on a
+  // chain that intends to always run with --draft (that path supplies the diff at the CLI,
+  // outside what a static config-shape lint can see, and is exactly why the rule requires BOTH
+  // no proposals AND no builder rather than firing on verify.tools alone). Deliberately narrow:
+  // one concrete rule for the one recorded incident, not a general stage-dependency grammar
+  // (out of scope - see deep-research-v8-directional-followup-2026-09-15.md §2.4(a)'s own
+  // conclusion against an open stage/dependency system).
+  if (config?.verify?.enabled && Array.isArray(config.verify.tools) && config.verify.tools.length > 0) {
+    if (!config.proposals && !seats.builder) {
+      findings.push({
+        kind: 'inert-verify-tools',
+        message: `verify.tools is non-empty, but this chain has no "proposals" stage and no "seats.builder" - nothing in the config produces a diff/change-request for verify to check before it runs.`,
+        fix: `Add "proposals" and/or a "seats.builder" seat to ${filePath} if verify.tools is meant to check a diff this chain builds, or remove "verify.tools" if this chain is always run with --draft (a diff supplied at the CLI, invisible to this static check).`,
+      });
+    }
+  }
+
   return findings;
 }
