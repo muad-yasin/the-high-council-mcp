@@ -34,6 +34,9 @@ export function classifyVerdictEvent(event, currentStatus) {
 // Parses stage-log.jsonl's own line shape ({ stage, seat, lab, tokensIn, tokensOut, usd, ms,
 // outcome }, one JSON object per line) into the cost block state.json needs. Tolerant of a
 // truncated last line (a run killed mid-write) and of unparseable lines - skipped, not thrown.
+// V6-2: a line carrying `kind` (currently only `kind:"round"`) is a derived summary of stage
+// lines already counted above it, never a stage of its own - skipped here so a round record
+// can never be double-counted into spentUsd.
 export function sumCostFromStageLogText(text) {
   const perLab = new Map();
   let spentUsd = 0;
@@ -41,6 +44,7 @@ export function sumCostFromStageLogText(text) {
     if (!line.trim()) continue;
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
+    if (entry.kind) continue;
     const usd = entry.usd || 0;
     spentUsd += usd;
     const lab = entry.lab || 'unknown';
