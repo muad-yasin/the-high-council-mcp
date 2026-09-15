@@ -10,8 +10,8 @@ Add it to Claude Code as an MCP server the same way:
 
     claude mcp add council -- npx -y github:muad-yasin/the-high-council-mcp council --mcp
 
-*(An npm package is coming - not yet published. Both lines above work today, straight from this
-GitHub repo, no npm account needed.)*
+*(Both lines above work today, straight from this GitHub repo, no npm account needed. An npm
+package is also live: `the-high-council` - `npx the-high-council council demo` works too.)*
 
 A planning harness that runs one idea past several AI models from different labs, makes them
 argue about it on the record, and stops at a checkable result.
@@ -293,7 +293,10 @@ claude mcp add high-council -- node /absolute/path/to/the-high-council-mcp/src/m
 **The path must be absolute.** The client starts the server from its own working directory, not
 from this one, so a relative path resolves somewhere unexpected and the server never starts.
 
-An npm package is coming - not yet published, no date. Once it lands:
+Registering with a client other than Claude Code (DeepSeek Harness, OpenHands, Cline, goose,
+Continue): [docs/mcp-clients.md](docs/mcp-clients.md) has the real config for each.
+
+An npm package is also live:
 
 ```bash
 claude mcp add high-council -- npx -y the-high-council --mcp
