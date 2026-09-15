@@ -285,8 +285,16 @@ export function skeletonUser({ request, criteria }) {
   return `# Request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
 }
 
-export function proposerUser({ request, criteria, skeleton, parts }) {
-  return `# Request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n# Skeleton of the plan\n\n${skeleton}\n\n# Your allowance\n\nAt most ${parts} proposals.`;
+// `slice` (v1 context partitioning, opt-in via config.proposals.partition - see chain.js) is a
+// per-seat additional instruction layered on top of the identical request/criteria/skeleton every
+// seat already gets. It never replaces or subsets that shared material - only frames it - and
+// when absent/empty the returned prompt is byte-for-byte identical to the pre-partition output.
+// This is a mechanism only: it makes no claim about what effect, if any, it has on proposals.
+export function proposerUser({ request, criteria, skeleton, parts, slice }) {
+  const base = `# Request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n# Skeleton of the plan\n\n${skeleton}\n\n# Your allowance\n\nAt most ${parts} proposals.`;
+  return slice
+    ? `${base}\n\nPer-seat focus instruction (you were given this slice; other reviewers may have received different instructions):\n${slice}`
+    : base;
 }
 
 // Rendered into the builder's and reviser's prompts when proposals exist.

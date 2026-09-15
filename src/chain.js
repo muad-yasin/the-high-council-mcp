@@ -909,6 +909,25 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       log, label: 'skeleton',
     })).text;
     const proposers = config.seats.proposers || config.seats.critics;
+    // Context partitioning (v1, opt-in): config.proposals.partition.slices is an optional map
+    // keyed by lab name (labOf(seat), the same identity blind-panel/debate logic already keys
+    // off) to a per-seat instruction string. Absent field or absent/empty entry for a given seat
+    // means that seat's prompt is unchanged from before this existed - partial partitioning
+    // (some seats sliced, some not) is allowed by design, not a bug. This threads instruction
+    // text only; it never subsets or rewrites the shared request/criteria/skeleton. Mechanism
+    // only - no claim here or anywhere else that it changes proposal quality or diversity.
+    const partitionSlices = config.proposals.partition?.slices || null;
+    if (partitionSlices) {
+      const knownLabs = new Set(proposers.map(labOf));
+      for (const [lab, text] of Object.entries(partitionSlices)) {
+        if (typeof text !== 'string' || !text.trim()) {
+          throw new Error(`config.proposals.partition.slices["${lab}"] must be a non-empty string`);
+        }
+        if (!knownLabs.has(lab)) {
+          throw new Error(`config.proposals.partition.slices names unknown lab "${lab}" (known: ${[...knownLabs].join(', ')})`);
+        }
+      }
+    }
     // Best-of-N: `samples` independent attempts per lab, pooled, then a judge
     // keeps the strongest `keep` distinct ones. samples=1 means no judging.
     const samples = config.proposals.samples ?? 1;
@@ -918,12 +937,13 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       const lines = [];
       const say = m => lines.push(m);
       const capped = { ...seat, maxTokens: Math.min(seat.maxTokens ?? 8000, parts * perPart + 300) };
+      const slice = (partitionSlices && partitionSlices[labOf(seat)]) || null;
       const pool = [];
       let unreadable = 0;
       for (let k = 0; k < samples; k++) {
         const st = record(await invoke(capped, {
           system: R.proposerSystem(open),
-          user: R.proposerUser({ request, criteria, skeleton, parts }),
+          user: R.proposerUser({ request, criteria, skeleton, parts, slice }),
           log: say, label: `propose-${labOf(seat)}${samples > 1 ? `-${k + 1}` : ''}`,
         }));
         const parsed = parseJson(st.text);
@@ -941,7 +961,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       if (!pool.length) {
         const st = record(await invoke(capped, {
           system: R.proposerSystem(open),
-          user: R.proposerUser({ request, criteria, skeleton, parts }),
+          user: R.proposerUser({ request, criteria, skeleton, parts, slice }),
           log: say, label: `propose-${labOf(seat)}-retry`,
         }));
         const parsed = parseJson(st.text);
@@ -989,7 +1009,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         list = picks && picks.length ? picks.map(n => list[n - 1]) : list.slice(0, cap);
         say(`  ${labOf(seat)}/${seat.model}: folded ${before} proposal(s) down to ${list.length} (cap ${cap})${parsed?.merged_because ? ` - ${parsed.merged_because}` : ''}`);
       }
-      return { seat, list, pool, lines };
+      return { seat, list, pool, lines, slice };
     }));
     // Labs that ended the stage with nothing, after the retry. Recorded so
     // the run report shows a shrunken roster instead of leaving it to be
@@ -997,12 +1017,16 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     dropouts = results.filter(r => !r.list.length).map(r => ({ lab: labOf(r.seat), model: r.seat.model, stage: 'proposals', reason: 'no readable proposals after a retry' }));
 
     const seen = {};
-    for (const { seat, list, pool, lines } of results) {
+    for (const { seat, list, pool, lines, slice } of results) {
       lines.forEach(m => log(m));
       let tag = labOf(seat).toUpperCase().replace(/[^A-Z0-9]/g, '');
       seen[tag] = (seen[tag] || 0) + 1;
       if (seen[tag] > 1) tag += String(seen[tag]);
-      list.forEach((p, i) => proposals.push({ id: `${tag}-${i + 1}`, lab: labOf(seat), model: seat.model, ...p }));
+      // slice metadata only (v1): threads which per-seat instruction, if any, produced this
+      // proposal through to whatever reads proposals downstream (debate/critic stages). No
+      // debate/critic prompt text or scoring reads this field yet - deferred to a v2 that would
+      // render slice-awareness into critic prompts (see chains/mock-partitioned.json's comment).
+      list.forEach((p, i) => proposals.push({ id: `${tag}-${i + 1}`, lab: labOf(seat), model: seat.model, slice: slice || null, ...p }));
       pool.forEach(p => proposalPool.push({ lab: labOf(seat), model: seat.model, ...p, kept: list.includes(p) }));
     }
     log(`  ${proposals.length} proposal(s) go to the builder.`);

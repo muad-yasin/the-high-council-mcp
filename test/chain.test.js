@@ -18,6 +18,8 @@ import { parseJson, parseDisputes, classifyUnreadable, runChain, runDescendingCh
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const mockConfig = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'utf8'));
+const mockProposalsConfig = JSON.parse(readFileSync(join(root, 'chains', 'mock-proposals.json'), 'utf8'));
+const mockPartitionedConfig = JSON.parse(readFileSync(join(root, 'chains', 'mock-partitioned.json'), 'utf8'));
 
 test('parseJson: stray unescaped quote inside a markdown-quoted span is repaired', () => {
   // Trimmed from a real Qwen3.5-9B reply (run 2026-09-10T20-02-20-992Z, critique-1.md) - the
@@ -285,4 +287,48 @@ test('runDescendingChain: round 1 runs the existing criteria/proposals pipeline;
   // The final deliverable is what the signoff/handoff stage produced (its own critique/revise
   // loop over the concatenated stack), not the bare, un-critiqued concatenation.
   assert.ok(typeof result.deliverable === 'string' && result.deliverable.length > 0);
+});
+
+// v1 context partitioning (config.proposals.partition, opt-in). See src/roles.js's proposerUser
+// tests for the prompt-level regression pin; these cover the chain.js wiring: validation, the
+// slice metadata that survives onto each proposal object, and that omitting `partition` entirely
+// leaves every proposal's `slice` field `null` - unchanged behavior for every chain that doesn't
+// use this.
+test('runChain: config.proposals.partition absent leaves proposal.slice null for every proposal (no behavior change)', async () => {
+  const result = await runChain({ request: 'Do the thing.', config: mockProposalsConfig, log: () => {} });
+  assert.ok(Array.isArray(result.proposals) && result.proposals.length > 0, 'expected proposals to exist');
+  assert.ok(result.proposals.every(p => p.slice === null), 'every proposal.slice must be null when partitioning is not configured');
+});
+
+test('runChain: config.proposals.partition.slices threads a per-seat slice onto that lab\'s proposals only', async () => {
+  const result = await runChain({ request: 'Do the thing.', config: mockPartitionedConfig, log: () => {} });
+  const sliced = result.proposals.filter(p => p.lab === 'mock-a');
+  const unsliced = result.proposals.filter(p => p.lab === 'mock-b');
+  assert.ok(sliced.length > 0 && unsliced.length > 0, 'expected proposals from both the sliced and unsliced seat');
+  assert.ok(sliced.every(p => p.slice === 'Focus on the config schema and validation surface.'),
+    'the seat named in partition.slices must carry its exact slice text on every one of its proposals');
+  assert.ok(unsliced.every(p => p.slice === null),
+    'a seat left out of partition.slices (partial partitioning) must carry no slice metadata, proving it is unaffected');
+});
+
+test('runChain: config.proposals.partition.slices with an unknown lab name throws at the proposal stage', async () => {
+  const config = {
+    ...mockPartitionedConfig,
+    proposals: { ...mockPartitionedConfig.proposals, partition: { slices: { 'mock-nonexistent': 'Focus on X.' } } },
+  };
+  await assert.rejects(
+    runChain({ request: 'Do the thing.', config, log: () => {} }),
+    /unknown lab "mock-nonexistent"/,
+  );
+});
+
+test('runChain: config.proposals.partition.slices with a non-string value throws at the proposal stage', () => {
+  const config = {
+    ...mockPartitionedConfig,
+    proposals: { ...mockPartitionedConfig.proposals, partition: { slices: { 'mock-a': 42 } } },
+  };
+  return assert.rejects(
+    runChain({ request: 'Do the thing.', config, log: () => {} }),
+    /must be a non-empty string/,
+  );
 });

@@ -1,0 +1,62 @@
+{
+  "name": "mock-partitioned",
+  "description": "Offline. Exercises v1 context partitioning (config.proposals.partition): one proposer seat (mock-a) gets a per-seat focus instruction, one (mock-b) is deliberately left out of `slices` and gets no instruction, proving partial partitioning and that an unsliced seat's prompt is unaffected. Mechanism only - no claim this changes proposal quality or diversity.",
+  "maxRounds": 1,
+  "signoff": "first",
+  "proposals": {
+    "parts": 2,
+    "maxTokens": 400,
+    "partition": {
+      "slices": {
+        "mock-a": "Focus on the config schema and validation surface."
+      }
+    }
+  },
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "seats": {
+    "criteria": {
+      "provider": "mock",
+      "model": "mock-criteria"
+    },
+    "skeleton": {
+      "provider": "mock",
+      "model": "mock-skeleton"
+    },
+    "builder": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "reviser": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "proposers": [
+      {
+        "provider": "mock",
+        "model": "mock-proposer-a",
+        "lab": "mock-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-proposer-a",
+        "lab": "mock-b"
+      }
+    ],
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-critic-a",
+        "lab": "mock-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-critic-b",
+        "lab": "mock-b"
+      }
+    ]
+  }
+}

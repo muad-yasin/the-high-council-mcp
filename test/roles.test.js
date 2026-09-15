@@ -14,7 +14,7 @@
 // nothing is listed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HANDOFF_SYSTEM } from '../src/roles.js';
+import { HANDOFF_SYSTEM, proposerUser } from '../src/roles.js';
 
 test('the handoff seat is told to use the tools a task lists', () => {
   assert.match(HANDOFF_SYSTEM, /Available tools/,
@@ -34,4 +34,28 @@ test('the handoff seat is forbidden from inventing tools or command lines', () =
 test('a task with no tools section still gets a usable handoff', () => {
   assert.match(HANDOFF_SYSTEM, /no such\s+section/,
     'the convention is optional; omitting it must not degrade the handoff into guesswork');
+});
+
+// v1 context partitioning (config.proposals.partition, opt-in - see chain.js). A slice is a
+// per-seat instruction layered on top of the identical request/criteria/skeleton every proposer
+// already gets. Regression-safety comes first: no `slice` argument must reproduce today's exact
+// output, or every chain that never sets `partition` silently changes behavior underneath it.
+test('proposerUser: no slice argument produces byte-for-byte the same prompt as before partitioning existed', () => {
+  const args = { request: 'Do the thing.', criteria: ['One.', 'Two.'], skeleton: 'A skeleton.', parts: 3 };
+  const withoutSliceArg = proposerUser(args);
+  const withExplicitUndefined = proposerUser({ ...args, slice: undefined });
+  const withNullSlice = proposerUser({ ...args, slice: null });
+  const expected = '# Request\n\nDo the thing.\n\n# Acceptance criteria\n\n1. One.\n2. Two.\n\n# Skeleton of the plan\n\nA skeleton.\n\n# Your allowance\n\nAt most 3 proposals.';
+  assert.equal(withoutSliceArg, expected);
+  assert.equal(withExplicitUndefined, expected);
+  assert.equal(withNullSlice, expected);
+});
+
+test('proposerUser: a slice is appended as an additional instruction, never replacing the shared material', () => {
+  const args = { request: 'Do the thing.', criteria: ['One.'], skeleton: 'A skeleton.', parts: 2 };
+  const base = proposerUser(args);
+  const sliced = proposerUser({ ...args, slice: 'Focus on the config schema.' });
+  assert.ok(sliced.startsWith(base), 'the shared request/criteria/skeleton must still be present, unchanged, at the start');
+  assert.match(sliced, /Focus on the config schema\./);
+  assert.match(sliced, /Per-seat focus instruction/);
 });
