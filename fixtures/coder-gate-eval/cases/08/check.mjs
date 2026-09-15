@@ -1,0 +1,1 @@
+import test from "node:test"; import assert from "node:assert/strict"; import { truncate } from './target.js'; test('truncate', () => { assert.equal(truncate('hello world', 5), 'hello...'); assert.equal(truncate('hi', 5), 'hi'); });

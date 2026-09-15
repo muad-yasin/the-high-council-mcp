@@ -1,0 +1,1 @@
+import test from "node:test"; import assert from "node:assert/strict"; import { repeatWord } from './target.js'; test('repeatWord', () => { assert.equal(repeatWord('go', 3), 'go go go'); assert.equal(repeatWord('go', 0), ''); });

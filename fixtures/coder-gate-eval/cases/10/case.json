@@ -1,0 +1,5 @@
+{
+  "id": "10",
+  "expected": "buggy",
+  "note": "await removed, so record is a pending promise and .ok is undefined"
+}

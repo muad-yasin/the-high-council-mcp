@@ -1,0 +1,5 @@
+{
+  "id": "07",
+  "expected": "clean",
+  "note": "loop replaced by an equivalent reduce"
+}

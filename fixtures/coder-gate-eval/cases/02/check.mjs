@@ -1,0 +1,1 @@
+import test from "node:test"; import assert from "node:assert/strict"; import { average } from './target.js'; test('average', () => { assert.equal(average([2, 4]), 3); assert.equal(average([]), 0); });

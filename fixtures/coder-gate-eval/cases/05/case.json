@@ -1,0 +1,5 @@
+{
+  "id": "05",
+  "expected": "buggy",
+  "note": "guard removed, so a missing user or name throws"
+}

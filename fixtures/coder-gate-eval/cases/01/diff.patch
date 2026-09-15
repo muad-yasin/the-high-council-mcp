@@ -1,0 +1,9 @@
+--- a/target.js
++++ b/target.js
+@@ -1,5 +1,5 @@
+ export function sum(xs) {
+   let total = 0;
+-  for (let i = 0; i < xs.length; i++) total += xs[i];
++  for (let i = 0; i < xs.length - 1; i++) total += xs[i];
+   return total;
+ }

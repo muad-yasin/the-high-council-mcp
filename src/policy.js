@@ -160,6 +160,22 @@ export function checkRequiredSignoffPaths(policy, ctx = {}) {
   return [`required_signoff_paths: target_file "${path}" matches "${matched}", which requires a signoff, and none was given.`];
 }
 
+// MLLM Coder v4 item 4: the two change-request fields the policy gate needs, read from a task
+// file's own `key: value` lines (the change-request template's format - see
+// test/coder-gate-v1.test.js's CHANGE_REQUEST_TEMPLATE). Only lines that start with the key count,
+// so prose that mentions "target_file:" mid-sentence is ignored; the first occurrence wins. A key
+// that is present with an empty value comes back as '', never undefined, so the signoff-path check
+// fails closed on it ("no target_file") instead of treating the task as not-a-change-request.
+// Returns { target_file?, signoff? } - a key is absent iff its line is absent.
+export function parseChangeRequestFields(text) {
+  const fields = {};
+  for (const line of String(text ?? '').split(/\r?\n/)) {
+    const m = line.match(/^(target_file|signoff):[ \t]*(.*?)[ \t]*$/);
+    if (m && !(m[1] in fields)) fields[m[1]] = m[2];
+  }
+  return fields;
+}
+
 // Forward slashes, no leading "./", no empty or "." segments. null for anything that isn't a
 // repo-relative path (absolute, drive-lettered, or climbing out with "..").
 function normalizeRelPath(p) {

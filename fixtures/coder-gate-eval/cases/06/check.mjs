@@ -1,0 +1,1 @@
+import test from "node:test"; import assert from "node:assert/strict"; import { initials } from './target.js'; test('initials', () => { assert.equal(initials('ada lovelace'), 'AL'); assert.equal(initials('  grace  hopper '), 'GH'); });

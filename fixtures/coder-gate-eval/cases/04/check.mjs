@@ -1,0 +1,1 @@
+import test from "node:test"; import assert from "node:assert/strict"; import { inRange } from './target.js'; test('inRange', () => { assert.equal(inRange(10, 0, 10), true); assert.equal(inRange(0, 0, 10), true); assert.equal(inRange(11, 0, 10), false); });

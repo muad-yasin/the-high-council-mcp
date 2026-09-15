@@ -1,0 +1,5 @@
+{
+  "id": "02",
+  "expected": "clean",
+  "note": "local variable renamed, behavior unchanged"
+}

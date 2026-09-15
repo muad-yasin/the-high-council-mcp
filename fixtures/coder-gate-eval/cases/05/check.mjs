@@ -1,0 +1,1 @@
+import test from "node:test"; import assert from "node:assert/strict"; import { nameLength } from './target.js'; test('nameLength', () => { assert.equal(nameLength({ name: 'ada' }), 3); assert.equal(nameLength(null), 0); assert.equal(nameLength({}), 0); });

@@ -1,0 +1,1 @@
+import test from "node:test"; import assert from "node:assert/strict"; import { maxOf } from './target.js'; test('maxOf', () => { assert.equal(maxOf([3, 9, 2]), 9); assert.equal(maxOf([]), -Infinity); assert.equal(maxOf([-5, -2]), -2); });

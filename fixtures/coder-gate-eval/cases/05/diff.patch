@@ -1,0 +1,7 @@
+--- a/target.js
++++ b/target.js
+@@ -1,4 +1,3 @@
+ export function nameLength(user) {
+-  if (!user || typeof user.name !== 'string') return 0;
+   return user.name.length;
+ }

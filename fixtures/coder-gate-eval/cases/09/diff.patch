@@ -1,0 +1,7 @@
+--- a/target.js
++++ b/target.js
+@@ -1,3 +1,3 @@
+-export function repeatWord(word, times) {
++export function repeatWord(word, times = 1) {
+   return Array.from({ length: times }, () => word).join(' ');
+ }

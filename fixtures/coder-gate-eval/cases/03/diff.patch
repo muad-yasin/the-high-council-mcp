@@ -1,0 +1,7 @@
+--- a/target.js
++++ b/target.js
+@@ -1,3 +1,4 @@
+ export function clamp(n, lo, hi) {
++  if (n >= lo && n <= hi) return n;
+   return Math.min(hi, Math.max(lo, n));
+ }

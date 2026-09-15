@@ -1,0 +1,10 @@
+--- a/target.js
++++ b/target.js
+@@ -1,5 +1,5 @@
+ export function average(xs) {
+   if (xs.length === 0) return 0;
+-  const s = xs.reduce((a, b) => a + b, 0);
+-  return s / xs.length;
++  const total = xs.reduce((a, b) => a + b, 0);
++  return total / xs.length;
+ }

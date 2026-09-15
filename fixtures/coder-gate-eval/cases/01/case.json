@@ -1,0 +1,5 @@
+{
+  "id": "01",
+  "expected": "buggy",
+  "note": "loop bound changed so the last element is skipped"
+}

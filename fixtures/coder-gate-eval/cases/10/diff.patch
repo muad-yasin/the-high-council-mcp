@@ -1,0 +1,10 @@
+--- a/target.js
++++ b/target.js
+@@ -2,6 +2,6 @@ async function load(id) {
+   return { id, ok: true };
+ }
+ export async function isOk(id) {
+-  const record = await load(id);
++  const record = load(id);
+   return record.ok === true;
+ }

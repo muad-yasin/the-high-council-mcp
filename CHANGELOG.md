@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased - coder-gate v4: signoff wiring and eval fixtures
+
+**`required_signoff_paths` now fires from a real run.** v3 built the check but nothing handed it
+a change request, so it could never trigger. `src/cli.js` now reads the task file's
+`target_file:` line and takes the signoff from a new `--signoff <name>` flag, falling back to the
+task file's `signoff:` line. A task file without `target_file:` is not a change request and runs
+exactly as before; a bare `--signoff` with no name is a usage error. The plan put `signoff` inside
+the change request, but the shipped check reads it at the top of the policy context, so the wiring
+follows the code. `test/policy-signoff-cli.test.js` covers it end to end on the offline mock chain.
+
+**Offline eval fixtures.** `fixtures/coder-gate-eval/cases/01..10` hold ten one-hunk changes, five
+that break their test and five that don't. `node scripts/eval-fixtures.mjs --self-test` makes no
+model call and no network request: it checks every fixture is honest (base passes, diff applies,
+result fails only when buggy) and checks the scorer against three mock verdict sets. `--verdicts
+<file>` scores verdicts an operator produced by hand. This is a detection count on ten hand-written
+fixtures, not a measurement of any reviewer and not a comparison between reviewers.
+
 ## Unreleased - binary packaging
 
 **Standalone binaries, buildable from a clone.** `npm run build:bin` builds a Linux binary and a

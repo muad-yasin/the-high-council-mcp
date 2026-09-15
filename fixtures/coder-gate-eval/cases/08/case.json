@@ -1,0 +1,5 @@
+{
+  "id": "08",
+  "expected": "buggy",
+  "note": "slice end moved one character early"
+}

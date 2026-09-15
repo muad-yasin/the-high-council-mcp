@@ -1,0 +1,5 @@
+{
+  "id": "04",
+  "expected": "buggy",
+  "note": "upper bound made exclusive, so the maximum itself is rejected"
+}

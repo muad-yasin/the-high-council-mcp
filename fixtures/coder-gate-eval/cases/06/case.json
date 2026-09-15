@@ -1,0 +1,5 @@
+{
+  "id": "06",
+  "expected": "clean",
+  "note": "comment added and let changed to const"
+}

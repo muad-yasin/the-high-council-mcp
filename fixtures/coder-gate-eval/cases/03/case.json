@@ -1,0 +1,5 @@
+{
+  "id": "03",
+  "expected": "clean",
+  "note": "fast path for in-range values, same results"
+}

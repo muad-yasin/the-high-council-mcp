@@ -28,7 +28,7 @@ import { buildTranscript, renderTranscriptText } from './replay.js';
 import { lintChain } from './chain-lint.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { formatCouncilError, ERROR_CATALOG } from './errors.js';
-import { loadPolicy, buildPolicyContext, evaluatePolicy, POLICY_PATH } from './policy.js';
+import { loadPolicy, buildPolicyContext, evaluatePolicy, parseChangeRequestFields, POLICY_PATH } from './policy.js';
 import { shouldEnableAudit, loadHmacKey, createAuditWriter } from './audit.js';
 
 // v5 §1 candidate 4: distinct exit codes for a degradable condition (a
@@ -629,6 +629,14 @@ const fromRun = flag('from-run', null);
 const resumeRun = flag('resume', null);
 const dryRun = argv.includes('--dry-run');
 
+// MLLM Coder v4 item 4: who signed off on this change request, for policy.json's
+// required_signoff_paths. A bare `--signoff` with no name is refused rather than read as "signed".
+const signoffFlag = flag('signoff', undefined);
+if (signoffFlag === true) {
+  console.error('--signoff: needs a name, e.g. --signoff alice');
+  process.exit(2);
+}
+
 // v7.x item 2: PII/secrets pre-flight gate. Absent entirely (no --pii-gate flag) means this
 // gate is never invoked at all - byte-identical to every prior release. `warn` logs and
 // proceeds; `hard-stop` refuses the run before any provider call if it finds a match.
@@ -699,6 +707,11 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        hard-stop refuses the run. Off entirely unless passed.
                                        --allow-pii email,iban,card,secret suppresses named
                                        pattern classes (always printed, never a silent hole).
+  council --task tasks/x.md --signoff alice
+                                       name who signed off on this change request, for
+                                       policy.json's required_signoff_paths. The task
+                                       file's own "signoff:" line is used when the flag
+                                       is absent; its "target_file:" line is the path checked.
   council --task tasks/x.md --max-usd 2 stop the run before any stage that could
                                        take it past $2. Default $5, or
                                        MAX_USD_PER_RUN. --max-usd none disables
@@ -818,6 +831,16 @@ if (!resumeMeta) {
   }
   if (policy) {
     const ctx = buildPolicyContext(config, allSeats, join(work, 'runs'));
+    // MLLM Coder v4 item 4: the change request's target_file and the operator's signoff, so
+    // required_signoff_paths can fire end to end. The task file is read here rather than at its
+    // normal spot further down because the policy gate runs first. A task without a
+    // `target_file:` line is not a change request, so the check passes exactly as before.
+    // Signoff precedence: --signoff flag, then the task file's `signoff:` line.
+    const taskText = taskPath && existsSync(resolve(work, taskPath)) ? readFileSync(resolve(work, taskPath), 'utf8') : '';
+    const fields = parseChangeRequestFields(taskText);
+    if (fields.target_file !== undefined) ctx.changeRequest = { target_file: fields.target_file };
+    const signoff = signoffFlag || fields.signoff;
+    if (signoff !== undefined) ctx.signoff = signoff;
     const { ok, reasons } = evaluatePolicy(policy, ctx);
     if (!ok) {
       console.error(`\n${formatCouncilError('COUNCIL-E005', { path: POLICY_PATH(work), chain: config.name, reasons })}`);
