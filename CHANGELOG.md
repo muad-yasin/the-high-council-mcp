@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased - Opus 5 and Sonnet 5 pricing corrected
+
+`src/pricing.json` listed `anthropic/claude-opus-5` at $15/$75 and `anthropic/claude-sonnet-5` at
+$3/$15 per million tokens. Anthropic's pricing page (checked 2026-09-15) lists $5/$25 and $2/$10;
+Sonnet 5's $2/$10 launch price became its standard price, and the planned rise to $3/$15 did not
+happen. Both entries are corrected, so `--dry-run` estimates, the spend-cap projection and run
+cost reports for these seats now match list price instead of overstating it about threefold
+(Opus) and 1.5-fold (Sonnet). No other price changed; the Fable 5.1 and Haiku 4.5 entries already
+matched.
+
 ## Unreleased - final security-review gate
 
 An optional last stage, `security-review`, that runs after build, `verify_post`, every critic and

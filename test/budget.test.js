@@ -34,10 +34,10 @@ test('estimateTokens: 4 chars per token, rounded up', () => {
 });
 
 test('worstCaseOf: prices the whole maxTokens budget as output, not the actual output', () => {
-  // opus-5 is 15/75 per Mtok. 8000 prompt chars = 2000 input tokens.
+  // opus-5 is 5/25 per Mtok (Anthropic pricing page, 2026-09-15). 8000 prompt chars = 2000 input tokens.
   const { usd, priced } = worstCaseOf('anthropic', 'claude-opus-5', { promptChars: 8000, maxTokens: 16000 });
   assert.equal(priced, true);
-  assert.ok(Math.abs(usd - ((2000 / 1e6) * 15 + (16000 / 1e6) * 75)) < 1e-9);
+  assert.ok(Math.abs(usd - ((2000 / 1e6) * 5 + (16000 / 1e6) * 25)) < 1e-9);
 });
 
 test('worstCaseOf: an anthropic seat can be projected at two attempts (the thinking-disabled retry)', () => {
