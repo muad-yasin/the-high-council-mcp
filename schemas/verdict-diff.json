@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/muad-yasin/the-high-council-mcp/schemas/verdict-diff.json",
+  "title": "verdict-diff",
+  "description": "The concrete five-field diff between an original run's verdict and a rematch (src/rematch.js + src/cli.js --rematch) or replay (--replay) of the same task, produced by src/verdict-diff.js's computeVerdictDiff(). Shared verbatim by both consumers - see the module header.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "signoff_match",
+    "verdict_category_changed",
+    "critics_objecting_added",
+    "critics_objecting_removed",
+    "objection_overlap_ratio"
+  ],
+  "properties": {
+    "signoff_match": {
+      "type": "boolean",
+      "description": "True if both reports' top-level `passed` boolean agree."
+    },
+    "verdict_category_changed": {
+      "type": "boolean",
+      "description": "True if the two reports' outcome() classification ('consensus'/'no_consensus'/'degraded') differ."
+    },
+    "critics_objecting_added": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^critic-[0-9]+$" },
+      "description": "Seat-role ids (positional, e.g. 'critic-0') that objected in the new report but not the original. Positional because a rematch/replay changes which model backs each seat."
+    },
+    "critics_objecting_removed": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^critic-[0-9]+$" },
+      "description": "Seat-role ids that objected in the original report but not the new one."
+    },
+    "objection_overlap_ratio": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Exact-string-match dedupe overlap (Jaccard) between the two reports' objection texts - 1 when both sides raised the identical set of objection texts, or both raised none."
+    }
+  }
+}

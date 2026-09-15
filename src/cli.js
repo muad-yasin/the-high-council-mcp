@@ -30,6 +30,8 @@ import { runMcpServer } from './mcp/server.js';
 import { renderBoardHtml } from './board-export.js';
 import { buildTranscript, renderTranscriptText } from './replay.js';
 import { lintChain } from './chain-lint.js';
+import { reshuffleSeats } from './rematch.js';
+import { computeVerdictDiff } from './verdict-diff.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { formatCouncilError, ERROR_CATALOG } from './errors.js';
 import { loadPolicy, buildPolicyContext, evaluatePolicy, parseChangeRequestFields, POLICY_PATH } from './policy.js';
@@ -499,6 +501,95 @@ if (argv[0] === 'digest') {
   });
   const path = writeDigest(runDir, text);
   console.log(`Wrote ${path}`);
+  process.exit(0);
+}
+
+// `--rematch <run-dir> [--rematch-seed N]` (item C, relay/runs/2026-09-15T15-12-52-325Z/
+// deliverable.md): re-runs an already-decided task with labs re-shuffled/re-anonymized
+// (src/rematch.js), then writes a concrete, checkable diff of the new verdict against the
+// original (src/verdict-diff.js, schemas/verdict-diff.json) - order/framing robustness, not a
+// re-judgment of the deliverable's quality. Config-load-time reshuffle in this CLI wrapper only;
+// src/chain.js and src/tools.js are both untouched (0-line delta, per the plan).
+const rematchArg = flag('rematch', null);
+if (rematchArg) {
+  const originalRunDir = resolve(work, rematchArg);
+  const originalReportPath = join(originalRunDir, 'report.json');
+  const originalReport = readReportOrExit(originalReportPath, '--rematch');
+  const originalRunMetaPath = join(originalRunDir, 'run.json');
+  if (!existsSync(originalRunMetaPath)) {
+    console.error(`--rematch: no run.json in ${originalRunDir} - can't recover the original task/chain.`);
+    process.exit(2);
+  }
+  const originalRunMeta = JSON.parse(readFileSync(originalRunMetaPath, 'utf8'));
+  const seedArg = flag('rematch-seed', null);
+  // Default random, but always recorded on disk (run.json below) so a rematch that used a random
+  // seed is still reproducible after the fact by reading what it actually ran with.
+  const seed = seedArg !== null ? Number(seedArg) : Math.floor(Math.random() * 1_000_000);
+  if (!Number.isInteger(seed)) {
+    console.error(`--rematch-seed: expected an integer, got ${seedArg}`);
+    process.exit(2);
+  }
+
+  const originalTaskPath = originalRunMeta.task;
+  if (!originalTaskPath || !existsSync(resolve(work, originalTaskPath))) {
+    console.error(`--rematch: original task file not found (recorded as "${originalTaskPath}" in ${originalRunMetaPath}).`);
+    process.exit(2);
+  }
+  const originalRequest = readFileSync(resolve(work, originalTaskPath), 'utf8');
+
+  const chainName = originalRunMeta.chain;
+  const chainConfigPath = [join(work, 'chains', `${chainName}.json`), join(pkg, 'chains', `${chainName}.json`)]
+    .find(existsSync);
+  if (!chainConfigPath) {
+    console.error(`--rematch: chain "${chainName}" (recorded in ${originalRunMetaPath}) has no chain config on disk.`);
+    process.exit(2);
+  }
+  const originalConfig = resolveChainSeats(JSON.parse(readFileSync(chainConfigPath, 'utf8')));
+  const rematchConfig = reshuffleSeats(originalConfig, seed);
+
+  const missing = checkSeats([
+    rematchConfig.seats?.criteria, rematchConfig.seats?.builder, rematchConfig.seats?.reviser,
+    rematchConfig.seats?.finalist, ...(rematchConfig.seats?.critics || []), ...(rematchConfig.seats?.proposers || []),
+  ].filter(Boolean));
+  if (missing.length) {
+    console.error(`\nMissing API keys for: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+
+  const rematchRunId = `${basename(originalRunDir)}.rematch-${seed}`;
+  const rematchRunDir = join(dirname(originalRunDir), rematchRunId);
+  mkdirSync(rematchRunDir, { recursive: true });
+  writeFileSync(join(rematchRunDir, 'run.json'), JSON.stringify({
+    chain: chainName, task: originalTaskPath, rematchOf: basename(originalRunDir), rematchSeed: seed,
+  }, null, 2));
+
+  console.log(`\nrematch of ${basename(originalRunDir)} (chain: ${chainName}, seed: ${seed})`);
+  let rematchResult;
+  try {
+    rematchResult = await runChain({
+      request: originalRequest,
+      config: rematchConfig,
+      log: line => console.log(line),
+    });
+  } catch (err) {
+    console.error(`--rematch: the reshuffled run did not complete (${err.message}). No diff written - a rematch that never reached a verdict has nothing to diff.`);
+    process.exit(1);
+  }
+
+  writeFileSync(join(rematchRunDir, 'deliverable.md'), rematchResult.deliverable);
+  const newReport = reportJsonShape({
+    runId: rematchRunId, chain: chainName, task: originalTaskPath, result: rematchResult,
+  });
+  writeFileSync(join(rematchRunDir, 'report.json'), JSON.stringify(newReport, null, 2));
+
+  const diff = computeVerdictDiff(originalReport, newReport);
+  writeFileSync(join(rematchRunDir, 'rematch-diff.json'), JSON.stringify(diff, null, 2));
+
+  console.log(`\nrematch verdict: ${newReport.passed ? 'PASSED' : 'OPEN OBJECTIONS'} (original: ${originalReport.passed ? 'PASSED' : 'OPEN OBJECTIONS'})`);
+  console.log(`signoff_match: ${diff.signoff_match}  verdict_category_changed: ${diff.verdict_category_changed}  objection_overlap_ratio: ${diff.objection_overlap_ratio.toFixed(2)}`);
+  if (diff.critics_objecting_added.length) console.log(`critics newly objecting: ${diff.critics_objecting_added.join(', ')}`);
+  if (diff.critics_objecting_removed.length) console.log(`critics no longer objecting: ${diff.critics_objecting_removed.join(', ')}`);
+  console.log(`\nWrote ${rematchRunDir} (deliverable.md, report.json, rematch-diff.json).`);
   process.exit(0);
 }
 
