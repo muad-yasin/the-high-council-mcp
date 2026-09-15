@@ -169,6 +169,14 @@ date. Read the comment before changing the behaviour, and keep the regression te
 - Internal references in code comments and chain descriptions are public on purpose. Do not
   "clean" them.
 - Branch convention is `master`.
+- **Ideas are free to study; code and prose are never copied.** Researching the open-source
+  market (competing tools, academic papers, adjacent infrastructure patterns) for feature and
+  architecture ideas is standing, encouraged practice here - see
+  `Review/market-feature-survey-2026-09-15.md` for the shape of it. The discipline is: describe
+  an idea in this project's own words and evaluate it against this project's own identity and
+  standing exclusions (WANT / MIGHT-WANT / DON'T-WANT), never quote another repo's README, docs,
+  or code verbatim, and never port code from a differently-licensed project. This project is MIT
+  and wants others to do the same with it - the same courtesy runs the other way.
 
 ## The landing page (`docs/`)
 
