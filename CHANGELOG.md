@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased - F9: security-review-only chain, for Sophi-A's security gate call
+
+From Sophi-A's Seat Families plan (`relay/Docs/SophiA-Seat-Families-Plan.md` §2.9, §5, item F9 -
+paired with cnc-harness's own F6, `src/orchestrator/securityGate.js`, built separately in that
+repo). `chains/security-review-only.json`: a tiny chain whose only real content is a human- or
+orchestrator-supplied artifact and the final security-review gate (`515439a`,
+`docs/security-review-gate.md`). The builder seat is `external` - the CLI pauses at `build`
+(exit 3), the caller writes the artifact as `build.md`, resumes, and reads the exit code:
+`0` pass, `7` blocked, `8` not_judged. One always-passing mock critic seat exists only because
+`chain-lint` requires at least one `seats.critics` entry - it is not what this chain reviews.
+Zero engine changes: built entirely from existing seat kinds and the existing `security_review`
+flag. `test/security-review-only.test.js` covers all three exit paths end to end offline (mock
+provider), plus the chain's own lint cleanliness and its external-stage/lack-of-scope-creep
+shape. Landing page's chain-config count corrected 41 -> 42 (`docs/index.html`,
+`test/landing-page.test.js` already derives the count from disk and required no code change).
+
 ## Unreleased - Opus 5 and Sonnet 5 pricing corrected
 
 `src/pricing.json` listed `anthropic/claude-opus-5` at $15/$75 and `anthropic/claude-sonnet-5` at
