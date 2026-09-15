@@ -56,15 +56,27 @@ const STAGE_DEFS = {
     required_sections: ['draft'],
     return_instructions: 'Return the draft as plain text/markdown.',
   },
+  // Corrected 2026-09-15 (thcmcp-66 flagged a false-positive "PARTIAL OUTPUT WARNING" on every
+  // real critic reply). Real bug, not an env-specific one: `required_sections: ['verdict',
+  // 'objections']` named fields that never existed in the real critic schema - CRITIC_SYSTEM_
+  // TEMPLATE (src/roles.js) has always instructed `{ meets, criteria, failures, verdict_line }`,
+  // and the engine's own parser (normaliseCritique, src/chain.js) has always read `criteria` and
+  // `failures`, never `verdict`/`objections`. Every real critic reply - checked against a real
+  // run's panel-1-*.md files, not just against the prompt text - was failing this check, which
+  // means the pre-existing test/partial-deliverable.test.js fixture (`{ verdict: 'pass',
+  // objections: [] }`) was validating an imaginary schema that no real reply has ever produced.
+  // `criteria` and `failures` are the two fields whose presence is what actually proves a critic
+  // did a real per-criterion check rather than free text; a genuinely broken/truncated reply
+  // still fails this the same way it always should.
   panel: {
     role: 'Critique the current draft against the acceptance criteria; pass or fail it, naming every objection if failing.',
-    required_sections: ['verdict', 'objections'],
-    return_instructions: 'Return JSON: { "verdict": "pass"|"fail", "objections": [string, ...] }.',
+    required_sections: ['criteria', 'failures'],
+    return_instructions: 'Return JSON: { "meets": true|false, "criteria": [{ "criterion": string, "verdict": "MET"|"FAILED", "evidence": string }], "failures": [{ "criterion": string, "problem": string, "fix": string }], "verdict_line": string }.',
   },
   critique: {
     role: 'Critique the current draft against the acceptance criteria; pass or fail it, naming every objection if failing.',
-    required_sections: ['verdict', 'objections'],
-    return_instructions: 'Return JSON: { "verdict": "pass"|"fail", "objections": [string, ...] }.',
+    required_sections: ['criteria', 'failures'],
+    return_instructions: 'Return JSON: { "meets": true|false, "criteria": [{ "criterion": string, "verdict": "MET"|"FAILED", "evidence": string }], "failures": [{ "criterion": string, "problem": string, "fix": string }], "verdict_line": string }.',
   },
   revise: {
     role: 'Revise the draft to address the union of every critic\'s objections from the prior round.',
