@@ -160,6 +160,16 @@ async function callMock({ model, system, messages, maxTokens }) {
     const replies = ids.map((id, i) => i === 0 ? { id, action: 'amend', text: 'Fair.', how: 'mock.js (amended)' } : { id, action: 'keep', text: 'The file is created by the plan.' });
     return { text: JSON.stringify({ replies }), usage: { input: 30, output: 20 }, provider: 'mock', model };
   }
+  // v4 item 2: the preflight stage's mock seats. `mock-preflight-object` always objects (one
+  // fixed objection); every other model on this prompt passes with no objections - so a test
+  // only has to name the seat that should object, not every seat.
+  if (system.startsWith('You review a task description before any code change is proposed against it')) {
+    await new Promise(r => setTimeout(r, 10));
+    const text = model === 'mock-preflight-object'
+      ? JSON.stringify({ verdict: 'object', objections: ['mock: the task description contradicts itself'] })
+      : JSON.stringify({ verdict: 'pass', objections: [] });
+    return { text, usage: { input: 15, output: 10 }, provider: 'mock', model };
+  }
   if (system.startsWith('You are the proposer, answering one question')) {
     await new Promise(r => setTimeout(r, 10));
     const text = '"The artifact" refers to the deliverable itself, as stated in the draft.';

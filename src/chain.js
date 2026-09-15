@@ -105,6 +105,52 @@ export function runVerification(config, { runTool = defaultRunTool, log = () => 
   return groundTruth;
 }
 
+// v4 item 2: the identity decision (relay/runs/2026-09-15T01-35-10-051Z/deliverable.md §2) -
+// review the task DESCRIPTION only, never a diff, so no critic ever authors code. Gated on
+// config.preflight being present - absent, this function is never called and behaviour is
+// byte-for-byte v3's. Its own artifact, preflight-verdict.json, never touches `propose`.
+//
+// Correction to the plan's own "Research" line: the existing post-propose debate-aggregation
+// code (the `config.debate` block later in this file) cannot run "unmodified" against
+// task-description text - it is built around anonymising and cross-critiquing a POOL of
+// distinct per-lab proposals, which has no equivalent when every seat is reviewing the same
+// shared task text. Checked directly before writing this. What's built instead is a small,
+// independent function in the same concurrent-Promise.all-over-labs shape as that block, sized
+// to what a description-only review actually needs (no anonymisation, no cross-lab posts/
+// replies - every seat reviews the same fixed text and returns one independent verdict).
+export const PREFLIGHT_SYSTEM = `You review a task description before any code change is proposed against it. You never see, write, or evaluate a diff - only the text below. Your only job is to catch a task framing that would be unsafe or nonsensical to start building against: contradictory requirements, a missing or unnamed target, an acceptance test that cannot be satisfied as stated. Do not comment on style or completeness beyond that. Reply as JSON only: {"verdict": "pass" | "object", "objections": ["one sentence per real problem, empty if verdict is pass"]}`;
+
+export function preflightUser(request) {
+  return `# Task description under review (no diff or proposal exists yet)\n\n${request}`;
+}
+
+// seats: config.preflight.seats if given, else config.seats.critics (the existing critics
+// seats, reused - never config.seats.proposers, which stays the only diff-authoring role).
+export async function runPreflightStage(config, { request, invoke, record, log = () => {} }) {
+  const seats = (config.preflight?.seats && config.preflight.seats.length) ? config.preflight.seats : (config.seats.critics || []);
+  const verdicts = await Promise.all(seats.map(async seat => {
+    const lab = labOf(seat);
+    try {
+      const s = record(await invoke(seat, {
+        system: PREFLIGHT_SYSTEM,
+        user: preflightUser(request),
+        log, label: `preflight-${lab}`,
+      }));
+      const parsed = parseJson(s.text);
+      const verdict = parsed?.verdict === 'object' ? 'object' : 'pass';
+      const objections = Array.isArray(parsed?.objections) ? parsed.objections.filter(o => typeof o === 'string' && o.trim()) : [];
+      return { lab, verdict, objections };
+    } catch (err) {
+      // A seat that fails to answer at all does not get to silently count as a "pass" that
+      // could tip a marginal call - it's recorded distinctly, and does not block on its own
+      // (an unreachable seat is not evidence the task is malformed).
+      return { lab, verdict: 'error', objections: [], error: String(err.message).slice(0, 200) };
+    }
+  }));
+  const blocked = verdicts.some(v => v.verdict === 'object' && v.objections.length > 0);
+  return { verdicts, blocked };
+}
+
 // A "seat" is one lab's model occupying one slot in the chain.
 //   { provider, model, maxTokens?, temperature? }
 
@@ -345,6 +391,18 @@ export function unionAmbiguities(lists) {
 // chain's control flow stays linear.
 export class ExternalPause extends Error {
   constructor(label, system, user) { super(`waiting for external stage ${label}`); this.label = label; this.system = system; this.user = user; }
+}
+
+// v4 item 2: a run's preflight stage found at least one blocking objection to the task
+// description itself, before any proposal exists. Thrown, not returned, for the same reason
+// as ExternalPause/BudgetExceeded - the chain's control flow stays linear, and the preflight
+// verdicts computed so far are handed to the caller to persist, the same shape BudgetExceeded
+// already uses for its own already-completed stages.
+export class PreflightBlocked extends Error {
+  constructor(preflight) {
+    super('preflight stage found a blocking objection to the task description');
+    this.preflight = preflight;
+  }
 }
 
 // A run hits its spend ceiling: thrown from invoke() BEFORE the call goes
@@ -757,6 +815,23 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   const open = config.scope === 'open';
   if (open) log('scope: OPEN - every seat may add scope; additions are recorded, the verdict pass cuts');
 
+  // 0. Preflight (config.preflight, v4 item 2). Absent config: never called, zero behaviour
+  // change from v3. Reviews `request` text only - never a diff, never `propose` - so no critic
+  // ever authors code. A blocking objection stops the run here, before criteria/proposals/build
+  // ever run, the same "thrown, not returned" shape as BudgetExceeded/ExternalPause.
+  let preflight;
+  if (config.preflight && !initialDraft) {
+    log('\nStage: preflight (task-description review only, never a diff)');
+    preflight = await runPreflightStage(config, { request, invoke, record, log });
+    const objected = preflight.verdicts.filter(v => v.verdict === 'object' && v.objections.length);
+    for (const v of objected) log(`  ${v.lab}: OBJECT - ${v.objections.join(' / ')}`);
+    if (preflight.blocked) {
+      log(`  BLOCKED: ${objected.length} seat(s) objected to the task description before any proposal exists.`);
+      throw new PreflightBlocked(preflight);
+    }
+    log(`  ${preflight.verdicts.length} seat(s), no blocking objection - proceeding to criteria.`);
+  }
+
   // 1. Acceptance criteria. Written before the deliverable exists, so they
   //    describe the request rather than rationalising whatever got built.
   let criteria = config.criteria;
@@ -1068,6 +1143,25 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       user: R.builderUser({ request, criteria, proposals, board }),
       log, label: 'build',
     })).text;
+  }
+
+  // v4 item 3: wire the diff_applied fact-check for real. v3 built runVerification's
+  // expect.contains/fact marker mechanism, but only ever called it before any diff existed, so
+  // "diff_applied" could never be anything but absent. Gated on config.verify_post === true;
+  // absent, this never runs and behaviour is byte-for-byte v3's. runVerification is reused
+  // unmodified (confirmed by reading it above: it takes a config and re-reads the real
+  // filesystem through the same allowlisted tools every time it's called - it has no
+  // stage-order-dependent cache, so calling it a second time here, after the build stage's
+  // external pause has ingested the operator's already-applied-for-real diff (coder-gate's own
+  // documented contract: applying a diff to a real working tree is a human/external action that
+  // happens before the builder pastes it back), reads the genuinely post-apply file state).
+  // Written to its own field/artifact (ground_truth_post / verify-post.json), never mixed into
+  // the pre-build `ground_truth` - so an existing chain's pre-build ground_truth/report.json
+  // shape is untouched whether or not verify_post is set.
+  let ground_truth_post;
+  if (config.verify_post === true) {
+    log('\nStage: verify (post-build, against the applied file state)');
+    ground_truth_post = runVerification(config, { runTool: config.verify?.runTool, log });
   }
 
   // v7.x: deterministic plan lints (src/lints.js), gated on config.lints.enabled. Runs here -
@@ -1508,5 +1602,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     ...(canary !== undefined ? { canary } : {}),
     ...(lints !== undefined ? { lints } : {}),
     ...(claims !== undefined ? { claims, claimWarnings } : {}),
+    ...(preflight !== undefined ? { preflight } : {}),
+    ...(ground_truth_post !== undefined ? { ground_truth_post } : {}),
   };
 }

@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, resolveChainSeats, setCache, setBudget, budgetState, ExternalPause, BudgetExceeded } from './chain.js';
+import { runChain, checkSeats, resolveChainSeats, setCache, setBudget, budgetState, ExternalPause, BudgetExceeded, PreflightBlocked } from './chain.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName, keyFor, isKeyOptional } from './providers.js';
 import { spendReport, costToday } from './spend.js';
@@ -1086,6 +1086,29 @@ try {
     },
   });
 } catch (err) {
+  if (err instanceof PreflightBlocked) {
+    // Same posture as BudgetExceeded below: deliberately no report.json/deliverable.md - a
+    // preflight objection means propose/build never ran, so there is no deliverable to report
+    // on. preflight-verdict.json is its own artifact and is written whether or not the run
+    // blocks (a resumed/fixed task file re-runs preflight fresh, same as any other stage).
+    writeFileSync(join(runDir, 'preflight-verdict.json'), JSON.stringify(err.preflight, null, 2));
+    const objections = err.preflight.verdicts.filter(v => v.verdict === 'object' && v.objections.length);
+    writeFileSync(join(runDir, 'STOPPED-preflight.md'), `# Run stopped: preflight objected to the task description
+
+This run stopped before \`criteria\`/\`proposals\`/\`build\` ever ran - no diff or proposal exists
+for this run.
+
+${objections.map(v => `- **${v.lab}**: ${v.objections.join(' / ')}`).join('\n')}
+
+Fix the task description (this run's own task file, not a diff), then re-run. Nothing here is
+resumable via \`--resume\` the way an \`ExternalPause\` is, since no stage after preflight ever
+started.
+`);
+    log(`\nSTOPPED: preflight objected to the task description (${objections.length} seat(s)).`);
+    log(`  detail:  ${join(runDir, 'STOPPED-preflight.md')}`);
+    log(`  verdict: ${join(runDir, 'preflight-verdict.json')}`);
+    process.exit(5);
+  }
   if (err instanceof ExternalPause) {
     const need = join(runDir, `NEEDS-${err.label}.md`);
     writeFileSync(need, withIntegrityFooter(`# External stage: ${err.label}\n\nWrite the reply to \`${join(runDir, `${err.label}.md`)}\` and run:\n\n    node src/cli.js --resume runs/${runId}\n\n## System prompt\n\n${err.system}\n\n## User prompt\n\n${err.user}`));
@@ -1152,6 +1175,13 @@ const disputesSection = result.disputes?.length
   : '';
 if (result.board || disputesSection) writeFileSync(join(runDir, 'BOARD.md'), `# Debate board - run ${runId}\n\n${result.board ? `Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${disputesSection}`);
 if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff);
+// v4 item 2: written on every run that had a preflight config, blocked or not - the blocked
+// path also writes this same file from the PreflightBlocked catch above, before this line is
+// ever reached, so this covers only the non-blocking case.
+if (result.preflight) writeFileSync(join(runDir, 'preflight-verdict.json'), JSON.stringify(result.preflight, null, 2));
+// v4 item 3: its own artifact, separate from report.json's pre-build `ground_truth` - a chain
+// without config.verify_post never has this key, so this line never runs for it.
+if (result.ground_truth_post) writeFileSync(join(runDir, 'verify-post.json'), JSON.stringify(result.ground_truth_post, null, 2));
 if (result.proposals?.length) {
   writeFileSync(join(runDir, 'proposals.md'), result.proposals.map(p =>
     `## ${p.id} (${p.lab}/${p.model})\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}`).join('\n\n'));
