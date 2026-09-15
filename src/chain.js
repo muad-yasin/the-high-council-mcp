@@ -1573,6 +1573,31 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     }
   }
 
+  // 3c. Cold-reader coherence check (config.coldRead: { enabled: true }), harness features
+  // v6 item A/6: catches a documented failure mode - internal contradictions merging can
+  // leave behind - by having one fresh seat with zero debate context read only the
+  // signed-off draft. No efficacy claim is made; this does not measure or assert that
+  // output quality improves.
+  let coldRead = null;
+  if (config.coldRead?.enabled === true) {
+    log('\nStage: cold-reader coherence check (post-signoff, one fresh seat, draft only)');
+    const coldReadSeat = config.seats.coldRead;
+    if (!coldReadSeat) throw new Error('config.coldRead.enabled is true but config.seats.coldRead is not set - no fallback to another seat, since any seat that already saw debate context defeats the mechanism.');
+    const cr = record(await invoke(coldReadSeat, {
+      system: R.COLD_READ_SYSTEM,
+      user: R.coldReadUser(draft),
+      log, label: 'cold-read',
+    }));
+    const parsed = parseJson(cr.text);
+    const contradictions = Array.isArray(parsed?.contradictions)
+      ? parsed.contradictions
+          .filter(c => c && typeof c.note === 'string')
+          .map(c => ({ sections: Array.isArray(c.sections) ? c.sections : [], note: c.note }))
+      : [];
+    coldRead = { raised: parsed?.raised === true, contradictions };
+    log(coldRead.raised ? `  cold-reader flagged ${contradictions.length} contradiction(s).` : '  cold-reader found no contradictions.');
+  }
+
   // 4. Optional final edit: strips chain artifacts. Never adds material.
   if (config.seats.finalist) {
     log('\nStage: final edit');
@@ -1622,6 +1647,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     lastCritique,
     signoff,
     challenge,
+    coldRead,
     allocator: config.allocator?.enabled ? {
       targetedRounds: allocatorRounds,
       engagedCount: allocatorRounds.filter(r => r.engaged).length,

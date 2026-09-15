@@ -28,12 +28,14 @@ const mockConfig = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'u
 // asserting other items' absence. 'allocator' (v7.3, the resource allocator) was added the same
 // way, present as `null` when config.allocator is absent or disabled. 'ambiguities' (item 5,
 // relay/runs/2026-09-14T14-56-18-834Z/deliverable.md) is the same shape again - present as `null`
-// when config.ambiguity_union is absent or disabled.
+// when config.ambiguity_union is absent or disabled. 'coldRead' (harness features v6 item A/6,
+// the post-signoff cold-reader coherence check) is the same shape again - present as `null` when
+// config.coldRead is absent or disabled.
 const FROZEN_V6_KEYS = [
   'deliverable', 'criteria', 'ambiguities', 'questions', 'skeleton', 'proposals', 'proposalPool',
   'dropouts', 'board', 'debate', 'handoff', 'scoreboard', 'passed', 'lastCritique',
   'signoff', 'disputes', 'history', 'stages', 'totals', 'orphanSections', 'withdrawalCycles',
-  'challenge', 'allocator',
+  'challenge', 'allocator', 'coldRead',
 ].sort();
 
 test('verify absent: result has no ground_truth key and matches the frozen v6 key set', async () => {
