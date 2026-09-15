@@ -14,7 +14,7 @@ import { findSeatByLab } from './chain.js';
 // seats that would violate it - not a general allow/deny list.
 const NON_EU_PROVIDERS = ['deepseek', 'zai'];
 
-const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger', 'ambiguity', 'coldRead'];
+const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger', 'ambiguity', 'coldRead', 'security_reviewer'];
 
 /**
  * Lint findings for a chain config, each `{ kind, message, fix }`. Never
@@ -58,7 +58,7 @@ export function lintChain(config, filePath = '<chain>') {
   // catching before spending, not after the first API call.
   const allSeats = [
     seats.criteria, seats.builder, seats.reviser, seats.finalist, seats.skeleton,
-    seats.handoff, seats.questions, seats.judge, seats.challenger,
+    seats.handoff, seats.questions, seats.judge, seats.challenger, seats.security_reviewer,
     ...(seats.proposers || []), ...(seats.critics || []), ...(seats.ambiguity || []),
   ].filter(Boolean);
   const known = new Set([...providerNames(), 'mock', 'external']);
@@ -156,6 +156,45 @@ export function lintChain(config, filePath = '<chain>') {
         fix: `Set "coldRead.enabled" to true or false in ${filePath}.`,
       });
     }
+  }
+
+  // 6c. Final security review (src/security-review.js): `security_review.enabled` is the only key
+  // read. The blocking severities are hard-coded there on purpose, so a chain cannot loosen its
+  // own gate - any other key here would silently do nothing, so it fails instead. A
+  // seats.security_reviewer in a chain that never enables the stage is a seat that never runs,
+  // the same class of silent no-op check 1 exists for.
+  if (config?.security_review !== undefined) {
+    if (!config.security_review || typeof config.security_review !== 'object' || Array.isArray(config.security_review)) {
+      findings.push({
+        kind: 'invalid-security-review-config',
+        message: `security_review must be an object like { "enabled": true }.`,
+        fix: `Set "security_review" to { "enabled": true } or remove it in ${filePath}.`,
+      });
+    } else {
+      for (const key of Object.keys(config.security_review)) {
+        if (key !== 'enabled') {
+          findings.push({
+            kind: 'invalid-security-review-config',
+            message: `security_review.${key} is not a recognized key - only "security_review.enabled" is exposed.`,
+            fix: `Remove "security_review.${key}" from ${filePath}. The blocking severities are fixed in src/security-review.js, not a chain setting.`,
+          });
+        }
+      }
+      if ('enabled' in config.security_review && typeof config.security_review.enabled !== 'boolean') {
+        findings.push({
+          kind: 'invalid-security-review-config',
+          message: `security_review.enabled must be a boolean.`,
+          fix: `Set "security_review.enabled" to true or false in ${filePath}.`,
+        });
+      }
+    }
+  }
+  if (seats.security_reviewer && config?.security_review?.enabled !== true) {
+    findings.push({
+      kind: 'unreachable-stage',
+      message: `seats.security_reviewer is set but security_review.enabled is not true, so the security-review stage never runs.`,
+      fix: `Add "security_review": { "enabled": true } to ${filePath}, or remove "seats.security_reviewer".`,
+    });
   }
 
   // 7. Resource allocator (v7.3): disagreement-targeted rounds, gated on

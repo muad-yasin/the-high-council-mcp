@@ -1,5 +1,9 @@
 {
   "_note": "USD per 1,000,000 tokens. List prices change often - re-check each lab's pricing page before quoting these to anyone. Verified against public pricing pages as of 2026-09-06; treat as estimates, not invoices.",
+  "anthropic/claude-fable-5-1": {
+    "in": 10.0,
+    "out": 50.0
+  },
   "anthropic/claude-opus-5": {
     "in": 15.0,
     "out": 75.0

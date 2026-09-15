@@ -9,6 +9,7 @@ import { runTool as defaultRunTool, ALLOWED_TOOLS, runSeatToolRequests } from '.
 import { runLints } from './lints.js';
 import { extractClaims, dropInvalidClaims } from './claims.js';
 import { injectCanary, shouldSampleCanary } from './canary.js';
+import { runSecurityReviewStage } from './security-review.js';
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
 // full chain. Tells the criteria seat what the chain's own contract will require in the
@@ -1672,6 +1673,23 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     })).text;
   }
 
+  // 6. Final security review (config.security_review.enabled, src/security-review.js). The very
+  // last stage - after build, verify_post, every critic/revise round, the challenge, the final
+  // edit and the handoff - so it always reviews the finished deliverable, never a draft that can
+  // still change. Read-only: its reply is recorded, never assigned to `draft`, and never handed to
+  // a reviser. Pause and spend-cap errors propagate like any other stage's; a reviewer that simply
+  // fails to answer becomes a "not_judged" result, which is never a pass. Absent or not `true`:
+  // never called, and the result carries no security_review key.
+  let security_review;
+  if (config.security_review?.enabled === true) {
+    log('\nStage: security review (final, read-only)');
+    security_review = await runSecurityReviewStage(config, {
+      request, deliverable: draft, groundTruthPost: ground_truth_post, invoke, record, parseJson,
+      abstentionReasonCode, rethrow: [ExternalPause, BudgetExceeded], log,
+    });
+    log(`  gate: ${security_review.gate} - ${security_review.findings.length} finding(s), ${security_review.blocking_count} blocking${security_review.reason_code ? ` (${security_review.reason_code})` : ''}`);
+  }
+
   // Scoreboard: what each lab proposed and what the plan did with it. The
   // "built" column can only be filled after a build session; it is left to
   // the human on purpose (a part that reads well may not build).
@@ -1719,5 +1737,6 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     ...(claims !== undefined ? { claims, claimWarnings } : {}),
     ...(preflight !== undefined ? { preflight } : {}),
     ...(ground_truth_post !== undefined ? { ground_truth_post } : {}),
+    ...(security_review !== undefined ? { security_review } : {}),
   };
 }

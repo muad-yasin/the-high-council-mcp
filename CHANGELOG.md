@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased - final security-review gate
+
+An optional last stage, `security-review`, that runs after build, `verify_post`, every critic and
+revise round, the final edit and the handoff. One read-only reviewer reads the finished
+deliverable and returns typed findings (severity, category, file, line, evidence, problem).
+- **Gate:** any critical or high finding blocks it (CLI exit 7). No readable verdict, or a reviewer
+  that says it could not judge, is `not_judged` (exit 8), never a pass. Lower-severity findings are
+  still listed. The existing exit codes (5 degradable, 6 fatal) keep their meanings.
+- **Config:** `security_review: { enabled: true }` is the only key; `chain-lint` rejects anything else.
+- **Default seat:** `anthropic/claude-fable-5-1` (BYOK), newly priced in `src/pricing.json` at
+  Anthropic's list price (## Unreleased - MLLM Coder v6 items V6-1 and V6-2: status ledger, span-tree progress records
+
+From the v6 plan (`relay/runs/2026-09-15T15-13-25-950Z/deliverable.md`, unanimous 5/5). V6-3,
+V6-4 and V6-7 deferred (the plan's own Mistral objection applies to V6-4 only) - not built here.
+
+**V6-1.** `STATUS-LEDGER.md` (new, tracked): a real, re-checkable status table for every v5 GUI
+feature (built/partial/not started/cut) and the Project A overlap, each row citing the exact
+commit and file that backs it. `test/status-ledger.test.js` re-verifies every cited path exists
+at HEAD (in this repo or the named `coder-gate-agent-stub` sibling), that every status is one of
+the four allowed values, and that no row reads "assumed" or "TBD" - the ledger cannot silently
+drift from what it claims.
+
+**V6-2.** `stage-log.jsonl` gains a span tree: every stage line now carries `span_id` and
+`parent_span_id` (`src/spans.js`), and a `kind:"round"` summary record is appended once every
+critic seat has posted for a panel round, giving `state.json`'s existing per-round polling a
+matching append-only history without a third file or format. `run.json` gains `rootSpanId`,
+carried forward unchanged across `--resume`. Additive only: existing stage-line fields are
+unchanged, round records omit `usd` and are skipped by `sumCostFromStageLogText` so they are
+never double-counted. The span-tree idea is attributed to Langfuse/LangSmith/AgentOps; none is
+adopted as a dependency. No `src/chain.js` or `src/tools.js` change.
+0/$50 per million tokens), so `--dry-run` and `--max-usd` cover it.
+- **Local option:** any `ollama` seat works as a local/offline reviewer. Nothing has been
+  measured comparing the two.
+- **Invariants:** the reviewer has no tools and its reply never reaches the deliverable or a
+  reviser, so critics still never write code.
+- **Earlier idea:** the pre-propose security-lens critic deferred in v3 is not this. That idea
+  needed a debate stage before any proposal existed; this reviews an artifact that already
+  exists.
+- **Output:** `report.json` gains `security_review` (additive) and the run folder gets
+  `security-review.json`.
+- **Tests:** `chains/mock-security-review.json` and `test/security-review-gate.test.js` run
+  everything at $0. Docs: `docs/security-review-gate.md`.
+
 ## Unreleased - MLLM Coder v6 items V6-1 and V6-2: status ledger, span-tree progress records
 
 From the v6 plan (`relay/runs/2026-09-15T15-13-25-950Z/deliverable.md`, unanimous 5/5). V6-3,

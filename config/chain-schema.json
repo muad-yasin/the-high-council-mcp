@@ -195,6 +195,16 @@
       },
       "description": "src/chain-lint.js rule 6 already hard-validates this exhaustively (only 'enabled' is a real key) - this schema mirrors that exact shape rather than re-deriving it."
     },
+    "security_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "description": "Final security-review gate (src/security-review.js). src/chain-lint.js rule 6c hard-validates it the same way as challenge (only 'enabled' is a real key; the blocking severities are fixed in code, not a chain setting) - this schema mirrors that exact shape. The reviewer seat itself lives under seats.security_reviewer."
+    },
     "allocator": {
       "type": "object",
       "additionalProperties": false,

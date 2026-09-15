@@ -1,0 +1,45 @@
+{
+  "name": "mock-security-review",
+  "description": "Offline. Exercises the final security-review gate at $0: a mock build and panel, then the security-review stage last, with a mock reviewer that always reports one high-severity finding - so the gate's blocking path (security-review.json, report.json security_review, CLI exit code 7) runs end to end with no key. Swap seats.security_reviewer's model to mock-security-clean for the passing path.",
+  "maxRounds": 1,
+  "signoff": "unanimous",
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "seats": {
+    "criteria": {
+      "provider": "mock",
+      "model": "mock-criteria"
+    },
+    "builder": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "reviser": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-critic-a",
+        "lab": "mock-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-critic-b",
+        "lab": "mock-b"
+      }
+    ],
+    "security_reviewer": {
+      "provider": "mock",
+      "model": "mock-security-block",
+      "lab": "mock-security"
+    }
+  },
+  "security_review": {
+    "enabled": true
+  }
+}

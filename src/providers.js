@@ -163,6 +163,19 @@ async function callMock({ model, system, messages, maxTokens }) {
   // v4 item 2: the preflight stage's mock seats. `mock-preflight-object` always objects (one
   // fixed objection); every other model on this prompt passes with no objections - so a test
   // only has to name the seat that should object, not every seat.
+  // The final security-review gate's mock seats (src/security-review.js). `mock-security-block`
+  // reports one high finding (blocks), `mock-security-low` says "fail" with one low finding (does
+  // not block), `mock-security-cannot-judge` returns the non-verdict; every other model passes
+  // clean. Unreadable and unreachable reviewers reuse mock-unreadable / mock-network-error above.
+  if (system.startsWith('You are the final security reviewer of a finished build')) {
+    await new Promise(r => setTimeout(r, 10));
+    const finding = (severity, category) => ({ severity, category, file: 'src/db.js', line: 42, evidence: 'db.query(`SELECT * FROM users WHERE id = ${req.params.id}`)', problem: 'mock: user input is interpolated into SQL.' });
+    const reply = model === 'mock-security-block' ? { verdict: 'fail', findings: [finding('high', 'injection')] }
+      : model === 'mock-security-low' ? { verdict: 'fail', findings: [finding('low', 'other')] }
+      : model === 'mock-security-cannot-judge' ? { verdict: 'could_not_judge', reason: 'mock: the deliverable contains no diff to review.', findings: [] }
+      : { verdict: 'pass', findings: [] };
+    return { text: JSON.stringify(reply), usage: { input: 20, output: 15 }, provider: 'mock', model };
+  }
   if (system.startsWith('You review a task description before any code change is proposed against it')) {
     await new Promise(r => setTimeout(r, 10));
     const text = model === 'mock-preflight-object'

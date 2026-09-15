@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { isFreeProvider } from './providers.js';
+import { DEFAULT_SECURITY_REVIEWER_SEAT, SECURITY_REVIEW_LABEL } from './security-review.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PRICES = JSON.parse(readFileSync(join(here, 'pricing.json'), 'utf8'));
@@ -93,6 +94,10 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
   }
   push('final', config.seats.finalist, a.promptTokens + a.draftTokens, a.draftTokens);
   if (config.handoff) push('handoff', config.seats.handoff || config.seats.builder, a.promptTokens + a.draftTokens, 1200);
+  // The final security review reads the request plus the finished draft (promptTokens +
+  // draftTokens, same input as a panel critique) and replies with a findings list, which is
+  // critique-shaped output - so it uses the chain's own critiqueTokens assumption, not a new number.
+  if (config.security_review?.enabled === true) push(SECURITY_REVIEW_LABEL, config.seats.security_reviewer || DEFAULT_SECURITY_REVIEWER_SEAT, a.promptTokens + a.draftTokens, a.critiqueTokens);
   return rows;
 }
 

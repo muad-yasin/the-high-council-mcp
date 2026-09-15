@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, checkSeats, resolveChainSeats, setCache, setBudget, budgetState, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked } from './chain.js';
+import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus } from './run-status.js';
 import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sumCostFromStageLogText } from './run-state.js';
 import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFromStageLogText, sumRoundUsdFromStageLogText } from './spans.js';
@@ -48,6 +49,11 @@ import { runCouncilReplay } from './council-replay.js';
 // own existing exit paths (usage errors, ExternalPause, BudgetExceeded).
 const EXIT_DEGRADABLE = 5;
 const EXIT_FATAL = 6;
+// Final security-review gate (src/security-review.js): the run itself completed and every artifact
+// is on disk, but the gate did not pass. Kept distinct from every code above so a caller can tell a
+// blocked or unjudged build from a crashed or degraded run.
+const EXIT_SECURITY_BLOCKED = 7;
+const EXIT_SECURITY_NOT_JUDGED = 8;
 import { scanArtifacts } from './key-redaction.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -161,6 +167,9 @@ function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = 
     // MLLM Coder v5 item 5: present only when a policy.json was in force for this run - what it
     // restricted, by capability. Absent means no policy, never "a policy with no checks".
     ...(policyChecks ? { policy: { checks: policyChecks } } : {}),
+    // Final security-review gate (src/security-review.js): additive, present only when the chain
+    // enabled the stage - same object as the run folder's security-review.json.
+    ...(result.security_review !== undefined ? { security_review: result.security_review } : {}),
   };
 }
 
@@ -1504,6 +1513,8 @@ if (result.preflight) writeFileSync(join(runDir, 'preflight-verdict.json'), JSON
 // v4 item 3: its own artifact, separate from report.json's pre-build `ground_truth` - a chain
 // without config.verify_post never has this key, so this line never runs for it.
 if (result.ground_truth_post) writeFileSync(join(runDir, 'verify-post.json'), JSON.stringify(result.ground_truth_post, null, 2));
+// Final security-review gate: its own artifact, written whether the gate passed or not.
+if (result.security_review) writeFileSync(join(runDir, 'security-review.json'), JSON.stringify(result.security_review, null, 2));
 if (result.proposals?.length) {
   writeFileSync(join(runDir, 'proposals.md'), result.proposals.map(p =>
     `## ${p.id} (${p.lab}/${p.model})\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}`).join('\n\n'));
@@ -1559,6 +1570,18 @@ log(`tokens:   ${t.input} in, ${t.output} out, ${t.total} total`);
 log(`cost:     ${formatUsd(t.usd)}${t.unpriced.length ? ` (+ unpriced: ${t.unpriced.join(', ')})` : ''}${maxUsdEff === null ? '' : ` of ${formatUsd(maxUsdEff)} ceiling`}`);
 const boardWritten = result.board || disputesSection;
 log(`output:   ${join(runDir, 'deliverable.md')}${result.handoff ? `  (+ HANDOFF.md${boardWritten ? ', BOARD.md' : ''})` : boardWritten ? '  (+ BOARD.md)' : ''}`);
+// Final security-review gate. Checked last, after every artifact (report.json, state.json, the
+// audit close, RESUME.md) is on disk, so a failed gate still leaves a complete, readable run
+// folder. Exit 7 = blocked, 8 = not judged; both are failures a caller must not treat as a pass.
+if (result.security_review) {
+  const sr = result.security_review;
+  log(`security: ${sr.gate} - ${sr.seat}, ${sr.findings.length} finding(s), ${sr.blocking_count} blocking${sr.reason_code ? ` (${sr.reason_code})` : ''} - ${join(runDir, 'security-review.json')}`);
+  for (const f of sr.findings.filter(f => BLOCKING_SEVERITIES.includes(f.severity))) {
+    log(`  - [${f.severity}] ${f.category} ${f.file ?? '?'}:${f.line ?? '?'} - ${f.problem ?? f.evidence}`);
+  }
+  if (sr.gate === 'blocked') process.exit(EXIT_SECURITY_BLOCKED);
+  if (sr.gate === 'not_judged') process.exit(EXIT_SECURITY_NOT_JUDGED);
+}
 
 }
 // end of the non-MCP path (see the --mcp branch at the top of this file)

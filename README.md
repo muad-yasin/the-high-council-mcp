@@ -181,6 +181,15 @@ example chain with every seat local. As with every other seat in this project: B
 BYO-compute here, and no efficacy claim is made about local models versus hosted ones - nothing
 has been measured.
 
+### Final security-review gate
+
+`"security_review": { "enabled": true }` adds one read-only reviewer as the last stage of a chain,
+after the build and everything else. It returns typed findings, and any critical or high finding
+fails the run (exit 7). A reviewer with no usable verdict fails it too (exit 8); that never counts
+as a pass. The default reviewer is `anthropic/claude-fable-5-1` (your key, priced, capped);
+`seats.security_reviewer` can be any seat, including a local `ollama` one as an offline option.
+Full details: [docs/security-review-gate.md](docs/security-review-gate.md).
+
 ## Quick start (CLI)
 
 A task file is the request the council plans against: plain prose, written by you. There is no
