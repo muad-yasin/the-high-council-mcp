@@ -23,10 +23,22 @@ function citedPaths(evidenceCell) {
   return codeSpans.filter(p => p.includes('/') && !/^[0-9a-f]{7,10}$/i.test(p));
 }
 
+// coder-gate-agent-stub is a separate, sibling repo (relay/runs/2026-09-15T15-13-25-950Z/
+// deliverable.md names it as Project A's own build), not part of this checkout and not fetched
+// by CI or a fresh clone. Its one stable, real location on a machine that has it is alongside
+// this repo (`../coder-gate-agent-stub`) - the same "outside this repo, checked when present"
+// pattern test/withdrawal-ledger.test.js already uses for a relay run folder. When it's absent,
+// the stub-citing checks below skip with a stated reason instead of failing; every in-repo path
+// citation stays strict regardless.
+const stubRepoRoot = resolve(repoRoot, '..', 'coder-gate-agent-stub');
+const stubRepoPresent = existsSync(stubRepoRoot);
+
+function isStubPath(p) {
+  return p.startsWith('coder-gate-agent-stub/');
+}
+
 function resolveCitedPath(p) {
-  if (p.startsWith('coder-gate-agent-stub/')) {
-    return resolve(repoRoot, '..', p);
-  }
+  if (isStubPath(p)) return resolve(repoRoot, '..', p);
   return resolve(repoRoot, p);
 }
 
@@ -68,19 +80,35 @@ test('3. no row reads "assumed" or "TBD" anywhere in its cells', () => {
   }
 });
 
-test('4. every cited file path in a row\'s Evidence column exists on disk, in this repo or the named sibling repo', () => {
+test('4a. every cited in-repo file path in a row\'s Evidence column exists on disk - always strict, never skipped', () => {
   for (const row of rows) {
-    const paths = citedPaths(row.evidence);
-    assert.ok(paths.length > 0, `row "${row.feature}" cites no checkable file path`);
-    for (const p of paths) {
+    const inRepoPaths = citedPaths(row.evidence).filter(p => !isStubPath(p));
+    for (const p of inRepoPaths) {
       assert.ok(existsSync(resolveCitedPath(p)), `row "${row.feature}" cites "${p}" (resolved: ${resolveCitedPath(p)}), which does not exist`);
     }
   }
 });
 
-test('5. the Project A overlap section names at least one already-built stub file that exists on disk', () => {
+test('4b. every row cites at least one checkable path (in-repo or stub)', () => {
+  for (const row of rows) {
+    assert.ok(citedPaths(row.evidence).length > 0, `row "${row.feature}" cites no checkable file path`);
+  }
+});
+
+test('4c. every cited coder-gate-agent-stub file path exists on disk, when that sibling repo is present on this machine', t => {
+  if (!stubRepoPresent) { t.skip(`coder-gate-agent-stub not found at ${stubRepoRoot} - not part of this checkout, skipping stub-path checks`); return; }
+  for (const row of rows) {
+    const stubPaths = citedPaths(row.evidence).filter(isStubPath);
+    for (const p of stubPaths) {
+      assert.ok(existsSync(resolveCitedPath(p)), `row "${row.feature}" cites "${p}" (resolved: ${resolveCitedPath(p)}), which does not exist`);
+    }
+  }
+});
+
+test('5. the Project A overlap section names at least one already-built stub file, verified to exist when the sibling repo is present', t => {
   assert.match(ledgerText, /coder-gate-agent-stub/);
   const stubPaths = [...ledgerText.matchAll(/`(coder-gate-agent-stub\/[^`]+)`/g)].map(m => m[1]);
   assert.ok(stubPaths.length > 0, 'no coder-gate-agent-stub path cited');
+  if (!stubRepoPresent) { t.skip(`coder-gate-agent-stub not found at ${stubRepoRoot} - not part of this checkout, skipping existence check`); return; }
   for (const p of stubPaths) assert.ok(existsSync(resolveCitedPath(p)), `${p} does not exist`);
 });
