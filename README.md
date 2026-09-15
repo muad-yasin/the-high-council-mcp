@@ -141,6 +141,22 @@ Fill in `.env` with only the keys your chosen chain needs. Supported providers:
 The CLI refuses to start if any seat in the chosen chain is missing its key, rather than failing
 halfway through a paid run. `ollama` (below) is the one exception - it needs no key at all.
 
+### Standalone binaries (build them yourself)
+
+There are no published binary downloads yet. From a clone you can build a single-file `council`
+that needs no Node install to run: a Linux binary, a Linux AppImage, and a Windows `.exe`, all
+built on Linux.
+
+```bash
+npm run build:bin                 # dist/the-high-council-linux, dist/the-high-council-win.exe
+npm run build:appimage            # dist/the-high-council-x86_64.AppImage (downloads a pinned appimagetool)
+npm run smoke:bin -- dist/the-high-council-linux   # demo + an MCP session, offline, $0
+```
+
+Stated plainly: the `.exe` is tested under Wine on Linux, not on a real Windows machine, and none
+of the binaries are code-signed, so Windows SmartScreen will warn. Put `.env` in the directory you
+run the binary from.
+
 ### Local models (Ollama, LM Studio, ...)
 
 A seat can run on a model you're hosting yourself instead of a paid API. Set its provider to

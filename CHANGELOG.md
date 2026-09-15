@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased - binary packaging
+
+**Standalone binaries, buildable from a clone.** `npm run build:bin` builds a Linux binary and a
+Windows `.exe` with `@yao-pkg/pkg` (exact-pinned dev dependency). `npm run build:appimage` wraps the
+Linux build as an AppImage, using appimagetool 1.9.1 checked against its SHA-256. `npm run
+smoke:bin` checks a built artifact from an empty directory: `council demo`, plus an MCP session
+(initialize, tools/list, list_chains, dry_run, and a start_run whose mock run must finish with a
+report). A new `Build binaries` workflow runs all of it on a
+tag or manual trigger and uploads the three artifacts; it does not publish a release. This replaces
+a prototype from 2026-09-14 that was verified once in `/tmp` and never committed.
+
+Building it for real found two bugs the prototype's checks missed, both only inside a binary.
+First, the MCP tools that start the CLI (`dry_run`, `start_run`, `resume_run`) spawned
+`node src/cli.js`, which doesn't exist there, and a plain re-spawn of the binary starts as bare
+Node. They now re-invoke the binary itself with the right environment, and `run_tests` uses the
+`node` on PATH when packaged. Second, three leftover `await import('node:fs')` calls (in
+`start_run`, `resume_run` and `--context`) threw "A dynamic import callback was not specified";
+they are static imports now. Behavior from source is unchanged. `test/binary-packaging.test.js`
+guards all of this offline, including a ban on dynamic `import()` in `src/`.
+
+Not done: a test on a real Windows machine (the `.exe` is tested under Wine) and code signing.
+
 ## Unreleased - skills
 
 **Five core agentic skills** added to `skills/`, for any agent task (coding or not), including

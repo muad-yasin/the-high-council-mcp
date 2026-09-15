@@ -11,7 +11,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { spawn, execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSync, openSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseSections, flatten, parseLedger, words } from '../ui/parse.js';
@@ -33,6 +33,14 @@ const pkg = resolve(here, '../..');
 const work = process.cwd();
 const runsDir = join(work, 'runs');
 const cli = join(pkg, 'src', 'cli.js');
+// How to start the CLI as a child process. From source that's `node src/cli.js`; inside a
+// packaged binary (`process.pkg` is set by @yao-pkg/pkg) there is no `node` or on-disk cli.js
+// to hand it, but the binary itself IS the CLI, so it is re-invoked with the same arguments.
+const cliCommand = args => process.pkg ? [process.execPath, args] : ['node', [cli, ...args]];
+// pkg's runtime marks a child spawned from process.execPath with PKG_EXECPATH, which makes that
+// child start as plain node and read `--chain` as a script path. It skips the marker when the
+// caller already set the variable, so an empty value keeps the child running as the council CLI.
+const cliEnv = process.pkg ? { ...process.env, PKG_EXECPATH: '' } : process.env;
 
 const text = s => ({ content: [{ type: 'text', text: typeof s === 'string' ? s : JSON.stringify(s, null, 2) }] });
 const safeRun = id => /^[0-9TZ-]+$/.test(id) && existsSync(join(runsDir, id));
@@ -93,7 +101,7 @@ function waiting(dir) {
 
 function isAlive(id) {
   try {
-    const out = execFileSync('pgrep', ['-af', 'src/cli.js'], { encoding: 'utf8' });
+    const out = execFileSync('pgrep', ['-af', process.pkg ? process.execPath : 'src/cli.js'], { encoding: 'utf8' });
     // The run id is not on the command line; match by the newest cli process
     // whose run.log is this run's. Cheap approximation: any cli.js alive and
     // this run has no report yet.
@@ -121,7 +129,7 @@ server.tool('list_chains', 'Chains available to run, with their description and 
 });
 
 server.tool('dry_run', 'Price a chain without calling any model.', { chain: z.string() }, async ({ chain }) => {
-  const out = execFileSync('node', [cli, '--chain', chain, '--dry-run'], { encoding: 'utf8', cwd: work });
+  const out = execFileSync(...cliCommand(['--chain', chain, '--dry-run']), { encoding: 'utf8', cwd: work, env: cliEnv });
   return text(out);
 });
 
@@ -134,7 +142,7 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   rounds: z.number().int().min(1).max(5).optional(),
   max_usd: z.number().min(0).optional().describe('per-run spend ceiling in USD. Defaults to MAX_USD_PER_RUN or $5. Pass 0 for no ceiling. The run stops cleanly before any stage that could breach it, and resumes with a higher ceiling.'),
 }, async ({ chain, task, context, draft, from_run, rounds, max_usd }) => {
-  const args = [cli, '--chain', chain, '--task', resolve(work, task)];
+  const args = ['--chain', chain, '--task', resolve(work, task)];
   if (context) args.push('--context', resolve(work, context));
   if (draft) args.push('--draft', resolve(work, draft));
   if (from_run) args.push('--from-run', resolve(work, from_run));
@@ -143,8 +151,8 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   mkdirSync(runsDir, { recursive: true });
   const before = new Set(readdirSync(runsDir));
   const logPath = join(work, `council-${Date.now()}.log`);
-  const fd = (await import('node:fs')).openSync(logPath, 'a');
-  const child = spawn('node', args.slice(0), { cwd: work, detached: true, stdio: ['ignore', fd, fd] });
+  const fd = openSync(logPath, 'a');
+  const child = spawn(...cliCommand(args), { cwd: work, env: cliEnv, detached: true, stdio: ['ignore', fd, fd] });
   child.unref();
   // The run creates its folder within a second or two; find it.
   let id = null;
@@ -232,11 +240,10 @@ server.tool('resume_run', 'Resume a paused run after its external stage was answ
 
 async function resume(run, maxUsd) {
   const logPath = join(work, `council-${Date.now()}.log`);
-  const fs = await import('node:fs');
-  const fd = fs.openSync(logPath, 'a');
-  const resumeArgs = [cli, '--resume', join('runs', run)];
+  const fd = openSync(logPath, 'a');
+  const resumeArgs = ['--resume', join('runs', run)];
   if (maxUsd !== undefined) resumeArgs.push('--max-usd', maxUsd === 0 ? 'none' : String(maxUsd));
-  const child = spawn('node', resumeArgs, { cwd: work, detached: true, stdio: ['ignore', fd, fd] });
+  const child = spawn(...cliCommand(resumeArgs), { cwd: work, env: cliEnv, detached: true, stdio: ['ignore', fd, fd] });
   child.unref();
   return { resumed: true, run, pid: child.pid, log: logPath, note: 'poll run_status(run); it may pause again at the next external stage' };
 }

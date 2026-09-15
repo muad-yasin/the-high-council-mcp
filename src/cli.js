@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, checkSeats, resolveChainSeats, setCache, setBudget, budgetState, ExternalPause, BudgetExceeded } from './chain.js';
@@ -905,7 +905,6 @@ const taskHash = taskHashOf(rawTaskTextForCacheFingerprint);
 // harness plans within the same direction the humans discuss (context/README.md).
 const contextArg = resumeMeta ? resumeMeta.context : flag('context', null);
 if (contextArg) {
-  const { readdirSync, statSync } = await import('node:fs');
   const files = [];
   for (const entry of String(contextArg).split(',').map(x => x.trim()).filter(Boolean)) {
     const p = resolve(entry);

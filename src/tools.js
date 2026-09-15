@@ -45,7 +45,10 @@ function run_tests({ file } = {}, { cwd }) {
     if (!existsSync(target)) return { ok: false, error: `no such file: ${file}` };
     args.push(target);
   }
-  const res = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8', timeout: 60_000, shell: false });
+  // Inside a packaged binary process.execPath is the council binary, not node, so `--test` would
+  // reach the CLI instead of a test runner - use the node on PATH, which the target repo's own
+  // tests need anyway.
+  const res = spawnSync(process.pkg ? 'node' : process.execPath, args, { cwd: root, encoding: 'utf8', timeout: 60_000, shell: false });
   if (res.error) return { ok: false, error: String(res.error.message || res.error) };
   return {
     ok: res.status === 0,

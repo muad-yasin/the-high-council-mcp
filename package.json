@@ -14,7 +14,24 @@
     "ui": "node src/ui/server.js",
     "mcp": "node src/mcp/server.js",
     "http-server": "node src/http-server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "build:bin": "pkg . --compress GZip",
+    "build:appimage": "bash scripts/build-appimage.sh",
+    "smoke:bin": "node scripts/smoke-binary.mjs"
+  },
+  "pkg": {
+    "scripts": [
+      "src/**/*.js"
+    ],
+    "assets": [
+      "src/pricing.json",
+      "chains/**/*.json"
+    ],
+    "targets": [
+      "node22-linux-x64",
+      "node22-win-x64"
+    ],
+    "outputPath": "dist"
   },
   "engines": {
     "node": ">=20"
@@ -51,5 +68,8 @@
     "claude",
     "ai",
     "cli"
-  ]
+  ],
+  "devDependencies": {
+    "@yao-pkg/pkg": "6.22.0"
+  }
 }

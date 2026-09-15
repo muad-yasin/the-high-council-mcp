@@ -1,0 +1,50 @@
+name: Build binaries
+
+# Builds the Linux binary, the Linux AppImage and the Windows .exe, smoke-tests each one, and
+# uploads them as workflow artifacts. It does not publish a GitHub release - cutting one is the
+# maintainer's own step. Everything runs on one Linux runner: pkg cross-builds the .exe, and the
+# .exe is smoke-tested under Wine (evidence it runs under Windows' loader, not a real-Windows test).
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:bin
+      - run: npm run build:appimage
+      - name: Install Wine for the .exe smoke test
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine64
+      - name: Smoke-test the Linux binary
+        run: npm run smoke:bin -- dist/the-high-council-linux
+      - name: Smoke-test the AppImage
+        # No FUSE on hosted runners; the AppImage runtime extracts to a temp dir instead.
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: npm run smoke:bin -- dist/the-high-council-x86_64.AppImage
+      - name: Smoke-test the Windows .exe under Wine
+        env:
+          WINEDEBUG: '-all'
+        run: npm run smoke:bin -- dist/the-high-council-win.exe wine64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: council-binaries
+          path: |
+            dist/the-high-council-linux
+            dist/the-high-council-x86_64.AppImage
+            dist/the-high-council-win.exe
+          if-no-files-found: error

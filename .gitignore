@@ -10,3 +10,5 @@ tasks/
 # never committed. See PERSONAS.md.
 .council/
 Review/
+# Packaged binaries from `npm run build:bin` / `build:appimage` - release artifacts, never committed.
+dist/
