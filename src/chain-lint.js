@@ -14,7 +14,7 @@ import { findSeatByLab } from './chain.js';
 // seats that would violate it - not a general allow/deny list.
 const NON_EU_PROVIDERS = ['deepseek', 'zai'];
 
-const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger', 'ambiguity'];
+const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger', 'ambiguity', 'coldRead'];
 
 /**
  * Lint findings for a chain config, each `{ kind, message, fix }`. Never
@@ -132,6 +132,28 @@ export function lintChain(config, filePath = '<chain>') {
         kind: 'invalid-challenge-config',
         message: `challenge.enabled must be a boolean.`,
         fix: `Set "challenge.enabled" to true or false in ${filePath}.`,
+      });
+    }
+  }
+
+  // 6b. Cold-reader coherence check (harness features v6 item A/6): coldRead.enabled is
+  // the only key this chain reads, same narrow stance as challenge above - no sub-config,
+  // so nothing beyond boolean-ness is validated here.
+  if (config?.coldRead && typeof config.coldRead === 'object') {
+    for (const key of Object.keys(config.coldRead)) {
+      if (key !== 'enabled') {
+        findings.push({
+          kind: 'invalid-cold-read-config',
+          message: `coldRead.${key} is not a recognized key - only "coldRead.enabled" is exposed.`,
+          fix: `Remove "coldRead.${key}" from ${filePath}. The single fresh-seat, zero-context call is hard-coded and intentionally not configurable.`,
+        });
+      }
+    }
+    if ('enabled' in config.coldRead && typeof config.coldRead.enabled !== 'boolean') {
+      findings.push({
+        kind: 'invalid-cold-read-config',
+        message: `coldRead.enabled must be a boolean.`,
+        fix: `Set "coldRead.enabled" to true or false in ${filePath}.`,
       });
     }
   }

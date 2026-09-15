@@ -223,6 +223,21 @@ async function callMock({ model, system, messages, maxTokens }) {
       : JSON.stringify({ challenge: false });
     return { text, usage: { input: 20, output: 15 }, provider: 'mock', model };
   }
+  // Cold-reader coherence check (harness features v6 item A/6). `mock-cold-read-yes`
+  // reports one contradiction; every other model reports none, so a scripted test can
+  // exercise both branches offline.
+  if (system.startsWith('You are a cold reader.')) {
+    await new Promise(r => setTimeout(r, 10));
+    // mock-cold-read-echo reports the exact user prompt it received back inside the reply
+    // (a field the chain-side normalizer ignores), letting a test assert on the actual
+    // invocation payload rather than inferring isolation from code shape alone.
+    const text = model === 'mock-cold-read-yes'
+      ? JSON.stringify({ raised: true, contradictions: [{ sections: ['A'], note: 'x' }] })
+      : model === 'mock-cold-read-echo'
+      ? JSON.stringify({ raised: false, contradictions: [], _receivedUser: user })
+      : JSON.stringify({ raised: false, contradictions: [] });
+    return { text, usage: { input: 20, output: 15 }, provider: 'mock', model };
+  }
   // v7.x: claim extraction (src/claims.js). `mock-claims-bad-quote` always returns a quote that
   // is not actually in the draft, exercising validateEvidence's drop-and-warn path offline;
   // every other model returns one honest "reasoning" claim per objection it was handed.
