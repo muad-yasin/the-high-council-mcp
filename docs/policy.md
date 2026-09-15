@@ -24,6 +24,28 @@ to having no file at all, but is still a real, present file an operator can poin
 | `required_signoff_paths` | `string[]` | Globs (`*` within one path segment, `**` across segments) over repo-relative, forward-slash paths. A change request whose `target_file` matches one needs a named signoff; the refusal names the matched pattern. Runs without a change request are unaffected. A change request with no `target_file`, or one that is absolute or climbs out with `..`, is refused. The path comes from the task file's `target_file:` line; a task file without that line is not a change request. The signoff comes from `--signoff <name>`, or the task file's `signoff:` line when the flag is absent. |
 | `refuse_unpriced_seats` | `boolean` | If `true`, any non-synthetic seat with no entry in `src/pricing.json` is refused, rather than silently running unpriced (and therefore uncapped by the per-run spend cap). |
 
+## Capabilities, and what a run's report records
+
+Each field is named as the capability it restricts. The names live in one table,
+`POLICY_CAPABILITIES` in `src/policy.js`:
+
+| Field | Capability |
+|---|---|
+| `allowed_providers` | `provider-choice` |
+| `allowed_regions` | `data-residency` |
+| `max_usd_per_run` | `run-spend-limit` |
+| `max_usd_per_month` | `monthly-spend-limit` |
+| `required_chain_tags` | `chain-classification` |
+| `refuse_unpriced_seats` | `priced-seats-only` |
+| `required_signoff_paths` | `path-signoff` |
+
+When a run goes ahead under a policy, its `report.json` gets a `policy` block listing the checks
+that policy **configured** - `{ "checks": [{ "capability", "field", "ok" }] }`. A field the policy
+does not set is not listed, so the report never claims a restriction that was not in force. With no
+`policy.json`, there is no `policy` key at all. The list is recorded in the run's `run.json` when
+the run starts, so a resumed run reports what its first round enforced even if `policy.json` changed
+in between. (A run that fails its policy never starts, so it has no report.)
+
 "Non-synthetic" excludes seats with `provider: "mock"` or `provider: "external"` - these are
 never billed and were never going to carry a real provider/region in the procurement sense this
 file exists for, the same exemption `--dry-run`'s own unpriced-seat warning already makes.

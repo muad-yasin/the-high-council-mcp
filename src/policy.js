@@ -14,7 +14,8 @@
 //   evaluatePolicy(policy, ctx) -> { ok: boolean, reasons: string[] }
 //     Pure - no filesystem, no network, no provider call - so it is fully offline-testable.
 //     `ctx`: { config, allSeats, worstCaseUsd, monthToDateUsd, changeRequest?, signoff? }.
-//     `reasons` is empty iff ok.
+//     `reasons` is empty iff ok. Also returns `checks`: [{ capability, field, ok }], one per
+//     check the policy configures (see POLICY_CAPABILITIES).
 //
 // Fail-closed by design: every check below refuses on anything it cannot verify (an
 // undeclared seat region, an unparsed file) rather than treating "unknown" as "allowed". This is
@@ -79,6 +80,36 @@ export function buildPolicyContext(config, allSeats, runsDir, now = Date.now()) 
   };
 }
 
+// MLLM Coder v5 item 5: each policy.json field named as the capability it restricts, so a report
+// (or an operator reading one) sees "data-residency" rather than a raw field name. One table, the
+// only place these names live. test/policy-capabilities.test.js fails if a check in
+// evaluatePolicy has no entry here, so a new check cannot ship unnamed.
+export const POLICY_CAPABILITIES = Object.freeze({
+  allowed_providers: 'provider-choice',
+  allowed_regions: 'data-residency',
+  max_usd_per_run: 'run-spend-limit',
+  max_usd_per_month: 'monthly-spend-limit',
+  required_chain_tags: 'chain-classification',
+  refuse_unpriced_seats: 'priced-seats-only',
+  required_signoff_paths: 'path-signoff',
+});
+
+// Which checks this policy actually configures - the same conditions each check below uses to
+// decide whether it runs at all. A check that is not configured is not listed: a report must never
+// claim a restriction was enforced when it was not.
+function configuredFields(policy) {
+  const set = {
+    allowed_providers: Array.isArray(policy.allowed_providers),
+    allowed_regions: Array.isArray(policy.allowed_regions),
+    max_usd_per_run: typeof policy.max_usd_per_run === 'number',
+    max_usd_per_month: typeof policy.max_usd_per_month === 'number',
+    required_chain_tags: Array.isArray(policy.required_chain_tags) && policy.required_chain_tags.length > 0,
+    refuse_unpriced_seats: policy.refuse_unpriced_seats === true,
+    required_signoff_paths: Array.isArray(policy.required_signoff_paths) && policy.required_signoff_paths.length > 0,
+  };
+  return Object.keys(POLICY_CAPABILITIES).filter(field => set[field]);
+}
+
 export function evaluatePolicy(policy, ctx) {
   const { config, allSeats, worstCaseUsd, monthToDateUsd: mtdUsd } = ctx;
   const reasons = [];
@@ -128,7 +159,14 @@ export function evaluatePolicy(policy, ctx) {
 
   reasons.push(...checkRequiredSignoffPaths(policy, ctx));
 
-  return { ok: reasons.length === 0, reasons };
+  // v5 item 5: `checks` is derived from `reasons`, never tracked separately - every reason already
+  // starts with its field name, so a check failed iff one of its reasons is present.
+  const checks = configuredFields(policy).map(field => ({
+    capability: POLICY_CAPABILITIES[field],
+    field,
+    ok: !reasons.some(r => r.startsWith(`${field}:`)),
+  }));
+  return { ok: reasons.length === 0, reasons, checks };
 }
 
 // MLLM Coder v3 item 4 (relay/runs/2026-09-14T21-38-45-696Z/revise-1.md): a change request whose

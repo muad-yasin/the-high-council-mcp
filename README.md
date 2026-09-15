@@ -514,6 +514,10 @@ collect nothing. Stated plainly, not as a claim about quality:
   folder on your own disk (`runs/<id>/`) and nowhere else. Deleting that folder deletes the
   record. See `src/spend.js`'s own documentation for why spend accounting is derived from those
   folders rather than kept in a separate log.
+- If you opt in to the audit export (`"audit": true`), each run also writes `audit.jsonl` into its
+  own folder: signed, hash-chained lines (each carries the previous line's hash) that
+  `verifyAuditLog` in `src/audit.js` checks offline. Seat, cost and timing only, never task or
+  prompt text. Format: `docs/audit-schema.md`.
 
 ## Accessibility
 
