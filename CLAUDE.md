@@ -73,7 +73,8 @@ offline for $0 and needs no keys. Use those to exercise plumbing changes before 
 
 ## Architecture
 
-The whole harness is one function, `runChain()` in `src/chain.js` (~700 lines), driven by a JSON
+The whole harness is one function, `runChain()` in `src/chain.js` (a large, growing file - check its
+current line count rather than trusting a number here), driven by a JSON
 config. Everything else is an entry point into it or a support module.
 
 **Config is the product.** `chains/*.json` are not examples - they are how behaviour is chosen.

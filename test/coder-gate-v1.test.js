@@ -60,7 +60,7 @@ test('chains/coder-gate-v1.json passes chain-lint', () => {
   assert.deepEqual(findings, []);
 });
 
-test('chains/coder-gate-v1.json uses only existing stage types - external proposer/builder, debate, critics, unanimous signoff - and adds no new one', () => {
+test('chains/coder-gate-v1.json uses only existing stage types - external proposer/builder, debate (config), critics, unanimous signoff - and adds no new one', () => {
   const cfg = JSON.parse(readFileSync(join(root, 'chains', 'coder-gate-v1.json'), 'utf8'));
   assert.equal(cfg.seats.proposers[0].provider, 'external');
   assert.equal(cfg.seats.builder.provider, 'external');
@@ -70,6 +70,37 @@ test('chains/coder-gate-v1.json uses only existing stage types - external propos
   // §6: no write tool anywhere in this chain's own config, and no tool at all named that isn't
   // on src/tools.js's existing allowlist.
   assert.deepEqual(cfg.verify.tools, []);
+});
+
+// Audit item 3 (2026-09-16): `debate: true` reads as live config but is structurally unreachable
+// in v1/v2 - runChain's debate stage (src/chain.js) only runs when `proposals.length > 1`, and
+// with exactly one proposer and `proposals.parts: 1` at most one proposal can ever exist. This
+// pins that fact directly against the real config values, so a future change to either number
+// (e.g. adding a second proposer) is the one thing that would make this test start failing -
+// which is the correct signal that debate has gone live and the chain's own description comment
+// needs revisiting.
+test('chains/coder-gate-v1.json and v2.json: debate:true is structurally unreachable given proposers/parts', () => {
+  for (const file of ['coder-gate-v1.json', 'coder-gate-v2.json']) {
+    const cfg = JSON.parse(readFileSync(join(root, 'chains', file), 'utf8'));
+    const maxPossibleProposals = cfg.seats.proposers.length * (cfg.proposals?.parts ?? 3);
+    assert.equal(cfg.debate, true, `${file}: expected debate:true (forward-compat, currently inert)`);
+    assert.ok(maxPossibleProposals <= 1, `${file}: expected debate to be unreachable (max ${maxPossibleProposals} proposal(s)) - if this now exceeds 1, debate has gone live and the description needs updating`);
+  }
+});
+
+// Audit item 3: verify.tools ships empty by design (no per-run templating exists to inject a
+// target file/test command into a static chain config - runVerification runs before any
+// change-request/diff exists). Pin that runVerification is therefore a real, documented no-op
+// for both chains as shipped, not a silent gap nobody noticed.
+test('chains/coder-gate-v1.json and v2.json: verify.enabled is true but verify.tools is empty, so runVerification is a documented no-op today', async () => {
+  const { runVerification } = await import('../src/chain.js');
+  for (const file of ['coder-gate-v1.json', 'coder-gate-v2.json']) {
+    const cfg = JSON.parse(readFileSync(join(root, 'chains', file), 'utf8'));
+    assert.equal(cfg.verify.enabled, true, `${file}: expected verify.enabled true`);
+    assert.deepEqual(cfg.verify.tools, [], `${file}: expected verify.tools empty (see description for why)`);
+    const groundTruth = runVerification(cfg, { log: () => {} });
+    assert.deepEqual(groundTruth, [], `${file}: runVerification must return no ground truth given an empty tools list`);
+  }
 });
 
 test('IN-1 acceptance test: a well-formed change-request task file dry-run-loads the chain, calls no provider, and prints the stage sequence', () => {
