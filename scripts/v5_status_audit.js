@@ -19,9 +19,9 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
-function commitExists(hash) {
+function commitExistsIn(repoDir, hash) {
   try {
-    execFileSync('git', ['cat-file', '-e', hash], { cwd: REPO_ROOT, stdio: 'pipe' });
+    execFileSync('git', ['cat-file', '-e', hash], { cwd: repoDir, stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -56,15 +56,23 @@ function buildRows(stubRepoPath) {
       evidence: 'src/outcome.js',
     },
     live_cost_readouts: (() => {
-      const commits = ['1af20d2', '8f6251d'];
-      const found = commits.filter(commitExists);
-      const missing = commits.filter(c => !found.includes(c));
+      // The two cited commits span two repos: 8f6251d is a THCMCP commit; 1af20d2 was
+      // checked and found NOT to exist in THCMCP's history, but does exist in the sibling
+      // private `relay` repo THCMCP is curated from (CLAUDE.md's "Dependency: relay"
+      // section) - checked directly rather than assumed, since a missing-hash note with no
+      // real cause would itself be an unverified claim.
+      const relayRoot = path.resolve(REPO_ROOT, '..', 'relay');
+      const inThcmcp = commitExistsIn(REPO_ROOT, '8f6251d');
+      const relayHashExists = existsSync(relayRoot) && commitExistsIn(relayRoot, '1af20d2');
       return {
-        status: found.length > 0 ? 'built' : 'not started',
-        evidence: `git commits: ${found.join(', ') || 'none found'}`,
-        note: missing.length > 0
-          ? `expected commit(s) not found in this repo's history: ${missing.join(', ')}`
-          : undefined,
+        status: inThcmcp ? 'built' : 'not started',
+        evidence: `git commits: 8f6251d (this repo)`
+          + (relayHashExists ? ', 1af20d2 (sibling relay repo, not this repo)' : ''),
+        note: relayHashExists
+          ? 'plan cited 1af20d2 without noting it belongs to the sibling relay repo, not THCMCP - confirmed present there'
+          : (existsSync(relayRoot)
+            ? 'plan-cited commit 1af20d2 not found in THCMCP or the sibling relay repo'
+            : 'plan-cited commit 1af20d2 not found in THCMCP; sibling relay repo not present to check'),
       };
     })(),
     debate_swarm_dispatch_split: {
