@@ -8,6 +8,7 @@ import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus } from './run-status.js';
 import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sumCostFromStageLogText } from './run-state.js';
 import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFromStageLogText, sumRoundUsdFromStageLogText } from './spans.js';
+import { appendSpanRecord, buildSpanRecord } from './progress-spans.js';
 import { computeOutcome } from './outcome.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName, keyFor, isKeyOptional, call } from './providers.js';
@@ -1296,6 +1297,12 @@ const seatState = new Map(
 );
 let currentStage = null;
 let currentRound = 1;
+// v6 item 2 (progress-spans.js): per-boundary start times, keyed so onStage/round-close can
+// look up a real started_at instead of inventing one. Stage keys are the stage label (unique per
+// progressHook 'startedAt' event); round keys are the round number, set once on that round's
+// first panel/critique stage start and left alone afterward.
+const stageStartedAt = new Map();
+const roundStartedAt = new Map();
 
 function applyStageCompletion(label, lab) {
   if (!lab) return;
@@ -1348,8 +1355,12 @@ setProgressHook(event => {
   if (event.startedAt) {
     currentStage = { label: event.label, lab: event.lab, startedAt: event.startedAt };
     seatState.set(event.lab, 'working');
+    stageStartedAt.set(event.label, event.startedAt);
     const r = parseRoundFromLabel(event.label);
-    if (r) currentRound = r;
+    if (r) {
+      currentRound = r;
+      if (!roundStartedAt.has(r)) roundStartedAt.set(r, event.startedAt);
+    }
   } else {
     const status = classifyVerdictEvent(event, seatState.get(event.lab));
     if (status) seatState.set(event.lab, status);
@@ -1372,6 +1383,19 @@ setProgressHook(event => {
         span_id: roundSpanIds.get(closedRound), parent_span_id: rootSpanId,
         seats: roundSeats, spentUsd,
       })}\n`);
+      // v6 item 2: this round's own boundary in spans.jsonl. cost_so_far is real (derived from
+      // the stage-log.jsonl text, which this call just re-read after the line above appended to
+      // it) - not a placeholder, since the cumulative cost is already computable at this point.
+      const roundStart = roundStartedAt.get(closedRound) ?? null;
+      appendSpanRecord(runDir, buildSpanRecord({
+        runId, stage: `round-${closedRound}`, round: closedRound,
+        seatsParticipating: roundSeats.map(s => s.lab),
+        startedAt: roundStart,
+        startedAtReason: roundStart == null ? 'no panel/critique stage start observed for this round before it closed' : undefined,
+        endedAt: new Date().toISOString(),
+        outcome: 'closed',
+        costSoFar: sumCostFromStageLogText(readFileSync(stageLogPath, 'utf8')).spentUsd,
+      }));
     }
   }
   writeStateJson();
@@ -1423,6 +1447,25 @@ try {
         usd: s.usd, ms: s.ms, outcome: s.text ? 'ok' : 'empty',
         span_id: randomUUID(), parent_span_id: resolveParentSpanId(s.label, rootSpanId, roundSpanIds, randomUUID),
       })}\n`);
+      // v6 item 2: this stage's own boundary in spans.jsonl - a separate, purely additive file
+      // (src/progress-spans.js), not a rename/replacement of stage-log.jsonl above. started_at is
+      // the real timestamp progressHook recorded when this stage began (absent only if this
+      // stage's start event was never observed, e.g. a resumed cache-hit path that returns before
+      // reaching here - that early-return already skips this whole block, so in practice this is
+      // always real for a line that gets written). cost_so_far is real, re-derived from the
+      // stage-log.jsonl text this call just appended to, same "derive, never record twice"
+      // precedent audit.js/spend.js already use - not a placeholder.
+      const stageStart = stageStartedAt.get(s.label) ?? null;
+      appendSpanRecord(runDir, buildSpanRecord({
+        runId, stage: s.label, round: parseRoundFromLabel(s.label),
+        seatsParticipating: [s.lab || `${s.provider}/${s.model}`],
+        startedAt: stageStart,
+        startedAtReason: stageStart == null ? 'no progressHook startedAt event observed for this stage label' : undefined,
+        endedAt: new Date().toISOString(),
+        outcome: s.text ? 'ok' : 'empty',
+        costSoFar: sumCostFromStageLogText(readFileSync(join(runDir, 'stage-log.jsonl'), 'utf8')).spentUsd,
+      }));
+      stageStartedAt.delete(s.label);
       // v2 plan §5: regenerate at every stage-completion boundary, always from
       // disk state, never itself trusted as the source of truth.
       writeFileSync(join(runDir, 'RESUME.md'), generateResumeBrief({ runId, dir: runDir, runMeta: { chain: chainNameEff, task: taskPathEff }, chainConfig: config }));
