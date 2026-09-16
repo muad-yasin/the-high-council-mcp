@@ -270,3 +270,37 @@ worktree does not resolve, because it isn't this worktree's decision: the real 5
 already reads NEGATIVE today, which is itself the author decision point named in the plan
 ("Decisions left to the author" - what happens if phase 4 comes back negative). Flagged to
 cnc-harness-a7/Muad, not decided here.
+
+## 2026-09-16: MLLM Coder v6 item 4 - execution isolation for Project A's v0, git-worktree-per-agent is sufficient
+
+**Context:** Project A (`coder-gate-agent-stub`) needs an execution-isolation story for its v0
+agent loop before that loop runs anything. v0's own build-ready plan
+(`relay/runs/2026-09-15T03-42-24-956Z/deliverable.md`) already commits to one file, one diff,
+reviewed before apply, with only narrow allowlisted verification (`run_tests`) - no arbitrary code
+execution anywhere in that scope.
+
+**Decision:** git-worktree-per-agent is sufficient for v0, because v0 never runs untrusted or
+arbitrary code - only a fixed, allowlisted verification command (`run_tests`). No hosted
+sandbox-as-a-service (E2B, Daytona, Modal, or similar) is adopted now. The crossing trigger, named
+verbatim so a future session can check against it rather than re-litigate the call: **"the first
+non-allowlisted code execution in the agent loop — e.g., arbitrary shell commands beyond the
+allowlisted run_tests."** MicroVM-vs-container is recorded here as unmeasured framing only, for
+use once/if that trigger fires - this decision does not recommend either.
+
+**Why:** OSS agent-orchestrator projects independently converging on the same isolation choice at
+a comparable scope is a real, corroborating pattern, not a novel bet: `Review/oss-agent-landscape-
+v6-research-2026-09-15.md`'s live research found Claude Squad, Conductor, agentbox, and agenttier
+each using git-worktree-per-agent isolation rather than a hosted sandbox or a VM, at scopes
+comparable to Project A's v0. Adopting a hosted sandbox or a microVM now would add operational
+surface (accounts, network egress, cost) for a threat model v0 does not have, since the only code
+that ever runs is the one allowlisted `run_tests` command reviewed in `src/tools.js` - there is no
+arbitrary execution to isolate against yet.
+
+**Overlap check (live, this pass):** none of `coder-gate-agent-stub`'s three commits (`c36a3fd`,
+`7557449`, `ddec3da`) touch execution isolation - `7557449`'s seat permission-boundary bus governs
+which capabilities a seat may invoke, not how or where code executes, and `ddec3da`'s diff-shape
+validator runs no code at all. No overlap found; this decision is a fresh record, not a
+reconciliation with existing work.
+
+**Falsified if:** A future check of `coder-gate-agent-stub`'s commits shows execution already
+crossing into non-allowlisted code, making the v0-sufficiency premise stale.
