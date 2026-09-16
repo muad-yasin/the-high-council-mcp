@@ -82,7 +82,17 @@ export function resolveVendorSeat(seat, transport) {
   const lab = seat.lab || seat.provider;
   const vendorModel = map[`${seat.provider}:${seat.model}`];
   if (!vendorModel) throw new Error(`no route for ${lab} under transport ${transport}`);
-  return { ...seat, provider: transport, model: vendorModel, lab };
+  // Bug-audit fix, 2026-09-16: `lab` already survives rewriting so cross-lab identity/debate
+  // logic keeps working under single-vendor mode - `originalProvider` does the same job for
+  // src/chain.js's two Anthropic-specific behaviors (the thinking-disabled retry and its matching
+  // budget projection at 2 attempts instead of 1), which both used to check the literal
+  // `seat.provider` field. Once that field became the vendor's own name (e.g. "openrouter"),
+  // those checks silently went false forever for an Anthropic model routed through single-vendor
+  // mode - even though the same Claude "thinking counts against max_tokens" behavior still
+  // applies underneath, and the same stage can still cost double what a 1-attempt projection
+  // assumes. `originalProvider` is the seat's real underlying identity, independent of which
+  // vendor endpoint actually serves the call.
+  return { ...seat, provider: transport, model: vendorModel, lab, originalProvider: seat.provider };
 }
 
 // An offline provider used to test the chain's plumbing without spending

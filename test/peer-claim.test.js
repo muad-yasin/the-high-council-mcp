@@ -145,3 +145,44 @@ test('readClaimFor: reads back exactly what writeClaim wrote', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Bug-audit fix, 2026-09-16: writeClaim's original two-branch logic silently discarded an
+// active contested_by record whenever the ORIGINAL claimant re-claimed (e.g. a retry) before
+// any answer existed - `existing.claimed_by === claimedBy` made the "different claimant"
+// branch false, so it fell into the plain "write a fresh claim" else branch, losing the record
+// that a second claimant had ever shown up.
+test('writeClaim: the original claimant re-claiming does not silently discard an already-contested record (bug-audit finding)', () => {
+  const dir = fixtureRunDir();
+  try {
+    writeClaim(dir, 'build', 'cnc-harness-a7');
+    writeClaim(dir, 'build', 'thcmcp-cb'); // contests it
+    const contested = readClaimFor(dir, 'build');
+    assert.deepEqual(contested.contested_by, ['thcmcp-cb']);
+
+    // The ORIGINAL claimant re-claims (e.g. retrying) before any answer exists.
+    writeClaim(dir, 'build', 'cnc-harness-a7');
+
+    const stillContested = readClaimFor(dir, 'build');
+    assert.deepEqual(stillContested.contested_by, ['thcmcp-cb'], 'the contest record must survive the original claimant re-claiming');
+    assert.equal(stillContested.claimed_by, 'cnc-harness-a7');
+
+    const warning = checkClaimStaleness(dir, 'build');
+    assert.ok(warning, 'expected the contested_claim warning to still fire after the re-claim');
+    assert.equal(warning.type, 'contested_claim');
+    assert.deepEqual(warning.contested_by, ['thcmcp-cb']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('writeClaim: the original claimant re-claiming with NO contest yet still writes a plain fresh claim (no regression)', () => {
+  const dir = fixtureRunDir();
+  try {
+    writeClaim(dir, 'build', 'cnc-harness-a7');
+    const second = writeClaim(dir, 'build', 'cnc-harness-a7');
+    assert.equal(second.claimed_by, 'cnc-harness-a7');
+    assert.equal(second.contested_by, undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

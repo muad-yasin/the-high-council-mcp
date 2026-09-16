@@ -8,24 +8,38 @@
 // there is no path by which a seat (or a chain config) can name an arbitrary
 // shell command.
 import { spawnSync } from 'node:child_process';
-import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, sep } from 'node:path';
 
 export const ALLOWED_TOOLS = Object.freeze(['run_tests', 'check_versions', 'grep_repo', 'read_file']);
 
-// A path is "inside" root if, after resolving both, root is a prefix of it
-// on a path-segment boundary. Rejects `..` escapes and absolute paths outside
-// the workspace; does not touch the filesystem, so it also rejects symlink
-// escapes at the string level (the resolved target still has to land inside).
+// Bug-audit fix, 2026-09-16: this check used to be purely lexical (string comparison after
+// resolve()) and its own comment claimed that also rejected symlink escapes - false. A symlink
+// physically sitting inside the workspace (e.g. workspace/link -> /etc) resolves lexically to
+// a path under the workspace (resolve() never touches the filesystem or follows a link), passes
+// the string check, and then every caller below opens/reads/execs *through* that link, landing
+// outside the workspace for real. Fixed: once the lexical check passes, and only if the target
+// actually exists (a not-yet-existing path has nothing to resolve, and every caller below already
+// existsSync()s before using the result), realpathSync() both the workspace root and the target
+// and re-check containment against the fully resolved filesystem paths - this is the check that
+// actually cannot be fooled by a symlink, because realpathSync() reads the real target, not what
+// the path string says. The realpath is what's returned and used from here on, never the
+// pre-realpath lexical path, so a caller can't be handed a value that still needs re-checking.
 function sandboxPath(root, requested) {
   const base = resolve(root);
   const target = resolve(base, requested ?? '.');
   const rel = relative(base, target);
-  if (rel === '' ) return target;
-  if (rel.startsWith('..') || isAbsolute(rel)) {
+  if (rel !== '' && (rel.startsWith('..') || isAbsolute(rel))) {
     throw new Error(`path escapes workspace: ${requested}`);
   }
-  return target;
+  if (!existsSync(target)) return target;
+  const realBase = realpathSync(base);
+  const realTarget = realpathSync(target);
+  const realRel = relative(realBase, realTarget);
+  if (realRel !== '' && (realRel.startsWith('..') || isAbsolute(realRel))) {
+    throw new Error(`path escapes workspace via symlink: ${requested}`);
+  }
+  return realTarget;
 }
 
 function readTextFile(path, maxBytes = 200_000) {
@@ -88,7 +102,14 @@ function grep_repo({ pattern, file } = {}, { cwd }) {
   const matches = [];
   const skip = new Set(['.git', 'node_modules']);
   const walk = path => {
-    const st = statSync(path);
+    // Bug-audit fix, 2026-09-16: statSync() follows symlinks, so a symlink inside the workspace
+    // pointing at a directory outside it used to be walked straight through (escaping the
+    // sandbox, same root cause as sandboxPath's own fix above), and a symlink forming a cycle
+    // (a -> b, b -> a) recursed forever until the stack overflowed. lstatSync() reports the
+    // link itself without following it; a symlink of any kind (file or directory) is skipped
+    // outright rather than walked into or read through.
+    const st = lstatSync(path);
+    if (st.isSymbolicLink()) return;
     if (st.isDirectory()) {
       if (skip.has(path.split(sep).pop())) return;
       for (const entry of readdirSync(path)) walk(resolve(path, entry));

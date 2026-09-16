@@ -67,13 +67,25 @@ export function preflightCheck(chainConfig, text) {
 // in its own text, so the operator can paste the real content before any labs see the task.
 const PATH_PATTERN = /\b[\w.-]+\.[a-zA-Z]{1,6}\b/g;
 
+// Bug-audit fix, 2026-09-16: `fenced.includes(path)` was plain substring containment, so a
+// fenced block that merely happened to contain a LONGER filename with `path` as a substring
+// (e.g. fenced content mentioning "reindex.js" or "my-tools.js.bak") silently suppressed the
+// "not fenced" warning for a candidate like "index.js"/"tools.js" that was never actually
+// referenced in the fenced content at all. Boundary-checked instead: `path` must not be
+// immediately preceded or followed by another filename/path character (word char, `.`, `/`,
+// `-`), so a superstring never counts as a match.
+function containsPathToken(haystack, path) {
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\w./-])${escaped}(?![\\w./-])`).test(haystack);
+}
+
 export function checkArtifactReferences(text) {
   const body = text || '';
   const fenced = [...body.matchAll(/```[\s\S]*?```/g)].map(m => m[0]).join('\n');
   const candidates = new Set([...body.matchAll(PATH_PATTERN)].map(m => m[0]));
   const warnings = [];
   for (const path of candidates) {
-    if (!fenced.includes(path)) {
+    if (!containsPathToken(fenced, path)) {
       warnings.push({
         path,
         message: `Possible missing artifact: the task names '${path}' but never fences its content verbatim anywhere in the task text. A lab reading only the task may invent plausible-but-nonexistent content for it. This is a heuristic check and may miss a path phrased unusually. Proceeding - inline the real file if this run is about it.`,

@@ -1,5 +1,5 @@
 {
-  "_note": "USD per 1,000,000 tokens. List prices change often - re-check each lab's pricing page before quoting these to anyone. Verified against public pricing pages as of 2026-09-06 (the anthropic/* entries re-checked against Anthropic's pricing page on 2026-09-15); treat as estimates, not invoices.",
+  "_note": "USD per 1,000,000 tokens. List prices change often - re-check each lab's pricing page before quoting these to anyone. Verified against public pricing pages as of 2026-09-06 (the anthropic/* entries re-checked against Anthropic's pricing page on 2026-09-15). Bug-audit fix, 2026-09-16: together/Qwen/Qwen2.5-72B-Instruct-Turbo was missing entirely (used by src/budget.js's ROSTERS.frontier and .frontier-sonnet, silently understating priceRoster()'s total by ~14% - one of seven roster seats treated as $0), added at Together AI's public Turbo-endpoint rate for this model class (same tier as the already-listed together/meta-llama/Llama-3.3-70B-Instruct-Turbo entry, slightly above it per Together's own published per-model pricing); re-verify before quoting. Treat every entry as an estimate, not an invoice.",
   "anthropic/claude-fable-5-1": {
     "in": 10.0,
     "out": 50.0
@@ -63,6 +63,10 @@
   "together/meta-llama/Llama-3.3-70B-Instruct-Turbo": {
     "in": 0.88,
     "out": 0.88
+  },
+  "together/Qwen/Qwen2.5-72B-Instruct-Turbo": {
+    "in": 1.2,
+    "out": 1.2
   },
   "deepseek/deepseek-reasoner": {
     "in": 0.55,

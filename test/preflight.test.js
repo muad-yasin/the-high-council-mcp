@@ -62,3 +62,15 @@ test('test_artifact_reference_with_inline_passes: the same path, fenced verbatim
   const warnings = checkArtifactReferences(taskText);
   assert.deepEqual(warnings.filter(w => w.path === 'rubric.json'), []);
 });
+
+// Bug-audit fix, 2026-09-16: checkArtifactReferences used plain substring containment
+// (`fenced.includes(path)`), so a fenced block containing only a LONGER filename that happens
+// to contain the candidate path as a substring (e.g. "reindex.js" contains "index.js") silently
+// suppressed the "not fenced" warning even though the candidate itself was never actually
+// referenced in the fenced content.
+test('test_artifact_reference_superstring_does_not_suppress_warning: a fenced longer filename must not silently satisfy a shorter candidate path (bug-audit finding)', () => {
+  const mockDescription = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'utf8')).description;
+  const taskText = `${mockDescription}\n\nReview index.js against these criteria.\n\n\`\`\`\nreindex.js\n\`\`\``;
+  const warnings = checkArtifactReferences(taskText);
+  assert.ok(warnings.some(w => w.path === 'index.js'), 'a fenced "reindex.js" must not be mistaken for the real "index.js" reference');
+});

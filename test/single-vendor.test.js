@@ -88,6 +88,87 @@ test('resolveChainSeats: a per-seat transport override works even with no chain-
   assert.equal(resolved.seats.builder.model, 'anthropic/claude-sonnet-5');
 });
 
+// Bug-audit fix, 2026-09-16: resolveChainSeats()'s rewrite loop (and allSeatsOf()'s own
+// "does anything need rewriting" check) used to name only the 8 original seat slots, missing 5
+// real ones added by later items: challenger, coldRead, claims (all singular), ambiguity (an
+// array, like critics/proposers), and descending (a stageName -> seat map, unlike every other
+// slot). Each left unrewritten meant that seat silently called its direct-lab provider even
+// under a chain-level `transport`, defeating single-vendor mode for exactly that seat with no
+// error - the failure mode named in tonight's audit.
+test('resolveChainSeats: chain-level transport rewrites challenger, coldRead, and claims (bug-audit finding)', () => {
+  const config = {
+    name: 'x',
+    transport: 'openrouter',
+    seats: {
+      builder: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      challenger: { provider: 'google', model: 'gemini-3.6-flash', lab: 'google' },
+      coldRead: { provider: 'mistral', model: 'mistral-large-latest', lab: 'mistral' },
+      claims: { provider: 'deepseek', model: 'deepseek-chat', lab: 'deepseek' },
+    },
+  };
+  const resolved = resolveChainSeats(config);
+  assert.equal(resolved.seats.challenger.provider, 'openrouter');
+  assert.equal(resolved.seats.challenger.lab, 'google');
+  assert.equal(resolved.seats.coldRead.provider, 'openrouter');
+  assert.equal(resolved.seats.coldRead.lab, 'mistral');
+  assert.equal(resolved.seats.claims.provider, 'openrouter');
+  assert.equal(resolved.seats.claims.lab, 'deepseek');
+});
+
+test('resolveChainSeats: chain-level transport rewrites every seat in the ambiguity array (bug-audit finding)', () => {
+  const config = {
+    name: 'x',
+    transport: 'openrouter',
+    seats: {
+      builder: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      ambiguity: [
+        { provider: 'google', model: 'gemini-3.6-flash', lab: 'google' },
+        { provider: 'mistral', model: 'mistral-large-latest', lab: 'mistral' },
+      ],
+    },
+  };
+  const resolved = resolveChainSeats(config);
+  assert.equal(resolved.seats.ambiguity[0].provider, 'openrouter');
+  assert.equal(resolved.seats.ambiguity[0].lab, 'google');
+  assert.equal(resolved.seats.ambiguity[1].provider, 'openrouter');
+  assert.equal(resolved.seats.ambiguity[1].lab, 'mistral');
+});
+
+test('resolveChainSeats: chain-level transport rewrites every seat inside the descending stage-name map (bug-audit finding)', () => {
+  const config = {
+    name: 'x',
+    transport: 'openrouter',
+    seats: {
+      builder: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      descending: {
+        'stage-a': { provider: 'google', model: 'gemini-3.6-flash', lab: 'google' },
+        'stage-b': { provider: 'mistral', model: 'mistral-large-latest', lab: 'mistral' },
+      },
+    },
+  };
+  const resolved = resolveChainSeats(config);
+  assert.equal(resolved.seats.descending['stage-a'].provider, 'openrouter');
+  assert.equal(resolved.seats.descending['stage-a'].lab, 'google');
+  assert.equal(resolved.seats.descending['stage-b'].provider, 'openrouter');
+  assert.equal(resolved.seats.descending['stage-b'].lab, 'mistral');
+  // Original config's nested descending object is untouched, same no-mutation guarantee as
+  // every other slot.
+  assert.equal(config.seats.descending['stage-a'].provider, 'google');
+});
+
+test('resolveChainSeats: a transport set ONLY on challenger (no chain-level transport) is still enough to trigger rewriting - allSeatsOf() must see it', () => {
+  const config = {
+    name: 'x',
+    seats: {
+      builder: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      challenger: { provider: 'google', model: 'gemini-3.6-flash', transport: 'openrouter' },
+    },
+  };
+  const resolved = resolveChainSeats(config);
+  assert.equal(resolved.seats.challenger.provider, 'openrouter');
+  assert.equal(resolved.seats.challenger.model, 'google/gemini-3.6-flash');
+});
+
 // The deliverable's own acceptance test, $0 and offline: a debate stage with two seats from
 // different `lab` values, both routed through a single vendor key, against a mocked HTTP layer
 // that records every outbound request. Asserts every request targets the vendor's base URL with
@@ -179,4 +260,80 @@ test('runChain: a chain with no transport field is untouched by single-vendor mo
   const result = await runChain({ request: 'no transport set', config, log: () => {} });
   assert.ok(result.deliverable);
   assert.equal(config.seats.builder.provider, 'mock', 'the original config object must not be mutated');
+});
+
+// Bug-audit fix, 2026-09-16: src/chain.js's thinking-disabled retry and its matching budget
+// projection both used to check the literal `seat.provider === 'anthropic'`, which
+// resolveVendorSeat() overwrites to the vendor's own name (e.g. "openrouter") under single-vendor
+// mode. An Anthropic seat routed that way answers via callOpenAICompat(), which also reports a
+// token-limit stop as `finish_reason: "length"` (OpenAI-compatible vocabulary), never the literal
+// `"max_tokens"` string Anthropic's own native API uses - a second, compounding gap the retry
+// check never accounted for even before single-vendor mode existed at this call site. Both are
+// fixed together: `originalProvider` (set by resolveVendorSeat) survives the rewrite, and the
+// retry trigger now accepts either stop-reason spelling.
+test('runChain: an Anthropic seat routed through single-vendor mode still gets the thinking-disabled retry (bug-audit finding)', async () => {
+  const hadOpenRouter = process.env.OPENROUTER_API_KEY;
+  const hadAnthropic = process.env.ANTHROPIC_API_KEY;
+  process.env.OPENROUTER_API_KEY = 'sk-test-openrouter-key';
+  delete process.env.ANTHROPIC_API_KEY;
+
+  let callCount = 0;
+  const requests = [];
+  const restore = stubFetch(async (url, opts) => {
+    callCount += 1;
+    const body = JSON.parse(opts.body);
+    requests.push({ extra: body.thinking ?? null });
+    if (callCount === 1) {
+      // First attempt: burned the whole budget on thinking, cut off mid-generation - the OpenAI-
+      // compatible shape for this (finish_reason "length", not Anthropic's native "max_tokens").
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '' }, finish_reason: 'length' }],
+          usage: { prompt_tokens: 20, completion_tokens: 500, completion_tokens_details: { reasoning_tokens: 500 } },
+        }),
+      };
+    }
+    // Retry (thinking disabled): a normal, complete reply.
+    const text = JSON.stringify({ criteria: ['A real criterion, produced on the retry.'] });
+    return {
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: text }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 20, completion_tokens: 20, completion_tokens_details: { reasoning_tokens: 0 } },
+      }),
+    };
+  });
+
+  try {
+    const config = {
+      name: 'single-vendor-thinking-retry-test',
+      transport: 'openrouter',
+      maxRounds: 1,
+      seats: {
+        criteria: { provider: 'anthropic', model: 'claude-sonnet-5', lab: 'anthropic' },
+        builder: { provider: 'mock', model: 'mock-builder' },
+        reviser: { provider: 'mock', model: 'mock-builder' },
+        critics: [{ provider: 'mock', model: 'mock-critic-a' }, { provider: 'mock', model: 'mock-critic-b' }],
+      },
+    };
+
+    const result = await runChain({ request: 'A test request.', config, log: () => {} });
+
+    assert.equal(callCount, 2, 'the criteria stage must be retried exactly once after the thinking-truncated first attempt');
+    assert.equal(requests[0].extra, null, 'the first attempt has no thinking override');
+    assert.deepEqual(requests[1].extra, { type: 'disabled' }, 'the retry explicitly disables thinking');
+    assert.deepEqual(result.criteria, ['A real criterion, produced on the retry.'], 'the retried reply is what the run actually used, not the truncated first attempt');
+  } finally {
+    restore();
+    if (hadOpenRouter === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = hadOpenRouter;
+    if (hadAnthropic !== undefined) process.env.ANTHROPIC_API_KEY = hadAnthropic;
+  }
+});
+
+test('resolveVendorSeat: preserves the seat\'s real identity in originalProvider, independent of the rewritten provider field', () => {
+  const seat = { provider: 'anthropic', model: 'claude-sonnet-5' };
+  const resolved = resolveVendorSeat(seat, 'openrouter');
+  assert.equal(resolved.provider, 'openrouter');
+  assert.equal(resolved.originalProvider, 'anthropic');
 });

@@ -45,16 +45,26 @@ function readClaim(dir, stage) {
  * "correct", so the original claim's `claimed_by`/`claimed_at` are kept as the record of first
  * claim and the new claimant is appended to `contested_by`, rather than silently overwritten -
  * the same posture as `duplicate_answer` below for the answer file itself. Otherwise (no
- * existing claim, the same claimant re-claiming, or the stage already has an answer - a fresh
- * work cycle) this simply (re)writes the claim.
+ * existing claim, the same claimant re-claiming with nothing contested, or the stage already has
+ * an answer - a fresh work cycle) this simply (re)writes the claim.
+ *
+ * Bug-audit fix, 2026-09-16: a real gap the original two-branch logic missed - the ORIGINAL
+ * claimant re-claiming (e.g. a retry, a re-affirmation) while the claim is ALREADY contested and
+ * still unanswered used to fall into the "else" branch (since `existing.claimed_by === claimedBy`
+ * makes the first condition false), silently discarding the active `contested_by` record and
+ * replacing it with a brand-new, contest-free claim - the exact information this module exists to
+ * never lose. Now a third, explicit branch: same claimant, still contested, still unanswered ->
+ * re-affirm the existing record byte-for-byte, `contested_by` included.
  */
 export function writeClaim(dir, stage, claimedBy, { now = () => new Date() } = {}) {
   const existing = readClaim(dir, stage);
   const hasAnswer = existsSync(answerPath(dir, stage));
   let claim;
-  if (existing && existing.claimed_by !== claimedBy && !hasAnswer) {
+  if (existing && !hasAnswer && existing.claimed_by !== claimedBy) {
     const contested_by = [...(existing.contested_by || []), claimedBy];
     claim = { ...existing, contested_by };
+  } else if (existing && !hasAnswer && existing.claimed_by === claimedBy && existing.contested_by?.length) {
+    claim = { ...existing };
   } else {
     claim = { claimed_by: claimedBy, claimed_at: now().toISOString() };
   }

@@ -483,11 +483,20 @@ async function invoke(seat, { system, user, log, label }) {
   // The cap is checked here, before the only line in this file that spends
   // money. Anthropic seats are projected at two attempts because invoke()
   // below may pay for the same stage twice (the thinking-disabled retry).
+  //
+  // Bug-audit fix, 2026-09-16: checks `seat.originalProvider ?? seat.provider`, not
+  // `seat.provider` alone - resolveVendorSeat() (single-vendor mode) rewrites `provider` to the
+  // vendor's own name (e.g. "openrouter") but preserves the seat's real underlying identity in
+  // `originalProvider`. Checking the plain `provider` field silently under-projected the budget
+  // cap for any Anthropic seat routed through single-vendor mode (assuming 1 attempt when the
+  // retry below can still cost 2), the same failure this comment already names for a direct
+  // Anthropic seat.
+  const isAnthropicSeat = (seat.originalProvider ?? seat.provider) === 'anthropic';
   const maxTokens = seat.maxTokens ?? 8000;
   const projected = worstCaseOf(seat.provider, seat.model, {
     promptChars: (system || '').length + (user || '').length,
     maxTokens,
-    retries: seat.provider === 'anthropic' ? 2 : 1,
+    retries: isAnthropicSeat ? 2 : 1,
   }).usd;
   const verdict = wouldBreach({ spent: budget.spent, cap: budget.cap, projected });
   if (verdict.breach) {
@@ -518,7 +527,15 @@ async function invoke(seat, { system, user, log, label }) {
   // reply off mid-sentence (the v2 criteria stage, same day: 1534 thinking
   // tokens, JSON truncated), which is just as unusable. Either way: retry
   // once with thinking off.
-  if (seat.provider === 'anthropic' && res.usage.thinking > 0 && res.usage.stop === 'max_tokens') {
+  //
+  // Bug-audit fix, 2026-09-16: also accepts `'length'`, not only the literal `'max_tokens'` -
+  // an Anthropic seat routed through single-vendor mode answers via callOpenAICompat(), not
+  // callAnthropic(), and OpenAI-compatible APIs (including OpenRouter) report a token-limit stop
+  // as `finish_reason: "length"`, never the literal string `"max_tokens"` that is Anthropic's own
+  // native API vocabulary. The `cut`/"[hit the cap]" log indicator a few lines below already
+  // checked both spellings; this retry trigger only checked one, so it silently never fired for
+  // any single-vendor-routed Anthropic seat even after the `isAnthropicSeat` fix above.
+  if (isAnthropicSeat && res.usage.thinking > 0 && (res.usage.stop === 'max_tokens' || res.usage.stop === 'length')) {
     wasted = costOf(res.provider, res.model, res.usage).usd;
     const how = res.text.trim() ? `text cut off - ${res.usage.thinking} of ${res.usage.output} tokens went to thinking` : `empty text - all ${res.usage.output} tokens went to thinking`;
     log(`  ${label}: ${how} (stop: max_tokens, ${formatUsd(wasted)} spent); retrying once with thinking disabled.`);
@@ -551,15 +568,32 @@ async function invoke(seat, { system, user, log, label }) {
 // does today. Called once, up front, by both cli.js (before checkSeats/--dry-run, so both see
 // the resolved vendor routing) and runChain() itself (so a caller that skips cli.js, e.g. the
 // MCP path or a direct test, still gets the same resolution without remembering to call it).
+// Bug-audit fix, 2026-09-16: both the singular-seat rewrite list below and allSeatsOf() used to
+// name only the 8 original slots from when single-vendor mode first shipped, missing 5 real seat
+// slots added by later items - challenger (§ bounded challenge stage), coldRead (post-signoff
+// cold-reader), claims (claim extraction), ambiguity (an ARRAY, like critics/proposers), and
+// descending (an OBJECT keyed by stage name, unlike every other slot). A chain naming a
+// vendor-transport override only on one of these 5 slots (or naming `config.transport` while
+// relying on one of these 5 for its own seat) had that seat silently skip vendor-rewrite -
+// allSeatsOf()'s own "does anything need rewriting" early-exit check missed it just as
+// completely as the rewrite loop itself did.
 export function resolveChainSeats(config) {
   if (!config.transport && !allSeatsOf(config).some(s => s?.transport)) return config;
   const rw = s => (s ? resolveVendorSeat(s, s.transport || config.transport) : s);
   const seats = { ...config.seats };
-  for (const key of ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge']) {
+  for (const key of ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims']) {
     if (seats[key]) seats[key] = rw(seats[key]);
   }
-  for (const key of ['critics', 'proposers']) {
+  for (const key of ['critics', 'proposers', 'ambiguity']) {
     if (Array.isArray(seats[key])) seats[key] = seats[key].map(rw);
+  }
+  // `descending` is a map of stageName -> seat (src/chain.js's own builderSeat lookup:
+  // `config.seats.descending[stageName]`), not a single seat or a plain array - rewrite each
+  // value in place rather than treating the object itself as one seat.
+  if (seats.descending && typeof seats.descending === 'object') {
+    const descending = {};
+    for (const [stageName, seat] of Object.entries(seats.descending)) descending[stageName] = rw(seat);
+    seats.descending = descending;
   }
   return { ...config, seats };
 }
@@ -568,7 +602,9 @@ function allSeatsOf(config) {
   const s = config.seats || {};
   return [
     s.criteria, s.builder, s.reviser, s.finalist, s.skeleton, s.handoff, s.questions, s.judge,
-    ...(s.critics || []), ...(s.proposers || []),
+    s.challenger, s.coldRead, s.claims,
+    ...(s.critics || []), ...(s.proposers || []), ...(s.ambiguity || []),
+    ...Object.values(s.descending || {}),
   ].filter(Boolean);
 }
 

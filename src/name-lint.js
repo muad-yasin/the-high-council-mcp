@@ -103,7 +103,21 @@ function walk(dir, out = []) {
 // silently breaking the hash match against the clean name. The rare loss
 // (an apostrophe-containing name like "O'Brien" splits into two spans) is a
 // smaller price than every quoted occurrence failing to match at all.
-const WORD_RE = /\p{L}[\p{L}-]*/gu;
+//
+// Bug-audit fix, 2026-09-16: this used to be `/\p{L}[\p{L}-]*/gu` - hyphen
+// INSIDE the class, so "Zorblax-Prime" tokenized as one fused word/span
+// ("Zorblax-Prime"), never as the two separate words "Zorblax"/"Prime"
+// candidateSpans() would otherwise join back into the space-separated span
+// "Zorblax Prime" that actually matches a forbidden name's hash (forbidden
+// names are hashed as typed - normally space-separated prose, per this
+// module's own example). A forbidden two-word name written hyphenated
+// anywhere in file CONTENT evaded the scan entirely, silently. No hyphen in
+// the class now - a hyphen always splits words, exactly like the
+// file-PATH handling below already treats "-"/"_" as separators. This can
+// only widen matches (a hyphenated compound now tokenizes as more, smaller
+// candidate spans), never narrow them - false positives already cost
+// nothing here (see candidateSpans' own comment).
+const WORD_RE = /\p{L}+/gu;
 
 function wordsWithLines(text) {
   const words = [];

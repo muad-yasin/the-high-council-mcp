@@ -992,6 +992,18 @@ if (draftPath) handedDraft = readFileSync(resolve(work, draftPath), 'utf8');
 if (resumeMeta?.fromRun && !fromRun) {
   const rp = join(resolve(work, resumeMeta.fromRun), 'report.json');
   if (existsSync(rp)) config.criteria = JSON.parse(readFileSync(rp, 'utf8')).criteria;
+  // Bug-audit fix, 2026-09-16: this branch restored the original run's criteria but never its
+  // handed draft. A run started with `--from-run <X>` and NO separate `--draft` (the normal case
+  // - `--from-run` alone already hands the earlier run's own build.md as the draft to review,
+  // per this file's own comment above at handedDraft's first assignment) has `resumeMeta.draft`
+  // as null, so line 991's `if (draftPath) handedDraft = ...` never fires on resume - the panel
+  // then reviewed nothing-handed, i.e. built a brand-new draft from scratch, defeating
+  // `--from-run`'s whole purpose for any run paused on an external seat. Restore it the same way
+  // the original (non-resumed) `--from-run` branch above does, but only when no explicit
+  // `--draft` is already set (never override draftPath's own value with fromRun's build.md).
+  if (!draftPath) {
+    handedDraft = readFileSync(join(resolve(work, resumeMeta.fromRun), 'build.md'), 'utf8');
+  }
 }
 
 // 7.x single-vendor mode: resolved once, before checkSeats and --dry-run both read config.seats,

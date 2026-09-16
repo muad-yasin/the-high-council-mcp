@@ -198,3 +198,42 @@ test('scanForForbiddenNames: .sh files are scanned (bug-audit finding: TEXT_EXTE
     assert.ok(findings.some(f => f.where === 'content'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// Bug-audit fix, 2026-09-16: WORD_RE used to keep a hyphen INSIDE one token
+// (/\p{L}[\p{L}-]*/gu), so a forbidden two-word name written hyphenated in
+// file CONTENT (not a filename - the path case above was already handled by
+// its own "-"/"_" -> " " preprocessing) tokenized as one fused span
+// ("Zorblax-Prime") whose hash never matches the space-separated name the
+// forbidden list actually hashes ("Zorblax Prime") - a silent evasion of the
+// public-name-leak guard.
+test('scanForForbiddenNames: a forbidden two-word name written HYPHENATED in file content is still caught (bug-audit finding)', () => {
+  const { dir, write } = fixtureRepo();
+  try {
+    write('docs/example.md', 'Nothing here.\nThis line mentions Zorblax-Prime, hyphenated, by accident.\n');
+    const hashes = new Set([hashName('Zorblax Prime')]);
+    const { findings } = scanForForbiddenNames(dir, hashes);
+    assert.equal(findings.length, 1, 'the hyphenated form must still be caught, not silently evade the scan');
+    assert.equal(findings[0].where, 'content');
+    assert.equal(findings[0].line, 2);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('scanForForbiddenNames: a forbidden two-word name written with an underscore in file content is still caught', () => {
+  const { dir, write } = fixtureRepo();
+  try {
+    write('docs/example.md', 'A reference to Zorblax_Prime as one underscored token.\n');
+    const hashes = new Set([hashName('Zorblax Prime')]);
+    const { findings } = scanForForbiddenNames(dir, hashes);
+    assert.equal(findings.length, 1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('scanForForbiddenNames: a real hyphenated compound word with no forbidden name present still finds nothing (no false positive from the fix)', () => {
+  const { dir, write } = fixtureRepo();
+  try {
+    write('docs/example.md', 'This is a state-of-the-art, well-known approach.\n');
+    const hashes = new Set([hashName('Zorblax Prime')]);
+    const { findings } = scanForForbiddenNames(dir, hashes);
+    assert.equal(findings.length, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

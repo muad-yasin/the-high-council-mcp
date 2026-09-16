@@ -30,6 +30,14 @@ const usdPerMtokTotal = probe.total / (probe.tokens / 1e6);
 
 const tokens = (usdBudget / usdPerMtokTotal) * 1e6;
 
+// Bug-audit fix, 2026-09-16: an unpriced model in the roster contributes its real tokens to
+// `probe.tokens` but $0 to `probe.total`, understating `usdPerMtokTotal` (and therefore
+// overstating how much `tokens` a given budget buys) by exactly that model's share - loud here
+// so this script never quietly reports an inflated token count off a silently-undercounted rate.
+if (probe.unpriced.length) {
+  console.log(`\nWARNING: ${probe.unpriced.length} model(s) missing from pricing.json (${probe.unpriced.join(', ')}) - the blended rate below excludes them entirely, so every figure this prints understates real cost / overstates real tokens bought.`);
+}
+
 console.log(`\nRoster: ${rosterName} (${roster.length} models, ${Math.round(share * 100)}% input / ${Math.round((1 - share) * 100)}% output)`);
 console.log(`Blended rate: $${usdPerMtokTotal.toFixed(3)} per million tokens across the whole roster\n`);
 console.log(`$${usdBudget} buys ${(tokens / 1e6).toFixed(1)}M tokens of total traffic.\n`);

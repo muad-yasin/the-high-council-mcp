@@ -80,14 +80,21 @@ export function priceRoster({ perModel, roster, inputShare, cacheHitRate = 0 }) 
     return { key, input, output, usd, rate: p };
   });
   const total = rows.reduce((s, r) => s + (r.usd || 0), 0);
-  return { rows, total, tokens: perModel * roster.length };
+  // Bug-audit fix, 2026-09-16: `rows.reduce((s, r) => s + (r.usd || 0), 0)` silently treats any
+  // unpriced model's `usd: null` as $0 - a real roster missing one pricing.json entry understated
+  // `total` by that seat's whole real share (~14% for a 7-model roster with one missing entry,
+  // the exact incident this fixes). `total` still degrades the same way for backward compat (no
+  // caller signature changed), but `unpriced` now names which keys were silently zeroed, so a
+  // caller can warn loudly instead of trusting a number that's quietly wrong.
+  const unpriced = rows.filter(r => r.usd === null).map(r => r.key);
+  return { rows, total, tokens: perModel * roster.length, unpriced };
 }
 
 const usd = n => n >= 100 ? `$${n.toFixed(0)}` : n >= 1 ? `$${n.toFixed(2)}` : `$${n.toFixed(4)}`;
 const M = n => `${(n / 1e6).toFixed(1)}M`;
 
 function table({ perModel, roster, inputShare, cacheHitRate, label }) {
-  const { rows, total, tokens } = priceRoster({ perModel, roster, inputShare, cacheHitRate });
+  const { rows, total, tokens, unpriced } = priceRoster({ perModel, roster, inputShare, cacheHitRate });
   const w = Math.max(...rows.map(r => r.key.length));
   console.log(`\n${label}`);
   console.log(`  ${M(perModel)} tokens per model, ${roster.length} models, ${M(tokens)} total`);
@@ -99,6 +106,12 @@ function table({ perModel, roster, inputShare, cacheHitRate, label }) {
     console.log(`  ${r.key.padEnd(w)}  ${price.padStart(12)} per Mtok   ${(r.usd === null ? 'unpriced' : usd(r.usd)).padStart(9)}`);
   }
   console.log(`  ${''.padEnd(w)}  ${''.padStart(12)}              ${usd(total).padStart(9)}  per run`);
+  // Bug-audit fix, 2026-09-16: the total above silently treats every unpriced model as $0 - loud
+  // here so nobody quotes it as a real whole-roster figure without knowing it's a floor, not a
+  // total.
+  if (unpriced.length) {
+    console.log(`  WARNING: ${unpriced.length} model(s) missing from pricing.json (${unpriced.join(', ')}) - the total above excludes them entirely, it is a floor, not a real total.`);
+  }
   return total;
 }
 
