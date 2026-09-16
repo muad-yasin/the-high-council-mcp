@@ -289,10 +289,14 @@ use once/if that trigger fires - this decision does not recommend either.
 
 **Why:** OSS agent-orchestrator projects independently converging on the same isolation choice at
 a comparable scope is a real, corroborating pattern, not a novel bet: `Review/oss-agent-landscape-
-v6-research-2026-09-15.md`'s live research found Claude Squad, Conductor, agentbox, and agenttier
-each using git-worktree-per-agent isolation rather than a hosted sandbox or a VM, at scopes
-comparable to Project A's v0. Adopting a hosted sandbox or a microVM now would add operational
-surface (accounts, network egress, cost) for a threat model v0 does not have, since the only code
+v6-research-2026-09-15.md`'s live research found multiple independent projects (Claude Squad,
+amux, parallel-code, Conductor) converging on git-worktree-per-agent as their isolation primitive.
+The same research also names the heavier alternative some other OSS projects chose instead:
+`agentbox` runs each agent in a sandboxed VM, and `agenttier` goes further, giving each agent a
+Kubernetes Pod behind a default-deny network policy - named here as the named alternative this
+decision explicitly does not adopt for v0, not as more worktree-convergence evidence. Adopting a
+hosted sandbox or a microVM now would add operational surface (accounts, network egress, cost) for
+a threat model v0 does not have, since the only code
 that ever runs is the one allowlisted `run_tests` command reviewed in `src/tools.js` - there is no
 arbitrary execution to isolate against yet.
 
