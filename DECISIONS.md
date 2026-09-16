@@ -271,6 +271,17 @@ already reads NEGATIVE today, which is itself the author decision point named in
 ("Decisions left to the author" - what happens if phase 4 comes back negative). Flagged to
 cnc-harness-a7/Muad, not decided here.
 
+## 2026-09-16: MLLM Coder v6 item 5 - persona-vs-lens tension, cited not resolved
+
+Position: cite the tension now, without a new test, and change nothing about personas.
+- THCMCP's 'negative' result is not evidence either way. Persona was zero-effect by construction in a mock, so nothing was measured.
+- ChatEval (arXiv:2308.07201) uses persona diversity in open-ended text evaluation, a different domain from code-diff correctness.
+- Neither side justifies dropping or readopting personas. The only thing that can move the position is the retest: lens with a checklist, not persona with a voice.
+
+Retest trigger: either of these.
+- (a) A run budget allocated specifically for that experiment, with a pre-registered metric.
+- (b) Any proposal to change how personas or lenses are used in the default chains.
+
 ## 2026-09-16: MLLM Coder v6 item 4 - execution isolation for Project A's v0, git-worktree-per-agent is sufficient
 
 **Context:** Project A (`coder-gate-agent-stub`) needs an execution-isolation story for its v0
