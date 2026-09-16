@@ -337,3 +337,50 @@ test('resolveVendorSeat: preserves the seat\'s real identity in originalProvider
   assert.equal(resolved.provider, 'openrouter');
   assert.equal(resolved.originalProvider, 'anthropic');
 });
+
+// Security-review fix (Fable 5.1 review of c915eba, MEDIUM 3): resolveChainSeats missed
+// `security_reviewer`, and even after adding it to the rewrite loop, a chain that names no
+// explicit security_reviewer at all still fell through to security-review.js's own raw
+// DEFAULT_SECURITY_REVIEWER_SEAT constant (hardcoded direct-Anthropic) at stage-run time,
+// bypassing single-vendor mode for the one stage that runs last.
+test('resolveChainSeats: an explicit security_reviewer seat is rewritten under chain-level transport (bug-audit finding)', () => {
+  const config = {
+    name: 'x',
+    transport: 'openrouter',
+    seats: {
+      builder: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      security_reviewer: { provider: 'google', model: 'gemini-3.6-flash', lab: 'google' },
+    },
+  };
+  const resolved = resolveChainSeats(config);
+  assert.equal(resolved.seats.security_reviewer.provider, 'openrouter');
+  assert.equal(resolved.seats.security_reviewer.lab, 'google');
+});
+
+test('resolveChainSeats: with security_review.enabled and no explicit security_reviewer, the DEFAULT seat is materialized and routed (bug-audit finding)', () => {
+  const config = {
+    name: 'x',
+    transport: 'openrouter',
+    security_review: { enabled: true },
+    seats: {
+      builder: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      // no security_reviewer named - the config falls back to DEFAULT_SECURITY_REVIEWER_SEAT,
+      // whose model (claude-fable-5-1) has no vendor route today, so this must throw rather than
+      // silently keep using the raw direct-Anthropic default under single-vendor mode.
+    },
+  };
+  assert.throws(() => resolveChainSeats(config), /no route for anthropic-security under transport openrouter/,
+    'no silent fallback to direct-Anthropic under single-vendor mode - fails loud instead, same as any other unrouted seat');
+});
+
+test('resolveChainSeats: security_review NOT enabled - the default reviewer seat is never touched, never causes a spurious throw', () => {
+  const config = {
+    name: 'x',
+    transport: 'openrouter',
+    seats: { builder: { provider: 'anthropic', model: 'claude-sonnet-5' } },
+    // security_review.enabled is absent/false - the vast majority of chains, must not throw.
+  };
+  assert.doesNotThrow(() => resolveChainSeats(config));
+  const resolved = resolveChainSeats(config);
+  assert.equal(resolved.seats.security_reviewer, undefined, 'no security_reviewer materialized when the stage never runs');
+});

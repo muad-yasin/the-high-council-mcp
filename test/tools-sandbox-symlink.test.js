@@ -10,7 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { runTool } from '../src/tools.js';
 
 function freshWorkspace() {
@@ -119,5 +119,27 @@ test('a path that does not exist yet still gets the lexical `..`/absolute check 
     assert.match(result.error, /escapes workspace/);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+// Security-review fix (Fable 5.1 review of c915eba, MEDIUM 1): grep_repo's own whole-workspace
+// walk (no `file` given) started from `resolve(cwd)` directly, never realpath'd - when the
+// workspace ROOT itself was a symlink (a symlinked project directory, macOS's /tmp -> /private/tmp,
+// etc), the new lstatSync-based walk() correctly refused to follow a symlink it meets while
+// recursing, but that same refusal fired on the STARTING node too, silently returning zero
+// matches for every real file underneath - a regression the first pass of this fix introduced.
+test('grep_repo: a symlinked WORKSPACE ROOT (not just a symlink inside it) still finds real matches, not zero (regression fix)', () => {
+  const real = mkdtempSync(join(tmpdir(), 'sandbox-real-root-'));
+  const link = join(mkdtempSync(join(tmpdir(), 'sandbox-link-parent-')), 'workspace-link');
+  try {
+    writeFileSync(join(real, 'f.txt'), 'a real needle_9f2c in a real file');
+    symlinkSync(real, link);
+    const result = runTool('grep_repo', { pattern: 'needle_9f2c' }, { cwd: link });
+    assert.equal(result.ok, true);
+    assert.equal(result.matches.length, 1, 'a symlinked workspace root must still be walked, not treated as an escape');
+    assert.equal(result.matches[0].file, 'f.txt');
+  } finally {
+    rmSync(real, { recursive: true, force: true });
+    rmSync(dirname(link), { recursive: true, force: true });
   }
 });

@@ -57,7 +57,21 @@ export function hashName(name) {
   // (NFD) must hash identically to the same name in precomposed form (NFC),
   // or a forbidden name could slip past the check purely by which Unicode
   // form happened to get pasted in (bug-audit finding, 2026-09-13).
-  return createHash('sha256').update(String(name).trim().toLowerCase().normalize('NFC')).digest('hex');
+  //
+  // Security-review fix (Fable 5.1 review of c915eba, MEDIUM 2): hyphens/underscores are now
+  // normalized to a single space (then whitespace runs collapsed to one space) before hashing -
+  // both here AND implicitly on the "span" side, since WORD_RE no longer includes hyphens
+  // (2026-09-16's own earlier fix in this file) and candidateSpans() always joins tokenized
+  // words with exactly one space. Without this, a forbidden list entry containing its own
+  // hyphen (e.g. "Jean-Luc") hashed with the hyphen still in place, while the SAME name written
+  // in file content now tokenizes to two separate words joined by a space ("Jean Luc") - a
+  // mismatch that silently un-did the earlier hyphen fix for exactly the names most likely to
+  // contain one. Normalizing both sides the same way here closes it for content, and also fixes
+  // a latent gap in the file-PATH scan (which already replaced "-"/"_" with space for path text,
+  // but never normalized the forbidden-name side to match).
+  return createHash('sha256').update(
+    String(name).toLowerCase().normalize('NFC').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim()
+  ).digest('hex');
 }
 
 /**

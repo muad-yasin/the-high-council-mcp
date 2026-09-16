@@ -9,7 +9,7 @@ import { runTool as defaultRunTool, ALLOWED_TOOLS, runSeatToolRequests } from '.
 import { runLints } from './lints.js';
 import { extractClaims, dropInvalidClaims } from './claims.js';
 import { injectCanary, shouldSampleCanary } from './canary.js';
-import { runSecurityReviewStage } from './security-review.js';
+import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
 // full chain. Tells the criteria seat what the chain's own contract will require in the
@@ -581,7 +581,7 @@ export function resolveChainSeats(config) {
   if (!config.transport && !allSeatsOf(config).some(s => s?.transport)) return config;
   const rw = s => (s ? resolveVendorSeat(s, s.transport || config.transport) : s);
   const seats = { ...config.seats };
-  for (const key of ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims']) {
+  for (const key of ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'security_reviewer']) {
     if (seats[key]) seats[key] = rw(seats[key]);
   }
   for (const key of ['critics', 'proposers', 'ambiguity']) {
@@ -595,6 +595,24 @@ export function resolveChainSeats(config) {
     for (const [stageName, seat] of Object.entries(seats.descending)) descending[stageName] = rw(seat);
     seats.descending = descending;
   }
+  // Security-review fix (Fable 5.1 review of c915eba, MEDIUM 3): `security_reviewer` is the one
+  // seat slot with a real, live fallback picked at STAGE-RUN time, not config-load time -
+  // security-review.js's own `runSecurityReviewStage` does
+  // `config.seats?.security_reviewer || DEFAULT_SECURITY_REVIEWER_SEAT`. Adding the key to the
+  // rewrite loop above only helps when a chain names its own security_reviewer seat explicitly;
+  // a chain-level `transport` with NO explicit security_reviewer would otherwise still fall
+  // through to that raw default (a hardcoded direct-Anthropic seat) at stage-run time, bypassing
+  // single-vendor mode for the one stage that runs last. Materialize the resolved default into
+  // `seats.security_reviewer` here so the stage's own fallback lookup finds an already-routed
+  // seat instead of the raw constant - gated on `security_review.enabled` (the same real
+  // condition cost.js's own projection already checks), not merely on a transport being set:
+  // DEFAULT_SECURITY_REVIEWER_SEAT's model (claude-fable-5-1) has no VENDOR_MODEL_MAPS route at
+  // all, so resolving it unconditionally would throw "no route for..." for every single-vendor
+  // chain that simply never enables the security-review stage - a real chain shape this fix must
+  // not break.
+  if (config.transport && config.security_review?.enabled === true && !seats.security_reviewer) {
+    seats.security_reviewer = rw(DEFAULT_SECURITY_REVIEWER_SEAT);
+  }
   return { ...config, seats };
 }
 
@@ -602,7 +620,7 @@ function allSeatsOf(config) {
   const s = config.seats || {};
   return [
     s.criteria, s.builder, s.reviser, s.finalist, s.skeleton, s.handoff, s.questions, s.judge,
-    s.challenger, s.coldRead, s.claims,
+    s.challenger, s.coldRead, s.claims, s.security_reviewer,
     ...(s.critics || []), ...(s.proposers || []), ...(s.ambiguity || []),
     ...Object.values(s.descending || {}),
   ].filter(Boolean);

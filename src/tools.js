@@ -96,7 +96,14 @@ function check_versions(_args, { cwd }) {
 // is done in-process so there is no argument-injection surface.
 function grep_repo({ pattern, file } = {}, { cwd }) {
   if (!pattern) return { ok: false, error: 'grep_repo requires a pattern' };
-  const root = resolve(cwd);
+  // Security-review fix (Fable 5.1 review of c915eba, MEDIUM 1): `root` itself can be a symlink
+  // (a symlinked project directory, macOS's /tmp -> /private/tmp, etc). The new lstatSync-based
+  // walk() below correctly refuses to descend INTO a symlink it encounters while recursing, but
+  // that same check fired on the STARTING node too when root itself was a symlink, returning
+  // zero matches for every real file underneath - realpath the starting point once here so the
+  // walk always begins from a real directory, not a link to one.
+  let root = resolve(cwd);
+  if (existsSync(root)) root = realpathSync(root);
   let re;
   try { re = new RegExp(pattern); } catch (err) { return { ok: false, error: `bad pattern: ${err.message}` }; }
   const matches = [];

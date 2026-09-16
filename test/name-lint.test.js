@@ -237,3 +237,24 @@ test('scanForForbiddenNames: a real hyphenated compound word with no forbidden n
     assert.equal(findings.length, 0);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// Security-review fix (Fable 5.1 review of c915eba, MEDIUM 2): the earlier hyphen fix (removing
+// "-" from WORD_RE) introduced a NEW false negative for a forbidden name that itself contains a
+// hyphen - hashName() didn't normalize the hyphen, so the forbidden list's own hash ("jean-luc")
+// no longer matched the space-joined span content now tokenizes to ("jean luc"). Fixed by
+// normalizing hyphens/underscores to space inside hashName() itself.
+test('scanForForbiddenNames: a forbidden name that ITSELF contains a hyphen is still caught when written plainly in content (bug-audit finding)', () => {
+  const { dir, write } = fixtureRepo();
+  try {
+    write('docs/example.md', 'A mention of Zorblax Prime, the hyphenated forbidden entry.\n');
+    const hashes = new Set([hashName('Zorblax-Prime')]); // the forbidden list entry itself has a hyphen
+    const { findings } = scanForForbiddenNames(dir, hashes);
+    assert.equal(findings.length, 1, 'a hyphen-containing forbidden name must still match its plain, space-written occurrence');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('hashName: hyphen and underscore variants of the same name all hash identically', () => {
+  assert.equal(hashName('Zorblax-Prime'), hashName('Zorblax Prime'));
+  assert.equal(hashName('Zorblax_Prime'), hashName('Zorblax Prime'));
+  assert.equal(hashName('Zorblax  Prime'), hashName('Zorblax Prime'));
+});

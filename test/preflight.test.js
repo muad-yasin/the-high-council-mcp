@@ -74,3 +74,16 @@ test('test_artifact_reference_superstring_does_not_suppress_warning: a fenced lo
   const warnings = checkArtifactReferences(taskText);
   assert.ok(warnings.some(w => w.path === 'index.js'), 'a fenced "reindex.js" must not be mistaken for the real "index.js" reference');
 });
+
+// Security-review fix (Fable 5.1 review of c915eba, item 4): the boundary check's first pass
+// wrongly included "/" in its disallowed-boundary set. PATH_PATTERN never matches "/" itself
+// (a candidate is always a bare filename), so a fenced mention written as a full path
+// ("`src/foo.js`") has its candidate "foo.js" immediately preceded by "/" - which the first-pass
+// fix incorrectly treated as "not a real boundary," producing a false "not fenced" warning on
+// the single most common way a file is referenced inside a fence.
+test('test_artifact_reference_full_path_in_fence_satisfies_bare_filename_candidate: a fenced FULL PATH mention correctly satisfies the bare-filename candidate (bug-audit finding)', () => {
+  const mockDescription = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'utf8')).description;
+  const taskText = `${mockDescription}\n\nFix src/foo.js as described.\n\n\`\`\`\n// src/foo.js\nexport const x = 1;\n\`\`\``;
+  const warnings = checkArtifactReferences(taskText);
+  assert.deepEqual(warnings.filter(w => w.path === 'foo.js'), [], 'fencing the file under its full path must count as fencing it, not warn as if it were never fenced at all');
+});

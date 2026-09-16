@@ -72,11 +72,20 @@ const PATH_PATTERN = /\b[\w.-]+\.[a-zA-Z]{1,6}\b/g;
 // (e.g. fenced content mentioning "reindex.js" or "my-tools.js.bak") silently suppressed the
 // "not fenced" warning for a candidate like "index.js"/"tools.js" that was never actually
 // referenced in the fenced content at all. Boundary-checked instead: `path` must not be
-// immediately preceded or followed by another filename/path character (word char, `.`, `/`,
-// `-`), so a superstring never counts as a match.
+// immediately preceded or followed by another filename character (word char, `.`, `-` - the
+// exact character set PATH_PATTERN itself is built from), so a superstring never counts as a
+// match.
+//
+// Security-review fix (Fable 5.1 review of c915eba, item 4): the boundary class must NOT
+// include `/`, even though it looks consistent with "path" characters at a glance -
+// PATH_PATTERN itself never matches a `/` (candidates are always bare filenames, e.g.
+// "foo.js", never "src/foo.js"), so a fenced mention written as a full path ("`src/foo.js`")
+// has the candidate "foo.js" immediately preceded by `/` - excluding `/` from the disallowed-
+// boundary set was wrongly treating the single most common way a file is referenced inside a
+// fence as a non-match, producing a false "not fenced" warning on real, correctly-fenced paths.
 function containsPathToken(haystack, path) {
   const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?<![\\w./-])${escaped}(?![\\w./-])`).test(haystack);
+  return new RegExp(`(?<![\\w.-])${escaped}(?![\\w.-])`).test(haystack);
 }
 
 export function checkArtifactReferences(text) {
