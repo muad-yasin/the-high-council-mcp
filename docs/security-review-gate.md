@@ -111,6 +111,13 @@ Derived from the findings, not from the reviewer's own summary:
 The blocking levels (`critical`, `high`) are fixed in `src/security-review.js`, not a chain
 setting, so a chain cannot loosen its own gate.
 
+**The gate can pass even when the reviewer's own verdict is `fail`.** `gateOf()` looks only at
+`findings[].severity`, not at `seat_verdict` - a reviewer that returns `seat_verdict: "fail"` but
+whose findings are all `medium`/`low`/`info` still yields `gate: "pass"`. This is intentional, not
+a bug: severity is the reviewer's own graded judgment of how bad each finding is, and the gate
+exists to block on the findings that matter, not on the reviewer's summary label. `seat_verdict`
+is still recorded in the report for a human to read, it's just not what the gate keys on.
+
 ## Testing it at $0
 
 `chains/mock-security-review.json` runs the whole path offline with a mock reviewer that always
