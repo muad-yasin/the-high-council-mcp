@@ -120,6 +120,41 @@
     "in": 2.5,
     "out": 14.0
   },
+  "openrouter/anthropic/claude-opus-5": {
+    "in": 5.0,
+    "out": 25.0,
+    "_source": "openrouter.ai/anthropic/claude-opus-5, checked 2026-09-17 - added for the debate-vs-single-model pilot (relay repo), which spawns this checkout's cli.js as its actual review engine"
+  },
+  "openrouter/anthropic/claude-sonnet-5": {
+    "in": 2.0,
+    "out": 10.0,
+    "_source": "openrouter.ai/anthropic/claude-sonnet-5, checked 2026-09-17"
+  },
+  "openrouter/openai/gpt-5.5": {
+    "in": 5.0,
+    "out": 30.0,
+    "_source": "openrouter.ai/openai/gpt-5.5, checked 2026-09-17"
+  },
+  "openrouter/openai/gpt-5-mini": {
+    "in": 0.25,
+    "out": 2.0,
+    "_source": "openrouter.ai/openai/gpt-5-mini, checked 2026-09-17"
+  },
+  "openrouter/z-ai/glm-5.2": {
+    "in": 0.4875,
+    "out": 1.56,
+    "_source": "openrouter.ai/z-ai/glm-5.2, checked 2026-09-17 via secondary aggregator (llmreference.com) - not fetched directly from openrouter.ai, spot-check if this matters"
+  },
+  "openrouter/google/gemini-3.1-pro-preview": {
+    "in": 2.0,
+    "out": 12.0,
+    "_source": "openrouter.ai/google/gemini-3.1-pro-preview, checked 2026-09-17"
+  },
+  "openrouter/google/gemini-3.7-flash": {
+    "in": 0.75,
+    "out": 3.75,
+    "_source": "openrouter.ai/google/gemini-3.7-flash, checked 2026-09-17"
+  },
   "_test_note": "mock/* entries below are test fixtures, not real prices. The mock provider calls nothing; these exist only so the per-run spend cap can be exercised offline, since an unpriced seat cannot be capped.",
   "mock/mock-priced": {
     "in": 1000.0,
