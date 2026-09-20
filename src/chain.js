@@ -9,6 +9,7 @@ import { runTool as defaultRunTool, ALLOWED_TOOLS, runSeatToolRequests } from '.
 import { runLints } from './lints.js';
 import { extractClaims, dropInvalidClaims } from './claims.js';
 import { fencedSourceOf, markFailures, quoteWarnings } from './quote-check.js';
+import { parsePatches, applyPatches, changedSince } from './patch-revise.js';
 import { injectCanary, shouldSampleCanary } from './canary.js';
 import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
 
@@ -827,6 +828,11 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // Empty when the task carries none, which disables quote validation rather than faking it.
   const fencedSource = fencedSourceOf(request);
   const quoteFindings = [];
+  // Patch-mode bookkeeping (src/patch-revise.js). `lastPatches` feeds the critics' "Changed
+  // since your last review" section; `patchFallbacks` records every round the edits did not
+  // apply, which is the only real-model evidence this feature can produce.
+  let lastPatches = null;
+  const patchFallbacks = [];
 
   // v7 item 1: tool-grounded verification, gated on config.verify.enabled.
   // Absent/false key: skip entirely, `ground_truth` stays undefined and is
@@ -1351,7 +1357,10 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           try {
             cs = record(await invoke(criticSeat, {
               system: R.criticSystem(open, freedoms),
-              user: R.criticUser({ request, criteria, draft, prior, answeredQuestion }),
+              // Patch mode shows the full draft plus the edits made since the last review, so a
+              // reviewer can see what moved without re-reading the plan. Empty in full-rewrite
+              // mode and on round 1, where there is no "since" to speak of.
+              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion }),
               log: say, label: attempt === 0 ? `panel-${round}-${labOf(criticSeat)}${tag}` : `panel-${round}-${labOf(criticSeat)}${tag}-answered`,
             }));
           } catch (err) {
@@ -1578,12 +1587,39 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
 
       log(`\nRound ${round}: revise (union of everything any lab flagged)`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
+      const patchMode = config.revise?.mode === 'patch';
       const revised = record(await invoke(reviserSeat, {
-        system: R.reviserSystem(open, !!fencedSource),
+        system: patchMode ? R.patchReviserSystem(open, !!fencedSource) : R.reviserSystem(open, !!fencedSource),
         user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }),
         log, label: `revise-${round}`,
       })).text;
       const parsedRevise = parseDisputes(revised);
+
+      // Patch mode: apply the edits locally so untouched text is byte-identical by
+      // construction. Any block that does not apply cleanly falls back to one full rewrite -
+      // the fallback is the feature, since whether real models produce verbatim anchors is
+      // UNVERIFIED and cannot be tested offline.
+      if (patchMode) {
+        const patches = parsePatches(parsedRevise.draft);
+        const applied = applyPatches(draft, patches);
+        if (applied.ok) {
+          log(`  patch mode: applied ${applied.applied} edit(s); the rest of the draft is unchanged, byte for byte.`);
+          parsedRevise.draft = applied.text;
+          lastPatches = patches;
+        } else {
+          log(`  patch mode: ${applied.reason} - falling back to one full rewrite for this round.`);
+          patchFallbacks.push({ round, reason: applied.reason });
+          const full = record(await invoke(reviserSeat, {
+            system: R.reviserSystem(open, !!fencedSource),
+            user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }),
+            log, label: `revise-${round}-full`,
+          })).text;
+          const reparsed = parseDisputes(full);
+          parsedRevise.draft = reparsed.draft;
+          reparsed.disputes.forEach(r => parsedRevise.disputes.push(r));
+          lastPatches = null;
+        }
+      }
       draft = parsedRevise.draft;
       parsedRevise.disputes.forEach(reason => disputes.push({ round, reason }));
       passed = false;
@@ -2023,5 +2059,6 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     ...(dispute !== null ? { dispute } : {}),
     // Additive: absent unless the task carried fenced source for quotes to be checked against.
     ...(fencedSource ? { quoteFindings } : {}),
+    ...(config.revise?.mode === 'patch' ? { patchFallbacks } : {}),
   };
 }

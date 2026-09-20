@@ -491,6 +491,37 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
+  // 11c. Patch-mode reviser (src/patch-revise.js, 2026-09-20): `mode` is the only key, and
+  // "full" (the default) or "patch" are the only values. Named here rather than left to fail
+  // at runtime because a typo'd mode silently means "full", and a chain author who wrote
+  // "patch" would never learn their chain did not use it.
+  if (config?.revise !== undefined) {
+    if (!config.revise || typeof config.revise !== 'object' || Array.isArray(config.revise)) {
+      findings.push({
+        kind: 'invalid-revise-config',
+        message: `revise must be an object like { "mode": "patch" }.`,
+        fix: `Set "revise" to { "mode": "patch" } or remove it in ${filePath}.`,
+      });
+    } else {
+      for (const key of Object.keys(config.revise)) {
+        if (key !== 'mode') {
+          findings.push({
+            kind: 'invalid-revise-config',
+            message: `revise.${key} is not a recognized key - only "revise.mode" is exposed.`,
+            fix: `Remove "revise.${key}" from ${filePath}.`,
+          });
+        }
+      }
+      if ('mode' in config.revise && !['full', 'patch'].includes(config.revise.mode)) {
+        findings.push({
+          kind: 'invalid-revise-config',
+          message: `revise.mode must be "full" or "patch" (got ${JSON.stringify(config.revise.mode)}) - any other value silently reads as "full".`,
+          fix: `Set "revise.mode" to "patch" in ${filePath}, or remove it to keep the full-rewrite default.`,
+        });
+      }
+    }
+  }
+
   // 12. Self-review: the builder's or reviser's own lab sitting on the critic
   // panel. The real incident is the cheap-7 run of 2026-09-20, where one lab
   // (Sonnet 5) wrote the criteria, the skeleton, the draft and every revision

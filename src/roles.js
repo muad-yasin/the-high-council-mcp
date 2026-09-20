@@ -846,3 +846,33 @@ export function disputeUser({ request, criteria, draft, failures }) {
     .join('\n\n') || '(none listed)';
   return `# Original request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n# Current draft\n\n${draft}\n\n# Objections that were never resolved\n\n${open}`;
 }
+
+// Patch-mode reviser (2026-09-20, src/patch-revise.js). Opt-in via `revise: { mode: "patch" }`.
+// The default full-rewrite prompt is unchanged and still what every existing chain gets.
+export const PATCH_REVISER_RULE = `
+
+## Reply format for this run: edits, not a rewrite
+
+Do not reproduce the plan. Reply with ONLY the edits you are making, each as a block:
+
+<<<<<<< SEARCH
+<text to find, copied from the draft exactly as it appears>
+=======
+<text to replace it with>
+>>>>>>> REPLACE
+
+Rules, all of them load-bearing:
+- The SEARCH text must be copied from the draft character for character, including punctuation
+  and line breaks. It is matched literally, not approximately.
+- The SEARCH text must appear exactly once in the draft. If the line you want is not unique,
+  widen the block with the lines around it until it is - do not hope the right one is picked.
+- Make one block per change. Several small blocks are better than one large one.
+- Change only what an objection requires. Text nobody objected to must stay exactly as it is:
+  unrequested rewording of untouched sections is the specific problem this format exists to
+  prevent, and it is visible here in a way it is not in a rewrite.
+- If a change is so extensive that editing is not sensible, say so in one line instead of
+  emitting blocks, and the full-rewrite path will be used.
+
+Any DECLINED: lines go after the last block, exactly as they would otherwise.`;
+
+export const patchReviserSystem = (open, fenced = false) => reviserSystem(open, fenced) + PATCH_REVISER_RULE;

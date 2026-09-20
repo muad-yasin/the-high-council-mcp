@@ -1,0 +1,41 @@
+{
+  "name": "mock-patch",
+  "description": "Offline. Exercises the patch-mode reviser (src/patch-revise.js): search/replace blocks applied locally, so text nobody objected to stays byte-identical.",
+  "maxRounds": 2,
+  "stopOnPass": true,
+  "signoff": "unanimous",
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "seats": {
+    "criteria": {
+      "provider": "mock",
+      "model": "mock-criteria"
+    },
+    "builder": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "reviser": {
+      "provider": "mock",
+      "model": "mock-reviser-patch"
+    },
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-critic-a",
+        "lab": "mock-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-critic-b",
+        "lab": "mock-b"
+      }
+    ]
+  },
+  "revise": {
+    "mode": "patch"
+  }
+}

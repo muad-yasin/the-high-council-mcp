@@ -377,6 +377,20 @@ async function callMock({ model, system, messages, maxTokens }) {
     const allocatorFix = isReviser && model !== 'mock-reviser-stubborn' && user.includes('The panel split on this criterion this round')
       ? '\n\nAllocator fix applied to the contested criterion.'
       : '';
+    // Patch-mode fixtures (src/patch-revise.js): `mock-reviser-patch` returns a search/replace
+    // block that applies cleanly against the mock draft; `mock-reviser-patch-bad` returns one
+    // whose SEARCH text is not in the draft, exercising the fallback to a full rewrite. The
+    // system prompt carries the patch rule only in patch mode, so these never fire otherwise.
+    if (isReviser && system.includes('<<<<<<< SEARCH')) {
+      if (model === 'mock-reviser-patch-bad') {
+        text = '<<<<<<< SEARCH\nthis text is nowhere in the draft\n=======\nreplacement\n>>>>>>> REPLACE';
+        return { text, usage: { input: 10, output: 10 }, provider: 'mock', model };
+      }
+      if (model === 'mock-reviser-patch') {
+        text = '<<<<<<< SEARCH\nBody text.\n=======\nBody text, with the assumptions stated.\n>>>>>>> REPLACE';
+        return { text, usage: { input: 10, output: 10 }, provider: 'mock', model };
+      }
+    }
     text = `${isReviser ? 'REVISED ' : ''}MOCK DELIVERABLE for model ${model}\n\nBody text.${isReviser ? '\n\nAssumptions: none.' : ''}${ledger}${declineTrailer}${allocatorFix}`;
   }
   await new Promise(r => setTimeout(r, 10));

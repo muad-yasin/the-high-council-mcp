@@ -1,0 +1,41 @@
+{
+  "name": "mock-patch-fallback",
+  "description": "Offline. Exercises the patch-mode reviser (src/patch-revise.js): a block whose SEARCH text is not in the draft, proving the fallback to one full rewrite.",
+  "maxRounds": 2,
+  "stopOnPass": true,
+  "signoff": "unanimous",
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "seats": {
+    "criteria": {
+      "provider": "mock",
+      "model": "mock-criteria"
+    },
+    "builder": {
+      "provider": "mock",
+      "model": "mock-builder"
+    },
+    "reviser": {
+      "provider": "mock",
+      "model": "mock-reviser-patch-bad"
+    },
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-critic-a",
+        "lab": "mock-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-critic-b",
+        "lab": "mock-b"
+      }
+    ]
+  },
+  "revise": {
+    "mode": "patch"
+  }
+}
