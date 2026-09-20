@@ -935,7 +935,7 @@ const unfencedAllowList = (unfencedArg && unfencedArg !== true)
 // Per-run spend ceiling. A BYOK tool that a stranger points their own API
 // keys at ships with a ceiling ON by default; --max-usd none is the explicit
 // way to run without one, and says so in the log.
-const DEFAULT_MAX_USD = 5;
+const DEFAULT_MAX_USD = 7;
 const maxUsdArg = flag('max-usd', process.env.MAX_USD_PER_RUN ?? String(DEFAULT_MAX_USD));
 let maxUsd;
 if (maxUsdArg === true) { console.error('--max-usd: needs a value, e.g. --max-usd 2 or --max-usd none'); process.exit(2); }
