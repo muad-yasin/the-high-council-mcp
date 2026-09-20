@@ -25,7 +25,12 @@ function run(taskText, policy, extraArgs = []) {
   writeFileSync(join(dir, 'task.md'), taskText);
   if (policy) writeFileSync(join(dir, 'policy.json'), JSON.stringify(policy));
   try {
-    const stdout = execFileSync('node', [cli, '--chain', 'mock', '--task', 'task.md', ...extraArgs], { encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // --allow-unfenced: these fixtures name a target_file (src/auth/login.js) and never
+    // fence it, which the artifact gate added 2026-09-20 correctly blocks. Waived here
+    // rather than exempting `target_file:` in the gate itself - a task naming a file and
+    // asking for a change to it is precisely the case where seats invent that file's
+    // contents, so the gate is right and it is this fixture that is deliberately partial.
+    const stdout = execFileSync('node', [cli, '--chain', 'mock', '--task', 'task.md', '--allow-unfenced', ...extraArgs], { encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH }, stdio: ['ignore', 'pipe', 'pipe'] });
     return { status: 0, stdout, stderr: '', ranRun: existsSync(join(dir, 'runs')) };
   } catch (err) {
     return { status: err.status, stdout: err.stdout ?? '', stderr: err.stderr ?? '', ranRun: existsSync(join(dir, 'runs')) };

@@ -845,6 +845,16 @@ if (piiGateMode !== null && piiGateMode !== 'warn' && piiGateMode !== 'hard-stop
 const piiAllow = flag('allow-pii', null);
 const piiAllowList = piiAllow ? String(piiAllow).split(',').map(x => x.trim()).filter(Boolean) : [];
 
+// The unfenced-artifact gate's two escapes (see the pre-flight block below).
+// `--allow-unfenced` alone waives the whole gate for this run; given a value it
+// waives only the named files, so the common case - one file that genuinely is
+// just a location - does not disarm the check for everything else in the task.
+const unfencedArg = flag('allow-unfenced', null);
+const allowUnfenced = unfencedArg === true;
+const unfencedAllowList = (unfencedArg && unfencedArg !== true)
+  ? String(unfencedArg).split(',').map(x => x.trim()).filter(Boolean)
+  : [];
+
 // Per-run spend ceiling. A BYOK tool that a stranger points their own API
 // keys at ships with a ceiling ON by default; --max-usd none is the explicit
 // way to run without one, and says so in the log.
@@ -1279,11 +1289,57 @@ log(`task:  ${taskPathEff}`);
 if (!resumeMeta) {
   // v3 §3: same call site, same warn-never-block posture, checking for a task that names a
   // file it never inlines verbatim rather than a section/criteria conflict.
-  const preflightWarnings = [...preflightCheck(config, request), ...checkArtifactReferences(request)];
+  const contractWarnings = preflightCheck(config, request);
+  const artifactFindings = checkArtifactReferences(request, { allow: unfencedAllowList });
+  const preflightWarnings = [...contractWarnings, ...artifactFindings];
   if (preflightWarnings.length) {
     for (const w of preflightWarnings) log(`  PRE-FLIGHT WARNING: ${w.message}`);
     if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
     appendFileSync(join(runDir, 'WARNINGS.md'), preflightWarnings.map(w => `- pre_flight: ${w.message}\n`).join(''));
+  }
+
+  // 2026-09-20: the artifact check is a gate, not a warning. A task naming a file it never
+  // fences sends every lab to guess at that file's contents, and they guess confidently -
+  // the cheap-7 run shipped a false claim about a directory for exactly this reason, having
+  // printed this same warning and run anyway. Exits BEFORE any metered call, so a blocked run
+  // costs nothing. --allow-unfenced is the explicit override and is recorded in WARNINGS.md
+  // above alongside the findings, so bypassing leaves a trace rather than erasing one.
+  if (artifactFindings.length && !allowUnfenced) {
+    const needsPath = join(runDir, 'NEEDS-ARTIFACTS.md');
+    writeFileSync(needsPath, [
+      '# Missing artifacts',
+      '',
+      `This run stopped before its first API call. The task names ${artifactFindings.length} file(s)`,
+      'whose contents it never includes, so no seat can read them:',
+      '',
+      ...artifactFindings.map(w => `- \`${w.path}\``),
+      '',
+      '## How to fix',
+      '',
+      'Fence the real content into the task file, so the run folder records exactly what was',
+      'sent to each lab:',
+      '',
+      '```',
+      `council fence --task <task.md> --repo <path> ${artifactFindings.map(w => w.path).join(' ')}`,
+      '```',
+      '',
+      'Or, if a file is named only as a location and its contents genuinely do not matter,',
+      'allow it explicitly - either `--allow-unfenced` for this run, or in the task front-matter',
+      'so the decision travels with the task:',
+      '',
+      '```',
+      '---',
+      `unfenced-ok: [${artifactFindings.map(w => w.path).join(', ')}]`,
+      '---',
+      '```',
+      '',
+      'Everything fenced into the task is sent to every seat, and therefore to each lab behind',
+      'them. Fence what the question needs answered, not the whole file, and never a secret.',
+      '',
+    ].join('\n'));
+    log(`\n  BLOCKED: ${artifactFindings.length} file(s) named but never fenced. Wrote ${needsPath}`);
+    log('  Nothing was called and nothing was spent. See that file for the two ways forward.');
+    process.exit(2);
   }
 }
 

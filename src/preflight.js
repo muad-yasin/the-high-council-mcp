@@ -62,10 +62,75 @@ export function preflightCheck(chainConfig, text) {
 // v3 §3 (artifact inlining, ~/Projects/relay/tasks/thcmcp-v3-draft-fixed.md). Real incident:
 // a task that only summarised a specific JSON rubric file, rather than inlining it, led every
 // critic lab to invent plausible-but-nonexistent identifiers against it - only the external
-// build seat, which could read the real file, caught it. This check warns (never blocks, same
-// posture as preflightCheck above) when a task names a path it never fences verbatim elsewhere
-// in its own text, so the operator can paste the real content before any labs see the task.
+// build seat, which could read the real file, caught it.
+//
+// 2026-09-20: this check BLOCKS the run (exit 2, before any metered call); it was warn-only
+// until then, and that was not enough. The cheap-7 run tripped this warning, proceeded anyway
+// because warnings scroll past, and shipped a false claim about a directory no seat could see.
+// preflightCheck above stays warn-only on purpose - it is a heuristic about a *phrasing*
+// conflict, where a false positive costs the operator a blocked run for no reason. This one is
+// a check on whether the labs can see the thing they are being asked about, where proceeding
+// is known to produce confident invention. Different class, different posture.
+//
+// The escapes are deliberate and recorded: --allow-unfenced, or task front-matter
+// `unfenced-ok: [...]`. Both are logged to the run's WARNINGS.md, so a bypassed gate leaves
+// the same trace as a tripped one.
 const PATH_PATTERN = /\b[\w.-]+\.[a-zA-Z]{1,6}\b/g;
+
+// 2026-09-20: PATH_PATTERN alone matches any dotted token, so the cheap-7 run's
+// pre-flight reported three "missing artifacts" that were not filenames at all -
+// `com.unity` (a package id), `newsHeadlines.Find` and
+// `BreakingNewsTriggerController.Start` (both method references). That noise is
+// affordable while the check only warns; it is not affordable now that an
+// unfenced artifact BLOCKS the run, because an operator who learns the gate cries
+// wolf will reach for --allow-unfenced by reflex and the gate stops meaning
+// anything. So a candidate must also carry a known code/data extension.
+//
+// Deliberately a fixed allowlist rather than "looks like an extension": the miss
+// this trades for (a real file with an unlisted extension goes unflagged, same
+// warn-only silence as before) is recoverable and quiet, whereas a false block is
+// loud, wrong, and teaches operators to bypass the check. Extend the list when a
+// real task names a real file it misses - that is a one-line change with a test.
+export const ARTIFACT_EXTENSIONS = new Set([
+  'cs', 'js', 'ts', 'jsx', 'tsx', 'py', 'rs', 'go', 'java', 'rb', 'php', 'c', 'h', 'cpp', 'hpp',
+  'json', 'yaml', 'yml', 'toml', 'xml', 'csv', 'sql',
+  'sh', 'bash', 'ps1',
+  'md', 'txt', 'html', 'css',
+  'asmdef', 'prefab', 'asset', 'unity', 'meta', 'csproj', 'sln', 'uxml', 'uss',
+]);
+
+function hasArtifactExtension(candidate) {
+  const ext = candidate.slice(candidate.lastIndexOf('.') + 1).toLowerCase();
+  return ARTIFACT_EXTENSIONS.has(ext);
+}
+
+// A candidate that continues into another dotted segment is part of a longer chain,
+// not a filename. The case that forced this: `com.unity.textmeshpro` - PATH_PATTERN
+// stops at the word boundary after `com.unity`, whose "extension" is `unity`, which is
+// a real Unity scene extension. So the extension allowlist alone cannot separate a
+// package id from a scene file; the following character can. A trailing sentence period
+// (`... review SaveSystem.cs.`) is not a continuation, so this requires a word character
+// after the dot, not merely a dot.
+function continuesIntoAnotherSegment(body, index, candidate) {
+  return /^\.\w/.test(body.slice(index + candidate.length));
+}
+
+// Task front-matter escape: `unfenced-ok: [Foo.cs, run-tests.sh]` names paths the
+// author has decided the labs do not need the contents of (a file mentioned only
+// as a location, say). Recorded in the task file itself rather than only on the
+// command line, so the run folder keeps the reason alongside what was sent -
+// same principle as the task text being the record of what left the machine.
+//
+// Parsed with a narrow regex over the leading front-matter block only, not a YAML
+// dependency: this reads one optional list of filenames, and a real YAML parser
+// here would accept far more shapes than the gate can mean anything about.
+export function parseUnfencedAllow(text) {
+  const fm = /^---\n([\s\S]*?)\n---/.exec(text || '');
+  if (!fm) return [];
+  const line = /^unfenced-ok:\s*\[(.*?)\]\s*$/m.exec(fm[1]);
+  if (!line) return [];
+  return line[1].split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+}
 
 // Bug-audit fix, 2026-09-16: `fenced.includes(path)` was plain substring containment, so a
 // fenced block that merely happened to contain a LONGER filename with `path` as a substring
@@ -88,16 +153,23 @@ function containsPathToken(haystack, path) {
   return new RegExp(`(?<![\\w.-])${escaped}(?![\\w.-])`).test(haystack);
 }
 
-export function checkArtifactReferences(text) {
+export function checkArtifactReferences(text, options = {}) {
   const body = text || '';
+  const allow = new Set([...(options.allow || []), ...parseUnfencedAllow(body)]);
   const fenced = [...body.matchAll(/```[\s\S]*?```/g)].map(m => m[0]).join('\n');
-  const candidates = new Set([...body.matchAll(PATH_PATTERN)].map(m => m[0]));
+  const candidates = new Set(
+    [...body.matchAll(PATH_PATTERN)]
+      .filter(m => !continuesIntoAnotherSegment(body, m.index, m[0]))
+      .map(m => m[0])
+      .filter(hasArtifactExtension),
+  );
   const warnings = [];
   for (const path of candidates) {
+    if (allow.has(path)) continue;
     if (!containsPathToken(fenced, path)) {
       warnings.push({
         path,
-        message: `Possible missing artifact: the task names '${path}' but never fences its content verbatim anywhere in the task text. A lab reading only the task may invent plausible-but-nonexistent content for it. This is a heuristic check and may miss a path phrased unusually. Proceeding - inline the real file if this run is about it.`,
+        message: `Missing artifact: the task names '${path}' but never fences its content verbatim anywhere in the task text. A lab reading only the task will invent plausible-but-nonexistent content for it - this is a real, observed failure, not a hypothetical. Fence the real file (see \`council fence\`), or allow it explicitly with --allow-unfenced or task front-matter \`unfenced-ok: [${path}]\`.`,
       });
     }
   }

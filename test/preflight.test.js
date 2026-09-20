@@ -8,10 +8,13 @@
 // sense of completeness.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { preflightCheck, requiredDeliverableSections, checkArtifactReferences } from '../src/preflight.js';
+import { preflightCheck, requiredDeliverableSections, checkArtifactReferences, parseUnfencedAllow } from '../src/preflight.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -86,4 +89,99 @@ test('test_artifact_reference_full_path_in_fence_satisfies_bare_filename_candida
   const taskText = `${mockDescription}\n\nFix src/foo.js as described.\n\n\`\`\`\n// src/foo.js\nexport const x = 1;\n\`\`\``;
   const warnings = checkArtifactReferences(taskText);
   assert.deepEqual(warnings.filter(w => w.path === 'foo.js'), [], 'fencing the file under its full path must count as fencing it, not warn as if it were never fenced at all');
+});
+
+// 2026-09-20: the artifact check became a gate (exit 2, before any metered call) and gained
+// an extension allowlist. The three cases below are the real false positives from the cheap-7
+// run of that date, which is why the gate could not ship without the filter.
+
+test('artifact gate: the cheap-7 run\'s three false positives are no longer flagged', () => {
+  const text = [
+    'The package is com.unity.textmeshpro and the call site is newsHeadlines.Find(...).',
+    'See BreakingNewsTriggerController.Start for the ordering.',
+  ].join('\n');
+  assert.deepEqual(checkArtifactReferences(text), [],
+    'a package id and two method references are not files, and a gate that blocks on them teaches operators to bypass it');
+});
+
+test('artifact gate: a real unfenced code file is still caught', () => {
+  const warnings = checkArtifactReferences('Please review SaveSystem.cs and tell us what breaks.');
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].path, 'SaveSystem.cs');
+  // The message must name both ways out, or the operator has to go read source to proceed.
+  assert.match(warnings[0].message, /--allow-unfenced/);
+  assert.match(warnings[0].message, /unfenced-ok/);
+});
+
+test('artifact gate: fencing the real content clears it', () => {
+  const text = 'Please review SaveSystem.cs.\n\n```\n// SaveSystem.cs\nclass SaveSystem {}\n```';
+  assert.deepEqual(checkArtifactReferences(text), []);
+});
+
+test('artifact gate: an unlisted extension is a known, accepted miss, not a block', () => {
+  // Trades a quiet miss (recoverable) for never producing a loud false block (which
+  // teaches bypass-by-reflex). Pinned so the trade stays deliberate.
+  assert.deepEqual(checkArtifactReferences('See notes.qqq for the details.'), []);
+});
+
+test('parseUnfencedAllow: reads the front-matter escape, and only from real front matter', () => {
+  assert.deepEqual(parseUnfencedAllow('---\nunfenced-ok: [Foo.cs, run-tests.sh]\n---\n\nBody.'), ['Foo.cs', 'run-tests.sh']);
+  assert.deepEqual(parseUnfencedAllow('---\nunfenced-ok: ["a.js", \'b.js\']\n---\n'), ['a.js', 'b.js']);
+  assert.deepEqual(parseUnfencedAllow('No front matter here.\nunfenced-ok: [a.js]\n'), [],
+    'a mid-body line is not front matter - otherwise a task could be talked into disarming its own gate by quoting one');
+  assert.deepEqual(parseUnfencedAllow('---\nother: thing\n---\n'), []);
+  assert.deepEqual(parseUnfencedAllow(''), []);
+});
+
+test('artifact gate: front-matter and caller allowlists both suppress, per file, not wholesale', () => {
+  const text = '---\nunfenced-ok: [Allowed.cs]\n---\n\nCompare Allowed.cs against Other.cs.';
+  const warnings = checkArtifactReferences(text);
+  assert.deepEqual(warnings.map(w => w.path), ['Other.cs'],
+    'allowing one file must not disarm the gate for the rest of the task');
+  assert.deepEqual(checkArtifactReferences(text, { allow: ['Other.cs'] }), []);
+});
+
+// The gate end to end. Uses the offline mock chain, so a failure to block would spend
+// nothing here - but it would spend on a real chain, which is the whole point.
+test('artifact gate: the CLI exits 2, writes NEEDS-ARTIFACTS.md, and starts no run', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-artifact-gate-'));
+  mkdirSync(join(dir, 'chains'));
+  writeFileSync(join(dir, 'chains', 'mock.json'), readFileSync(join(root, 'chains', 'mock.json'), 'utf8'));
+  writeFileSync(join(dir, 'task.md'), 'Review SaveSystem.cs and report what breaks.');
+  let status = 0, stdout = '';
+  try {
+    stdout = execFileSync('node', [resolve(root, 'src/cli.js'), '--chain', 'mock', '--task', 'task.md'],
+      { encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH }, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (err) {
+    status = err.status;
+    stdout = err.stdout ?? '';
+  }
+  assert.equal(status, 2, 'blocked runs exit 2, distinct from lint (1) and external pause (3)');
+  assert.match(stdout, /BLOCKED/);
+  assert.match(stdout, /nothing was spent/i);
+
+  const runDirs = readdirSync(join(dir, 'runs'));
+  assert.equal(runDirs.length, 1, 'the run folder is the record even of a refusal');
+  const needs = readFileSync(join(dir, 'runs', runDirs[0], 'NEEDS-ARTIFACTS.md'), 'utf8');
+  assert.match(needs, /SaveSystem\.cs/);
+  assert.match(needs, /council fence/, 'the file must name the fix, not just the problem');
+  assert.match(needs, /unfenced-ok/);
+  // A seat reply file would mean a stage ran despite the gate.
+  assert.ok(!existsSync(join(dir, 'runs', runDirs[0], 'criteria.md')), 'no stage may run before the gate');
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('artifact gate: --allow-unfenced proceeds, and the finding is still recorded', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-artifact-allow-'));
+  mkdirSync(join(dir, 'chains'));
+  writeFileSync(join(dir, 'chains', 'mock.json'), readFileSync(join(root, 'chains', 'mock.json'), 'utf8'));
+  writeFileSync(join(dir, 'task.md'), 'Review SaveSystem.cs and report what breaks.');
+  execFileSync('node', [resolve(root, 'src/cli.js'), '--chain', 'mock', '--task', 'task.md', '--allow-unfenced'],
+    { encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const runDirs = readdirSync(join(dir, 'runs'));
+  const warnings = readFileSync(join(dir, 'runs', runDirs[0], 'WARNINGS.md'), 'utf8');
+  assert.match(warnings, /SaveSystem\.cs/, 'bypassing the gate must leave the same trace as tripping it');
+  assert.ok(!existsSync(join(dir, 'runs', runDirs[0], 'NEEDS-ARTIFACTS.md')));
+  rmSync(dir, { recursive: true, force: true });
 });
