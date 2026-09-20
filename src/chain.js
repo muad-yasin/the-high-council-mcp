@@ -367,7 +367,11 @@ export function scoreProposals(proposals, plan) {
 
 // A lab's identity is its provider unless the seat names one: three seats on
 // OpenRouter are three labs, and mock chains need two labs on one provider.
-const labOf = seat => seat.lab || seat.provider;
+// Exported so chain-lint.js's self-review check keys on the SAME identity the
+// blind-panel and debate logic key on. A second copy of this one-liner there
+// could drift from this one, and the thing that would silently break is
+// exactly what the harness exists to measure (lab independence).
+export const labOf = seat => seat.lab || seat.provider;
 
 // Item 5/6 (relay/runs/2026-09-14T14-56-18-834Z/deliverable.md): a seat-role
 // override lets a chain name, by lab/provider id, which already-configured

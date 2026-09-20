@@ -7,7 +7,7 @@ import { providerNames } from './providers.js';
 import { validateSeatRole } from './seat-role.js';
 import { ALLOWED_TOOLS } from './tools.js';
 import { priceOf } from './cost.js';
-import { findSeatByLab } from './chain.js';
+import { findSeatByLab, labOf } from './chain.js';
 
 // Labs the source procurement report names as not EU-based (v7.x compliance
 // chains). Used only to enforce an EU-region compliance claim against the
@@ -441,6 +441,54 @@ export function lintChain(config, filePath = '<chain>') {
         fix: `Add "proposals" and/or a "seats.builder" seat to ${filePath} if verify.tools is meant to check a diff this chain builds, or remove "verify.tools" if this chain is always run with --draft (a diff supplied at the CLI, invisible to this static check).`,
       });
     }
+  }
+
+  // 12. Self-review: the builder's or reviser's own lab sitting on the critic
+  // panel. The real incident is the cheap-7 run of 2026-09-20, where one lab
+  // (Sonnet 5) wrote the criteria, the skeleton, the draft and every revision
+  // AND held a critic seat - so it voted on its own work, and a false claim
+  // survived to the deliverable. Under `signoff: "unanimous"` that vote is not
+  // advisory: every critic must sign off on the same draft, so the builder's
+  // lab holds a real veto over objections to its own text, and the panel's
+  // independence - the one property this harness exists to measure - is
+  // quietly not what the config appears to promise.
+  //
+  // Keys on labOf (imported from chain.js, never re-implemented here), never
+  // on `provider`: three OpenRouter seats are three labs, and the mock chains
+  // deliberately put several labs on one provider. Keying on provider would
+  // fire on every mock chain and miss the real case entirely.
+  //
+  // Scoped to `signoff: "unanimous"` on purpose, same narrowness as check 11.
+  // Verified against all 42 shipped chains on 2026-09-20: exactly one fails
+  // (cheap-7.json, the chain the incident came from, replaced by cheap-7-v2).
+  // Under round-robin signoff one critic reviews per round and there is no
+  // veto to capture, and `single-vendor-anthropic/openai.json` are deliberately
+  // single-lab compliance chains that would fire on every run - so widening
+  // this past unanimous means annotating those first, not just dropping the
+  // condition here.
+  //
+  // The escape is an explicit, greppable `"selfReview": "allowed"` at the top
+  // level, so a chain that really wants this has said so in writing and `grep
+  // -r selfReview chains/` lists every one. No shipped chain uses it.
+  if (config?.signoff === 'unanimous' && Array.isArray(seats.critics) && config?.selfReview !== 'allowed') {
+    const criticLabs = new Set(seats.critics.filter(Boolean).map(labOf));
+    for (const kind of ['builder', 'reviser']) {
+      const seat = seats[kind];
+      if (seat && criticLabs.has(labOf(seat))) {
+        findings.push({
+          kind: 'self-review',
+          message: `seats.${kind} is lab "${labOf(seat)}", which also holds a seat on the critic panel - under unanimous signoff that lab votes on, and can veto objections to, its own draft.`,
+          fix: `Remove the "${labOf(seat)}" seat from "seats.critics" in ${filePath} so the panel is independent of the author, or move seats.${kind} to a lab that is not on the panel. If this chain genuinely wants a lab reviewing its own work, add "selfReview": "allowed" at the top level of ${filePath} and say why in its "description".`,
+        });
+      }
+    }
+  }
+  if ('selfReview' in (config || {}) && config.selfReview !== 'allowed') {
+    findings.push({
+      kind: 'self-review',
+      message: `selfReview must be the exact string "allowed" when present (got ${JSON.stringify(config.selfReview)}) - any other value silently reads as "not allowed".`,
+      fix: `Set "selfReview": "allowed" in ${filePath}, or remove the key entirely.`,
+    });
   }
 
   return findings;

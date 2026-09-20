@@ -159,11 +159,15 @@ function baseLintConfig() {
   return {
     signoff: 'unanimous',
     seats: {
-      criteria: { provider: 'anthropic', model: 'claude-sonnet-5' },
-      builder: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      // Distinct labs on the panel: this fixture exists to exercise allocator
+      // config, and a single-lab roster would also trip chain-lint's
+      // self-review check (added 2026-09-20), burying the finding this file
+      // actually asserts on.
+      criteria: { provider: 'anthropic', model: 'claude-sonnet-5', lab: 'author' },
+      builder: { provider: 'anthropic', model: 'claude-sonnet-5', lab: 'author' },
       critics: [
-        { provider: 'anthropic', model: 'claude-sonnet-5' },
-        { provider: 'anthropic', model: 'claude-sonnet-5' },
+        { provider: 'anthropic', model: 'claude-sonnet-5', lab: 'panel-one' },
+        { provider: 'anthropic', model: 'claude-sonnet-5', lab: 'panel-two' },
       ],
     },
   };

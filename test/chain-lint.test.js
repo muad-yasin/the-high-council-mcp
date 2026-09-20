@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -145,4 +145,121 @@ test('item 6: chains/plan-two-strong.json (the roster-inversion chain) passes ch
   const config = JSON.parse(readFileSync(join(root, 'chains', 'plan-two-strong.json'), 'utf8'));
   const findings = lintChain(config, 'chains/plan-two-strong.json');
   assert.deepEqual(findings, []);
+});
+
+// Check 12: self-review. The real incident is the cheap-7 run of 2026-09-20 -
+// one lab wrote the criteria, skeleton, draft and every revision AND held a
+// critic seat, so it voted on its own work under unanimous signoff.
+
+test('self-review: the builder\'s own lab on the critic panel fails lint under unanimous signoff', () => {
+  const findings = lintChain({
+    signoff: 'unanimous',
+    seats: {
+      builder: { provider: 'openrouter', model: 'anthropic/claude-sonnet-5', lab: 'sonnet5' },
+      critics: [
+        { provider: 'openrouter', model: 'anthropic/claude-sonnet-5', lab: 'sonnet5' },
+        { provider: 'openrouter', model: 'openai/gpt-5-mini', lab: 'gpt5-mini' },
+      ],
+    },
+  }, 'chains/fixture.json');
+  const selfReview = findings.filter(f => f.kind === 'self-review');
+  assert.equal(selfReview.length, 1);
+  assert.match(selfReview[0].message, /seats\.builder is lab "sonnet5"/);
+  // The fix must name the real escape hatch, not just the problem.
+  assert.match(selfReview[0].fix, /selfReview/);
+});
+
+test('self-review: the reviser is caught too, and separately from the builder', () => {
+  const findings = lintChain({
+    signoff: 'unanimous',
+    seats: {
+      builder: { provider: 'openrouter', model: 'openai/gpt-5-mini', lab: 'gpt5-mini' },
+      reviser: { provider: 'openrouter', model: 'anthropic/claude-sonnet-5', lab: 'sonnet5' },
+      critics: [
+        { provider: 'openrouter', model: 'anthropic/claude-sonnet-5', lab: 'sonnet5' },
+        { provider: 'openrouter', model: 'openai/gpt-5-mini', lab: 'gpt5-mini' },
+      ],
+    },
+  }, 'chains/fixture.json');
+  const kinds = findings.filter(f => f.kind === 'self-review').map(f => f.message);
+  assert.equal(kinds.length, 2);
+  assert.ok(kinds.some(m => /seats\.builder is lab "gpt5-mini"/.test(m)));
+  assert.ok(kinds.some(m => /seats\.reviser is lab "sonnet5"/.test(m)));
+});
+
+test('self-review: "selfReview": "allowed" is an explicit, greppable escape', () => {
+  const config = {
+    signoff: 'unanimous',
+    selfReview: 'allowed',
+    seats: {
+      builder: { provider: 'openrouter', model: 'anthropic/claude-sonnet-5', lab: 'sonnet5' },
+      critics: [{ provider: 'openrouter', model: 'anthropic/claude-sonnet-5', lab: 'sonnet5' }],
+    },
+  };
+  assert.deepEqual(lintChain(config, 'chains/fixture.json').filter(f => f.kind === 'self-review'), []);
+});
+
+test('self-review: a near-miss escape value fails loudly rather than silently reading as "not allowed"', () => {
+  for (const value of [true, 'yes', 'Allowed']) {
+    const findings = lintChain({
+      signoff: 'unanimous',
+      selfReview: value,
+      seats: { builder: { provider: 'mock', model: 'mock-a', lab: 'a' }, critics: [{ provider: 'mock', model: 'mock-b', lab: 'b' }] },
+    }, 'chains/fixture.json');
+    const f = findings.filter(x => x.kind === 'self-review');
+    assert.equal(f.length, 1, `expected ${JSON.stringify(value)} to be rejected`);
+    assert.match(f[0].message, /must be the exact string "allowed"/);
+  }
+});
+
+test('self-review: keys on lab, not provider - several labs on one provider is the normal case, not a finding', () => {
+  // Every mock chain puts several labs on the "mock" provider by design, and
+  // cheap-7's seven labs all share the "openrouter" provider. A check keyed on
+  // provider would fire on all of them and miss the real defect entirely.
+  const findings = lintChain({
+    signoff: 'unanimous',
+    seats: {
+      builder: { provider: 'mock', model: 'mock-builder', lab: 'author' },
+      reviser: { provider: 'mock', model: 'mock-builder', lab: 'author' },
+      critics: [
+        { provider: 'mock', model: 'mock-critic', lab: 'panel-one' },
+        { provider: 'mock', model: 'mock-critic', lab: 'panel-two' },
+      ],
+    },
+  }, 'chains/fixture.json');
+  assert.deepEqual(findings.filter(f => f.kind === 'self-review'), []);
+});
+
+test('self-review: scoped to unanimous signoff, where the author\'s lab holds a real veto', () => {
+  const seats = {
+    builder: { provider: 'openrouter', model: 'anthropic/claude-sonnet-5', lab: 'sonnet5' },
+    critics: [{ provider: 'openrouter', model: 'anthropic/claude-sonnet-5', lab: 'sonnet5' }],
+  };
+  assert.deepEqual(lintChain({ seats }, 'chains/fixture.json').filter(f => f.kind === 'self-review'), []);
+  assert.equal(lintChain({ signoff: 'unanimous', seats }, 'chains/fixture.json').filter(f => f.kind === 'self-review').length, 1);
+});
+
+// The sweep: which shipped chains does this rule actually fail? Pinned so that
+// adding a chain that grades its own work, or quietly "fixing" cheap-7 with the
+// escape hatch, fails the suite instead of passing unnoticed.
+test('self-review: exactly one shipped chain fails it, and it is the superseded one', () => {
+  const failing = readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json')).filter(f => {
+    const config = JSON.parse(readFileSync(join(root, 'chains', f), 'utf8'));
+    return lintChain(config, `chains/${f}`).some(x => x.kind === 'self-review');
+  });
+  assert.deepEqual(failing, ['cheap-7.json']);
+});
+
+test('cheap-7-v2: the replacement chain passes lint, and its panel excludes its author\'s lab', () => {
+  const config = JSON.parse(readFileSync(join(root, 'chains', 'cheap-7-v2.json'), 'utf8'));
+  assert.deepEqual(lintChain(config, 'chains/cheap-7-v2.json'), []);
+  const criticLabs = config.seats.critics.map(s => s.lab || s.provider);
+  assert.equal(criticLabs.length, 6);
+  for (const kind of ['builder', 'reviser', 'skeleton', 'handoff']) {
+    assert.ok(!criticLabs.includes(config.seats[kind].lab), `${kind}'s lab must not be on the panel`);
+  }
+  // The lab that sets the bar must not be the lab that clears it.
+  assert.notEqual(config.seats.criteria.lab, config.seats.builder.lab);
+  // No escape hatch in our own chain (Muad's call, 2026-09-20).
+  assert.ok(!('selfReview' in config));
 });
