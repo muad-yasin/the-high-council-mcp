@@ -71,7 +71,7 @@
       },
       {
         "provider": "openrouter",
-        "model": "mistralai/mistral-large-2512",
+        "model": "mistralai/mistral-medium-3-5",
         "maxTokens": 20000,
         "lab": "mistral"
       },

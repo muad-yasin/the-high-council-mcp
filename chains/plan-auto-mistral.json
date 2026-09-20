@@ -17,37 +17,37 @@
   "seats": {
     "questions": {
       "provider": "openrouter",
-      "model": "mistralai/mistral-large-2512",
+      "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
       "maxTokens": 2000
     },
     "criteria": {
       "provider": "openrouter",
-      "model": "mistralai/mistral-large-2512",
+      "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
       "maxTokens": 8000
     },
     "skeleton": {
       "provider": "openrouter",
-      "model": "mistralai/mistral-large-2512",
+      "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
       "maxTokens": 8000
     },
     "builder": {
       "provider": "openrouter",
-      "model": "mistralai/mistral-large-2512",
+      "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
       "maxTokens": 40000
     },
     "reviser": {
       "provider": "openrouter",
-      "model": "mistralai/mistral-large-2512",
+      "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
       "maxTokens": 40000
     },
     "handoff": {
       "provider": "openrouter",
-      "model": "mistralai/mistral-large-2512",
+      "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
       "maxTokens": 8000
     },

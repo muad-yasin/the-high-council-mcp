@@ -12,19 +12,31 @@
     "criteria": {
       "provider": "anthropic",
       "model": "claude-sonnet-5",
-      "extra": { "thinking": { "type": "disabled" } },
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      },
       "maxTokens": 4000
     },
     "builder": {
       "provider": "anthropic",
       "model": "claude-sonnet-5",
-      "extra": { "thinking": { "type": "disabled" } },
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      },
       "maxTokens": 8000
     },
     "reviser": {
       "provider": "anthropic",
       "model": "claude-sonnet-5",
-      "extra": { "thinking": { "type": "disabled" } },
+      "extra": {
+        "thinking": {
+          "type": "disabled"
+        }
+      },
       "maxTokens": 8000
     },
     "critics": [
@@ -32,14 +44,22 @@
         "provider": "together",
         "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
         "maxTokens": 8000,
-        "extra": { "chat_template_kwargs": { "thinking": false } },
+        "extra": {
+          "chat_template_kwargs": {
+            "thinking": false
+          }
+        },
         "lab": "deepseek"
       },
       {
         "provider": "openrouter",
         "model": "qwen/qwen3.5-plus-20260420",
         "maxTokens": 8000,
-        "extra": { "reasoning": { "enabled": false } },
+        "extra": {
+          "reasoning": {
+            "enabled": false
+          }
+        },
         "lab": "qwen"
       },
       {
@@ -47,11 +67,15 @@
         "model": "z-ai/glm-5.3-flash",
         "maxTokens": 8000,
         "lab": "glm",
-        "extra": { "reasoning": { "effort": "low" } }
+        "extra": {
+          "reasoning": {
+            "effort": "low"
+          }
+        }
       },
       {
         "provider": "openrouter",
-        "model": "mistralai/mistral-large-2512",
+        "model": "mistralai/mistral-medium-3-5",
         "maxTokens": 8000,
         "lab": "mistral"
       },
