@@ -1,5 +1,5 @@
 {
-  "_note": "USD per 1,000,000 tokens. List prices change often - re-check each lab's pricing page before quoting these to anyone. Verified against public pricing pages as of 2026-09-06 (the anthropic/* entries re-checked against Anthropic's pricing page on 2026-09-15). Bug-audit fix, 2026-09-16: together/Qwen/Qwen2.5-72B-Instruct-Turbo was missing entirely (used by src/budget.js's ROSTERS.frontier and .frontier-sonnet, silently understating priceRoster()'s total by ~14% - one of seven roster seats treated as $0), added at Together AI's public Turbo-endpoint rate for this model class (same tier as the already-listed together/meta-llama/Llama-3.3-70B-Instruct-Turbo entry, slightly above it per Together's own published per-model pricing); re-verify before quoting. Treat every entry as an estimate, not an invoice.",
+  "_note": "USD per 1,000,000 tokens. List prices change often - re-check each lab's pricing page before quoting these to anyone. Verified against public pricing pages as of 2026-09-06 (the anthropic/* entries re-checked against Anthropic's pricing page on 2026-09-15). Bug-audit fix, 2026-09-16: together/Qwen/Qwen2.5-72B-Instruct-Turbo was missing entirely (used by src/budget.js's ROSTERS.frontier and .frontier-sonnet, silently understating priceRoster()'s total by ~14% - one of seven roster seats treated as $0), added at Together AI's public Turbo-endpoint rate for this model class (same tier as the already-listed together/meta-llama/Llama-3.3-70B-Instruct-Turbo entry, slightly above it per Together's own published per-model pricing); re-verify before quoting. Refreshed 2026-09-20 against openrouter.ai/api/v1/models directly (the live API, not a secondary aggregator): four openrouter/* entries had drifted - glm-5.3-flash and glm-5.2 were both UNDERSTATED, which understates every projection the spend cap enforces against, and glm-5.2 had been taken from an aggregator rather than the source. openrouter/mistralai/mistral-large-2512 was REMOVED: OpenRouter no longer serves the non-batch variant at all, so the entry priced a model this harness could not call. Five current-generation entries added for cheap-7-v2. Non-openrouter entries were NOT re-checked in that pass and still carry their older dates. Treat every entry as an estimate, not an invoice.",
   "anthropic/claude-fable-5-1": {
     "in": 10.0,
     "out": 50.0
@@ -101,24 +101,53 @@
     "out": 1.8
   },
   "openrouter/z-ai/glm-5.3-flash": {
-    "in": 0.07,
-    "out": 0.25
+    "in": 0.09,
+    "out": 0.3,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
   },
-  "openrouter/mistralai/mistral-large-2512": {
-    "in": 0.5,
-    "out": 1.5
+  "openrouter/meta-llama/llama-4-maverick": {
+    "in": 0.1875,
+    "out": 0.6525,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+  },
+  "openrouter/mistralai/mistral-small-2603": {
+    "in": 0.15,
+    "out": 0.6,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+  },
+  "openrouter/openai/gpt-5.6-luna": {
+    "in": 0.2,
+    "out": 1.2,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+  },
+  "openrouter/google/gemini-3.8-flash": {
+    "in": 0.75,
+    "out": 3.75,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+  },
+  "openrouter/deepseek/deepseek-v4.1-flash": {
+    "in": 0.15,
+    "out": 0.6,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+  },
+  "openrouter/qwen/qwen3.7-plus": {
+    "in": 0.32,
+    "out": 1.28,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
   },
   "openrouter/minimax/minimax-m3": {
     "in": 0.3,
     "out": 1.2
   },
   "openrouter/deepseek/deepseek-v3.2": {
-    "in": 0.27,
-    "out": 0.4
+    "in": 0.269,
+    "out": 0.4,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
   },
   "openrouter/moonshotai/kimi-k3": {
-    "in": 2.5,
-    "out": 14.0
+    "in": 1.7,
+    "out": 8.5,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
   },
   "openrouter/anthropic/claude-opus-5": {
     "in": 5.0,
@@ -141,9 +170,9 @@
     "_source": "openrouter.ai/openai/gpt-5-mini, checked 2026-09-17"
   },
   "openrouter/z-ai/glm-5.2": {
-    "in": 0.4875,
-    "out": 1.56,
-    "_source": "openrouter.ai/z-ai/glm-5.2, checked 2026-09-17 via secondary aggregator (llmreference.com) - not fetched directly from openrouter.ai, spot-check if this matters"
+    "in": 0.6496,
+    "out": 2.0416,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
   },
   "openrouter/google/gemini-3.1-pro-preview": {
     "in": 2.0,

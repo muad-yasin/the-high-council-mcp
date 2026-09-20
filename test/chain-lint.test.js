@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lintChain } from '../src/chain-lint.js';
+import { priceOf } from '../src/cost.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = resolve(here, '../src/cli.js');
@@ -250,16 +251,37 @@ test('self-review: exactly one shipped chain fails it, and it is the superseded 
   assert.deepEqual(failing, ['cheap-7.json']);
 });
 
-test('cheap-7-v2: the replacement chain passes lint, and its panel excludes its author\'s lab', () => {
+test('cheap-7-v2: seven independent labs vote, and neither author is among them', () => {
   const config = JSON.parse(readFileSync(join(root, 'chains', 'cheap-7-v2.json'), 'utf8'));
   assert.deepEqual(lintChain(config, 'chains/cheap-7-v2.json'), []);
+
+  // Seven voting labs. Removing the builder's critic seat must not cost a seat: the panel
+  // is the mechanism, and shrinking it to six was a regression the fix caused, not a fix.
   const criticLabs = config.seats.critics.map(s => s.lab || s.provider);
-  assert.equal(criticLabs.length, 6);
-  for (const kind of ['builder', 'reviser', 'skeleton', 'handoff']) {
-    assert.ok(!criticLabs.includes(config.seats[kind].lab), `${kind}'s lab must not be on the panel`);
+  assert.equal(criticLabs.length, 7);
+  assert.equal(new Set(criticLabs).size, 7, 'seven seats must be seven distinct labs, not one lab twice');
+
+  // Neither the lab that drafts nor the lab that sets the bar votes on whether it was cleared.
+  // chain-lint only guards builder/reviser, so the criteria half is pinned here instead.
+  for (const kind of ['builder', 'reviser', 'skeleton', 'handoff', 'criteria']) {
+    const lab = config.seats[kind].lab;
+    assert.ok(!criticLabs.includes(lab), `${kind}'s lab (${lab}) must not hold a panel seat`);
   }
-  // The lab that sets the bar must not be the lab that clears it.
-  assert.notEqual(config.seats.criteria.lab, config.seats.builder.lab);
-  // No escape hatch in our own chain (Muad's call, 2026-09-20).
+
+  // Deliberate absences, both decided 2026-09-20. Anthropic: the downstream Claude review
+  // happens after the run, not inside the vote. Kimi: a seat that may route through another
+  // lab is not an independent seat.
+  assert.ok(!criticLabs.some(l => /sonnet|claude|anthropic/i.test(l)));
+  assert.ok(!JSON.stringify(config.seats.critics).includes('kimi'));
+
+  // No escape hatch in our own chain.
   assert.ok(!('selfReview' in config));
+});
+
+test('cheap-7-v2: every seat is priced, because an unpriced seat is an uncapped seat', () => {
+  const config = JSON.parse(readFileSync(join(root, 'chains', 'cheap-7-v2.json'), 'utf8'));
+  const seats = [...Object.values(config.seats).filter(s => !Array.isArray(s)), ...config.seats.critics];
+  for (const s of seats) {
+    assert.ok(priceOf(s.provider, s.model), `${s.provider}/${s.model} has no entry in src/pricing.json - it would project $0 and escape the spend cap`);
+  }
 });
