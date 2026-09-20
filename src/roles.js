@@ -89,7 +89,7 @@ Reply with a single JSON object and nothing else:
   "failures": [
     { "criterion": "<verbatim>",
       "problem": "<what is wrong, one sentence>",
-      "fix": "<the smallest change that would fix it>" }
+      "fix": "<the smallest change that would fix it>"__CRITIC_QUOTE_FIELD__ }
   ],
   "verdict_line": "<one sentence, the honest summary>"__CRITIC_FREEDOMS_FIELDS__
 }`;
@@ -556,6 +556,39 @@ const FREEDOMS_RULE = {
   blocking_questions: '- If one fact would change your verdict and the draft does not state it, you may ask the proposer one blocking question instead of judging this round. Use it sparingly - it costs a round trip, and most ambiguity should be resolved by choosing the reading a careful reader would choose, same as anywhere else.',
   pass: '- If this draft is genuinely outside what you can usefully judge, you may pass instead of a verdict. State why in one sentence. A pass is not a sign-off and not an objection - use it only when a real verdict would not be honest.',
 };
+// Quote rule (2026-09-20). Added to the critic, criteria and reviser prompts only when the
+// task actually carries fenced source - a rule about quoting source that is not there teaches
+// a seat to fabricate a quote to satisfy it, which is worse than no rule. See src/fence.js for
+// where fenced source comes from and src/quote-check.js for what is done with the quotes.
+export const QUOTE_RULE_CRITIC = `
+- Some of the task is real source code, fenced verbatim. That fenced text is the ONLY thing you
+  know about the repository. It is a partial, hand-picked slice: a file that is not shown may
+  still exist, and its absence is not evidence.
+- When an objection claims something about the repository - a file, a function, a value, a
+  behaviour - put the exact text it rests on in that failure's "quote" field, copied from the
+  fenced source. If you cannot find text that supports the claim, you do not know it: either
+  drop the claim or state it as a question rather than a defect.
+- Never write a "quote" that is not in the fenced source. An invented quote is worse than an
+  unsupported objection, because it looks like evidence.`;
+
+export const QUOTE_RULE_CRITERIA = `
+- Some of the task is real source code, fenced verbatim, and it is a partial slice. Write no
+  criterion that asserts something about the repository unless the fenced source shows it. If a
+  criterion depends on something not shown, say so in the criterion itself and mark it
+  UNVERIFIED rather than assuming either way.`;
+
+export const QUOTE_RULE_REVISER = `
+- Some of the task is real source code, fenced verbatim, and it is the only source anyone in
+  this chain has seen. An objection may carry a "quote" from it.
+- An objection about the repository with no quote, or with a quote you cannot find in the fenced
+  source, has not been checked by anyone. Do not act on its specifics as if they were fact. Fix
+  what it points at if the fenced source supports it; otherwise weaken the claim to UNVERIFIED
+  and name what would settle it. Do not silently delete the objection, and do not silently
+  adopt it.
+- When two inputs disagree about a fact about the repository and neither cites the fenced
+  source, do not pick one. Keep both possibilities and state the check that decides between
+  them.`;
+
 export function criticSystem(open, freedoms = null) {
   const rules = [];
   if (freedoms?.blocking_questions) rules.push(FREEDOMS_RULE.blocking_questions);
@@ -566,11 +599,19 @@ export function criticSystem(open, freedoms = null) {
   return CRITIC_SYSTEM_TEMPLATE
     .replace('__CRITIC_SCOPE_RULE__', scopeOf(open).critic)
     .replace('__CRITIC_FREEDOMS_RULE__', rules.length ? `\n${rules.join('\n')}\n` : '')
-    .replace('__CRITIC_FREEDOMS_FIELDS__', fields.join(''));
+    .replace('__CRITIC_FREEDOMS_FIELDS__', fields.join(''))
+    // The field is advertised only when there is fenced source to quote FROM. Offering a
+    // "quote" field with no source present is an invitation to invent one to fill it.
+    .replace('__CRITIC_QUOTE_FIELD__', freedoms?.fencedSource
+      ? ',\n      "quote": "<required when this objection claims something about the repository: the exact text from the fenced source it rests on. Omit entirely otherwise.>"'
+      : '')
+    + (freedoms?.fencedSource ? QUOTE_RULE_CRITIC : '');
 }
-export const criteriaSystem = open => CRITERIA_SYSTEM_TEMPLATE.replace('__CRITERIA_SCOPE_RULE__', scopeOf(open).criteria);
+// `fenced` is opt-in per call: absent, every prompt is byte-identical to what it was before
+// quote validation existed, so no chain without fenced source changes behaviour at all.
+export const criteriaSystem = (open, fenced = false) => CRITERIA_SYSTEM_TEMPLATE.replace('__CRITERIA_SCOPE_RULE__', scopeOf(open).criteria) + (fenced ? QUOTE_RULE_CRITERIA : '');
 export const builderSystem = open => BUILDER_SYSTEM + scopeOf(open).builder;
-export const reviserSystem = open => REVISER_SYSTEM + scopeOf(open).reviser;
+export const reviserSystem = (open, fenced = false) => REVISER_SYSTEM + scopeOf(open).reviser + (fenced ? QUOTE_RULE_REVISER : '');
 export const proposerSystem = open => PROPOSER_SYSTEM + scopeOf(open).proposer;
 // Back-compat names for the closed variants.
 export const CRITIC_SYSTEM = criticSystem(false);

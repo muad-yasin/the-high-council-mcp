@@ -8,6 +8,7 @@ import { NO_TIE_BREAK } from './tie-break.js';
 import { runTool as defaultRunTool, ALLOWED_TOOLS, runSeatToolRequests } from './tools.js';
 import { runLints } from './lints.js';
 import { extractClaims, dropInvalidClaims } from './claims.js';
+import { fencedSourceOf, markFailures, quoteWarnings } from './quote-check.js';
 import { injectCanary, shouldSampleCanary } from './canary.js';
 import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
 
@@ -821,6 +822,12 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   const record = s => { stages.push(s); onStage(s); return s; };
   let request = requestIn;
 
+  // The fenced source a human put in the task (src/fence.js), read once before any stage runs
+  // because the criteria stage already needs to know whether the quote rule is honest to state.
+  // Empty when the task carries none, which disables quote validation rather than faking it.
+  const fencedSource = fencedSourceOf(request);
+  const quoteFindings = [];
+
   // v7 item 1: tool-grounded verification, gated on config.verify.enabled.
   // Absent/false key: skip entirely, `ground_truth` stays undefined and is
   // therefore never added to the returned result - v6 behaviour unchanged.
@@ -941,7 +948,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   if (!criteria || criteria.length === 0) {
     log('\nStage: acceptance criteria');
     const s = record(await invoke(resolveCriteriaSeat(config), {
-      system: R.criteriaSystem(open),
+      system: R.criteriaSystem(open, !!fencedSource),
       user: criteriaUserPrompt(request, config),
       log, label: 'criteria',
     }));
@@ -1331,7 +1338,10 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       const relay = config.panel === 'relay';
       log(`\nRound ${round}: panel review (${config.seats.critics.length} labs, ${relay ? 'relay - each sees the verdicts before it' : 'independent'})`);
       const verdicts = [];
-      const freedoms = config.freedoms || null;
+      // fencedSource rides along on `freedoms` so criticSystem keeps one options argument
+      // rather than growing a positional flag at three call sites. It is not a freedom; it is
+      // a fact about the task that decides whether the quote rule is honest to state at all.
+      const freedoms = { ...(config.freedoms || null), fencedSource: !!fencedSource };
       const reviewSeat = async (criticSeat, prior, say, tag = '') => {
         let cs, parsed, answeredQuestion = null;
         let cutOffRetried = false, effectiveCap = criticSeat.maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -1476,7 +1486,19 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       // off, malformed, or the provider was down. A stated pass is a position; a lost reply is not.
       const abstained = verdicts.length - voting.length;
       const unheard = verdicts.filter(v => v.abstained).length;
-      const allFailures = voting.flatMap(v => v.critique.failures.map(f => ({ ...f, lab: labOf(v.seat) })));
+      // Quote validation (2026-09-20, src/quote-check.js). Only runs when the task actually
+      // carries fenced source - without it there is nothing to check a quote against, and
+      // marking every claim "unquoted" would be noise that teaches seats to ignore the mark.
+      // Nothing is ever dropped: an unquoted objection may still be right, and silently
+      // discarding an objection is how a real defect disappears.
+      const allFailures = voting.flatMap(v =>
+        markFailures(v.critique.failures, fencedSource).map(f => ({ ...f, lab: labOf(v.seat) })));
+      if (fencedSource) {
+        for (const w of quoteWarnings(allFailures.filter(f => f.quote_status), 'panel')) {
+          log(`    QUOTE: ${w}`);
+          quoteFindings.push(w);
+        }
+      }
       const allVotersClean = voting.length > 0 && voting.every(v => v.critique.meets === true);
       // An unheard reviewer is an unknown, not consent. Found in the 2026-09-17 pilot: when every
       // reviewer that WAS heard signed off, the old check declared "every lab that answered signed
@@ -1557,7 +1579,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       log(`\nRound ${round}: revise (union of everything any lab flagged)`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
       const revised = record(await invoke(reviserSeat, {
-        system: R.reviserSystem(open),
+        system: R.reviserSystem(open, !!fencedSource),
         user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }),
         log, label: `revise-${round}`,
       })).text;
@@ -1595,7 +1617,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           }
           const draftBefore = draft;
           const targeted = record(await invoke(reviserSeat, {
-            system: R.reviserSystem(open),
+            system: R.reviserSystem(open, !!fencedSource),
             user: R.reviserUser({
               request, criteria, draft,
               critique: { failures: [{
@@ -1697,7 +1719,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       log(`\nRound ${round}: revise`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
       const revised = record(await invoke(reviserSeat, {
-        system: R.reviserSystem(open),
+        system: R.reviserSystem(open, !!fencedSource),
         user: R.reviserUser({ request, criteria, draft, critique }),
         log, label: `revise-${round}`,
       })).text;
@@ -1857,7 +1879,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       log(`  challenge raised against "${parsed.decision}" - evidence that would settle it: ${parsed.evidence}`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
       const revised = record(await invoke(reviserSeat, {
-        system: R.reviserSystem(open),
+        system: R.reviserSystem(open, !!fencedSource),
         user: R.reviserUser({
           request, criteria, draft,
           critique: { failures: [{ criterion: parsed.decision, problem: parsed.evidence, fix: '' }] },
@@ -1999,5 +2021,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     // Additive, per report.json's public contract: absent entirely on a chain that does not
     // enable the dispute stage, so nothing built on an existing run folder sees a new field.
     ...(dispute !== null ? { dispute } : {}),
+    // Additive: absent unless the task carried fenced source for quotes to be checked against.
+    ...(fencedSource ? { quoteFindings } : {}),
   };
 }
