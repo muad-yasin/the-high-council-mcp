@@ -443,6 +443,54 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
+  // 11b. Dispute stage (2026-09-20): `enabled` and `stall_rounds` are the only keys chain.js
+  // reads. Same narrow stance as challenge/coldRead - a key that silently does nothing is the
+  // failure check 1 exists for. Requires `signoff: "unanimous"`, for the same reason the
+  // allocator does: the stall signal is "the same (criterion, lab) objections for N rounds",
+  // and round-robin runs one critic per round, so that set cannot be compared across rounds.
+  if (config?.dispute !== undefined) {
+    if (!config.dispute || typeof config.dispute !== 'object' || Array.isArray(config.dispute)) {
+      findings.push({
+        kind: 'invalid-dispute-config',
+        message: `dispute must be an object like { "enabled": true, "stall_rounds": 2 }.`,
+        fix: `Set "dispute" to { "enabled": true } or remove it in ${filePath}.`,
+      });
+    } else {
+      const DISPUTE_KEYS = ['enabled', 'stall_rounds'];
+      for (const key of Object.keys(config.dispute)) {
+        if (!DISPUTE_KEYS.includes(key)) {
+          findings.push({
+            kind: 'invalid-dispute-config',
+            message: `dispute.${key} is not a recognized key - only ${DISPUTE_KEYS.map(k => `"${k}"`).join(', ')} are exposed.`,
+            fix: `Remove "dispute.${key}" from ${filePath}. The dispute stage runs once and never re-opens the vote; that bound is hard-coded, not a setting.`,
+          });
+        }
+      }
+      if ('enabled' in config.dispute && typeof config.dispute.enabled !== 'boolean') {
+        findings.push({
+          kind: 'invalid-dispute-config',
+          message: `dispute.enabled must be a boolean.`,
+          fix: `Set "dispute.enabled" to true or false in ${filePath}.`,
+        });
+      }
+      if ('stall_rounds' in config.dispute
+        && (!Number.isInteger(config.dispute.stall_rounds) || config.dispute.stall_rounds < 2)) {
+        findings.push({
+          kind: 'invalid-dispute-config',
+          message: `dispute.stall_rounds must be an integer of at least 2 (got ${JSON.stringify(config.dispute.stall_rounds)}) - "the same objections twice" is the minimum evidence that a disagreement is not moving.`,
+          fix: `Set "dispute.stall_rounds" to 2 or more in ${filePath}, or omit it to use the default of 2.`,
+        });
+      }
+      if (config.dispute.enabled === true && config.signoff !== 'unanimous') {
+        findings.push({
+          kind: 'invalid-dispute-config',
+          message: `dispute.enabled requires "signoff": "unanimous" - the stall signal it watches (the same criterion/lab objections across rounds) does not exist under round-robin signoff, which asks one critic per round.`,
+          fix: `Set "signoff": "unanimous" in ${filePath}, or remove "dispute".`,
+        });
+      }
+    }
+  }
+
   // 12. Self-review: the builder's or reviser's own lab sitting on the critic
   // panel. The real incident is the cheap-7 run of 2026-09-20, where one lab
   // (Sonnet 5) wrote the criteria, the skeleton, the draft and every revision

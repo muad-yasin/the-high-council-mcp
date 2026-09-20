@@ -195,6 +195,20 @@
       },
       "description": "src/chain-lint.js rule 6 already hard-validates this exhaustively (only 'enabled' is a real key) - this schema mirrors that exact shape rather than re-deriving it."
     },
+    "dispute": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "stall_rounds": {
+          "type": "integer",
+          "minimum": 2
+        }
+      },
+      "description": "Dispute stage and its stall rule (src/chain.js, 2026-09-20). src/chain-lint.js rule 11b hard-validates this - only these two keys, stall_rounds at least 2, and signoff must be 'unanimous' - and this schema mirrors that shape. The stage runs once when a unanimous chain stops WITHOUT agreement, records the unresolved dissent at the top of the deliverable, and never re-opens the vote; that bound is hard-coded rather than configurable, same stance as challenge's one-round bound."
+    },
     "security_review": {
       "type": "object",
       "additionalProperties": false,

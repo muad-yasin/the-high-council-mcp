@@ -763,3 +763,45 @@ If you find nothing, reply { "raised": false, "contradictions": [] }.`;
 export function coldReadUser(draft) {
   return `# Draft\n\n${draft}`;
 }
+
+// ---------------------------------------------------------------------------
+// Dispute stage (2026-09-20). One reviser pass after a unanimous chain stops
+// WITHOUT agreement - stalled or round-capped. Its job is the opposite of the
+// reviser's usual one: not to fix the objections and not to defend against
+// them, but to mark honestly what could not be settled.
+//
+// The cheap-7 run is why this exists. A claim about a directory that does not
+// exist survived into the deliverable because the objection to it first landed
+// in the last round, and the cap hit before anything could be done with it. A
+// model with no way to check a disputed fact should say so; what it did
+// instead was keep the confident version, because nothing ever asked it not to.
+export const DISPUTE_SYSTEM = `You are revising a plan one last time, after a review panel
+failed to reach agreement. The panel is finished. It will not review your output, and nothing
+you write can turn this into an approved plan.
+
+This is not a chance to defend the draft or to win the argument. Every objection below was
+raised by a reviewer and never resolved. Your only job is to make the draft honest about them.
+
+For each open objection:
+- If the objection is right, fix the draft.
+- If the draft makes a claim the objection disputes and you cannot verify that claim from the
+  material you were given, do not keep the confident version. Rewrite it as UNVERIFIED, stating
+  plainly what would settle it. A named file, directory, function or number you have not been
+  shown the contents of is NOT verified, no matter how reasonable it seems.
+- If you believe the objection is wrong, do not silently ignore it. Leave the draft as it is
+  and say why in one sentence, at the place it applies.
+
+Never delete a disputed claim silently. A reader must be able to tell the difference between
+"this was checked", "this could not be checked" and "a reviewer disagreed with this".
+
+Reply with the full revised plan in markdown and nothing else. Do not add a summary of what
+you changed; the disagreement is recorded separately, verbatim, and is not yours to write.`;
+
+export function disputeUser({ request, criteria, draft, failures }) {
+  // Same wrapping as criticUser/reviserUser: this is reviewer-controlled text and must not be
+  // able to pass for an instruction from this prompt.
+  const open = (failures || [])
+    .map((f, i) => `${i + 1}. Criterion: ${f.criterion}\n   Raised by: ${f.lab || '(lab not recorded)'}\n   <critic-claim>\n   Problem: ${f.problem}\n   Suggested fix: ${f.fix || '(none given)'}\n   </critic-claim>`)
+    .join('\n\n') || '(none listed)';
+  return `# Original request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n# Current draft\n\n${draft}\n\n# Objections that were never resolved\n\n${open}`;
+}

@@ -1317,6 +1317,15 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   const disputes = [];
   const allocatorRounds = [];
 
+  // Dispute stage state (2026-09-20). `dispute` is opt-in, exactly like challenge/coldRead/
+  // allocator: a chain that does not set it behaves as it did before this existed, which is
+  // why the stall rule is gated on it too rather than silently changing every unanimous run.
+  const disputeEnabled = config.dispute?.enabled === true;
+  const stallRounds = Number.isInteger(config.dispute?.stall_rounds) ? config.dispute.stall_rounds : 2;
+  const objectionSignatures = [];
+  const openByRound = [];
+  let stalled = null;
+
   if (config.signoff === 'unanimous') {
     for (let round = 1; round <= maxRounds; round++) {
       const relay = config.panel === 'relay';
@@ -1507,6 +1516,27 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           ? `  every lab that answered signed off (${abstained} passed); stopping.`
           : `  every lab on the panel signed off; stopping.`);
         break;
+      }
+
+      // Dispute stop rule (2026-09-20). The round cap moved 3 -> 7 so a real disagreement has
+      // room to resolve, which only helps if a disagreement that ISN'T resolving stops early.
+      // Otherwise raising the cap just buys four more rounds of the same objection, at the
+      // reviser's price each time - the most expensive seat in the run, re-reading everything.
+      //
+      // "The same objection" is deliberately (criterion, lab), not the objection's prose: a
+      // seat rewording the same complaint each round is the exact pattern this catches, and
+      // matching on text would miss it. Sorted, so seat ordering never makes a stable
+      // disagreement look like a changing one.
+      const roundSignature = allFailures.map(f => `${f.lab}|${f.criterion}`).sort().join('\n');
+      objectionSignatures.push(roundSignature);
+      openByRound.push({ round, failures: allFailures });
+      if (disputeEnabled && roundSignature && objectionSignatures.length >= stallRounds) {
+        const recent = objectionSignatures.slice(-stallRounds);
+        if (recent.every(s => s === recent[0])) {
+          stalled = { rounds: stallRounds, round };
+          log(`\n  the same ${allFailures.length} objection(s) from the same lab(s) for ${stallRounds} rounds running - this is not converging. Stopping the revise loop; the disagreement goes to the dispute stage rather than costing another ${maxRounds - round} round(s) of the same argument.`);
+          break;
+        }
       }
 
       if (round === maxRounds) {
@@ -1708,6 +1738,105 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     }
   }
 
+  // 3a-bis. Dispute stage (config.dispute: { enabled: true, stall_rounds: 2 }), 2026-09-20.
+  //
+  // Runs once, when a unanimous chain stops without agreement - by the round cap or by the
+  // stall rule above - and never when the panel signed off. It is explicitly NOT another
+  // debate round: the panel does not re-review afterwards, and it cannot turn a disagreement
+  // into a signoff. `outcome` stays no_consensus, because that is what happened.
+  //
+  // What it is for: the cheap-7 run ended with open objections that were simply dropped into
+  // report.json, where a reader had to go looking for them, and a false claim survived into
+  // the deliverable because the round cap hit before anyone could act on the objection to it.
+  // So this does two narrow things. It gives the reviser ONE pass whose only job is to mark
+  // what could not be settled - not to defend the draft, not to rewrite it. And it puts the
+  // unresolved dissent at the top of the deliverable, verbatim, with the lab and round that
+  // raised it, so the human reading the plan sees the disagreement before the plan rather
+  // than after it.
+  //
+  // Deliberately not here: a re-vote, a tie-break, a "winner". A panel that did not agree did
+  // not agree, and manufacturing a verdict is precisely what this harness should never do.
+  let dispute = null;
+  let dissentBlock = null;
+  const openFailures = (!passed && lastCritique && lastCritique.meets !== true)
+    ? (lastCritique.failures || []).filter(f => f.criterion)
+    : [];
+  if (disputeEnabled && config.signoff === 'unanimous' && openFailures.length) {
+    log(`\nStage: dispute (${stalled ? `stalled after ${stalled.rounds} identical rounds` : 'round cap reached'}, ${openFailures.length} open objection(s))`);
+    log('  This does not re-open the vote. The panel is done; this records what it could not settle.');
+
+    // Where each objection was first raised, for the dissent block. Read from the per-round
+    // record rather than the last round alone, so "raised in round 2, never resolved" is
+    // visible - that was true of the false claim in the cheap-7 run and nothing showed it.
+    const firstSeen = new Map();
+    for (const { round: r, failures } of openByRound) {
+      for (const f of failures) {
+        const key = `${f.lab}|${f.criterion}`;
+        if (!firstSeen.has(key)) firstSeen.set(key, r);
+      }
+    }
+
+    const reviserSeat = config.seats.reviser || config.seats.builder;
+    const revised = record(await invoke(reviserSeat, {
+      system: R.DISPUTE_SYSTEM,
+      user: R.disputeUser({ request, criteria, draft, failures: openFailures }),
+      log, label: 'dispute',
+    })).text;
+    const parsedDispute = parseDisputes(revised);
+    draft = parsedDispute.draft;
+    parsedDispute.disputes.forEach(reason => disputes.push({ round: 'dispute', reason }));
+
+    // The dissent block is built here, from the recorded objections, and never from the
+    // reviser's reply: a seat asked to summarise the objections against its own draft is the
+    // last thing that should be authoring the record of them. Verbatim, or it is not a record.
+    const lines = openFailures.map(f => {
+      const r = firstSeen.get(`${f.lab}|${f.criterion}`);
+      return [
+        `### ${f.criterion}`,
+        `*Raised by ${f.lab || 'an unnamed lab'}${r ? `, round ${r}` : ''}, never resolved.*`,
+        '',
+        f.problem || '(no problem text recorded)',
+        ...(f.fix ? ['', `Suggested fix: ${f.fix}`] : []),
+      ].join('\n');
+    });
+    const block = [
+      '## Unresolved dissent',
+      '',
+      `${openFailures.length} objection(s) were still open when this run stopped` +
+        `${stalled ? ` (the same objections for ${stalled.rounds} rounds running)` : ' (round cap reached)'}.`,
+      'The panel did not agree. This plan is one draft with known, named disagreement against it,',
+      'not a signed-off deliverable - read these before acting on anything below.',
+      '',
+      ...lines,
+      '',
+      '---',
+      '',
+    ].join('\n');
+    // Held, not applied here. The final-edit stage strips chain artifacts and never adds
+    // material, so a block prepended now would be edited straight back out - caught by the
+    // mock run, where the dissent never reached the deliverable at all. It goes on after that
+    // stage instead, which also puts it in front of the handoff, where a build session reads
+    // it first.
+    dissentBlock = block;
+
+    dispute = {
+      ran: true,
+      reason: stalled ? 'stalled' : 'round_cap',
+      stall_rounds: stalled ? stalled.rounds : null,
+      stopped_at_round: stalled ? stalled.round : maxRounds,
+      open_objections: openFailures.map(f => ({
+        criterion: f.criterion,
+        lab: f.lab || null,
+        problem: f.problem || null,
+        first_raised_round: firstSeen.get(`${f.lab}|${f.criterion}`) ?? null,
+      })),
+      panel_rereviewed: false,
+    };
+    log(`  recorded ${openFailures.length} unresolved objection(s) at the top of the deliverable. Outcome stays "no consensus".`);
+  } else if (disputeEnabled && config.signoff === 'unanimous') {
+    dispute = { ran: false, reason: passed ? 'panel_signed_off' : 'no_open_objections' };
+  }
+
   // 3b. Post-signoff challenge (config.challenge: { enabled: true }), v7
   // item 5. `enabled` is the only key chain.js or chain-lint.js ever reads -
   // one challenge, re-opening one decision, for one extra round, hard-coded
@@ -1786,6 +1915,11 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     })).text;
   }
 
+  // Unresolved dissent goes on after the final edit, never before it: that stage strips
+  // chain artifacts and would remove this as one. Placed ahead of the handoff on purpose -
+  // the file a build session reads first should say what the panel could not settle.
+  if (dissentBlock) draft = `${dissentBlock}${draft}`;
+
   // 5. Handoff (config.handoff): the file a build session reads first.
   let handoff = null;
   if (config.handoff) {
@@ -1862,5 +1996,8 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     ...(preflight !== undefined ? { preflight } : {}),
     ...(ground_truth_post !== undefined ? { ground_truth_post } : {}),
     ...(security_review !== undefined ? { security_review } : {}),
+    // Additive, per report.json's public contract: absent entirely on a chain that does not
+    // enable the dispute stage, so nothing built on an existing run folder sees a new field.
+    ...(dispute !== null ? { dispute } : {}),
   };
 }
