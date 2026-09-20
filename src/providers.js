@@ -308,6 +308,15 @@ async function callMock({ model, system, messages, maxTokens }) {
       : JSON.stringify({ blocking_question: 'What does "the artifact" refer to in criterion 1?' });
     return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
   }
+  // A critic whose reply is cut off at the token cap - stands in for the pilot's gemini/glm/kimi
+  // seats (2026-09-17: 14 of 58 lost votes were `stop: "length"` at 8000 tokens, several with a
+  // `"meets"` field already written). `mock-critic-cut` is cut off at any cap; `mock-critic-cut-
+  // then-fits` is cut off only at a cap of 1000 or less, so the chain's one bigger-cap retry
+  // rescues it, and the retried reply is the scripted critic's normal verdict.
+  if (isCritic && (model === 'mock-critic-cut' || (model === 'mock-critic-cut-then-fits' && maxTokens <= 1000))) {
+    await new Promise(r => setTimeout(r, 10));
+    return { text: '{"meets": false, "criteria": [], "failures": [{"criterion": "It states the assum', usage: { input: 10, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model };
+  }
   if (isCritic && model === 'mock-critic-passer') {
     await new Promise(r => setTimeout(r, 10));
     const text = JSON.stringify({ pass: true, pass_reason: 'Outside my domain expertise; deferring to the rest of the panel.' });

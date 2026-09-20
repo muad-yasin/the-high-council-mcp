@@ -226,6 +226,14 @@ export function parseDisputes(text) {
   return { draft: draftLines.join('\n'), disputes: declined };
 }
 
+// A seat with no `maxTokens` of its own gets this. Was 8000 until 2026-09-20, when the pilot showed
+// reasoning seats spending the whole budget on thinking and losing their verdict (see the
+// "unheard" comment in the critic loop). It is a ceiling, not a price: only tokens actually
+// generated are billed. The spend cap still projects it as the worst case.
+export const DEFAULT_MAX_TOKENS = 36000;
+// One bigger-cap retry for a critic whose reply was cut off, never more than this.
+export const CUT_OFF_RETRY_MAX_TOKENS = 64000;
+
 export function parseJson(text) {
   // Models wrap JSON in prose or fences no matter how firmly you ask them not to,
   // and the small ones leave a trailing comma before ] or } (GLM 5.3 Flash,
@@ -267,8 +275,8 @@ export function parseJson(text) {
 // slip and needs its own label so a later session doesn't chase the wrong bug.
 export function classifyUnreadable(usage, maxTokens) {
   if (usage.stop === 'error') return 'provider returned an error mid-generation (stop: error) - not a truncation or a JSON-formatting problem';
-  const cap = maxTokens ?? 8000;
-  if (usage.output >= cap * 0.95) return 'hit the token cap, truncated';
+  const cap = maxTokens ?? DEFAULT_MAX_TOKENS;
+  if (usage.output >= cap * 0.95 || usage.stop === 'length' || usage.stop === 'max_tokens') return 'hit the token cap, truncated';
   return 'malformed JSON - read the saved reply, it may still be an objection';
 }
 
@@ -292,8 +300,8 @@ export const RESERVED_ABSTENTION_REASONS = Object.freeze([
 
 export function abstentionReasonCode(usage, maxTokens) {
   if (usage.stop === 'error') return 'PROVIDER_ERROR';
-  const cap = maxTokens ?? 8000;
-  if (usage.output >= cap * 0.95) return 'REPLY_TRUNCATED';
+  const cap = maxTokens ?? DEFAULT_MAX_TOKENS;
+  if (usage.output >= cap * 0.95 || usage.stop === 'length' || usage.stop === 'max_tokens') return 'REPLY_TRUNCATED';
   return 'REPLY_UNPARSEABLE';
 }
 
@@ -492,7 +500,7 @@ async function invoke(seat, { system, user, log, label }) {
   // retry below can still cost 2), the same failure this comment already names for a direct
   // Anthropic seat.
   const isAnthropicSeat = (seat.originalProvider ?? seat.provider) === 'anthropic';
-  const maxTokens = seat.maxTokens ?? 8000;
+  const maxTokens = seat.maxTokens ?? DEFAULT_MAX_TOKENS;
   const projected = worstCaseOf(seat.provider, seat.model, {
     promptChars: (system || '').length + (user || '').length,
     maxTokens,
@@ -510,7 +518,7 @@ async function invoke(seat, { system, user, log, label }) {
     model: seat.model,
     system,
     messages: [{ role: 'user', content: user }],
-    maxTokens: seat.maxTokens ?? 8000,
+    maxTokens: seat.maxTokens ?? DEFAULT_MAX_TOKENS,
     temperature: seat.temperature,
     extra,
     // v7.1: a seat's own override of its provider's default base URL - e.g. LM Studio on
@@ -991,7 +999,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     const results = await Promise.all(proposers.map(async seat => {
       const lines = [];
       const say = m => lines.push(m);
-      const capped = { ...seat, maxTokens: Math.min(seat.maxTokens ?? 8000, parts * perPart + 300) };
+      const capped = { ...seat, maxTokens: Math.min(seat.maxTokens ?? DEFAULT_MAX_TOKENS, parts * perPart + 300) };
       const slice = (partitionSlices && partitionSlices[labOf(seat)]) || null;
       const pool = [];
       let unreadable = 0;
@@ -1313,6 +1321,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       const freedoms = config.freedoms || null;
       const reviewSeat = async (criticSeat, prior, say) => {
         let cs, parsed, answeredQuestion = null;
+        let cutOffRetried = false, effectiveCap = criticSeat.maxTokens ?? DEFAULT_MAX_TOKENS;
         // v7 item 4: at most one blocking-question round trip per seat per round - the critic is
         // told it may not ask a second one, and this loop does not offer it the chance to anyway.
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -1335,12 +1344,33 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             return { seat: criticSeat, critique: null, abstained: true, error: String(err.message), reasonCode: 'SEAT_UNREACHABLE' };
           }
           parsed = parseJson(cs.text);
+          if (!parsed && !cutOffRetried && abstentionReasonCode(cs.usage, effectiveCap) === 'REPLY_TRUNCATED') {
+            // A reply cut off at the cap is a lost vote, not a position (pilot 2026-09-17: 14 of
+            // 58 lost votes, several already carrying `"meets": false`). Ask once more with a
+            // bigger cap; if that fails too, the seat abstains as before and the round rule
+            // below refuses to call the panel unanimous without it.
+            cutOffRetried = true;
+            const biggerCap = Math.min(effectiveCap * 2, CUT_OFF_RETRY_MAX_TOKENS);
+            say(`  ${labOf(criticSeat)}/${criticSeat.model}: reply cut off at ${effectiveCap} tokens - asking once more with a ${biggerCap}-token cap.`);
+            try {
+              cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
+                system: R.criticSystem(open, freedoms),
+                user: R.criticUser({ request, criteria, draft, prior, answeredQuestion }),
+                log: say, label: `panel-${round}-${labOf(criticSeat)}-retry`,
+              }));
+              effectiveCap = biggerCap;
+              parsed = parseJson(cs.text);
+            } catch (err) {
+              if (err instanceof BudgetExceeded || err instanceof ExternalPause) throw err;
+              say(`  ${labOf(criticSeat)}/${criticSeat.model}: the bigger-cap retry failed (${String(err.message).slice(0, 120)}) - keeping the first attempt's abstention.`);
+            }
+          }
           if (!parsed) {
             // An unreadable verdict is an abstention: it neither signs off nor
             // objects, and it cannot block the panel. It used to count as a
             // pass, which would have waved a truncated FAILED straight through.
-            const why = classifyUnreadable(cs.usage, criticSeat.maxTokens);
-            const reasonCode = abstentionReasonCode(cs.usage, criticSeat.maxTokens);
+            const why = classifyUnreadable(cs.usage, effectiveCap);
+            const reasonCode = abstentionReasonCode(cs.usage, effectiveCap);
             // v5 §1 candidate 4: the code is prepended, the diagnosis itself
             // is untouched - classifyUnreadable's three distinct reasons are
             // load-bearing (each one traces to a real incident on disk) and
@@ -1411,9 +1441,18 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       // Each objection carries the lab that raised it, so the human review
       // step sees who said what rather than an anonymous merged list.
       const voting = verdicts.filter(v => v.critique);
+      // `abstained` keeps its old meaning (everyone without a critique, including a stated pass).
+      // `unheard` is the narrower set that matters for unanimity: seats whose reply was lost - cut
+      // off, malformed, or the provider was down. A stated pass is a position; a lost reply is not.
       const abstained = verdicts.length - voting.length;
+      const unheard = verdicts.filter(v => v.abstained).length;
       const allFailures = voting.flatMap(v => v.critique.failures.map(f => ({ ...f, lab: labOf(v.seat) })));
-      const allSignedOff = voting.length > 0 && voting.every(v => v.critique.meets === true);
+      const allVotersClean = voting.length > 0 && voting.every(v => v.critique.meets === true);
+      // An unheard reviewer is an unknown, not consent. Found in the 2026-09-17 pilot: when every
+      // reviewer that WAS heard signed off, the old check declared "every lab that answered signed
+      // off" and passed, with a truncated or malformed dissent silently outside the vote. The
+      // relay engine already carries this rule (run 2026-09-13T20-20-07-757Z); ported here.
+      const allSignedOff = allVotersClean && unheard === 0;
       lastCritique = { meets: allSignedOff, failures: allFailures };
       // `objections` is why a seat declined, co-located with the decision itself.
       // The same failures also appear flattened in lastCritique.failures, tagged
@@ -1444,14 +1483,24 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       if (allSignedOff) {
         passed = true;
         log(abstained
-          ? `  every lab that answered signed off (${abstained} abstained); stopping.`
+          ? `  every lab that answered signed off (${abstained} passed); stopping.`
           : `  every lab on the panel signed off; stopping.`);
         break;
       }
 
       if (round === maxRounds) {
-        log(`  round cap (${maxRounds}) reached without unanimous signoff; open objections go into the report.`);
+        log(allVotersClean
+          ? `  round cap (${maxRounds}) reached: every lab that answered signed off clean, but ${unheard} never returned a readable verdict - this is NOT agreement. Read their raw reply (see report.json signoff[]) before treating this as passed.`
+          : `  round cap (${maxRounds}) reached without unanimous signoff; open objections go into the report.`);
         break;
+      }
+
+      if (allVotersClean && unheard > 0) {
+        // Nothing to revise - no heard reviewer objected - so re-ask the same panel on the same
+        // draft rather than treating silence as consent or revising what nobody objected to.
+        log(`\nRound ${round}: every lab that answered signed off clean, but ${unheard} did not return a readable verdict - retrying the panel unchanged rather than declaring agreement.`);
+        passed = false;
+        continue;
       }
 
       log(`\nRound ${round}: revise (union of everything any lab flagged)`);
