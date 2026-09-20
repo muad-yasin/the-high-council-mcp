@@ -1319,7 +1319,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       log(`\nRound ${round}: panel review (${config.seats.critics.length} labs, ${relay ? 'relay - each sees the verdicts before it' : 'independent'})`);
       const verdicts = [];
       const freedoms = config.freedoms || null;
-      const reviewSeat = async (criticSeat, prior, say) => {
+      const reviewSeat = async (criticSeat, prior, say, tag = '') => {
         let cs, parsed, answeredQuestion = null;
         let cutOffRetried = false, effectiveCap = criticSeat.maxTokens ?? DEFAULT_MAX_TOKENS;
         // v7 item 4: at most one blocking-question round trip per seat per round - the critic is
@@ -1329,7 +1329,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             cs = record(await invoke(criticSeat, {
               system: R.criticSystem(open, freedoms),
               user: R.criticUser({ request, criteria, draft, prior, answeredQuestion }),
-              log: say, label: attempt === 0 ? `panel-${round}-${labOf(criticSeat)}` : `panel-${round}-${labOf(criticSeat)}-answered`,
+              log: say, label: attempt === 0 ? `panel-${round}-${labOf(criticSeat)}${tag}` : `panel-${round}-${labOf(criticSeat)}${tag}-answered`,
             }));
           } catch (err) {
             // A lab that is down (429 after retries, 5xx, network) must not take
@@ -1340,7 +1340,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             // is infrastructure failure, not a stated position - the live wedge's `dropped`
             // state, kept separate from `objected` (item 1's report.json rule, item 3's own
             // scope addition kept true in the live view too).
-            progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), dropped: true });
+            progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
             return { seat: criticSeat, critique: null, abstained: true, error: String(err.message), reasonCode: 'SEAT_UNREACHABLE' };
           }
           parsed = parseJson(cs.text);
@@ -1356,7 +1356,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
               cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
                 system: R.criticSystem(open, freedoms),
                 user: R.criticUser({ request, criteria, draft, prior, answeredQuestion }),
-                log: say, label: `panel-${round}-${labOf(criticSeat)}-retry`,
+                log: say, label: `panel-${round}-${labOf(criticSeat)}${tag}-retry`,
               }));
               effectiveCap = biggerCap;
               parsed = parseJson(cs.text);
@@ -1380,7 +1380,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             // reply came back, but not a usable one - item 1's outcome logic already treats
             // this identically to a dropout (`signedOff === null && passed === false`), so the
             // live view stays consistent with what report.json will say at the end.
-            progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), dropped: true });
+            progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
             return { seat: criticSeat, critique: null, abstained: true, reasonCode };
           }
           if (freedoms?.blocking_questions && parsed.blocking_question && attempt === 0) {
@@ -1389,7 +1389,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             const answer = record(await invoke(proposerSeat, {
               system: R.BLOCKING_ANSWER_SYSTEM,
               user: R.blockingAnswerUser({ request, draft, question: parsed.blocking_question }),
-              log: say, label: `panel-${round}-${labOf(criticSeat)}-question`,
+              log: say, label: `panel-${round}-${labOf(criticSeat)}${tag}-question`,
             }));
             say(`  ${labOf(proposerSeat)}/${proposerSeat.model}: answered - ${answer.text}`);
             answeredQuestion = { question: parsed.blocking_question, answer: answer.text };
@@ -1403,14 +1403,14 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           // live wedge treats it as "waiting" territory rather than objected/signed. Reported
           // as its own kind so the writer doesn't have to special-case `passed` on top of
           // `verdict`.
-          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), passStated: true });
+          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), passStated: true });
           return { seat: criticSeat, critique: null, passed: true, passReason: capField(parsed.pass_reason) || '' };
         }
         const critique = normaliseCritique(parsed, say);
         say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
         // v5 item 3, touch point 2: the verdict update the live view needs - `passed` (chain.js's
         // own name for "meets every criterion") is already computed here, no new parsing.
-        progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), passed: critique.meets === true });
+        progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), passed: critique.meets === true });
         critique.failures.forEach(f => say(`    FAILED: ${f.criterion} - ${f.problem}`));
         return { seat: criticSeat, critique };
       };
@@ -1435,6 +1435,23 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         for (const { verdict, lines } of results) {
           lines.forEach(m => log(m));
           verdicts.push(verdict);
+        }
+      }
+
+      // Re-ask only the seats that were not heard, and only when it matters: every heard reviewer
+      // is clean (signed off or stated a pass), so the unheard seat alone decides the round. The
+      // rest of the panel already answered this exact draft, so asking them again would only
+      // spend money. Two extra attempts per round at most; a seat still unheard after that leaves
+      // the round non-unanimous (below). If a heard reviewer objected there is nothing to
+      // decide here - the reviser runs on the union of objections and the next round re-asks all.
+      const heardClean = () => verdicts.every(v => v.abstained || v.passed || v.critique?.meets === true);
+      for (let reask = 1; reask <= 2 && heardClean() && verdicts.some(v => v.abstained); reask++) {
+        for (let i = 0; i < verdicts.length; i++) {
+          if (!verdicts[i].abstained) continue;
+          const seatToAsk = verdicts[i].seat;
+          log(`  re-asking only ${labOf(seatToAsk)}/${seatToAsk.model} (${reask}/2) - it was not heard; the rest of the panel already answered this draft.`);
+          const prior = relay ? verdicts.filter(v => v.critique).map((v, k) => ({ lab: `Reviewer ${String.fromCharCode(65 + k)}`, verdict_line: v.critique.verdict_line, failures: v.critique.failures })) : [];
+          verdicts[i] = await reviewSeat(seatToAsk, prior, log, `-reask${reask}`);
         }
       }
 

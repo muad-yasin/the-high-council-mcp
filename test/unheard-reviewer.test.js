@@ -28,7 +28,7 @@ test('a reviewer who stays unheard blocks unanimity even when every heard review
   assert.equal(cut.reason_code, 'REPLY_TRUNCATED');
 });
 
-test('a clean-but-incomplete round re-asks the panel instead of revising nothing', async () => {
+test('a clean-but-incomplete round re-asks the panel instead of revising nothing (after the unheard seat itself was re-asked)', async () => {
   const lines = [];
   await runChain({ request: 'A test request.', config: config([seat('mock-critic-scripted'), seat('mock-critic-cut', { maxTokens: 1000 })], 4), log: m => lines.push(m) });
   assert.ok(lines.some(l => /did not return a readable verdict/.test(l)), 'expected the retry-the-panel log line');
@@ -61,4 +61,16 @@ test('classification still names a cut-off reply as truncated, at any cap', () =
 
 test('a real cut-off shape stays unparseable - the fix must not guess at half a verdict', () => {
   assert.equal(parseJson('{"meets": false, "criteria": [], "failures": [{"criterion": "It states the assum'), null);
+});
+
+test('only the unheard seat is re-asked - the seats that already answered are not called again', async () => {
+  // mock-critic-passer states a pass on round 1, so the heard side of the panel is clean and the
+  // cut-off seat alone decides the round - the case the re-ask loop exists for.
+  const stages = [];
+  const cfg = { ...config([seat('mock-critic-passer'), seat('mock-critic-cut', { maxTokens: 1000 })], 1), freedoms: { pass: true } };
+  await runChain({ request: 'A test request.', config: cfg, log: () => {}, onStage: s => stages.push(s.label) });
+  const reasks = stages.filter(l => /-reask\d/.test(l));
+  assert.ok(reasks.length >= 1, `expected the unheard seat to be re-asked, got stages: ${stages.join(', ')}`);
+  assert.ok(reasks.every(l => /mock-critic-cut/.test(l)), `re-asks must only target the unheard seat, got ${reasks.join(', ')}`);
+  assert.equal(stages.filter(l => /mock-critic-passer/.test(l)).length, 1, 'the seat that already answered must be called exactly once');
 });
