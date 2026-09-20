@@ -13,6 +13,108 @@ import { resolve, relative, isAbsolute, sep } from 'node:path';
 
 export const ALLOWED_TOOLS = Object.freeze(['run_tests', 'check_versions', 'grep_repo', 'read_file']);
 
+// 2026-09-20. Everything below this comment exists because of one finding: these tools
+// were built to read a workspace, and the sandbox only ever asked "is this path inside
+// the root?" - never "should a third-party lab see this?". Those are different questions.
+// grep_repo walked gitignored files, applied no secret filter, and would happily have
+// returned a key file; the repo this harness is most likely to be pointed at has one under
+// Tools/secrets/. No shipped chain enables grep_repo, so nothing leaked - this is closing
+// the hole before the fact-pack work (which is the first thing that would open it), not
+// after an incident.
+//
+// The thing to hold onto: anything these tools return can end up in a prompt, and a prompt
+// goes over the network to every lab holding a seat. "Inside the workspace" is not a
+// security boundary when the output leaves the machine.
+
+// Never returned, at any path inside the sandbox, ignored or not. Matched on the whole
+// relative path so a `secrets/` segment anywhere is caught, not only at the root.
+const DENY_PATTERNS = [
+  /(^|\/)\.env($|\.|\/)/i,
+  /\.(key|pem|p12|pfx|jks|keystore|asc|gpg)$/i,
+  /(^|\/)keystore\.properties$/i,
+  /(^|\/)secrets?(\/|$)/i,
+  /(^|\/)\.ssh(\/|$)/i,
+  /(^|\/)\.npmrc$/i,
+  /(^|\/)id_(rsa|dsa|ecdsa|ed25519)$/i,
+  /(^|\/)credentials?(\.|$)/i,
+  /(^|\/)\.aws(\/|$)/i,
+];
+
+export function isDeniedPath(relPath) {
+  const normalised = String(relPath).split(sep).join('/');
+  return DENY_PATTERNS.some(re => re.test(normalised));
+}
+
+// Content-level scan, applied to everything these tools return. The path denylist above
+// catches files whose NAME says "secret"; this catches a key pasted into a source file, a
+// token in a config, a connection string in a comment - which is how secrets actually leak.
+// Redacts the value and leaves a visible marker, rather than dropping the whole result: a
+// seat that sees `[redacted: possible secret]` knows something was there, and silently
+// returning nothing would look like the file was empty.
+const SECRET_PATTERNS = [
+  /-----BEGIN[ A-Z]*PRIVATE KEY-----[\s\S]*?-----END[ A-Z]*PRIVATE KEY-----/g,
+  /\b(sk|pk|rk)-[A-Za-z0-9_-]{16,}\b/g,
+  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+  /\bAIza[0-9A-Za-z_-]{30,}\b/g,
+  /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+  // A named assignment whose value looks like a credential. Deliberately requires the
+  // name AND a long opaque value, so ordinary code like `apiKey: config.apiKey` is left
+  // alone - a filter that fires on every mention of the word is a filter people turn off.
+  /\b(api[_-]?key|secret|token|password|passwd|access[_-]?key|auth)\b\s*[:=]\s*['"]?([A-Za-z0-9/+_-]{20,})['"]?/gi,
+];
+
+export function redactSecrets(text) {
+  if (typeof text !== 'string' || !text) return { text: text ?? '', redacted: 0 };
+  let redacted = 0;
+  let out = text;
+  for (const re of SECRET_PATTERNS) {
+    out = out.replace(re, (match, ...groups) => {
+      // For the named-assignment pattern, keep the name so the reader knows what was
+      // redacted; replace only the value.
+      const value = groups.length >= 2 && typeof groups[1] === 'string' ? groups[1] : null;
+      redacted += 1;
+      if (value && match.includes(value)) return match.replace(value, '[redacted: possible secret]');
+      return '[redacted: possible secret]';
+    });
+  }
+  return { text: out, redacted };
+}
+
+// What goes into a prompt is capped far below what goes into the run record. 200KB of
+// file text in a seat's prompt is both a cost problem and a "nobody read what we sent"
+// problem; the run folder can hold the full text because it never leaves the machine.
+export const PROMPT_INSERT_MAX_BYTES = 4_000;
+
+export function capForPrompt(text, maxBytes = PROMPT_INSERT_MAX_BYTES) {
+  const buf = Buffer.from(String(text ?? ''), 'utf8');
+  if (buf.length <= maxBytes) return { text: String(text ?? ''), truncated: false };
+  return {
+    text: `${buf.subarray(0, maxBytes).toString('utf8')}\n[truncated: ${buf.length - maxBytes} more bytes not shown]`,
+    truncated: true,
+  };
+}
+
+// `git check-ignore` in one batch rather than per file. A workspace that is not a git repo,
+// or a git that is not installed, yields "nothing is ignored" - the denylist and the secret
+// scan still apply, so the failure mode is more files searched, never an unfiltered secret.
+function gitIgnoredSet(root, relPaths) {
+  if (!relPaths.length) return new Set();
+  const res = spawnSync('git', ['-C', root, 'check-ignore', '--stdin'], {
+    input: relPaths.join('\n'), encoding: 'utf8', timeout: 20_000, shell: false,
+  });
+  if (res.error || typeof res.stdout !== 'string') return new Set();
+  return new Set(res.stdout.split('\n').map(s => s.trim()).filter(Boolean));
+}
+
+// Every call, and the exact bytes it produced, for the run folder's TOOLS.md. Held in
+// memory and written by the caller: this module never touches the run folder itself, the
+// same split runTool/chain.js already have.
+const callLog = [];
+export function toolCallLog() { return callLog.slice(); }
+export function resetToolCallLog() { callLog.length = 0; }
+
 // Bug-audit fix, 2026-09-16: this check used to be purely lexical (string comparison after
 // resolve()) and its own comment claimed that also rejected symlink escapes - false. A symlink
 // physically sitting inside the workspace (e.g. workspace/link -> /etc) resolves lexically to
@@ -123,15 +225,39 @@ function grep_repo({ pattern, file } = {}, { cwd }) {
       return;
     }
     if (!st.isFile()) return;
-    let text;
-    try { text = readFileSync(path, 'utf8'); } catch { return; }
-    text.split('\n').forEach((line, i) => {
-      if (re.test(line)) matches.push({ file: relative(root, path), line: i + 1, text: line });
-    });
+    // 2026-09-20: refuse denied paths before reading them, not after. A file whose name
+    // says "secret" is not searched at all, so its contents never exist in this process.
+    const rel = relative(root, path);
+    if (isDeniedPath(rel)) { denied.push(rel); return; }
+    candidates.push({ path, rel });
   };
+  const candidates = [];
+  const denied = [];
   const start = file ? sandboxPath(root, file) : root;
   walk(start);
-  return { ok: true, matches: matches.slice(0, 500) };
+
+  // Gitignored files are not part of the repo the author is asking about, and are where
+  // local keys, build output and scratch notes live. Previously walked in full.
+  const ignored = gitIgnoredSet(root, candidates.map(c => c.rel));
+  let redactedCount = 0;
+  for (const { path, rel } of candidates) {
+    if (ignored.has(rel)) continue;
+    let text;
+    try { text = readFileSync(path, 'utf8'); } catch { continue; }
+    text.split('\n').forEach((line, i) => {
+      if (!re.test(line)) return;
+      const { text: safe, redacted } = redactSecrets(line);
+      redactedCount += redacted;
+      matches.push({ file: rel, line: i + 1, text: capForPrompt(safe).text });
+    });
+  }
+  return {
+    ok: true,
+    matches: matches.slice(0, 500),
+    ...(denied.length ? { deniedPaths: denied.length } : {}),
+    ...(ignored.size ? { gitIgnoredSkipped: ignored.size } : {}),
+    ...(redactedCount ? { redacted: redactedCount } : {}),
+  };
 }
 
 // read_file: { path } - returns the sandboxed file's raw text, truncated
@@ -141,8 +267,27 @@ function read_file({ path } = {}, { cwd }) {
   const root = resolve(cwd);
   const target = sandboxPath(root, path);
   if (!existsSync(target) || !statSync(target).isFile()) return { ok: false, error: `no such file: ${path}` };
+
+  // 2026-09-20: refused by name before the file is opened. The error says which rule
+  // fired, because "no such file" for a file that plainly exists sends the operator
+  // hunting for a bug that isn't there.
+  const rel = relative(root, target);
+  if (isDeniedPath(rel)) {
+    return { ok: false, error: `refused: '${rel}' matches the secret/credential denylist and is never returned to a seat` };
+  }
+  if (gitIgnoredSet(root, [rel]).has(rel)) {
+    return { ok: false, error: `refused: '${rel}' is gitignored, so it is not part of the repository under discussion and may hold local secrets` };
+  }
+
   const { text, truncated } = readTextFile(target);
-  return { ok: true, text, truncated };
+  const { text: safe, redacted } = redactSecrets(text);
+  const capped = capForPrompt(safe);
+  return {
+    ok: true,
+    text: capped.text,
+    truncated: truncated || capped.truncated,
+    ...(redacted ? { redacted } : {}),
+  };
 }
 
 const IMPLS = { run_tests, check_versions, grep_repo, read_file };
@@ -157,10 +302,32 @@ export function runTool(tool, args = {}, { cwd = process.cwd() } = {}) {
   }
   try {
     const result = IMPLS[tool](args, { cwd });
-    return { tool, args, ...result };
+    const out = { tool, args, ...result };
+    record(out);
+    return out;
   } catch (err) {
-    return { tool, args, ok: false, error: String(err.message || err) };
+    const out = { tool, args, ok: false, error: String(err.message || err) };
+    record(out);
+    return out;
   }
+}
+
+// Recorded for TOOLS.md: what was asked, and the exact bytes the answer would put in a
+// prompt. Reviewing what a seat was told afterwards is the only way to check the filters
+// did their job, and it has to be the post-redaction, post-cap text - logging the raw
+// bytes would put the secret in the run folder instead of the prompt, which is not a fix.
+function record(out) {
+  callLog.push({
+    at: new Date().toISOString(),
+    tool: out.tool,
+    args: out.args,
+    ok: out.ok !== false,
+    ...(out.error ? { error: out.error } : {}),
+    bytes: Buffer.byteLength(JSON.stringify(out.text ?? out.matches ?? '') || '', 'utf8'),
+    ...(out.redacted ? { redacted: out.redacted } : {}),
+    ...(out.deniedPaths ? { deniedPaths: out.deniedPaths } : {}),
+    ...(out.gitIgnoredSkipped ? { gitIgnoredSkipped: out.gitIgnoredSkipped } : {}),
+  });
 }
 
 // v7.x: seat-requested bounded tool calls (relay/runs/2026-09-14T14-56-18-834Z/deliverable.md
