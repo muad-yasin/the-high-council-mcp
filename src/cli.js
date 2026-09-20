@@ -19,6 +19,7 @@ import { metricsReport } from './metrics.js';
 import { withIntegrityFooter } from './integrity.js';
 import { generateResumeBrief } from './resume-brief.js';
 import { preflightCheck, checkArtifactReferences } from './preflight.js';
+import { fenceFile, scanTaskForSecrets, FENCE_HEADER, FENCE_MAX_BYTES } from './fence.js';
 import { scanForPii, applyPiiGate } from './pii-gate.js';
 import { stageKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
@@ -490,6 +491,82 @@ if (argv[0] === 'replay') {
 // neither given, the digest is the fixed deterministic template (renderDigestTemplate), no model
 // call at all - the one real BYOK call this feature ever makes is opt-in, named explicitly by the
 // operator, never automatic.
+// `council fence --task <task.md> --repo <path> <file> [file...]` (2026-09-20). Appends real
+// file contents to a task file, fenced and labelled, for the operator to read BEFORE the run.
+// Deliberately not automatic: a person decides what a third-party lab gets to see, and the
+// task file is the record of exactly that. See src/fence.js for why this shape and not a tool.
+if (argv[0] === 'fence') {
+  const taskArg = flag('task', null);
+  const repoArg = flag('repo', null);
+  if (!taskArg || taskArg === true || !repoArg || repoArg === true) {
+    console.error('fence: --task <task.md> and --repo <path> are both required');
+    console.error('usage: council fence --task task.md --repo ../SMO SaveSystem.cs run-tests.sh');
+    process.exit(2);
+  }
+  // Positional file arguments: everything that is not a flag or a flag's value.
+  const flagsWithValues = new Set(['--task', '--repo']);
+  const files = [];
+  for (let i = 1; i < argv.length; i += 1) {
+    if (argv[i].startsWith('--')) { if (flagsWithValues.has(argv[i])) i += 1; continue; }
+    files.push(argv[i]);
+  }
+  if (!files.length) {
+    console.error('fence: name at least one file to fence, relative to --repo');
+    process.exit(2);
+  }
+  const taskPathAbs = resolve(work, taskArg);
+  if (!existsSync(taskPathAbs)) {
+    console.error(`fence: no such task file: ${taskArg}`);
+    process.exit(2);
+  }
+  const repoRoot = resolve(work, repoArg);
+  if (!existsSync(repoRoot)) {
+    console.error(`fence: no such repository: ${repoArg}`);
+    process.exit(2);
+  }
+
+  let appended = '';
+  const summary = [];
+  for (const f of files) {
+    try {
+      const block = fenceFile(repoRoot, f);
+      appended += block.text;
+      summary.push(block);
+    } catch (err) {
+      // One refused file fails the whole command: a partially-fenced task looks fenced,
+      // and the operator would have to notice the absence to catch it.
+      console.error(`fence: ${err.message}`);
+      process.exit(2);
+    }
+  }
+
+  const existing = readFileSync(taskPathAbs, 'utf8');
+  const header = existing.includes('# Source, fenced verbatim') ? '' : FENCE_HEADER;
+  const next = `${existing.replace(/\s*$/, '')}\n${header}${appended}`;
+
+  // Scan the RESULT, not just what was added: a credential already sitting in the task's
+  // prose is just as sent as one inside a fence.
+  const scan = scanTaskForSecrets(next);
+  if (!scan.clean) {
+    console.error(`fence: ${scan.message}`);
+    console.error('fence: the task file was NOT modified.');
+    process.exit(2);
+  }
+
+  writeFileSync(taskPathAbs, next);
+  console.log(`Fenced ${summary.length} file(s) into ${taskArg}:`);
+  for (const b of summary) {
+    const notes = [
+      b.truncated ? `truncated at ${FENCE_MAX_BYTES} bytes of ${b.bytes}` : `${b.bytes} bytes`,
+      b.redacted ? `${b.redacted} value(s) redacted as possible secrets` : null,
+    ].filter(Boolean).join(', ');
+    console.log(`  ${b.rel} - ${notes}`);
+  }
+  console.log('\nRead the task file before running it. Everything in it is sent to every seat,');
+  console.log('and therefore to every lab behind them.');
+  process.exit(0);
+}
+
 if (argv[0] === 'digest') {
   const runArg = flag('run', null);
   if (!runArg) {
