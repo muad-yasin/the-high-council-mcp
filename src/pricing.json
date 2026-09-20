@@ -110,6 +110,11 @@
     "out": 0.6525,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
   },
+  "openrouter/mistralai/mistral-medium-3-5": {
+    "in": 1.5,
+    "out": 7.5,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+  },
   "openrouter/mistralai/mistral-small-2603": {
     "in": 0.15,
     "out": 0.6,
