@@ -1,24 +1,28 @@
 # The High Council
 
-[![Test](https://github.com/muad-yasin/the-high-council-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/muad-yasin/the-high-council-mcp/actions/workflows/test.yml)
+> **Repository status (2026-09-22): going private until the open-source release.** Development
+> continues in a private repository, and the public open-source release is planned for later this
+> year. Until then, the published npm package `the-high-council` (0.7.5) stays installable as it
+> is, and the `npx github:...` lines below only work for someone with access to this repository.
+> The licence of everything already released stays MIT.
 
 See it work right now - no keys, no setup, no cost:
 
-    npx github:muad-yasin/the-high-council-mcp council demo
+    npx the-high-council council demo
 
 Add it to Claude Code as an MCP server the same way:
 
-    claude mcp add council -- npx -y github:muad-yasin/the-high-council-mcp council --mcp
+    claude mcp add council -- npx -y the-high-council council --mcp
 
-*(Both lines above work today, straight from this GitHub repo, no npm account needed. An npm
-package is also live: `the-high-council` - `npx the-high-council council demo` works too.)*
+*(With access to this repository, `npx github:muad-yasin/the-high-council-mcp council demo` runs
+the current source instead of the published package.)*
 
 A planning harness that runs one idea past several AI models from different labs, makes them
 argue about it on the record, and stops at a checkable result.
 
 Runs as an **MCP server** (so an agent like Claude Code can drive it) or as a **CLI**. Bring your
 own API keys. Nothing is resold, nothing is hosted for you, and no key ever leaves your machine.
-Run `npx github:muad-yasin/the-high-council-mcp council doctor` to see which of your own keys are
+Run `npx the-high-council council doctor` to see which of your own keys are
 set, which shipped chains you can already run with them, and what each would cost - before
 spending anything.
 
@@ -287,11 +291,15 @@ node src/cli.js --resume runs/<id>
 
 ## Quick start (MCP)
 
-Register the server with your MCP client. No clone needed - straight from GitHub:
+Register the server with your MCP client. No clone needed - from the published npm package:
 
 ```bash
-claude mcp add council -- npx -y github:muad-yasin/the-high-council-mcp council --mcp
+claude mcp add council -- npx -y the-high-council council --mcp
 ```
+
+With access to this repository (private until the open-source release), the same line with
+`npx -y github:muad-yasin/the-high-council-mcp` runs the current source instead. The clone and
+plugin-marketplace routes below need that access too.
 
 Or from a clone of this repo:
 
@@ -535,7 +543,8 @@ collect nothing. Stated plainly, not as a claim about quality:
   your own keys (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, and so on) - and only when you start
   a real run with a non-mock, non-external seat. `council doctor` and `council demo` make zero
   network calls; both are implemented to read only local files and environment variable names.
-- The GitHub Pages site (`docs/`) ships no JavaScript and loads no third-party resource - see
+- The landing page (`docs/`, moving from GitHub Pages to sower-industries.de while this
+  repository is private) ships no JavaScript and loads no third-party resource - see
   `test/landing-page.test.js`, which fails the build if either ever changes.
 - Everything a run produces - the task, the debate, the deliverable, the cost - is written to a
   folder on your own disk (`runs/<id>/`) and nowhere else. Deleting that folder deletes the
@@ -548,7 +557,7 @@ collect nothing. Stated plainly, not as a claim about quality:
 
 ## Accessibility
 
-The GitHub Pages site (`docs/`) uses only native HTML elements for interaction - `<a href>`
+The landing page (`docs/`) uses only native HTML elements for interaction - `<a href>`
 links and `<details>/<summary>` for the expandable demo sections - specifically because those
 are keyboard-operable by the browser itself, with no custom JavaScript to get wrong. Tested by
 hand, 2026-09-13, on the live site:
@@ -570,8 +579,8 @@ hand, 2026-09-13, on the live site:
 
 ## Reporting a bug
 
-Open an issue: [github.com/muad-yasin/the-high-council-mcp/issues](https://github.com/muad-yasin/the-high-council-mcp/issues).
-Or write to [contact@sower-industries.de](mailto:contact@sower-industries.de).
+Write to [contact@sower-industries.de](mailto:contact@sower-industries.de). (GitHub issues open
+again with the public release; while the repository is private, email is the only route.)
 
 ## If this makes you money
 

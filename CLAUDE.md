@@ -39,6 +39,13 @@ drifts - same reasoning as `test/landing-page.test.js`. Add or remove a skill an
 you which document needs updating. `docs/skills.html` carries the landing page's two properties:
 no scripts, no third-party requests.
 
+**Visibility (Muad's call, 2026-09-22): this repo is going private until the open-source release
+planned for later this year.** Its GitHub Pages landing page is being moved onto sower-industries.de
+first, then the repo is switched to private. The npm package `the-high-council` 0.7.5 stays
+published as it is, with no new releases unless he asks. The licence stays MIT. **Keep treating
+everything committed here as publishable:** the release will make it public again, so every rule
+below that says "this repo is public" still binds.
+
 Read `HANDOFF.md` before starting work. It carries the release order and the hard rules. Its two
 "open decisions" are now settled and should not be reopened: the `LICENSE` holder stays
 **Sower Industries** (the legal company, confirmed by the author), and the package was renamed to
@@ -165,7 +172,8 @@ date. Read the comment before changing the behaviour, and keep the regression te
   `plans/`, `Docs/`, `benchmark/`, `Dockerfile`, or `fly.toml`.
 - **Never move harness run output into this repo.** Run folders (`runs/<id>/` here, and
   `~/Projects/relay/runs/<id>/` upstream) hold deliverables about the author's business and
-  personal plans - pledge stress-tests, company structure, strategy. This repo is public; a run
+  personal plans - pledge stress-tests, company structure, strategy. This repo is public, or will be
+  again at release; a run
   folder is not publishable by default. `runs/` is gitignored for this reason; keep it that way.
 - Internal references in code comments and chain descriptions are public on purpose. Do not
   "clean" them.
@@ -181,7 +189,8 @@ date. Read the comment before changing the behaviour, and keep the regression te
 
 ## The landing page (`docs/`)
 
-`docs/` is a GitHub Pages site: a single standalone `index.html` plus self-hosted fonts. It is a
+`docs/` is the landing page, moving from GitHub Pages to sower-industries.de while the repo is
+private: a single standalone `index.html` plus self-hosted fonts. It is a
 Claude Design treatment of the README, and it has two properties that must survive any edit:
 
 - **No scripts and no third-party requests.** The design arrived depending on Claude Design's
