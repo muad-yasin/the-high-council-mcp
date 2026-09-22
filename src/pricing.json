@@ -160,6 +160,21 @@
     "out": 10.0,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
   },
+  "openrouter/anthropic/claude-fable-5.1": {
+    "in": 10.0,
+    "out": 50.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+  },
+  "openrouter/openai/gpt-6-astra": {
+    "in": 10.0,
+    "out": 50.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+  },
+  "openrouter/meta/muse-spark-1.2": {
+    "in": 1.25,
+    "out": 4.25,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+  },
   "openrouter/minimax/minimax-m3": {
     "in": 0.3,
     "out": 1.2

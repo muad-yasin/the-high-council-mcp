@@ -1,6 +1,6 @@
 {
   "name": "plan-premium-7",
-  "description": "Frontier tier of plan-open-7: the same rules, stages and external Claude-role seats, with each of the seven panel labs on its strongest current OpenRouter model instead of its fast tier. No Anthropic seat on the panel, no Kimi K3, no xAI. Criteria stay with Meta Llama 4 Maverick, which holds no panel seat. Each panel seat carries a persona (a name and voice for the debate stage only; see PERSONAS.md) - the five defaults plus Hypatia and Avicenna, supplied through COUNCIL_PERSONAS_FILE. Several times the cost of plan-open-7, so price a real task with `npm run dry` and get an explicit go before running.",
+  "description": "Premium panel, Muad's roster (2026-09-22): OpenAI GPT-6 Astra, Anthropic Claude Fable 5.1, Google Gemini 3.8 Flash, Meta Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, Z.ai GLM-5.3 - seven labs, same stages and external Claude-role seats as plan-open-7. DELIBERATE EXCEPTION, Muad's call: an Anthropic model (Fable 5.1) sits on the panel although the draft is written by a Claude Code session, so this panel is not fully independent of the drafting lab - read its sign-off with that in mind. Criteria move to Mistral Medium 3.5, which holds no panel seat, because Meta now votes. No Kimi K3, no xAI. Each seat carries a persona (debate stage only; see PERSONAS.md): the five defaults plus Hypatia and Avicenna via COUNCIL_PERSONAS_FILE. Several times the cost of plan-open-7: price with `npm run dry` and get an explicit go first.",
   "maxRounds": 7,
   "signoff": "unanimous",
   "dispute": {
@@ -21,9 +21,9 @@
   "seats": {
     "criteria": {
       "provider": "openrouter",
-      "model": "meta-llama/llama-4-maverick",
+      "model": "mistralai/mistral-medium-3-5",
       "maxTokens": 36000,
-      "lab": "llama4-maverick"
+      "lab": "mistral-medium3.5"
     },
     "skeleton": {
       "provider": "external",
@@ -44,20 +44,38 @@
     "critics": [
       {
         "provider": "openrouter",
-        "model": "openai/gpt-5.6-sol",
+        "model": "openai/gpt-6-astra",
         "maxTokens": 36000,
-        "lab": "gpt5.6-sol",
+        "lab": "gpt6-astra",
         "role": {
           "persona": "moses"
         }
       },
       {
         "provider": "openrouter",
-        "model": "google/gemini-3.1-pro-preview",
+        "model": "anthropic/claude-fable-5.1",
         "maxTokens": 36000,
-        "lab": "gemini3.1-pro",
+        "lab": "fable5.1",
         "role": {
           "persona": "noah"
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "google/gemini-3.8-flash",
+        "maxTokens": 36000,
+        "lab": "gemini3.8-flash",
+        "role": {
+          "persona": "matthew"
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "meta/muse-spark-1.2",
+        "maxTokens": 36000,
+        "lab": "muse-spark1.2",
+        "role": {
+          "persona": "van-gogh"
         }
       },
       {
@@ -66,7 +84,7 @@
         "maxTokens": 36000,
         "lab": "qwen3.8-max",
         "role": {
-          "persona": "matthew"
+          "persona": "parzival"
         }
       },
       {
@@ -75,7 +93,7 @@
         "maxTokens": 36000,
         "lab": "deepseek-v4-pro",
         "role": {
-          "persona": "van-gogh"
+          "persona": "hypatia"
         }
       },
       {
@@ -83,24 +101,6 @@
         "model": "z-ai/glm-5.3",
         "maxTokens": 36000,
         "lab": "glm5.3",
-        "role": {
-          "persona": "parzival"
-        }
-      },
-      {
-        "provider": "openrouter",
-        "model": "minimax/minimax-m3",
-        "maxTokens": 36000,
-        "lab": "minimax-m3",
-        "role": {
-          "persona": "hypatia"
-        }
-      },
-      {
-        "provider": "openrouter",
-        "model": "mistralai/mistral-medium-3-5",
-        "maxTokens": 36000,
-        "lab": "mistral-medium3.5",
         "role": {
           "persona": "avicenna"
         }
