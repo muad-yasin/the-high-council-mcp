@@ -140,6 +140,21 @@
     "out": 1.28,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
   },
+  "openrouter/deepseek/deepseek-v4-pro": {
+    "in": 0.96,
+    "out": 1.91,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+  },
+  "openrouter/z-ai/glm-5.3": {
+    "in": 0.84,
+    "out": 2.64,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+  },
+  "openrouter/qwen/qwen3.8-max-0902": {
+    "in": 2.0,
+    "out": 6.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+  },
   "openrouter/minimax/minimax-m3": {
     "in": 0.3,
     "out": 1.2
