@@ -250,6 +250,22 @@ export function metaCriteria(criteria) {
   return about.length >= 2 && about.length / list.length >= 1 / 3 ? about : [];
 }
 
+// Criteria a single build stage cannot satisfy, whatever it writes: ones that require documents
+// this harness produces in its own later stages (BOARD.md from the debate record, HANDOFF.md from
+// the handoff stage), or that demand several named .md files at once. 2026-09-22: a Zofia run burned
+// six paid rounds and ended in a dispute because every seat agreed the draft could not be three
+// documents at once. Returns the offending criteria.
+export function infeasibleCriteria(criteria, { handoff = false, debate = false } = {}) {
+  const list = (criteria || []).filter(c => typeof c === 'string');
+  return list.filter(c => {
+    const files = [...new Set((c.match(/\b[A-Za-z0-9_-]+\.md\b/g) || []).map(f => f.toUpperCase()))];
+    if (files.length > 1) return true;
+    if (handoff && /\bHANDOFF\.md\b/i.test(c)) return true;
+    if (debate && /\bBOARD\.md\b/i.test(c)) return true;
+    return false;
+  });
+}
+
 export function cutOffRetryCap(cap) {
   return Math.max(cap, Math.min(cap * 2, CUT_OFF_RETRY_MAX_TOKENS));
 }
@@ -985,6 +1001,22 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     // *criteria list* ("Is a JSON object with a 'criteria' key...") instead of for the request, and
     // the whole panel then failed a correct plan against them for three paid rounds. Retry once,
     // saying what went wrong; if the retry is meta too, stop before any paid review round.
+    const infeasible = infeasibleCriteria(criteria, { handoff: !!config.handoff, debate: !!config.debate });
+    if (infeasible.length) {
+      // Same shape as the meta-criteria guard: one retry naming the problem, then stop rather than
+      // pay a panel to fail a draft for not being three files at once.
+      log(`  !! ${infeasible.length} criterion/criteria demand documents this stage cannot produce - asking once more.`);
+      const again = record(await invoke(resolveCriteriaSeat(config), {
+        system: R.criteriaSystem(open, !!fencedSource),
+        user: `${criteriaUserPrompt(request, config)}\n\nYour previous answer contained a criterion the draft can never satisfy: "${infeasible[0]}". The draft is ONE document. Any other file named in the request is produced by a later stage of this pipeline, not by the draft. Write criteria that one document can satisfy.`,
+        log, label: 'criteria-feasibility-retry',
+      }));
+      const retried = parseJson(again.text)?.criteria;
+      if (!Array.isArray(retried) || retried.length === 0 || infeasibleCriteria(retried, { handoff: !!config.handoff, debate: !!config.debate }).length) {
+        throw new Error('The criteria stage twice demanded documents a single build stage cannot produce. Stopped before any paid review round; see the run log.');
+      }
+      criteria = retried;
+    }
     if (metaCriteria(criteria).length) {
       log(`  !! criteria describe the criteria list itself, not the request (${metaCriteria(criteria).length} of ${criteria.length}) - asking once more.`);
       const again = record(await invoke(resolveCriteriaSeat(config), {
@@ -1366,6 +1398,9 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   let lastCritique = null;
   let signoff = null;
   const disputes = [];
+  // Per-round set of failed criterion strings, and the regressions found from them (2026-09-22).
+  const failedByRound = [];
+  const regressions = [];
   const allocatorRounds = [];
 
   // Dispute stage state (2026-09-20). `dispute` is opt-in, exactly like challenge/coldRead/
@@ -1550,6 +1585,20 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           quoteFindings.push(w);
         }
       }
+      // 2026-09-22 (council-method analysis): an objection that was raised, fixed, and then comes
+      // back reads like ordinary progress in the log, so nobody notices the plan lost ground. Track
+      // which criteria failed in each round and name a criterion that failed, passed, then failed
+      // again. Recorded, never acted on: a regression is information for the human, not a veto.
+      const failedNow = new Set(allFailures.map(f => f.criterion).filter(Boolean));
+      const regressedNow = [...failedNow].filter(c =>
+        failedByRound.length >= 2
+        && !failedByRound[failedByRound.length - 1].has(c)
+        && failedByRound.slice(0, -1).some(prev => prev.has(c)));
+      for (const c of regressedNow) {
+        log(`    REGRESSION: "${c}" failed in an earlier round, passed, and fails again.`);
+        regressions.push({ round, criterion: c, labs: allFailures.filter(f => f.criterion === c).map(f => f.lab) });
+      }
+      failedByRound.push(failedNow);
       const allVotersClean = voting.length > 0 && voting.every(v => v.critique.meets === true);
       // An unheard reviewer is an unknown, not consent. Found in the 2026-09-17 pilot: when every
       // reviewer that WAS heard signed off, the old check declared "every lab that answered signed
@@ -2083,6 +2132,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       rubberStampCount: allocatorRounds.filter(r => !r.engaged).length,
     } : null,
     disputes,
+    regressions,
     history,
     stages,
     totals: summarise(stages),

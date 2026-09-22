@@ -358,3 +358,13 @@ test('metaCriteria: flags the Zofia run\'s criteria-about-criteria, passes a rea
   assert.deepEqual(metaCriteria(good), []);
   assert.deepEqual(metaCriteria(['Every acceptance criterion in the plan names a test']), []);
 });
+
+test('infeasibleCriteria: flags criteria demanding documents a single stage cannot produce', async () => {
+  const { infeasibleCriteria } = await import('../src/chain.js');
+  const opts = { handoff: true, debate: true };
+  assert.equal(infeasibleCriteria(['Is in the format of three core documents (PLAN.md, BOARD.md, HANDOFF.md) as required'], opts).length, 1);
+  assert.equal(infeasibleCriteria(['Includes a HANDOFF.md startup file'], opts).length, 1);
+  assert.deepEqual(infeasibleCriteria(['Is a single markdown file named PLAN.md', 'Contains a 7-year roadmap section'], opts), []);
+  // Without a handoff stage, naming HANDOFF.md is the deliverable's own business.
+  assert.deepEqual(infeasibleCriteria(['Includes a HANDOFF.md startup file'], { handoff: false, debate: false }), []);
+});

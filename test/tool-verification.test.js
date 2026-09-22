@@ -36,6 +36,9 @@ const FROZEN_V6_KEYS = [
   'dropouts', 'board', 'debate', 'handoff', 'scoreboard', 'passed', 'lastCritique',
   'signoff', 'disputes', 'history', 'stages', 'totals', 'orphanSections', 'withdrawalCycles',
   'challenge', 'allocator', 'coldRead',
+  // 2026-09-22: 'regressions' - criteria that failed, passed, then failed again, recorded per round.
+  // Additive, like every key above it; README's report.json contract allows adding, not renaming.
+  'regressions',
 ].sort();
 
 test('verify absent: result has no ground_truth key and matches the frozen v6 key set', async () => {

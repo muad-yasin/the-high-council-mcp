@@ -107,7 +107,11 @@ parentheses; never pad a criterion with elaboration.
 Every criterion must be checkable by reading the deliverable and answering yes
 or no. "Is well written" is not checkable. "Names the patch version it was
 written against" is. Prefer criteria about presence, correctness, scope and
-form. __CRITERIA_SCOPE_RULE__ Include one about the deliverable's format.
+form. __CRITERIA_SCOPE_RULE__ Include one about the deliverable's format, and one
+that every cross-reference inside the deliverable resolves - a section, item or
+id it points at exists and says what the pointer claims. Two six-seat panels
+missed a dangling section number in the same week; nobody checks a pointer
+unless a criterion asks.
 
 Describe the property a criterion checks; never quote a phrase the deliverable
 must contain. "Makes no design decision for any excluded topic" can be judged.
