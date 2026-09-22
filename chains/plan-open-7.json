@@ -64,7 +64,8 @@
         "provider": "openrouter",
         "model": "z-ai/glm-5.3-flash",
         "maxTokens": 36000,
-        "lab": "glm5.3-flash"
+        "lab": "glm5.3-flash",
+        "panelMaxTokens": 360000
       },
       {
         "provider": "openrouter",
