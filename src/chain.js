@@ -239,6 +239,17 @@ export const CUT_OFF_RETRY_MAX_TOKENS = 64000;
 // The retry cap for a reply cut off at `cap`: double it, bounded by CUT_OFF_RETRY_MAX_TOKENS, but
 // never BELOW the seat's own cap. 2026-09-22: a seat given a 360k cap (above the 64k bound) would
 // otherwise have been "retried with a bigger cap" of 64k - a smaller one, certain to cut off again.
+// Criteria that describe the criteria list (its JSON shape, what each criterion must be) rather
+// than the deliverable. Any one JSON-shape item flags it; otherwise a third or more of the items
+// talking about "criterion/criteria" does. Returns the offending items.
+export function metaCriteria(criteria) {
+  const list = (criteria || []).filter(c => typeof c === 'string');
+  const shape = list.filter(c => /json object|["'`]criteria["'`]\s*key|list of strings/i.test(c));
+  if (shape.length) return shape;
+  const about = list.filter(c => /\bcriteri(on|a)\b/i.test(c));
+  return about.length >= 2 && about.length / list.length >= 1 / 3 ? about : [];
+}
+
 export function cutOffRetryCap(cap) {
   return Math.max(cap, Math.min(cap * 2, CUT_OFF_RETRY_MAX_TOKENS));
 }
@@ -969,6 +980,23 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     criteria = parsed?.criteria;
     if (!Array.isArray(criteria) || criteria.length === 0) {
       throw new Error('The criteria stage returned no usable criteria. Raw output kept in the run log.');
+    }
+    // 2026-09-22, Zofia run 2026-09-22T12-07-08-270Z: the criteria seat returned criteria for a
+    // *criteria list* ("Is a JSON object with a 'criteria' key...") instead of for the request, and
+    // the whole panel then failed a correct plan against them for three paid rounds. Retry once,
+    // saying what went wrong; if the retry is meta too, stop before any paid review round.
+    if (metaCriteria(criteria).length) {
+      log(`  !! criteria describe the criteria list itself, not the request (${metaCriteria(criteria).length} of ${criteria.length}) - asking once more.`);
+      const again = record(await invoke(resolveCriteriaSeat(config), {
+        system: R.criteriaSystem(open, !!fencedSource),
+        user: `${criteriaUserPrompt(request, config)}\n\nYour previous answer described the format of a criteria list ("${metaCriteria(criteria)[0]}") instead of the deliverable the request asks for. Write criteria that a reader checks against that deliverable itself.`,
+        log, label: 'criteria-retry',
+      }));
+      const retried = parseJson(again.text)?.criteria;
+      if (!Array.isArray(retried) || retried.length === 0 || metaCriteria(retried).length) {
+        throw new Error('The criteria stage twice returned criteria about the criteria list rather than the request. Stopped before any paid review round; see the run log.');
+      }
+      criteria = retried;
     }
   }
   log(`\nAcceptance criteria (${criteria.length}):`);

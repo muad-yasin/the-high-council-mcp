@@ -339,3 +339,22 @@ test('cutOffRetryCap: doubles a small cap, bounds it at 64k, and never retries b
   assert.equal(cutOffRetryCap(36000), 64000);
   assert.equal(cutOffRetryCap(360000), 360000);
 });
+
+test('metaCriteria: flags the Zofia run\'s criteria-about-criteria, passes a real plan\'s criteria', async () => {
+  const { metaCriteria } = await import('../src/chain.js');
+  const bad = [
+    "Is a JSON object with a 'criteria' key containing a list of strings.",
+    'Contains exactly one criterion per required part of the request, up to 15.',
+    'Each criterion checks one property and can be answered with yes or no.',
+    "Makes no assumption about the presence or absence of the 'Scope ledger' section.",
+  ];
+  const good = [
+    'Lists a concrete architecture for v1',
+    'Specifies the order of building the components (Q4-Q7, Q9)',
+    'Records dissenting opinions on debated questions',
+    "Includes a section titled 'Scope ledger'",
+  ];
+  assert.ok(metaCriteria(bad).length > 0);
+  assert.deepEqual(metaCriteria(good), []);
+  assert.deepEqual(metaCriteria(['Every acceptance criterion in the plan names a test']), []);
+});
