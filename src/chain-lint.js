@@ -99,7 +99,10 @@ export function lintChain(config, filePath = '<chain>') {
     ['criteria', seats.criteria], ['builder', seats.builder], ['reviser', seats.reviser],
     ['finalist', seats.finalist], ['skeleton', seats.skeleton], ['handoff', seats.handoff],
     ['questions', seats.questions], ['judge', seats.judge],
-    ...(seats.critics || []).map(s => ['critics', s]),
+    // 2026-09-22: critics only when seats.proposers is set. chain.js uses
+    // `seats.proposers || seats.critics` for proposals and debate, so with no proposers
+    // array the critics ARE the debating seats and their role is live, not a no-op.
+    ...(seats.proposers ? (seats.critics || []).map(s => ['critics', s]) : []),
   ];
   for (const [kind, s] of nonProposerSeats) {
     if (s?.role) {

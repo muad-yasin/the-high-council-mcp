@@ -138,7 +138,7 @@ test('chain-lint: no role at all produces no invalid-seat-role finding (role is 
 // mattering, but because this file now proves the OPPOSITE property for that one chain (see the
 // test right after this one). Every other chain must still prove byte-identical prompts; only
 // this named exception is allowed to differ, and only because it does so on purpose.
-const CHAINS_WITH_ROLES_BY_DESIGN = ['plan-debate-roles-c1.json'];
+const CHAINS_WITH_ROLES_BY_DESIGN = ['plan-debate-roles-c1.json', 'plan-premium-7.json'];
 
 test('test_role_compat, golden hash across every shipped chain: no seat in any non-role-bearing chains/*.json declares a role, and applying the (absent) role to each is byte-identical to DEBATE_SYSTEM', () => {
   const files = readdirSync(chainsDir).filter(f => f.endsWith('.json') && !CHAINS_WITH_ROLES_BY_DESIGN.includes(f));
@@ -215,7 +215,20 @@ test('chain-lint: role on a non-proposer seat is flagged as a silent no-op', () 
   assert.match(noop[0].fix, /seats\.proposers/);
 });
 
-test('chain-lint: the same check catches a role on seats.critics too', () => {
+test('chain-lint: the same check catches a role on seats.critics when seats.proposers is set', () => {
+  const findings = lintChain({
+    seats: {
+      criteria: { provider: 'anthropic', model: 'x' },
+      builder: { provider: 'anthropic', model: 'x' },
+      proposers: [{ provider: 'anthropic', model: 'z' }],
+      critics: [{ provider: 'anthropic', model: 'y', role: { persona: 'noah' } }],
+    },
+  }, 'chains/fixture.json');
+  assert.equal(findings.filter(f => f.kind === 'role-on-non-proposer-seat').length, 1);
+});
+
+test('chain-lint: a role on seats.critics is live, not flagged, when there is no seats.proposers', () => {
+  // chain.js debates with `seats.proposers || seats.critics` - plan-open-7's shape.
   const findings = lintChain({
     seats: {
       criteria: { provider: 'anthropic', model: 'x' },
@@ -223,7 +236,7 @@ test('chain-lint: the same check catches a role on seats.critics too', () => {
       critics: [{ provider: 'anthropic', model: 'y', role: { persona: 'noah' } }],
     },
   }, 'chains/fixture.json');
-  assert.equal(findings.filter(f => f.kind === 'role-on-non-proposer-seat').length, 1);
+  assert.equal(findings.filter(f => f.kind === 'role-on-non-proposer-seat').length, 0);
 });
 
 test('chain-lint: a role on seats.proposers is never flagged as a no-op', () => {

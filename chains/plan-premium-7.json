@@ -1,6 +1,6 @@
 {
   "name": "plan-premium-7",
-  "description": "Frontier tier of plan-open-7: the same rules, stages and external Claude-role seats, with each of the seven panel labs on its strongest current OpenRouter model instead of its fast tier. No Anthropic seat on the panel, no Kimi K3, no xAI. Criteria stay with Meta Llama 4 Maverick, which holds no panel seat. Several times the cost of plan-open-7, so price a real task with `npm run dry` and get an explicit go before running.",
+  "description": "Frontier tier of plan-open-7: the same rules, stages and external Claude-role seats, with each of the seven panel labs on its strongest current OpenRouter model instead of its fast tier. No Anthropic seat on the panel, no Kimi K3, no xAI. Criteria stay with Meta Llama 4 Maverick, which holds no panel seat. Each panel seat carries a persona (a name and voice for the debate stage only; see PERSONAS.md) - the five defaults plus Hypatia and Avicenna, supplied through COUNCIL_PERSONAS_FILE. Several times the cost of plan-open-7, so price a real task with `npm run dry` and get an explicit go before running.",
   "maxRounds": 7,
   "signoff": "unanimous",
   "dispute": {
@@ -44,45 +44,66 @@
     "critics": [
       {
         "provider": "openrouter",
-        "model": "openai/gpt-5.5",
+        "model": "openai/gpt-5.6-sol",
         "maxTokens": 36000,
-        "lab": "gpt5.5"
+        "lab": "gpt5.6-sol",
+        "role": {
+          "persona": "moses"
+        }
       },
       {
         "provider": "openrouter",
         "model": "google/gemini-3.1-pro-preview",
         "maxTokens": 36000,
-        "lab": "gemini3.1-pro"
-      },
-      {
-        "provider": "openrouter",
-        "model": "deepseek/deepseek-v4-pro",
-        "maxTokens": 36000,
-        "lab": "deepseek-v4-pro"
-      },
-      {
-        "provider": "openrouter",
-        "model": "z-ai/glm-5.3",
-        "maxTokens": 36000,
-        "lab": "glm5.3"
+        "lab": "gemini3.1-pro",
+        "role": {
+          "persona": "noah"
+        }
       },
       {
         "provider": "openrouter",
         "model": "qwen/qwen3.8-max-0902",
         "maxTokens": 36000,
-        "lab": "qwen3.8-max"
+        "lab": "qwen3.8-max",
+        "role": {
+          "persona": "matthew"
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4-pro",
+        "maxTokens": 36000,
+        "lab": "deepseek-v4-pro",
+        "role": {
+          "persona": "van-gogh"
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3",
+        "maxTokens": 36000,
+        "lab": "glm5.3",
+        "role": {
+          "persona": "parzival"
+        }
       },
       {
         "provider": "openrouter",
         "model": "minimax/minimax-m3",
         "maxTokens": 36000,
-        "lab": "minimax-m3"
+        "lab": "minimax-m3",
+        "role": {
+          "persona": "hypatia"
+        }
       },
       {
         "provider": "openrouter",
         "model": "mistralai/mistral-medium-3-5",
         "maxTokens": 36000,
-        "lab": "mistral-medium3.5"
+        "lab": "mistral-medium3.5",
+        "role": {
+          "persona": "avicenna"
+        }
       }
     ]
   }

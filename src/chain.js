@@ -4,6 +4,7 @@ import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach } from './cost.j
 import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { applySeatRole } from './seat-role.js';
+import { loadPersonas } from './personas.js';
 import { NO_TIE_BREAK } from './tie-break.js';
 import { runTool as defaultRunTool, ALLOWED_TOOLS, runSeatToolRequests } from './tools.js';
 import { runLints } from './lints.js';
@@ -1134,7 +1135,10 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           // no-op), which is what the golden-hash compatibility test in
           // test/seat-role.test.js checks.
           const st = record(await invoke(seatOf(lab), {
-            system: applySeatRole(R.DEBATE_SYSTEM, seatOf(lab)?.role),
+            // 2026-09-22: loadPersonas() so an operator's COUNCIL_PERSONAS_FILE (PERSONAS.md)
+            // actually reaches the prompt - it was documented but never read here, so a custom
+            // persona key went out as a bare name with no voice.
+            system: applySeatRole(R.DEBATE_SYSTEM, seatOf(lab)?.role, loadPersonas()),
             user: R.debateUser({ request, criteria, skeleton, proposals, lab, maps }),
             log: say, label: `debate-${lab}`,
           }));
