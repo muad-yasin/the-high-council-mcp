@@ -114,6 +114,10 @@ must contain. "Makes no design decision for any excluded topic" can be judged.
 "Labels each excluded topic 'out of scope for this slice'" turns critics into
 string-matchers and fails a draft for wording it got right.
 
+The deliverable is whatever the request asks for - usually a markdown plan - and
+never your own reply. The JSON below is only how you hand the criteria back; no
+criterion may describe it (not "is a JSON object", not "has a criteria key").
+
 Reply with a single JSON object and nothing else:
 { "criteria": ["...", "..."] }`;
 
