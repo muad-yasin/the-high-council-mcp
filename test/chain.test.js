@@ -332,3 +332,10 @@ test('runChain: config.proposals.partition.slices with a non-string value throws
     /must be a non-empty string/,
   );
 });
+
+test('cutOffRetryCap: doubles a small cap, bounds it at 64k, and never retries below the seat\'s own cap', async () => {
+  const { cutOffRetryCap } = await import('../src/chain.js');
+  assert.equal(cutOffRetryCap(20000), 40000);
+  assert.equal(cutOffRetryCap(36000), 64000);
+  assert.equal(cutOffRetryCap(360000), 360000);
+});

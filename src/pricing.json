@@ -101,9 +101,9 @@
     "out": 1.8
   },
   "openrouter/z-ai/glm-5.3-flash": {
-    "in": 0.09,
-    "out": 0.3,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+    "in": 0.15,
+    "out": 0.5,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22 (was 0.09/0.3 on 2026-09-20 - understated)"
   },
   "openrouter/meta-llama/llama-4-maverick": {
     "in": 0.1875,

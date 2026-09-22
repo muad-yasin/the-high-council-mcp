@@ -9,6 +9,7 @@
     "provider": { "type": "string" },
     "lab": { "type": "string" },
     "maxTokens": { "type": "integer", "minimum": 1 },
+    "panelMaxTokens": { "type": "integer", "minimum": 1, "description": "Optional output cap for the panel review stage only; maxTokens still governs proposals, debate and replies." },
     "temperature": { "type": "number" },
     "baseUrl": { "type": "string" },
 

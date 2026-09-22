@@ -236,6 +236,12 @@ export function parseDisputes(text) {
 export const DEFAULT_MAX_TOKENS = 36000;
 // One bigger-cap retry for a critic whose reply was cut off, never more than this.
 export const CUT_OFF_RETRY_MAX_TOKENS = 64000;
+// The retry cap for a reply cut off at `cap`: double it, bounded by CUT_OFF_RETRY_MAX_TOKENS, but
+// never BELOW the seat's own cap. 2026-09-22: a seat given a 360k cap (above the 64k bound) would
+// otherwise have been "retried with a bigger cap" of 64k - a smaller one, certain to cut off again.
+export function cutOffRetryCap(cap) {
+  return Math.max(cap, Math.min(cap * 2, CUT_OFF_RETRY_MAX_TOKENS));
+}
 
 export function parseJson(text) {
   // Models wrap JSON in prose or fences no matter how firmly you ask them not to,
@@ -1354,6 +1360,10 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       const freedoms = { ...(config.freedoms || null), fencedSource: !!fencedSource };
       const reviewSeat = async (criticSeat, prior, say, tag = '') => {
         let cs, parsed, answeredQuestion = null;
+        // `panelMaxTokens` (2026-09-22): an optional per-seat output cap for the panel review only.
+        // A seat that needs room to reason (GLM-5.3 Flash cut off at 36k on the Zofia run) can get it
+        // here without raising its debate posts, proposals or replies - the text other labs read.
+        if (criticSeat.panelMaxTokens) criticSeat = { ...criticSeat, maxTokens: criticSeat.panelMaxTokens };
         let cutOffRetried = false, effectiveCap = criticSeat.maxTokens ?? DEFAULT_MAX_TOKENS;
         // v7 item 4: at most one blocking-question round trip per seat per round - the critic is
         // told it may not ask a second one, and this loop does not offer it the chance to anyway.
@@ -1386,7 +1396,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             // bigger cap; if that fails too, the seat abstains as before and the round rule
             // below refuses to call the panel unanimous without it.
             cutOffRetried = true;
-            const biggerCap = Math.min(effectiveCap * 2, CUT_OFF_RETRY_MAX_TOKENS);
+            const biggerCap = cutOffRetryCap(effectiveCap);
             say(`  ${labOf(criticSeat)}/${criticSeat.model}: reply cut off at ${effectiveCap} tokens - asking once more with a ${biggerCap}-token cap.`);
             try {
               cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
