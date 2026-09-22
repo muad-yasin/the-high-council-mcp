@@ -276,6 +276,12 @@ server.tool('verdict_stats', 'How the debate mechanism itself is doing, per chai
 }, async ({ days = 30 }) => {
   const r = verdictStats(runsDir, { days });
   return text({
+    // 2026-09-22: the folder is named in the answer. This server reads the runs/ of whatever
+    // directory the MCP client launched it in, so a session analysing one repo's runs can silently
+    // get another repo's (or none) and read "0 runs" as "nothing happened" - which is what happened
+    // during the council-method analysis. Naming it costs one line and makes the mistake visible.
+    runsDir,
+    ...(r.runsSeen === 0 ? { note: `No runs found in ${runsDir}. This server reads runs/ under the directory it was started in; start it in the project whose runs you mean.` } : {}),
     since: r.since.toISOString(),
     days,
     runsSeen: r.runsSeen,
@@ -294,6 +300,8 @@ server.tool('metrics_report', 'DESCRIPTIVE TELEMETRY ONLY, not an evaluation, be
   const r = metricsReport(runsDir, { days });
   return text({
     label: 'descriptive telemetry',
+    runsDir,
+    ...(r.runsSeen === 0 ? { note: `No runs found in ${runsDir}. This server reads runs/ under the directory it was started in; start it in the project whose runs you mean.` } : {}),
     since: r.since.toISOString(),
     days,
     runsSeen: r.runsSeen,

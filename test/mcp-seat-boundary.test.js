@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,5 +68,18 @@ test('submit_stage refuses a stage the run is not waiting for, and writes nothin
     assert.equal(existsSync(join(run, 'build.md')), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// 2026-09-22: verdict_stats and metrics_report read runs/ under the server's own cwd. During the
+// council-method analysis that silently pointed at another repo and returned zero runs, read as
+// "nothing to see". Both answers now name the folder, and say so outright when it holds no runs.
+test('mcp server: verdict_stats and metrics_report name their runs directory and flag an empty one', () => {
+  const src = readFileSync(new URL('../src/mcp/server.js', import.meta.url), 'utf8');
+  const verdict = src.slice(src.indexOf("server.tool('verdict_stats'"), src.indexOf("server.tool('metrics_report'"));
+  const metrics = src.slice(src.indexOf("server.tool('metrics_report'"));
+  for (const [name, block] of [['verdict_stats', verdict], ['metrics_report', metrics]]) {
+    assert.match(block, /\n\s*runsDir,/, `${name} must return the runs directory it read`);
+    assert.match(block, /runsSeen === 0 \? \{ note:/, `${name} must say plainly when that directory holds no runs`);
   }
 });
