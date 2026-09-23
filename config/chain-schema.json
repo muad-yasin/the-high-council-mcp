@@ -37,6 +37,10 @@
         "unanimous"
       ]
     },
+    "selfReview": {
+      "description": "\"allowed\" waives chain-lint's self-review rule for this chain (a builder or reviser grading its own draft). Say why in \"description\".",
+      "const": "allowed"
+    },
     "panel": {
       "type": "string",
       "enum": [

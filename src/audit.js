@@ -155,10 +155,15 @@ export function validateAuditLine(line) {
  * Re-derives every line's hash and the final chain hash from the file's own bytes and checks
  * them against what's stored - the only way "does this log verify" can be certified, per one
  * byte anywhere breaking the specific line (and, downstream, the final hash) it landed in.
- * `hmacKey` is optional: omitted, only the hash chain is checked (still catches tampering);
- * provided, every signature is checked too.
+ * `hmacKey` is optional: omitted, only the hash chain is checked. That catches an edit to part of
+ * the file, but not a full rewrite: without the key anyone can recompute every hash. Provided,
+ * every signature is checked too.
+ * A log with no chain-close line is refused by default (pre-release audit 2026-09-23, DocsVsCode
+ * H4): cutting the last lines off, close line included, used to verify as valid. Pass
+ * `allowUnclosed: true` only to inspect a run that has not finished (paused, stopped by the cap,
+ * crashed); a truncated log is then indistinguishable from an unfinished one.
  */
-export function verifyAuditLog(lines, { hmacKey } = {}) {
+export function verifyAuditLog(lines, { hmacKey, allowUnclosed = false } = {}) {
   let prevHash = GENESIS_HASH;
   let runningChainHash = GENESIS_HASH;
   let dataLines = 0;
@@ -169,7 +174,7 @@ export function verifyAuditLog(lines, { hmacKey } = {}) {
       if (line.finalHash !== runningChainHash) return { valid: false, failedAt: i, reason: 'final chain hash does not match the recomputed hash over all prior lines' };
       if (line.lineCount !== dataLines) return { valid: false, failedAt: i, reason: `lineCount ${line.lineCount} does not match ${dataLines} data line(s) actually present` };
       if (hmacKey && line.signature !== hmacHex(hmacKey, runningChainHash)) return { valid: false, failedAt: i, reason: 'chain-close signature does not verify against the provided key' };
-      continue;
+      return { valid: true, failedAt: null, reason: null, closed: true };
     }
     if (!validateAuditLine(line)) return { valid: false, failedAt: i, reason: 'line does not match the audit-log schema' };
     if (line.prevHash !== prevHash) return { valid: false, failedAt: i, reason: 'prevHash does not match the preceding line\'s hash' };
@@ -180,7 +185,8 @@ export function verifyAuditLog(lines, { hmacKey } = {}) {
     runningChainHash = sha256Hex(runningChainHash + line.hash);
     dataLines += 1;
   }
-  return { valid: true, failedAt: null, reason: null };
+  if (!allowUnclosed) return { valid: false, failedAt: lines.length, reason: 'no chain-close line: the log was cut short, or the run has not finished (allowUnclosed checks an unfinished run)', closed: false };
+  return { valid: true, failedAt: null, reason: null, closed: false };
 }
 
 export function parseAuditLog(text) {

@@ -23,6 +23,7 @@ import { generateResumeBrief } from './resume-brief.js';
 import { preflightCheck, checkArtifactReferences } from './preflight.js';
 import { fenceFile, scanTaskForSecrets, FENCE_HEADER, FENCE_MAX_BYTES } from './fence.js';
 import { scanForPii, applyPiiGate } from './pii-gate.js';
+import { harnessVersion } from './version.js';
 import { stageKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs } from './cache-integrity.js';
@@ -115,6 +116,10 @@ if (existsSync(envPath)) {
 // Drop one such leading token before anything else looks at argv[0].
 const rawArgv = process.argv.slice(2);
 const argv = (rawArgv[0] === 'council' || rawArgv[0] === 'relay') ? rawArgv.slice(1) : rawArgv;
+if (argv[0] === '--version' || argv[0] === '-v') {
+  console.log(harnessVersion());
+  process.exit(0);
+}
 function flag(name, fallback) {
   const i = argv.indexOf(`--${name}`);
   if (i === -1) return fallback;
@@ -1109,14 +1114,28 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        file's own "signoff:" line is used when the flag
                                        is absent; its "target_file:" line is the path checked.
   council --task tasks/x.md --max-usd 2 stop the run before any stage that could
-                                       take it past $2. Default $5, or
+                                       take it past $2. Default $7, or
                                        MAX_USD_PER_RUN. --max-usd none disables
                                        the ceiling. A stopped run resumes with
                                        --resume and a higher ceiling; stages
                                        already on disk replay for free.
 
+  council init                         a first chain and task you own, plus one
+                                       offline demo run to look at
+  council export-board --run runs/<r> [--out board.html]
+                                       a finished run's board as one HTML file
+  council --rematch runs/<r>           the same task again with the panel reshuffled,
+                                       and a verdict diff against the original
+  council --replay runs/<r>            the same task and chain again today, with a diff
+  council --forecast-cost --chain <name> [--days N]
+                                       a realistic cost range from this chain's own
+                                       past runs on this machine
+  council --mcp                        run as an MCP server (stdio)
+  council --version                    print the version
+
 Chains live in chains/*.json. Runs are written to runs/<timestamp>/.
-The 'relay' command is kept as an alias for 'council'; both run this file.`);
+Only 'council' is installed as a command. A leading 'council' or 'relay' (the pre-rename
+name) in the arguments is accepted and ignored, so older scripts keep working.`);
   // Asking for --help is success (exit 0) even with no task given; landing
   // here with neither --help nor a task/dry-run/resume is the error case
   // (exit 1) - these used to be conflated into one `taskPath ? 0 : 1`, which
@@ -1452,7 +1471,15 @@ if (piiGateEff !== null) {
     process.exit(EXIT_PII_BLOCKED);
   }
 }
-const runId = resumeMeta ? basename(resolve(resumeRun)) : new Date().toISOString().replace(/[:.]/g, '-');
+// --run-id: the MCP server picks the folder name up front, so two start_run calls in the same
+// instant can't both report the first folder that appeared (pre-release audit 2026-09-23,
+// McpServer #2). Same character set the server's run-id check accepts.
+const requestedRunId = flag('run-id', null);
+if (requestedRunId !== null && (resumeMeta || !/^[0-9TZ-]+$/.test(requestedRunId))) {
+  console.error(resumeMeta ? '--run-id: a resume keeps its own folder' : `--run-id: digits, T, Z and "-" only, got "${requestedRunId}"`);
+  process.exit(2);
+}
+const runId = resumeMeta ? basename(resolve(resumeRun)) : (requestedRunId || new Date().toISOString().replace(/[:.]/g, '-'));
 // A resume uses the folder it was pointed at. It used to rebuild the path as
 // <cwd>/runs/<basename>, so resuming from another directory (an MCP-started run keeps an
 // absolute task path) silently started a fresh folder and paid for every stage again
@@ -1467,6 +1494,12 @@ if (resumeMeta && existsSync(join(runDir, 'report.json'))) {
   console.error(`\n--resume: ${runDir} already finished (it has a report.json). Nothing was run and nothing was spent.`);
   console.error(`To run this task again, start a new run with --task, or compare against it with --rematch ${resumeRun} / --replay ${resumeRun}.`);
   process.exit(EXIT_ALREADY_FINISHED);
+}
+// A new run never writes into an existing folder: two runs started in the same millisecond, or a
+// reused --run-id, would otherwise share one.
+if (!resumeMeta && existsSync(runDir)) {
+  console.error(`\nrun folder ${runDir} already exists; a new run needs a new folder. Nothing was run and nothing was spent.`);
+  process.exit(2);
 }
 mkdirSync(runDir, { recursive: true });
 // One process per run folder, before any stage can spend: two resumes of the same run used

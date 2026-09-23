@@ -1,6 +1,6 @@
 {
   "name": "plan-auto",
-  "description": "idea-open-c2 with every Sonnet-role seat (questions, criteria, skeleton, builder, reviser, handoff) as a real Anthropic API seat instead of external claude-code-session, so the chain can run unattended end to end. Same labs, same open scope, same blind panel, same pause-for-answers behaviour. Built for A0 in sower-industries/PLAN.md: prove the automated plan-auto path locally, at real API cost, before any hosting or Stripe work exists.",
+  "description": "idea-open-c2 with every Sonnet-role seat (questions, criteria, skeleton, builder, reviser, handoff) as a real Anthropic API seat instead of external claude-code-session, so no stage waits for an external session. It still pauses once for answers to its questions (questions.wait). Same labs, same open scope, same blind panel. Built for A0 in sower-industries/PLAN.md: prove the automated plan-auto path locally, at real API cost, before any hosting or Stripe work exists.",
   "maxRounds": 3,
   "signoff": "unanimous",
   "proposals": {

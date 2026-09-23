@@ -1,6 +1,6 @@
 {
   "name": "verify",
-  "description": "The recommended default. Two labs, a hard 2-round cap. Most of the measurable gain, a fraction of the cost.",
+  "description": "The recommended default. Two labs, a hard 2-round cap: the smallest cross-lab review, and the cheapest.",
   "maxRounds": 2,
   "stopOnPass": true,
   "estimate": {

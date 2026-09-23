@@ -2,7 +2,9 @@
 
 A `policy.json` at the root of your working directory - next to `chains/`, `tasks/`, `runs/` -
 is a locked set of limits checked before any provider is called. If it exists, every real run
-and every `--dry-run` is checked against it first; if it doesn't exist, nothing changes, at all,
+and every `--dry-run` is checked against it first, and so is every `--resume` of a paused run (read
+from the run's own working directory, so a chain edited or a policy added during the pause is
+caught before the next paid stage); if it doesn't exist, nothing changes, at all,
 from today's behavior. There is no flag to point at a different path or to skip the check: the
 whole point of a policy file is that an operator commits one file every invocation is bound to.
 
@@ -19,7 +21,7 @@ to having no file at all, but is still a real, present file an operator can poin
 | `allowed_providers` | `string[]` | Every non-synthetic seat's `provider` must be in this list. |
 | `allowed_regions` | `string[]` | Every non-synthetic seat's `region` must be in this list. A seat with no `region` declared fails this check - an undeclared region cannot be verified, and this policy fails closed. |
 | `max_usd_per_run` | `number` | This chain's worst-case cost (the same number `--dry-run` prints) must be under this. |
-| `max_usd_per_month` | `number` | Spend already recorded this calendar month, across every run folder on disk, must be under this - derived via `spendReport()`, the same on-disk accounting `council spend` already uses. Does not add this run's own projected cost; it answers "have I already gone over," not "would this run push me over." |
+| `max_usd_per_month` | `number` | Spend already recorded this calendar month, across every run folder on disk, must be under this - derived via `spendReport()`, the same on-disk accounting `council --spend` already uses. Does not add this run's own projected cost; it answers "have I already gone over," not "would this run push me over." |
 | `required_chain_tags` | `string[]` | The chain config's own `tags` array (a new, optional field - see below) must contain every one of these. |
 | `required_signoff_paths` | `string[]` | Globs (`*` within one path segment, `**` across segments) over repo-relative, forward-slash paths. A change request whose `target_file` matches one needs a named signoff; the refusal names the matched pattern. Runs without a change request are unaffected. A change request with no `target_file`, or one that is absolute or climbs out with `..`, is refused. The path comes from the task file's `target_file:` line; a task file without that line is not a change request. The signoff comes from `--signoff <name>`, or the task file's `signoff:` line when the flag is absent. |
 | `refuse_unpriced_seats` | `boolean` | If `true`, any non-synthetic seat with no entry in `src/pricing.json` is refused, rather than silently running unpriced (and therefore uncapped by the per-run spend cap). |

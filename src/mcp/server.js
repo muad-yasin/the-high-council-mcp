@@ -11,8 +11,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { spawn, execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSync, openSync } from 'node:fs';
-import { join, dirname, resolve, basename } from 'node:path';
+import { readFileSync, readdirSync, existsSync, statSync, lstatSync, realpathSync, writeFileSync, mkdirSync, openSync, closeSync } from 'node:fs';
+import { join, dirname, resolve, basename, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseSections, flatten, parseLedger, words } from '../ui/parse.js';
 import { spendReport, costToday } from '../spend.js';
@@ -26,6 +26,8 @@ import { checkClaimStaleness } from '../peer-claim.js';
 import { submitStageAnswer } from '../stage-submission.js';
 import { deriveRunStatus, waitingStage, isAlivePid, isAliveByGrep, finishedRunState, artifactsBlocked, ARTIFACTS_BLOCKED_FILE } from '../run-status.js';
 import { lockHolder } from '../run-lock.js';
+import { harnessVersion } from '../version.js';
+import { isDeniedPath, pathRefusal } from '../tools.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Same split as the CLI: `pkg` ships with the package (chains/, the CLI
@@ -48,6 +50,41 @@ const cliEnv = process.pkg ? { ...process.env, PKG_EXECPATH: '' } : process.env;
 const text = s => ({ content: [{ type: 'text', text: typeof s === 'string' ? s : JSON.stringify(s, null, 2) }] });
 const safeRun = id => /^[0-9TZ-]+$/.test(id) && existsSync(join(runsDir, id));
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
+
+// A chain by name, in the CLI's own lookup order (cli.js configPath): the run's start directory,
+// the user's chains/, then the package's. The tools used to read the package's chains/ only, so a
+// user chain was invisible to list_chains and unresolvable for a paused run (pre-release audit
+// 2026-09-23, McpServer #5).
+function chainConfigFor(name, runMeta = null) {
+  if (typeof name !== 'string' || !/^[A-Za-z0-9._-]+$/.test(name)) return null;
+  const dirs = [runMeta?.cwd ? join(runMeta.cwd, 'chains') : null, join(work, 'chains'), join(pkg, 'chains')].filter(Boolean);
+  const found = dirs.map(d => join(d, `${name}.json`)).find(existsSync);
+  return found ? readJson(found) : null;
+}
+
+// A path a client hands in for the server to read or run against. Same denylist as the seat
+// tools (src/tools.js); `jail` also confines it to the working directory and applies read_file's
+// gitignore check. plan_outline used to readFileSync any path and hand its "# ..." lines back,
+// a commented-out key in .env included (pre-release audit 2026-09-23, McpServer #1).
+const MAX_CLIENT_FILE_BYTES = 2_000_000;
+function clientFileRefusal(p, { jail = false, ext = null } = {}) {
+  const abs = resolve(work, p);
+  if (!existsSync(abs)) return `no such file: ${p}`;
+  const st = lstatSync(abs);
+  if (!st.isFile() && !st.isSymbolicLink()) return `not a regular file: ${p}`;
+  const real = realpathSync(abs);
+  if (!statSync(real).isFile()) return `not a regular file: ${p}`;
+  if (statSync(real).size > MAX_CLIENT_FILE_BYTES) return `refused: ${p} is over ${MAX_CLIENT_FILE_BYTES} bytes`;
+  if (ext && !real.toLowerCase().endsWith(ext)) return `refused: ${p} is not a ${ext} file`;
+  if (isDeniedPath(basename(real)) || isDeniedPath(real)) return `refused: ${p} matches the secret/credential denylist`;
+  if (jail) {
+    const root = realpathSync(work);
+    const rel = relative(root, real);
+    if (rel.startsWith('..') || isAbsolute(rel) || rel.split(sep)[0] === '..') return `refused: ${p} is outside the working directory`;
+    return pathRefusal(root, real);
+  }
+  return null;
+}
 
 // What a run has spent and what it has left. Source of truth is report.json
 // once the run finished; while it is still running (or was stopped short)
@@ -102,7 +139,7 @@ function runSummary(id) {
     chain: report?.chain || (log.match(/^chain: (\S+)/m) || [])[1] || null,
     task: report?.task || (log.match(/^task: +(\S+)/m) || [])[1] || null,
     state: report ? finishedRunState(report)
-      : artifactsBlocked(dir) ? `blocked: the task names files it never fences - see ${ARTIFACTS_BLOCKED_FILE}; fence them into the task (or allow them), then resume`
+      : artifactsBlocked(dir) ? `blocked: the task names files it never fences - see ${ARTIFACTS_BLOCKED_FILE}; a run's task is frozen once it starts, so start a NEW run with the files fenced into the task, or with start_run's allow_unfenced`
       : budget.stoppedByCap ? `stopped: per-run spend cap reached before stage ${budget.stoppedByCap.stage} - resume with a higher --max-usd`
       : waiting(dir) ? `paused: waiting for external stage ${waiting(dir)}`
       : alive ? 'running'
@@ -127,13 +164,17 @@ function runSummary(id) {
 // `node src/mcp/server.js` / `npm run mcp` (this file run directly, not imported) working
 // exactly as before.
 export async function runMcpServer() {
-const server = new McpServer({ name: 'the-high-council', version: '0.3.0' });
+const server = new McpServer({ name: 'the-high-council', version: harnessVersion() });
 
 server.tool('list_chains', 'Chains available to run, with their description and worst-case price from a dry run.', {}, async () => {
-  const chains = readdirSync(join(pkg, 'chains')).filter(f => f.endsWith('.json')).map(f => {
-    const c = readJson(join(pkg, 'chains', f));
-    return { name: c.name, description: c.description, maxRounds: c.maxRounds, signoff: c.signoff || 'first', proposals: !!c.proposals, debate: !!c.debate, handoff: !!c.handoff };
-  });
+  const names = new Set([join(work, 'chains'), join(pkg, 'chains')].filter(existsSync)
+    .flatMap(d => readdirSync(d).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5))));
+  const chains = [...names].sort().map(name => {
+    const c = chainConfigFor(name);
+    if (!c) return null;
+    const user = existsSync(join(work, 'chains', `${name}.json`));
+    return { name: c.name, description: c.description, maxRounds: c.maxRounds, signoff: c.signoff || 'first', proposals: !!c.proposals, debate: !!c.debate, handoff: !!c.handoff, ...(user ? { source: 'user' } : {}) };
+  }).filter(Boolean);
   return text(chains);
 });
 
@@ -142,34 +183,66 @@ server.tool('dry_run', 'Price a chain without calling any model.', { chain: z.st
   return text(out);
 });
 
-server.tool('start_run', 'Start a harness run in the background. Returns the run id to poll with run_status. task is a path relative to your working directory (tasks/x.md) or absolute; context is optional (context/war-of-love). draft + from_run + rounds=1 makes a panel-only grading pass.', {
+// Run ids stay plain ISO timestamps (spend.js and the secret scanner key off that exact shape);
+// uniqueness within this server comes from never handing out the same millisecond twice, and a
+// clash with a run started elsewhere is refused by the CLI (a new run never reuses a folder).
+let lastRunMs = 0;
+const nextRunId = () => {
+  lastRunMs = Math.max(Date.now(), lastRunMs + 1);
+  return new Date(lastRunMs).toISOString().replace(/[:.]/g, '-');
+};
+server.tool('start_run', 'Start a harness run in the background. Returns the run id to poll with run_status, or started:false with the exit code and log tail if the run stopped at once. task is a path relative to your working directory (tasks/x.md) or absolute; context is optional (context/war-of-love). draft + from_run + rounds=1 makes a panel-only grading pass.', {
   chain: z.string(),
   task: z.string(),
   context: z.string().optional(),
   draft: z.string().optional().describe('path to a draft to review instead of building one'),
   from_run: z.string().optional().describe('reuse this earlier run\'s criteria'),
   rounds: z.number().int().min(1).max(5).optional(),
-  max_usd: z.number().min(0).optional().describe('per-run spend ceiling in USD. Defaults to MAX_USD_PER_RUN or $5. Pass 0 for no ceiling. The run stops cleanly before any stage that could breach it, and resumes with a higher ceiling.'),
-}, async ({ chain, task, context, draft, from_run, rounds, max_usd }) => {
-  const args = ['--chain', chain, '--task', resolve(work, task)];
+  max_usd: z.number().min(0).optional().describe('per-run spend ceiling in USD. Defaults to MAX_USD_PER_RUN or $7. Pass 0 for no ceiling. The run stops cleanly before any stage that could breach it, and resumes with a higher ceiling.'),
+  pii_gate: z.enum(['warn', 'hard-stop']).optional().describe('scan the task for PII and the key formats in src/secret-patterns.js before any provider call: warn logs and proceeds, hard-stop refuses the run. Off unless given.'),
+  allow_unfenced: z.union([z.boolean(), z.array(z.string())]).optional().describe('waive the artifact gate: true for the whole task, or a list of file names that are only locations, not content the panel needs'),
+}, async ({ chain, task, context, draft, from_run, rounds, max_usd, pii_gate, allow_unfenced }) => {
+  // The task and draft go to every seat, so the same denylist as the seat tools applies: no
+  // .env, key files or credentials by path (pre-release audit 2026-09-23, McpServer #1 addendum).
+  for (const [what, p] of [['task', task], ['draft', draft]]) {
+    const refusal = p ? clientFileRefusal(p) : null;
+    if (refusal) return text({ started: false, error: `${what}: ${refusal}` });
+  }
+  // The folder name is chosen here and handed to the CLI, not guessed afterwards from whatever
+  // appeared in runs/: two start_run calls in one instant used to both report the first folder
+  // (McpServer #2).
+  const id = nextRunId();
+  const args = ['--chain', chain, '--task', resolve(work, task), '--run-id', id];
   if (context) args.push('--context', resolve(work, context));
   if (draft) args.push('--draft', resolve(work, draft));
   if (from_run) args.push('--from-run', resolve(work, from_run));
   if (rounds) args.push('--rounds', String(rounds));
   if (max_usd !== undefined) args.push('--max-usd', max_usd === 0 ? 'none' : String(max_usd));
+  if (pii_gate) args.push('--pii-gate', pii_gate);
+  if (allow_unfenced === true) args.push('--allow-unfenced');
+  else if (Array.isArray(allow_unfenced) && allow_unfenced.length) args.push('--allow-unfenced', allow_unfenced.join(','));
   mkdirSync(runsDir, { recursive: true });
-  const before = new Set(readdirSync(runsDir));
-  const logPath = join(work, `council-${Date.now()}.log`);
+  const logPath = join(work, `council-${id}.log`);
   const fd = openSync(logPath, 'a');
   const child = spawn(...cliCommand(args), { cwd: work, env: cliEnv, detached: true, stdio: ['ignore', fd, fd] });
+  closeSync(fd); // the child holds its own copy; this one used to leak for the server's lifetime
+  let exited = null;
+  child.on('exit', (code, signal) => { exited = { code, signal }; });
   child.unref();
-  // The run creates its folder within a second or two; find it.
-  let id = null;
-  for (let i = 0; i < 20 && !id; i++) {
+  // `started` is reported only once the child is known to be alive or to have ended well. It
+  // used to say started:true for a run that died on its first line (McpServer #3). Most refusals
+  // (lint, policy, missing key, PII, the artifact gate) happen within the first second.
+  const t0 = Date.now();
+  while (!exited && Date.now() - t0 < 5000) {
     await new Promise(r => setTimeout(r, 250));
-    id = readdirSync(runsDir).find(d => !before.has(d)) || null;
+    if (existsSync(join(runsDir, id)) && Date.now() - t0 >= 1500) break;
   }
-  return text({ started: true, pid: child.pid, run: id, log: logPath, note: id ? 'poll run_status(run)' : 'run folder not seen yet; call list_runs shortly' });
+  const logTail = () => { try { return readFileSync(logPath, 'utf8').split('\n').slice(-20).join('\n'); } catch { return ''; } };
+  if (exited && exited.code !== 0 && exited.code !== 3) {
+    return text({ started: false, run: existsSync(join(runsDir, id)) ? id : null, exitCode: exited.code, signal: exited.signal, log: logPath, logTail: logTail() });
+  }
+  const state = exited ? (exited.code === 0 ? 'finished' : 'paused at an external stage') : 'running';
+  return text({ started: true, pid: child.pid, run: id, state, log: logPath, note: 'poll run_status(run)' });
 });
 
 server.tool('external_prompt', 'When a run is paused at an external seat: the exact system and user prompt that stage needs answered. Answer with submit_stage.', { run: z.string() }, async ({ run }) => {
@@ -201,7 +274,7 @@ server.tool('prepare_stage_prompt', 'For a run paused at an external seat: write
   const label = waiting(dir);
   if (!label) return text({ error: 'this run is not waiting for an external stage', state: runSummary(run).state });
   const runMeta = readJson(join(dir, 'run.json'));
-  const chainConfig = runMeta ? readJson(join(pkg, 'chains', `${runMeta.chain}.json`)) : null;
+  const chainConfig = runMeta ? chainConfigFor(runMeta.chain, runMeta) : null;
   const kind = stageKindOf(label);
   if (!chainConfig || !kind) return text({ error: 'could not resolve this stage to a known stage kind - the chain config or stage label is not one prepare_stage_prompt recognises', label });
   const contract = buildStageContract(chainConfig, kind);
@@ -233,7 +306,7 @@ server.tool('submit_stage', 'Write the answer for an external stage into the run
   // arguments or return shape for a caller that omits claimed_by. Factored into
   // src/stage-submission.js so it's testable without the MCP transport (test/peer-claim.test.js).
   const runMeta = readJson(join(dir, 'run.json'));
-  const chainConfig = runMeta ? readJson(join(pkg, 'chains', `${runMeta.chain}.json`)) : null;
+  const chainConfig = runMeta ? chainConfigFor(runMeta.chain, runMeta) : null;
   const { warnings, writtenFile, isDuplicate } = submitStageAnswer(dir, stage, content, { claimedBy: claimed_by, chainConfig });
 
   if (isDuplicate) {
@@ -352,7 +425,7 @@ server.tool('run_status', 'State of one run: stage reached, panel verdicts, scor
     // authoritative, so RESUME.md can never become a stale source of truth.
     const dir = join(runsDir, run);
     const runMeta = readJson(join(dir, 'run.json'));
-    const chainConfig = runMeta ? readJson(join(pkg, 'chains', `${runMeta.chain}.json`)) : null;
+    const chainConfig = runMeta ? chainConfigFor(runMeta.chain, runMeta) : null;
     const rb = generateResumeBrief({ runId: run, dir, runMeta, chainConfig });
     writeFileSync(join(dir, 'RESUME.md'), rb);
     return text(rb);
@@ -370,9 +443,13 @@ server.tool('read_run_file', 'Read a file from a run folder (deliverable.md, BOA
   return text(readFileSync(p, 'utf8'));
 });
 
-server.tool('plan_outline', 'Section tree of a run\'s deliverable (or any markdown file) with word counts and the build-volume heuristic, plus the scope ledger if present.', { run: z.string().optional(), file: z.string().optional().describe('absolute path to a markdown file, instead of a run') }, async ({ run, file }) => {
+server.tool('plan_outline', 'Section tree of a run\'s deliverable (or any markdown file) with word counts and the build-volume heuristic, plus the scope ledger if present.', { run: z.string().optional(), file: z.string().optional().describe('a markdown (.md) file inside your working directory, instead of a run') }, async ({ run, file }) => {
   let md;
-  if (file) md = readFileSync(resolve(file), 'utf8');
+  if (file) {
+    const refusal = clientFileRefusal(file, { jail: true, ext: '.md' });
+    if (refusal) return text({ error: refusal });
+    md = readFileSync(resolve(work, file), 'utf8');
+  }
   else if (run && safeRun(run)) md = readFileSync(join(runsDir, run, 'deliverable.md'), 'utf8');
   else return text({ error: 'give run or file' });
   const tree = parseSections(md);
@@ -382,6 +459,7 @@ server.tool('plan_outline', 'Section tree of a run\'s deliverable (or any markdo
 
 server.tool('write_task', 'Write or overwrite a task file under tasks/ (the request the harness plans against).', { name: z.string().regex(/^[a-z0-9-]+$/), content: z.string() }, async ({ name, content }) => {
   const p = join(work, 'tasks', `${name}.md`);
+  mkdirSync(dirname(p), { recursive: true }); // a new project has no tasks/ yet (McpServer #6)
   writeFileSync(p, content);
   return text({ written: p, words: words(content) });
 });

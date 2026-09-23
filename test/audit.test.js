@@ -41,7 +41,7 @@ test('createAuditWriter + verifyAuditLog: a normal run writes a valid, hash-chai
   assert.equal(lines[2].lineCount, 2);
 
   const result = verifyAuditLog(lines, { hmacKey: 'test-key' });
-  assert.deepEqual(result, { valid: true, failedAt: null, reason: null });
+  assert.deepEqual(result, { valid: true, failedAt: null, reason: null, closed: true });
 });
 
 test('verifyAuditLog: no key configured writes null signatures, and the hash chain alone still verifies', () => {
@@ -84,6 +84,25 @@ test('verifyAuditLog: mutating one byte in a data line is caught, at that exact 
   const result = verifyAuditLog(mutated, { hmacKey: 'k' });
   assert.equal(result.valid, false);
   assert.equal(result.failedAt, 1, 'the tampered line itself is where verification must fail');
+});
+
+// Pre-release audit 2026-09-23, DocsVsCode H4: cutting the tail off, close line included, used to
+// verify as valid even with the HMAC key.
+test('verifyAuditLog: a log cut short (last data line and chain-close removed) fails by default, even with the key', () => {
+  const runDir = tmpRunDir();
+  const writer = createAuditWriter({ runDir, run: 'r1', chain: 'mock', hmacKey: 'k' });
+  writer.recordStage(stage('criteria'));
+  writer.recordStage(stage('build'));
+  writer.close();
+  const lines = parseAuditLog(readFileSync(auditFilePath(runDir), 'utf8'));
+  const cut = lines.slice(0, 1);
+  const result = verifyAuditLog(cut, { hmacKey: 'k' });
+  assert.equal(result.valid, false);
+  assert.equal(result.closed, false);
+  assert.match(result.reason, /no chain-close line/);
+  assert.equal(verifyAuditLog([], { hmacKey: 'k' }).valid, false, 'an emptied file is not a valid log either');
+  // An unfinished run can still be inspected, explicitly, and says it is unclosed.
+  assert.deepEqual(verifyAuditLog(cut, { hmacKey: 'k', allowUnclosed: true }), { valid: true, failedAt: null, reason: null, closed: false });
 });
 
 test('verifyAuditLog: mutating the last data line breaks the chain-close finalHash check, not just the line itself', () => {

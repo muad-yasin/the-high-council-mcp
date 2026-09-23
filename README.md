@@ -21,7 +21,8 @@ A planning harness that runs one idea past several AI models from different labs
 argue about it on the record, and stops at a checkable result.
 
 Runs as an **MCP server** (so an agent like Claude Code can drive it) or as a **CLI**. Bring your
-own API keys. Nothing is resold, nothing is hosted for you, and no key ever leaves your machine.
+own API keys. Nothing is resold, nothing is hosted for you, and your keys go only to the
+providers you choose, never to us.
 Run `npx the-high-council council doctor` to see which of your own keys are
 set, which shipped chains you can already run with them, and what each would cost - before
 spending anything.
@@ -246,7 +247,7 @@ Each outcome has its own code, so a script or CI job can branch on it:
 | 8 | Finished, but the final security review could not judge it (never a pass). |
 | 9 | Artifact gate: the task names files whose content it never includes (`BLOCKED-ARTIFACTS.md`). |
 | 10 | Preflight: a seat objected to the task description itself (`STOPPED-preflight.md`). |
-| 11 | PII gate (`--pii-gate hard-stop`): the input contains PII- or secret-shaped text. |
+| 11 | PII gate (`--pii-gate hard-stop`): the input matches a PII shape or one of the key formats listed in `src/secret-patterns.js`. |
 | 12 | `policy.json` refused the chain. |
 | 13 | Another process is already running this run folder. |
 | 14 | The task file changed since the run started and `AMENDMENTS.md` does not cover it. |
@@ -279,7 +280,7 @@ before building it."*
 
 ### The spend cap
 
-Every run has a per-run ceiling in USD. It defaults to **$5**, and is checked *before* each paid
+Every run has a per-run ceiling in USD. It defaults to **$7**, and is checked *before* each paid
 stage - a stage that could take the run past the ceiling is never called, so the cap holds rather
 than reporting the overspend afterwards.
 
@@ -422,7 +423,7 @@ for anyone with a subscription, since the project's cost story depends on it.
 
 ## Chains
 
-31 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
+48 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
 which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be
 copied and edited.
 
@@ -432,7 +433,8 @@ A few worth knowing:
 - **`cheap`** - small models throughout. For testing the harness itself, not for real work.
 - **`plan-debate`** - five labs propose blind, debate each other's proposals anonymised, then a
   blind panel grades the integrated draft.
-- **`plan-auto`** - the full open-scope chain, every seat on a real API, runs unattended end to end.
+- **`plan-auto`** - the full open-scope chain with every seat on a real API, so no stage waits for
+  an external session. It still pauses once for your answers to its questions.
 - **`plan-unanimous`** - every critic must independently sign off on the *same* draft. Three rounds
   here means up to fifteen critic calls, not five.
 
@@ -484,8 +486,9 @@ Read a chain's `description` field before running it; they say what they cost yo
   review round can't run), or a seat naming a provider this codebase doesn't know. The same check
   also runs automatically, fail-loud, the moment you try to actually run a broken chain - before
   any paid call.
-- **`council doctor --scan-artifacts`** - scans your `tasks/` and `chains/` for API-key-shaped
-  strings before you commit or share them. Reports the file and line, never the matched text.
+- **`council doctor --scan-artifacts`** - scans your `tasks/` and `chains/` for the key formats
+  listed in `src/secret-patterns.js` before you commit or share them. A format not on that list is
+  not caught. Reports the file and line, never the matched text.
 - **`council --forecast-cost --chain <name> [--days N]`** - a realistic-case USD range for a
   chain, built from its own historical runs on your machine and repriced at today's rates -
   distinct from `--dry-run`'s worst-case estimate from a chain's declared token assumptions.
@@ -493,7 +496,7 @@ Read a chain's `description` field before running it; they say what they cost yo
   verdict as one self-contained HTML file. No external assets, no server, `<details>` sections.
 - **`council replay --run <folder> [--json]`** - a numbered, step-by-step transcript of a run's
   reasoning in your terminal, with a `--json` mode for scripting.
-- **A structured error catalog** (`COUNCIL-E001`-`COUNCIL-E004`, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md))
+- **A structured error catalog** (`COUNCIL-E001`-`COUNCIL-E005`, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md))
   for the hard-fail paths this project actually has - a missing key, an unpriced model, a
   malformed chain file, an unreadable stage reply - each with a plain-words cause, a concrete fix
   naming the real file, and a doc pointer. Degradable conditions exit 5; fatal ones exit 6.
@@ -590,6 +593,10 @@ what each rule guards against and why. Copy the folders you want into your proje
   produce sign-offs that mean nothing - the quality of the run depends heavily on the quality of
   the criteria stage.
 - Some chains pause for human input by design. They are not stuck.
+- The audit log (`audit.jsonl`) detects an edited line or a cut-off end, but **with no HMAC key,
+  which is the default, it does not detect a full rewrite**: anyone who can edit the file can
+  recompute every hash. Set `AUDIT_HMAC_KEY_FILE` to a key kept outside the run folder if the log
+  has to stand up to that.
 
 ## Privacy
 
@@ -608,8 +615,8 @@ collect nothing. Stated plainly, not as a claim about quality:
   folder on your own disk (`runs/<id>/`) and nowhere else. Deleting that folder deletes the
   record. See `src/spend.js`'s own documentation for why spend accounting is derived from those
   folders rather than kept in a separate log.
-- If you opt in to the audit export (`"audit": true`), each run also writes `audit.jsonl` into its
-  own folder: signed, hash-chained lines (each carries the previous line's hash) that
+- If you opt in to the audit export (`"audit": true`, and on automatically whenever a `policy.json`
+  exists), each run also writes `audit.jsonl` into its own folder: signed, hash-chained lines (each carries the previous line's hash) that
   `verifyAuditLog` in `src/audit.js` checks offline. Seat, cost and timing only, never task or
   prompt text. Format: `docs/audit-schema.md`.
 

@@ -5,8 +5,11 @@ README's own "Quick start (MCP)" section). Every client below already speaks MCP
 of this needs any new code in this repo. Point each one at the same server entry point:
 
 ```bash
-npx -y github:muad-yasin/the-high-council-mcp council --mcp
+npx -y the-high-council council --mcp
 ```
+
+The GitHub repository is private until the open-source release planned for later this year, so
+install from npm, as above. A `github:` spec only works for someone with access to the repository.
 
 or, from a local clone/install:
 
@@ -37,7 +40,7 @@ step. Add an entry to DSH's own config file, `cordis.yml`:
     serverName: high-council
     transport: stdio
     command: npx
-    args: ['-y', 'github:muad-yasin/the-high-council-mcp', 'council', '--mcp']
+    args: ['-y', 'the-high-council', 'council', '--mcp']
 ```
 
 Once registered, The High Council's tools appear to the DSH agent under DSH's server-qualified
@@ -55,7 +58,7 @@ Real, first-party MCP support, both via CLI command and a config file
 Via the CLI:
 
 ```bash
-openhands mcp add high-council --transport stdio npx -- -y github:muad-yasin/the-high-council-mcp council --mcp
+openhands mcp add high-council --transport stdio npx -- -y the-high-council council --mcp
 ```
 
 Or edit `~/.openhands/mcp.json` directly:
@@ -65,7 +68,7 @@ Or edit `~/.openhands/mcp.json` directly:
   "mcpServers": {
     "high-council": {
       "command": "npx",
-      "args": ["-y", "github:muad-yasin/the-high-council-mcp", "council", "--mcp"]
+      "args": ["-y", "the-high-council", "council", "--mcp"]
     }
   }
 }
@@ -89,7 +92,7 @@ Add an entry under `mcpServers`:
   "mcpServers": {
     "high-council": {
       "command": "npx",
-      "args": ["-y", "github:muad-yasin/the-high-council-mcp", "council", "--mcp"]
+      "args": ["-y", "the-high-council", "council", "--mcp"]
     }
   }
 }
@@ -108,7 +111,7 @@ interactive wizard:
 goose configure
 # -> Add Extension -> Command-line Extension (STDIO)
 # name: high-council
-# command: npx -y github:muad-yasin/the-high-council-mcp council --mcp
+# command: npx -y the-high-council council --mcp
 ```
 
 or edit goose's own config file directly (`~/.config/goose/config.yaml` on macOS/Linux,
@@ -119,7 +122,7 @@ extensions:
   high-council:
     type: stdio
     cmd: npx
-    args: ['-y', 'github:muad-yasin/the-high-council-mcp', 'council', '--mcp']
+    args: ['-y', 'the-high-council', 'council', '--mcp']
     timeout: 300
 ```
 
@@ -134,14 +137,14 @@ mcpServers:
     command: npx
     args:
       - '-y'
-      - 'github:muad-yasin/the-high-council-mcp'
+      - 'the-high-council'
       - 'council'
       - '--mcp'
 ```
 
 ## A note on local clones
 
-Every example above uses the `npx -y github:...` form, which needs no clone. If you'd rather run
+Every example above uses the `npx -y the-high-council` form (the npm package), which needs no clone. If you'd rather run
 from a local clone (e.g. to track an unreleased branch), swap the `command`/`args` pair for the
 absolute-path form the README's own MCP section uses:
 

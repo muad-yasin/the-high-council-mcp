@@ -51,3 +51,11 @@ test('chain-schema: schemaVersion absent still validates (v8 item (b), part 2 - 
   const ok = { seats: { critics: [] } };
   assert.equal(validate(ok), true);
 });
+
+// Pre-release audit 2026-09-23 (VersionConsistency #7): chain-lint's self-review fix text tells
+// users to add "selfReview": "allowed", which the schema used to reject as an unknown key.
+test('chain-schema: "selfReview": "allowed", the escape chain-lint advises, validates; any other value does not', () => {
+  const base = { seats: { critics: [{ provider: 'mock', model: 'mock-x' }] } };
+  assert.ok(validate({ ...base, selfReview: 'allowed' }), JSON.stringify(validate.errors));
+  assert.equal(validate({ ...base, selfReview: true }), false);
+});

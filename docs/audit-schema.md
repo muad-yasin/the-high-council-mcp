@@ -46,7 +46,7 @@ land in the audit trail without a schema version bump.
 `hash` is `sha256` over the line's own fields (`seq`, `ts`, `run`, `chain`, `user`, `stage`,
 `provider`, `model`, `lab`, `region`, `tokensIn`, `tokensOut`, `usd`, `prevHash`, in that exact
 order) - `hash` and `signature` are never included in their own hash input. `prevHash` is the
-previous line's `hash` (the first line's `prevHash` is 68 zeros). `signature` is
+previous line's `hash` (the first line's `prevHash` is 64 zeros). `signature` is
 `HMAC-SHA256(key, hash)` in hex - `null`, with a printed warning at write time, when no signing key
 is configured (`AUDIT_HMAC_KEY` env var, or a key file named by `AUDIT_HMAC_KEY_FILE`, kept
 outside the run folder - a key stored alongside the log it signs gives no real tamper-evidence, and
@@ -65,7 +65,7 @@ outside the run folder - a key stored alongside the log it signs gives no real t
 
 `finalHash` is a rolling hash over every data line's own `hash`, in order:
 `finalHash = sha256(sha256(...sha256(genesis + hash_0) + hash_1...) + hash_n)`, genesis being the
-same 68-zero value data line 0's `prevHash` uses. `signature` is `HMAC-SHA256(key, finalHash)`, or
+same 64-zero value data line 0's `prevHash` uses. `signature` is `HMAC-SHA256(key, finalHash)`, or
 `null` under the same no-key condition as above. A run that crashes or is killed mid-flight simply
 has no closing line - a real, discoverable state (`lineCount` in the last data line's `seq` plus
 one tells you how far it got), not silent corruption to paper over.
@@ -78,7 +78,14 @@ over every data line's `hash` and check it against the closing line - `src/audit
 `verifyAuditLog()` does exactly this, offline, given nothing but the file's own bytes (and the
 signing key, if you also want signatures checked). A single mutated byte anywhere in a data line
 changes that line's recomputed `hash`, which breaks the next line's `prevHash` check and the
-closing line's `finalHash` check - tampering anywhere in the file is detectable from the file alone.
+closing line's `finalHash` check. A log with no closing line fails verification by default, so
+cutting lines off the end is detected too; pass `allowUnclosed: true` only to inspect a run that has
+not finished, and read its result as "unclosed", not "verified".
+
+What it does not catch: **without the HMAC key, a full rewrite.** Every hash is a plain SHA-256 of
+the file's own content, so anyone who can edit the file can recompute the whole chain, closing line
+included, and it verifies. No key is the default. Only a log signed with a key kept away from the
+file (`AUDIT_HMAC_KEY_FILE`, verified with that key) detects a rewrite.
 
 ## What this item is not
 
