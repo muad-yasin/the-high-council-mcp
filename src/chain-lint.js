@@ -7,7 +7,7 @@ import { providerNames } from './providers.js';
 import { validateSeatRole } from './seat-role.js';
 import { ALLOWED_TOOLS } from './tools.js';
 import { priceOf } from './cost.js';
-import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots } from './chain.js';
+import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots, everySeatOf } from './chain.js';
 import { deniedSeatsOf } from './denied-models.js';
 
 // Labs the source procurement report names as not EU-based (v7.x compliance
@@ -15,7 +15,9 @@ import { deniedSeatsOf } from './denied-models.js';
 // seats that would violate it - not a general allow/deny list.
 const NON_EU_PROVIDERS = ['deepseek', 'zai'];
 
-const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger', 'ambiguity', 'coldRead', 'security_reviewer'];
+// `claims` and `descending` added 2026-09-23 (bug audit GuardLayer #7): chain.js reads both, so a
+// valid seat there was falsely refused as a typo.
+const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger', 'ambiguity', 'coldRead', 'claims', 'descending', 'security_reviewer'];
 
 /**
  * Lint findings for a chain config, each `{ kind, message, fix }`. Never
@@ -54,14 +56,23 @@ export function lintChain(config, filePath = '<chain>') {
     });
   }
 
+  // coldRead.enabled with no seat: chain.js has no fallback for it on purpose, so the run pays for
+  // every round and then throws at the cold read with no report (bug audit 2026-09-23, GuardLayer #7).
+  if (config?.coldRead?.enabled && !seats.coldRead) {
+    findings.push({
+      kind: 'unreachable-stage',
+      message: `coldRead.enabled is true but seats.coldRead is not set - the run would pay for every round and then stop at the cold read.`,
+      fix: `Add a "seats.coldRead" seat in ${filePath} (one that never saw the debate), or set coldRead.enabled to false.`,
+    });
+  }
+
   // 3. Missing tool reference: a seat naming a provider this codebase
   // doesn't know fails at call time with "Unknown provider" - worth
   // catching before spending, not after the first API call.
-  const allSeats = [
-    seats.criteria, seats.builder, seats.reviser, seats.finalist, seats.skeleton,
-    seats.handoff, seats.questions, seats.judge, seats.challenger, seats.security_reviewer,
-    ...(seats.proposers || []), ...(seats.critics || []), ...(seats.ambiguity || []),
-  ].filter(Boolean);
+  // The same list the runtime guards read (chain.js everySeatOf) - a hand-kept one here missed
+  // coldRead, claims, descending and preflight (bug audit 2026-09-23, GuardLayer #7).
+  let allSeats = [];
+  try { allSeats = everySeatOf(config || {}); } catch { /* malformed: other checks report it */ }
   const known = new Set([...providerNames(), 'mock', 'external']);
   const seenUnknown = new Set();
   for (const s of allSeats) {

@@ -252,3 +252,26 @@ test('docs name the local model as a local/offline option and never call it equi
   assert.match(doc, /ollama/);
   assert.doesNotMatch(doc, /equivalent|as good as|on par|same quality|matches fable/i);
 });
+
+// Bug audit 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md #1, repro /tmp/audit9/sr.mjs): a
+// "fail" whose findings were all dropped for their shape used to pass. A fail must stay a fail -
+// blocked when a readable blocking finding survives, otherwise not_judged, never pass.
+test('a "fail" with misshapen findings never passes the gate', async () => {
+  const { parseJson } = await import('../src/chain.js');
+  const gate = obj => gateOf(parseSecurityReview(JSON.stringify(obj), { usage: {}, maxTokens: 8000, parseJson, abstentionReasonCode }));
+  // Salvaged into real blocking findings:
+  assert.equal(gate({ verdict: 'fail', findings: [{ severity: 'critical', category: 'secrets', description: 'hard-coded API key' }] }), 'blocked');
+  assert.equal(gate({ verdict: 'fail', findings: { severity: 'critical', evidence: 'exec(req.q)', problem: 'command injection' } }), 'blocked');
+  assert.equal(gate({ verdict: 'fail', findings: [{ severity: 'high', evidence: ['exec(x)'], problem: { text: 'cmd injection' } }] }), 'blocked');
+  // Nothing readable left - not a pass:
+  assert.equal(gate({ verdict: 'fail', issues: [{ severity: 'critical', evidence: 'x', problem: 'y' }] }), 'not_judged');
+  assert.equal(gate({ verdict: 'fail', findings: 'critical injection in a.js' }), 'not_judged');
+  assert.equal(gate({ verdict: 'fail', findings: [{ severity: 'critical', note: 'no evidence or problem key' }] }), 'not_judged');
+  // A dropped finding that may have been blocking poisons an otherwise non-blocking fail:
+  assert.equal(gate({ verdict: 'fail', findings: [{ severity: 'low', evidence: 'e', problem: 'p' }, { severity: 'high' }] }), 'not_judged');
+  // Controls: the blocking policy is unchanged.
+  assert.equal(gate({ verdict: 'fail', findings: [{ severity: 'critical', evidence: 'k=1', problem: 'key' }] }), 'blocked');
+  assert.equal(gate({ verdict: 'fail', findings: [{ severity: 'low', evidence: 'e', problem: 'p' }] }), 'pass');
+  assert.equal(gate({ verdict: 'fail', findings: [{ severity: 'low', evidence: 'e', problem: 'p' }, { severity: 'info' }] }), 'pass', 'a dropped non-blocking finding cannot have blocked');
+  assert.equal(gate({ verdict: 'pass', findings: [] }), 'pass');
+});

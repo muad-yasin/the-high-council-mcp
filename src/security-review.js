@@ -23,6 +23,8 @@
 // Gate rule, derived from the findings, never from the seat's own summary verdict:
 //   - any finding at a BLOCKING_SEVERITIES level        -> "blocked"
 //   - otherwise, no readable verdict or the seat said it could not judge -> "not_judged"
+//   - otherwise, a "fail" with no readable finding, a dropped finding that may have been
+//     blocking, or a malformed findings list                      -> "not_judged"
 //   - otherwise                                          -> "pass"
 // "not_judged" is never a pass. The CLI exits non-zero for both "blocked" and "not_judged".
 
@@ -91,10 +93,14 @@ export function securityReviewUser({ request, deliverable, groundTruthPost }) {
   return `# The request the build answered\n\n${request}${facts}\n\n# Final deliverable under review\n\n<deliverable>\n${deliverable}\n</deliverable>`;
 }
 
+// A string, or a list of strings joined - a reviewer that quotes two lines as an array still quoted.
+const textOf = v => cap(Array.isArray(v) ? v.filter(x => typeof x === 'string').join('\n') : v);
+
 function normaliseFinding(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  const evidence = cap(raw.evidence);
-  const problem = cap(raw.problem);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const evidence = textOf(raw.evidence);
+  // `description`/`issue` are the two names reviewers most often use instead of `problem`.
+  const problem = textOf(raw.problem) ?? textOf(raw.description) ?? textOf(raw.issue);
   // A finding with neither evidence nor a stated problem carries nothing a human can check.
   if (!evidence && !problem) return null;
   const sev = typeof raw.severity === 'string' ? raw.severity.trim().toLowerCase() : '';
@@ -126,20 +132,38 @@ export function parseSecurityReview(text, { usage, maxTokens, parseJson, abstent
   if (!parsed || typeof parsed !== 'object' || !['pass', 'fail', 'could_not_judge'].includes(parsed.verdict)) {
     return { seat_verdict: null, reason_code: abstentionReasonCode(usage || {}, maxTokens), reason: null, findings: [], dropped_findings: 0 };
   }
-  const rawFindings = Array.isArray(parsed.findings) ? parsed.findings : [];
+  // A single finding object instead of a list is salvaged; any other non-list is malformed.
+  const f = parsed.findings;
+  const rawFindings = Array.isArray(f) ? f : (f && typeof f === 'object') ? [f] : [];
+  const findings_malformed = f != null && !Array.isArray(f) && typeof f !== 'object';
   const findings = rawFindings.map(normaliseFinding).filter(Boolean);
+  // A dropped finding whose severity was blocking, or could not be read, might have blocked.
+  const dropped_unsafe = rawFindings.filter(r => {
+    if (normaliseFinding(r)) return false;
+    const sev = r && typeof r === 'object' && typeof r.severity === 'string' ? r.severity.trim().toLowerCase() : '';
+    return !SEVERITIES.includes(sev) || BLOCKING_SEVERITIES.includes(sev);
+  }).length;
   return {
     seat_verdict: parsed.verdict,
     reason_code: parsed.verdict === 'could_not_judge' ? SEAT_COULD_NOT_JUDGE : null,
     reason: cap(parsed.reason),
     findings,
     dropped_findings: rawFindings.length - findings.length,
+    ...(dropped_unsafe ? { dropped_unsafe } : {}),
+    ...(findings_malformed ? { findings_malformed } : {}),
   };
 }
 
-export function gateOf({ seat_verdict, findings }) {
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md #1): a reviewer that said
+// "fail" but whose findings were all dropped (no evidence/problem key, a misspelled `findings` key,
+// a non-list) used to PASS - the gate had nothing left to block on and never looked at what was
+// dropped. A "fail" now needs a readable reason to pass: at least one kept finding, none dropped
+// that might have been blocking, and a well-formed list. Otherwise it is not_judged (never a pass).
+// A "fail" whose kept findings are all non-blocking still passes - that is the blocking policy.
+export function gateOf({ seat_verdict, findings, dropped_unsafe = 0, findings_malformed = false }) {
   if (findings.some(f => BLOCKING_SEVERITIES.includes(f.severity))) return 'blocked';
   if (seat_verdict !== 'pass' && seat_verdict !== 'fail') return 'not_judged';
+  if (seat_verdict === 'fail' && (findings.length === 0 || dropped_unsafe > 0 || findings_malformed)) return 'not_judged';
   return 'pass';
 }
 

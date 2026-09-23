@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, resolveChainSeats, setCache, setBudget, budgetState, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked } from './chain.js';
+import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked } from './chain.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus } from './run-status.js';
 import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sumCostFromStageLogText } from './run-state.js';
@@ -1122,17 +1122,10 @@ if (resumeMeta?.fromRun && !fromRun) {
 // direct-lab config on disk. A no-op for any chain that never sets `transport`.
 config = resolveChainSeats(config);
 
-const allSeats = [
-  config.seats.criteria,
-  config.seats.builder,
-  config.seats.reviser,
-  config.seats.finalist,
-  config.seats.skeleton,
-  config.seats.handoff,
-  config.seats.questions,
-  ...(config.seats.proposers || []),
-  ...(config.seats.critics || []),
-].filter(Boolean);
+// Every seat the run can call - including judge, challenger, coldRead, claims, ambiguity,
+// descending, preflight and the default security reviewer, which a hand-kept list here missed
+// (bug audit 2026-09-23, GuardLayer #2). policy.json and the missing-key check both read it.
+const allSeats = everySeatOf(config);
 
 // MLLM Coder v5 item 5: the checks the policy configured, for report.json's `policy` block. Set
 // only when a policy was in force; recorded in run.json below because the gate is skipped on
@@ -1239,19 +1232,6 @@ const labelFieldMatch = request.match(/^label:[ \t]*(.*?)[ \t]*$/m);
 const labelDefault = basename(taskPathEff).replace(/\.[^./]+$/, '');
 const labelEff = labelFlagValue || (labelFieldMatch ? labelFieldMatch[1] : null) || labelDefault;
 
-// v7.x item 2: scan the raw task file text before anything else touches it - strictly before
-// any provider adapter is constructed, before a run folder is even created. Not invoked at all
-// unless --pii-gate was passed (see flag parsing above).
-if (piiGateMode !== null) {
-  const scanResult = scanForPii(request, { allow: piiAllowList });
-  const { block, messages } = applyPiiGate(scanResult, piiGateMode);
-  for (const m of messages) console.error(`  PII-GATE (${piiGateMode}): ${m}`);
-  if (block) {
-    console.error(`\nPII-GATE: refusing to run - ${scanResult.findings.length} match(es) found in ${taskPathEff} under --pii-gate hard-stop.`);
-    console.error(`Fix the task file, or rerun with --pii-gate warn / --allow-pii <type,...> to proceed deliberately.`);
-    process.exit(1);
-  }
-}
 // v2 plan §7.2: fingerprint scope is the task's own text and the chain config, not the
 // --context document bundle appended below - captured before that append happens.
 const rawTaskTextForCacheFingerprint = request;
@@ -1274,6 +1254,28 @@ if (contextArg) {
   const docs = files.map(f => `## ${f.split('/').pop()}\n\n${readFileSync(f, 'utf8')}`).join('\n\n---\n\n');
   request += `\n\n---\n\n# Standing context - direction documents\n\nThese are the mission, the decisions already taken and the ideas parked for later, as the people running this project keep them. Plan within them. Do not restate them, do not re-decide anything they settle, and do not pull a parked idea into scope unless the request above asks for it. Where the request and a document conflict, the request wins and you say so under "Assumptions".\n\n${docs}`;
   console.log(`context: ${files.length} document(s) appended (${files.map(f => f.split('/').pop()).join(', ')})`);
+}
+// v7.x item 2: the PII/secrets pre-flight gate - strictly before any provider adapter is
+// constructed and before a run folder is even created. Not invoked at all unless --pii-gate was
+// passed (see flag parsing above). Bug-audit fix, 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md
+// #3): it used to scan the task file alone, BEFORE --context was appended, and never the handed
+// draft (--draft / --from-run) - both reach every seat. It now scans everything a seat will read.
+if (piiGateMode !== null) {
+  const sources = [['the task file and --context documents', request], ['the handed draft (--draft / --from-run)', handedDraft]].filter(([, text]) => text);
+  let blocked = false;
+  for (const [where, text] of sources) {
+    const scanResult = scanForPii(text, { allow: piiAllowList });
+    const { block, messages } = applyPiiGate(scanResult, piiGateMode);
+    for (const m of messages) console.error(`  PII-GATE (${piiGateMode}): [${where}] ${m}`);
+    if (block) {
+      console.error(`\nPII-GATE: refusing to run - ${scanResult.findings.length} match(es) found in ${where} under --pii-gate hard-stop.`);
+      blocked = true;
+    }
+  }
+  if (blocked) {
+    console.error(`Fix the input, or rerun with --pii-gate warn / --allow-pii <type,...> to proceed deliberately.`);
+    process.exit(1);
+  }
 }
 const runId = resumeMeta ? basename(resolve(resumeRun)) : new Date().toISOString().replace(/[:.]/g, '-');
 const runDir = join(work, 'runs', runId);

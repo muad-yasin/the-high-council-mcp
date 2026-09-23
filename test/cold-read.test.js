@@ -128,7 +128,10 @@ test('cold-read stage invocation payload contains only the draft - not request, 
 
 test('chain-lint: coldRead config validation mirrors challenge.enabled', () => {
   const base = { ...unanimousConfig };
-  assert.deepEqual(lintChain({ ...base, coldRead: { enabled: true } }, 'chains/fixture.json'), []);
+  // enabled with no seat is refused since 2026-09-23 (bug audit GuardLayer #7): chain.js has no
+  // fallback seat for it, so such a run paid for every round and then threw at the cold read.
+  assert.deepEqual(lintChain({ ...base, coldRead: { enabled: true } }, 'chains/fixture.json').map(f => f.kind), ['unreachable-stage']);
+  assert.deepEqual(lintChain({ ...base, coldRead: { enabled: true }, seats: { ...base.seats, coldRead: { provider: 'mock', model: 'mock-cold-read-no' } } }, 'chains/fixture.json'), []);
   assert.deepEqual(lintChain({ ...base, coldRead: { enabled: false } }, 'chains/fixture.json'), []);
 
   const badBoolean = lintChain({ ...base, coldRead: { enabled: 'yes' } }, 'chains/fixture.json');

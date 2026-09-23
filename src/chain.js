@@ -808,6 +808,18 @@ function allSeatsOf(config) {
   ].filter(Boolean);
 }
 
+// Every seat a run can call, for the guards (policy.json, the missing-key check). Bug-audit fix,
+// 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md #2): cli.js used a hand-kept list of 7
+// slots plus proposers/critics, so policy.json never saw judge, challenger, coldRead, claims,
+// ambiguity, descending, preflight or the default security reviewer - a Grok challenger passed an
+// EU/Mistral-only policy. This adds the two seats allSeatsOf cannot see (preflight.seats and the
+// security reviewer a run falls back to) and is the one list the CLI's guards read.
+export function everySeatOf(config) {
+  const seats = [...allSeatsOf(config), ...(Array.isArray(config?.preflight?.seats) ? config.preflight.seats : [])];
+  if (config?.security_review?.enabled === true && !config.seats?.security_reviewer) seats.push(DEFAULT_SECURITY_REVIEWER_SEAT);
+  return seats.filter(Boolean);
+}
+
 export function checkSeats(seats) {
   const missing = [];
   for (const s of seats) {
