@@ -1558,6 +1558,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // Per-round set of failed criterion strings, and the regressions found from them (2026-09-22).
   const failedByRound = [];
   const regressions = [];
+  let noHeardReviewer = null; // set when a panel round heard no reviewer at all - see the panel loop
   // Every verdict opportunity this run had, one row per seat per round, including seats that were
   // never heard (thrown call, cut off, unreadable, no verdict). Bug-audit fix, 2026-09-23
   // (Review/BugAudit_Metrics_2026-09-23.md #3): verdict-stats used to reconstruct this from stage
@@ -1762,16 +1763,24 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       // back reads like ordinary progress in the log, so nobody notices the plan lost ground. Track
       // which criteria failed in each round and name a criterion that failed, passed, then failed
       // again. Recorded, never acted on: a regression is information for the human, not a veto.
-      const failedNow = new Set(allFailures.map(f => f.criterion).filter(Boolean));
-      const regressedNow = [...failedNow].filter(c =>
-        failedByRound.length >= 2
-        && !failedByRound[failedByRound.length - 1].has(c)
-        && failedByRound.slice(0, -1).some(prev => prev.has(c)));
-      for (const c of regressedNow) {
-        log(`    REGRESSION: "${c}" failed in an earlier round, passed, and fails again.`);
-        regressions.push({ round, criterion: c, labs: allFailures.filter(f => f.criterion === c).map(f => f.lab) });
+      // Bug-audit fix, 2026-09-23 (Review/BugAudit_RunChainStages_2026-09-23.md #4): "passed in
+      // the previous round" was inferred from the criterion's absence there - which is also what
+      // happens when its only objector was simply not heard, so an unchanged draft got a false
+      // REGRESSION. Now per (lab, criterion): the same lab failed it before, was HEARD in the
+      // previous round without failing it, and fails it again.
+      const failedNow = new Set(allFailures.filter(f => f.criterion).map(f => `${f.lab}\u0000${f.criterion}`));
+      const heardNow = new Set(voting.map(v => labOf(v.seat)));
+      const prevRound = failedByRound[failedByRound.length - 1];
+      const regressedPairs = failedByRound.length >= 2 ? [...failedNow].filter(key =>
+        prevRound.heard.has(key.split('\u0000')[0])
+        && !prevRound.failed.has(key)
+        && failedByRound.slice(0, -1).some(prev => prev.failed.has(key))) : [];
+      for (const c of [...new Set(regressedPairs.map(k => k.split('\u0000')[1]))]) {
+        const labs = regressedPairs.filter(k => k.split('\u0000')[1] === c).map(k => k.split('\u0000')[0]);
+        log(`    REGRESSION: "${c}" failed in an earlier round, passed, and fails again (${labs.join(', ')}).`);
+        regressions.push({ round, criterion: c, labs });
       }
-      failedByRound.push(failedNow);
+      failedByRound.push({ failed: failedNow, heard: heardNow });
       const allVotersClean = voting.length > 0 && voting.every(v => v.critique.meets === true);
       // An unheard reviewer is an unknown, not consent. Found in the 2026-09-17 pilot: when every
       // reviewer that WAS heard signed off, the old check declared "every lab that answered signed
@@ -1817,6 +1826,19 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         log(abstained
           ? `  every lab that answered signed off (${abstained} passed); stopping.`
           : `  every lab on the panel signed off; stopping.`);
+        break;
+      }
+
+      // Bug-audit fix, 2026-09-23 (Review/BugAudit_RunChainStages_2026-09-23.md #3): a round in which
+      // no reviewer was heard - every seat unreachable, unreadable, or only stating a pass - fell
+      // through to the reviser with an empty objection list ("(none listed)"): each round paused
+      // for, or paid for, a full rewrite with nothing to fix, up to the round cap. The stall rule
+      // could not catch it (an empty signature). An OpenRouter outage takes out every critic in the
+      // shipped seven-lab chains at once, so this is the outage path. Stop instead, and say why.
+      if (voting.length === 0) {
+        noHeardReviewer = { round, unheard, passedOnly: verdicts.length - unheard };
+        log(`\n  round ${round}: no reviewer was heard (${unheard} unreadable or unreachable, ${verdicts.length - unheard} stated a pass) - there is nothing to revise against. Stopping the loop; this is not agreement.`);
+        passed = false;
         break;
       }
 
@@ -2102,9 +2124,27 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // not agree, and manufacturing a verdict is precisely what this harness should never do.
   let dispute = null;
   let dissentBlock = null;
-  const openFailures = (!passed && lastCritique && lastCritique.meets !== true)
+  const heardOpenFailures = (!passed && lastCritique && lastCritique.meets !== true)
     ? (lastCritique.failures || []).filter(f => f.criterion)
     : [];
+  // Bug-audit fix, 2026-09-23 (Review/BugAudit_RunChainStages_2026-09-23.md #2): open objections
+  // came only from the final round's HEARD voters, so a holdout that objected in rounds 1-2 and was
+  // garbled or unreachable in the last round vanished - no "Unresolved dissent" block, and the
+  // deliverable a builder reads first carried no warning. Such a seat's most recent recorded
+  // objections are carried, keeping `lab` (the dispute stage finds the seat by it) and marked as
+  // unheard in the final round, so nobody reads them as a current position.
+  const finalPanelRound = panelVerdicts.length ? Math.max(...panelVerdicts.map(v => v.round)) : null;
+  const unheardAtEnd = (!passed && config.signoff === 'unanimous')
+    ? panelVerdicts.filter(v => v.round === finalPanelRound && v.verdict === 'unheard').map(v => v.lab)
+    : [];
+  const carriedFailures = unheardAtEnd.flatMap(lab => {
+    for (let i = openByRound.length - 1; i >= 0; i--) {
+      const mine = openByRound[i].failures.filter(f => f.lab === lab && f.criterion);
+      if (mine.length) return mine.map(f => ({ ...f, unheard_in_final_round: true, last_raised_round: openByRound[i].round }));
+    }
+    return [];
+  });
+  const openFailures = [...heardOpenFailures, ...carriedFailures];
   if (disputeEnabled && config.signoff === 'unanimous' && openFailures.length) {
     log(`\nStage: dispute (${stalled ? `stalled after ${stalled.rounds} identical rounds` : 'round cap reached'}, ${openFailures.length} open objection(s))`);
     log('  This does not re-open the vote. The panel is done; this records what it could not settle.');
@@ -2329,6 +2369,8 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     disputes,
     regressions,
     panelVerdicts,
+    // Additive: present only when a panel round heard no reviewer and the loop stopped there.
+    ...(noHeardReviewer ? { noHeardReviewer } : {}),
     history,
     stages,
     totals: summarise(stages),

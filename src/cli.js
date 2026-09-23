@@ -183,6 +183,7 @@ function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = 
     ...(result.quoteFindings !== undefined ? { quoteFindings: result.quoteFindings } : {}),
     ...(result.patchFallbacks !== undefined ? { patchFallbacks: result.patchFallbacks } : {}),
     ...(result.coldRead != null ? { coldRead: result.coldRead } : {}),
+    ...(result.noHeardReviewer ? { noHeardReviewer: result.noHeardReviewer } : {}),
   };
 }
 
