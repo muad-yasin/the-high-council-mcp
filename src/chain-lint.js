@@ -7,7 +7,7 @@ import { providerNames } from './providers.js';
 import { validateSeatRole } from './seat-role.js';
 import { ALLOWED_TOOLS } from './tools.js';
 import { priceOf } from './cost.js';
-import { findSeatByLab, labOf, resolveChainSeats } from './chain.js';
+import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots } from './chain.js';
 import { deniedSeatsOf } from './denied-models.js';
 
 // Labs the source procurement report names as not EU-based (v7.x compliance
@@ -571,6 +571,16 @@ export function lintChain(config, filePath = '<chain>') {
       kind: 'self-review',
       message: `selfReview must be the exact string "allowed" when present (got ${JSON.stringify(config.selfReview)}) - any other value silently reads as "not allowed".`,
       fix: `Set "selfReview": "allowed" in ${filePath}, or remove the key entirely.`,
+    });
+  }
+
+  // duplicate-lab (bug audit 2026-09-23, BugAudit_RunChainStages #1): seats in a lab-labelled stage
+  // must not share a lab, or they share one stage label and one cached reply. See duplicateLabSlots.
+  for (const { slot, labs } of duplicateLabSlots(config || {})) {
+    findings.push({
+      kind: 'duplicate-lab',
+      message: `seats.${slot} has more than one seat in lab ${labs.map(l => `"${l}"`).join(', ')} - they would share one stage label, so one seat's reply would stand in for the other's.`,
+      fix: `Give each of those seats its own "lab" in ${filePath} (e.g. "${labs[0]}-a", "${labs[0]}-b").`,
     });
   }
 

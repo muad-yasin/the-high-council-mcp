@@ -461,6 +461,29 @@ export function scoreProposals(proposals, plan) {
 // exactly what the harness exists to measure (lab independence).
 export const labOf = seat => seat.lab || seat.provider;
 
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_RunChainStages_2026-09-23.md #1): several stages
+// label a call by lab alone (`panel-<round>-<lab>`, `propose-<lab>`, `debate-<lab>`, `reply-<lab>`,
+// `ambiguity-<lab>`), and the stage cache is keyed by label. Two seats sharing a lab therefore
+// shared one label: in a relay panel the second seat was never called and was handed the first
+// seat's verdict; in an independent panel the second write overwrote the first, and on resume both
+// seats replayed the survivor - a holdout's objection became a manufactured unanimous pass.
+// Renaming labels would orphan every paused run, so a chain that would collide is refused instead.
+// A "first"-mode panel labels by round (`critique-<n>`), so shared labs are fine there.
+export function duplicateLabSlots(config) {
+  const seats = config?.seats || {};
+  const out = [];
+  const check = (slot, list) => {
+    if (!Array.isArray(list)) return;
+    const labs = list.filter(Boolean).map(labOf);
+    const dupes = [...new Set(labs.filter((l, i) => labs.indexOf(l) !== i))];
+    if (dupes.length) out.push({ slot, labs: dupes });
+  };
+  if (config?.signoff === 'unanimous') check('critics', seats.critics);
+  if (config?.proposals) check('proposers', seats.proposers || seats.critics);
+  if (config?.ambiguity_union?.enabled) check('ambiguity', seats.ambiguity || (seats.critics || []).slice(0, 3));
+  return out;
+}
+
 // Item 5/6 (relay/runs/2026-09-14T14-56-18-834Z/deliverable.md): a seat-role
 // override lets a chain name, by lab/provider id, which already-configured
 // seat fills a given stage - a selection change, never a new field on
@@ -965,6 +988,10 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // No denied model (xAI/Grok, Kimi/Moonshot, or a router that could reach one) is ever seated -
   // checked on the resolved roster, before any stage runs. See src/denied-models.js.
   assertNoDeniedModels(config);
+  const shared = duplicateLabSlots(config);
+  if (shared.length) {
+    throw new Error(`two seats share a lab, so they would share one stage label and one cached reply: ${shared.map(d => `seats.${d.slot} (${d.labs.join(', ')})`).join('; ')}. Give each seat its own "lab".`);
+  }
   if (config.descending) return runDescendingChain({ request: requestIn, config, log, onStage });
 
   const stages = [];

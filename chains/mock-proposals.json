@@ -34,11 +34,13 @@
     "proposers": [
       {
         "provider": "mock",
-        "model": "mock-proposer-a"
+        "model": "mock-proposer-a",
+        "lab": "mock-pa"
       },
       {
         "provider": "mock",
-        "model": "mock-proposer-empty"
+        "model": "mock-proposer-empty",
+        "lab": "mock-pe"
       }
     ],
     "critics": [

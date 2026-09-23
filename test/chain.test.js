@@ -264,7 +264,7 @@ test('runDescendingChain: round 1 runs the existing criteria/proposals pipeline;
     debate: true,
     seats: {
       ...mockConfig.seats,
-      proposers: [{ provider: 'mock', model: 'mock-proposer-a' }, { provider: 'mock', model: 'mock-proposer-b' }],
+      proposers: [{ provider: 'mock', model: 'mock-proposer-a', lab: 'mock-a' }, { provider: 'mock', model: 'mock-proposer-b', lab: 'mock-b' }], // distinct labs: a shared lab is refused (duplicate-lab)
       critics: [{ provider: 'mock', model: 'mock-critic-holdout' }],
     },
   };
