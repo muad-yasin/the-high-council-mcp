@@ -13,7 +13,7 @@
   },
   "debate": true,
   "decisions": { "enabled": true },
-  "alternatives": { "enabled": true, "maxTokens": 3000 },
+  "alternatives": { "enabled": true },
   "canary": { "enabled": true, "sampleRate": 0.1 },
   "handoff": true,
   "estimate": {

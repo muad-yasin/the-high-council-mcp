@@ -33,11 +33,17 @@
 // (checked transitively by the same test) - only node:fs/node:path and its own pure helpers below.
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+// canary.js has no imports at all, so this keeps the digest's import graph free of chain.js/roles.js.
+import { isCanary } from './canary.js';
 
 const NO_DISSENT_TOPICS = 'nothing - every critic signed off with no objections';
 
 export function deriveDissentSummary(report) {
-  const groups = report?.disagreement_groups || [];
+  // Reports written before the 2026-09-23 fix can carry a canary post inside a group (pre-release
+  // audit, ProposalsDebateDispute #2); drop it, and any group it was the only post of.
+  const groups = (report?.disagreement_groups || [])
+    .map(g => ({ ...g, posts: (g.posts || []).filter(p => !isCanary(p)) }))
+    .filter(g => g.posts.length);
   const topics = groups.map(g => g.title || g.on).filter(Boolean);
   const objections = groups.flatMap(g =>
     (g.posts || [])

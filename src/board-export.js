@@ -36,7 +36,13 @@ ${boardItems}
  * assets, no <script>, no server. Never throws on a partial report -
  * missing proposals/debate/signoff just render as empty sections.
  */
+import { withoutCanary } from './canary.js';
+
 export function renderBoardHtml(report) {
+  // Canary posts/replies are an injected probe (canary: true), never part of the board a person
+  // reads (pre-release audit 2026-09-23, ProposalsDebateDispute #2: it rendered as a real objection
+  // and "(author) - keep: undefined").
+  report = withoutCanary(report);
   const proposals = report.proposals || [];
   const posts = report.debate?.posts || [];
   const replies = report.debate?.replies || [];

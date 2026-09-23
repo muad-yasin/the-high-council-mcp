@@ -128,6 +128,13 @@ async function callMock({ model, system, messages, maxTokens }) {
   // other alternative it reads and supports the rest, and amends when objected to.
   if (system.startsWith('You are an architect on a planning panel.')) {
     await new Promise(r => setTimeout(r, 10));
+    // Pre-release audit 2026-09-23 (Alternatives #1): a reasoning seat whose alternative is cut
+    // off at the token cap. `mock-alt-cut` is cut off at any cap; `mock-alt-cut-then-fits` is cut
+    // off only at a cap of 3000 or less - the old fixed stage cap - so a seat keeping its own
+    // bigger cap, or the bigger-cap retry, gets the architecture through.
+    if (model === 'mock-alt-cut' || (model === 'mock-alt-cut-then-fits' && maxTokens <= 3000)) {
+      return { text: '{"name": "Event-sourced core", "shape": "one append-only log feeding', usage: { input: 20, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model };
+    }
     const text = model === 'mock-alt-empty'
       ? 'I would rather not pick one.'
       : JSON.stringify({ name: `Architecture from ${model}`, shape: `mock shape: one service per concern (${model})`, key_tradeoffs: 'mock: simple to build, slow to change.', bad_at: 'mock: high write volume.' });

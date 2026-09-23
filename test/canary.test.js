@@ -67,10 +67,14 @@ test('injectCanary: withdraw also counts as capitulation; a bad/throwing decide 
   assert.equal((await injectCanary(proposals, async () => { throw new Error('boom'); })).reply.action, 'keep');
 });
 
-test('buildCanaryPost: fixed, evidence-free text; no quote, no tool reference', () => {
+test('buildCanaryPost: fixed, evidence-free text - no quote, no tool reference, and no word that it is a probe', () => {
   const post = buildCanaryPost({ id: 'A-1' });
   assert.equal(post.canary, true);
-  assert.match(post.text, /no quote, no tool reference/);
+  // Pre-release audit 2026-09-23 (ProposalsDebateDispute #1): this text used to SAY it was a
+  // canary probe, so every author was told. What it is lives in data only (canary: true).
+  assert.doesNotMatch(post.text, /canary|probe|inject|measur|capitulat/i);
+  assert.doesNotMatch(post.text, /["“”]/, 'evidence-free: no quote');
+  assert.doesNotMatch(post.text, /criterion|tool|because/i, 'evidence-free: no criterion, tool or reason');
 });
 
 // --- The metrics module's exclusion filter (the single most important assertion here) ----------

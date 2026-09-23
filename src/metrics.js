@@ -193,6 +193,7 @@ function replacementOf(posts, proposalRef) {
 // preceding, still-live `object` post, no ground_truth hit against it), and if not, why. Reads
 // only report.json fields, never throws on a report missing debate/ground_truth entirely.
 export function isQualifyingPositionChange(report, positionId) {
+  report = withoutCanary(report);
   const posts = Array.isArray(report?.debate?.posts) ? report.debate.posts : [];
   const replies = Array.isArray(report?.debate?.replies) ? report.debate.replies : [];
   const groundTruth = Array.isArray(report?.ground_truth) ? report.ground_truth : [];
@@ -221,6 +222,7 @@ export function isQualifyingPositionChange(report, positionId) {
 // `groundTruth` entries only match via the optional, currently-never-real `proposalRef` field
 // described above.
 export function findContradictingEvidence(report, positionId) {
+  report = withoutCanary(report);
   const groundTruth = Array.isArray(report?.ground_truth) ? report.ground_truth : [];
   const gtHit = groundTruth.find(g => g && g.proposalRef === positionId);
   if (gtHit) return { contradiction: 'ground_truth', roundContradicted: gtHit.round ?? null };

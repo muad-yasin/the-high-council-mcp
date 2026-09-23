@@ -1694,6 +1694,9 @@ try {
     config,
     draft: handedDraft,
     log,
+    // Stable across --resume (the folder name), so run-level decisions such as the canary roll
+    // are made once per run, not once per sitting.
+    runId,
     onStage: s => {
       // v5 item 3: the in-flight stage just finished (cached or not - a cache hit on resume is
       // still "no longer in flight"), so it's cleared here regardless of the cached early

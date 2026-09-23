@@ -21,10 +21,15 @@
 // different labs do not group. Reopen trigger: the Sophi-A GUI renders these groups against real
 // runs and records a case where one group mixed unrelated objections - the fix then is an id-based
 // anchor, not free text.
+import { realDebate } from './canary.js';
+
 const DISAGREEING_STANCES = new Set(['object', 'merge']);
 
 export function deriveDisagreementGroups(debate, proposals) {
   if (!debate || !Array.isArray(debate.posts)) return undefined;
+  // A canary post is an injected probe, not a lab's disagreement (pre-release audit 2026-09-23,
+  // ProposalsDebateDispute #2): it must never become a disagreement group.
+  debate = realDebate(debate);
   const byId = new Map((proposals || []).map(p => [p.id, p]));
   const groups = new Map();
   for (const post of debate.posts) {

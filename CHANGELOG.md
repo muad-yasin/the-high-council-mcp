@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased - pre-release audit fixes, batch 1
+
+Fixes from the 2026-09-23 pre-release audits (reviser prompts, alternatives stage, canary probe).
+Each has a regression test that fails on the previous code (`test/prerelease-batch1.test.js`,
+`test/alternatives.test.js`, `test/canary.test.js`).
+
+- **A declined objection has one channel again.** The reviser prompt told it both to add a
+  "Disputed" line at the end of the draft and to write `DECLINED:` lines (stripped before grading).
+  Only `DECLINED:` was stripped, so a "Disputed" paragraph could stay inside the graded draft, with
+  `disputes` empty, and reviewers could credit it as honest dissent. The "Disputed" rule is gone,
+  and `parseDisputes` also strips a trailing Disputed block into `disputes`.
+- **Critic text stays inside its tag.** The criterion now sits inside `<critic-claim>`, and seat
+  text can no longer close `<critic-claim>`/`<prior-review>` early or plant a top-level `#`
+  heading. The reviser and the dispute stage now see each objection's quote and its checked status
+  (verified / unverified / unquoted).
+- **Alternatives: no hidden 3000-token cap.** Each seat keeps its own `maxTokens` (a chain can
+  still set `alternatives.maxTokens`). A reply cut off at the cap is retried with a bigger cap,
+  and a lab that stays cut off drops out labelled as truncation, not "unreadable".
+  `plan-premium-7`/`plan-open-7` drop their `maxTokens: 3000`. The dry-run now prices each
+  alternative at the seat's cap, so the worst case rises.
+- **Canary probe.** The injected objection no longer tells the author it is a probe, and its
+  poster shows under a normal anonymised label (it rendered as "undefined"). What it is lives only
+  in data (`canary: true`, `canary.note`). The roll is one decision per run, seeded by the run id
+  and the same on every resume, and a canary reply already paid for is always replayed. Canary
+  posts no longer leak into `disagreement_groups`, `council digest` or `export-board`. A guard test
+  checks every reader of `debate.posts`.
+
 ## Unreleased - decision records and whole alternative architectures
 
 Two opt-in planning structures, both from the 2026-09-23 research intake and both approved by the

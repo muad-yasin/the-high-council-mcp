@@ -280,3 +280,43 @@ test('CLI: --resume from a run paused mid-stage continues from the paused lab', 
   assert.match(second.out, /alternative-mock-a: .*from disk/, 'the finished sibling replays, it is not paid for twice');
   assert.ok(existsSync(join(runDir, 'NEEDS-alt-debate-ext.md')), 'the run moved on to the debate round');
 });
+
+// Pre-release audit 2026-09-23 (Alternatives #1, DecisionRecords #1): the stage used a fixed
+// 3000-token cap, below these rosters' thinking spend, and retried at the same cap, so a
+// reasoning seat's alternative came back cut off twice and was dropped as "unreadable".
+test('alternatives: a seat keeps its own maxTokens - no hidden 3000 cap cuts a reasoning seat off', async () => {
+  const r = await run(withProposers(withAlternatives(), [
+    { provider: 'mock', model: 'mock-proposer-a', lab: 'mock-a' },
+    { provider: 'mock', model: 'mock-alt-cut-then-fits', lab: 'mock-b', maxTokens: 36000 },
+  ]));
+  assert.deepEqual(r.alternatives.dropouts, [], 'a seat with a 36k cap must not be cut off at 3000');
+  assert.ok(!labels(r).includes('alternative-mock-b-retry'), 'no retry needed at the seat\'s own cap');
+});
+
+test('alternatives: a cut-off alternative is retried with a BIGGER cap, not the same one', async () => {
+  const r = await run(withProposers(withAlternatives(), [
+    { provider: 'mock', model: 'mock-proposer-a', lab: 'mock-a' },
+    { provider: 'mock', model: 'mock-alt-cut-then-fits', lab: 'mock-b', maxTokens: 2000 },
+  ]));
+  assert.ok(labels(r).includes('alternative-mock-b-retry'));
+  assert.deepEqual(r.alternatives.dropouts, [], 'the bigger-cap retry recovers the architecture');
+  assert.equal(r.alternatives.items.length, 2);
+});
+
+test('alternatives: a lab still cut off after the retry drops out labelled as truncation, not "unreadable"', async () => {
+  const r = await run(withProposers(withAlternatives(), [
+    { provider: 'mock', model: 'mock-proposer-a', lab: 'mock-a' },
+    { provider: 'mock', model: 'mock-alt-cut', lab: 'mock-b', maxTokens: 2000 },
+  ]));
+  const d = r.alternatives.dropouts.find(x => x.lab === 'mock-b');
+  assert.ok(d, 'mock-b drops out');
+  assert.equal(d.reasonCode, 'REPLY_TRUNCATED');
+  assert.match(d.reason, /cut off|truncat/);
+  assert.doesNotMatch(d.reason, /readable/);
+});
+
+test('alternatives: the shipped plan-7 chains set no stage cap (seat caps apply) and stay identical apart from rosters', () => {
+  const p = chain('plan-premium-7'), o = chain('plan-open-7');
+  assert.equal(p.alternatives.maxTokens, undefined);
+  assert.deepEqual(p.alternatives, o.alternatives);
+});

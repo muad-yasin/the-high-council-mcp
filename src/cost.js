@@ -2,6 +2,11 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { isFreeProvider } from './providers.js';
+
+// A seat's default maxTokens when its config sets none. Defined here (not in chain.js, which
+// re-exports it as DEFAULT_MAX_TOKENS) because chain.js imports this module, so the dry-run can
+// price a stage at the same cap runChain uses without a circular import.
+export const SEAT_DEFAULT_MAX_TOKENS = 36000;
 import { DEFAULT_SECURITY_REVIEWER_SEAT, SECURITY_REVIEW_LABEL } from './security-review.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -67,10 +72,16 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
   // token cap - the same number runChain caps each call at.
   let alternativeTokens = 0;
   if (config.alternatives?.enabled === true && !fromRun) {
-    const per = config.alternatives.maxTokens ?? 3000;
+    // Output per alternative is the cap runChain actually uses: the seat's own maxTokens unless
+    // the chain sets alternatives.maxTokens (pre-release audit 2026-09-23, Alternatives #1).
     const seats = config.seats.proposers || config.seats.critics || [];
-    for (const seat of seats) push(`alternative-${seat.lab || seat.provider}`, seat, a.promptTokens + 400, per);
-    alternativeTokens = seats.length * per;
+    const capOf = seat => { const own = seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS; return config.alternatives.maxTokens ? Math.min(own, config.alternatives.maxTokens) : own; };
+    for (const seat of seats) push(`alternative-${seat.lab || seat.provider}`, seat, a.promptTokens + 400, capOf(seat));
+    // What the NEXT stages read is the board, not the seat's whole output budget (which includes
+    // thinking): runChain keeps four text fields per architecture, each capped at 2000 characters
+    // (capField), so an architecture adds at most ~2000 tokens to the board however big its cap.
+    const ALT_BOARD_TOKENS = 2000;
+    alternativeTokens = seats.reduce((n, seat) => n + Math.min(capOf(seat), ALT_BOARD_TOKENS), 0);
     if (seats.length > 1) {
       for (const seat of seats) {
         push(`alt-debate-${seat.lab || seat.provider}`, seat, a.promptTokens + 1600 + alternativeTokens, 1500);

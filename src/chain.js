@@ -1,6 +1,6 @@
 import { call, keyFor, resolveVendorSeat } from './providers.js';
 import * as R from './roles.js';
-import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach } from './cost.js';
+import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach, SEAT_DEFAULT_MAX_TOKENS } from './cost.js';
 import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { applySeatRole } from './seat-role.js';
@@ -11,7 +11,7 @@ import { runLints } from './lints.js';
 import { extractClaims, dropInvalidClaims } from './claims.js';
 import { fencedSourceOf, markFailures, quoteWarnings } from './quote-check.js';
 import { parsePatches, applyPatches, changedSince } from './patch-revise.js';
-import { injectCanary, shouldSampleCanary } from './canary.js';
+import { injectCanary, shouldSampleCanary, runIdUnit, pickCanaryTarget, CANARY_NOTE } from './canary.js';
 import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
 import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
 export { DeniedModel };
@@ -227,30 +227,64 @@ function repairStrayQuotesAndControlChars(text) {
 // "DECLINED:"-shaped line does not get pulled out of the middle of the
 // deliverable's own body text.
 export function parseDisputes(text) {
-  const lines = text.split('\n');
-  let i = lines.length - 1;
+  let lines = text.split('\n');
   const declined = [];
-  // Blank lines inside the trailer are skipped, not treated as its end. Bug-audit fix, 2026-09-23
-  // (Review/BugAudit_ChainParsers_2026-09-23.md #3): a reply ending in "\n" - every external-seat
-  // reviser file does - left an empty last line, the loop stopped there, every DECLINED line was
-  // lost from report.json's `disputes` AND shipped inside the deliverable text.
-  while (i >= 0) {
-    const line = lines[i].trim();
-    if (line === '') { i--; continue; }
-    if (!/^DECLINED:\s*.+/.test(line)) break;
-    declined.unshift(line.replace(/^DECLINED:\s*/, ''));
-    i--;
+  // Strip trailing DECLINED lines and a trailing Disputed block, in any order, until neither is
+  // left at the end. Blank lines inside the trailer are skipped, not treated as its end. Bug-audit
+  // fix, 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #3): a reply ending in "\n" - every
+  // external-seat reviser file does - left an empty last line, the loop stopped there, every
+  // DECLINED line was lost from report.json's `disputes` AND shipped inside the deliverable text.
+  //
+  // The Disputed block: pre-release audit 2026-09-23 (RolesPrompts #1, HIGH). REVISER_SYSTEM used
+  // to ALSO tell the reviser to add a "Disputed" line at the end, contradicting the DECLINED rule
+  // below it, and only DECLINED was stripped. In a real premium run the reviser ended its draft
+  // with a multi-line "DISPUTED: ... This plan's position, unchanged: ..." paragraph: it stayed in
+  // the graded draft, `disputes` was empty, and panel seats then marked "records dissent honestly"
+  // as met BECAUSE of it. The prompt rule is gone (DECLINED is the only channel); this strip is the
+  // defence in depth for a model that writes one anyway. Only a TRAILING block counts - one that
+  // starts at a "Disputed" heading or a "DISPUTED:" line with nothing but its own paragraph after it
+  // - so a plan that merely discusses disputes in its body is never cut.
+  const DISPUTED_START = /^(#{1,6}\s*)?(\*\*)?disputed\b(\*\*)?\s*:?/i;
+  for (let changed = true; changed;) {
+    changed = false;
+    let i = lines.length - 1;
+    while (i >= 0 && lines[i].trim() === '') i--;
+    while (i >= 0) {
+      const line = lines[i].trim();
+      if (line === '') { i--; continue; }
+      if (!/^DECLINED:\s*.+/.test(line)) break;
+      declined.unshift(line.replace(/^DECLINED:\s*/, ''));
+      i--; changed = true;
+    }
+    lines = lines.slice(0, i + 1);
+    // A trailing Disputed block: walk back over its paragraph(s) to the line that opens it.
+    let j = lines.length - 1;
+    while (j >= 0 && lines[j].trim() === '') j--;
+    let k = j;
+    while (k >= 0 && !DISPUTED_START.test(lines[k].trim()) && lines[k].trim() !== '' && !/^#{1,6}\s/.test(lines[k].trim())) k--;
+    // A heading-style block ("## Disputed") may be followed by a blank line and then its lines.
+    if (k >= 0 && lines[k].trim() === '' && k > 0) {
+      let h = k - 1;
+      while (h >= 0 && lines[h].trim() === '') h--;
+      if (h >= 0 && /^#{1,6}\s*(\*\*)?disputed\b/i.test(lines[h].trim())) k = h;
+    }
+    if (k >= 0 && k <= j && DISPUTED_START.test(lines[k].trim())) {
+      const block = lines.slice(k, j + 1).map(l => l.trim()).filter(Boolean);
+      const body = [block[0].replace(DISPUTED_START, '').trim(), ...block.slice(1)].filter(Boolean).join(' ');
+      if (body) declined.push(body);
+      lines = lines.slice(0, k);
+      changed = true;
+    }
   }
-  let draftLines = lines.slice(0, i + 1);
-  while (draftLines.length && draftLines[draftLines.length - 1].trim() === '') draftLines.pop();
-  return { draft: draftLines.join('\n'), disputes: declined };
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+  return { draft: lines.join('\n'), disputes: declined };
 }
 
 // A seat with no `maxTokens` of its own gets this. Was 8000 until 2026-09-20, when the pilot showed
 // reasoning seats spending the whole budget on thinking and losing their verdict (see the
 // "unheard" comment in the critic loop). It is a ceiling, not a price: only tokens actually
 // generated are billed. The spend cap still projects it as the worst case.
-export const DEFAULT_MAX_TOKENS = 36000;
+export const DEFAULT_MAX_TOKENS = SEAT_DEFAULT_MAX_TOKENS; // 36000, single source in cost.js
 // One bigger-cap retry for a critic whose reply was cut off, never more than this.
 export const CUT_OFF_RETRY_MAX_TOKENS = 64000;
 // The retry cap for a reply cut off at `cap`: double it, bounded by CUT_OFF_RETRY_MAX_TOKENS, but
@@ -289,6 +323,15 @@ export function infeasibleCriteria(criteria, { handoff = false, debate = false }
     if (debate && /\bBOARD\.md\b/i.test(c)) return true;
     return false;
   });
+}
+
+// The author's prompt for an injected canary post: the ordinary reply prompt, with the canary's
+// poster shown under a normal anonymised lab label (R.canaryPosterLabel) instead of the raw
+// `canary` id, which rendered as "undefined". Pre-release audit 2026-09-23
+// (ProposalsDebateDispute #1); test/canary.test.js pins that no probe wording reaches it.
+export function canaryReplyPrompt({ request, proposals, post, lab, maps }) {
+  const shown = { ...maps, labTo: { ...maps.labTo, [post.by]: R.canaryPosterLabel(maps, lab) } };
+  return R.replyUser({ request, proposals, posts: [post], lab, maps: shown });
 }
 
 export function cutOffRetryCap(cap) {
@@ -1138,7 +1181,7 @@ export async function runDescendingChain({ request, config, log = console.log, o
   };
 }
 
-export async function runChain({ request: requestIn, config, draft: initialDraft = null, log = console.log, onStage = () => {} }) {
+export async function runChain({ request: requestIn, config, draft: initialDraft = null, log = console.log, onStage = () => {}, runId = null }) {
   // 7.x single-vendor mode: resolved once, before either chain shape runs, so descending mode
   // and the normal stage flow both see vendor-routed seats without duplicating the call.
   config = resolveChainSeats(config);
@@ -1358,12 +1401,18 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   let alternativesBoard = null;
   if (config.alternatives?.enabled === true && !initialDraft) {
     const altSeats = config.seats.proposers || config.seats.critics || [];
-    const perAlt = config.alternatives.maxTokens ?? 3000;
+    // Cap: the seat's own maxTokens, as the proposal stage uses, unless the chain sets
+    // alternatives.maxTokens. Pre-release audit 2026-09-23 (Alternatives #1, DecisionRecords #1):
+    // a fixed 3000 sat below these rosters' thinking spend (qwen3.8-max 12300, glm5.3-flash 10612
+    // on the propose stage), so 3-4 of 7 labs would come back cut off, be retried at the same cap,
+    // and drop out mislabelled as "unreadable".
+    const perAlt = config.alternatives.maxTokens;
     log(`\nStage: alternatives (${altSeats.length} labs each propose ONE whole architecture, blind)`);
     const altResults = await settleAll(altSeats.map(async seat => {
       const lines = []; const say = m => lines.push(m);
       const lab = labOf(seat);
-      const capped = { ...seat, maxTokens: Math.min(seat.maxTokens ?? DEFAULT_MAX_TOKENS, perAlt) };
+      const seatCap = seat.maxTokens ?? DEFAULT_MAX_TOKENS;
+      const capped = { ...seat, maxTokens: perAlt ? Math.min(seatCap, perAlt) : seatCap };
       const readAlt = text => {
         const j = parseJson(text);
         const one = j && !Array.isArray(j) ? j : null;
@@ -1373,27 +1422,42 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           ? { name: str(one.name), shape: str(one.shape), key_tradeoffs: str(one.key_tradeoffs), bad_at: str(one.bad_at) }
           : null;
       };
-      const ask = label => invoke(capped, {
+      const ask = (label, cap) => invoke({ ...capped, maxTokens: cap }, {
         system: R.ALTERNATIVE_SYSTEM,
         user: R.alternativeUser({ request, criteria }),
         log: say, label,
       });
-      let alt = readAlt(record(await ask(`alternative-${lab}`)).text);
+      let cap = capped.maxTokens;
+      let st = record(await ask(`alternative-${lab}`, cap));
+      let alt = readAlt(st.text);
       if (!alt) {
         // Same one-retry rule as the proposal stage: an unreadable reply costs one more call,
-        // through invoke() like any other, then the lab drops out on the record.
-        alt = readAlt(record(await ask(`alternative-${lab}-retry`)).text);
-        say(`  ${lab}/${seat.model}: unreadable alternative; retried once - ${alt ? 'recovered' : 'still nothing'}.`);
+        // through invoke() like any other, then the lab drops out on the record. A reply cut off
+        // at the cap is retried with a bigger one (cutOffRetryCap, the panel's rule), since the
+        // same cap would only cut it off again.
+        const cut = abstentionReasonCode(st.usage || {}, cap) === 'REPLY_TRUNCATED';
+        if (cut) cap = cutOffRetryCap(cap);
+        st = record(await ask(`alternative-${lab}-retry`, cap));
+        alt = readAlt(st.text);
+        say(`  ${lab}/${seat.model}: ${cut ? `alternative cut off at ${capped.maxTokens} tokens; retried with a ${cap}-token cap` : 'unreadable alternative; retried once'} - ${alt ? 'recovered' : 'still nothing'}.`);
       }
       if (alt) say(`  ${lab}/${seat.model}: "${alt.name}"`);
-      return { seat, lab, alt, lines };
+      const reasonCode = alt ? null : abstentionReasonCode(st.usage || {}, cap);
+      return { seat, lab, alt, lines, reasonCode, cap };
     }));
     const items = [];
     const altDropouts = [];
     const seenTag = {};
-    for (const { seat, lab, alt, lines } of altResults) {
+    for (const { seat, lab, alt, lines, reasonCode, cap } of altResults) {
       lines.forEach(m => log(m));
-      if (!alt) { altDropouts.push({ lab, model: seat.model, stage: 'alternatives', reason: 'no readable alternative after a retry' }); continue; }
+      if (!alt) {
+        const reason = reasonCode === 'REPLY_TRUNCATED' ? `alternative cut off at the token cap (truncated), still cut off after a ${cap}-token retry`
+          : reasonCode === 'REASONING_EXHAUSTED' ? 'every output token spent on reasoning, far under the cap (provider-side reasoning ceiling)'
+          : reasonCode === 'PROVIDER_ERROR' ? 'provider returned an error mid-generation'
+          : 'no readable alternative after a retry';
+        altDropouts.push({ lab, model: seat.model, stage: 'alternatives', reason, reasonCode });
+        continue;
+      }
       let tag = lab.toUpperCase().replace(/[^A-Z0-9]/g, '');
       seenTag[tag] = (seenTag[tag] || 0) + 1;
       if (seenTag[tag] > 1) tag += String(seenTag[tag]);
@@ -1756,7 +1820,14 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       // never appears in the board/deliverable text - only in report.json's debate.posts/replies,
       // each entry carrying `canary: true`. Deliberately does not mutate the target proposal's
       // own amended/withdrawn flags - see src/canary.js's header for why.
-      if (config.canary?.enabled && shouldSampleCanary(config, config.canary.rng)) {
+      // The roll is one decision per run (pre-release audit 2026-09-23, ProposalsDebateDispute #3):
+      // seeded from the run id when the CLI passes one, so every resume sitting draws the same
+      // answer, and a canary already paid for in an earlier sitting (its reply on disk in the stage
+      // cache) always counts as sampled - so it replays, and its cost stays in totals and --spend.
+      const canaryRng = config.canary?.rng || (runId ? () => runIdUnit(runId) : undefined);
+      const canaryTarget = config.canary?.enabled ? pickCanaryTarget(proposals) : null;
+      const canaryPaid = !!(canaryTarget && cache.get(`canary-reply-${canaryTarget.lab}`));
+      if (config.canary?.enabled && (canaryPaid || shouldSampleCanary(config, canaryRng))) {
         const decide = config.canary.decide || (async (target, post) => {
           const lab = target.lab;
           const seat = seatOf(lab);
@@ -1764,7 +1835,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           try {
             const cst = record(await invoke(seat, {
               system: R.REPLY_SYSTEM,
-              user: R.replyUser({ request, proposals, posts: [post], lab, maps }),
+              user: canaryReplyPrompt({ request, proposals, post, lab, maps }),
               log, label: `canary-reply-${lab}`,
             }));
             const parsed = parseJson(cst.text);
@@ -1779,7 +1850,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         if (result) {
           debate.posts.push(result.post);
           debate.replies.push(result.reply);
-          canary = { injected: true, on: result.post.on, capitulated: result.capitulated };
+          canary = { injected: true, on: result.post.on, capitulated: result.capitulated, note: CANARY_NOTE };
           log(`  canary: injected an evidence-free objection against ${result.post.on} - author ${result.capitulated ? 'capitulated' : 'held'}.`);
         }
       }
