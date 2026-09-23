@@ -19,13 +19,18 @@ export function artifactsBlocked(dir) {
   return existsSync(join(dir, ARTIFACTS_BLOCKED_FILE)) || existsSync(join(dir, LEGACY_ARTIFACTS_BLOCKED_FILE));
 }
 
-export function waitingStage(dir) {
-  if (!existsSync(dir)) return null;
-  const w = readdirSync(dir)
+/** Every external stage a run is waiting on, sorted (directory order is not stable across systems). */
+export function waitingStages(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
     .filter(f => f.startsWith('NEEDS-') && f !== LEGACY_ARTIFACTS_BLOCKED_FILE)
     .map(f => f.slice(6, -3))
-    .filter(l => !existsSync(join(dir, `${l}.md`)));
-  return w[0] || null;
+    .filter(l => !existsSync(join(dir, `${l}.md`)))
+    .sort();
+}
+
+export function waitingStage(dir) {
+  return waitingStages(dir)[0] || null;
 }
 
 // A specific pid, checked directly - real liveness, not an approximation.
@@ -52,12 +57,14 @@ export function isAliveByGrep() {
 }
 
 // dir: the run folder. runMeta: parsed run.json, or null/undefined if absent/unreadable.
-// Returns one of: 'done' | 'budget_stopped' | 'blocked' | 'paused' | 'running' | 'stopped'.
+// Returns one of: 'done' | 'budget_stopped' | 'failed' | 'blocked' | 'paused' | 'running' | 'stopped'.
 // 'blocked' (added 2026-09-23, additive): the artifact gate stopped it before any call; fix the
 // task (fence the named files), then resume - resuming alone re-runs the gate and stops again.
 export function deriveRunStatus(dir, runMeta) {
   if (existsSync(join(dir, 'report.json'))) return 'done';
   if (existsSync(join(dir, 'STOPPED-budget.json'))) return 'budget_stopped';
+  // CLI audit #5: a run that stopped at an unexpected error (exit 16) says so, instead of 'stopped'.
+  if (existsSync(join(dir, 'STOPPED-error.md'))) return 'failed';
   if (artifactsBlocked(dir)) return 'blocked';
   if (waitingStage(dir)) return 'paused';
   const alive = runMeta && runMeta.pid ? isAlivePid(runMeta.pid) : isAliveByGrep();

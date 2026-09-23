@@ -252,8 +252,9 @@ Each outcome has its own code, so a script or CI job can branch on it:
 | 13 | Another process is already running this run folder. |
 | 14 | The task file changed since the run started and `AMENDMENTS.md` does not cover it. |
 | 15 | `--resume` of a run that already finished (it has a `report.json`); nothing is run or spent. |
+| 16 | The run stopped at an unexpected error (a seat that could not be reached, a crash); `STOPPED-error.md` says what, and `--resume` continues from the completed stages. |
 
-Codes 9-15 were split out or added on 2026-09-23. Before that, several of these outcomes shared a code (2, 5,
+Codes 9-16 were split out or added on 2026-09-23. Before that, several of these outcomes shared a code (2, 5,
 6 or 1).
 
 ### Telling the council what your build session can actually use

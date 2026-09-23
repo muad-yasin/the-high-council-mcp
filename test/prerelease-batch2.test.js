@@ -108,3 +108,113 @@ test('metrics #2: council --metrics prints the consensus-induced regression coun
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /consensus-induced regressions/);
 });
+
+// ---- LOWs: run-lock takeover race, crash exit code ----
+import { LOCK_FILE } from '../src/run-lock.js';
+import { hostname } from 'node:os';
+
+test('cli #4: three processes taking over one stale lock end with exactly one holder', async () => {
+  const lockMod = resolve(dirname(fileURLToPath(import.meta.url)), '../src/run-lock.js');
+  const { spawn } = await import('node:child_process');
+  for (let trial = 0; trial < 8; trial++) {
+    const d = mkdtempSync(join(tmpdir(), 'lockrace-'));
+    writeFileSync(join(d, LOCK_FILE), JSON.stringify({ pid: 2 ** 22 + 4242, host: hostname(), at: 'then' }));
+    const go = Date.now() + 400;
+    const script = `import { acquireRunLock } from ${JSON.stringify(lockMod)};
+      while (Date.now() < ${go}) {}
+      try { acquireRunLock(${JSON.stringify(d)}); console.log('HELD'); setTimeout(() => {}, 300); } catch { console.log('LOCKED'); }`;
+    const outs = await Promise.all([0, 1, 2].map(() => new Promise(res => {
+      const c = spawn(process.execPath, ['--input-type=module', '-e', script]);
+      let o = ''; c.stdout.on('data', b => { o += b; }); c.on('close', () => res(o.trim()));
+    })));
+    assert.equal(outs.filter(o => o === 'HELD').length, 1, `trial ${trial}: ${outs.join(',')}`);
+  }
+});
+
+test('cli #5: a run that crashes mid-stage exits 16 with STOPPED-error.md, not 1 with a raw stack', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'crash-'));
+  mkdirSync(join(dir, 'tasks')); mkdirSync(join(dir, 'chains'));
+  writeFileSync(join(dir, 'tasks', 'x.md'), 'A test task.');
+  // An ollama builder on a port nothing listens on: refused before sending, retried, then thrown.
+  writeFileSync(join(dir, 'chains', 'dead.json'), JSON.stringify({
+    name: 'dead', maxRounds: 1, estimate: { promptTokens: 100, draftTokens: 100, critiqueTokens: 100 },
+    seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'ollama', model: 'm', baseUrl: 'http://127.0.0.1:9/v1' },
+      reviser: { provider: 'mock', model: 'mock-builder' }, critics: [{ provider: 'mock', model: 'mock-critic-passer' }] },
+  }));
+  const r = cliRun(dir, ['--task', 'tasks/x.md', '--chain', 'dead']);
+  assert.equal(r.status, 16, r.stdout + r.stderr);
+  const run = join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
+  assert.match(readFileSync(join(run, 'STOPPED-error.md'), 'utf8'), /Run stopped/);
+});
+
+test('providers #2: a 200 whose body is an error object is reported as the provider\'s error, not an empty reply', async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: { message: 'invalid api key', code: 401 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    await assert.rejects(call('ollama', { model: 'm', system: 's', messages: [{ role: 'user', content: 'u' }], maxTokens: 5, baseUrl: 'http://127.0.0.1:9/v1' }), /invalid api key/);
+  } finally { globalThis.fetch = real; }
+});
+
+test('metrics #4: a corrupt report.json is not called complete', () => {
+  const runs = mkdtempSync(join(tmpdir(), 'corrupt-'));
+  const id = new Date().toISOString().replace(/[:.]/g, '-');
+  mkdirSync(join(runs, id));
+  writeFileSync(join(runs, id, 'report.json'), '{"chain": "c", "tot');
+  const r = spendReport(runs, { days: 1 });
+  assert.equal(r.runs.length, 1);
+  assert.notEqual(r.runs[0].state, 'complete');
+});
+
+// ---- replay/status audit (Review/PreRelease_Audit_replay_2026-09-23.md) ----
+test('replay HIGH: --replay writes the full report.json contract and a BOARD.md, like the run it replays', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'replay-shape-'));
+  mkdirSync(join(dir, 'tasks'));
+  writeFileSync(join(dir, 'tasks', 'x.md'), 'A test task.');
+  assert.equal(cliRun(dir, ['--task', 'tasks/x.md', '--chain', 'mock-debate']).status, 0);
+  const id = readdirSync(join(dir, 'runs'))[0];
+  const r = cliRun(dir, ['--replay', join('runs', id), '--replay-date', '2026-09-24']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const original = JSON.parse(readFileSync(join(dir, 'runs', id, 'report.json'), 'utf8'));
+  const replayDir = join(dir, 'runs', `${id}.replay-2026-09-24`);
+  const replay = JSON.parse(readFileSync(join(replayDir, 'report.json'), 'utf8'));
+  const missing = Object.keys(original).filter(k => !(k in replay) && !['runId', 'fromRun', 'maxUsd'].includes(k));
+  assert.deepEqual(missing, [], `replay report is missing ${missing.join(', ')}`);
+  assert.ok(readdirSync(replayDir).includes('BOARD.md'));
+});
+
+test('replay #2: a rematch keeps roster.criteria_seat pointing at the same model after relabelling', async () => {
+  const { reshuffleSeats } = await import('../src/rematch.js');
+  const { findSeatByLab } = await import('../src/chain.js');
+  const config = { seats: { critics: [{ provider: 'mock', model: 'A', lab: 'mock-a' }, { provider: 'mock', model: 'B', lab: 'mock-b' }, { provider: 'mock', model: 'C', lab: 'mock-c' }] }, roster: { criteria_seat: 'mock-a' } };
+  for (const seed of [1, 2, 5]) {
+    const r = reshuffleSeats(config, seed);
+    assert.equal(findSeatByLab(r, r.roster.criteria_seat)?.model, 'A', `seed ${seed}`);
+  }
+});
+
+test('status #2 / replay: MCP safeRun shape accepts rematch and replay folders and nothing path-like', () => {
+  const RUN_FOLDER = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2}))?$/;
+  const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/mcp/server.js'), 'utf8');
+  assert.ok(src.includes(RUN_FOLDER.source), 'server.js uses the run-folder shape');
+  for (const ok of ['2026-09-23T10-06-06-899Z', '2026-09-23T10-06-06-899Z.rematch-5', '2026-09-23T10-06-06-899Z.replay-2026-09-24']) assert.ok(RUN_FOLDER.test(ok), ok);
+  for (const bad of ['../x', '2026-09-23T10-06-06-899Z/../x', '2026-09-23T10-06-06-899Z.rematch-5/..']) assert.ok(!RUN_FOLDER.test(bad), bad);
+});
+
+test('replay #3/#4: a bad run.json is a clean exit 2, and a repeated seed or same-day replay is refused, not re-paid', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'side-dup-'));
+  mkdirSync(join(dir, 'tasks'));
+  writeFileSync(join(dir, 'tasks', 'x.md'), 'A test task.');
+  assert.equal(cliRun(dir, ['--task', 'tasks/x.md', '--chain', 'mock']).status, 0);
+  const id = readdirSync(join(dir, 'runs'))[0];
+  assert.equal(cliRun(dir, ['--rematch', join('runs', id), '--rematch-seed', '4']).status, 0);
+  const again = cliRun(dir, ['--rematch', join('runs', id), '--rematch-seed', '4']);
+  assert.equal(again.status, 2, again.stderr);
+  assert.equal(cliRun(dir, ['--replay', join('runs', id), '--replay-date', '2026-09-24']).status, 0);
+  assert.equal(cliRun(dir, ['--replay', join('runs', id), '--replay-date', '2026-09-24']).status, 2);
+  writeFileSync(join(dir, 'runs', id, 'run.json'), '{"chain": "mo');
+  for (const args of [['--rematch', join('runs', id), '--rematch-seed', '9'], ['--replay', join('runs', id), '--replay-date', '2026-09-25']]) {
+    const r = cliRun(dir, args);
+    assert.equal(r.status, 2, r.stderr);
+    assert.doesNotMatch(r.stderr, /at .*\.js:\d+/, 'no raw stack');
+  }
+});

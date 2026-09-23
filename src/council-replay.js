@@ -19,7 +19,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, dirname, basename, resolve } from 'node:path';
 import { runChain } from './chain.js';
-import { computeOutcome } from './outcome.js';
+import { reportJsonShape, renderBoardMd } from './report-shape.js';
 import { taskHashOf } from './scope-freeze.js';
 import { computeVerdictDiff } from './verdict-diff.js';
 
@@ -100,21 +100,8 @@ export async function runCouncilReplay(runDir, {
   log(`council-replay: replaying ${runDir} (chain "${runMeta.chain}") against today's roster`);
 
   const result = await runChain({ request: taskText, config, log });
-  const newReport = {
-    runId: basename(replayDirFor(runDir, date)),
-    chain: config.name,
-    task: runMeta.task,
-    fromRun: null,
-    criteria: result.criteria,
-    questions: result.questions,
-    passed: result.passed,
-    lastCritique: result.lastCritique,
-    signoff: result.signoff,
-    outcome: computeOutcome(result),
-    debate: result.debate,
-    disputes: result.disputes,
-    totals: result.totals,
-  };
+  const replayRunId = basename(replayDirFor(runDir, date));
+  const newReport = reportJsonShape({ runId: replayRunId, chain: config.name, task: runMeta.task, result, config });
 
   const diff = computeVerdictDiff(originalReport, newReport);
 
@@ -122,6 +109,8 @@ export async function runCouncilReplay(runDir, {
   mkdirSync(replayDir, { recursive: true });
   writeFileSync(join(replayDir, 'report.json'), JSON.stringify(newReport, null, 2));
   writeFileSync(join(replayDir, 'deliverable.md'), result.deliverable || '');
+  const board = renderBoardMd({ runId: replayRunId, result });
+  if (board) writeFileSync(join(replayDir, 'BOARD.md'), board);
   writeFileSync(join(replayDir, 'replay-diff.json'), JSON.stringify(diff, null, 2));
   writeFileSync(join(replayDir, 'replay-source.json'), JSON.stringify({
     originalRunDir: resolve(runDir),

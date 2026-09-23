@@ -34,15 +34,23 @@ test('4. dropouts AND an always-objecting critic -> still degraded (precedence)'
   }), 'degraded');
 });
 
-test('a `passed: true` abstention entry (the freedoms.pass stated-refusal case) does not itself count as an abstention for outcome purposes', () => {
-  // signoff[].passed === true means a stated, recorded refusal to verdict (freedoms.pass) -
-  // distinct from an unreadable-reply abstention. Only signedOff === null AND passed === false
-  // is the unreadable-reply signal.
+// Reversed 2026-09-23 (Review/PreRelease_Audit_status_2026-09-23.md #2): a stated pass (freedoms.pass,
+// signedOff null + passed true) is still a seat that gave no verdict. It used to be left out, so a
+// panel with one silent seat read `consensus`, against this module's own rule that silence is never
+// consent. It counts as an abstention now.
+test('a stated pass (freedoms.pass: signedOff null, passed true) is an abstention, so the run is degraded', () => {
   assert.equal(computeOutcome({
     passed: true,
     dropouts: [],
     signoff: [{ signedOff: true, passed: false }, { signedOff: null, passed: true }],
-  }), 'consensus');
+  }), 'degraded');
+});
+
+test('a run on which no reviewer was heard at all (noHeardReviewer) is degraded, not disagreement', () => {
+  assert.equal(computeOutcome({
+    passed: false, dropouts: [], noHeardReviewer: true,
+    signoff: [{ signedOff: null, passed: true }, { signedOff: null, passed: true }],
+  }), 'degraded');
 });
 
 test('missing/undefined dropouts or signoff never throws - treated as absent', () => {

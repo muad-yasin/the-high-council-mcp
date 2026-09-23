@@ -13,13 +13,17 @@
 // verdict, an infra failure with no dropouts entry).
 export function computeOutcome(result) {
   const hasDropout = Array.isArray(result?.dropouts) && result.dropouts.length > 0;
+  // Status audit #2 (Review/PreRelease_Audit_status_2026-09-23.md): a seat that stated a pass
+  // (freedoms.pass: signedOff null, passed true) gave no verdict either, and used to be left out, so
+  // a panel with one silent seat read `consensus`. Any null verdict is an abstention now, and a run
+  // on which no reviewer was heard at all (`noHeardReviewer`) is degraded, not disagreement.
   const hasAbstention = Array.isArray(result?.signoff)
-    && result.signoff.some(s => s.signedOff === null && s.passed === false);
+    && result.signoff.some(s => s.signedOff === null);
   // Bug-audit fix, 2026-09-23 (Review/BugAudit_Metrics_2026-09-23.md #7): a round-robin ("first")
   // chain has no signoff array and writes no dropout for an unreadable reply, so an infrastructure
   // failure read as `no_consensus` - disagreement. Its final verdict is the last panelVerdicts row.
   const verdicts = Array.isArray(result?.panelVerdicts) ? result.panelVerdicts : [];
   const lastUnheard = !Array.isArray(result?.signoff) && verdicts.length > 0 && verdicts[verdicts.length - 1].verdict === 'unheard';
-  if (hasDropout || hasAbstention || lastUnheard) return 'degraded';
+  if (hasDropout || hasAbstention || lastUnheard || result?.noHeardReviewer) return 'degraded';
   return result?.passed === true ? 'consensus' : 'no_consensus';
 }

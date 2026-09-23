@@ -689,6 +689,15 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
     },
     `${provider}/${model}`
   );
+  // Pre-release audit, providers #2: a 200 whose body is `{ "error": ... }` and no choices (seen from
+  // routers and some self-hosted servers) read as an empty, $0 reply and was diagnosed downstream as
+  // malformed JSON. It is the provider's own error, and says so.
+  if (json && json.error && !Array.isArray(json.choices)) {
+    const detail = typeof json.error === 'string' ? json.error : (json.error.message || JSON.stringify(json.error));
+    const err = new Error(redactUrlCredentials(`${provider}/${model}: HTTP 200 carrying an error instead of a reply - ${String(detail).slice(0, 600)}`));
+    if (json.error.code !== undefined) err.providerCode = json.error.code;
+    throw err;
+  }
   return {
     text: json.choices?.[0]?.message?.content ?? '',
     usage: { ...usageOfOpenAICompat(json.usage), stop: normaliseStop(json.choices?.[0]?.finish_reason) },

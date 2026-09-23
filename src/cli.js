@@ -11,10 +11,11 @@ import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sum
 import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFromStageLogText, sumRoundUsdFromStageLogText } from './spans.js';
 import { appendSpanRecord, buildSpanRecord } from './progress-spans.js';
 import { computeOutcome } from './outcome.js';
+import { reportJsonShape, renderBoardMd } from './report-shape.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName, keyFor, isKeyOptional, call } from './providers.js';
 import { readCompletedRun, generateDigestText, writeDigest } from './dissent-digest.js';
-import { deniedReasonsOf } from './denied-models.js';
+import { deniedReasonsOf, DeniedModel } from './denied-models.js';
 import { spendReport, costToday } from './spend.js';
 import { verdictStats, independenceStatsCsv } from './verdict-stats.js';
 import { metricsReport } from './metrics.js';
@@ -72,6 +73,10 @@ const EXIT_POLICY_REFUSED = 12;
 const EXIT_RUN_LOCKED = 13;
 const EXIT_SCOPE_CHANGED = 14;
 const EXIT_ALREADY_FINISHED = 15;
+// CLI audit #5 (Review/PreRelease_Audit_cli_2026-09-23.md): a run that crashed mid-stage (a dead
+// local model, a provider error nothing caught) rethrew and exited 1 - the code the README reserves
+// for lint and missing input - with a raw stack and nothing in the run folder saying it stopped.
+const EXIT_RUN_FAILED = 16;
 import { scanArtifacts } from './key-redaction.js';
 import { resetToolCallLog, renderToolsMd } from './tools.js';
 
@@ -127,97 +132,7 @@ function flag(name, fallback) {
   return (next && !next.startsWith('--')) ? next : true;
 }
 
-// The shape of a run's report.json, in one place - bug-audit finding
-// (2026-09-13, v5 Phase 2): `council init`'s canned demo run used to
-// hand-roll a second, independently-maintained literal missing fields
-// (criteria, proposals, ...) the real writer below includes, so
-// `--from-run` against an init-produced run silently reran the criteria
-// stage instead of reusing it - no crash, just a broken promise. Both
-// writers now build from this one function.
-function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = null, config = null, policyChecks = null }) {
-  // v6 §7: failure-mode diagnostics, computed from this run's own real
-  // debate output - never from the phase 4 measurement harness, which
-  // is a deterministic heuristic probe and cannot speak to real debate
-  // diversity (see docs/v6-decisions.md). Additive-only: a chain with
-  // no debate stage keeps debate as-is (null); one that did debate
-  // always gets a diagnostics object, with nulls/empty flags rather
-  // than an absent key when there's nothing to compute.
-  //
-  // v6 phase 7 bug-audit fix: role only ever takes effect on a
-  // seats.proposers entry - chain.js's debate-stage seatOf(lab) looks
-  // seats up exclusively from proposers, so a role set on any other
-  // seat kind (builder, judge, critics, ...) is already a silent no-op
-  // (see chain-lint.js's new warning for that). This used to pull role
-  // from every seat kind, which could misclassify a proposer's own
-  // debate posts as role-bearing via a shared provider-as-lab fallback
-  // string with an unrelated non-proposer seat that happened to carry
-  // a role. Restricted to proposers, the only seats debate ever touches.
-  const roleLabs = new Set(
-    (config?.seats?.proposers || [])
-      .filter(s => s?.role)
-      .map(s => s.lab || s.provider) // same lab || provider fallback chain.js's own labOf uses
-  );
-  const debate = result.debate
-    ? { ...result.debate, diagnostics: computeRoleDiagnostics(result.debate, roleLabs) }
-    : result.debate;
-
-  return {
-    runId,
-    chain,
-    task,
-    fromRun,
-    criteria: result.criteria,
-    questions: result.questions,
-    passed: result.passed,
-    lastCritique: result.lastCritique,
-    signoff: result.signoff,
-    challenge: result.challenge,
-    allocator: result.allocator,
-    proposals: result.proposals,
-    dropouts: result.dropouts,
-    outcome: computeOutcome(result),
-    debate,
-    scoreboard: result.scoreboard,
-    disputes: result.disputes,
-    orphanSections: result.orphanSections,
-    withdrawalCycles: result.withdrawalCycles,
-    totals: result.totals,
-    maxUsd,
-    stages: result.stages.map(({ text, ...rest }) => rest),
-    // v7 item 1: additive-only, same pattern as debate's diagnostics above -
-    // present only when the run actually did verification (config.verify.
-    // enabled), absent otherwise so v6 report.json shape is unchanged.
-    ...(result.ground_truth !== undefined ? { ground_truth: result.ground_truth } : {}),
-    // v7.x: additive-only, same pattern as ground_truth above - present only when the run
-    // actually enabled the stage (config.lints.enabled / config.claims.enabled), absent
-    // otherwise so a chain that never opts in keeps today's report.json shape exactly.
-    ...(result.lints !== undefined ? { lints: result.lints } : {}),
-    ...(result.claims !== undefined ? { claims: result.claims } : {}),
-    // MLLM Coder v5 item 4: additive, present only when the run debated (src/disagreement-groups.js).
-    ...(result.debate ? { disagreement_groups: deriveDisagreementGroups(result.debate, result.proposals) } : {}),
-    // MLLM Coder v5 item 5: present only when a policy.json was in force for this run - what it
-    // restricted, by capability. Absent means no policy, never "a policy with no checks".
-    ...(policyChecks ? { policy: { checks: policyChecks } } : {}),
-    // Final security-review gate (src/security-review.js): additive, present only when the chain
-    // enabled the stage - same object as the run folder's security-review.json.
-    ...(result.security_review !== undefined ? { security_review: result.security_review } : {}),
-    // Bug-audit fix, 2026-09-23 (Review/BugAudit_Metrics_2026-09-23.md #3, #6): these were on the
-    // runChain result but never reached report.json, so the stats readers and anyone reading a run
-    // folder could not see them (a real run's dispute stage and canary lived only in run.log).
-    // Additive only; each is absent when the run produced none of it.
-    ...(Array.isArray(result.panelVerdicts) ? { panelVerdicts: result.panelVerdicts } : {}),
-    ...(Array.isArray(result.regressions) ? { regressions: result.regressions } : {}),
-    ...(result.dispute != null ? { dispute: result.dispute } : {}),
-    ...(result.canary !== undefined ? { canary: result.canary } : {}),
-    ...(result.quoteFindings !== undefined ? { quoteFindings: result.quoteFindings } : {}),
-    ...(result.patchFallbacks !== undefined ? { patchFallbacks: result.patchFallbacks } : {}),
-    ...(result.coldRead != null ? { coldRead: result.coldRead } : {}),
-    ...(result.noHeardReviewer ? { noHeardReviewer: result.noHeardReviewer } : {}),
-    // Whole alternative architectures: additive, present only when the chain ran the stage. The
-    // rendered board text lives in BOARD.md; the JSON carries the structured record only.
-    ...(result.alternatives ? { alternatives: (({ board, ...rest }) => rest)(result.alternatives) } : {}),
-  };
-}
+// reportJsonShape() and the BOARD.md text now live in src/report-shape.js, shared with --replay.
 
 // A run folder's report.json can exist but still be unreadable - truncated
 // by a killed run, or hand-edited - and every read-only reporting command
@@ -719,7 +634,12 @@ if (rematchArg) {
     console.error(`--rematch: no run.json in ${originalRunDir} - can't recover the original task/chain.`);
     process.exit(2);
   }
-  const originalRunMeta = JSON.parse(readFileSync(originalRunMetaPath, 'utf8'));
+  // Replay audit #3: an unparseable run.json degrades to a clean exit 2, like readReportOrExit.
+  let originalRunMeta;
+  try { originalRunMeta = JSON.parse(readFileSync(originalRunMetaPath, 'utf8')); } catch {
+    console.error(`--rematch: run.json in ${originalRunDir} is not valid JSON - can't recover the original task/chain.`);
+    process.exit(2);
+  }
   const seedArg = flag('rematch-seed', null);
   // Default random, but always recorded on disk (run.json below) so a rematch that used a random
   // seed is still reproducible after the fact by reading what it actually ran with.
@@ -758,6 +678,11 @@ if (rematchArg) {
 
   const rematchRunId = `${basename(originalRunDir)}.rematch-${seed}`;
   const rematchRunDir = join(dirname(originalRunDir), rematchRunId);
+  // Replay audit #4: the same seed again re-paid the whole rematch and overwrote the earlier folder.
+  if (existsSync(rematchRunDir)) {
+    console.error(`--rematch: ${rematchRunId} already exists - that seed was already run. Use another --rematch-seed, or move the old folder aside first. Nothing was run.`);
+    process.exit(2);
+  }
   mkdirSync(rematchRunDir, { recursive: true });
   writeFileSync(join(rematchRunDir, 'run.json'), JSON.stringify({
     chain: chainName, task: originalTaskPath, rematchOf: basename(originalRunDir), rematchSeed: seed,
@@ -780,6 +705,8 @@ if (rematchArg) {
   }
 
   writeFileSync(join(rematchRunDir, 'deliverable.md'), rematchResult.deliverable);
+  const rematchBoard = renderBoardMd({ runId: rematchRunId, result: rematchResult });
+  if (rematchBoard) writeFileSync(join(rematchRunDir, 'BOARD.md'), rematchBoard);
   const newReport = reportJsonShape({
     runId: rematchRunId, chain: chainName, task: originalTaskPath, result: rematchResult,
   });
@@ -823,7 +750,16 @@ if (argv.includes('--replay')) {
   }
   // Same work-then-pkg chain-config search order as a normal run (line ~749 above) - a chain
   // named by the original run may live in the user's own chains/ or in the shipped set.
-  const runMetaForChain = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
+  let runMetaForChain;
+  try { runMetaForChain = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')); } catch {
+    console.error(`--replay: run.json in ${runDir} is not valid JSON - can't recover the original task/chain.`);
+    process.exit(2);
+  }
+  // Replay audit #4: a second replay on the same day re-paid everything and overwrote the first.
+  if (existsSync(replayDirFor(runDir, date))) {
+    console.error(`--replay: ${basename(replayDirFor(runDir, date))} already exists - this run was already replayed for that date. Pass another --replay-date, or move the old folder aside first. Nothing was run.`);
+    process.exit(2);
+  }
   const chainsDirCandidates = [join(work, 'chains'), join(pkg, 'chains')];
   const chainsDir = chainsDirCandidates.find(d => existsSync(join(d, `${runMetaForChain.chain}.json`))) || chainsDirCandidates[1];
   {
@@ -1622,7 +1558,7 @@ countEarlierSpend(earlierSupersededUsd);
 // A previous sitting may have stopped this run at the ceiling. Clear that
 // marker now that we are past it, so a run that goes on to finish is not
 // still advertising itself as capped.
-for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md']) {
+for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', 'STOPPED-error.md']) {
   if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
 
@@ -1981,7 +1917,21 @@ Or \`--max-usd none\` to continue with no ceiling.
     log(`  resume:  node src/cli.js --resume runs/${runId} --max-usd <higher>`);
     process.exit(4);
   }
-  throw err;
+  // A denied model is a lint failure (exit 1), found at run time instead of by chain-lint.
+  const denied = err instanceof DeniedModel;
+  writeFileSync(join(runDir, 'STOPPED-error.md'), `# Run stopped: ${denied ? 'a denied model' : 'an error'}
+
+${err?.message || String(err)}
+
+No report.json or deliverable.md was written, so this run does not read as finished. Completed
+stages are on disk and replay for free: fix the cause, then
+
+    node src/cli.js --resume runs/${runId}
+`);
+  appendFileSync(logPath, `${err?.stack || String(err)}\n`);
+  log(`\nSTOPPED: ${denied ? 'a denied model' : 'the run failed'} - ${err?.message || String(err)}`);
+  log(`  detail:  ${join(runDir, 'STOPPED-error.md')}`);
+  process.exit(denied ? 1 : EXIT_RUN_FAILED);
 }
 
 writeFileSync(join(runDir, 'deliverable.md'), result.deliverable);
@@ -1992,13 +1942,8 @@ if (result.proposalPool?.length && result.proposalPool.length > result.proposals
 // §5 (v3 plan): declined objections are a first-class record, never part of the deliverable text
 // itself, so they get their own section wherever the board already lives - the same file that
 // already lists proposals and debate posts (or a standalone one, if no debate happened this run).
-const disputesSection = (result.disputes?.length
-  ? `\n\n## Disputed objections (declined by the reviser, kept out of the deliverable)\n\n${result.disputes.map(d => `- Round ${d.round}: ${d.reason}`).join('\n')}`
-  : '') + renderDisputeReviewBoard(result.dispute);
-const alternativesSection = result.alternatives?.board
-  ? `## Alternative architectures\n\nEvery whole architecture a lab proposed before the plan existed, what the other labs posted on it, and the author's reply. The plan's "Decisions" section records which was chosen and why the others lost.\n\n${result.alternatives.board}\n\n`
-  : '';
-if (result.board || disputesSection || alternativesSection) writeFileSync(join(runDir, 'BOARD.md'), `# Debate board - run ${runId}\n\n${alternativesSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${disputesSection}`);
+const boardMd = renderBoardMd({ runId, result });
+if (boardMd) writeFileSync(join(runDir, 'BOARD.md'), boardMd);
 if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff);
 // v4 item 2: written on every run that had a preflight config, blocked or not - the blocked
 // path also writes this same file from the PreflightBlocked catch above, before this line is
@@ -2075,7 +2020,7 @@ if (result.scoreboard) {
 }
 log(`tokens:   ${t.input} in, ${t.output} out, ${t.total} total`);
 log(`cost:     ${formatUsd(t.usd)}${t.unpriced.length ? ` (+ unpriced: ${t.unpriced.join(', ')})` : ''}${maxUsdEff === null ? '' : ` of ${formatUsd(maxUsdEff)} ceiling`}`);
-const boardWritten = result.board || disputesSection || alternativesSection;
+const boardWritten = !!boardMd;
 log(`output:   ${join(runDir, 'deliverable.md')}${result.handoff ? `  (+ HANDOFF.md${boardWritten ? ', BOARD.md' : ''})` : boardWritten ? '  (+ BOARD.md)' : ''}`);
 // Final security-review gate. Checked last, after every artifact (report.json, state.json, the
 // audit close, RESUME.md) is on disk, so a failed gate still leaves a complete, readable run

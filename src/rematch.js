@@ -23,10 +23,12 @@ function rotate(arr, shift) {
 // a rematch exists to test robustness against (a critic's past reputation, or its position in a
 // debate), so carrying it forward unchanged would defeat the point. Arrays shorter than 2 have no
 // non-trivial permutation and are returned unchanged - not an error, just nothing to reshuffle.
-function reshuffleSeatArray(seats, seed) {
+function reshuffleSeatArray(seats, seed, relabel = new Map()) {
   if (!Array.isArray(seats) || seats.length < 2) return seats;
   const n = seats.length;
   const shift = 1 + (((seed % (n - 1)) + (n - 1)) % (n - 1));
+  // Where each original seat's model ends up: slot i carries original seat (i + shift) % n.
+  for (let j = 0; j < n; j++) relabel.set(seats[j].lab || seats[j].provider, `lab-${(((j - shift) % n) + n) % n + 1}`);
   const triples = seats.map(s => ({ provider: s.provider, model: s.model, extra: s.extra }));
   const rotated = rotate(triples, shift);
   return seats.map((s, i) => {
@@ -51,7 +53,18 @@ function reshuffleSeatArray(seats, seed) {
  */
 export function reshuffleSeats(config, seed) {
   const seats = { ...config.seats };
-  if (Array.isArray(seats.critics)) seats.critics = reshuffleSeatArray(seats.critics, seed);
-  if (Array.isArray(seats.proposers)) seats.proposers = reshuffleSeatArray(seats.proposers, seed);
-  return { ...config, seats };
+  // Pre-release audit, replay #2 (Review/PreRelease_Audit_replay_2026-09-23.md): `roster.*_seat`
+  // names a seat by its lab ("criteria_seat": "mock-a"). The relabelling below renamed every lab, so
+  // the reference matched nothing and every --rematch of such a chain failed. It now follows the
+  // seat's model to its new label. Proposers first, so a critic wins where both share a lab - the
+  // same order chain.js's findSeatByLab searches in.
+  const relabel = new Map();
+  if (Array.isArray(seats.proposers)) seats.proposers = reshuffleSeatArray(seats.proposers, seed, relabel);
+  if (Array.isArray(seats.critics)) seats.critics = reshuffleSeatArray(seats.critics, seed, relabel);
+  let roster = config.roster;
+  if (roster && typeof roster === 'object') {
+    roster = { ...roster };
+    for (const [k, v] of Object.entries(roster)) if (k.endsWith('_seat') && relabel.has(v)) roster[k] = relabel.get(v);
+  }
+  return { ...config, seats, ...(roster !== undefined ? { roster } : {}) };
 }

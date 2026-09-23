@@ -24,7 +24,7 @@ import { verdictStats } from '../verdict-stats.js';
 import { metricsReport } from '../metrics.js';
 import { checkClaimStaleness } from '../peer-claim.js';
 import { submitStageAnswer } from '../stage-submission.js';
-import { deriveRunStatus, waitingStage, isAlivePid, isAliveByGrep, finishedRunState, artifactsBlocked, ARTIFACTS_BLOCKED_FILE } from '../run-status.js';
+import { deriveRunStatus, waitingStage, waitingStages, isAlivePid, isAliveByGrep, finishedRunState, artifactsBlocked, ARTIFACTS_BLOCKED_FILE } from '../run-status.js';
 import { lockHolder } from '../run-lock.js';
 import { harnessVersion } from '../version.js';
 import { isDeniedPath, pathRefusal } from '../tools.js';
@@ -48,7 +48,11 @@ const cliCommand = args => process.pkg ? [process.execPath, args] : ['node', [cl
 const cliEnv = process.pkg ? { ...process.env, PKG_EXECPATH: '' } : process.env;
 
 const text = s => ({ content: [{ type: 'text', text: typeof s === 'string' ? s : JSON.stringify(s, null, 2) }] });
-const safeRun = id => /^[0-9TZ-]+$/.test(id) && existsSync(join(runsDir, id));
+// Status audit #2 (Review/PreRelease_Audit_status_2026-09-23.md): `<id>.rematch-N` and
+// `<id>.replay-DATE`, which list_runs shows, were rejected as "no such run". Still an exact shape -
+// never a path.
+const RUN_FOLDER = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2}))?$/;
+const safeRun = id => typeof id === 'string' && RUN_FOLDER.test(id) && existsSync(join(runsDir, id));
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 
 // A chain by name, in the CLI's own lookup order (cli.js configPath): the run's start directory,
@@ -149,7 +153,9 @@ function runSummary(id) {
     signoff: report?.signoff ?? null,
     securityGate: report?.security_review?.gate ?? null,
     scoreboard: report?.scoreboard?.labs ?? null,
-    waitingFor: existsSync(dir) ? readdirSync(dir).filter(f => f.startsWith('NEEDS-')).map(f => f.slice(6, -3)).filter(l => !existsSync(join(dir, `${l}.md`))) : [],
+    // Status audit #5: the same reader as deriveRunStatus/submit_stage (run-status.js), which leaves
+    // out the legacy artifact-gate marker - it is not an external stage.
+    waitingFor: waitingStages(dir),
     files: existsSync(dir) ? readdirSync(dir).filter(f => !f.endsWith('.usage.json')).sort() : [],
     lastLogLines: last,
   };

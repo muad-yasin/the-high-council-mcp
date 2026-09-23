@@ -122,7 +122,11 @@ function perModelBreakdown(dirs) {
 }
 
 function stateOf(dir) {
-  if (existsSync(join(dir, 'report.json'))) return 'complete';
+  // Pre-release audit, metrics #4: a report.json that exists but does not parse is not a finished run
+  // (costOfRun already treats it as absent); it used to read "complete" at $0.
+  if (readJson(join(dir, 'report.json'))) return 'complete';
+  if (existsSync(join(dir, 'report.json'))) return 'incomplete: report.json unreadable';
+  if (existsSync(join(dir, 'STOPPED-error.md'))) return 'stopped: error';
   if (existsSync(join(dir, 'STOPPED-budget.json'))) return 'stopped: spend cap';
   if (readdirSync(dir).some(f => f.startsWith('NEEDS-'))) return 'paused';
   return 'incomplete';
