@@ -132,7 +132,7 @@ export function preflightUser(request) {
 // seats, reused - never config.seats.proposers, which stays the only diff-authoring role).
 export async function runPreflightStage(config, { request, invoke, record, log = () => {} }) {
   const seats = (config.preflight?.seats && config.preflight.seats.length) ? config.preflight.seats : (config.seats.critics || []);
-  const verdicts = await Promise.all(seats.map(async seat => {
+  const verdicts = await settleAll(seats.map(async seat => {
     const lab = labOf(seat);
     try {
       const s = record(await invoke(seat, {
@@ -145,6 +145,7 @@ export async function runPreflightStage(config, { request, invoke, record, log =
       const objections = Array.isArray(parsed?.objections) ? parsed.objections.filter(o => typeof o === 'string' && o.trim()) : [];
       return { lab, verdict, objections };
     } catch (err) {
+      rethrowControlFlow(err);
       // A seat that fails to answer at all does not get to silently count as a "pass" that
       // could tip a marginal call - it's recorded distinctly, and does not block on its own
       // (an unreachable seat is not evidence the task is malformed).
@@ -464,7 +465,7 @@ export function unionAmbiguities(lists) {
 // resumes from disk once <label>.md exists. Thrown, not returned, so the
 // chain's control flow stays linear.
 export class ExternalPause extends Error {
-  constructor(label, system, user) { super(`waiting for external stage ${label}`); this.label = label; this.system = system; this.user = user; }
+  constructor(label, system, user) { super(`waiting for external stage ${label}`); this.controlFlow = true; this.label = label; this.system = system; this.user = user; }
 }
 
 // v4 item 2: a run's preflight stage found at least one blocking objection to the task
@@ -487,12 +488,36 @@ export class PreflightBlocked extends Error {
 export class BudgetExceeded extends Error {
   constructor({ label, seat, spent, cap, projected }) {
     super(`per-run spend cap reached before stage ${label}`);
+    this.controlFlow = true; // see rethrowControlFlow; read by modules that cannot import this file
     this.label = label;
     this.seat = seat;
     this.spent = spent;
     this.cap = cap;
     this.projected = projected;
   }
+}
+
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_MoneyPath_2026-09-23.md #2, confirmed independently by
+// BugAudit_ChainParsers #4): every catch that wraps an invoke() call and degrades a failure into an
+// abstention, a "no reply" or a default MUST call this first. BudgetExceeded and ExternalPause are
+// control flow, not a seat being down - swallowed, a capped panel seat was logged SEAT_UNREACHABLE,
+// the panel re-ran on the same draft up to maxRounds, runChain returned normally, and the CLI wrote
+// report.json instead of STOPPED-budget.json, so the run could not be resumed under a higher cap.
+// The panel's cut-off retry catch already did this; the six sibling catches did not.
+export function rethrowControlFlow(err) {
+  if (err instanceof BudgetExceeded || err instanceof ExternalPause) throw err;
+}
+
+// Bug-audit fix, 2026-09-23 (BugAudit_MoneyPath #5): a parallel stage waits for EVERY call to
+// settle before it rethrows. Promise.all rejected on the first BudgetExceeded while sibling calls
+// were still in flight - the CLI then exited, so those siblings were billed but never recorded,
+// STOPPED-budget.json undercounted, and a resume paid for them again. Now every sibling finishes
+// (and is recorded) first; the first rejection is then thrown, as Promise.all would have.
+export async function settleAll(promises) {
+  const results = await Promise.allSettled(promises);
+  const failed = results.find(r => r.status === 'rejected');
+  if (failed) throw failed.reason;
+  return results.map(r => r.value);
 }
 
 // Per-run cache, set by the CLI: get(label) -> { text, usage, usd, ... } or null.
@@ -503,9 +528,16 @@ export function setCache(c) { cache = c || { get: () => null }; }
 // `spent` accumulates every stage this run has paid for, including stages
 // replayed from disk on a resume - the ceiling is on the run as a whole, not
 // on one sitting at the terminal.
-let budget = { cap: null, spent: 0 };
-export function setBudget(cap) { budget = { cap: cap ?? null, spent: 0 }; }
-export function budgetState() { return { ...budget, remaining: budget.cap === null ? null : Math.max(0, budget.cap - budget.spent) }; }
+//
+// `reserved` (bug-audit fix, 2026-09-23, BugAudit_MoneyPath #1): the worst case of every call that
+// has passed the cap check and not yet settled. Parallel seats (panel, proposals, debate, replies,
+// ambiguity, preflight) used to all check the same `spent` before any of them had added to it, so
+// seven critics at $22.89 of a $25 cap all passed and could spend $27.93. Each call now reserves its
+// projection synchronously when it passes the check, and the reservation is swapped for the actual
+// cost when it settles - so the check a sibling sees already counts every call in flight.
+let budget = { cap: null, spent: 0, reserved: 0 };
+export function setBudget(cap) { budget = { cap: cap ?? null, spent: 0, reserved: 0 }; }
+export function budgetState() { return { ...budget, remaining: budget.cap === null ? null : Math.max(0, budget.cap - budget.spent - budget.reserved) }; }
 
 // v5 item 3, touch point 1: an optional module-level progress callback, same setter style as
 // setBudget/setCache. Unset (the default, and every caller other than the CLI, including every
@@ -546,66 +578,77 @@ async function invoke(seat, { system, user, log, label }) {
     maxTokens,
     retries: isAnthropicSeat ? 2 : 1,
   }).usd;
-  const verdict = wouldBreach({ spent: budget.spent, cap: budget.cap, projected });
+  const verdict = wouldBreach({ spent: budget.spent + budget.reserved, cap: budget.cap, projected });
   if (verdict.breach) {
-    log(`  ${label}: STOPPED - ${formatUsd(budget.spent)} spent, this stage could cost up to ${formatUsd(projected)}, ceiling is ${formatUsd(budget.cap)}.`);
+    const inFlight = budget.reserved > 0 ? ` (plus up to ${formatUsd(budget.reserved)} reserved by calls still in flight)` : '';
+    log(`  ${label}: STOPPED - ${formatUsd(budget.spent)} spent${inFlight}, this stage could cost up to ${formatUsd(projected)}, ceiling is ${formatUsd(budget.cap)}.`);
     throw new BudgetExceeded({ label, seat: `${seat.provider}/${seat.model}`, spent: budget.spent, cap: budget.cap, projected });
   }
+  // Reserved synchronously - no await between the check above and this line - and released in the
+  // finally below whether the call succeeds or throws. See `reserved` at the top of the budget block.
+  budget.reserved += projected;
+  try {
 
-  progressHook({ label, lab: labOf(seat), startedAt: new Date().toISOString() });
+    progressHook({ label, lab: labOf(seat), startedAt: new Date().toISOString() });
 
-  const ask = extra => call(seat.provider, {
-    model: seat.model,
-    system,
-    messages: [{ role: 'user', content: user }],
-    maxTokens: seat.maxTokens ?? DEFAULT_MAX_TOKENS,
-    temperature: seat.temperature,
-    extra,
-    // v7.1: a seat's own override of its provider's default base URL - e.g. LM Studio on
-    // :1234 instead of Ollama's :11434, or a remote Ollama box. Ignored by every adapter except
-    // callOpenAICompat, which is the only one that reads it.
-    baseUrl: seat.baseUrl,
-  });
-  let res = await ask(seat.extra);
-  let wasted = 0;
-  // Claude's adaptive thinking counts against max_tokens and is not text. On
-  // a hard prompt it can spend the whole budget before writing a word - the
-  // netcode review on 2026-09-07 did exactly that three stages in a row, and
-  // the panel reviewed an empty page twice. The same budget can also cut a
-  // reply off mid-sentence (the v2 criteria stage, same day: 1534 thinking
-  // tokens, JSON truncated), which is just as unusable. Either way: retry
-  // once with thinking off.
-  //
-  // Bug-audit fix, 2026-09-16: also accepts `'length'`, not only the literal `'max_tokens'` -
-  // an Anthropic seat routed through single-vendor mode answers via callOpenAICompat(), not
-  // callAnthropic(), and OpenAI-compatible APIs (including OpenRouter) report a token-limit stop
-  // as `finish_reason: "length"`, never the literal string `"max_tokens"` that is Anthropic's own
-  // native API vocabulary. The `cut`/"[hit the cap]" log indicator a few lines below already
-  // checked both spellings; this retry trigger only checked one, so it silently never fired for
-  // any single-vendor-routed Anthropic seat even after the `isAnthropicSeat` fix above.
-  if (isAnthropicSeat && res.usage.thinking > 0 && (res.usage.stop === 'max_tokens' || res.usage.stop === 'length')) {
-    wasted = costOf(res.provider, res.model, res.usage).usd;
-    const how = res.text.trim() ? `text cut off - ${res.usage.thinking} of ${res.usage.output} tokens went to thinking` : `empty text - all ${res.usage.output} tokens went to thinking`;
-    log(`  ${label}: ${how} (stop: max_tokens, ${formatUsd(wasted)} spent); retrying once with thinking disabled.`);
-    res = await ask({ ...(seat.extra || {}), thinking: { type: 'disabled' } });
+    const ask = extra => call(seat.provider, {
+      model: seat.model,
+      system,
+      messages: [{ role: 'user', content: user }],
+      maxTokens: seat.maxTokens ?? DEFAULT_MAX_TOKENS,
+      temperature: seat.temperature,
+      extra,
+      // v7.1: a seat's own override of its provider's default base URL - e.g. LM Studio on
+      // :1234 instead of Ollama's :11434, or a remote Ollama box. Ignored by every adapter except
+      // callOpenAICompat, which is the only one that reads it.
+      baseUrl: seat.baseUrl,
+    });
+    let res = await ask(seat.extra);
+    let wasted = 0;
+    // Claude's adaptive thinking counts against max_tokens and is not text. On
+    // a hard prompt it can spend the whole budget before writing a word - the
+    // netcode review on 2026-09-07 did exactly that three stages in a row, and
+    // the panel reviewed an empty page twice. The same budget can also cut a
+    // reply off mid-sentence (the v2 criteria stage, same day: 1534 thinking
+    // tokens, JSON truncated), which is just as unusable. Either way: retry
+    // once with thinking off.
+    //
+    // Bug-audit fix, 2026-09-16: also accepts `'length'`, not only the literal `'max_tokens'` -
+    // an Anthropic seat routed through single-vendor mode answers via callOpenAICompat(), not
+    // callAnthropic(), and OpenAI-compatible APIs (including OpenRouter) report a token-limit stop
+    // as `finish_reason: "length"`, never the literal string `"max_tokens"` that is Anthropic's own
+    // native API vocabulary. The `cut`/"[hit the cap]" log indicator a few lines below already
+    // checked both spellings; this retry trigger only checked one, so it silently never fired for
+    // any single-vendor-routed Anthropic seat even after the `isAnthropicSeat` fix above.
+    if (isAnthropicSeat && res.usage.thinking > 0 && (res.usage.stop === 'max_tokens' || res.usage.stop === 'length')) {
+      wasted = costOf(res.provider, res.model, res.usage).usd;
+      // Counted now, not with the final stage: if the retry below throws, this attempt was still
+      // billed (bug-audit fix, 2026-09-23, BugAudit_MoneyPath #4a - it used to vanish from `spent`).
+      budget.spent += wasted;
+      const how = res.text.trim() ? `text cut off - ${res.usage.thinking} of ${res.usage.output} tokens went to thinking` : `empty text - all ${res.usage.output} tokens went to thinking`;
+      log(`  ${label}: ${how} (stop: max_tokens, ${formatUsd(wasted)} spent); retrying once with thinking disabled.`);
+      res = await ask({ ...(seat.extra || {}), thinking: { type: 'disabled' } });
+    }
+    const cost = costOf(res.provider, res.model, res.usage);
+    const stage = {
+      label,
+      provider: res.provider,
+      model: res.model,
+      lab: labOf(seat),
+      usage: res.usage,
+      usd: cost.usd + wasted,
+      priced: cost.priced,
+      ms: Date.now() - started,
+      text: res.text,
+    };
+    budget.spent += cost.usd; // `wasted` was already added when the first attempt was discarded
+    const think = res.usage.thinking ? ` (${res.usage.thinking} thinking)` : '';
+    const cut = res.usage.stop === 'max_tokens' || res.usage.stop === 'length' ? ' [hit the cap]' : '';
+    log(`  ${label}: ${res.provider}/${res.model} - ${res.usage.input} in, ${res.usage.output} out${think}${cut}, ${formatUsd(stage.usd)}, ${(stage.ms / 1000).toFixed(1)}s`);
+    return stage;
+  } finally {
+    budget.reserved -= projected;
   }
-  const cost = costOf(res.provider, res.model, res.usage);
-  const stage = {
-    label,
-    provider: res.provider,
-    model: res.model,
-    lab: labOf(seat),
-    usage: res.usage,
-    usd: cost.usd + wasted,
-    priced: cost.priced,
-    ms: Date.now() - started,
-    text: res.text,
-  };
-  budget.spent += stage.usd;
-  const think = res.usage.thinking ? ` (${res.usage.thinking} thinking)` : '';
-  const cut = res.usage.stop === 'max_tokens' || res.usage.stop === 'length' ? ' [hit the cap]' : '';
-  log(`  ${label}: ${res.provider}/${res.model} - ${res.usage.input} in, ${res.usage.output} out${think}${cut}, ${formatUsd(stage.usd)}, ${(stage.ms / 1000).toFixed(1)}s`);
-  return stage;
 }
 
 // 7.x single-vendor mode: the one composition point that rewrites a config's whole seat roster
@@ -888,7 +931,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   if (config.ambiguity_union?.enabled && !initialDraft) {
     const seats = config.seats.ambiguity || (config.seats.critics || []).slice(0, 3);
     log(`\nStage: ambiguity union (${seats.length} seat(s) list ambiguities before any proposal exists)`);
-    const results = await Promise.all(seats.map(async seat => {
+    const results = await settleAll(seats.map(async seat => {
       const lines = []; const say = m => lines.push(m);
       let list = [];
       try {
@@ -901,6 +944,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         list = Array.isArray(parsed?.ambiguities) ? parsed.ambiguities.filter(a => typeof a === 'string' && a.trim()) : [];
         say(`  ${labOf(seat)}/${seat.model}: ${list.length} ambiguit${list.length === 1 ? 'y' : 'ies'}.`);
       } catch (err) {
+        rethrowControlFlow(err);
         say(`  ${labOf(seat)}/${seat.model}: no ambiguity reply (${String(err.message).slice(0, 100)}).`);
       }
       return { lines, list };
@@ -1080,7 +1124,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     const samples = config.proposals.samples ?? 1;
     const keep = config.proposals.keep ?? parts;
     log(`\nStage: proposals (${proposers.length} labs, ${samples} attempt(s) of up to ${parts} parts each, blind${samples > 1 ? `; a judge keeps up to ${keep} per lab` : ''})`);
-    const results = await Promise.all(proposers.map(async seat => {
+    const results = await settleAll(proposers.map(async seat => {
       const lines = [];
       const say = m => lines.push(m);
       const capped = { ...seat, maxTokens: Math.min(seat.maxTokens ?? DEFAULT_MAX_TOKENS, parts * perPart + 300) };
@@ -1191,7 +1235,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       const labs = [...new Set(proposals.map(p => p.lab))];
       const seatOf = lab => proposers.find(s => labOf(s) === lab);
       log(`\nStage: debate (${labs.length} labs read each other's proposals, anonymised)`);
-      const postResults = await Promise.all(labs.map(async lab => {
+      const postResults = await settleAll(labs.map(async lab => {
         const lines = []; const say = m => lines.push(m);
         let posts = [], revisions = [], toolResults = [], toolWarnings = [];
         try {
@@ -1236,6 +1280,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             }
           }
         } catch (err) {
+          rethrowControlFlow(err);
           say(`  ${lab}: no debate reply (${String(err.message).slice(0, 100)}).`);
         }
         return { lines, posts, revisions, toolResults, toolWarnings };
@@ -1255,7 +1300,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
 
       log(`\nStage: replies (each author answers the posts on its proposals)`);
       const replies = [];
-      const replyResults = await Promise.all(labs.map(async lab => {
+      const replyResults = await settleAll(labs.map(async lab => {
         const lines = []; const say = m => lines.push(m);
         const mineWithPosts = proposals.filter(p => p.lab === lab && posts.some(x => x.on === p.id));
         if (!mineWithPosts.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
@@ -1279,6 +1324,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           progressHook({ kind: 'verdict', label: `reply-${lab}`, lab, decisions: { keep: n('keep'), amend: n('amend'), withdraw: n('withdraw') } });
           return { lines, replies: mine };
         } catch (err) {
+          rethrowControlFlow(err);
           say(`  ${lab}: no reply-round answer (${String(err.message).slice(0, 100)}).`);
           return { lines, replies: [] };
         }
@@ -1320,7 +1366,8 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             const parsed = parseJson(cst.text);
             const mine = (parsed?.replies || []).find(r => (maps.idFrom[r.id] || r.id) === target.id);
             return mine ? String(mine.action || '').toLowerCase() : 'keep';
-          } catch {
+          } catch (err) {
+            rethrowControlFlow(err);
             return 'keep';
           }
         });
@@ -1441,6 +1488,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
               log: say, label: attempt === 0 ? `panel-${round}-${labOf(criticSeat)}${tag}` : `panel-${round}-${labOf(criticSeat)}${tag}-answered`,
             }));
           } catch (err) {
+            rethrowControlFlow(err);
             // A lab that is down (429 after retries, 5xx, network) must not take
             // the panel down with it. It abstains, and the log says why.
             say(`  ${labOf(criticSeat)}/${criticSeat.model}: no reply (${String(err.message).slice(0, 120)}) - counted as an abstention.`);
@@ -1470,7 +1518,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
               effectiveCap = biggerCap;
               parsed = parseJson(cs.text);
             } catch (err) {
-              if (err instanceof BudgetExceeded || err instanceof ExternalPause) throw err;
+              rethrowControlFlow(err);
               say(`  ${labOf(criticSeat)}/${criticSeat.model}: the bigger-cap retry failed (${String(err.message).slice(0, 120)}) - keeping the first attempt's abstention.`);
             }
           }
@@ -1536,7 +1584,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         // Blind seats see nothing of each other, so they run at the same
         // time. Each seat's log lines are buffered and flushed in seat order,
         // so the run log reads exactly as it did when they ran in sequence.
-        const results = await Promise.all(config.seats.critics.map(async criticSeat => {
+        const results = await settleAll(config.seats.critics.map(async criticSeat => {
           const lines = [];
           const verdict = await reviewSeat(criticSeat, [], m => lines.push(m));
           return { verdict, lines };
@@ -1793,6 +1841,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         // crash the whole run (a real paid run was lost to exactly this). Gated on
         // degrade_on_provider_error so a chain that doesn't opt in reproduces today's crash
         // exactly.
+        rethrowControlFlow(err);
         if (!config.degrade_on_provider_error) throw err;
         log(`  ${criticSeat.provider}/${criticSeat.model}: [COUNCIL-E005] provider failure (${String(err.message).slice(0, 120)}) - seat dropped, not counted as a pass or an objection.`);
         dropouts.push({ lab: labOf(criticSeat), model: criticSeat.model, stage: `critique-${round}`, reason: `provider failure: ${String(err.message).slice(0, 200)}` });

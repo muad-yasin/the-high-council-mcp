@@ -35,6 +35,24 @@ export function runIdToDate(runId) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_MoneyPath_2026-09-23.md #3): --rematch and --replay
+// write sibling folders named `<run-id>.rematch-<seed>` and `<run-id>.replay-<YYYY-MM-DD>`. Those
+// failed runIdToDate, so --spend never counted what they paid. runIdToDate itself stays strict -
+// metrics, verdict-stats and cost-forecast read it and must not start treating a rematch as a
+// separate run - so spend has its own reader. The timestamp in the name is the ORIGINAL run's, not
+// when the rematch/replay ran and paid, so the date comes from the folder's own files instead.
+const SIDE_RUN = /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2})$/;
+export function spendDateOf(runsDir, id) {
+  const strict = runIdToDate(id);
+  if (strict) return strict;
+  if (!SIDE_RUN.test(id)) return null;
+  const dir = join(runsDir, id);
+  for (const f of ['report.json', 'STOPPED-budget.json', 'run.json']) {
+    try { return statSync(join(dir, f)).mtime; } catch { /* try the next */ }
+  }
+  try { return statSync(dir).mtime; } catch { return null; }
+}
+
 // A finished run's cost is in report.json. A run that is still going, or that
 // the cap stopped, has no report - but every stage it paid for left a
 // <label>.usage.json behind, so the spend is still on disk.
@@ -50,6 +68,9 @@ function costOfRun(dir) {
     usd += readJson(join(dir, f))?.usd ?? 0;
     stages += 1;
   }
+  // A capped --rematch/--replay has no stage cache, so no usage files - its STOPPED-budget.json
+  // carries what the sitting spent. A normal stopped run has usage files, which win.
+  if (!stages) usd = readJson(join(dir, 'STOPPED-budget.json'))?.spentUsd ?? 0;
   return { usd, chain: readJson(join(dir, 'run.json'))?.chain ?? null, complete: false, stages };
 }
 
@@ -118,7 +139,7 @@ export function spendReport(runsDir, { days = 1, now = Date.now() } = {}) {
   }
 
   for (const id of ids) {
-    const when = runIdToDate(id);
+    const when = spendDateOf(runsDir, id);
     if (!when || when.getTime() < cutoff) continue;
     const dir = join(runsDir, id);
     try {
@@ -167,7 +188,7 @@ export function costToday(runsDir, { date = new Date(), now = Date.now() } = {})
   }
 
   for (const id of ids) {
-    const when = runIdToDate(id);
+    const when = spendDateOf(runsDir, id);
     if (!when || when.getTime() < startOfDay || when.getTime() >= endOfDay) continue;
     const dir = join(runsDir, id);
     try {

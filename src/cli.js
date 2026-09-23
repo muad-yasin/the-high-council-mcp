@@ -42,7 +42,7 @@ import { formatCouncilError, ERROR_CATALOG } from './errors.js';
 import { loadPolicy, buildPolicyContext, evaluatePolicy, parseChangeRequestFields, POLICY_PATH } from './policy.js';
 import { deriveDisagreementGroups } from './disagreement-groups.js';
 import { shouldEnableAudit, loadHmacKey, createAuditWriter } from './audit.js';
-import { runCouncilReplay } from './council-replay.js';
+import { runCouncilReplay, replayDirFor } from './council-replay.js';
 
 // v5 §1 candidate 4: distinct exit codes for a degradable condition (a
 // stranger can fix it and continue - a missing key, an unpriced model)
@@ -594,6 +594,38 @@ if (argv[0] === 'digest') {
   process.exit(0);
 }
 
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_MoneyPath_2026-09-23.md #3): parsed here, above
+// --rematch and --replay, because both of those call runChain() - and they used to do it before
+// this block ran and before setBudget(), so they spent under the module default of no ceiling.
+// Per-run spend ceiling. A BYOK tool that a stranger points their own API
+// keys at ships with a ceiling ON by default; --max-usd none is the explicit
+// way to run without one, and says so in the log.
+const DEFAULT_MAX_USD = 7;
+const maxUsdArg = flag('max-usd', process.env.MAX_USD_PER_RUN ?? String(DEFAULT_MAX_USD));
+let maxUsd;
+if (maxUsdArg === true) { console.error('--max-usd: needs a value, e.g. --max-usd 2 or --max-usd none'); process.exit(2); }
+else if (maxUsdArg === 'none' || maxUsdArg === 'off' || maxUsdArg === '0') maxUsd = null;
+else {
+  maxUsd = Number(maxUsdArg);
+  if (!Number.isFinite(maxUsd) || maxUsd < 0) {
+    console.error(`--max-usd: expected a number of dollars or "none", got "${maxUsdArg}"`);
+    process.exit(2);
+  }
+}
+
+// --rematch / --replay stop at the ceiling like a normal run. They have no stage cache and no
+// per-stage usage files, so this marker is the only record of what the stopped sitting spent -
+// spend.js falls back to it, which is how --spend still counts a capped rematch or replay.
+function writeSideRunBudgetStop(dir, err, what) {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'STOPPED-budget.json'), JSON.stringify({
+    stoppedAt: err.label, seat: err.seat, spentUsd: err.spent, capUsd: err.cap, projectedStageUsd: err.projected,
+  }, null, 2));
+  console.error(`${what}: STOPPED - per-run spend cap reached before stage "${err.label}" (${formatUsd(err.spent)} spent of ${formatUsd(err.cap)}; ${err.seat} could cost up to ${formatUsd(err.projected)}). Raise it with --max-usd <higher> or --max-usd none.`);
+  process.exit(4);
+}
+
+
 // `--rematch <run-dir> [--rematch-seed N]` (item C, relay/runs/2026-09-15T15-12-52-325Z/
 // deliverable.md): re-runs an already-decided task with labs re-shuffled/re-anonymized
 // (src/rematch.js), then writes a concrete, checkable diff of the new verdict against the
@@ -654,6 +686,8 @@ if (rematchArg) {
   }, null, 2));
 
   console.log(`\nrematch of ${basename(originalRunDir)} (chain: ${chainName}, seed: ${seed})`);
+  setBudget(maxUsd);
+  console.log(`cap:   ${maxUsd === null ? 'none - this rematch has no spend ceiling' : `${formatUsd(maxUsd)} (--max-usd)`}`);
   let rematchResult;
   try {
     rematchResult = await runChain({
@@ -662,6 +696,7 @@ if (rematchArg) {
       log: line => console.log(line),
     });
   } catch (err) {
+    if (err instanceof BudgetExceeded) writeSideRunBudgetStop(rematchRunDir, err, '--rematch');
     console.error(`--rematch: the reshuffled run did not complete (${err.message}). No diff written - a rematch that never reached a verdict has nothing to diff.`);
     process.exit(1);
   }
@@ -713,6 +748,8 @@ if (argv.includes('--replay')) {
   const runMetaForChain = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
   const chainsDirCandidates = [join(work, 'chains'), join(pkg, 'chains')];
   const chainsDir = chainsDirCandidates.find(d => existsSync(join(d, `${runMetaForChain.chain}.json`))) || chainsDirCandidates[1];
+  setBudget(maxUsd);
+  console.log(`cap:   ${maxUsd === null ? 'none - this replay has no spend ceiling' : `${formatUsd(maxUsd)} (--max-usd)`}`);
   try {
     const { replayDir, diff } = await runCouncilReplay(runDir, {
       chainsDir,
@@ -724,6 +761,7 @@ if (argv.includes('--replay')) {
     console.log(`\nWrote ${replayDir} (report.json, deliverable.md, replay-diff.json).`);
     console.log(`signoff_match: ${diff.signoff_match}  verdict_category_changed: ${diff.verdict_category_changed}`);
   } catch (err) {
+    if (err instanceof BudgetExceeded) writeSideRunBudgetStop(replayDirFor(runDir, date), err, '--replay');
     console.error(`--replay: ${err.message}`);
     process.exit(1);
   }
@@ -931,22 +969,6 @@ const allowUnfenced = unfencedArg === true;
 const unfencedAllowList = (unfencedArg && unfencedArg !== true)
   ? String(unfencedArg).split(',').map(x => x.trim()).filter(Boolean)
   : [];
-
-// Per-run spend ceiling. A BYOK tool that a stranger points their own API
-// keys at ships with a ceiling ON by default; --max-usd none is the explicit
-// way to run without one, and says so in the log.
-const DEFAULT_MAX_USD = 7;
-const maxUsdArg = flag('max-usd', process.env.MAX_USD_PER_RUN ?? String(DEFAULT_MAX_USD));
-let maxUsd;
-if (maxUsdArg === true) { console.error('--max-usd: needs a value, e.g. --max-usd 2 or --max-usd none'); process.exit(2); }
-else if (maxUsdArg === 'none' || maxUsdArg === 'off' || maxUsdArg === '0') maxUsd = null;
-else {
-  maxUsd = Number(maxUsdArg);
-  if (!Number.isFinite(maxUsd) || maxUsd < 0) {
-    console.error(`--max-usd: expected a number of dollars or "none", got "${maxUsdArg}"`);
-    process.exit(2);
-  }
-}
 
 if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   console.log(`The High Council - a chained multi-model harness

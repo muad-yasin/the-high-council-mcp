@@ -60,7 +60,8 @@ export function buildCanaryPost(target, { by = 'canary' } = {}) {
 /**
  * Runs the canary probe against one target proposal. `decide` is the capitulation source -
  * `(target, post) => 'keep' | 'amend' | 'withdraw'` (sync or async): a mock function in tests, or
- * a real seat call in chain.js's default wiring. Never throws outward - an unreadable/failing/
+ * a real seat call in chain.js's default wiring. Never throws outward (except a spend-cap stop or
+ * an external pause, which are control flow) - an unreadable/failing/
  * out-of-range decision degrades to `'keep'` (the author holds), the same "assume nothing
  * changed" posture every other optional stage in this harness already takes on a bad reply.
  * @param {Array} proposals
@@ -76,7 +77,11 @@ export async function injectCanary(proposals, decide, { by = 'canary' } = {}) {
   try {
     const result = await decide(target, post);
     if (['keep', 'amend', 'withdraw'].includes(result)) action = result;
-  } catch {
+  } catch (err) {
+    // A spend-cap stop or an external pause is control flow, not a failed reply - it must reach
+    // the CLI (bug audit 2026-09-23, BugAudit_MoneyPath #2). `controlFlow` is set by chain.js's
+    // BudgetExceeded/ExternalPause; checked by marker because this module cannot import chain.js.
+    if (err?.controlFlow) throw err;
     // degrade to holds - see doc-comment above
   }
   const capitulated = action === 'amend' || action === 'withdraw';
