@@ -9,7 +9,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -17,9 +17,9 @@ const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).ver
 
 // A live session: requests go in at once, and the server stays up until every id is answered,
 // so async tools (start_run waits on its child) get to reply.
-function mcpSession(cwd, calls, { timeoutMs = 60_000 } = {}) {
+function mcpSession(cwd, calls, { timeoutMs = 60_000, env = {} } = {}) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd } });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...env } });
     const want = new Set([1, ...calls.map((_, i) => i + 2)]);
     const byId = new Map();
     let buf = '';
@@ -140,4 +140,35 @@ test('CLI: --version prints the package version; a new run never reuses an exist
     const bad = spawnSync(process.execPath, [cli, '--chain', 'mock', '--task', 'tasks/t.md', '--run-id', '../x'], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir } });
     assert.equal(bad.status, 2);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('start_run: a slow start that the artifact gate then refuses is started:false, not running', async () => {
+  // Deterministic slow start, no CPU burners needed: a preload holds the run child for 2.5 s right
+  // after it has taken the lock and written run.json, i.e. before the artifact gate. The old fixed
+  // 1.5 s window (and a lock-only signal) both reported that as a running run.
+  const dir = workspace();
+  writeFileSync(join(dir, 'tasks', 'gate.md'), '# Review\n\nReview `src/billing/invoice.js` for bugs and fix the rounding.\n');
+  const preload = join(dir, 'slow-start.mjs');
+  writeFileSync(preload, `import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+const write = fs.writeFileSync;
+fs.writeFileSync = function (p, ...rest) {
+  const r = write.call(this, p, ...rest);
+  if (process.argv.includes('--chain') && /[\\\\/]runs[\\\\/][^\\\\/]+[\\\\/]run\\.json$/.test(String(p))) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2500);
+  return r;
+};
+syncBuiltinESMExports();
+`);
+  try {
+    const res = await mcpSession(dir, [
+      { name: 'start_run', arguments: { chain: 'mock', task: 'tasks/gate.md' } },
+      { name: 'start_run', arguments: { chain: 'mock', task: 'tasks/t.md' } },
+    ], { env: { NODE_OPTIONS: `--import=${pathToFileURL(preload).href}` } });
+    const [gated, ok] = [2, 3].map(id => body(res.get(id)));
+    assert.equal(gated.started, false, JSON.stringify(gated));
+    assert.equal(gated.exitCode, 9, JSON.stringify(gated));
+    assert.match(gated.logTail, /BLOCKED/);
+    assert.equal(ok.started, true, JSON.stringify(ok));
+    for (let i = 0; i < 120 && !existsSync(join(dir, 'runs', ok.run, 'report.json')); i++) await new Promise(r => setTimeout(r, 250));
+  } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });

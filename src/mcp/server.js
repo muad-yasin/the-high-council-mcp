@@ -197,6 +197,20 @@ const nextRunId = () => {
   lastRunMs = Math.max(Date.now(), lastRunMs + 1);
   return new Date(lastRunMs).toISOString().replace(/[:.]/g, '-');
 };
+// Waits until a run child launched from here is past every startup refusal, or has exited. The
+// signal is the child holding the run's lock AND having written state.json since it was spawned:
+// cli.js writes state.json first right after the artifact gate, which refuses after the lock is
+// taken, so the lock alone still read a gate refusal as running (zofia-8b, 2026-09-23). A resumed
+// run's folder keeps an older state.json, hence the mtime check. The 60 s bound is a backstop.
+async function untilPastStartup(child, runDir, spawnedAt, exited) {
+  const pastStartup = () => {
+    if (lockHolder(runDir)?.pid !== child.pid) return false;
+    try { return statSync(join(runDir, 'state.json')).mtimeMs >= spawnedAt; } catch { return false; }
+  };
+  const t0 = Date.now();
+  while (!exited() && !pastStartup() && Date.now() - t0 < 60_000) await new Promise(r => setTimeout(r, 100));
+}
+
 server.tool('start_run', 'Start a harness run in the background. Returns the run id to poll with run_status, or started:false with the exit code and log tail if the run stopped at once. task is a path relative to your working directory (tasks/x.md) or absolute; context is optional (context/war-of-love). draft + from_run + rounds=1 makes a panel-only grading pass.', {
   chain: z.string(),
   task: z.string(),
@@ -230,19 +244,16 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   mkdirSync(runsDir, { recursive: true });
   const logPath = join(work, `council-${id}.log`);
   const fd = openSync(logPath, 'a');
+  const spawnedAt = Date.now();
   const child = spawn(...cliCommand(args), { cwd: work, env: cliEnv, detached: true, stdio: ['ignore', fd, fd] });
   closeSync(fd); // the child holds its own copy; this one used to leak for the server's lifetime
   let exited = null;
   child.on('exit', (code, signal) => { exited = { code, signal }; });
   child.unref();
-  // `started` is reported only once the child is known to be alive or to have ended well. It
-  // used to say started:true for a run that died on its first line (McpServer #3). Most refusals
-  // (lint, policy, missing key, PII, the artifact gate) happen within the first second.
-  const t0 = Date.now();
-  while (!exited && Date.now() - t0 < 5000) {
-    await new Promise(r => setTimeout(r, 250));
-    if (existsSync(join(runsDir, id)) && Date.now() - t0 >= 1500) break;
-  }
+  // `started` is reported only once the child is known to be past every startup refusal or to
+  // have ended. It used to say started:true for a run that died on its first line (McpServer #3),
+  // and then trusted a 1.5 s window, which a loaded machine's slow start outran.
+  await untilPastStartup(child, join(runsDir, id), spawnedAt, () => exited);
   const logTail = () => { try { return readFileSync(logPath, 'utf8').split('\n').slice(-20).join('\n'); } catch { return ''; } };
   if (exited && exited.code !== 0 && exited.code !== 3) {
     return text({ started: false, run: existsSync(join(runsDir, id)) ? id : null, exitCode: exited.code, signal: exited.signal, log: logPath, logTail: logTail() });
@@ -343,6 +354,7 @@ async function resume(run, maxUsd) {
   const fd = openSync(logPath, 'a');
   const resumeArgs = ['--resume', join('runs', run)];
   if (maxUsd !== undefined) resumeArgs.push('--max-usd', maxUsd === 0 ? 'none' : String(maxUsd));
+  const spawnedAt = Date.now();
   const child = spawn(...cliCommand(resumeArgs), { cwd: work, env: cliEnv, detached: true, stdio: ['ignore', fd, fd] });
   closeSync(fd);
   // Same check start_run makes (2789f85): `resumed` is reported only once the child is known to be
@@ -351,12 +363,9 @@ async function resume(run, maxUsd) {
   let exited = null;
   child.on('exit', (code, signal) => { exited = { code, signal }; });
   child.unref();
-  // Wait for a real signal, not a fixed window (a fixed 1.5 s read a slow, loaded machine's dying
-  // resume as running): the child either exits, or takes the run's lock, which it does only once it
-  // is past every startup refusal. The bound is only a backstop.
-  const runDir = join(runsDir, run);
-  const t0 = Date.now();
-  while (!exited && lockHolder(runDir)?.pid !== child.pid && Date.now() - t0 < 60_000) await new Promise(r => setTimeout(r, 100));
+  // A real signal, not a fixed window (a fixed 1.5 s read a slow, loaded machine's dying resume
+  // as running).
+  await untilPastStartup(child, join(runsDir, run), spawnedAt, () => exited);
   if (exited && exited.code !== 0 && exited.code !== 3) {
     let logTail = '';
     try { logTail = readFileSync(logPath, 'utf8').split('\n').slice(-20).join('\n'); } catch { /* none */ }
