@@ -248,6 +248,10 @@ server.tool('resume_run', 'Resume a paused run after its external stage was answ
 });
 
 async function resume(run, maxUsd) {
+  // CLI audit #2: a --rematch/--replay folder cannot be resumed (the CLI refuses it too).
+  if (/\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2})$/.test(run) || readJson(join(runsDir, run, 'run.json'))?.rematchOf) {
+    return { resumed: false, run, error: 'this is a --rematch/--replay folder, which cannot be resumed; start the rematch or replay again instead' };
+  }
   // 2026-09-23 audit (CLI finding 4): a resume while the run is still going used to start a
   // second process paying for the same stages. The spawned CLI takes the run's lock itself
   // (src/run-lock.js), which is the check that holds; this one just answers the agent

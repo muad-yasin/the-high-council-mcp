@@ -294,14 +294,14 @@ export const CUT_OFF_RETRY_MAX_TOKENS = 64000;
 // Criteria that describe the criteria list (its JSON shape, what each criterion must be) rather
 // than the deliverable. Any one JSON-shape item flags it; otherwise a third or more of the items
 // talking about "criterion/criteria" does. Returns the offending items.
-export function metaCriteria(criteria) {
+export function metaCriteria(criteria, { shapeOnly = false } = {}) {
   const list = (criteria || []).filter(c => typeof c === 'string');
   // Bug-audit fix, 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #7): "json object" or
   // "list of strings" alone flagged a legitimate criterion about the deliverable (an API that
   // returns a JSON object). The shape words now count only when the criterion is about criteria.
   const shape = list.filter(c => /["'`]criteria["'`]\s*key/i.test(c)
     || (/json object|list of strings/i.test(c) && /\bcriteri(on|a)\b/i.test(c)));
-  if (shape.length) return shape;
+  if (shape.length || shapeOnly) return shape;
   const about = list.filter(c => /\bcriteri(on|a)\b/i.test(c));
   return about.length >= 2 && about.length / list.length >= 1 / 3 ? about : [];
 }
@@ -1368,6 +1368,19 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // 1. Acceptance criteria. Written before the deliverable exists, so they
   //    describe the request rather than rationalising whatever got built.
   let criteria = config.criteria;
+  // Resume-cache audit #2: criteria handed in (a chain's fixed list, or --from-run's) skipped both
+  // guards below, so a run could reuse criteria a guard had rejected. They hold here too; there is
+  // no retry for a handed-in list, so a failing one stops before any paid review round.
+  // Only the unambiguous signals stop the run: a handed-in list cannot be retried, and the looser
+  // "several criteria mention criteria" signal, which is fine for asking a seat once more, would
+  // block a legitimate list on a word. That one is reported instead.
+  if (criteria && criteria.length) {
+    const bad = metaCriteria(criteria, { shapeOnly: true }).length ? 'describe the criteria list itself, not the request'
+      : infeasibleCriteria(criteria, { handoff: !!config.handoff, debate: !!config.debate }).length ? 'demand documents a single build stage cannot produce'
+      : null;
+    if (bad) throw new Error(`The criteria handed to this run ${bad}. Stopped before any paid review round.`);
+    if (metaCriteria(criteria).length) log(`  !! some handed-in criteria read as being about the criteria list itself - check them (the run continues).`);
+  }
   if (!criteria || criteria.length === 0) {
     log('\nStage: acceptance criteria');
     const s = record(await invoke(resolveCriteriaSeat(config), {

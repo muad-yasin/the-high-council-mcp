@@ -638,6 +638,7 @@ if (argv[0] === 'digest') {
 // keys at ships with a ceiling ON by default; --max-usd none is the explicit
 // way to run without one, and says so in the log.
 const DEFAULT_MAX_USD = 7;
+const SIDE_RUN_FOLDER = /\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2})$/;
 const maxUsdArg = flag('max-usd', process.env.MAX_USD_PER_RUN ?? String(DEFAULT_MAX_USD));
 let maxUsd;
 if (maxUsdArg === true) { console.error('--max-usd: needs a value, e.g. --max-usd 2 or --max-usd none'); process.exit(2); }
@@ -669,6 +670,25 @@ function writeSideRunBudgetStop(dir, err, what) {
 // original (src/verdict-diff.js, schemas/verdict-diff.json) - order/framing robustness, not a
 // re-judgment of the deliverable's quality. Config-load-time reshuffle in this CLI wrapper only;
 // src/chain.js and src/tools.js are both untouched (0-line delta, per the plan).
+// Resume-cache audit #3 (Review/PreRelease_Audit_ResumeCache_2026-09-23.md): --rematch and --replay
+// have no stage cache and do not catch an external pause, so on a chain with an external seat they
+// paid everything up to that seat and then died - no NEEDS file, nothing to resume, and --spend never
+// saw the cost. They also re-run from the task text alone, ignoring the original run's --context,
+// --draft and --from-run criteria, so the diff would blame the roster for a difference in inputs.
+// Both are refused up front, before anything is paid.
+function refuseSideRun(what, config, runMeta) {
+  const external = everySeatOf(config).filter(s => s.provider === 'external');
+  if (external.length) {
+    console.error(`${what}: chain "${config.name}" has ${external.length} external seat(s). ${what} cannot pause for an external answer, so it would pay up to that seat and stop with nothing to resume. Refused before any call.`);
+    process.exit(2);
+  }
+  const inputs = ['context', 'draft', 'fromRun'].filter(k => runMeta?.[k]);
+  if (inputs.length) {
+    console.error(`${what}: the original run also used ${inputs.map(k => `--${k === 'fromRun' ? 'from-run' : k}`).join(', ')}, which ${what} does not carry over, so any difference would come from the inputs, not the panel. Refused before any call.`);
+    process.exit(2);
+  }
+}
+
 const rematchArg = flag('rematch', null);
 if (rematchArg) {
   const originalRunDir = resolve(work, rematchArg);
@@ -705,6 +725,7 @@ if (rematchArg) {
   }
   const originalConfig = resolveChainSeats(JSON.parse(readFileSync(chainConfigPath, 'utf8')));
   const rematchConfig = reshuffleSeats(originalConfig, seed);
+  refuseSideRun('--rematch', originalConfig, originalRunMeta);
 
   const missing = checkSeats([
     rematchConfig.seats?.criteria, rematchConfig.seats?.builder, rematchConfig.seats?.reviser,
@@ -785,6 +806,11 @@ if (argv.includes('--replay')) {
   const runMetaForChain = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
   const chainsDirCandidates = [join(work, 'chains'), join(pkg, 'chains')];
   const chainsDir = chainsDirCandidates.find(d => existsSync(join(d, `${runMetaForChain.chain}.json`))) || chainsDirCandidates[1];
+  {
+    let replayConfig = null;
+    try { replayConfig = resolveChainSeats(JSON.parse(readFileSync(join(chainsDir, `${runMetaForChain.chain}.json`), 'utf8'))); } catch { /* council-replay reports a missing or bad chain itself */ }
+    if (replayConfig) refuseSideRun('--replay', replayConfig, runMetaForChain);
+  }
   setBudget(maxUsd);
   console.log(`cap:   ${maxUsd === null ? 'none - this replay has no spend ceiling' : `${formatUsd(maxUsd)} (--max-usd)`}`);
   try {
@@ -1083,13 +1109,30 @@ The 'relay' command is kept as an alias for 'council'; both run this file.`);
 // --resume: everything about the run comes from its own run.json.
 let resumeMeta = null;
 if (resumeRun) {
-  resumeMeta = JSON.parse(readFileSync(join(resolve(resumeRun), 'run.json'), 'utf8'));
+  // CLI audit #2: a --rematch/--replay folder is not a resumable run. --resume re-ran it with the
+  // un-reshuffled chain, paid in full and wrote a report that looked like a finished rematch; a
+  // replay folder has no run.json and crashed. Both are refused, as is a folder with no run.json.
+  const resumeDir = resolve(resumeRun);
+  if (SIDE_RUN_FOLDER.test(basename(resumeDir))) {
+    console.error(`--resume: ${basename(resumeDir)} is a --rematch/--replay folder, which cannot be resumed. Run the --rematch or --replay again instead (with a higher --max-usd if the cap stopped it).`);
+    process.exit(2);
+  }
+  try { resumeMeta = JSON.parse(readFileSync(join(resumeDir, 'run.json'), 'utf8')); } catch (e) {
+    console.error(`--resume: ${resumeDir} has no readable run.json (${e.code || e.message}) - it is not a run folder this CLI can resume.`);
+    process.exit(2);
+  }
+  if (resumeMeta.rematchOf) {
+    console.error(`--resume: ${basename(resumeDir)} is a --rematch of ${resumeMeta.rematchOf}, which cannot be resumed. Run the --rematch again instead.`);
+    process.exit(2);
+  }
 }
 const chainNameEff = resumeMeta?.chain || chainName;
 // A user's own chains/ takes precedence, so a custom chain works from an
 // npm install without editing anything inside node_modules.
-const configPath = [join(work, 'chains', `${chainNameEff}.json`), join(pkg, 'chains', `${chainNameEff}.json`)]
-  .find(existsSync) || join(pkg, 'chains', `${chainNameEff}.json`);
+// On resume the run's own start directory comes first (CLI audit #3's class): a custom chain lives in
+// the chains/ of the directory the run was started in, not wherever the resume is typed.
+const configPath = [resumeMeta?.cwd ? join(resumeMeta.cwd, 'chains', `${chainNameEff}.json`) : null, join(work, 'chains', `${chainNameEff}.json`), join(pkg, 'chains', `${chainNameEff}.json`)]
+  .filter(Boolean).find(existsSync) || join(pkg, 'chains', `${chainNameEff}.json`);
 if (!existsSync(configPath)) {
   console.error(`No such chain: ${configPath}`);
   process.exit(1);
@@ -1151,7 +1194,13 @@ let handedDraft = null;
 function criteriaOfRun(dir) {
   const reportPath = join(dir, 'report.json');
   if (existsSync(reportPath)) return JSON.parse(readFileSync(reportPath, 'utf8')).criteria;
-  const raw = readFileSync(join(dir, 'criteria.md'), 'utf8');
+  // Resume-cache audit #2 (Review/PreRelease_Audit_ResumeCache_2026-09-23.md): an unfinished run's
+  // criteria.md may be the answer a guard REJECTED - the accepted list is the last retry that ran
+  // (chain.js runs the feasibility retry, then the meta retry). Taking criteria.md reused rejected
+  // criteria and repeated the Zofia three-paid-rounds incident. runChain() also re-checks both
+  // guards on criteria handed in this way.
+  const label = ['criteria-retry', 'criteria-feasibility-retry', 'criteria'].find(l => existsSync(join(dir, `${l}.md`))) || 'criteria';
+  const raw = readFileSync(join(dir, `${label}.md`), 'utf8');
   return JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).criteria;
 }
 if (fromRun) {
@@ -1161,8 +1210,14 @@ if (fromRun) {
 // --draft <file>: review this exact text instead of building one. With
 // --from-run it replaces that run's build.md; the criteria still come from
 // the run. With --rounds 1 this is a panel-only pass: no builder, no reviser.
-const draftPath = resumeMeta ? resumeMeta.draft : flag('draft', null);
-if (draftPath) handedDraft = readFileSync(resolve(work, draftPath), 'utf8');
+// CLI audit #3 / resume-cache #5: a relative path is resolved against the directory the run was
+// started in (run.json's cwd), like the task - never against wherever the resume is typed, which
+// crashed, or silently read a different file of the same name. run.json now stores it absolute.
+const startDir = resumeMeta ? (resumeMeta.cwd || work) : work;
+const draftPathRaw = resumeMeta ? resumeMeta.draft : flag('draft', null);
+const draftPath = draftPathRaw && draftPathRaw !== true ? resolve(startDir, draftPathRaw) : draftPathRaw;
+if (draftPath === true) { console.error('--draft: needs a file path, e.g. --draft plan.md'); process.exit(2); }
+if (draftPath) handedDraft = readFileSync(draftPath, 'utf8');
 // The earlier run's folder, as recorded: absolute for runs started since 2026-09-23, else
 // relative to the directory the run was started in (run.json's cwd) - the same rule as the task.
 const fromRunDirOnResume = resumeMeta?.fromRun ? resolve(resumeMeta.cwd || work, resumeMeta.fromRun) : null;
@@ -1323,11 +1378,21 @@ const rawTaskTextForCacheFingerprint = request;
 const taskHash = taskHashOf(rawTaskTextForCacheFingerprint);
 // --context: standing direction documents, appended to every request so the
 // harness plans within the same direction the humans discuss (context/README.md).
-const contextArg = resumeMeta ? resumeMeta.context : flag('context', null);
+const contextArgRaw = resumeMeta ? resumeMeta.context : flag('context', null);
+// Stored absolute in run.json (see startDir above); an older run's relative entries resolve against
+// the directory it was started in.
+const contextArg = contextArgRaw && contextArgRaw !== true
+  ? String(contextArgRaw).split(',').map(x => x.trim()).filter(Boolean).map(e => resolve(startDir, e)).join(',')
+  : contextArgRaw;
+// CLI audit #1: what the artifact gate reads. The --context documents are standing direction, not
+// artifacts the task claims to include, and the CLI itself writes a `## <file>.md` heading over each
+// one - so gating them blocked every --context run at exit 9 (MCP start_run's `context` could never
+// work, since MCP cannot pass --allow-unfenced). The gate reads the task text alone.
+const requestForArtifactGate = request;
 if (contextArg) {
   const files = [];
   for (const entry of String(contextArg).split(',').map(x => x.trim()).filter(Boolean)) {
-    const p = resolve(entry);
+    const p = entry;
     if (statSync(p).isDirectory()) {
       for (const f of readdirSync(p).sort()) if (f.endsWith('.md') && f !== 'README.md') files.push(join(p, f));
     } else files.push(p);
@@ -1526,7 +1591,7 @@ log(`task:  ${taskPathEff}`);
   // v3 §3: same call site, same warn-never-block posture, checking for a task that names a
   // file it never inlines verbatim rather than a section/criteria conflict.
   const contractWarnings = preflightCheck(config, request);
-  const artifactFindings = checkArtifactReferences(request, { allow: unfencedAllowList });
+  const artifactFindings = checkArtifactReferences(requestForArtifactGate, { allow: unfencedAllowList });
   const preflightWarnings = [...contractWarnings, ...artifactFindings];
   if (preflightWarnings.length && !resumeMeta) {
     for (const w of preflightWarnings) log(`  PRE-FLIGHT WARNING: ${w.message}`);
