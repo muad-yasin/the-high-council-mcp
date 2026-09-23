@@ -73,6 +73,12 @@ export function lintChain(config, filePath = '<chain>') {
   // coldRead, claims, descending and preflight (bug audit 2026-09-23, GuardLayer #7).
   let allSeats = [];
   try { allSeats = everySeatOf(config || {}); } catch { /* malformed: other checks report it */ }
+  // The roster the run will really use, after single-vendor `transport` rerouting. The compliance
+  // check below reads this, not the file as written: lint used to run on the raw config, so an
+  // eu-only chain plus "transport": "openrouter" linted clean while every seat went to OpenRouter
+  // (bug audit 2026-09-23, GuardLayer #8).
+  let routedSeats = allSeats;
+  try { routedSeats = everySeatOf(resolveChainSeats(config || {})); } catch { /* an unroutable seat: the run reports it */ }
   const known = new Set([...providerNames(), 'mock', 'external']);
   const seenUnknown = new Set();
   for (const s of allSeats) {
@@ -298,7 +304,7 @@ export function lintChain(config, filePath = '<chain>') {
 
     const declaredProviders = new Set(config.compliance.providers || []);
     const declaredRegions = new Set(config.compliance.regions || []);
-    const actualProviders = new Set(allSeats.map(s => s.provider).filter(Boolean));
+    const actualProviders = new Set(routedSeats.map(s => s.provider).filter(Boolean));
     const description = config.description || '';
 
     for (const p of declaredProviders) {
@@ -341,7 +347,7 @@ export function lintChain(config, filePath = '<chain>') {
     // Every seat in a compliance chain must be priced: an unpriced seat is
     // uncapped (src/cost.js's priceOf), an unaccountable-spend gap a
     // procurement-facing chain must not carry.
-    for (const s of allSeats) {
+    for (const s of routedSeats) {
       if (s.provider && known.has(s.provider) && s.provider !== 'mock' && s.provider !== 'external' && !priceOf(s.provider, s.model)) {
         findings.push({
           kind: 'invalid-compliance-config',
@@ -353,7 +359,16 @@ export function lintChain(config, filePath = '<chain>') {
 
     // A region claim of "EU" is a claim no seat routes through a non-EU lab.
     if (declaredRegions.has('EU')) {
-      for (const s of allSeats) {
+      for (const s of routedSeats) {
+        // A seat rerouted by `transport` goes to that vendor, whatever lab's model it serves.
+        if (s.originalProvider && s.originalProvider !== s.provider) {
+          findings.push({
+            kind: 'invalid-compliance-config',
+            message: `compliance.regions claims "EU", but "transport" reroutes the "${s.originalProvider}" seat through "${s.provider}" - its data goes to that vendor, not to the lab the chain names.`,
+            fix: `Remove "transport" from ${filePath} (or from that seat), or drop "EU" from "compliance.regions".`,
+          });
+          continue;
+        }
         if (NON_EU_PROVIDERS.includes(s.provider)) {
           findings.push({
             kind: 'invalid-compliance-config',

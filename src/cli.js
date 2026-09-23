@@ -1078,9 +1078,11 @@ if (flag('rounds', null)) config.maxRounds = Number(flag('rounds'));
 // v5 §1 candidate 5: fail loud, before a single metered call, on a chain
 // config that is broken rather than merely risky - distinct from
 // preflightCheck's warn-never-block posture below, which is about task
-// text, not chain config validity. Skipped on --resume: the chain already
-// ran a first round successfully, so its config already proved runnable.
-if (!resumeMeta) {
+// text, not chain config validity. Also run on --resume (bug audit 2026-09-23,
+// RunChainStages #5 / GuardLayer #8): it used to be skipped there on the grounds that the first
+// sitting proved the config runnable - but the chain file is re-read on resume and may have been
+// edited in between, and a resumed run pays for everything after the pause.
+{
   const lintFindings = lintChain(config, configPath);
   if (lintFindings.length) {
     console.error(`\nchain lint: ${configPath} has ${lintFindings.length} problem(s) and will not run:\n`);

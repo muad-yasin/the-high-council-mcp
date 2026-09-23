@@ -880,7 +880,19 @@ async function invoke(seat, { system, user, log, label }) {
 // completely as the rewrite loop itself did.
 export function resolveChainSeats(config) {
   if (!config.transport && !allSeatsOf(config).some(s => s?.transport)) return config;
-  const rw = s => (s ? resolveVendorSeat(s, s.transport || config.transport) : s);
+  // Bug-audit fix, 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md #8): a seat rerouted
+  // through a vendor kept its own `region` ("EU") although its data now goes to that vendor, so an
+  // EU-only policy and the compliance lint both passed a chain that set `transport`. The claim is
+  // dropped - kept as `routedFromRegion` for the record - so allowed_regions fails closed on it.
+  const rw = s => {
+    if (!s) return s;
+    const out = resolveVendorSeat(s, s.transport || config.transport);
+    if (out !== s && out.provider !== s.provider && out.region !== undefined) {
+      const { region, ...rest } = out;
+      return { ...rest, routedFromRegion: region };
+    }
+    return out;
+  };
   const seats = { ...config.seats };
   for (const key of ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'security_reviewer']) {
     if (seats[key]) seats[key] = rw(seats[key]);
