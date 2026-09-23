@@ -48,7 +48,7 @@ test('4: a resume is refused while a live process holds the run, and nothing run
     writeFileSync(join(runDir, LOCK_FILE), JSON.stringify({ pid: holder.pid, host: hostname(), at: 'now' }));
     const before = stageLog(runDir);
     const r = run(['--resume', join('runs', id)], work);
-    assert.equal(r.code, 6, r.out);
+    assert.equal(r.code, 13, r.out); // a locked run has its own exit code (bug audit 2026-09-23, CLI #7)
     assert.match(r.out, /already running/);
     assert.equal(stageLog(runDir), before, 'a stage ran although the run was locked');
   } finally {

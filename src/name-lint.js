@@ -30,7 +30,7 @@
 //     as whatever forbidden list is actually loaded when it runs.
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, extname } from 'node:path';
+import { join } from 'node:path';
 
 export const DEFAULT_FORBIDDEN_HASHES = Object.freeze([]);
 // COUNCIL_FORBIDDEN_NAMES_FILE takes any path you give it - nothing here
@@ -48,9 +48,15 @@ const ENV_FORBIDDEN_FILE = 'COUNCIL_FORBIDDEN_NAMES_FILE';
 // never has anything to skip in the first place - this list only matters
 // for a working tree with local, uncommitted output sitting in it.
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'runs', '.council']);
-// Extensions worth reading as text. Anything else (images, fonts, lockfiles'
-// noise) is skipped rather than mis-decoded.
-const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.json', '.md', '.html', '.txt', '.yml', '.yaml', '.sh']);
+// Which files are read: every file that is text, not a fixed extension list. Bug-audit fix,
+// 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md #10): the old allowlist skipped shipped
+// .patch, .css and .example files, LICENSE and .gitignore - a forbidden name in any of them was
+// never seen. Binary content (a NUL byte in the first 8 KB) and very large files are skipped
+// rather than mis-decoded.
+const MAX_SCAN_BYTES = 2 * 1024 * 1024;
+function looksLikeText(buf) {
+  return !buf.subarray(0, 8192).includes(0);
+}
 
 export function hashName(name) {
   // NFC-normalize before hashing: an accented name typed in decomposed form
@@ -70,7 +76,10 @@ export function hashName(name) {
   // a latent gap in the file-PATH scan (which already replaced "-"/"_" with space for path text,
   // but never normalized the forbidden-name side to match).
   return createHash('sha256').update(
-    String(name).toLowerCase().normalize('NFC').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim()
+    // Apostrophes (straight and curly) separate words exactly like hyphens (bug audit 2026-09-23,
+    // GuardLayer #10): the tokenizer splits "Qel'Varo" into two words, so a listed name containing
+    // one used to hash as one word and could never match.
+    String(name).toLowerCase().normalize('NFC').replace(/[-_'\u2019]+/g, ' ').replace(/\s+/g, ' ').trim()
   ).digest('hex');
 }
 
@@ -103,7 +112,7 @@ function walk(dir, out = []) {
     if (SKIP_DIRS.has(entry.name)) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) { walk(full, out); continue; }
-    if (entry.isFile() && TEXT_EXTENSIONS.has(extname(entry.name))) out.push(full);
+    if (entry.isFile()) out.push(full);
   }
   return out;
 }
@@ -131,9 +140,12 @@ function walk(dir, out = []) {
 // only widen matches (a hyphenated compound now tokenizes as more, smaller
 // candidate spans), never narrow them - false positives already cost
 // nothing here (see candidateSpans' own comment).
-const WORD_RE = /\p{L}+/gu;
+// Combining marks belong to their word, and text is NFC-normalised before tokenizing (bug audit
+// 2026-09-23, GuardLayer #10): a name typed in decomposed form ("Jose" + U+0301) split at the mark.
+const WORD_RE = /\p{L}[\p{L}\p{M}]*/gu;
 
-function wordsWithLines(text) {
+function wordsWithLines(rawText) {
+  const text = String(rawText).normalize('NFC');
   const words = [];
   let line = 1;
   let lastIndex = 0;
@@ -199,7 +211,12 @@ export function scanForForbiddenNames(root, forbiddenHashes) {
       }
     }
     let text;
-    try { text = readFileSync(file, 'utf8'); } catch { continue; }
+    try {
+      if (statSync(file).size > MAX_SCAN_BYTES) continue;
+      const buf = readFileSync(file);
+      if (!looksLikeText(buf)) continue;
+      text = buf.toString('utf8');
+    } catch { continue; }
     for (const { span, line } of candidateSpans(wordsWithLines(text))) {
       if (hashes.has(hashName(span))) {
         // Unlike the key-redaction scan (candidate 11), the matched text

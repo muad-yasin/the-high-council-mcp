@@ -109,3 +109,15 @@ test('test_fresh_agent_produces_valid_stage: the bundle alone names every requir
   assert.match(bundle, /# RETURN/, 'the bundle must tell a zero-context reader how to hand its answer back');
   assert.match(bundle, /submit_stage/);
 });
+
+// Bug audit 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md backlog, repro /tmp/audit9/sc.mjs).
+test('stage contract: the judge contract names `picks`, the key the judge stage reads; a null field is not present', async () => {
+  const { validateDeliverable } = await import('../src/partial-deliverable.js');
+  const { stageKindOf, buildStageContract } = await import('../src/stage-contract.js');
+  const kind = stageKindOf('judge-glm');
+  assert.equal(kind, 'judge');
+  assert.deepEqual(validateDeliverable(kind, '{"picks":[2,1],"dropped_because":"dup"}'), { ok: true }, 'a correct judge reply is not PARTIAL');
+  assert.equal(validateDeliverable(kind, '{"kept":[2,1]}').ok, false, 'the merge key is not the judge key');
+  assert.match(JSON.stringify(buildStageContract({}, 'judge')), /picks/);
+  assert.equal(validateDeliverable('panel', '{"criteria":null,"failures":null}').ok, false);
+});

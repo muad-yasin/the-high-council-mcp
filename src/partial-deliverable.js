@@ -30,7 +30,9 @@ export function validateDeliverable(stageKind, text) {
   if (!parsed || typeof parsed !== 'object') {
     return { ok: false, missing: required, reason: 'deliverable is not readable as JSON' };
   }
-  const missing = required.filter(key => parsed[key] === undefined);
+  // Present means present with a value: `{"criteria": null}` used to pass as a complete
+  // deliverable (bug audit 2026-09-23, GuardLayer backlog).
+  const missing = required.filter(key => parsed[key] === undefined || parsed[key] === null);
   if (missing.length) {
     return { ok: false, missing, reason: `missing required field(s): ${missing.join(', ')}` };
   }

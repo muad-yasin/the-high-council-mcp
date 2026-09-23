@@ -57,6 +57,17 @@ const EXIT_FATAL = 6;
 // blocked or unjudged build from a crashed or degraded run.
 const EXIT_SECURITY_BLOCKED = 7;
 const EXIT_SECURITY_NOT_JUDGED = 8;
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_CLI_2026-09-23.md #7): several different outcomes
+// shared one code - 5 was both "a key is missing" and "preflight blocked the task", 2 was both a
+// usage error and the artifact gate, 6 was a fatal error, a policy refusal and a locked run, and 1
+// covered the PII gate and a changed task. A caller (a script, the MCP server, CI) could not tell
+// them apart. Every guard that refuses a run now has its own code; the README lists them all.
+const EXIT_ARTIFACTS_BLOCKED = 9;
+const EXIT_PREFLIGHT_BLOCKED = 10;
+const EXIT_PII_BLOCKED = 11;
+const EXIT_POLICY_REFUSED = 12;
+const EXIT_RUN_LOCKED = 13;
+const EXIT_SCOPE_CHANGED = 14;
 import { scanArtifacts } from './key-redaction.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1073,7 +1084,20 @@ try {
   console.error(`\n${formatCouncilError('COUNCIL-E003', { path: configPath })}`);
   process.exit(EXIT_FATAL);
 }
-if (flag('rounds', null)) config.maxRounds = Number(flag('rounds'));
+// A positive whole number or nothing. Bug-audit fix, 2026-09-23 (GuardLayer backlog): `--rounds
+// abc` became NaN, so zero review rounds ran and the run exited 0 with an unreviewed deliverable;
+// `--rounds 1.5` paid for a revision no round ever graded; `--rounds 0` reviewed nothing.
+{
+  const roundsArg = flag('rounds', null);
+  if (roundsArg !== null) {
+    const n = Number(roundsArg);
+    if (roundsArg === true || !Number.isInteger(n) || n < 1) {
+      console.error(`--rounds: expected a whole number of review rounds, 1 or more, got ${roundsArg === true ? 'no value' : `"${roundsArg}"`}`);
+      process.exit(2);
+    }
+    config.maxRounds = n;
+  }
+}
 
 // v5 §1 candidate 5: fail loud, before a single metered call, on a chain
 // config that is broken rather than merely risky - distinct from
@@ -1183,7 +1207,7 @@ if (!resumeMeta) {
     policyChecks = checks;
     if (!ok) {
       console.error(`\n${formatCouncilError('COUNCIL-E005', { path: POLICY_PATH(work), chain: config.name, reasons })}`);
-      process.exit(EXIT_FATAL);
+      process.exit(EXIT_POLICY_REFUSED);
     }
   }
 }
@@ -1309,7 +1333,7 @@ if (piiGateMode !== null) {
   }
   if (blocked) {
     console.error(`Fix the input, or rerun with --pii-gate warn / --allow-pii <type,...> to proceed deliberately.`);
-    process.exit(1);
+    process.exit(EXIT_PII_BLOCKED);
   }
 }
 const runId = resumeMeta ? basename(resolve(resumeRun)) : new Date().toISOString().replace(/[:.]/g, '-');
@@ -1326,7 +1350,7 @@ try {
 } catch (err) {
   if (!(err instanceof RunLockedError)) throw err;
   console.error(`\n${err.message}`);
-  process.exit(EXIT_FATAL);
+  process.exit(EXIT_RUN_LOCKED);
 }
 
 // 7.x item 5: audit export. `policy.json`'s documented, locked path is the user's own working
@@ -1383,7 +1407,7 @@ if (resumeMeta) {
   const scopeCheck = checkFrozenScope({ storedHash: resumeMeta.taskHash, currentHash: taskHash, amendmentsText });
   if (!scopeCheck.ok) {
     console.error(`\n${scopeCheck.message}\n(${amendmentsPath})`);
-    process.exit(1);
+    process.exit(EXIT_SCOPE_CHANGED);
   }
   if (scopeCheck.amended) {
     // The new hash becomes this run's baseline going forward.
@@ -1499,7 +1523,7 @@ log(`task:  ${taskPathEff}`);
     ].join('\n'));
     log(`\n  BLOCKED: ${artifactFindings.length} file(s) named but never fenced. Wrote ${needsPath}`);
     log('  Nothing was called and nothing was spent. See that file for the two ways forward.');
-    process.exit(2);
+    process.exit(EXIT_ARTIFACTS_BLOCKED);
   }
   // Passed this time (the task was fenced, or --allow-unfenced given): a marker left by an earlier
   // blocked sitting would otherwise keep the run reading as blocked.
@@ -1712,7 +1736,7 @@ started.
     log(`\nSTOPPED: preflight objected to the task description (${objections.length} seat(s)).`);
     log(`  detail:  ${join(runDir, 'STOPPED-preflight.md')}`);
     log(`  verdict: ${join(runDir, 'preflight-verdict.json')}`);
-    process.exit(5);
+    process.exit(EXIT_PREFLIGHT_BLOCKED);
   }
   if (err instanceof ExternalPause) {
     const need = join(runDir, `NEEDS-${err.label}.md`);

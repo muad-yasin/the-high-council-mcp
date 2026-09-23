@@ -178,7 +178,7 @@ test('CLI: --pii-gate hard-stop refuses the run before any run folder is created
   try {
     execFileSync('node', [cli, '--chain', 'mock', '--task', 'tasks/t.md', '--pii-gate', 'hard-stop'], { encoding: 'utf8', cwd: dir });
   } catch (err) {
-    assert.equal(err.status, 1);
+    assert.equal(err.status, 11, 'the PII gate has its own exit code (bug audit 2026-09-23, CLI #7)');
     assert.match(err.stderr, /PII-GATE/);
     assert.match(err.stderr, /email/);
     assert.equal(err.stderr.includes('muad.yasin@example.com'), false);
@@ -224,5 +224,21 @@ test('CLI: an invalid --pii-gate value is a usage error (exit 2), not a silent n
     assert.fail('expected a non-zero exit');
   } catch (err) {
     assert.equal(err.status, 2);
+  }
+});
+
+// Bug audit 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md #3): the gate scanned the task file
+// only, before --context was appended, and never the handed draft - both reach every seat. (The fix
+// shipped in 4ec8f16; this test was meant to ship with it and did not.)
+test('CLI: --pii-gate hard-stop also refuses PII that arrives via --context or --draft', () => {
+  for (const [flagName, file] of [['--context', 'ctx.md'], ['--draft', 'draft.md']]) {
+    const dir = setupDir();
+    writeFileSync(join(dir, 'tasks', 't.md'), 'Plan something plain.\n');
+    writeFileSync(join(dir, file), 'Contact muad.yasin@example.com, card 4111 1111 1111 1111.\n');
+    const proc = spawnSync('node', [cli, '--chain', 'mock', '--task', 'tasks/t.md', flagName, file, '--pii-gate', 'hard-stop'], { encoding: 'utf8', cwd: dir });
+    assert.equal(proc.status, 11, `${flagName}: expected a refusal, got ${proc.status}\n${proc.stderr.slice(-300)}`);
+    assert.match(proc.stderr, /PII-GATE/);
+    assert.equal(proc.stderr.includes('muad.yasin@example.com'), false, 'the match is never echoed');
+    assert.equal(readdirSync(dir).includes('runs'), false, `${flagName}: refused before any run folder exists`);
   }
 });

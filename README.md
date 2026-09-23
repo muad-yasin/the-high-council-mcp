@@ -220,6 +220,31 @@ them stay on your machine - if you fork this repo, you will not accidentally pub
 
 `verify` is the cheap default: two labs, a hard two-round cap. Start there.
 
+### Exit codes
+
+Each outcome has its own code, so a script or CI job can branch on it:
+
+| Code | Meaning |
+|---|---|
+| 0 | Finished: a deliverable and `report.json` were written. |
+| 1 | The chain failed lint, or an input is missing (no task file, a resume from the wrong directory). |
+| 2 | Usage error: a flag is missing its value or has an invalid one. |
+| 3 | Paused at an external seat: answer `NEEDS-<stage>.md`, then `--resume`. |
+| 4 | Stopped at the per-run spend cap before the next stage was paid for; resume with a higher `--max-usd`. |
+| 5 | A provider key the chain needs is missing (degradable: set it and run again). |
+| 6 | Fatal: the chain file cannot be parsed, or the audit key cannot be loaded. |
+| 7 | Finished, but the final security review blocked the deliverable. |
+| 8 | Finished, but the final security review could not judge it (never a pass). |
+| 9 | Artifact gate: the task names files whose content it never includes (`BLOCKED-ARTIFACTS.md`). |
+| 10 | Preflight: a seat objected to the task description itself (`STOPPED-preflight.md`). |
+| 11 | PII gate (`--pii-gate hard-stop`): the input contains PII- or secret-shaped text. |
+| 12 | `policy.json` refused the chain. |
+| 13 | Another process is already running this run folder. |
+| 14 | The task file changed since the run started and `AMENDMENTS.md` does not cover it. |
+
+Codes 9-14 were split out on 2026-09-23. Before that, several of these outcomes shared a code (2, 5,
+6 or 1).
+
 ### Telling the council what your build session can actually use
 
 One optional convention, worth the four lines it costs. If your task file ends with a section

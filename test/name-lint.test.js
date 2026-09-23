@@ -258,3 +258,27 @@ test('hashName: hyphen and underscore variants of the same name all hash identic
   assert.equal(hashName('Zorblax_Prime'), hashName('Zorblax Prime'));
   assert.equal(hashName('Zorblax  Prime'), hashName('Zorblax Prime'));
 });
+
+// Bug audit 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md #10, repro /tmp/audit9/nl.mjs):
+// shipped .patch/.css/.example files, LICENSE and .gitignore were never read; a listed name with an
+// apostrophe could never match; NFD text split a name at its combining accent.
+test('name-lint reads every text file, matches apostrophe names, and handles NFD text', async () => {
+  const { hashName, scanForForbiddenNames } = await import('../src/name-lint.js');
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'thc-namelint-'));
+  const files = {
+    'fix.patch': 'Zorblax Prime\n', 'site.css': '/* Zorblax Prime */\n', LICENSE: 'Zorblax Prime\n',
+    '.gitignore': 'Zorblax Prime\n', '.env.example': 'KEY=Zorblax Prime\n',
+    'a.md': "Meet Qel'Varo.\n", 'b.md': 'José Zorblax\n',
+  };
+  for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), body);
+  writeFileSync(join(dir, 'image.bin'), Buffer.from([0x5a, 0x00, 0x6f, 0x72]));
+  const hashes = new Set(['Zorblax Prime', "Qel'Varo", 'José Zorblax'].map(hashName));
+  const { findings } = scanForForbiddenNames(dir, hashes);
+  const hit = new Set(findings.map(f => f.file.split('/').pop()));
+  for (const name of Object.keys(files)) assert.ok(hit.has(name), `${name} was not scanned or not matched`);
+  assert.ok(!hit.has('image.bin'), 'binary content is skipped');
+  assert.equal(hashName("Qel'Varo"), hashName('Qel’Varo'), 'straight and curly apostrophes hash alike');
+});

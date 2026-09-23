@@ -56,6 +56,17 @@ export function lintChain(config, filePath = '<chain>') {
     });
   }
 
+  // maxRounds must be a positive whole number when present (bug audit 2026-09-23, GuardLayer
+  // backlog): 0, a fraction or a string ran zero reviews - or a revision nobody graded - and still
+  // wrote a deliverable.
+  if (config && 'maxRounds' in config && !(Number.isInteger(config.maxRounds) && config.maxRounds >= 1)) {
+    findings.push({
+      kind: 'invalid-max-rounds',
+      message: `maxRounds must be a whole number, 1 or more (got ${JSON.stringify(config.maxRounds)}) - otherwise the panel reviews nothing and the run still writes a deliverable.`,
+      fix: `Set "maxRounds" to a positive integer in ${filePath}, or remove it for the default.`,
+    });
+  }
+
   // coldRead.enabled with no seat: chain.js has no fallback for it on purpose, so the run pays for
   // every round and then throws at the cold read with no report (bug audit 2026-09-23, GuardLayer #7).
   if (config?.coldRead?.enabled && !seats.coldRead) {

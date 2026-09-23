@@ -38,8 +38,12 @@ const STAGE_DEFS = {
   },
   judge: {
     role: 'Score a pool of proposals from one lab and keep the strongest, distinct subset.',
-    required_sections: ['kept'],
-    return_instructions: 'Return JSON naming which proposals to keep.',
+    // `picks`, the key the judge stage reads (src/roles.js JUDGE_SYSTEM, src/chain.js). This said
+    // `kept` - the proposal-MERGE stage's key - so every correct judge reply got a false PARTIAL
+    // OUTPUT warning, and an external judge that followed this contract was silently ignored
+    // (bug audit 2026-09-23, GuardLayer backlog).
+    required_sections: ['picks'],
+    return_instructions: 'Return JSON: { "picks": [pool numbers, best first], "dropped_because": string }.',
   },
   debate: {
     role: 'Post an anonymised objection, support, or merge suggestion against another seat\'s proposal, without knowing which lab wrote it.',

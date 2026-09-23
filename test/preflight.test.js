@@ -143,7 +143,7 @@ test('artifact gate: front-matter and caller allowlists both suppress, per file,
 
 // The gate end to end. Uses the offline mock chain, so a failure to block would spend
 // nothing here - but it would spend on a real chain, which is the whole point.
-test('artifact gate: the CLI exits 2, writes BLOCKED-ARTIFACTS.md, and starts no run', () => {
+test('artifact gate: the CLI exits 9, writes BLOCKED-ARTIFACTS.md, and starts no run', () => {
   const dir = mkdtempSync(join(tmpdir(), 'thc-artifact-gate-'));
   mkdirSync(join(dir, 'chains'));
   writeFileSync(join(dir, 'chains', 'mock.json'), readFileSync(join(root, 'chains', 'mock.json'), 'utf8'));
@@ -156,7 +156,7 @@ test('artifact gate: the CLI exits 2, writes BLOCKED-ARTIFACTS.md, and starts no
     status = err.status;
     stdout = err.stdout ?? '';
   }
-  assert.equal(status, 2, 'blocked runs exit 2, distinct from lint (1) and external pause (3)');
+  assert.equal(status, 9, 'the artifact gate has its own exit code, distinct from usage errors (2), lint (1) and external pause (3)');
   assert.match(stdout, /BLOCKED/);
   assert.match(stdout, /nothing was spent/i);
 
@@ -229,13 +229,13 @@ test('artifact gate: a blocked run reads as blocked, not paused, and --resume re
   writeFileSync(join(dir, 'task.md'), 'Review SaveSystem.cs and report what breaks.');
   const cli = args => spawnSync('node', [resolve(root, 'src/cli.js'), ...args], { encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH } });
   try {
-    assert.equal(cli(['--chain', 'mock', '--task', 'task.md']).status, 2);
+    assert.equal(cli(['--chain', 'mock', '--task', 'task.md']).status, 9);
     const runDir = join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
     assert.equal(deriveRunStatus(runDir, null), 'blocked');
     assert.equal(waitingStage(runDir), null, 'a blocked run is not waiting for anyone');
 
     const resumed = cli(['--resume', runDir]);
-    assert.equal(resumed.status, 2, `resume must stop at the gate again: ${resumed.stdout.slice(-300)}`);
+    assert.equal(resumed.status, 9, `resume must stop at the gate again: ${resumed.stdout.slice(-300)}`);
     assert.ok(!existsSync(join(runDir, 'criteria.md')), 'no stage ran on resume');
 
     // Fixed task (the file is fenced): the resume passes the gate, runs, and clears the marker.
