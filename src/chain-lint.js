@@ -143,6 +143,24 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
+  // 5a. Role on a debating seat in a chain that never debates (pre-release audit 2026-09-23,
+  // personas #2). chain.js applies a seat's role only inside the debate stage, which runs only when
+  // both `proposals` and `debate` are on (runChain: `if (config.proposals ...) { ... if
+  // (config.debate ...)`). With either off, a role on the debating seats - seats.proposers, or the
+  // critics when there is no proposers array - is exactly as dead as one on a builder (rule 5).
+  if (!(config?.proposals && config?.debate)) {
+    const debating = seats.proposers ? ['proposers', seats.proposers] : ['critics', seats.critics];
+    for (const s of debating[1] || []) {
+      if (s?.role) {
+        findings.push({
+          kind: 'role-without-debate',
+          message: `seats.${debating[0]} has a "role" set, but this chain ${!config?.proposals ? 'has no "proposals" stage' : 'does not enable "debate"'}, and a role only ever reaches the debate stage - this role is a silent no-op.`,
+          fix: `Enable "proposals" and "debate": true in ${filePath} if the role is meant to be heard, or remove "role" from seats.${debating[0]}.`,
+        });
+      }
+    }
+  }
+
   // 5b. Opt-in flag blocks with a closed key set (pre-release audit 2026-09-23, lint #2). Each of
   // these is read in chain.js as `config.<block>?.enabled` plus the named keys below, and nothing
   // else - so a typo'd key ("alternatives": { "enable": true }) used to validate, lint clean, and

@@ -315,3 +315,21 @@ test('chain-lint: a typo inside an opt-in flag block is reported, not silently i
   assert.deepEqual(lintChain(good, 'good.json').filter(x => /^invalid-(decisions|alternatives|canary|lints|ambiguity-union)-config$/.test(x.kind)), []);
   assert.equal(validate(good), true, JSON.stringify(validate.errors));
 });
+
+// Pre-release audit 2026-09-23 (personas #2): a role on the debating seats is only ever applied in
+// the debate stage, so with proposals or debate off it is a silent no-op - and used to lint clean.
+test('chain-lint: a debating-seat role in a chain that never debates is reported', () => {
+  const seats = {
+    criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'mock', model: 'mock-builder' },
+    proposers: [{ provider: 'mock', model: 'mock-proposer-a', lab: 'a', role: { persona: 'moses' } }, { provider: 'mock', model: 'mock-proposer-b', lab: 'b' }],
+    critics: [{ provider: 'mock', model: 'mock-critic-a', lab: 'a' }],
+  };
+  const kinds = cfg => lintChain(cfg, 'x.json').filter(f => f.kind === 'role-without-debate');
+  assert.equal(kinds({ seats, maxRounds: 1 }).length, 1, 'no proposals and no debate');
+  assert.equal(kinds({ seats, maxRounds: 1, proposals: { parts: 1 } }).length, 1, 'proposals but debate off');
+  assert.match(kinds({ seats, maxRounds: 1, proposals: { parts: 1 } })[0].message, /does not enable "debate"/);
+  assert.deepEqual(kinds({ seats, maxRounds: 1, proposals: { parts: 1 }, debate: true }), [], 'a debating chain is fine');
+  // With no proposers array the critics are the debating seats, and the rule follows them.
+  const critSeats = { ...seats, proposers: undefined, critics: [{ provider: 'mock', model: 'mock-critic-a', lab: 'a', role: { lens: 'security-and-legal' } }] };
+  assert.equal(kinds({ seats: critSeats, maxRounds: 1 }).length, 1);
+});

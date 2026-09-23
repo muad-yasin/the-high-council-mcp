@@ -88,7 +88,11 @@ export function applySeatRole(basePrompt, role, personas = PERSONAS_DEFAULT) {
   if (role.lens && LENSES[role.lens]) blocks.push(LENSES[role.lens]);
   if (role.persona) {
     const resolved = resolvePersona(role.persona, personas);
-    const detail = resolved ? ` (${resolved.name}). ${resolved.voice}` : '.';
+    // Pre-release audit 2026-09-23 (personas #1): an operator's persona file entry missing `name`
+    // or `voice` rendered "undefined"/"null" into a live, paid debate prompt. Only a complete entry
+    // (both non-empty strings) gets the detailed form; anything else is treated like an unknown key.
+    const usable = resolved && [resolved.name, resolved.voice].every(v => typeof v === 'string' && v.trim());
+    const detail = usable ? ` (${resolved.name}). ${resolved.voice}` : '.';
     blocks.push(`You are arguing as ${role.persona}${detail} Let that voice and point of view shape how you argue, without changing what you are actually judging.`);
   }
   if (!blocks.length) return basePrompt;

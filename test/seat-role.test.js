@@ -250,3 +250,23 @@ test('chain-lint: a role on seats.proposers is never flagged as a no-op', () => 
   }, 'chains/fixture.json');
   assert.equal(findings.filter(f => f.kind === 'role-on-non-proposer-seat').length, 0);
 });
+
+// Pre-release audit 2026-09-23 (personas #1): a persona file entry missing `name` or `voice` put the
+// literal text "undefined"/"null" into a live, paid debate prompt. Mirrors canary.test.js's guard.
+test('applySeatRole: an incomplete persona entry never renders "undefined" or "null"', async () => {
+  const { applySeatRole: apply } = await import('../src/seat-role.js');
+  const personas = {
+    novoice: { name: 'Custom Name' },
+    noname: { voice: 'Speaks plainly.' },
+    bothmissing: { name: null, voice: null },
+    blank: { name: '  ', voice: 'x' },
+    full: { name: 'Full Name', voice: 'Speaks in full sentences.' },
+  };
+  for (const key of ['novoice', 'noname', 'bothmissing', 'blank', 'missing-key']) {
+    const out = apply('BASE', { persona: key }, personas);
+    const block = out.slice(out.indexOf('[SEAT ROLE]'));
+    assert.doesNotMatch(block, /undefined|null/, `${key}: ${block}`);
+    assert.match(block, new RegExp(`You are arguing as ${key}\\. Let that voice`), `${key} falls back to the bare key`);
+  }
+  assert.match(apply('BASE', { persona: 'full' }, personas), /You are arguing as full \(Full Name\)\. Speaks in full sentences\./);
+});
