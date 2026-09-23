@@ -597,6 +597,50 @@ export const QUOTE_RULE_REVISER = `
   source, do not pick one. Keep both possibilities and state the check that decides between
   them.`;
 
+// Decision records (2026-09-23, Muad: structured documents beat free-form chat for architecture -
+// "sounds like another great idea"). Opt-in per chain via `decisions: { enabled: true }`, and
+// implied by the `alternatives` stage, whose losing architectures have to be recorded somewhere.
+// The shape is the familiar decision-record one (context, real options, trade-offs, choice, why
+// the losers lost, consequences), written in this project's own words. Absent, every prompt below
+// is byte-identical to what it was before decision records existed.
+//
+// The load-bearing words are "real" and "strawman". A decision record whose second option exists
+// only to lose is worse than no record: it looks like deliberation and is not. The criteria rule
+// asks reviewers to check exactly that, so the builder's instruction and the reviewers' bar are
+// the same bar.
+export const DECISIONS_RULE_BUILDER = `
+
+# Decision records for this run
+The plan must include a section titled "Decisions". Record every major
+architecture decision there - a choice that shapes more than one part of the
+plan, or that would be expensive to reverse once building starts. For each:
+- Context: the problem the decision answers, in one or two sentences.
+- Options considered: at least two real options, each one a design a competent
+  team would actually choose in some situation. An option added only so the
+  choice looks obvious is a strawman and does not count.
+- Trade-offs: what each option costs and what it buys, for this request.
+- Choice: the option taken, or the combination and which part came from where.
+- Why the others lost: one line per rejected option, naming the specific reason.
+- Consequences: what the choice commits the plan to, and what new fact would
+  change the call.
+Small, cheaply reversed choices need no record. Do not invent decisions to fill
+the section.`;
+
+export const DECISIONS_RULE_REVISER = `
+
+# Decision records for this run
+Keep the "Decisions" section true. If a fix changes a recorded decision, rewrite
+that record - options, trade-offs, why the others lost - rather than leaving the
+old reasoning under a new choice. A new major decision gets a new record with at
+least two real options. Never delete a record to make an objection go away.`;
+
+export const DECISIONS_RULE_CRITERIA = ` Decision records are required in this run:
+include one criterion that every major architecture decision in the plan is
+recorded in its "Decisions" section with its context, at least two real options
+(designs a competent team might actually choose, not strawmen set up to lose),
+the trade-offs, the choice, why each rejected option lost, and what would
+change the call.`;
+
 export function criticSystem(open, freedoms = null) {
   const rules = [];
   if (freedoms?.blocking_questions) rules.push(FREEDOMS_RULE.blocking_questions);
@@ -617,9 +661,11 @@ export function criticSystem(open, freedoms = null) {
 }
 // `fenced` is opt-in per call: absent, every prompt is byte-identical to what it was before
 // quote validation existed, so no chain without fenced source changes behaviour at all.
-export const criteriaSystem = (open, fenced = false) => CRITERIA_SYSTEM_TEMPLATE.replace('__CRITERIA_SCOPE_RULE__', scopeOf(open).criteria) + (fenced ? QUOTE_RULE_CRITERIA : '');
-export const builderSystem = open => BUILDER_SYSTEM + scopeOf(open).builder;
-export const reviserSystem = (open, fenced = false) => REVISER_SYSTEM + scopeOf(open).reviser + (fenced ? QUOTE_RULE_REVISER : '');
+// `opts.decisions` (decision records, above) is opt-in the same way: absent or false, the prompt
+// is byte-identical to the one without it.
+export const criteriaSystem = (open, fenced = false, opts = {}) => CRITERIA_SYSTEM_TEMPLATE.replace('__CRITERIA_SCOPE_RULE__', scopeOf(open).criteria + (opts.decisions ? DECISIONS_RULE_CRITERIA : '')) + (fenced ? QUOTE_RULE_CRITERIA : '');
+export const builderSystem = (open, opts = {}) => BUILDER_SYSTEM + scopeOf(open).builder + (opts.decisions ? DECISIONS_RULE_BUILDER : '');
+export const reviserSystem = (open, fenced = false, opts = {}) => REVISER_SYSTEM + scopeOf(open).reviser + (fenced ? QUOTE_RULE_REVISER : '') + (opts.decisions ? DECISIONS_RULE_REVISER : '');
 export const proposerSystem = open => PROPOSER_SYSTEM + scopeOf(open).proposer;
 // Back-compat names for the closed variants.
 export const CRITIC_SYSTEM = criticSystem(false);
@@ -920,4 +966,4 @@ Rules, all of them load-bearing:
 
 Any DECLINED: lines go after the last block, exactly as they would otherwise.`;
 
-export const patchReviserSystem = (open, fenced = false) => reviserSystem(open, fenced) + PATCH_REVISER_RULE;
+export const patchReviserSystem = (open, fenced = false, opts = {}) => reviserSystem(open, fenced, opts) + PATCH_REVISER_RULE;

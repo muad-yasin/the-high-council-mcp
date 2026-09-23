@@ -14,7 +14,11 @@
 // nothing is listed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HANDOFF_SYSTEM, proposerUser, DISPUTE_REVIEW_SYSTEM, disputeReviewUser } from '../src/roles.js';
+import {
+  HANDOFF_SYSTEM, proposerUser, DISPUTE_REVIEW_SYSTEM, disputeReviewUser,
+  BUILDER_SYSTEM, REVISER_SYSTEM, CRITERIA_SYSTEM, builderSystem, reviserSystem, patchReviserSystem, criteriaSystem,
+  DECISIONS_RULE_BUILDER, DECISIONS_RULE_REVISER, DECISIONS_RULE_CRITERIA,
+} from '../src/roles.js';
 
 test('the handoff seat is told to use the tools a task lists', () => {
   assert.match(HANDOFF_SYSTEM, /Available tools/,
@@ -81,4 +85,63 @@ test('disputeReviewUser: every objection wrapped as critic text, both drafts lab
   assert.match(u, /<draft-before>\nOLD\n<\/draft-before>/);
   assert.match(u, /<draft-after>\nNEW\n<\/draft-after>/);
   assert.ok(u.indexOf('<draft-before>') < u.indexOf('<draft-after>'));
+});
+
+// Decision records (2026-09-23, Muad: structured documents beat free-form chat for architecture).
+// Opt-in: a chain that never sets `decisions` must get exactly the prompts it always got, and a
+// chain that does must ask for real alternatives - the builder and the reviewers held to one bar.
+
+test('decision records: absent, the builder, reviser and criteria prompts are byte-identical to before', () => {
+  for (const open of [false, true]) {
+    assert.equal(builderSystem(open, {}), builderSystem(open));
+    assert.equal(builderSystem(open, { decisions: false }), builderSystem(open));
+    assert.equal(reviserSystem(open, false, {}), reviserSystem(open));
+    assert.equal(criteriaSystem(open, false, {}), criteriaSystem(open));
+    assert.equal(patchReviserSystem(open, false, {}), patchReviserSystem(open));
+    assert.ok(!builderSystem(open).includes('Decisions'));
+    assert.ok(!criteriaSystem(open).includes('Decision records'));
+  }
+  assert.ok(builderSystem(false).startsWith(BUILDER_SYSTEM));
+  assert.ok(reviserSystem(false).startsWith(REVISER_SYSTEM));
+  assert.equal(criteriaSystem(false), CRITERIA_SYSTEM);
+});
+
+test('decision records: the builder must write a "Decisions" section with every part of a record', () => {
+  const b = builderSystem(false, { decisions: true });
+  assert.ok(b.endsWith(DECISIONS_RULE_BUILDER), 'appended after the scope rule, never replacing it');
+  assert.match(b, /section titled "Decisions"/);
+  for (const part of [/Context:/, /Options considered:/, /Trade-offs:/, /Choice:/, /Why the others lost:/, /Consequences:/]) {
+    assert.match(b, part, `a record is missing ${part}`);
+  }
+  assert.match(b, /at least two real options/, 'one option is a statement, not a decision');
+  assert.match(b, /strawman and does not count/, 'the whole point: an option set up to lose is not an alternative');
+  assert.match(b, /what new fact would\s+change the call/);
+  assert.match(b, /Do not invent decisions/, 'the section must not be padded to look deliberate');
+  // Works under the OPEN scope rule too, without dropping it.
+  const o = builderSystem(true, { decisions: true });
+  assert.match(o, /Scope rule for this run: OPEN/);
+  assert.match(o, /section titled "Decisions"/);
+});
+
+test('decision records: reviewers are given a criterion that checks for real alternatives, not strawmen', () => {
+  for (const open of [false, true]) {
+    const c = criteriaSystem(open, false, { decisions: true });
+    assert.ok(c.includes(DECISIONS_RULE_CRITERIA.trim().slice(0, 40)));
+    assert.match(c, /"Decisions" section/);
+    assert.match(c, /at least two real options/);
+    assert.match(c, /not strawmen/);
+    assert.match(c, /why each rejected option lost/);
+    assert.match(c, /Reply with a single JSON object/, 'the rule sits inside the template, before the reply format');
+  }
+  // With fenced source, the quote rule still arrives after it.
+  assert.match(criteriaSystem(false, true, { decisions: true }), /not strawmen[\s\S]*fenced verbatim/);
+});
+
+test('decision records: the reviser keeps records true and may not delete one to dodge an objection', () => {
+  const r = reviserSystem(false, false, { decisions: true });
+  assert.ok(r.endsWith(DECISIONS_RULE_REVISER));
+  assert.match(r, /Keep the "Decisions" section true/);
+  assert.match(r, /Never delete a record/);
+  assert.ok(patchReviserSystem(false, false, { decisions: true }).includes(DECISIONS_RULE_REVISER),
+    'patch mode is a reviser too');
 });

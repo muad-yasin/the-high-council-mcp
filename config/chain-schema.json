@@ -169,6 +169,26 @@
         }
       }
     },
+    "decisions": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "alternatives": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "maxTokens": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "claims": {
       "description": "v7 item 1 claim-extraction config. Engine-read, not re-validated here."
     },

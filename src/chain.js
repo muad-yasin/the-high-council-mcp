@@ -1262,6 +1262,10 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   const maxRounds = config.maxRounds ?? 2;
   const stopOnPass = config.stopOnPass !== false;
   const open = config.scope === 'open';
+  // Decision records (src/roles.js, DECISIONS_RULE_*): opt-in via `decisions.enabled`, and implied by
+  // the `alternatives` stage, whose losing architectures are recorded in the same "Decisions"
+  // section. Absent both, every prompt that takes these options is byte-identical to before.
+  const promptOpts = { decisions: config.decisions?.enabled === true || config.alternatives?.enabled === true };
   if (open) log('scope: OPEN - every seat may add scope; additions are recorded, the verdict pass cuts');
 
   // 0. Preflight (config.preflight, v4 item 2). Absent config: never called, zero behaviour
@@ -1287,7 +1291,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   if (!criteria || criteria.length === 0) {
     log('\nStage: acceptance criteria');
     const s = record(await invoke(resolveCriteriaSeat(config), {
-      system: R.criteriaSystem(open, !!fencedSource),
+      system: R.criteriaSystem(open, !!fencedSource, promptOpts),
       user: criteriaUserPrompt(request, config),
       log, label: 'criteria',
     }));
@@ -1306,7 +1310,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       // pay a panel to fail a draft for not being three files at once.
       log(`  !! ${infeasible.length} criterion/criteria demand documents this stage cannot produce - asking once more.`);
       const again = record(await invoke(resolveCriteriaSeat(config), {
-        system: R.criteriaSystem(open, !!fencedSource),
+        system: R.criteriaSystem(open, !!fencedSource, promptOpts),
         user: `${criteriaUserPrompt(request, config)}\n\nYour previous answer contained a criterion the draft can never satisfy: "${infeasible[0]}". The draft is ONE document. Any other file named in the request is produced by a later stage of this pipeline, not by the draft. Write criteria that one document can satisfy.`,
         log, label: 'criteria-feasibility-retry',
       }));
@@ -1319,7 +1323,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     if (metaCriteria(criteria).length) {
       log(`  !! criteria describe the criteria list itself, not the request (${metaCriteria(criteria).length} of ${criteria.length}) - asking once more.`);
       const again = record(await invoke(resolveCriteriaSeat(config), {
-        system: R.criteriaSystem(open, !!fencedSource),
+        system: R.criteriaSystem(open, !!fencedSource, promptOpts),
         user: `${criteriaUserPrompt(request, config)}\n\nYour previous answer described the format of a criteria list ("${metaCriteria(criteria)[0]}") instead of the deliverable the request asks for. Write criteria that a reader checks against that deliverable itself.`,
         log, label: 'criteria-retry',
       }));
@@ -1674,7 +1678,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   } else {
     log('\nRound 1: build');
     draft = record(await invoke(config.seats.builder, {
-      system: R.builderSystem(open),
+      system: R.builderSystem(open, promptOpts),
       user: R.builderUser({ request, criteria, proposals, board }),
       log, label: 'build',
     })).text;
@@ -2045,7 +2049,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       const reviserSeat = config.seats.reviser || config.seats.builder;
       const patchMode = config.revise?.mode === 'patch';
       const revised = record(await invoke(reviserSeat, {
-        system: patchMode ? R.patchReviserSystem(open, !!fencedSource) : R.reviserSystem(open, !!fencedSource),
+        system: patchMode ? R.patchReviserSystem(open, !!fencedSource, promptOpts) : R.reviserSystem(open, !!fencedSource, promptOpts),
         user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }),
         log, label: `revise-${round}`,
       })).text;
@@ -2066,7 +2070,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           log(`  patch mode: ${applied.reason} - falling back to one full rewrite for this round.`);
           patchFallbacks.push({ round, reason: applied.reason });
           const full = record(await invoke(reviserSeat, {
-            system: R.reviserSystem(open, !!fencedSource),
+            system: R.reviserSystem(open, !!fencedSource, promptOpts),
             user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }),
             log, label: `revise-${round}-full`,
           })).text;
@@ -2109,7 +2113,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           }
           const draftBefore = draft;
           const targeted = record(await invoke(reviserSeat, {
-            system: R.reviserSystem(open, !!fencedSource),
+            system: R.reviserSystem(open, !!fencedSource, promptOpts),
             user: R.reviserUser({
               request, criteria, draft,
               critique: { failures: [{
@@ -2226,7 +2230,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       log(`\nRound ${round}: revise`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
       const revised = record(await invoke(reviserSeat, {
-        system: R.reviserSystem(open, !!fencedSource),
+        system: R.reviserSystem(open, !!fencedSource, promptOpts),
         user: R.reviserUser({ request, criteria, draft, critique }),
         log, label: `revise-${round}`,
       })).text;
@@ -2416,7 +2420,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       log(`  challenge raised against "${parsed.decision}" - evidence that would settle it: ${parsed.evidence}`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
       const revised = record(await invoke(reviserSeat, {
-        system: R.reviserSystem(open, !!fencedSource),
+        system: R.reviserSystem(open, !!fencedSource, promptOpts),
         user: R.reviserUser({
           request, criteria, draft,
           critique: { failures: [{ criterion: parsed.decision, problem: parsed.evidence, fix: '' }] },
