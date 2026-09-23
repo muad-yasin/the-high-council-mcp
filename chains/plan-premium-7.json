@@ -12,6 +12,7 @@
     "maxTokens": 4000
   },
   "debate": true,
+  "canary": { "enabled": true, "sampleRate": 0.1 },
   "handoff": true,
   "estimate": {
     "promptTokens": 10000,
