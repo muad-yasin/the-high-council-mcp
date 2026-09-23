@@ -68,9 +68,18 @@ const EXIT_PII_BLOCKED = 11;
 const EXIT_POLICY_REFUSED = 12;
 const EXIT_RUN_LOCKED = 13;
 const EXIT_SCOPE_CHANGED = 14;
+const EXIT_ALREADY_FINISHED = 15;
 import { scanArtifacts } from './key-redaction.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+// Write under a temp name in the same directory, then rename: readers see the old file or the whole
+// new one, never a torn write.
+function writeFileAtomic(path, data) {
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, path);
+}
 
 // Two roots, and the distinction matters once this is installed from npm
 // rather than cloned. `pkg` is where the shipped assets live (chains/,
@@ -963,6 +972,15 @@ const chainName = flag('chain', 'verify');
 const taskPath = flag('task', null);
 const fromRun = flag('from-run', null);
 const resumeRun = flag('resume', null);
+// A flag that takes a path or a name but was given none comes back from flag() as `true`, which
+// then reached resolve()/readFileSync as a boolean and threw a raw TypeError (bug audit 2026-09-23,
+// CLI backlog). A usage error instead, before anything else runs.
+for (const name of ['chain', 'task', 'from-run', 'resume', 'draft', 'context']) {
+  if (flag(name, null) === true) {
+    console.error(`--${name}: needs a value, e.g. --${name} ${name === 'chain' ? 'verify' : name === 'resume' || name === 'from-run' ? 'runs/<id>' : name === 'context' ? 'context/' : '<file>'}`);
+    process.exit(2);
+  }
+}
 const dryRun = argv.includes('--dry-run');
 
 // MLLM Coder v4 item 4: who signed off on this change request, for policy.json's
@@ -1342,6 +1360,16 @@ const runId = resumeMeta ? basename(resolve(resumeRun)) : new Date().toISOString
 // absolute task path) silently started a fresh folder and paid for every stage again
 // (2026-09-23 audit, CLI finding 5).
 const runDir = resumeMeta ? resolve(resumeRun) : join(work, 'runs', runId);
+// A finished run is not resumable. Bug-audit fix, 2026-09-23 (Review/BugAudit_CLI_2026-09-23.md
+// backlog): --resume on a run that already has report.json replayed its stages from disk only while
+// the task and chain were unchanged; after a chain edit the cache went stale, every stage was paid
+// for again, and report.json was overwritten. Refused before the run lock is taken, so a refusal
+// never holds the folder. To run the same task again: a new run, --rematch or --replay.
+if (resumeMeta && existsSync(join(runDir, 'report.json'))) {
+  console.error(`\n--resume: ${runDir} already finished (it has a report.json). Nothing was run and nothing was spent.`);
+  console.error(`To run this task again, start a new run with --task, or compare against it with --rematch ${resumeRun} / --replay ${resumeRun}.`);
+  process.exit(EXIT_ALREADY_FINISHED);
+}
 mkdirSync(runDir, { recursive: true });
 // One process per run folder, before any stage can spend: two resumes of the same run used
 // to both pay for every uncached stage, each under its own cap (audit finding 4).
@@ -1423,7 +1451,17 @@ setCache({
     label => {
       const t = join(runDir, `${label}.md`);
       if (!existsSync(t)) return null;
-      const u = existsSync(join(runDir, `${label}.usage.json`)) ? JSON.parse(readFileSync(join(runDir, `${label}.usage.json`), 'utf8')) : {};
+      const up = join(runDir, `${label}.usage.json`);
+      let u = {};
+      if (existsSync(up)) {
+        // A torn or corrupt usage file used to throw here on every resume, until someone deleted it
+        // by hand (bug audit 2026-09-23, CLI #8). It is a cache miss instead: the stage re-runs.
+        try { u = JSON.parse(readFileSync(up, 'utf8')); } catch {
+          console.log(`  CACHE: ${label}.usage.json is unreadable - treating "${label}" as not yet run.`);
+          appendFileSync(join(runDir, 'WARNINGS.md'), `- cache_unreadable: ${label}.usage.json could not be parsed; the stage was re-run\n`);
+          return null;
+        }
+      }
       return { text: readFileSync(t, 'utf8'), ...u };
     },
     cacheFingerprint,
@@ -1674,8 +1712,12 @@ try {
           appendFileSync(join(runDir, 'WARNINGS.md'), `- partial_output: stage "${s.label}" (${kind}) - ${check.reason}\n`);
         }
       }
-      writeFileSync(join(runDir, `${s.label}.md`), s.text);
-      writeFileSync(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint }));
+      // Both written atomically (temp file + rename), cost first and text last: `<label>.md` is what
+      // marks a stage done, so a crash between the two leaves a stage that re-runs rather than a
+      // text trusted with no record of its cost, and a crash mid-write never leaves a torn file
+      // for a resume to trip over (bug audit 2026-09-23, CLI #8).
+      writeFileAtomic(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint }));
+      writeFileAtomic(join(runDir, `${s.label}.md`), s.text);
       if (auditWriter) auditWriter.recordStage(s);
       // v5 §1 candidate 14: one JSONL line per stage, alongside the existing markdown/usage
       // artifacts - structured so future tooling (candidate #9's replay, #2's independence

@@ -3,7 +3,7 @@
 // mock-debate for 2 rounds. Same execFileSync pattern as test/init.test.js.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -78,11 +78,13 @@ test('6. a resumed run\'s new lines share the same root span id recorded in run.
   const runDir = runMockDebate(dir);
   const runId = runDir.split('/').pop();
   const rootBefore = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')).rootSpanId;
-  // Nothing to actually resume (the mock run already finished), but --resume on a finished run
-  // must be a no-op that preserves run.json's rootSpanId rather than regenerating it.
-  execFileSync('node', [cli, '--resume', join('runs', runId)], {
+  // Nothing to actually resume (the mock run already finished). Since 2026-09-23 --resume on a
+  // finished run is refused (exit 15, bug audit CLI backlog: it could re-pay every stage and
+  // overwrite report.json) - and the refusal must still leave run.json's rootSpanId untouched.
+  const r = spawnSync('node', [cli, '--resume', join('runs', runId)], {
     encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH },
   });
+  assert.equal(r.status, 15, r.stderr.slice(-200));
   const rootAfter = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')).rootSpanId;
   assert.equal(rootAfter, rootBefore);
 });

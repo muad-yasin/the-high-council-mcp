@@ -20,7 +20,7 @@ test('every named exit code is distinct', () => {
 
 test('the README exit-code table lists every code the CLI uses, and no other', () => {
   const table = readme.slice(readme.indexOf('### Exit codes'));
-  const documented = new Set([...table.slice(0, table.indexOf('Codes 9-14')).matchAll(/^\| (\d+) \|/gm)].map(m => Number(m[1])));
+  const documented = new Set([...table.slice(0, table.indexOf('Codes 9-15')).matchAll(/^\| (\d+) \|/gm)].map(m => Number(m[1])));
   const literal = [...cli.matchAll(/process\.exit\((\d+)\)/g)].map(m => Number(m[1]));
   const used = new Set([...literal, ...named.map(([, v]) => v)]);
   assert.deepEqual([...used].sort((a, b) => a - b), [...documented].sort((a, b) => a - b));
