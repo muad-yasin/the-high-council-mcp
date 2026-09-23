@@ -437,36 +437,80 @@ export function envKeyName(provider) {
   return spec.key;
 }
 
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_Providers_2026-09-23.md #1, #4). withRetry used to
+// retry every error that had no HTTP status - including a connection that dropped while the body
+// of a 200 was being read, a truncated or HTML 200, and Node's 300 s headers timeout. Each of those
+// happens AFTER the request reached the provider, so a retry re-sent a paid generation (up to 3)
+// and only the last attempt was ever priced. Now:
+// - a failure before anything was sent (refused, DNS, unreachable, connect timeout) and a 429/5xx
+//   status are retried, as before;
+// - a failure after the request went out is thrown at once, marked `maybeBilled` - invoke() in
+//   chain.js charges it to the run's spend at its projected cost, because its usage is unreadable;
+// - a 429/5xx `Retry-After` header is honoured (capped), and there is no sleep after the last try.
+const PRE_SEND_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'UND_ERR_CONNECT_TIMEOUT']);
+const RETRY_AFTER_MAX_MS = 120_000;
+export function isRetryable(err) {
+  if (err.status) return err.status === 429 || err.status >= 500;
+  if (err.maybeBilled) return false;
+  return PRE_SEND_CODES.has(err.cause?.code ?? err.code);
+}
+
+// Test seam, same setter style as chain.js's setBudget/setCache: lets the retry tests run without
+// real multi-second backoff waits. Unset, it is a plain setTimeout.
+let retrySleep = ms => new Promise(r => setTimeout(r, ms));
+export function setRetrySleep(fn) { retrySleep = fn || (ms => new Promise(r => setTimeout(r, ms))); }
+
+function retryAfterMs(value) {
+  if (!value) return null;
+  const secs = Number(value);
+  const ms = Number.isFinite(secs) ? secs * 1000 : Date.parse(value) - Date.now();
+  return Number.isFinite(ms) && ms >= 0 ? Math.min(ms, RETRY_AFTER_MAX_MS) : null;
+}
+
 async function withRetry(fn, { tries = 3, label = '' } = {}) {
-  let last;
-  for (let i = 0; i < tries; i++) {
+  for (let i = 0; ; i++) {
     try { return await fn(); }
     catch (err) {
-      last = err;
-      // Do not burn retries on a request that will never succeed.
-      if (err.status && err.status !== 429 && err.status < 500) throw err;
-      const wait = 1500 * Math.pow(2, i);
+      // Do not burn retries on a request that will never succeed, or that may already be paid for.
+      if (!isRetryable(err) || i >= tries - 1) throw err;
+      const wait = err.retryAfterMs ?? 1500 * Math.pow(2, i);
       process.stderr.write(`  retry ${i + 1}/${tries} ${label}: ${err.message} (waiting ${wait}ms)\n`);
-      await new Promise(r => setTimeout(r, wait));
+      await retrySleep(wait);
     }
   }
-  throw last;
 }
 
 async function post(url, headers, body, label) {
   return withRetry(async () => {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...headers },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const detail = (await res.text()).slice(0, 600);
-      const err = new Error(`HTTP ${res.status} ${detail}`);
-      err.status = res.status;
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      // No response. Only a failure to connect proves the request never reached the provider;
+      // anything else (reset mid-request, headers timeout) may have started a billed generation.
+      if (!PRE_SEND_CODES.has(err.cause?.code ?? err.code)) err.maybeBilled = true;
       throw err;
     }
-    return res.json();
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 600);
+      const err = new Error(`HTTP ${res.status} ${detail}`);
+      err.status = res.status;
+      err.retryAfterMs = retryAfterMs(res.headers?.get?.('retry-after'));
+      throw err;
+    }
+    // Past this line the provider has answered 200, so the generation was billed whatever happens
+    // next. A dropped body (TypeError) and a non-JSON body (SyntaxError) are both thrown, never retried.
+    try { return await res.json(); }
+    catch (cause) {
+      const what = cause?.name === 'SyntaxError' ? `HTTP 200 but the body is not JSON (${cause.message})` : `the connection dropped while reading a 200 response (${cause?.message})`;
+      const err = new Error(`${label}: ${what} - not retried, the generation was probably already billed`);
+      err.cause = cause; err.maybeBilled = true;
+      throw err;
+    }
   }, { label });
 }
 
@@ -533,12 +577,7 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
   );
   return {
     text: json.choices?.[0]?.message?.content ?? '',
-    usage: {
-      input: json.usage?.prompt_tokens ?? 0,
-      output: json.usage?.completion_tokens ?? 0,
-      thinking: json.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
-      stop: json.choices?.[0]?.finish_reason ?? null,
-    },
+    usage: { ...usageOfOpenAICompat(json.usage), stop: json.choices?.[0]?.finish_reason ?? null },
     provider,
     // v3 §Item 3: a provider-array fallback (`extra.models`) can answer with a model other
     // than the one requested - `json.model` is the response's own record of which model
@@ -547,6 +586,22 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
     // today.
     model: json.model ?? model,
   };
+}
+
+// OpenAI-compatible usage -> ours. Bug-audit fix, 2026-09-23 (Review/BugAudit_Providers_2026-09-23.md
+// #2): Google's OpenAI-compatible endpoint leaves `completion_tokens_details.reasoning_tokens` out
+// and does NOT include its thinking in `completion_tokens` - only in `total_tokens`. So every
+// direct Google seat recorded thinking 0 and output = visible text only (on disk: 209 records, none
+// with thinking; replies stopped at a 4000-8000 cap recording 76-1639 output tokens). Cost and the
+// spend cap were under-counted and the near-cap truncation check could never fire. When the
+// reasoning field is absent, the hidden remainder of total_tokens is thinking, billed as output.
+// Where total = prompt + completion (every provider that reports reasoning, or has none) this is 0.
+export function usageOfOpenAICompat(u = {}) {
+  const input = u?.prompt_tokens ?? 0;
+  const completion = u?.completion_tokens ?? 0;
+  const reported = u?.completion_tokens_details?.reasoning_tokens;
+  const hidden = reported == null && Number.isFinite(u?.total_tokens) ? Math.max(0, u.total_tokens - input - completion) : 0;
+  return { input, output: completion + hidden, thinking: reported ?? hidden };
 }
 
 export async function call(provider, opts) {

@@ -221,8 +221,15 @@ export function parseDisputes(text) {
   const lines = text.split('\n');
   let i = lines.length - 1;
   const declined = [];
-  while (i >= 0 && /^DECLINED:\s*.+/.test(lines[i].trim())) {
-    declined.unshift(lines[i].trim().replace(/^DECLINED:\s*/, ''));
+  // Blank lines inside the trailer are skipped, not treated as its end. Bug-audit fix, 2026-09-23
+  // (Review/BugAudit_ChainParsers_2026-09-23.md #3): a reply ending in "\n" - every external-seat
+  // reviser file does - left an empty last line, the loop stopped there, every DECLINED line was
+  // lost from report.json's `disputes` AND shipped inside the deliverable text.
+  while (i >= 0) {
+    const line = lines[i].trim();
+    if (line === '') { i--; continue; }
+    if (!/^DECLINED:\s*.+/.test(line)) break;
+    declined.unshift(line.replace(/^DECLINED:\s*/, ''));
     i--;
   }
   let draftLines = lines.slice(0, i + 1);
@@ -688,6 +695,18 @@ async function invoke(seat, { system, user, log, label }) {
     const cut = res.usage.stop === 'max_tokens' || res.usage.stop === 'length' ? ' [hit the cap]' : '';
     log(`  ${label}: ${res.provider}/${res.model} - ${res.usage.input} in, ${res.usage.output} out${think}${cut}, ${formatUsd(stage.usd)}, ${(stage.ms / 1000).toFixed(1)}s`);
     return stage;
+  } catch (err) {
+    // A call that failed after the request reached the provider (providers.js marks it
+    // `maybeBilled`: a dropped 200 body, a non-JSON 200, a post-send timeout) was probably paid
+    // for, and its usage is unreadable. Charge one attempt's projection so the cap still sees it
+    // (bug-audit fix, 2026-09-23, BugAudit_Providers #1). Conservative by construction - the
+    // projection is the worst case.
+    if (err?.maybeBilled) {
+      const charge = projected / (isAnthropicSeat ? 2 : 1);
+      budget.spent += charge;
+      log(`  ${label}: the call failed after it was sent and may have been billed - ${formatUsd(charge)} (one attempt's worst case) counted toward the cap.`);
+    }
+    throw err;
   } finally {
     budget.reserved -= projected;
   }

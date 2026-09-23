@@ -368,3 +368,15 @@ test('infeasibleCriteria: flags criteria demanding documents a single stage cann
   // Without a handoff stage, naming HANDOFF.md is the deliverable's own business.
   assert.deepEqual(infeasibleCriteria(['Includes a HANDOFF.md startup file'], { handoff: false, debate: false }), []);
 });
+
+// Bug audit 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #3): external-seat reviser files
+// end in "\n", which left a blank last line and made every DECLINED line vanish into the draft.
+test('parseDisputes: a trailing newline (or CRLF, or blank lines between) does not hide the DECLINED trailer', () => {
+  for (const text of ['body\n\nDECLINED: x\n', 'body\n\nDECLINED: x\n\n\n', 'body\r\n\r\nDECLINED: x\r\n', 'body\n\nDECLINED: x\n\nDECLINED: y\n']) {
+    const { draft, disputes } = parseDisputes(text);
+    assert.equal(draft, text.startsWith('body\r') ? 'body\r' : 'body', JSON.stringify(text));
+    assert.equal(disputes[0], 'x', JSON.stringify(text));
+    assert.ok(!/DECLINED/.test(draft), `DECLINED leaked into the draft for ${JSON.stringify(text)}`);
+  }
+  assert.deepEqual(parseDisputes('body\n\nDECLINED: x\n\nDECLINED: y\n').disputes, ['x', 'y']);
+});
