@@ -57,6 +57,13 @@ function jail(root, requested) {
   return { base, path: realTarget, rel: realRel.split(sep).join('/') };
 }
 
+// A backtick fence longer than the longest backtick run anywhere in `text`, and never shorter
+// than three.
+export function fenceFor(text) {
+  const longest = Math.max(0, ...[...String(text).matchAll(/`+/g)].map(m => m[0].length));
+  return '`'.repeat(Math.max(3, longest + 1));
+}
+
 /**
  * Build the fenced block for one file. Returns the text to append plus what happened to it,
  * so the caller can tell the operator exactly what is about to be sent - "it worked" is not
@@ -89,7 +96,10 @@ export function fenceFile(root, requested) {
     // The path is repeated inside the fence as well as in the heading: the artifact
     // pre-flight matches a filename against fenced text, and a seat reading the block
     // needs to know which file it is looking at without relying on the surrounding prose.
-    text: `\n\n## ${rel}\n\n\`\`\`${langOf(rel)}\n// ${rel}\n${safe}${note}\n\`\`\`\n`,
+    // The fence is longer than any backtick run in the file (CommonMark), so a fenced file that
+    // contains its own ``` example cannot close the block early (pre-release audit 2026-09-23,
+    // PreRelease_Audit_guards HIGH - see parseFences in src/quote-check.js).
+    text: `\n\n## ${rel}\n\n${fenceFor(safe)}${langOf(rel)}\n// ${rel}\n${safe}${note}\n${fenceFor(safe)}\n`,
   };
 }
 

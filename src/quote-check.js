@@ -17,10 +17,42 @@
 // It is also not a truth test. A quote that appears verbatim proves the seat read the source,
 // not that its conclusion is right.
 
+// Fenced code blocks, parsed the CommonMark way: an opening fence is 3+ backticks (or tildes),
+// indented at most 3 spaces; the block ends at a line of the SAME character, at least as long,
+// with nothing after it; an unclosed block runs to the end. Pre-release audit 2026-09-23
+// (PreRelease_Audit_guards, HIGH): a global /```...```/ regex paired any two ``` markers, so a
+// fenced .md file that itself contained an example fence flipped the parity - the task's own
+// prose became "source", and an objection quoting that prose was shown to the reviser as a
+// verified quote. `council fence` now also writes a fence longer than any backtick run in the
+// file (src/fence.js), so its blocks always parse whole.
+// Returns [{ index (offset of the opening line), info, firstLine, body }].
+export function parseFences(text) {
+  const src = String(text || '');
+  const lines = src.split('\n');
+  const blocks = [];
+  let offset = 0;
+  let open = null;
+  for (const raw of lines) {
+    const line = raw.replace(/\r$/, '');
+    if (!open) {
+      const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (m && !(m[1][0] === '`' && m[2].includes('`'))) {
+        open = { index: offset, char: m[1][0], len: m[1].length, info: m[2].trim(), lines: [] };
+      }
+    } else {
+      const c = new RegExp(`^ {0,3}(\\${open.char}{${open.len},})\\s*$`).exec(line);
+      if (c) { blocks.push(close(open)); open = null; } else open.lines.push(line);
+    }
+    offset += raw.length + 1;
+  }
+  if (open) blocks.push(close(open));
+  return blocks;
+  function close(b) { return { index: b.index, info: b.info, firstLine: b.lines[0] ?? '', body: b.lines.join('\n') }; }
+}
+
 // Extracted from the task text, which is the only source any seat sees.
 export function fencedSourceOf(text) {
-  const blocks = [...String(text || '').matchAll(/```[^\n]*\n([\s\S]*?)```/g)].map(m => m[1]);
-  return blocks.join('\n');
+  return parseFences(text).map(b => b.body).join('\n');
 }
 
 export function hasFencedSource(text) {

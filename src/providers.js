@@ -459,6 +459,13 @@ export function keyFor(provider) {
   return process.env[spec.key] || (spec.optional ? NO_KEY_REQUIRED : null);
 }
 
+// The host of every provider's own base URL. src/denied-models.js checks a seat's `baseUrl`
+// against these (pre-release audit 2026-09-23, guards/lint HIGH: a baseUrl could point an
+// ordinary-looking seat at a denied lab's API).
+export function knownProviderHosts() {
+  return new Set([...Object.values(OPENAI_COMPAT), ANTHROPIC].map(p => new URL(p.base).hostname.toLowerCase()));
+}
+
 export function providerNames() {
   return ['anthropic', ...Object.keys(OPENAI_COMPAT)];
 }

@@ -17,6 +17,7 @@
 // known and accepted, not an oversight to "helpfully" patch into a false sense of completeness.
 // A semantic/LLM-based check that would catch the missed case is an explicit non-goal (§11):
 // it would add an API call and non-determinism to every run's start.
+import { parseFences } from './quote-check.js';
 export const TRIGGER_KEYWORDS = ['standalone', 'without a', 'no appended', 'publication-ready', 'self-contained'];
 
 /**
@@ -125,7 +126,9 @@ function continuesIntoAnotherSegment(body, index, candidate) {
 // dependency: this reads one optional list of filenames, and a real YAML parser
 // here would accept far more shapes than the gate can mean anything about.
 export function parseUnfencedAllow(text) {
-  const fm = /^---\n([\s\S]*?)\n---/.exec(text || '');
+  // CRLF too (pre-release audit 2026-09-23, PreRelease_Audit_guards #5): a task saved on Windows
+  // had its front matter ignored, so an `unfenced-ok` list silently did nothing.
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text || '');
   if (!fm) return [];
   const line = /^unfenced-ok:\s*\[(.*?)\]\s*$/m.exec(fm[1]);
   if (!line) return [];
@@ -162,13 +165,15 @@ export function checkArtifactReferences(text, options = {}) {
   // (Review/BugAudit_GuardLayer_2026-09-23.md #6): the whole fence body used to count, so fencing
   // one file that merely imports or mentions another passed the gate for the other file too - whose
   // content never reached the labs (the 2026-09-20 invention incident's class).
-  const fenced = [...body.matchAll(/```([^\n]*)\n([^\n]*)[\s\S]*?```/g)].map(m => {
+  // Fences are parsed by opening/closing length (parseFences), the same parser quote-check uses,
+  // so a fenced file containing its own ``` example no longer shifts every later block.
+  const fenced = parseFences(body).map(b => {
     // The line above counts only as a label - a markdown heading, or a lead-in ending in ":" -
     // never as ordinary prose, or "Review index.js against these criteria." right before a fence
     // of something else would pass the gate for index.js.
-    const lastAbove = body.slice(0, m.index).split('\n').map(l => l.trim()).filter(Boolean).pop() || '';
+    const lastAbove = body.slice(0, b.index).split('\n').map(l => l.trim()).filter(Boolean).pop() || '';
     const above = /^#{1,6}\s/.test(lastAbove) || /:\s*$/.test(lastAbove) ? lastAbove : '';
-    return [above, m[1], m[2]].join('\n');
+    return [above, b.info, b.firstLine].join('\n');
   }).join('\n');
   const candidates = new Set(
     [...body.matchAll(PATH_PATTERN)]

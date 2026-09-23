@@ -10,6 +10,8 @@
 // runChain()/invoke() at run time, so a user-written chain, a resumed run (lint is skipped on
 // --resume) or a direct runChain() caller cannot get past it either.
 
+import { knownProviderHosts } from './providers.js';
+
 export const DENIED_MODEL = /grok|x-ai|\bxai\b|kimi|moonshot/i;
 // `openrouter/auto`, `.../pareto-code`, and any id or plugin naming a router ("pareto-router",
 // "auto-router"). "openrouter" itself is a provider name and does not match: the router word must
@@ -32,8 +34,35 @@ function stringsIn(v, out = []) {
   return out;
 }
 
+// A seat's `baseUrl` decides where the request actually goes, whatever `provider` and `model`
+// say. Pre-release audit 2026-09-23 (PreRelease_Audit_guards, HIGH): it was never inspected, so
+// {provider: "openrouter", model: <anything>, baseUrl: <a denied lab's API>} passed lint and the
+// run-time check and was called. Now:
+//  - a denied lab's host (the xAI domain or any subdomain, or a host naming a denied model or a
+//    router) is refused, no opt-out;
+//  - a loopback host is allowed (local models: Ollama, LM Studio - the README's local-model
+//    section), and so is a private-network host for an `ollama` seat (the README's "remote box");
+//  - any other host must be one of the known providers' own hosts, or the seat is refused: an
+//    unknown endpoint cannot be shown to avoid a denied model.
+const DENIED_HOST = /(^|\.)x\.ai$/i;
+const isLoopback = h => h === 'localhost' || h.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(h) || h === '::1' || h === '[::1]';
+const isPrivateNet = h => /^10\.\d+\.\d+\.\d+$/.test(h) || /^192\.168\.\d+\.\d+$/.test(h) || /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(h) || /\.(local|lan|home\.arpa)$/.test(h);
+export function baseUrlReasons(seat) {
+  if (!seat || seat.baseUrl === undefined || seat.baseUrl === null) return [];
+  let host;
+  try { host = new URL(String(seat.baseUrl)).hostname.toLowerCase(); } catch { return [`baseUrl "${seat.baseUrl}" is not a valid URL, so where the request goes cannot be checked`]; }
+  if (DENIED_HOST.test(host) || DENIED_MODEL.test(host) || /(^|[.-])router([.-]|$)/i.test(host)) {
+    return [`baseUrl host "${host}" is a denied lab or a router (no xAI/Grok, no Kimi/Moonshot; no override)`];
+  }
+  if (isLoopback(host)) return [];
+  if (seat.provider === 'ollama' && isPrivateNet(host)) return [];
+  if (knownProviderHosts().has(host)) return [];
+  return [`baseUrl host "${host}" is not a known provider's API host${seat.provider === 'ollama' ? ' or a local/private-network address' : ' or a loopback address'}, so the seat cannot be shown to avoid a denied model`];
+}
+
 function reasonsForSeat(seat) {
   const out = [];
+  out.push(...baseUrlReasons(seat));
   const ids = [
     ['provider', seat.provider],
     ['model', seat.model],

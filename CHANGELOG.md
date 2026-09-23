@@ -29,6 +29,15 @@
   folder as `TOOLS.md`, with the real size of each answer.
 - **The builder sees the skeleton** when the alternatives board is on, since it is told to build
   on the architecture the skeleton chose.
+- **No Grok through `baseUrl` either.** A seat's `baseUrl` decides where the request goes, and
+  it was never checked. It is now refused if its host is the xAI domain (or a subdomain), names a
+  denied model or a router, or is not a known provider's API host. Loopback hosts stay allowed
+  (local models), as do private-network hosts for `ollama` seats. The check runs in lint and at
+  run time.
+- **Fence parity.** Fenced blocks are parsed by opening and closing fence length (CommonMark), and
+  `council fence` writes a fence longer than any backtick run in the file. A fenced file with its
+  own ``` example no longer turns the task's prose into "source", so a quote of that prose can no
+  longer show as verified. Task front matter saved with CRLF line endings is read.
 ## Unreleased - pre-release audit fixes, batch 1
 
 Fixes from the 2026-09-23 pre-release audits (reviser prompts, alternatives stage, canary probe).
