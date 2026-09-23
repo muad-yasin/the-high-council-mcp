@@ -471,7 +471,7 @@ export function lintChain(config, filePath = '<chain>') {
         fix: `Set "dispute" to { "enabled": true } or remove it in ${filePath}.`,
       });
     } else {
-      const DISPUTE_KEYS = ['enabled', 'stall_rounds'];
+      const DISPUTE_KEYS = ['enabled', 'stall_rounds', 'review'];
       for (const key of Object.keys(config.dispute)) {
         if (!DISPUTE_KEYS.includes(key)) {
           findings.push({
@@ -486,6 +486,20 @@ export function lintChain(config, filePath = '<chain>') {
           kind: 'invalid-dispute-config',
           message: `dispute.enabled must be a boolean.`,
           fix: `Set "dispute.enabled" to true or false in ${filePath}.`,
+        });
+      }
+      if ('review' in config.dispute && typeof config.dispute.review !== 'boolean') {
+        findings.push({
+          kind: 'invalid-dispute-config',
+          message: `dispute.review must be a boolean.`,
+          fix: `Set "dispute.review" to true or false in ${filePath}.`,
+        });
+      }
+      if (config.dispute.review === true && config.dispute.enabled !== true) {
+        findings.push({
+          kind: 'invalid-dispute-config',
+          message: `dispute.review checks the dispute stage's output, so it does nothing unless dispute.enabled is true.`,
+          fix: `Set "dispute.enabled" to true, or remove "dispute.review", in ${filePath}.`,
         });
       }
       if ('stall_rounds' in config.dispute

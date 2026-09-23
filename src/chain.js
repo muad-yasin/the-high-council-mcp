@@ -613,6 +613,108 @@ export async function settleAll(promises) {
   return results.map(r => r.value);
 }
 
+// Dispute review (2026-09-23, opt-in `dispute: { enabled: true, review: true }`). Muad: "Reviewers
+// should check disputes thoroughly, no?" The dispute stage gives the reviser the last word on
+// every open objection; this asks each panel seat that held one, in ONE call per seat, whether
+// the final draft handles each of its objections honestly. It is a check on the record, not a
+// vote: its result can flag, never pass, and it never re-opens the review.
+//
+// A verdict counts only if it can be checked. A claimed "accepted" or "misrepresented" whose
+// quote isn't in the final draft, an unreadable reply, a reply that skips an objection and an
+// unreachable seat all become "unconfirmed": silence and unverifiable answers are never read
+// as consent (the same rule the panel's own unheard votes follow).
+export const DISPUTE_REVIEW_VERDICTS = ['accepted', 'misrepresented', 'silently_dropped'];
+
+const squash = t => String(t ?? '').replace(/\s+/g, ' ').trim();
+
+export async function runDisputeReview(config, { request, openFailures, draftBefore, draftAfter, invoke, record, log = () => {} }) {
+  const critics = config.seats?.critics || [];
+  const byLab = new Map();
+  openFailures.forEach((f, index) => {
+    const lab = f.lab || null;
+    if (!byLab.has(lab)) byLab.set(lab, []);
+    byLab.get(lab).push({ ...f, index });
+  });
+  const entries = new Array(openFailures.length);
+  const entry = (o, fields) => ({ criterion: o.criterion, lab: o.lab || null, ...fields });
+  const after = squash(draftAfter);
+
+  const calls = [];
+  for (const [lab, objs] of byLab) {
+    const seat = lab ? critics.find(c => labOf(c) === lab) : null;
+    if (!seat) {
+      for (const o of objs) entries[o.index] = entry(o, { verdict: 'unconfirmed', reason: 'no panel seat for this lab' });
+      continue;
+    }
+    calls.push((async () => {
+      let parsed = null;
+      let failure = null;
+      try {
+        const s = record(await invoke(seat, {
+          system: R.DISPUTE_REVIEW_SYSTEM,
+          user: R.disputeReviewUser({ request, objections: objs, draftBefore, draftAfter }),
+          log, label: `dispute-review-${lab}`,
+        }));
+        parsed = parseJson(s.text);
+        if (!Array.isArray(parsed?.reviews)) failure = 'unreadable reply';
+      } catch (err) {
+        rethrowControlFlow(err);
+        failure = `seat unreachable: ${err.message}`;
+      }
+      objs.forEach((o, k) => {
+        if (failure) return void (entries[o.index] = entry(o, { verdict: 'unconfirmed', reason: failure }));
+        const r = parsed.reviews.find(x => x?.objection === k + 1) ?? null;
+        const claimed = DISPUTE_REVIEW_VERDICTS.includes(r?.verdict) ? r.verdict : null;
+        const quote = typeof r?.quote === 'string' ? r.quote : '';
+        const quoteFound = quote.trim() !== '' && after.includes(squash(quote));
+        const base = { claimed_verdict: claimed, quote, quote_found: quoteFound, note: typeof r?.note === 'string' ? r.note : null };
+        if (!claimed) {
+          entries[o.index] = entry(o, { verdict: 'unconfirmed', reason: r ? 'no valid verdict' : 'objection not answered', ...base });
+        } else if (claimed !== 'silently_dropped' && !quoteFound) {
+          entries[o.index] = entry(o, { verdict: 'unconfirmed', reason: 'quote not found in the final draft', ...base });
+        } else {
+          entries[o.index] = entry(o, { verdict: claimed, ...base });
+        }
+      });
+    })());
+  }
+  await settleAll(calls);
+
+  const count = v => entries.filter(e => e.verdict === v).length;
+  const counts = { accepted: count('accepted'), misrepresented: count('misrepresented'), silently_dropped: count('silently_dropped'), unconfirmed: count('unconfirmed') };
+  log(`  dispute review: ${counts.accepted} accepted, ${counts.misrepresented} misrepresented, ${counts.silently_dropped} silently dropped, ${counts.unconfirmed} unconfirmed.`);
+  return { ran: true, entries, counts, flagged: entries.filter(e => e.verdict !== 'accepted') };
+}
+
+/** The top-of-deliverable lines for the review. Built from the record, never from a seat's prose alone. */
+export function renderDisputeReviewFlags(review) {
+  if (!review?.ran) return [];
+  if (!review.flagged.length) {
+    return [`*Dispute review: every seat that held an open objection confirmed the draft above handles it honestly (${review.counts.accepted} checked).*`, ''];
+  }
+  const what = { misrepresented: 'MISREPRESENTED', silently_dropped: 'SILENTLY DROPPED', unconfirmed: 'NOT CONFIRMED' };
+  return [
+    `### Dispute review: ${review.flagged.length} objection(s) not confirmed as honestly handled`,
+    '',
+    'Each seat that raised an open objection was asked whether the reviser\'s last pass dealt with it honestly.',
+    '',
+    ...review.flagged.map(e => `- **${what[e.verdict]}** - ${e.criterion} (raised by ${e.lab || 'an unnamed lab'})` +
+      `${e.reason ? `: ${e.reason}` : ''}${e.note ? `. Seat's note: ${e.note}` : ''}${e.quote ? ` Quoted: "${e.quote}"` : ''}`),
+    '',
+  ];
+}
+
+/** BOARD.md's section for the dispute review: every objection, the seat's verdict and its quote. */
+export function renderDisputeReviewBoard(dispute) {
+  const entries = dispute?.review?.entries;
+  if (!entries?.length) return '';
+  const rows = entries.map(e => `- **${e.verdict}** - ${e.criterion} (${e.lab || 'unnamed lab'})` +
+    `${e.claimed_verdict && e.claimed_verdict !== e.verdict ? `; seat said "${e.claimed_verdict}"` : ''}` +
+    `${e.reason ? `; ${e.reason}` : ''}${e.quote ? `\n  - Quote: "${e.quote}"${e.quote_found ? '' : ' (not found in the final draft)'}` : ''}` +
+    `${e.note ? `\n  - Note: ${e.note}` : ''}`);
+  return `\n\n## Dispute review (each objection's own seat, after the reviser's last pass)\n\n${rows.join('\n')}`;
+}
+
 // Per-run cache, set by the CLI: get(label) -> { text, usage, usd, ... } or null.
 let cache = { get: () => null };
 export function setCache(c) { cache = c || { get: () => null }; }
@@ -1606,6 +1708,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // allocator: a chain that does not set it behaves as it did before this existed, which is
   // why the stall rule is gated on it too rather than silently changing every unanimous run.
   const disputeEnabled = config.dispute?.enabled === true;
+  const disputeReviewEnabled = disputeEnabled && config.dispute?.review === true;
   const stallRounds = Number.isInteger(config.dispute?.stall_rounds) ? config.dispute.stall_rounds : 2;
   const objectionSignatures = [];
   const openByRound = [];
@@ -2201,8 +2304,17 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       log, label: 'dispute',
     })).text;
     const parsedDispute = parseDisputes(revised);
+    const draftBeforeDispute = draft;
     draft = parsedDispute.draft;
     parsedDispute.disputes.forEach(reason => disputes.push({ round: 'dispute', reason }));
+
+    // Dispute review (opt-in): the seats that raised the open objections check the reviser's
+    // last pass. Runs before the block below is built, so a misrepresented or dropped objection
+    // is flagged at the top of the deliverable, with the dissent itself.
+    const review = disputeReviewEnabled
+      ? await runDisputeReview(config, { request, openFailures, draftBefore: draftBeforeDispute, draftAfter: draft, invoke, record, log })
+      : null;
+    const reviewFlags = renderDisputeReviewFlags(review);
 
     // The dissent block is built here, from the recorded objections, and never from the
     // reviser's reply: a seat asked to summarise the objections against its own draft is the
@@ -2227,6 +2339,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       '',
       ...lines,
       '',
+      ...reviewFlags,
       '---',
       '',
     ].join('\n');
@@ -2249,6 +2362,8 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         first_raised_round: firstSeen.get(`${f.lab}|${f.criterion}`) ?? null,
       })),
       panel_rereviewed: false,
+      // Additive: present only when the chain sets dispute.review.
+      ...(review ? { review: { entries: review.entries, counts: review.counts } } : {}),
     };
     log(`  recorded ${openFailures.length} unresolved objection(s) at the top of the deliverable. Outcome stays "no consensus".`);
   } else if (disputeEnabled && config.signoff === 'unanimous') {

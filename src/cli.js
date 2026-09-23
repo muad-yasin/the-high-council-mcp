@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked } from './chain.js';
+import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked, renderDisputeReviewBoard } from './chain.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
@@ -1758,9 +1758,9 @@ if (result.proposalPool?.length && result.proposalPool.length > result.proposals
 // §5 (v3 plan): declined objections are a first-class record, never part of the deliverable text
 // itself, so they get their own section wherever the board already lives - the same file that
 // already lists proposals and debate posts (or a standalone one, if no debate happened this run).
-const disputesSection = result.disputes?.length
+const disputesSection = (result.disputes?.length
   ? `\n\n## Disputed objections (declined by the reviser, kept out of the deliverable)\n\n${result.disputes.map(d => `- Round ${d.round}: ${d.reason}`).join('\n')}`
-  : '';
+  : '') + renderDisputeReviewBoard(result.dispute);
 if (result.board || disputesSection) writeFileSync(join(runDir, 'BOARD.md'), `# Debate board - run ${runId}\n\n${result.board ? `Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${disputesSection}`);
 if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff);
 // v4 item 2: written on every run that had a preflight config, blocked or not - the blocked

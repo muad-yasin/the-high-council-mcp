@@ -184,6 +184,23 @@ async function callMock({ model, system, messages, maxTokens }) {
       : { verdict: 'pass', findings: [] };
     return { text: JSON.stringify(reply), usage: { input: 20, output: 15 }, provider: 'mock', model };
   }
+  // Dispute review (2026-09-23): the seat that raised an open objection checks the reviser's last
+  // pass. Scripted by a marker in the request, like TRIGGER_DECLINED_TEST, because the seat is a
+  // holdout critic whose model name already fixes its panel behaviour. Default: "accepted",
+  // quoting a line the mock dispute pass really writes. MISREP / DROPPED / FAKEQUOTE / UNREADABLE
+  // exercise the other branches.
+  if (system.startsWith('You raised one or more objections during a review that ended')) {
+    await new Promise(r => setTimeout(r, 10));
+    const n = (user.match(/<critic-claim>/g) || []).length;
+    const pick = user.includes('TRIGGER_REVIEW_MISREP') ? { verdict: 'misrepresented', quote: 'Body text.', note: 'mock: my objection was answered as a different one.' }
+      : user.includes('TRIGGER_REVIEW_DROPPED') ? { verdict: 'silently_dropped', quote: '', note: 'mock: nothing in the draft deals with it.' }
+      : user.includes('TRIGGER_REVIEW_FAKEQUOTE') ? { verdict: 'accepted', quote: 'This sentence is not in the draft.', note: 'mock: fine.' }
+      : { verdict: 'accepted', quote: 'Body text.', note: 'mock: handled.' };
+    const text = user.includes('TRIGGER_REVIEW_UNREADABLE')
+      ? 'Looks fine to me. (no JSON)'
+      : JSON.stringify({ reviews: Array.from({ length: n }, (_, i) => ({ objection: i + 1, ...pick })) });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
   if (system.startsWith('You review a task description before any code change is proposed against it')) {
     await new Promise(r => setTimeout(r, 10));
     const text = model === 'mock-preflight-object'

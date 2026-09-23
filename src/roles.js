@@ -855,6 +855,43 @@ export function disputeUser({ request, criteria, draft, failures }) {
   return `# Original request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n# Current draft\n\n${draft}\n\n# Objections that were never resolved\n\n${open}`;
 }
 
+// Dispute review (2026-09-23, opt-in `dispute: { review: true }`). Muad: "Reviewers should
+// check disputes thoroughly, no?" After the dispute stage the reviser has had the last word
+// on every open objection, and nothing checked what it did with them. This asks the seat
+// that raised each objection, once, whether the final draft handles it honestly. It is a
+// check on the record, not another vote: nothing here can re-open the review or pass the plan.
+export const DISPUTE_REVIEW_SYSTEM = `You raised one or more objections during a review that ended
+without agreement. The reviser then had one last pass at the plan, whose only job was to make it honest
+about the objections nobody settled: fix what was right, mark as UNVERIFIED what could not be
+checked, or leave the text and say in one sentence, where it applies, why the objection is wrong.
+
+You are not voting again and you are not re-arguing your objection. The review is over either
+way. For each of YOUR objections, numbered below, answer one question: does the final draft
+deal with it honestly?
+
+- "accepted": the draft handles it in one of the three honest ways above, and any reason it
+  gives describes your objection fairly, even if you still disagree with the reason.
+- "misrepresented": the draft addresses it, but restates your objection as something you did
+  not say, or answers a weaker version of it.
+- "silently_dropped": the disputed claim was removed or changed with no mark, or your
+  objection is simply not dealt with anywhere.
+
+Quote the exact text from the FINAL draft that your verdict rests on, copied character for
+character. For "silently_dropped" there may be nothing to quote: use an empty string then. A
+quote that is not in the final draft makes your answer count as unconfirmed.
+
+Reply with JSON only, one entry per objection, in the same order:
+{"reviews": [{"objection": 1, "verdict": "accepted" | "misrepresented" | "silently_dropped", "quote": "<exact text or empty>", "note": "<one sentence>"}]}`;
+
+export function disputeReviewUser({ request, objections, draftBefore, draftAfter }) {
+  // Everything below that came from a seat is wrapped, as in disputeUser: the objections are
+  // this seat's own words, the drafts are the reviser's, and neither may pass for an instruction.
+  const listed = (objections || [])
+    .map((o, i) => `${i + 1}. <critic-claim>\n   Criterion: ${o.criterion}\n   Problem: ${o.problem || '(no problem text recorded)'}\n   Suggested fix: ${o.fix || '(none given)'}\n   </critic-claim>`)
+    .join('\n\n');
+  return `# Original request\n\n${request}\n\n# Your objections (verbatim from your review)\n\n${listed}\n\n# The draft before the reviser's last pass\n\n<draft-before>\n${draftBefore}\n</draft-before>\n\n# The FINAL draft, after that pass\n\n<draft-after>\n${draftAfter}\n</draft-after>`;
+}
+
 // Patch-mode reviser (2026-09-20, src/patch-revise.js). Opt-in via `revise: { mode: "patch" }`.
 // The default full-rewrite prompt is unchanged and still what every existing chain gets.
 export const PATCH_REVISER_RULE = `
