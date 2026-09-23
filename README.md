@@ -2,7 +2,7 @@
 
 > **Repository status (2026-09-22): going private until the open-source release.** Development
 > continues in a private repository, and the public open-source release is planned for later this
-> year. Until then, the published npm package `the-high-council` (0.7.5) stays installable as it
+> year. Until then, the published npm package `the-high-council` (0.7.6) stays installable as it
 > is, and the `npx github:...` lines below only work for someone with access to this repository.
 > The licence of everything already released stays MIT.
 

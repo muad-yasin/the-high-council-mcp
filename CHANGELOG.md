@@ -1,6 +1,156 @@
 # Changelog
 
-## Unreleased - repository layout: internal docs in maintainers/
+## 0.7.6 - 2026-09-23
+
+Everything since 0.7.5. The summary comes first; the detailed notes, in the order they were
+written, follow under "Detail". This release makes no claim that a council's output is better than
+a single model's: nothing like that has been measured.
+
+### Breaking changes
+
+These can stop a chain, a script or a setup that worked with 0.7.5.
+
+- **The `xai` provider is removed** (`84627c5`): adapter, alias, price and example key. A chain
+  with `"provider": "xai"` no longer runs.
+- **New hard lint errors, refused again at run time. None of them has an opt-out except where
+  noted:**
+  - `denied-model`: xAI/Grok, Kimi/Moonshot, and router ids that could pick them
+    (`openrouter/auto`, `pareto-code`, `*-router`, suffixed forms such as `openrouter/auto:nitro`,
+    `@preset/...`). It also covers the same ids anywhere under a seat's `extra`, and a `baseUrl`
+    whose host is a denied lab's or unknown (`3a4a9d9`, `deec2ac`, `e355975`).
+  - `self-review`: a builder or reviser whose model or lab also sits on the panel that grades it
+    (`1c86993`, `a707ad2`). `"selfReview": "allowed"` at the top level waives it.
+  - `duplicate-lab`: two seats of one lab in a stage whose cache labels are per lab (`19a251d`,
+    `0f950fe`).
+  - `invalid-max-rounds` (`7713d22`).
+  - `role-without-debate`: a `role` on the debating seats of a chain that has no `proposals`
+    stage or does not enable `debate`, where the role would never be heard (`9be005a`). No
+    shipped chain is affected.
+  - **Closed flag blocks.** `decisions`, `alternatives`, `lints`, `canary` and `ambiguity_union`
+    now reject unknown inner keys, so a typo such as `"enable": true` is an error, not a silently
+    skipped stage (`3568e3c`).
+- **`--rounds` must be a whole number of at least 1.** `--rounds 0`, `abc` or `1.5` exits 2
+  (usage error) instead of running (`7713d22`).
+- **Exit codes.** 0.7.5 used 0-6. Codes 7-17 are new, and guard refusals that used to share 1, 2, 5
+  or 6 now have their own:
+  - 7/8: security review blocked, or could not judge.
+  - 9: artifact gate.
+  - 10: preflight.
+  - 11: PII gate.
+  - 12: `policy.json`.
+  - 13: run locked.
+  - 14: task changed without an amendment.
+  - 15: resume of a finished run.
+  - 16: unexpected error (`STOPPED-error.md`).
+  - 17: a draft cut off at its token cap (`STOPPED-truncated.md`).
+
+  Scripts that tested for 1, 5 or 6 need updating. The README's CLI section lists every code.
+- **`outcome` for stated passes.** A seat's stated pass (`freedoms.pass`) now counts as an
+  abstention, and a run on which no reviewer was heard is `degraded`, not a disagreement
+  (`52a66cc`, `1d13f2b`).
+- **A finished run can't be resumed.** `--resume` of a run folder that has a `report.json` exits
+  15 without running or spending anything (`b795d70`). A `--rematch`/`--replay` folder can't be
+  resumed either (`893759e`).
+- **Other defaults that changed:**
+  - The default spend ceiling is $7 (was $5) (`40c1618`).
+  - The round cap is 7 (`9f5df20`).
+  - `verifyAuditLog` refuses a log with no closing line unless `allowUnclosed` is passed
+    (`2789f85`).
+
+### Added
+
+- **Chains:** `cheap-7`, `cheap-7-v2`, `plan-open-7` and `plan-premium-7`. Shipped rosters are
+  refreshed, and Grok and Kimi seats are removed.
+- **Stages, all opt-in per chain:**
+  - The final security-review gate.
+  - A preflight stage and post-build verify.
+  - A cold-reader coherence check.
+  - A dispute stage for unresolved dissent, and `dispute.review`.
+  - Decision records.
+  - A blind whole-architecture alternatives stage.
+  - A canary (sampled, recorded, never applied).
+- **Commands:**
+  - `council fence`: the human picks the source the labs see.
+  - `--rematch` and `--replay`.
+  - `export-board` renders the alternatives stage.
+  - `--forecast-cost`.
+  - `council --version`.
+- **Other:**
+  - The patch-mode reviser.
+  - A per-seat panel token cap.
+  - Context partitioning for proposal seats.
+  - A chain JSON Schema with `schemaVersion`.
+  - Claude Code plugin packaging and standalone binaries.
+  - Generic skills in `skills/` (not part of the npm package).
+- **MCP:**
+  - `start_run` takes `pii_gate` and `allow_unfenced`.
+  - The server reports the package version.
+  - User chains in `./chains` are listed.
+
+### Changed
+
+- **Internal project documents moved into `maintainers/`** (`79667d0`): `HANDOFF.md`,
+  `DECISIONS.md`, `PROGRESS.md`, `STATUS-LEDGER.md`, `ideas/` and `proposals/`. They were never in
+  the npm package, and the package's file list is unchanged; `maintainers/` is refused in the
+  tarball by test.
+
+### Fixed
+
+- **Consent:**
+  - An unheard, cut-off or unreadable reviewer never counts as consent.
+  - A cut-off critic reply gets one retry with a bigger cap, and a retry never shrinks the cap.
+  - A reasoning-only stop far under the cap abstains (`REASONING_EXHAUSTED`).
+- **The spend cap:**
+  - It's no longer swallowed by a catch.
+  - Parallel calls reserve before they run.
+  - `--rematch`/`--replay` are capped.
+  - `STOPPED` markers and totals show true spend.
+  - A call billed but failed, and a discarded Anthropic thinking attempt, are written to disk as
+    charges, so `--spend`, the report totals and the cap on resume count them (`2472676`).
+- **Resume:**
+  - A cached stage replays only if it answered the same prompt.
+  - One process per run.
+  - Paths resolve from the start directory.
+  - The PII gate and `policy.json` are re-applied on every sitting.
+  - Only the latest amendment covers a changed task.
+  - A cached entry with no record of the inputs it answered (anything from before `9733a8d`) is
+    stale: re-run, or for an external stage set aside and asked again. Entries from between the
+    two cache fixes replay but are recorded as `cache_unverified` (`daeb96f`).
+- **The reviser:**
+  - Its "Disputed" rebuttals no longer leak into the graded draft.
+  - Critic text can't escape its tag.
+  - Quotes reach the reviser.
+- **Criteria guards:** criteria that describe the criteria list, or can't be checked, are caught
+  before any paid round.
+- **Personas:** a personas-file entry with no name or voice no longer puts "undefined" into a
+  debate prompt (`9be005a`).
+- **MCP `start_run` and `resume_run`** report `started:false`/`resumed:false`, with the exit code
+  and log tail, for a run that stopped at startup. They wait for the child to exit, or to hold the
+  run lock and write its first `state.json` (past every startup refusal), not for a fixed window
+  (`2472676`, `814e741`, `81e5579`).
+- **Many smaller fixes from the 2026-09-20 to 09-23 audits.** Details below.
+
+### Security
+
+- **One list of secret formats** (`src/secret-patterns.js`) for the artifact scanner, the PII gate
+  and tool/fence redaction. The scanner used to miss OpenRouter keys. It now covers Groq, Hugging
+  Face, Together, Z.ai, Bearer tokens, PGP blocks and URL passwords.
+- **No Grok by another route:**
+  - A seat's `extra.model` can no longer override the checked model.
+  - A seat's `baseUrl` is checked.
+- **Tools and fence:**
+  - Sandboxed tools never return secrets or gitignored files.
+  - The fence redacts before it truncates.
+  - `grep_repo` checks the real path.
+- **The MCP server:**
+  - `plan_outline` is confined to Markdown files in the working directory.
+  - `start_run` refuses denylisted task paths.
+- **The audit log** detects a cut-off end. Without an HMAC key (the default), it doesn't detect a
+  full rewrite; the README's Known limits says so.
+
+### Detail
+
+#### repository layout: internal docs in maintainers/
 
 The internal project documents moved out of the repository root into `maintainers/`: `HANDOFF.md`,
 `DECISIONS.md`, `PROGRESS.md`, `STATUS-LEDGER.md`, `ideas/` (the idea matrix and its two PDFs) and
@@ -10,7 +160,7 @@ unchanged. `test/repo-hygiene.test.js` keeps `runs/`, `tasks/`, `.council/`, `Re
 `.idempotency/` gitignored and the moved documents out of the root, and `test/package.test.js`
 refuses `maintainers/` in the tarball.
 
-## Unreleased - a cut-off draft never ships; stricter amendments; alternatives in the HTML board
+#### a cut-off draft never ships; stricter amendments; alternatives in the HTML board
 
 From the 2026-09-23 pre-release audits (`Review/PreRelease_Audit_revise`, `_contract`).
 
@@ -30,7 +180,7 @@ From the 2026-09-23 pre-release audits (`Review/PreRelease_Audit_revise`, `_cont
 - **Patch-mode critics see whole changes:** `changedSince()` fences each edit with a fence longer
   than any backtick run in it, so a fenced snippet inside a patch no longer closes its block early.
 
-## Unreleased - pre-release audit fixes, batch 3 (security)
+#### pre-release audit fixes, batch 3 (security)
 
 - **One secret-pattern list.** `src/secret-patterns.js` is now the only list, used by the
   task/artifact scanner (`council doctor --scan-artifacts`), the PII gate (`--pii-gate`) and
@@ -68,7 +218,7 @@ From the 2026-09-23 pre-release audits (`Review/PreRelease_Audit_revise`, `_cont
   `council fence` writes a fence longer than any backtick run in the file. A fenced file with its
   own ``` example no longer turns the task's prose into "source", so a quote of that prose can no
   longer show as verified. Task front matter saved with CRLF line endings is read.
-## Unreleased - pre-release audit fixes, batch 1
+#### pre-release audit fixes, batch 1
 
 Fixes from the 2026-09-23 pre-release audits (reviser prompts, alternatives stage, canary probe).
 Each has a regression test that fails on the previous code (`test/prerelease-batch1.test.js`,
@@ -108,7 +258,7 @@ Each has a regression test that fails on the previous code (`test/prerelease-bat
 - **Board text cannot fake structure.** Seat-written fields on the proposal and alternatives
   boards cannot start a heading or a board line. `merge_with`/`replaced_by` keep only a real id on
   that board.
-## Unreleased - decision records and whole alternative architectures
+#### decision records and whole alternative architectures
 
 Two opt-in planning structures, both from the 2026-09-23 research intake and both approved by the
 author ("a great idea", "another great idea"). Mechanism only: **no efficacy claim** - nothing here
@@ -131,7 +281,7 @@ has been measured.
   "Alternative architectures" section, both absent on chains without the stage. No persona in the
   alternatives debate: seat roles stay at their one call site, the proposal debate.
 
-## Unreleased - Opus 5 and Sonnet 5 pricing corrected
+#### Opus 5 and Sonnet 5 pricing corrected
 
 `src/pricing.json` listed `anthropic/claude-opus-5` at $15/$75 and `anthropic/claude-sonnet-5` at
 $3/$15 per million tokens. Anthropic's pricing page (checked 2026-09-15) lists $5/$25 and $2/$10;
@@ -141,7 +291,7 @@ cost reports for these seats now match list price instead of overstating it abou
 (Opus) and 1.5-fold (Sonnet). No other price changed; the Fable 5.1 and Haiku 4.5 entries already
 matched.
 
-## Unreleased - final security-review gate
+#### final security-review gate
 
 An optional last stage, `security-review`, that runs after build, `verify_post`, every critic and
 revise round, the final edit and the handoff. One read-only reviewer reads the finished
@@ -184,7 +334,7 @@ adopted as a dependency. No `src/chain.js` or `src/tools.js` change.
 - **Tests:** `chains/mock-security-review.json` and `test/security-review-gate.test.js` run
   everything at $0. Docs: `docs/security-review-gate.md`.
 
-## Unreleased - MLLM Coder v6 items V6-1 and V6-2: status ledger, span-tree progress records
+#### MLLM Coder v6 items V6-1 and V6-2: status ledger, span-tree progress records
 
 From the v6 plan (`relay/runs/2026-09-15T15-13-25-950Z/deliverable.md`, unanimous 5/5). V6-3,
 V6-4 and V6-7 deferred (the plan's own Mistral objection applies to V6-4 only) - not built here.
@@ -205,7 +355,7 @@ unchanged, round records omit `usd` and are skipped by `sumCostFromStageLogText`
 never double-counted. The span-tree idea is attributed to Langfuse/LangSmith/AgentOps; none is
 adopted as a dependency. No `src/chain.js` or `src/tools.js` change.
 
-## Unreleased - Claude Code plugin packaging
+#### Claude Code plugin packaging
 
 The repository root is now also a Claude Code plugin and its own one-entry marketplace:
 `.claude-plugin/plugin.json` registers the existing MCP server (`node
@@ -218,7 +368,7 @@ rather than in a root `.mcp.json`, which every clone would also load as broken p
 install depends on. `claude plugin validate --strict` passes on the marketplace; on the plugin it
 reports one warning, that the root `CLAUDE.md` is not loaded as plugin context, which is intended.
 
-## Unreleased - coder-gate v5: disagreement groups, policy capabilities, citations, seat boundary
+#### coder-gate v5: disagreement groups, policy capabilities, citations, seat boundary
 
 From the v5 plan (`relay/runs/2026-09-15T03-43-44-216Z/deliverable.md`, signed off 4 of 5 - the
 fifth lab never returned a verdict because of a provider credit error, not an objection). Items 4,
@@ -258,7 +408,7 @@ stage the run is not waiting for.
 a diff-gate chain), so the plan's proposed `shape` field was cut for having no consumer, and "swarm"
 dispatch belongs to the coding-agent plan.
 
-## Unreleased - coder-gate v4: signoff wiring and eval fixtures
+#### coder-gate v4: signoff wiring and eval fixtures
 
 **`required_signoff_paths` now fires from a real run.** v3 built the check but nothing handed it
 a change request, so it could never trigger. `src/cli.js` now reads the task file's
@@ -275,7 +425,7 @@ result fails only when buggy) and checks the scorer against three mock verdict s
 <file>` scores verdicts an operator produced by hand. This is a detection count on ten hand-written
 fixtures, not a measurement of any reviewer and not a comparison between reviewers.
 
-## Unreleased - binary packaging
+#### binary packaging
 
 **Standalone binaries, buildable from a clone.** `npm run build:bin` builds a Linux binary and a
 Windows `.exe` with `@yao-pkg/pkg` (exact-pinned dev dependency). `npm run build:appimage` wraps the
@@ -297,7 +447,7 @@ guards all of this offline, including a ban on dynamic `import()` in `src/`.
 
 Not done: a test on a real Windows machine (the `.exe` is tested under Wine) and code signing.
 
-## Unreleased - skills
+#### skills
 
 **Five core agentic skills** added to `skills/`, for any agent task (coding or not), including
 setups where several models propose, critique, and hand off to each other: `task-scoping`,

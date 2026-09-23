@@ -1,6 +1,6 @@
 {
   "name": "the-high-council",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "The High Council: a multi-model planning harness. One builder, independent critics from other labs, checkable acceptance criteria, a debate on the record, and a hard stop.",
   "type": "module",
   "license": "MIT",
@@ -55,7 +55,7 @@
     "type": "git",
     "url": "git+https://github.com/muad-yasin/the-high-council-mcp.git"
   },
-  "homepage": "https://muad-yasin.github.io/the-high-council-mcp/",
+  "homepage": "https://sower-industries.de/MCP",
   "bugs": {
     "url": "https://github.com/muad-yasin/the-high-council-mcp/issues"
   },
