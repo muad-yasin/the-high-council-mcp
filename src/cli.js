@@ -322,11 +322,12 @@ if (argv[0] === 'doctor') {
   const cw = Math.max(...files.map(f => f.length - 5));
   for (const f of files) {
     const cfg = JSON.parse(readFileSync(join(chainsDir, f), 'utf8'));
-    const seats = [
-      cfg.seats.criteria, cfg.seats.builder, cfg.seats.reviser, cfg.seats.finalist,
-      cfg.seats.skeleton, cfg.seats.handoff, cfg.seats.questions, cfg.seats.judge,
-      ...(cfg.seats.proposers || []), ...(cfg.seats.critics || []),
-    ].filter(Boolean);
+    // Pre-release audit 2026-09-23 (lint #3): this listing hand-built its own seat list and missed
+    // the challenger, cold reader, claims, ambiguity, descending, preflight and default security
+    // reviewer seats, so it called a chain "runnable" that a real run refuses. It now uses the same
+    // enumerator the real run path checks (everySeatOf after vendor resolution).
+    let seats;
+    try { seats = everySeatOf(resolveChainSeats(cfg)); } catch { seats = everySeatOf(cfg); }
     const missing = checkSeats(seats);
     const runnable = missing.length === 0;
     const worst = estimateChainRows(cfg).reduce((sum, r) => sum + r.usd, 0);

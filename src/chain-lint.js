@@ -143,6 +143,47 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
+  // 5b. Opt-in flag blocks with a closed key set (pre-release audit 2026-09-23, lint #2). Each of
+  // these is read in chain.js as `config.<block>?.enabled` plus the named keys below, and nothing
+  // else - so a typo'd key ("alternatives": { "enable": true }) used to validate, lint clean, and
+  // silently skip a stage the author believes is on, some of them paid. chain-schema.json locks the
+  // same sets with additionalProperties:false; this rule is the actionable message `council doctor`
+  // prints. `canary.decide`/`canary.rng` are in-process test hooks (functions) and cannot appear in
+  // a JSON chain file, so they are deliberately not listed.
+  const FLAG_BLOCKS = {
+    decisions: { enabled: 'boolean' },
+    alternatives: { enabled: 'boolean', maxTokens: 'positive-integer' },
+    lints: { enabled: 'boolean', forks: 'array' },
+    canary: { enabled: 'boolean', sampleRate: 'rate' },
+    ambiguity_union: { enabled: 'boolean' },
+  };
+  const typeOk = (want, v) => want === 'boolean' ? typeof v === 'boolean'
+    : want === 'positive-integer' ? Number.isInteger(v) && v >= 1
+    : want === 'array' ? Array.isArray(v)
+    : want === 'rate' ? typeof v === 'number' && v >= 0 && v <= 1
+    : true;
+  const typeText = { boolean: 'true or false', 'positive-integer': 'a whole number of at least 1', array: 'an array', rate: 'a number from 0 to 1' };
+  for (const [block, keys] of Object.entries(FLAG_BLOCKS)) {
+    const value = config?.[block];
+    if (value === undefined) continue;
+    const kind = `invalid-${block.replace(/_/g, '-')}-config`;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      findings.push({ kind, message: `${block} must be an object.`, fix: `Write it as "${block}": { "enabled": true } in ${filePath}.` });
+      continue;
+    }
+    for (const key of Object.keys(value)) {
+      if (!(key in keys)) {
+        findings.push({
+          kind,
+          message: `${block}.${key} is not a recognized key - this block reads only ${Object.keys(keys).map(k => `"${k}"`).join(', ')}, so the setting would silently do nothing.`,
+          fix: `Remove or correct "${block}.${key}" in ${filePath}${key.toLowerCase().startsWith('enable') && key !== 'enabled' ? ` (did you mean "enabled"?)` : ''}.`,
+        });
+      } else if (!typeOk(keys[key], value[key])) {
+        findings.push({ kind, message: `${block}.${key} must be ${typeText[keys[key]]}.`, fix: `Set "${block}.${key}" to ${typeText[keys[key]]} in ${filePath}.` });
+      }
+    }
+  }
+
   // 6. Challenge stage (v7 item 5): `challenge.enabled` is the only key this
   // chain reads. The one-challenge, one-decision bound is the whole point of
   // the mechanism - the narrowness of the re-open is the decay mitigation -

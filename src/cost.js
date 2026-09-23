@@ -67,6 +67,19 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
     const usd = p ? (input / 1e6) * p.in + (output / 1e6) * p.out : 0;
     rows.push({ label, seat: `${seat.provider}/${seat.model}`, input, output, usd, priced: !!p });
   };
+  // Pre-release audit 2026-09-23 (lint #3): the optional stages below were paid at run time but
+  // never priced here, so `--dry-run` and `council doctor` under-stated a chain that enabled them.
+  // Seat choice and gating mirror chain.js exactly (same fallbacks), so the rows appear only when
+  // the run would really make those calls. `descending` chains run a different stage shape and are
+  // still priced as a normal chain - a known gap, not closed here.
+  const lab = seat => seat.lab || seat.provider;
+  if (config.ambiguity_union?.enabled && !fromRun) {
+    for (const seat of config.seats.ambiguity || (config.seats.critics || []).slice(0, 3)) push(`ambiguity-${lab(seat)}`, seat, a.promptTokens, 800);
+  }
+  if (config.preflight && !fromRun) {
+    const seats = (config.preflight.seats && config.preflight.seats.length) ? config.preflight.seats : (config.seats.critics || []);
+    for (const seat of seats) push(`preflight-${lab(seat)}`, seat, a.promptTokens, 800);
+  }
   if (config.questions && !fromRun) push('questions', config.seats.questions || config.seats.criteria, a.promptTokens, 800);
   // A chain with hand-written criteria skips that stage entirely.
   if (!config.criteria?.length) push('criteria', config.seats.criteria, a.promptTokens, 400);
@@ -143,6 +156,13 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
     const author = (config.seats.proposers || config.seats.critics || [])[0];
     push(`canary-reply-${author ? (author.lab || author.provider) : 'author'}`, author, a.promptTokens + 3000, 800);
   }
+  if (config.claims?.enabled) push('claims', config.seats.claims || config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens, a.critiqueTokens);
+  if (config.challenge?.enabled === true) {
+    push('challenge', config.seats.challenger || (config.seats.critics || [])[0], a.promptTokens + a.draftTokens, a.critiqueTokens);
+    // Worst case: the challenge lands and the reviser answers it once.
+    push('challenge-revise', config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens + a.critiqueTokens, a.draftTokens);
+  }
+  if (config.coldRead?.enabled === true) push('cold-read', config.seats.coldRead, a.draftTokens, a.critiqueTokens);
   push('final', config.seats.finalist, a.promptTokens + a.draftTokens, a.draftTokens);
   if (config.handoff) push('handoff', config.seats.handoff || config.seats.builder, a.promptTokens + a.draftTokens, 1200);
   // The final security review reads the request plus the finished draft (promptTokens +

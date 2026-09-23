@@ -186,3 +186,31 @@ test('writeClaim: the original claimant re-claiming with NO contest yet still wr
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Pre-release audit 2026-09-23 (PreRelease_Audit_guards #2): concurrent claims on a fresh stage
+// used to lose a claimant silently (the last writeFileSync won, with no contested_by). This runs
+// real, separate processes released at the same instant, so the race is the real one - a
+// same-process test cannot interleave a synchronous function.
+test('writeClaim: concurrent claims from separate processes never lose a claimant', async () => {
+  const { spawn } = await import('node:child_process');
+  const { mkdtempSync: mk, readFileSync: rf } = await import('node:fs');
+  const { tmpdir: td } = await import('node:os');
+  const { join: j } = await import('node:path');
+  const mod = new URL('../src/peer-claim.js', import.meta.url).href;
+  for (let trial = 0; trial < 6; trial++) {
+    const dir = mk(j(td(), 'claim-race-'));
+    const startAt = Date.now() + 400;
+    const ids = ['peer-a', 'peer-b', 'peer-c'];
+    const script = `const { writeClaim } = await import(${JSON.stringify(mod)});
+      while (Date.now() < ${startAt}) {}
+      writeClaim(${JSON.stringify(dir)}, 'build', process.argv[1]);`;
+    await Promise.all(ids.map(id => new Promise((res, rej) => {
+      const p = spawn(process.execPath, ['--input-type=module', '-e', script, id], { stdio: 'inherit' });
+      p.on('exit', code => code === 0 ? res() : rej(new Error(`claimant ${id} exited ${code}`)));
+    })));
+    const c = JSON.parse(rf(j(dir, 'build.claim.json'), 'utf8'));
+    const all = [c.claimed_by, ...(c.contested_by || [])].sort();
+    rmSync(dir, { recursive: true, force: true });
+    assert.deepEqual(all, ids, `trial ${trial}: every claimant must be on the record, got ${JSON.stringify(c)}`);
+  }
+});

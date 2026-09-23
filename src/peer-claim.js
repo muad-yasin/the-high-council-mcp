@@ -14,7 +14,7 @@
 //
 // File-based only, no subprocess spawning, no network call, no ledger: this module reads and
 // writes exactly one JSON file per stage, inside the run folder it already belongs to.
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, renameSync, openSync, closeSync, unlinkSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const DEFAULT_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4 hours - operator-tunable via the options arg,
@@ -57,19 +57,61 @@ function readClaim(dir, stage) {
  * re-affirm the existing record byte-for-byte, `contested_by` included.
  */
 export function writeClaim(dir, stage, claimedBy, { now = () => new Date() } = {}) {
-  const existing = readClaim(dir, stage);
-  const hasAnswer = existsSync(answerPath(dir, stage));
-  let claim;
-  if (existing && !hasAnswer && existing.claimed_by !== claimedBy) {
-    const contested_by = [...(existing.contested_by || []), claimedBy];
-    claim = { ...existing, contested_by };
-  } else if (existing && !hasAnswer && existing.claimed_by === claimedBy && existing.contested_by?.length) {
-    claim = { ...existing };
-  } else {
-    claim = { claimed_by: claimedBy, claimed_at: now().toISOString() };
+  // Pre-release audit fix, 2026-09-23 (PreRelease_Audit_guards #2): this used to read, decide and
+  // then writeFileSync with nothing between them, so two peers claiming the same fresh stage at
+  // the same moment both read "no claim" and the last writer silently won, with no
+  // `contested_by` - the collision this module exists to make visible. The whole
+  // read-decide-write now runs under an exclusive lock file (O_EXCL via the 'wx' flag), so
+  // claimants are serialised and every one of them lands on the record. The claim itself is
+  // replaced atomically (temp file + rename), so a reader never sees half a file.
+  const path = claimPath(dir, stage);
+  const release = acquireClaimLock(`${path}.lock`);
+  try {
+    const existing = readClaim(dir, stage);
+    const hasAnswer = existsSync(answerPath(dir, stage));
+    let claim;
+    if (existing && !hasAnswer && existing.claimed_by !== claimedBy) {
+      if ((existing.contested_by || []).includes(claimedBy)) return existing;
+      claim = { ...existing, contested_by: [...(existing.contested_by || []), claimedBy] };
+    } else if (existing && !hasAnswer && existing.claimed_by === claimedBy && existing.contested_by?.length) {
+      claim = { ...existing };
+    } else {
+      claim = { claimed_by: claimedBy, claimed_at: now().toISOString() };
+    }
+    const tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(claim, null, 2));
+    renameSync(tmp, path);
+    return claim;
+  } finally {
+    release();
   }
-  writeFileSync(claimPath(dir, stage), JSON.stringify(claim, null, 2));
-  return claim;
+}
+
+// The lock is held only for the few milliseconds of one read-decide-write. A lock older than
+// STALE_LOCK_MS can only be left by a process that died holding it, so it is broken rather than
+// waited on forever. Waiting is bounded: past LOCK_WAIT_MS this throws instead of hanging a peer.
+const STALE_LOCK_MS = 30 * 1000;
+const LOCK_WAIT_MS = 10 * 1000;
+function acquireClaimLock(lockPath) {
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      closeSync(openSync(lockPath, 'wx'));
+      return () => { try { unlinkSync(lockPath); } catch { /* already gone */ } };
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+    }
+    try {
+      if (Date.now() - statSync(lockPath).mtimeMs > STALE_LOCK_MS) unlinkSync(lockPath);
+    } catch { /* released or broken by someone else meanwhile - just retry */ }
+    if (Date.now() > deadline) throw new Error(`peer-claim: could not lock ${lockPath} within ${LOCK_WAIT_MS / 1000} s`);
+    sleepMs(5);
+  }
+}
+
+// A short synchronous pause (writeClaim is synchronous by contract).
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 export function readClaimFor(dir, stage) {

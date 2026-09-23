@@ -155,6 +155,8 @@
     },
     "ambiguity_union": {
       "type": "object",
+      "description": "Only \"enabled\" is read. Unknown keys fail here and in chain-lint (a typo like \"enable\" would otherwise silently skip the stage).",
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "type": "boolean"
@@ -163,14 +165,23 @@
     },
     "canary": {
       "type": "object",
+      "description": "Only \"enabled\" and \"sampleRate\" are read from a chain file. Unknown keys fail here and in chain-lint.",
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "type": "boolean"
+        },
+        "sampleRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       }
     },
     "decisions": {
       "type": "object",
+      "description": "Only \"enabled\" is read. Unknown keys fail here and in chain-lint.",
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "type": "boolean"
@@ -179,6 +190,8 @@
     },
     "alternatives": {
       "type": "object",
+      "description": "Only \"enabled\" and \"maxTokens\" are read. Unknown keys fail here and in chain-lint (a typo like \"enable\" would otherwise silently skip a paid stage).",
+      "additionalProperties": false,
       "properties": {
         "enabled": {
           "type": "boolean"
@@ -194,7 +207,12 @@
     },
     "lints": {
       "type": "object",
+      "description": "Only \"enabled\" and \"forks\" are read. Unknown keys fail here and in chain-lint.",
+      "additionalProperties": false,
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
         "forks": {
           "type": "array"
         }

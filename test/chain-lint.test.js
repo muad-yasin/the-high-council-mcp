@@ -285,3 +285,33 @@ test('cheap-7-v2: every seat is priced, because an unpriced seat is an uncapped 
     assert.ok(priceOf(s.provider, s.model), `${s.provider}/${s.model} has no entry in src/pricing.json - it would project $0 and escape the spend cap`);
   }
 });
+
+// Pre-release audit 2026-09-23 (lint #2): opt-in flag blocks used to accept any inner key, so a
+// typo silently skipped the stage - including the paid alternatives stage. Both the schema and
+// chain-lint now reject an unknown key in each of the five blocks.
+test('chain-lint: a typo inside an opt-in flag block is reported, not silently ignored', async () => {
+  const { readFileSync: rf } = await import('node:fs');
+  const Ajv = (await import('ajv')).default;
+  const schema = JSON.parse(rf(new URL('../config/chain-schema.json', import.meta.url), 'utf8'));
+  const validate = new Ajv({ allErrors: true }).compile(schema);
+  const base = { seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'mock', model: 'mock-builder' }, critics: [{ provider: 'mock', model: 'mock-critic-a', lab: 'a' }] }, maxRounds: 1 };
+
+  const typo = { ...base, alternatives: { enable: true } };
+  const f = lintChain(typo, 'typo.json').filter(x => x.kind === 'invalid-alternatives-config');
+  assert.equal(f.length, 1, 'the stage would silently never run');
+  assert.match(f[0].message, /alternatives\.enable is not a recognized key/);
+  assert.match(f[0].fix, /did you mean "enabled"/);
+  assert.equal(validate(typo), false, 'the schema rejects it too');
+
+  for (const [block, bad] of [['decisions', { eanbled: true }], ['canary', { enabeld: true }], ['lints', { enabbled: true }], ['ambiguity_union', { enable: true }]]) {
+    const cfg = { ...base, [block]: bad };
+    assert.equal(lintChain(cfg, 'x.json').filter(x => x.kind === `invalid-${block.replace(/_/g, '-')}-config`).length, 1, block);
+    assert.equal(validate(cfg), false, `${block}: schema`);
+  }
+  // Wrong types are reported; correct, complete blocks are clean in both.
+  assert.equal(lintChain({ ...base, alternatives: { enabled: true, maxTokens: 0 } }, 'x.json').filter(x => x.kind === 'invalid-alternatives-config').length, 1);
+  assert.equal(lintChain({ ...base, canary: { enabled: true, sampleRate: 2 } }, 'x.json').filter(x => x.kind === 'invalid-canary-config').length, 1);
+  const good = { ...base, decisions: { enabled: true }, alternatives: { enabled: true, maxTokens: 3000 }, canary: { enabled: true, sampleRate: 0.1 }, lints: { enabled: true, forks: [] }, ambiguity_union: { enabled: false } };
+  assert.deepEqual(lintChain(good, 'good.json').filter(x => /^invalid-(decisions|alternatives|canary|lints|ambiguity-union)-config$/.test(x.kind)), []);
+  assert.equal(validate(good), true, JSON.stringify(validate.errors));
+});
