@@ -11,6 +11,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { runIdToDate } from './spend.js';
 import { shapeRounds } from './shape-rounds.js';
+import { realDebate } from './canary.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 
@@ -44,27 +45,47 @@ function emptyLabAgg() {
     soloSignoffs: 0,
     verdictOpportunities: 0,
     droppedVerdicts: 0,
+    unusableVerdicts: 0,
+    legacyVerdicts: false,
   };
 }
 
 // v7 item 2: a critic/panel invocation is a "verdict opportunity" for its lab, whether or not
-// it came back usable. Read straight off report.stages (every invoke() call this run made),
-// keyed by the stage's own recorded `lab` - the same field debate/independence accounting
-// already trusts. Covers both chain shapes: "critique-N" (default/first mode, one critic per
-// round) and "panel-N-<lab>" (unanimous mode).
+// it came back usable.
+//
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_Metrics_2026-09-23.md #3): this was reconstructed
+// from stage labels (counting retry/reask/answered/question stages as extra opportunities, and
+// crediting question stages to the builder's lab) against a numerator that only saw the LAST
+// round's abstentions and never saw a thrown call - so a run that lost a vote read 1.0, and a
+// synthetic run read -1. A report written since then carries `panelVerdicts` (one row per seat per
+// round, unheard included), which is the fact itself; older reports fall back to base labels only.
 function accumulateVerdictOpportunities(report, byLab) {
+  const add = (labName, opportunities, unusable, dropped = 0) => {
+    const lab = byLab.get(labName) || emptyLabAgg();
+    lab.verdictOpportunities += opportunities;
+    lab.unusableVerdicts += unusable;
+    lab.droppedVerdicts += dropped; // provider failures only - a subset of unusable
+    byLab.set(labName, lab);
+  };
+  if (Array.isArray(report.panelVerdicts)) {
+    for (const v of report.panelVerdicts) if (v?.lab) add(v.lab, 1, v.verdict === 'unheard' ? 1 : 0, v.reason_code === 'SEAT_UNREACHABLE' ? 1 : 0);
+    return;
+  }
+  // Legacy report: one opportunity per base critique/panel stage, never a retry, re-ask,
+  // answered or question stage; unusable = dropouts plus final-round abstentions. Still blind to
+  // a thrown call and to earlier rounds, which is why the rate is clamped and flagged `legacy`.
   for (const s of report.stages || []) {
-    if (!/^(critique|panel)-/.test(s.label || '')) continue;
-    if (!s.lab) continue;
-    const lab = byLab.get(s.lab) || emptyLabAgg();
-    lab.verdictOpportunities += 1;
-    byLab.set(s.lab, lab);
+    if (!/^(critique-\d+|panel-\d+-.+)$/.test(s.label || '') || /-(retry|reask\d*|answered|question)$/.test(s.label)) continue;
+    if (s.lab) add(s.lab, 1, 0);
   }
   for (const d of report.dropouts || []) {
-    if (!/^(critique|panel)-/.test(d.stage || '')) continue;
-    const lab = byLab.get(d.lab) || emptyLabAgg();
-    lab.droppedVerdicts += 1;
-    byLab.set(d.lab, lab);
+    if (/^(critique|panel)-/.test(d.stage || '') && d.lab) add(d.lab, 0, 1, 1);
+  }
+  for (const s of Array.isArray(report.signoff) ? report.signoff : []) {
+    if (s.signedOff === null && !s.passed && s.provider) add(s.provider, 0, 1);
+  }
+  for (const labName of new Set((report.stages || []).map(s => s.lab).filter(Boolean))) {
+    const lab = byLab.get(labName); if (lab) lab.legacyVerdicts = true;
   }
 }
 
@@ -74,7 +95,7 @@ function accumulateVerdictOpportunities(report, byLab) {
 // only makes a pattern visible that was previously invisible without
 // reading every debate post by hand.
 function accumulateIndependence(report, byLab) {
-  const posts = report.debate?.posts;
+  const posts = realDebate(report.debate)?.posts; // canary posts are not a lab's objection
   if (Array.isArray(posts)) {
     const objectorsByTarget = new Map(); // target ("on") -> Set(lab)
     const objectionsByLab = new Map();   // lab -> [target, ...]
@@ -176,10 +197,12 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
     chain.runs += 1;
 
     const signoff = Array.isArray(report.signoff) ? report.signoff : [];
-    const anySignedOff = signoff.length > 0 && signoff.every(s => s.signedOff === true || s.signedOff === null);
-    const allSignedOff = signoff.length > 0 && signoff.some(s => s.signedOff === true) &&
-      signoff.every(s => s.signedOff === true || s.signedOff === null);
-    if (report.passed === true || allSignedOff) chain.signedOff += 1;
+    // Bug-audit fix, 2026-09-23 (Review/BugAudit_Metrics_2026-09-23.md #1): an unheard seat
+    // (signedOff === null) used to count toward "every seat signed off" - the 2026-09-17 pilot bug,
+    // back in the reader: a capped run with one lost vote read signoffRate 1.0 while its own
+    // report said passed:false. The run's own verdict is the only sign-off.
+    const signedOffRun = report.passed === true;
+    if (signedOffRun) chain.signedOff += 1;
 
     for (const s of signoff) {
       if (s.signedOff === null) chain.unparseable += 1; // abstention
@@ -187,7 +210,7 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
     }
 
     const rounds = (report.stages || []).map(s => roundOf(s.label)).filter(n => n !== null);
-    if (rounds.length && (report.passed === true || allSignedOff)) {
+    if (rounds.length && signedOffRun) {
       chain.roundsToSignoff.push(Math.max(...rounds));
     }
 
@@ -256,8 +279,9 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
     // invoked for, how many came back usable (not dropped by a provider failure, not
     // unreadable JSON). Distinct from soloSignoffRate/novelObjectionRate, which are about
     // debate posture, not seat reliability.
-    const unusable = l.droppedVerdicts + l.unparseable;
-    const usableVerdictRate = l.verdictOpportunities ? (l.verdictOpportunities - unusable) / l.verdictOpportunities : null;
+    const usableVerdictRate = l.verdictOpportunities
+      ? Math.min(1, Math.max(0, (l.verdictOpportunities - l.unusableVerdicts) / l.verdictOpportunities))
+      : null;
     return {
       lab: name,
       proposed: l.proposed,
@@ -269,6 +293,9 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
       verdictOpportunities: l.verdictOpportunities,
       droppedVerdicts: l.droppedVerdicts,
       usableVerdictRate,
+      // true when any of this lab's runs predate panelVerdicts: the rate is then a reconstruction
+      // that cannot see a thrown call or an earlier round's lost vote (clamped to 0..1).
+      legacyVerdicts: l.legacyVerdicts,
       objections: l.objections,
       novelObjections: l.novelObjections,
       novelObjectionRate,

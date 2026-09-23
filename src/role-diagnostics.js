@@ -16,10 +16,17 @@
 // same way verdict-stats.js and cost-forecast.js already derive their
 // numbers from run folders.
 
-const QUOTE_RE = /"([^"]{3,})"/g;
+import { realDebate } from './canary.js';
+
+// Double, curly and single quotes. Bug-audit fix, 2026-09-23 (BugAudit_Metrics #4): only "..."
+// counted, so seats that quote with '...' scored substance 0 and were flagged
+// characterPerformedNotReviewed (run 16-38-54: gemini 0.00 -> 1.00, glm 0.00 -> 0.82). A single
+// quote opens only where no letter precedes it and closes only where none follows, so the
+// apostrophe in "don't" is never taken for a quote.
+const QUOTE_RE = /"([^"]{3,})"|\u201c([^\u201d]{3,})\u201d|\u2018([^\u2019]{3,})\u2019|(?<![\p{L}\p{N}])'([^'\n]{3,}?)'(?![\p{L}\p{N}])/gu;
 
 function quotedSpans(text) {
-  return [...String(text || '').matchAll(QUOTE_RE)].map(m => m[1]);
+  return [...String(text || '').matchAll(QUOTE_RE)].map(m => m[1] ?? m[2] ?? m[3] ?? m[4]);
 }
 
 function wordSet(text) {
@@ -155,7 +162,7 @@ const SUBSTANCE_GAP_FLOOR = -0.2;
  * module in this project.
  */
 export function computeRoleDiagnostics(debate, roleLabs = new Set()) {
-  const posts = debate?.posts || [];
+  const posts = realDebate(debate)?.posts || []; // canary posts are not a seat's review
   const perSeat = perSeatMetrics(posts);
   const agreement = pairwiseAgreement(posts);
   const substanceGap = roleVsPlainSubstanceGap(perSeat, roleLabs);

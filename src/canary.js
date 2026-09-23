@@ -88,3 +88,21 @@ export async function injectCanary(proposals, decide, { by = 'canary' } = {}) {
   const reply = { id: target.id, action, canary: true, capitulated };
   return { post, reply, capitulated };
 }
+
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_Metrics_2026-09-23.md #2): canary posts/replies share
+// the real posts/replies shape, so every reader of report.debate must drop them - only one reader
+// did. They leaked into per-lab objection counts (a fake "canary" lab, and a real lab's novel
+// objection no longer counted as novel), role diagnostics and the consensus-regression count. One
+// filter, used by every reader.
+export const isCanary = x => x?.canary === true || x?.by === 'canary';
+export function realDebate(debate) {
+  if (!debate || typeof debate !== 'object') return debate;
+  return {
+    ...debate,
+    posts: Array.isArray(debate.posts) ? debate.posts.filter(p => !isCanary(p)) : debate.posts,
+    replies: Array.isArray(debate.replies) ? debate.replies.filter(r => !isCanary(r)) : debate.replies,
+  };
+}
+export function withoutCanary(report) {
+  return report?.debate ? { ...report, debate: realDebate(report.debate) } : report;
+}

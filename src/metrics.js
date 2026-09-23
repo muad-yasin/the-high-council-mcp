@@ -37,6 +37,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { runIdToDate } from './spend.js';
+import { withoutCanary } from './canary.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 const readText = p => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
@@ -240,6 +241,7 @@ export function findContradictingEvidence(report, positionId) {
 // debate.replies[] (not signoff[], which carries no posts/replies linkage) joined to
 // debate.posts[] by proposal reference via the two helpers above, exactly as Item 2 specifies.
 export function consensusInducedRegressionOfRun(report) {
+  report = withoutCanary(report); // an author yielding to a canary is not a consensus regression
   const posts = Array.isArray(report?.debate?.posts) ? report.debate.posts : [];
   const replies = Array.isArray(report?.debate?.replies) ? report.debate.replies : [];
 

@@ -39,6 +39,9 @@ const FROZEN_V6_KEYS = [
   // 2026-09-22: 'regressions' - criteria that failed, passed, then failed again, recorded per round.
   // Additive, like every key above it; README's report.json contract allows adding, not renaming.
   'regressions',
+  // 2026-09-23: 'panelVerdicts' - one row per seat per round, unheard included (bug audit
+  // BugAudit_Metrics #3). Additive, same rule.
+  'panelVerdicts',
 ].sort();
 
 test('verify absent: result has no ground_truth key and matches the frozen v6 key set', async () => {

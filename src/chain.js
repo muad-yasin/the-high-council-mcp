@@ -1558,6 +1558,13 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // Per-round set of failed criterion strings, and the regressions found from them (2026-09-22).
   const failedByRound = [];
   const regressions = [];
+  // Every verdict opportunity this run had, one row per seat per round, including seats that were
+  // never heard (thrown call, cut off, unreadable, no verdict). Bug-audit fix, 2026-09-23
+  // (Review/BugAudit_Metrics_2026-09-23.md #3): verdict-stats used to reconstruct this from stage
+  // labels and the LAST round's signoff, so a vote lost in an earlier round - or a thrown call, which
+  // leaves no stage - was invisible and usableVerdictRate read 1.0 on runs that lost votes.
+  // { round, lab, model, verdict: 'signed_off'|'objected'|'passed'|'unheard', reason_code, reasked }
+  const panelVerdicts = [];
   const allocatorRounds = [];
 
   // Dispute stage state (2026-09-20). `dispute` is opt-in, exactly like challenge/coldRead/
@@ -1718,6 +1725,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       // spend money. Two extra attempts per round at most; a seat still unheard after that leaves
       // the round non-unanimous (below). If a heard reviewer objected there is nothing to
       // decide here - the reviser runs on the union of objections and the next round re-asks all.
+      const unheardFirst = verdicts.map(v => !!v.abstained);
       const heardClean = () => verdicts.every(v => v.abstained || v.passed || v.critique?.meets === true);
       for (let reask = 1; reask <= 2 && heardClean() && verdicts.some(v => v.abstained); reask++) {
         for (let i = 0; i < verdicts.length; i++) {
@@ -1791,6 +1799,13 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         // v8 item (a): additive field, report.json contract. null for a real sign-off/objection
         // or a stated pass; one of RESERVED_ABSTENTION_REASONS (src/chain.js) when v.abstained.
         reason_code: v.abstained ? (v.reasonCode || null) : null,
+      }));
+
+      verdicts.forEach((v, i) => panelVerdicts.push({
+        round, lab: labOf(v.seat), model: v.seat.model,
+        verdict: v.abstained ? 'unheard' : v.passed ? 'passed' : v.critique.meets === true ? 'signed_off' : 'objected',
+        reason_code: v.abstained ? (v.reasonCode || null) : null,
+        reasked: unheardFirst[i],
       }));
 
       history.push(`## Round ${round} panel\n${verdicts.map(v =>
@@ -1962,6 +1977,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         if (!config.degrade_on_provider_error) throw err;
         log(`  ${criticSeat.provider}/${criticSeat.model}: [COUNCIL-E005] provider failure (${String(err.message).slice(0, 120)}) - seat dropped, not counted as a pass or an objection.`);
         dropouts.push({ lab: labOf(criticSeat), model: criticSeat.model, stage: `critique-${round}`, reason: `provider failure: ${String(err.message).slice(0, 200)}` });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: 'SEAT_UNREACHABLE', reasked: false });
         lastCritique = { meets: false, dropped: true, failures: [{
           criterion: '(critic seat dropped)',
           problem: `${criticSeat.provider}/${criticSeat.model}'s round ${round} call failed (provider error) and was degraded to a dropped seat rather than crashing the run.`,
@@ -1979,6 +1995,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         // hiding a genuine objection, and this chain's whole value is not letting that slip
         // through. `passed` keeps whatever it already was (false unless an earlier round already
         // passed); what changes is that the report now says why, instead of nothing.
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, criticSeat.maxTokens), reasked: false });
         log(`  critic reply could not be parsed as JSON even after repair attempts; stopping ` +
           `without a verdict from this critic - not a pass, not counted as an objection either.`);
         lastCritique = { meets: false, failures: [{
@@ -1992,6 +2009,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       if (critique.unreadable) {
         // Parsed, but no verdict in it - handled exactly like the unparseable reply above: not a
         // pass, not an objection, and the run stops saying why (bug audit 2026-09-23).
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, criticSeat.maxTokens), reasked: false });
         log(`  critic reply states no verdict (${critique.unreadableWhy}); stopping without a verdict from this critic - not a pass, not counted as an objection either.`);
         lastCritique = { meets: false, failures: [{
           criterion: '(critic reply stated no verdict)',
@@ -2000,6 +2018,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         break;
       }
       lastCritique = critique;
+      panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: critique.meets === true ? 'signed_off' : 'objected', reason_code: null, reasked: false });
       const failures = critique.failures;
       log(`  verdict: ${critique.meets ? 'MEETS' : `${failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
       failures.forEach(f => log(`    FAILED: ${f.criterion} - ${f.problem}`));
@@ -2309,6 +2328,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     } : null,
     disputes,
     regressions,
+    panelVerdicts,
     history,
     stages,
     totals: summarise(stages),

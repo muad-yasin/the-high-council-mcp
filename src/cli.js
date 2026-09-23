@@ -172,6 +172,17 @@ function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = 
     // Final security-review gate (src/security-review.js): additive, present only when the chain
     // enabled the stage - same object as the run folder's security-review.json.
     ...(result.security_review !== undefined ? { security_review: result.security_review } : {}),
+    // Bug-audit fix, 2026-09-23 (Review/BugAudit_Metrics_2026-09-23.md #3, #6): these were on the
+    // runChain result but never reached report.json, so the stats readers and anyone reading a run
+    // folder could not see them (a real run's dispute stage and canary lived only in run.log).
+    // Additive only; each is absent when the run produced none of it.
+    ...(Array.isArray(result.panelVerdicts) ? { panelVerdicts: result.panelVerdicts } : {}),
+    ...(Array.isArray(result.regressions) ? { regressions: result.regressions } : {}),
+    ...(result.dispute != null ? { dispute: result.dispute } : {}),
+    ...(result.canary !== undefined ? { canary: result.canary } : {}),
+    ...(result.quoteFindings !== undefined ? { quoteFindings: result.quoteFindings } : {}),
+    ...(result.patchFallbacks !== undefined ? { patchFallbacks: result.patchFallbacks } : {}),
+    ...(result.coldRead != null ? { coldRead: result.coldRead } : {}),
   };
 }
 

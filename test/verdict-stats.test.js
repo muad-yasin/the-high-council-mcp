@@ -84,6 +84,7 @@ test('a null signedOff is an abstention: not a sign-off, not an objection, count
   const r = verdictStats(runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
   const verify = r.chains[0];
   assert.equal(verify.unparseable, 1);
+  assert.equal(verify.signoffRate, 0, 'an unheard seat is not consent (bug audit 2026-09-23, BugAudit_Metrics #1)');
   assert.equal(verify.objections, 0, 'a null-objections abstention must not be counted as a zero-objection pass');
   const qwenLab = r.labs.find(l => l.lab === 'qwen');
   assert.equal(qwenLab.unparseable, 1);
