@@ -79,3 +79,13 @@ test('run time: runChain refuses a denied seat before any stage runs, and nothin
     'a catch around invoke() must never turn it into an abstention');
   assert.equal(deniedSeatsOf({}).length, 0);
 });
+
+test('there is no xai provider at all: no adapter, no alias, no price, no example key', async () => {
+  const { call, providerNames } = await import('../src/providers.js');
+  assert.ok(!providerNames().includes('xai'));
+  await assert.rejects(() => call('xai', { model: 'grok-4', system: 's', messages: [], maxTokens: 1 }), /Unknown provider: xai/);
+  const pricing = JSON.parse(readFileSync(join(root, 'src', 'pricing.json'), 'utf8'));
+  assert.ok(!Object.keys(pricing).some(k => /grok|xai|x-ai/i.test(k)));
+  assert.ok(!/XAI_API_KEY/.test(readFileSync(join(root, '.env.example'), 'utf8')));
+  assert.ok(!/x-ai\/|xai:/.test(readFileSync(join(root, 'src', 'providers.js'), 'utf8')), 'no single-vendor alias to xAI either');
+});

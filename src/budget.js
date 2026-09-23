@@ -15,23 +15,22 @@ const here = dirname(fileURLToPath(import.meta.url));
 const PRICES = JSON.parse(readFileSync(join(here, 'pricing.json'), 'utf8'));
 
 export const ROSTERS = {
-  // Seven labs, top model from each. The seven-frontier-lab harness as asked for.
+  // Six labs, top model from each - the seven-frontier-lab harness as first asked for, minus xAI
+  // (removed 2026-09-23, owner decision: no Grok, ever; see src/denied-models.js).
   frontier: [
     'anthropic/claude-opus-5',
     'openai/gpt-5',
     'google/gemini-2.5-pro',
-    'xai/grok-4',
     'mistral/mistral-large-latest',
     'deepseek/deepseek-reasoner',
     'together/Qwen/Qwen2.5-72B-Instruct-Turbo',
   ],
   // The frontier roster with the Anthropic seat dropped from Opus 5 to
-  // Sonnet 5. Same seven labs; only the most expensive seat changes.
+  // Sonnet 5. Same six labs; only the most expensive seat changes.
   'frontier-sonnet': [
     'anthropic/claude-sonnet-5',
     'openai/gpt-5',
     'google/gemini-2.5-pro',
-    'xai/grok-4',
     'mistral/mistral-large-latest',
     'deepseek/deepseek-reasoner',
     'together/Qwen/Qwen2.5-72B-Instruct-Turbo',

@@ -144,8 +144,7 @@ Fill in `.env` with only the keys your chosen chain needs. Supported providers:
 
 xAI/Grok and Kimi/Moonshot are never seated, and neither is a router id (`openrouter/auto`, the
 Pareto Code router) that could route to them: chain-lint refuses such a chain and the run itself
-refuses such a seat, with no override. The `xai` adapter is still in `src/providers.js`, but no
-chain can reach it.
+refuses such a seat, with no override. There is no `xai` provider.
 
 The CLI refuses to start if any seat in the chosen chain is missing its key, rather than failing
 halfway through a paid run. `ollama` (below) is the one exception - it needs no key at all.

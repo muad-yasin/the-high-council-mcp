@@ -9,7 +9,6 @@
 const OPENAI_COMPAT = {
   openai:   { base: 'https://api.openai.com/v1',                 key: 'OPENAI_API_KEY' },
   google:   { base: 'https://generativelanguage.googleapis.com/v1beta/openai', key: 'GOOGLE_API_KEY' },
-  xai:      { base: 'https://api.x.ai/v1',                       key: 'XAI_API_KEY' },
   mistral:  { base: 'https://api.mistral.ai/v1',                 key: 'MISTRAL_API_KEY' },
   deepseek: { base: 'https://api.deepseek.com/v1',               key: 'DEEPSEEK_API_KEY' },
   groq:     { base: 'https://api.groq.com/openai/v1',            key: 'GROQ_API_KEY' },
@@ -52,7 +51,6 @@ const VENDOR_MODEL_MAPS = {
     'openai:gpt-5-mini': 'openai/gpt-5-mini',
     'openai:gpt-5-nano': 'openai/gpt-5-nano',
     'google:gemini-3.6-flash': 'google/gemini-3.6-flash',
-    'xai:grok-4': 'x-ai/grok-4',
     'mistral:mistral-large-latest': 'mistralai/mistral-large',
     'mistral:mistral-small-latest': 'mistralai/mistral-small',
     'deepseek:deepseek-chat': 'deepseek/deepseek-chat',

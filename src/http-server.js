@@ -54,7 +54,7 @@ export function requiredEnvForChain(chainName, chainsDir = join(root, 'chains'))
   }
   const KEY_BY_PROVIDER = {
     anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', google: 'GOOGLE_API_KEY',
-    xai: 'XAI_API_KEY', mistral: 'MISTRAL_API_KEY', deepseek: 'DEEPSEEK_API_KEY',
+    mistral: 'MISTRAL_API_KEY', deepseek: 'DEEPSEEK_API_KEY',
     groq: 'GROQ_API_KEY', cohere: 'COHERE_API_KEY', openrouter: 'OPENROUTER_API_KEY',
     together: 'TOGETHER_API_KEY', zai: 'ZAI_API_KEY',
   };

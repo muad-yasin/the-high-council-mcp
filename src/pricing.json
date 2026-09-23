@@ -32,10 +32,6 @@
     "in": 0.3,
     "out": 2.5
   },
-  "xai/grok-4": {
-    "in": 3.0,
-    "out": 15.0
-  },
   "mistral/mistral-large-latest": {
     "in": 2.0,
     "out": 6.0
