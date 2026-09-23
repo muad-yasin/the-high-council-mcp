@@ -96,16 +96,56 @@ export function capForPrompt(text, maxBytes = PROMPT_INSERT_MAX_BYTES) {
   };
 }
 
-// `git check-ignore` in one batch rather than per file. A workspace that is not a git repo,
-// or a git that is not installed, yields "nothing is ignored" - the denylist and the secret
-// scan still apply, so the failure mode is more files searched, never an unfiltered secret.
-function gitIgnoredSet(root, relPaths) {
+// `git check-ignore` in one batch rather than per file. 2026-09-23 audit: this used to fail
+// OPEN - any git error (ENOBUFS on a big candidate list, a path inside a submodule, a
+// killed git) returned "nothing is ignored", and a gitignored local-secrets file went out.
+// Now only one answer means "nothing is ignored": git saying the workspace is not a git
+// repository at all, where no .gitignore exists to honour (the denylist and the secret scan
+// still apply there). Every other failure throws, and callers refuse. `-z` on both sides so
+// git never C-quotes a non-ASCII name ("geheimnis-\303\244.txt") into something that no
+// longer matches the path we asked about. `root` must already be a real path: the paths
+// passed in are relative to it, and a symlinked root makes them wrong.
+export function gitIgnoredSet(root, relPaths) {
   if (!relPaths.length) return new Set();
-  const res = spawnSync('git', ['-C', root, 'check-ignore', '--stdin'], {
-    input: relPaths.join('\n'), encoding: 'utf8', timeout: 20_000, shell: false,
+  const failed = (why) => new Error(`refused: can't check .gitignore (${why}), so nothing is returned rather than risk a gitignored secret`);
+  // Asked separately first: outside a repo git exits before reading stdin, and the write
+  // then fails with EPIPE, indistinguishable from a real error. LC_ALL=C because the
+  // "not a git repository" test reads git's message, which is translated otherwise
+  // (a German git says "Kein Git-Repository" and would fail every non-git workspace).
+  const env = { ...process.env, LC_ALL: 'C' };
+  const probe = spawnSync('git', ['-C', root, 'rev-parse', '--is-inside-work-tree'], { encoding: 'utf8', timeout: 20_000, shell: false, env });
+  if (probe.error) throw failed(String(probe.error.code || probe.error.message || probe.error));
+  if (probe.status === 128 && /not a git repository/i.test(probe.stderr || '')) return new Set();
+  if (probe.status !== 0) throw failed(probe.signal ? `git killed by ${probe.signal}` : `git exit ${probe.status}`);
+  const res = spawnSync('git', ['-C', root, 'check-ignore', '-z', '--stdin'], {
+    input: relPaths.join('\0'), encoding: 'utf8', timeout: 20_000, shell: false, maxBuffer: 64 * 1024 * 1024, env,
   });
-  if (res.error || typeof res.stdout !== 'string') return new Set();
-  return new Set(res.stdout.split('\n').map(s => s.trim()).filter(Boolean));
+  if (res.error) throw failed(String(res.error.code || res.error.message || res.error));
+  if (res.status === 0 || res.status === 1) {
+    return new Set(String(res.stdout).split('\0').filter(Boolean));
+  }
+  throw failed(res.signal ? `git killed by ${res.signal}` : `git exit ${res.status}: ${String(res.stderr || '').trim().split('\n')[0]}`);
+}
+
+// One gate for every path a tool or the fence is about to read, so the three callers can't
+// drift again (run_tests skipped all of this until 2026-09-23). Returns a refusal message, or
+// null if the file may be read. Both arguments are real paths. The denylist is checked
+// against the repo-relative path AND the full real path: a --repo pointed inside
+// `Tools/secrets/` made every file inside look like an innocent `play.txt`.
+export function pathRefusal(realRoot, realTarget) {
+  const rel = relative(realRoot, realTarget).split(sep).join('/');
+  if (isDeniedPath(rel) || isDeniedPath(realTarget)) {
+    return `refused: '${rel}' matches the secret/credential denylist and is never returned to a seat`;
+  }
+  if (gitIgnoredSet(realRoot, [rel]).has(rel)) {
+    return `refused: '${rel}' is gitignored, so it is not part of the repository under discussion and may hold local secrets`;
+  }
+  return null;
+}
+
+function realRoot(cwd) {
+  const root = resolve(cwd);
+  return existsSync(root) ? realpathSync(root) : root;
 }
 
 // Every call, and the exact bytes it produced, for the run folder's TOOLS.md. Held in
@@ -154,23 +194,36 @@ function readTextFile(path, maxBytes = 200_000) {
 // No shell (`shell: false`, spawnSync's default), no network flags, no
 // caller-supplied argv beyond one optional path already sandboxed above.
 function run_tests({ file } = {}, { cwd }) {
-  const root = resolve(cwd);
+  const root = realRoot(cwd);
   const args = ['--test'];
   if (file) {
     const target = sandboxPath(root, file);
     if (!existsSync(target)) return { ok: false, error: `no such file: ${file}` };
+    // 2026-09-23 audit: this ran any file past read_file's gates, and node echoes the
+    // offending line of a file it can't parse - {"file": ".env"} returned the key.
+    const refusal = pathRefusal(root, target);
+    if (refusal) return { ok: false, error: refusal };
     args.push(target);
   }
   // Inside a packaged binary process.execPath is the council binary, not node, so `--test` would
   // reach the CLI instead of a test runner - use the node on PATH, which the target repo's own
   // tests need anyway.
-  const res = spawnSync(process.pkg ? 'node' : process.execPath, args, { cwd: root, encoding: 'utf8', timeout: 60_000, shell: false });
+  // NODE_TEST_CONTEXT is dropped: when this tool itself runs under `node --test`, the child
+  // would inherit it and report over IPC instead of printing TAP, so the seat (and the
+  // redaction below) would see different output depending on who called the tool.
+  const { NODE_TEST_CONTEXT, ...env } = process.env;
+  const res = spawnSync(process.pkg ? 'node' : process.execPath, args, { cwd: root, encoding: 'utf8', timeout: 60_000, shell: false, env });
   if (res.error) return { ok: false, error: String(res.error.message || res.error) };
+  // Test output goes into a prompt like any other tool result: redacted, then capped.
+  const out = redactSecrets(res.stdout ?? '');
+  const err = redactSecrets(res.stderr ?? '');
+  const redacted = out.redacted + err.redacted;
   return {
     ok: res.status === 0,
     exitCode: res.status,
-    stdout: res.stdout ?? '',
-    stderr: res.stderr ?? '',
+    stdout: capForPrompt(out.text).text,
+    stderr: capForPrompt(err.text).text,
+    ...(redacted ? { redacted } : {}),
   };
 }
 
@@ -264,20 +317,17 @@ function grep_repo({ pattern, file } = {}, { cwd }) {
 // (flagged, not silently) past 200KB.
 function read_file({ path } = {}, { cwd }) {
   if (!path) return { ok: false, error: 'read_file requires a path' };
-  const root = resolve(cwd);
+  // Real root: sandboxPath returns a real target, and a symlinked root would otherwise make
+  // the relative path '../<real dir>/...', which git can't answer about (2026-09-23 audit).
+  const root = realRoot(cwd);
   const target = sandboxPath(root, path);
   if (!existsSync(target) || !statSync(target).isFile()) return { ok: false, error: `no such file: ${path}` };
 
   // 2026-09-20: refused by name before the file is opened. The error says which rule
   // fired, because "no such file" for a file that plainly exists sends the operator
   // hunting for a bug that isn't there.
-  const rel = relative(root, target);
-  if (isDeniedPath(rel)) {
-    return { ok: false, error: `refused: '${rel}' matches the secret/credential denylist and is never returned to a seat` };
-  }
-  if (gitIgnoredSet(root, [rel]).has(rel)) {
-    return { ok: false, error: `refused: '${rel}' is gitignored, so it is not part of the repository under discussion and may hold local secrets` };
-  }
+  const refusal = pathRefusal(root, target);
+  if (refusal) return { ok: false, error: refusal };
 
   const { text, truncated } = readTextFile(target);
   const { text: safe, redacted } = redactSecrets(text);

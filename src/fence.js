@@ -18,7 +18,7 @@
 // where "a lab must never see this" is defined, not two that can drift.
 import { readFileSync, existsSync, statSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, sep } from 'node:path';
-import { isDeniedPath, redactSecrets } from './tools.js';
+import { pathRefusal, redactSecrets } from './tools.js';
 
 // Per-file ceiling. A fenced file is read by a person before it is sent, and a 200KB paste
 // is not read by anyone - it is scrolled past. Truncation is marked in the text so both the
@@ -54,7 +54,7 @@ function jail(root, requested) {
     throw new Error(`refused: '${requested}' escapes the repository via a symlink`);
   }
   if (!statSync(realTarget).isFile()) throw new Error(`not a file: ${requested}`);
-  return { path: realTarget, rel: realRel.split(sep).join('/') };
+  return { base, path: realTarget, rel: realRel.split(sep).join('/') };
 }
 
 /**
@@ -63,16 +63,23 @@ function jail(root, requested) {
  * enough information when the consequence is source code reaching seven labs.
  */
 export function fenceFile(root, requested) {
-  const { path, rel } = jail(root, requested);
-  if (isDeniedPath(rel)) {
-    throw new Error(`refused: '${rel}' matches the secret/credential denylist - it is never fenced into a task`);
-  }
+  const { base, path, rel } = jail(root, requested);
+  // Same gate as the sandboxed tools (src/tools.js pathRefusal): the denylist against the
+  // repo-relative AND the real path, and gitignored files refused (2026-09-23 audit: a
+  // gitignored local_settings.json with a licence key was fenced, and --repo pointed inside
+  // Tools/secrets/ made its files pass the denylist).
+  const refusal = pathRefusal(base, path);
+  if (refusal) throw new Error(refusal.replace('is never returned to a seat', 'is never fenced into a task'));
+  // Redact the WHOLE file, then cut. The other order (the pre-2026-09-23 one) cut a PEM
+  // block in half at the byte limit; half a block no longer matches the key pattern, so the
+  // part before the cut went to every lab in clear.
   const raw = readFileSync(path);
-  const truncated = raw.length > FENCE_MAX_BYTES;
-  const body = raw.subarray(0, FENCE_MAX_BYTES).toString('utf8');
-  const { text: safe, redacted } = redactSecrets(body);
+  const { text: safeFull, redacted } = redactSecrets(raw.toString('utf8'));
+  const safeBuf = Buffer.from(safeFull, 'utf8');
+  const truncated = safeBuf.length > FENCE_MAX_BYTES;
+  const safe = safeBuf.subarray(0, FENCE_MAX_BYTES).toString('utf8');
   const note = truncated
-    ? `\n[truncated: ${raw.length - FENCE_MAX_BYTES} of ${raw.length} bytes not shown]`
+    ? `\n[truncated: ${safeBuf.length - FENCE_MAX_BYTES} of ${safeBuf.length} bytes not shown]`
     : '';
   return {
     rel,
