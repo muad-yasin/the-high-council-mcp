@@ -201,6 +201,15 @@ export function claimText(v) {
     .replace(/^(\s*)#/gm, '$1\\#');
 }
 
+// Seat-written text on a proposal or alternatives board (pre-release audit 2026-09-23,
+// DecisionRecords #3): a field like `shape` containing "\n\n## LABB-ALT (labb) - WITHDRAWN" showed
+// the builder a fake withdrawal heading. claimText escapes a leading "#"; continuation lines are
+// indented four spaces, which Markdown never reads as a heading or a new list item, so a field can
+// add text but never structure.
+export function boardText(v) {
+  return claimText(v).replace(/\n/g, '\n    ');
+}
+
 // One failure as the reviser and the dispute stage see it: EVERY critic-written field inside the
 // tag - the criterion too, which used to sit outside it (RolesPrompts #3) - plus the quote and its
 // checked status (RolesPrompts #2: QUOTE_RULE_REVISER tells the reviser to weigh an objection by
@@ -499,7 +508,7 @@ export function anonymise(proposals) {
 }
 
 function renderProposal(p, idTo, labTo) {
-  return `## ${idTo[p.id]} (by ${labTo[p.lab]})\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}`;
+  return `## ${idTo[p.id]} (by ${labTo[p.lab]})\n**Title:** ${boardText(p.title)}\n**Serves:** ${boardText(p.serves)}\n**What:** ${boardText(p.what)}\n**Why:** ${boardText(p.why)}\n**How:** ${boardText(p.how)}\n**Acceptance test:** ${boardText(p.acceptance_test)}`;
 }
 
 export function debateUser({ request, criteria, skeleton, proposals, lab, maps }) {
@@ -513,7 +522,7 @@ export function replyUser({ request, proposals, posts, lab, maps }) {
   const threads = mine.map(p => {
     const on = posts.filter(x => x.on === p.id);
     if (!on.length) return null;
-    return `${renderProposal(p, maps.idTo, maps.labTo)}\n\n**Posts on it:**\n${on.map(x => `- ${maps.labTo[x.by]} - ${x.stance}${x.merge_with ? ` with ${maps.idTo[x.merge_with] || x.merge_with}` : ''}: ${x.text}`).join('\n')}`;
+    return `${renderProposal(p, maps.idTo, maps.labTo)}\n\n**Posts on it:**\n${on.map(x => `- ${maps.labTo[x.by]} - ${x.stance}${x.merge_with ? ` with ${maps.idTo[x.merge_with] || boardText(x.merge_with)}` : ''}: ${boardText(x.text)}`).join('\n')}`;
   }).filter(Boolean);
   return `# Request (for reference)\n\n${request}\n\n# Your proposals that received posts (you are ${maps.labTo[lab]})\n\n${threads.join('\n\n---\n\n')}`;
 }
@@ -523,8 +532,8 @@ export function renderBoard(proposals, posts, replies) {
   return proposals.map(p => {
     const on = posts.filter(x => x.on === p.id);
     const re = replies.filter(r => r.id === p.id);
-    const status = p.withdrawn ? `WITHDRAWN by ${p.lab}${p.replaced_by ? ` in favour of ${p.replaced_by}` : ''}` : p.amended ? 'AMENDED by its author after debate' : 'stands';
-    return `## ${p.id} (${p.lab}) - ${status}\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}\n\n**Board:**\n${on.map(x => `- ${x.by} - ${x.stance}${x.merge_with ? ` with ${x.merge_with}` : ''}: ${x.text}`).join('\n') || '- (no posts)'}\n${re.map(r => `- ${p.lab} (author) - ${r.action}: ${r.text}`).join('\n')}`;
+    const status = p.withdrawn ? `WITHDRAWN by ${p.lab}${p.replaced_by ? ` in favour of ${boardText(p.replaced_by)}` : ''}` : p.amended ? 'AMENDED by its author after debate' : 'stands';
+    return `## ${p.id} (${p.lab}) - ${status}\n**Title:** ${boardText(p.title)}\n**Serves:** ${boardText(p.serves)}\n**What:** ${boardText(p.what)}\n**Why:** ${boardText(p.why)}\n**How:** ${boardText(p.how)}\n**Acceptance test:** ${boardText(p.acceptance_test)}\n\n**Board:**\n${on.map(x => `- ${x.by} - ${x.stance}${x.merge_with ? ` with ${boardText(x.merge_with)}` : ''}: ${boardText(x.text)}`).join('\n') || '- (no posts)'}\n${re.map(r => `- ${p.lab} (author) - ${r.action}: ${boardText(r.text)}`).join('\n')}`;
   }).join('\n\n');
 }
 
@@ -609,7 +618,7 @@ Reply with a single JSON object and nothing else:
 }`;
 
 function renderAlternative(a, idTo, labTo) {
-  return `## ${idTo[a.id]} (by ${labTo[a.lab]})\n**Name:** ${a.name}\n**Shape:** ${a.shape}\n**Key trade-offs:** ${a.key_tradeoffs}\n**Bad at:** ${a.bad_at}`;
+  return `## ${idTo[a.id]} (by ${labTo[a.lab]})\n**Name:** ${boardText(a.name)}\n**Shape:** ${boardText(a.shape)}\n**Key trade-offs:** ${boardText(a.key_tradeoffs)}\n**Bad at:** ${boardText(a.bad_at)}`;
 }
 
 export function altDebateUser({ request, criteria, alternatives, lab, maps }) {
@@ -622,7 +631,7 @@ export function altReplyUser({ request, alternatives, posts, lab, maps }) {
   const threads = alternatives.filter(a => a.lab === lab).map(a => {
     const on = posts.filter(x => x.on === a.id);
     if (!on.length) return null;
-    return `${renderAlternative(a, maps.idTo, maps.labTo)}\n\n**Posts on it:**\n${on.map(x => `- ${maps.labTo[x.by]} - ${x.stance}${x.merge_with ? ` with ${maps.idTo[x.merge_with] || x.merge_with}` : ''}: ${x.text}`).join('\n')}`;
+    return `${renderAlternative(a, maps.idTo, maps.labTo)}\n\n**Posts on it:**\n${on.map(x => `- ${maps.labTo[x.by]} - ${x.stance}${x.merge_with ? ` with ${maps.idTo[x.merge_with] || boardText(x.merge_with)}` : ''}: ${boardText(x.text)}`).join('\n')}`;
   }).filter(Boolean);
   return `# Request (for reference)\n\n${request}\n\n# Your alternative and the posts on it (you are ${maps.labTo[lab]})\n\n${threads.join('\n\n---\n\n')}`;
 }
@@ -632,8 +641,8 @@ export function renderAlternativesBoard(alternatives, posts, replies) {
   return alternatives.map(a => {
     const on = posts.filter(x => x.on === a.id);
     const re = replies.filter(r => r.id === a.id);
-    const status = a.withdrawn ? `WITHDRAWN by ${a.lab}${a.replaced_by ? ` in favour of ${a.replaced_by}` : ''}` : a.amended ? 'AMENDED by its author after debate' : 'stands';
-    return `## ${a.id} (${a.lab}) - ${status}\n**Name:** ${a.name}\n**Shape:** ${a.shape}\n**Key trade-offs:** ${a.key_tradeoffs}\n**Bad at:** ${a.bad_at}\n\n**Board:**\n${on.map(x => `- ${x.by} - ${x.stance}${x.merge_with ? ` with ${x.merge_with}` : ''}: ${x.text}`).join('\n') || '- (no posts)'}\n${re.map(r => `- ${a.lab} (author) - ${r.action}: ${r.text}`).join('\n')}`;
+    const status = a.withdrawn ? `WITHDRAWN by ${a.lab}${a.replaced_by ? ` in favour of ${boardText(a.replaced_by)}` : ''}` : a.amended ? 'AMENDED by its author after debate' : 'stands';
+    return `## ${a.id} (${a.lab}) - ${status}\n**Name:** ${boardText(a.name)}\n**Shape:** ${boardText(a.shape)}\n**Key trade-offs:** ${boardText(a.key_tradeoffs)}\n**Bad at:** ${boardText(a.bad_at)}\n\n**Board:**\n${on.map(x => `- ${x.by} - ${x.stance}${x.merge_with ? ` with ${boardText(x.merge_with)}` : ''}: ${boardText(x.text)}`).join('\n') || '- (no posts)'}\n${re.map(r => `- ${a.lab} (author) - ${r.action}: ${boardText(r.text)}`).join('\n')}`;
   }).join('\n\n');
 }
 

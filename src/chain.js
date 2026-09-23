@@ -335,6 +335,15 @@ export function canaryReplyPrompt({ request, proposals, post, lab, maps }) {
   return R.replyUser({ request, proposals, posts: [post], lab, maps: shown });
 }
 
+// A merge_with / replaced_by reference as recorded: a real id on this board or nothing. Pre-release
+// audit 2026-09-23 (DecisionRecords #3): these were neither checked nor capped, so a 50k-char
+// "id" reached the board uncut and a made-up one read like a real withdrawal target.
+export function boardRef(raw, maps, ids) {
+  if (raw == null || raw === '') return undefined;
+  const id = maps.idFrom[raw] || raw;
+  return typeof id === 'string' && ids.has(id) ? id : undefined;
+}
+
 export function cutOffRetryCap(cap) {
   return Math.max(cap, Math.min(cap * 2, CUT_OFF_RETRY_MAX_TOKENS));
 }
@@ -544,6 +553,10 @@ export const labOf = seat => seat.lab || seat.provider;
 // seats replayed the survivor - a holdout's objection became a manufactured unanimous pass.
 // Renaming labels would orphan every paused run, so a chain that would collide is refused instead.
 // A "first"-mode panel labels by round (`critique-<n>`), so shared labs are fine there.
+// The sign-off modes runChain implements. Anything else is refused, never quietly run as "first"
+// (pre-release audit 2026-09-23, PanelSignoff #3).
+export const SIGNOFF_MODES = Object.freeze(['first', 'unanimous']);
+
 export function duplicateLabSlots(config) {
   const seats = config?.seats || {};
   const out = [];
@@ -553,9 +566,15 @@ export function duplicateLabSlots(config) {
     const dupes = [...new Set(labs.filter((l, i) => labs.indexOf(l) !== i))];
     if (dupes.length) out.push({ slot, labs: dupes });
   };
-  if (config?.signoff === 'unanimous') check('critics', seats.critics);
+  // Every stage whose label is keyed by lab (test/prerelease-batch1b.test.js walks chain.js's
+  // labels and fails if a new lab-keyed one is not listed here). Pre-release audit 2026-09-23:
+  // the alternatives stage (Alternatives #2) and preflight.seats (GuardLayer, the class's second
+  // recurrence) were missing, and descending critics label per lab too.
+  if (config?.signoff === 'unanimous' || config?.descending) check('critics', seats.critics);
   if (config?.proposals) check('proposers', seats.proposers || seats.critics);
+  if (config?.alternatives?.enabled === true) check('alternatives', seats.proposers || seats.critics);
   if (config?.ambiguity_union?.enabled) check('ambiguity', seats.ambiguity || (seats.critics || []).slice(0, 3));
+  if (config?.preflight) check('preflight', (config.preflight.seats && config.preflight.seats.length) ? config.preflight.seats : seats.critics);
   return out;
 }
 
@@ -1225,6 +1244,9 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // No denied model (xAI/Grok, Kimi/Moonshot, or a router that could reach one) is ever seated -
   // checked on the resolved roster, before any stage runs. See src/denied-models.js.
   assertNoDeniedModels(config);
+  if ('signoff' in config && config.signoff !== undefined && !SIGNOFF_MODES.includes(config.signoff)) {
+    throw new Error(`unknown signoff ${JSON.stringify(config.signoff)}: this harness runs ${SIGNOFF_MODES.map(m => `"${m}"`).join(' or ')} only, and will not quietly run a different mode than the chain names.`);
+  }
   const shared = duplicateLabSlots(config);
   if (shared.length) {
     throw new Error(`two seats share a lab, so they would share one stage label and one cached reply: ${shared.map(d => `seats.${d.slot} (${d.labs.join(', ')})`).join('; ')}. Give each seat its own "lab".`);
@@ -1535,7 +1557,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           }));
           const parsed = parseJson(st.text);
           if (!parsed) { say(`  ${lab}: unreadable debate reply - no posts counted.`); return { lines, posts: [] }; }
-          const mine = (parsed.posts || []).map(x => ({ by: lab, on: maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: capField(x.text) || '', merge_with: x.merge_with ? (maps.idFrom[x.merge_with] || x.merge_with) : undefined }))
+          const mine = (parsed.posts || []).map(x => ({ by: lab, on: maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: capField(x.text) || '', merge_with: boardRef(x.merge_with, maps, new Set(items.map(a => a.id))) }))
             .filter(x => items.some(a => a.id === x.on && a.lab !== lab) && ['support', 'object', 'merge'].includes(x.stance));
           say(`  ${lab}: ${mine.length} post(s)`);
           return { lines, posts: mine };
@@ -1560,7 +1582,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           }));
           const parsed = parseJson(st.text);
           if (!parsed) { say(`  ${lab}: unreadable reply - its alternative stands as posted.`); return { lines, replies: [] }; }
-          const got = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: r.replaced_by ? (maps.idFrom[r.replaced_by] || r.replaced_by) : undefined, action: String(r.action || '').toLowerCase(), text: capField(r.text) || '' }))
+          const got = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: boardRef(r.replaced_by, maps, new Set(items.map(a => a.id))), action: String(r.action || '').toLowerCase(), text: capField(r.text) || '' }))
             .filter(r => mine.some(a => a.id === r.id) && ['keep', 'amend', 'withdraw'].includes(r.action));
           say(`  ${lab}: ${got.map(r => r.action).join(', ') || 'no usable reply'}`);
           return { lines, replies: got };
@@ -1773,7 +1795,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           const parsed = parseJson(st.text);
           if (!parsed) say(`  ${lab}: unreadable debate reply - no posts counted.`);
           else {
-            posts = (parsed.posts || []).map(x => ({ by: lab, on: maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: x.text || '', merge_with: x.merge_with ? (maps.idFrom[x.merge_with] || x.merge_with) : undefined }))
+            posts = (parsed.posts || []).map(x => ({ by: lab, on: maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: x.text || '', merge_with: boardRef(x.merge_with, maps, new Set(proposals.map(p => p.id))) }))
               .filter(x => proposals.some(p => p.id === x.on && p.lab !== lab) && ['support', 'object', 'merge'].includes(x.stance));
             revisions = (parsed.revisions || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id })).filter(r => proposals.some(p => p.id === r.id && p.lab === lab));
             const n = st => posts.filter(x => x.stance === st).length;
@@ -1830,7 +1852,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           }));
           const parsed = parseJson(st.text);
           if (!parsed) { say(`  ${lab}: unreadable reply round - proposals stand as posted.`); return { lines, replies: [] }; }
-          const mine = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: r.replaced_by ? (maps.idFrom[r.replaced_by] || r.replaced_by) : undefined, action: String(r.action || '').toLowerCase() }))
+          const mine = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: boardRef(r.replaced_by, maps, new Set(proposals.map(p => p.id))), action: String(r.action || '').toLowerCase() }))
             .filter(r => mineWithPosts.some(p => p.id === r.id) && ['keep', 'amend', 'withdraw'].includes(r.action));
           const n = a => mine.filter(r => r.action === a).length;
           say(`  ${lab}: ${n('keep')} keep, ${n('amend')} amend, ${n('withdraw')} withdraw`);
@@ -2540,7 +2562,11 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // not agree, and manufacturing a verdict is precisely what this harness should never do.
   let dispute = null;
   let dissentBlock = null;
-  const heardOpenFailures = (!passed && lastCritique && lastCritique.meets !== true)
+  // After a round in which NO reviewer was heard (noHeardReviewer), lastCritique is the round
+  // before's, against an earlier draft: none of it is current. Pre-release audit 2026-09-23
+  // (ProposalsDebateDispute #4): it was presented as open against the current draft, under
+  // "round cap reached". Those objections are carried below instead, tagged as unheard.
+  const heardOpenFailures = (!passed && !noHeardReviewer && lastCritique && lastCritique.meets !== true)
     ? (lastCritique.failures || []).filter(f => f.criterion)
     : [];
   // Bug-audit fix, 2026-09-23 (Review/BugAudit_RunChainStages_2026-09-23.md #2): open objections
@@ -2550,8 +2576,10 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // objections are carried, keeping `lab` (the dispute stage finds the seat by it) and marked as
   // unheard in the final round, so nobody reads them as a current position.
   const finalPanelRound = panelVerdicts.length ? Math.max(...panelVerdicts.map(v => v.round)) : null;
+  // In a round nobody was heard in, a seat that only stated a pass cast no vote either.
+  const notHeard = v => v.verdict === 'unheard' || (noHeardReviewer && v.verdict === 'passed');
   const unheardAtEnd = (!passed && config.signoff === 'unanimous')
-    ? panelVerdicts.filter(v => v.round === finalPanelRound && v.verdict === 'unheard').map(v => v.lab)
+    ? panelVerdicts.filter(v => v.round === finalPanelRound && notHeard(v)).map(v => v.lab)
     : [];
   const carriedFailures = unheardAtEnd.flatMap(lab => {
     for (let i = openByRound.length - 1; i >= 0; i--) {
@@ -2562,7 +2590,8 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   });
   const openFailures = [...heardOpenFailures, ...carriedFailures];
   if (disputeEnabled && config.signoff === 'unanimous' && openFailures.length) {
-    log(`\nStage: dispute (${stalled ? `stalled after ${stalled.rounds} identical rounds` : 'round cap reached'}, ${openFailures.length} open objection(s))`);
+    const stopWhy = noHeardReviewer ? `no reviewer heard in round ${noHeardReviewer.round}` : stalled ? `stalled after ${stalled.rounds} identical rounds` : 'round cap reached';
+    log(`\nStage: dispute (${stopWhy}, ${openFailures.length} open objection(s))`);
     log('  This does not re-open the vote. The panel is done; this records what it could not settle.');
 
     // Where each objection was first raised, for the dissent block. Read from the per-round
@@ -2600,9 +2629,15 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     // last thing that should be authoring the record of them. Verbatim, or it is not a record.
     const lines = openFailures.map(f => {
       const r = firstSeen.get(`${f.lab}|${f.criterion}`);
+      // The carried tags (set above) are rendered, as that code's comment promises: an objection
+      // whose author was not heard in the final round is shown as possibly out of date, never as a
+      // current position against this draft.
+      const status = f.unheard_in_final_round
+        ? `last raised in round ${f.last_raised_round}; ${f.lab || 'that lab'} was not heard in the final round, so it may already be fixed in the draft below`
+        : 'never resolved';
       return [
         `### ${f.criterion}`,
-        `*Raised by ${f.lab || 'an unnamed lab'}${r ? `, round ${r}` : ''}, never resolved.*`,
+        `*Raised by ${f.lab || 'an unnamed lab'}${r ? `, round ${r}` : ''}, ${status}.*`,
         '',
         f.problem || '(no problem text recorded)',
         ...(f.fix ? ['', `Suggested fix: ${f.fix}`] : []),
@@ -2612,7 +2647,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       '## Unresolved dissent',
       '',
       `${openFailures.length} objection(s) were still open when this run stopped` +
-        `${stalled ? ` (the same objections for ${stalled.rounds} rounds running)` : ' (round cap reached)'}.`,
+        `${noHeardReviewer ? ` (no reviewer could be heard in round ${noHeardReviewer.round}, so the panel stopped there; nobody has reviewed the latest draft)` : stalled ? ` (the same objections for ${stalled.rounds} rounds running)` : ' (round cap reached)'}.`,
       'The panel did not agree. This plan is one draft with known, named disagreement against it,',
       'not a signed-off deliverable - read these before acting on anything below.',
       '',
@@ -2631,14 +2666,15 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
 
     dispute = {
       ran: true,
-      reason: stalled ? 'stalled' : 'round_cap',
+      reason: noHeardReviewer ? 'no_heard_reviewer' : stalled ? 'stalled' : 'round_cap',
       stall_rounds: stalled ? stalled.rounds : null,
-      stopped_at_round: stalled ? stalled.round : maxRounds,
+      stopped_at_round: noHeardReviewer ? noHeardReviewer.round : stalled ? stalled.round : (finalPanelRound ?? maxRounds),
       open_objections: openFailures.map(f => ({
         criterion: f.criterion,
         lab: f.lab || null,
         problem: f.problem || null,
         first_raised_round: firstSeen.get(`${f.lab}|${f.criterion}`) ?? null,
+        ...(f.unheard_in_final_round ? { unheard_in_final_round: true, last_raised_round: f.last_raised_round } : {}),
       })),
       panel_rereviewed: false,
       // Additive: present only when the chain sets dispute.review.
@@ -2646,7 +2682,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     };
     log(`  recorded ${openFailures.length} unresolved objection(s) at the top of the deliverable. Outcome stays "no consensus".`);
   } else if (disputeEnabled && config.signoff === 'unanimous') {
-    dispute = { ran: false, reason: passed ? 'panel_signed_off' : 'no_open_objections' };
+    dispute = { ran: false, reason: passed ? 'panel_signed_off' : noHeardReviewer ? 'no_heard_reviewer' : 'no_open_objections', ...(noHeardReviewer ? { stopped_at_round: noHeardReviewer.round } : {}) };
   }
 
   // 3b. Post-signoff challenge (config.challenge: { enabled: true }), v7

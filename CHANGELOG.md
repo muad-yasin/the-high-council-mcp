@@ -42,7 +42,20 @@ Each has a regression test that fails on the previous code (`test/prerelease-bat
   and the same on every resume, and a canary reply already paid for is always replayed. Canary
   posts no longer leak into `disagreement_groups`, `council digest` or `export-board`. A guard test
   checks every reader of `debate.posts`.
-
+- **Honest dissent after an outage.** If no reviewer could be heard in a round, the dispute
+  record says so (`reason: "no_heard_reviewer"`, the real stop round). Older objections are carried
+  with `unheard_in_final_round`/`last_raised_round` and shown as possibly out of date, never as
+  current objections to the latest draft.
+- **Shared labs are caught in every lab-keyed stage**, now including the alternatives stage,
+  `preflight.seats` and descending critics. A guard test fails if a new lab-keyed stage label is
+  added without a matching check.
+- **Unknown `signoff` values are refused** by lint and at run time. Only `first` and `unanimous`
+  exist. Before, `"quorum"` or `"Unanimous"` quietly ran as `first`.
+- **The dry-run worst case includes** the dispute rewrite, each dispute review and the canary
+  reply.
+- **Board text cannot fake structure.** Seat-written fields on the proposal and alternatives
+  boards cannot start a heading or a board line. `merge_with`/`replaced_by` keep only a real id on
+  that board.
 ## Unreleased - decision records and whole alternative architectures
 
 Two opt-in planning structures, both from the 2026-09-23 research intake and both approved by the

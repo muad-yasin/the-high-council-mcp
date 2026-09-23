@@ -121,6 +121,24 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
     }
     if (r < config.maxRounds) push(`revise-${r}`, config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens + a.critiqueTokens + proposalTokens, a.draftTokens);
   }
+  // Stages that can run after the panel, priced as worst cases too (pre-release audit 2026-09-23,
+  // ProposalsDebateDispute #5): the figure a person approves before a paid run must not sit below
+  // what the run can actually spend.
+  //  - dispute: one reviser pass over the open objections (runs when the panel ends without
+  //    agreement; needs unanimous sign-off, as runChain does);
+  //  - dispute-review: each critic re-reads the draft before and after that pass;
+  //  - canary-reply: one extra reply from the author of the probed proposal, when sampled.
+  if (config.dispute?.enabled === true && unanimous) {
+    const critics = config.seats.critics || [];
+    push('dispute', config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens + critics.length * a.critiqueTokens, a.draftTokens);
+    if (config.dispute.review) {
+      for (const critic of critics) push(`dispute-review-${critic.lab || critic.provider}`, critic, a.promptTokens + 2 * a.draftTokens + a.critiqueTokens, a.critiqueTokens);
+    }
+  }
+  if (config.canary?.enabled && config.debate && !fromRun) {
+    const author = (config.seats.proposers || config.seats.critics || [])[0];
+    push(`canary-reply-${author ? (author.lab || author.provider) : 'author'}`, author, a.promptTokens + 3000, 800);
+  }
   push('final', config.seats.finalist, a.promptTokens + a.draftTokens, a.draftTokens);
   if (config.handoff) push('handoff', config.seats.handoff || config.seats.builder, a.promptTokens + a.draftTokens, 1200);
   // The final security review reads the request plus the finished draft (promptTokens +

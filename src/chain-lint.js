@@ -7,7 +7,7 @@ import { providerNames } from './providers.js';
 import { validateSeatRole } from './seat-role.js';
 import { ALLOWED_TOOLS } from './tools.js';
 import { priceOf } from './cost.js';
-import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots, everySeatOf } from './chain.js';
+import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots, everySeatOf, SIGNOFF_MODES } from './chain.js';
 import { deniedSeatsOf } from './denied-models.js';
 
 // Labs the source procurement report names as not EU-based (v7.x compliance
@@ -651,6 +651,17 @@ export function lintChain(config, filePath = '<chain>') {
       kind: 'self-review',
       message: `selfReview must be the exact string "allowed" when present (got ${JSON.stringify(config.selfReview)}) - any other value silently reads as "not allowed".`,
       fix: `Set "selfReview": "allowed" in ${filePath}, or remove the key entirely.`,
+    });
+  }
+
+  // signoff (pre-release audit 2026-09-23, PanelSignoff #3): any value other than exactly
+  // "unanimous" used to run round-robin `first` mode without a word - "quorum" (not built) or
+  // "Unanimous" let one critic per round decide and skipped every unanimous-only guard.
+  if (config && config.signoff !== undefined && !SIGNOFF_MODES.includes(config.signoff)) {
+    findings.push({
+      kind: 'signoff',
+      message: `signoff ${JSON.stringify(config.signoff)} is not a known mode (${SIGNOFF_MODES.map(m => `"${m}"`).join(', ')}) - it would silently run as "first" (one critic per round decides).`,
+      fix: `Set "signoff" to one of ${SIGNOFF_MODES.map(m => `"${m}"`).join(' or ')} in ${filePath}, or remove it for the default ("first").`,
     });
   }
 
