@@ -1,6 +1,6 @@
 {
   "name": "plan-premium-7",
-  "description": "Premium panel, Muad's roster (2026-09-22): OpenAI GPT-6 Astra, Anthropic Claude Fable 5.1, Google Gemini 3.8 Flash, Meta Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, Z.ai GLM-5.3 - seven labs, same stages and external Claude-role seats as plan-open-7. DELIBERATE EXCEPTION, Muad's call: an Anthropic model (Fable 5.1) sits on the panel although the draft is written by a Claude Code session, so this panel is not fully independent of the drafting lab - read its sign-off with that in mind. Criteria move to Mistral Medium 3.5, which holds no panel seat, because Meta now votes. No Kimi K3, no xAI. Each seat carries a persona (debate stage only; see PERSONAS.md): the five defaults plus Hypatia and Avicenna via COUNCIL_PERSONAS_FILE. Several times the cost of plan-open-7: price with `npm run dry` and get an explicit go first.",
+  "description": "Premium panel, Muad's roster (2026-09-22): OpenAI GPT-6 Astra, Anthropic Claude Fable 5.1, Google Gemini 3.8 Flash, Meta Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, Z.ai GLM-5.3 - seven labs, same stages and external Claude-role seats as plan-open-7. DELIBERATE EXCEPTION, Muad's call: an Anthropic model (Fable 5.1) sits on the panel although the draft is written by a Claude Code session, so this panel is not fully independent of the drafting lab - read its sign-off with that in mind. Criteria move to Mistral Medium 3.5, which holds no panel seat, because Meta now votes. No Kimi K3, no xAI. Each seat carries a persona (debate stage only; see PERSONAS.md): the five defaults plus Hypatia and Avicenna via COUNCIL_PERSONAS_FILE. Several times the cost of plan-open-7: price with `npm run dry` and get an explicit go first. Decision records and whole alternative architectures on (2026-09-23): each lab blind-proposes one whole architecture before the skeleton, the labs debate them, and the plan's Decisions section records why the losers lost.",
   "maxRounds": 7,
   "signoff": "unanimous",
   "dispute": {
@@ -12,6 +12,8 @@
     "maxTokens": 4000
   },
   "debate": true,
+  "decisions": { "enabled": true },
+  "alternatives": { "enabled": true, "maxTokens": 3000 },
   "canary": { "enabled": true, "sampleRate": 0.1 },
   "handoff": true,
   "estimate": {
