@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased - pre-release audit fixes, batch 3 (security)
+
+- **One secret-pattern list.** `src/secret-patterns.js` is now the only list, used by the
+  task/artifact scanner (`council doctor --scan-artifacts`), the PII gate (`--pii-gate`) and
+  tool/fence redaction. The scanner never matched an OpenRouter key (`sk-or-v1-...`), so the PII
+  gate let one through. New coverage: Groq, Hugging Face, Together and Z.ai keys (the whole key, not
+  just the part before the dot), Bearer tokens, PGP private-key blocks, camelCase names
+  (`AccessToken`, `openAiApiKey`), and URL passwords with an empty user (`redis://:pw@`). A URL
+  password is now cut from its own position, never from a matching run inside the user name.
+  `test/secret-patterns.test.js` runs one fake key per provider format through all three.
+- **No Grok, no bypass.** A seat's `extra` is now spread before `model`/`messages`/the token cap,
+  so `extra.model` can no longer replace the model the denied-model check approved. The check also
+  refuses a denied or router id under `extra.model`/`route`/`provider`/`models`/`plugins` (any
+  depth), router ids with a suffix (`openrouter/auto:nitro`), and server-side presets
+  (`@preset/...`).
+
 ## Unreleased - pre-release audit fixes, batch 1
 
 Fixes from the 2026-09-23 pre-release audits (reviser prompts, alternatives stage, canary probe).

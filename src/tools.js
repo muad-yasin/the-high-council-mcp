@@ -10,6 +10,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, existsSync, statSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, sep } from 'node:path';
+import { redactText, PRIVATE_KEY_BLOCK } from './secret-patterns.js';
 
 export const ALLOWED_TOOLS = Object.freeze(['run_tests', 'check_versions', 'grep_repo', 'read_file']);
 
@@ -58,49 +59,11 @@ export function isDeniedPath(relPath) {
 // Redacts the value and leaves a visible marker, rather than dropping the whole result: a
 // seat that sees `[redacted: possible secret]` knows something was there, and silently
 // returning nothing would look like the file was empty.
-const PEM_BLOCK = /-----BEGIN[ A-Z]*PRIVATE KEY-----[\s\S]*?-----END[ A-Z]*PRIVATE KEY-----/g;
-const SECRET_PATTERNS = [
-  PEM_BLOCK,
-  /\b(sk|pk|rk)-[A-Za-z0-9_-]{16,}\b/g,
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
-  /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g,
-  /\bAKIA[0-9A-Z]{16}\b/g,
-  /\bAIza[0-9A-Za-z_-]{30,}\b/g,
-  /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
-  // A named assignment whose value looks like a credential. Deliberately requires the
-  // name AND a long opaque value, so ordinary code like `apiKey: config.apiKey` is left
-  // alone - a filter that fires on every mention of the word is a filter people turn off.
-  // 2026-09-23 audit: `(?<![A-Za-z0-9])` rather than `\b` in front, because `\b` never
-  // fires after `_` - `OPENROUTER_API_KEY=` slipped through. An optional quote after the
-  // name catches JSON (`"password": "..."`).
-  /(?<![A-Za-z0-9])(api[_-]?key|secret|token|password|passwd|access[_-]?key|auth)\b['"]?\s*[:=]\s*['"]?([A-Za-z0-9/+_-]{20,})['"]?/gi,
-  // Stripe secret/restricted keys and GitHub fine-grained tokens (underscore-separated, so
-  // the `sk-` rule above never saw them).
-  /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g,
-  /\bgithub_pat_[A-Za-z0-9_]{22,}\b/g,
-  // Env-style assignment to an upper-case name ending in KEY/TOKEN/SECRET/PASSWORD, with an
-  // opaque value: `GOOGLE_PLAY_PUBKEY=...`, `export DEPLOY_TOKEN="..."`. The value must be
-  // long, so `CACHE_KEY=1` stays.
-  /\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD))\s*=\s*['"]?([A-Za-z0-9/+_.-]{16,})['"]?/g,
-  // A password inside a URL: `scheme://user:pass@host`. Only the password goes.
-  /\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+):([^\s/@]+)@/gi,
-];
-
+// The patterns themselves live in src/secret-patterns.js, the one list shared with the task-file
+// scanner (key-redaction.js) and the PII gate (pre-release audit 2026-09-23, FenceToolsRedaction
+// #1-#4: the three lists had drifted apart).
 export function redactSecrets(text) {
-  if (typeof text !== 'string' || !text) return { text: text ?? '', redacted: 0 };
-  let redacted = 0;
-  let out = text;
-  for (const re of SECRET_PATTERNS) {
-    out = out.replace(re, (match, ...groups) => {
-      // For the named-assignment pattern, keep the name so the reader knows what was
-      // redacted; replace only the value.
-      const value = groups.length >= 2 && typeof groups[1] === 'string' ? groups[1] : null;
-      redacted += 1;
-      if (value && match.includes(value)) return match.replace(value, '[redacted: possible secret]');
-      return '[redacted: possible secret]';
-    });
-  }
-  return { text: out, redacted };
+  return redactText(text);
 }
 
 // What goes into a prompt is capped far below what goes into the run record. 200KB of
@@ -321,7 +284,7 @@ function grep_repo({ pattern, file } = {}, { cwd }) {
     // A PEM block spans lines, and the per-line scan below never sees a whole one: its body
     // lines came back in clear (2026-09-23 audit). Blank each block line by line first, so
     // line numbers still point at the real lines.
-    text = text.replace(PEM_BLOCK, (block) => {
+    text = text.replace(PRIVATE_KEY_BLOCK, (block) => {
       redactedCount += 1;
       return block.split('\n').map(() => '[redacted: possible secret]').join('\n');
     });

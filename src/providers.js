@@ -613,14 +613,17 @@ async function callAnthropic({ model, system, messages, maxTokens, temperature, 
     `${ANTHROPIC.base}/messages`,
     { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
     {
+      // e.g. { thinking: { type: 'disabled' } } - Claude 5's thinking is
+      // adaptive by default, counts against max_tokens, and is not text.
+      // Spread FIRST, so the fields below always win: pre-release audit 2026-09-23 (GuardLayer #2,
+      // HIGH) - spread last, a seat's extra.model replaced the model the denied-model check had
+      // approved (a seat whose extra.model named a denied model called that model).
+      ...(extra || {}),
       model,
       system,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
       max_tokens: maxTokens,
       ...(temperature === undefined ? {} : { temperature }),
-      // e.g. { thinking: { type: 'disabled' } } - Claude 5's thinking is
-      // adaptive by default, counts against max_tokens, and is not text.
-      ...(extra || {}),
     },
     `anthropic/${model}`
   );
@@ -656,14 +659,16 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
     `${base}/chat/completions`,
     realKey ? { authorization: `Bearer ${realKey}` } : {},
     {
+      // Per-seat escape hatch for a provider's own non-standard fields (e.g.
+      // Qwen3.5's chat_template_kwargs.enable_thinking on Together). Kept
+      // generic rather than provider-specific branching in this adapter.
+      // Spread FIRST so it can never replace model/messages/max tokens (pre-release audit
+      // 2026-09-23, GuardLayer #2: extra.model overrode the model the denied-model check approved).
+      ...(extra || {}),
       model,
       messages: [{ role: 'system', content: system }, ...messages],
       max_completion_tokens: maxTokens,
       ...(temperature === undefined ? {} : { temperature }),
-      // Per-seat escape hatch for a provider's own non-standard fields (e.g.
-      // Qwen3.5's chat_template_kwargs.enable_thinking on Together). Kept
-      // generic rather than provider-specific branching in this adapter.
-      ...(extra || {}),
     },
     `${provider}/${model}`
   );

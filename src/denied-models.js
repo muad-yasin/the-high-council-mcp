@@ -14,7 +14,23 @@ export const DENIED_MODEL = /grok|x-ai|\bxai\b|kimi|moonshot/i;
 // `openrouter/auto`, `.../pareto-code`, and any id or plugin naming a router ("pareto-router",
 // "auto-router"). "openrouter" itself is a provider name and does not match: the router word must
 // start the id or follow a separator.
-export const ROUTER_MODEL = /(^|\/)(auto|pareto-code)$|(^|[/:_-])router([/:_-]|$)/i;
+// Pre-release audit 2026-09-23 (GuardLayer #5): the `$` anchor let `openrouter/auto:nitro`,
+// `:online`, `:floor` and `openrouter/auto/` through, and `@preset/<name>` (a server-side preset
+// that picks the model) was not covered at all.
+export const ROUTER_MODEL = /(^|\/)(auto|pareto-code)(?=$|[:/])|(^|[/:_-])router([/:_-]|$)|^@preset\//i;
+
+// The request-body keys through which `extra` can choose or route the model. Pre-release audit
+// 2026-09-23 (GuardLayer #2, HIGH): only extra.models and extra.plugins were checked, and the
+// adapters spread extra last, so extra.model silently replaced the checked model. The adapters now
+// spread extra first; this refuses a denied or router id under any of these keys as well, at any
+// depth (e.g. OpenRouter's `provider: { order: [...] }`).
+const EXTRA_ROUTING_KEYS = ['model', 'models', 'route', 'provider', 'plugins'];
+function stringsIn(v, out = []) {
+  if (typeof v === 'string') out.push(v);
+  else if (Array.isArray(v)) v.forEach(x => stringsIn(x, out));
+  else if (v && typeof v === 'object') Object.values(v).forEach(x => stringsIn(x, out));
+  return out;
+}
 
 function reasonsForSeat(seat) {
   const out = [];
@@ -30,6 +46,24 @@ function reasonsForSeat(seat) {
   for (const plugin of Array.isArray(seat.extra?.plugins) ? seat.extra.plugins : []) {
     const id = plugin?.id;
     if (typeof id === 'string' && (ROUTER_MODEL.test(id) || DENIED_MODEL.test(id))) out.push(`extra.plugins id "${id}" is a router that could route to a denied model`);
+  }
+  const extra = seat.extra && typeof seat.extra === 'object' ? seat.extra : {};
+  for (const key of EXTRA_ROUTING_KEYS) {
+    if (key === 'models' || key === 'plugins') continue; // reported above, with their own wording
+    for (const id of stringsIn(extra[key])) {
+      if (DENIED_MODEL.test(id)) out.push(`extra.${key} "${id}" names a denied model (no xAI/Grok, no Kimi/Moonshot)`);
+      else if (ROUTER_MODEL.test(id)) out.push(`extra.${key} "${id}" is a router id that could route to a denied model`);
+    }
+  }
+  // extra.models/extra.plugins in any shape the checks above do not read: a models value that is
+  // not an array, and every field of a plugin besides its `id`.
+  const loose = [
+    ...(Array.isArray(extra.models) ? [] : stringsIn(extra.models)),
+    ...(Array.isArray(extra.plugins) ? extra.plugins.flatMap(p => stringsIn(p && typeof p === 'object' ? { ...p, id: undefined } : p)) : stringsIn(extra.plugins)),
+  ];
+  for (const id of loose) {
+    if (DENIED_MODEL.test(id)) out.push(`extra "${id}" names a denied model (no xAI/Grok, no Kimi/Moonshot)`);
+    else if (ROUTER_MODEL.test(id)) out.push(`extra "${id}" is a router id that could route to a denied model`);
   }
   return out;
 }
