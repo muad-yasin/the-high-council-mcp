@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync, statSync, renameSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { join, dirname, resolve, basename } from 'node:path';
+import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked } from './chain.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus } from './run-status.js';
+import { acquireRunLock, RunLockedError } from './run-lock.js';
 import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sumCostFromStageLogText } from './run-state.js';
 import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFromStageLogText, sumRoundUsdFromStageLogText } from './spans.js';
 import { appendSpanRecord, buildSpanRecord } from './progress-spans.js';
@@ -1223,7 +1224,22 @@ if (missing.length) {
 }
 
 const taskPathEff = resumeMeta?.task || taskPath;
-const taskFile = resolve(work, taskPathEff);
+// Where the task file is. A new run records it as an absolute path plus the directory it was
+// started in, so a resume from anywhere finds it (2026-09-23 audit, CLI finding 5). An older
+// run.json with a relative path is tried against its recorded cwd, else this directory. On
+// resume, --task may point at the file's new location: its content is still checked against
+// the run's stored hash below (frozen scope), so this can't swap in a different task.
+const taskFile = !resumeMeta ? resolve(work, taskPathEff)
+  : taskPath ? resolve(work, taskPath)
+  : isAbsolute(resumeMeta.task) ? resumeMeta.task
+  : resolve(resumeMeta.cwd || work, resumeMeta.task);
+if (resumeMeta && !existsSync(taskFile)) {
+  console.error(`\nThis run's task file isn't where run.json says: ${taskFile}`);
+  console.error(`run.json records the task as "${resumeMeta.task}"${resumeMeta.cwd ? ` (started in ${resumeMeta.cwd})` : ' (relative, and this run predates recording its start directory)'}.`);
+  console.error(`Resume from the directory the run was started in, or pass --task <path to the same task file>;`);
+  console.error(`its content is checked against the run's stored hash, so it must be the same task.`);
+  process.exit(1);
+}
 if (!existsSync(taskFile)) {
   console.error(`\nNo task file at ${taskFile}`);
   console.error(`The task file is the request the council plans against - plain prose, written by you.`);
@@ -1290,8 +1306,21 @@ if (piiGateMode !== null) {
   }
 }
 const runId = resumeMeta ? basename(resolve(resumeRun)) : new Date().toISOString().replace(/[:.]/g, '-');
-const runDir = join(work, 'runs', runId);
+// A resume uses the folder it was pointed at. It used to rebuild the path as
+// <cwd>/runs/<basename>, so resuming from another directory (an MCP-started run keeps an
+// absolute task path) silently started a fresh folder and paid for every stage again
+// (2026-09-23 audit, CLI finding 5).
+const runDir = resumeMeta ? resolve(resumeRun) : join(work, 'runs', runId);
 mkdirSync(runDir, { recursive: true });
+// One process per run folder, before any stage can spend: two resumes of the same run used
+// to both pay for every uncached stage, each under its own cap (audit finding 4).
+try {
+  acquireRunLock(runDir);
+} catch (err) {
+  if (!(err instanceof RunLockedError)) throw err;
+  console.error(`\n${err.message}`);
+  process.exit(EXIT_FATAL);
+}
 
 // 7.x item 5: audit export. `policy.json`'s documented, locked path is the user's own working
 // directory (`work`, same resolution root as `.env` above) - a presence check only, item 1's own
@@ -1321,14 +1350,18 @@ if (auditEnabled) {
 const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskPathEff, label: labelEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}) }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}) }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
   // every other field carry forward unchanged via the spread. v6 item V6-2: rootSpanId is
   // likewise carried forward (or set, the first time an older run.json is resumed under this
   // feature) rather than regenerated.
-  resumeMeta = { ...resumeMeta, pid: process.pid, rootSpanId };
+  // A --max-usd named on resume is saved, so the next sitting (the pause hint, MCP
+  // submit_stage, resume_run without max_usd) keeps it instead of falling back to the old
+  // cap - raised, the run stopped again at the old one; lowered, the next sitting went
+  // back past it (audit finding 6).
+  resumeMeta = { ...resumeMeta, pid: process.pid, rootSpanId, ...(argv.includes('--max-usd') ? { maxUsd } : {}) };
   writeFileSync(join(runDir, 'run.json'), JSON.stringify(resumeMeta, null, 2));
 }
 

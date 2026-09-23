@@ -24,6 +24,7 @@ import { metricsReport } from '../metrics.js';
 import { checkClaimStaleness } from '../peer-claim.js';
 import { submitStageAnswer } from '../stage-submission.js';
 import { deriveRunStatus, waitingStage, isAlivePid, isAliveByGrep, finishedRunState } from '../run-status.js';
+import { lockHolder } from '../run-lock.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Same split as the CLI: `pkg` ships with the package (chains/, the CLI
@@ -243,6 +244,14 @@ server.tool('resume_run', 'Resume a paused run after its external stage was answ
 });
 
 async function resume(run, maxUsd) {
+  // 2026-09-23 audit (CLI finding 4): a resume while the run is still going used to start a
+  // second process paying for the same stages. The spawned CLI takes the run's lock itself
+  // (src/run-lock.js), which is the check that holds; this one just answers the agent
+  // plainly instead of handing it a pid that exits at once.
+  const holder = lockHolder(join(runsDir, run));
+  if (holder) {
+    return { resumed: false, run, error: `run is already running (pid ${holder.pid} on ${holder.host}); poll run_status(run) instead of resuming it again` };
+  }
   const logPath = join(work, `council-${Date.now()}.log`);
   const fd = openSync(logPath, 'a');
   const resumeArgs = ['--resume', join('runs', run)];
