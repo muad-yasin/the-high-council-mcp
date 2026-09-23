@@ -482,6 +482,22 @@ function retryAfterMs(value) {
   return Number.isFinite(ms) && ms >= 0 ? Math.min(ms, RETRY_AFTER_MAX_MS) : null;
 }
 
+// Providers audit #3 (2026-09-23): a request had no deadline of its own, so a body that kept
+// trickling in never ended. Every request now carries one. The default sits above the longest
+// completed call on disk (OpenRouter, 1886 s) so it never cuts a call that would have finished.
+// NOT fixed here: Node's own 300 s headers timeout still ends a direct non-streaming call that
+// takes longer than that to start answering; that needs streaming or a dispatcher, a separate
+// decision. What changes is that it now says so instead of "fetch failed".
+export const REQUEST_DEADLINE_MS = 45 * 60 * 1000;
+let requestDeadlineMs = REQUEST_DEADLINE_MS;
+export function setRequestDeadline(ms) { requestDeadlineMs = ms || REQUEST_DEADLINE_MS; }
+
+// Providers audit #6: Node's fetch quotes the whole URL in its errors, and withRetry prints each
+// error, so a baseUrl with user:pass@ in it went to stderr and the run log in clear.
+export function redactUrlCredentials(text) {
+  return String(text).replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, '$1[redacted]@');
+}
+
 async function withRetry(fn, { tries = 3, label = '' } = {}) {
   for (let i = 0; ; i++) {
     try { return await fn(); }
@@ -489,26 +505,35 @@ async function withRetry(fn, { tries = 3, label = '' } = {}) {
       // Do not burn retries on a request that will never succeed, or that may already be paid for.
       if (!isRetryable(err) || i >= tries - 1) throw err;
       const wait = err.retryAfterMs ?? 1500 * Math.pow(2, i);
-      process.stderr.write(`  retry ${i + 1}/${tries} ${label}: ${err.message} (waiting ${wait}ms)\n`);
+      process.stderr.write(`  retry ${i + 1}/${tries} ${label}: ${redactUrlCredentials(err.message)} (waiting ${wait}ms)\n`);
       await retrySleep(wait);
     }
   }
 }
 
 async function post(url, headers, body, label) {
+  // Credentials never belong in the URL: the key goes in the provider's env var. Refused before
+  // anything is sent, with a message that doesn't repeat them.
+  let parsed;
+  try { parsed = new URL(url); } catch { throw new Error(`${label}: provider URL is not a valid URL`); }
+  if (parsed.username || parsed.password) {
+    throw new Error(`${label}: the provider URL (baseUrl) carries credentials (user:pass@host) - refused before sending. Put the key in the provider's API-key env var instead.`);
+  }
   return withRetry(async () => {
     let res;
+    const signal = AbortSignal.timeout(requestDeadlineMs);
     try {
       res = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...headers },
         body: JSON.stringify(body),
+        signal,
       });
     } catch (err) {
       // No response. Only a failure to connect proves the request never reached the provider;
       // anything else (reset mid-request, headers timeout) may have started a billed generation.
       if (!PRE_SEND_CODES.has(err.cause?.code ?? err.code)) err.maybeBilled = true;
-      throw err;
+      throw explainFetchFailure(err, label);
     }
     if (!res.ok) {
       const detail = (await res.text().catch(() => '')).slice(0, 600);
@@ -521,12 +546,30 @@ async function post(url, headers, body, label) {
     // next. A dropped body (TypeError) and a non-JSON body (SyntaxError) are both thrown, never retried.
     try { return await res.json(); }
     catch (cause) {
+      if (cause?.name === 'TimeoutError' || signal.aborted) {
+        const err = new Error(`${label}: no complete response within ${Math.round(requestDeadlineMs / 1000)} s (request deadline) - not retried, the generation was probably already billed`);
+        err.cause = cause; err.maybeBilled = true;
+        throw err;
+      }
       const what = cause?.name === 'SyntaxError' ? `HTTP 200 but the body is not JSON (${cause.message})` : `the connection dropped while reading a 200 response (${cause?.message})`;
       const err = new Error(`${label}: ${what} - not retried, the generation was probably already billed`);
       err.cause = cause; err.maybeBilled = true;
       throw err;
     }
   }, { label });
+}
+
+// Turns the two opaque no-response failures into something an operator can act on, and keeps
+// any URL credentials out of the message. The error object (flags, cause) is preserved.
+function explainFetchFailure(err, label) {
+  const code = err.cause?.code ?? err.code;
+  if (err.name === 'TimeoutError') {
+    err.message = `${label}: no response within ${Math.round(requestDeadlineMs / 1000)} s (request deadline) - not retried, the generation may already be billed`;
+  } else if (code === 'UND_ERR_HEADERS_TIMEOUT') {
+    err.message = `${label}: the provider sent no response headers within Node's 300 s limit. A direct, non-streaming call this long (a very high maxTokens) can't complete here; lower the seat's maxTokens or route it through OpenRouter. Not retried: it may already be billed.`;
+  }
+  err.message = redactUrlCredentials(err.message);
+  return err;
 }
 
 async function callAnthropic({ model, system, messages, maxTokens, temperature, extra }) {
@@ -557,7 +600,7 @@ async function callAnthropic({ model, system, messages, maxTokens, temperature, 
       input: json.usage?.input_tokens ?? 0,
       output: json.usage?.output_tokens ?? 0,
       thinking: json.usage?.output_tokens_details?.thinking_tokens ?? 0,
-      stop: json.stop_reason ?? null,
+      stop: normaliseStop(json.stop_reason),
     },
     provider: 'anthropic',
     model,
@@ -592,7 +635,7 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
   );
   return {
     text: json.choices?.[0]?.message?.content ?? '',
-    usage: { ...usageOfOpenAICompat(json.usage), stop: json.choices?.[0]?.finish_reason ?? null },
+    usage: { ...usageOfOpenAICompat(json.usage), stop: normaliseStop(json.choices?.[0]?.finish_reason) },
     provider,
     // v3 §Item 3: a provider-array fallback (`extra.models`) can answer with a model other
     // than the one requested - `json.model` is the response's own record of which model
@@ -601,6 +644,18 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
     // today.
     model: json.model ?? model,
   };
+}
+
+// Providers audit #5: the chain recognises only `length`/`max_tokens` as "cut off", so a cut
+// reply reported under another name got no bigger-cap retry and its vote was lost. These are
+// the names seen for the same event: Mistral's `model_length`, Anthropic's
+// `model_context_window_exceeded`. Everything else passes through unchanged. A null
+// finish_reason is left null here: providers.js can't tell "not reported" from "cut"; the
+// chain's near-cap output check still catches a cut reply that used most of its cap.
+const CUT_OFF_ALIASES = new Set(['model_length', 'model_context_window_exceeded']);
+export function normaliseStop(stop) {
+  if (stop == null) return null;
+  return CUT_OFF_ALIASES.has(stop) ? 'length' : stop;
 }
 
 // OpenAI-compatible usage -> ours. Bug-audit fix, 2026-09-23 (Review/BugAudit_Providers_2026-09-23.md

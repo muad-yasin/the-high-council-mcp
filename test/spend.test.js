@@ -187,3 +187,22 @@ function tree(d) {
     return statSync(p).isDirectory() ? { [n]: tree(p) } : n;
   });
 }
+
+// MoneyPath audit #7 (2026-09-23): the end of a local day was start + 24h. On DST change days
+// the day is 23 or 25 hours long: in Berlin a run at 23:30 on 2026-10-25 counted on neither
+// day, and a run just after midnight on 2026-03-30 counted on both. Run in a child with a fixed
+// TZ so this holds wherever the suite runs.
+test('costToday follows the calendar day across DST changes (Europe/Berlin)', async () => {
+  const { runs, add } = fixture();
+  const idAt = iso => iso.replace(/[:.]/g, '-');
+  add(idAt('2026-10-25T22:30:00.000Z'), { 'run.json': { chain: 'x' }, 'a.usage.json': { provider: 'p', model: 'autumn', usd: 1 } }); // 23:30 CET, 25h day
+  add(idAt('2026-03-29T22:30:00.000Z'), { 'run.json': { chain: 'x' }, 'a.usage.json': { provider: 'p', model: 'spring', usd: 2 } }); // 00:30 CEST on 03-30
+  const { execFileSync } = await import('node:child_process');
+  const spend = new URL('../src/spend.js', import.meta.url).href;
+  const script = `
+    const { costToday } = await import(${JSON.stringify(spend)});
+    const n = (y, m, d) => costToday(${JSON.stringify(runs)}, { date: new Date(y, m, d, 12) }).count;
+    console.log(JSON.stringify({ oct25: n(2026, 9, 25), oct26: n(2026, 9, 26), mar29: n(2026, 2, 29), mar30: n(2026, 2, 30) }));`;
+  const out = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, TZ: 'Europe/Berlin' }, encoding: 'utf8' }));
+  assert.deepEqual(out, { oct25: 1, oct26: 0, mar29: 0, mar30: 1 });
+});

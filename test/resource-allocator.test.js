@@ -159,15 +159,15 @@ function baseLintConfig() {
   return {
     signoff: 'unanimous',
     seats: {
-      // Distinct labs on the panel: this fixture exists to exercise allocator
-      // config, and a single-lab roster would also trip chain-lint's
-      // self-review check (added 2026-09-20), burying the finding this file
-      // actually asserts on.
+      // Distinct labs AND distinct models on the panel: this fixture exists to exercise
+      // allocator config, and a roster where the builder's model also sits on the panel trips
+      // chain-lint's self-review check (added 2026-09-20; since 2026-09-23 it matches the model,
+      // not only the lab label), burying the finding this file actually asserts on.
       criteria: { provider: 'anthropic', model: 'claude-sonnet-5', lab: 'author' },
       builder: { provider: 'anthropic', model: 'claude-sonnet-5', lab: 'author' },
       critics: [
-        { provider: 'anthropic', model: 'claude-sonnet-5', lab: 'panel-one' },
-        { provider: 'anthropic', model: 'claude-sonnet-5', lab: 'panel-two' },
+        { provider: 'openrouter', model: 'openai/gpt-6', lab: 'panel-one' },
+        { provider: 'openrouter', model: 'google/gemini-3.8-flash', lab: 'panel-two' },
       ],
     },
   };

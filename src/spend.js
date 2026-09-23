@@ -174,7 +174,9 @@ export function spendReport(runsDir, { days = 1, now = Date.now() } = {}) {
 export function costToday(runsDir, { date = new Date(), now = Date.now() } = {}) {
   const day = new Date(date);
   const startOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
-  const endOfDay = startOfDay + 24 * 3600 * 1000;
+  // The next local midnight, not start + 24h: DST change days are 23 or 25 hours long, and
+  // the fixed length dropped a late-evening run (autumn) or counted one twice (spring).
+  const endOfDay = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();
   const runs = [];
   const countedDirs = [];
   let unreadable = 0;

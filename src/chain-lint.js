@@ -593,10 +593,24 @@ export function lintChain(config, filePath = '<chain>') {
   // The escape is an explicit, greppable `"selfReview": "allowed"` at the top
   // level, so a chain that really wants this has said so in writing and `grep
   // -r selfReview chains/` lists every one. No shipped chain uses it.
+  //
+  // 2026-09-23 audit (RunChainStages #5): lab labels are free text, so the same model under a
+  // different label (builder anthropic/claude-sonnet-5, critic lab "sonnet5") passed. The rule
+  // now also fires when a critic runs the builder's or reviser's model, whatever its lab says.
   if (config?.signoff === 'unanimous' && Array.isArray(seats.critics) && config?.selfReview !== 'allowed') {
-    const criticLabs = new Set(seats.critics.filter(Boolean).map(labOf));
+    const critics = seats.critics.filter(Boolean);
+    const criticLabs = new Set(critics.map(labOf));
+    const criticModels = new Set(critics.map(modelIdentity).filter(Boolean));
     for (const kind of ['builder', 'reviser']) {
       const seat = seats[kind];
+      const sameModel = seat && modelIdentity(seat) && criticModels.has(modelIdentity(seat));
+      if (seat && sameModel && !criticLabs.has(labOf(seat))) {
+        findings.push({
+          kind: 'self-review',
+          message: `seats.${kind} runs model "${seat.model}", and a critic runs the same model under a different lab label - under unanimous signoff that model votes on, and can veto objections to, its own draft.`,
+          fix: `Replace that critic in ${filePath} with a model from another lab. A lab label doesn't make the same model independent. If self-review is really wanted, add "selfReview": "allowed" at the top level and say why in "description".`,
+        });
+      }
       if (seat && criticLabs.has(labOf(seat))) {
         findings.push({
           kind: 'self-review',
@@ -604,6 +618,21 @@ export function lintChain(config, filePath = '<chain>') {
           fix: `Remove the "${labOf(seat)}" seat from "seats.critics" in ${filePath} so the panel is independent of the author, or move seats.${kind} to a lab that is not on the panel. If this chain genuinely wants a lab reviewing its own work, add "selfReview": "allowed" at the top level of ${filePath} and say why in its "description".`,
         });
       }
+    }
+  }
+  // Providers audit #6 (2026-09-23): credentials in a seat's baseUrl. Node's fetch refuses such a
+  // URL and quotes it in the error, which went to stderr and the run log. The key belongs in the
+  // provider's env var.
+  for (const seat of everySeatOf(config || {})) {
+    if (typeof seat.baseUrl !== 'string') continue;
+    let url;
+    try { url = new URL(seat.baseUrl); } catch { continue; }
+    if (url.username || url.password) {
+      findings.push({
+        kind: 'baseurl-credentials',
+        message: `a ${seat.provider} seat's baseUrl carries credentials (user:pass@host). They would be logged in clear, and the request is refused anyway.`,
+        fix: `Remove the credentials from that baseUrl in ${filePath} and put the key in the provider's API-key env var.`,
+      });
     }
   }
   if ('selfReview' in (config || {}) && config.selfReview !== 'allowed') {
@@ -638,4 +667,13 @@ export function lintChain(config, filePath = '<chain>') {
   }
 
   return findings;
+}
+
+// The model a seat actually runs, provider prefix and :variant dropped, so
+// `anthropic/claude-sonnet-5` on OpenRouter and `claude-sonnet-5` direct are one model. Mock and
+// external seats have no real model identity (mock chains reuse names on purpose), so they
+// return null and never match.
+export function modelIdentity(seat) {
+  if (!seat?.model || seat.provider === 'mock' || seat.provider === 'external') return null;
+  return String(seat.model).toLowerCase().split('/').pop().split(':')[0];
 }
