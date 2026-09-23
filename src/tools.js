@@ -38,6 +38,13 @@ const DENY_PATTERNS = [
   /(^|\/)id_(rsa|dsa|ecdsa|ed25519)$/i,
   /(^|\/)credentials?(\.|$)/i,
   /(^|\/)\.aws(\/|$)/i,
+  // 2026-09-23 audit (finding 9): direnv files, `prod.env`-style files, git's own config
+  // (remote URLs carry tokens) and credential store, and netrc logins.
+  /(^|\/)\.envrc$/i,
+  /\.env$/i,
+  /(^|\/)\.git(\/|$)/i,
+  /(^|\/)\.git-credentials$/i,
+  /(^|\/)[._]netrc$/i,
 ];
 
 export function isDeniedPath(relPath) {
@@ -51,8 +58,9 @@ export function isDeniedPath(relPath) {
 // Redacts the value and leaves a visible marker, rather than dropping the whole result: a
 // seat that sees `[redacted: possible secret]` knows something was there, and silently
 // returning nothing would look like the file was empty.
+const PEM_BLOCK = /-----BEGIN[ A-Z]*PRIVATE KEY-----[\s\S]*?-----END[ A-Z]*PRIVATE KEY-----/g;
 const SECRET_PATTERNS = [
-  /-----BEGIN[ A-Z]*PRIVATE KEY-----[\s\S]*?-----END[ A-Z]*PRIVATE KEY-----/g,
+  PEM_BLOCK,
   /\b(sk|pk|rk)-[A-Za-z0-9_-]{16,}\b/g,
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
   /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g,
@@ -62,7 +70,20 @@ const SECRET_PATTERNS = [
   // A named assignment whose value looks like a credential. Deliberately requires the
   // name AND a long opaque value, so ordinary code like `apiKey: config.apiKey` is left
   // alone - a filter that fires on every mention of the word is a filter people turn off.
-  /\b(api[_-]?key|secret|token|password|passwd|access[_-]?key|auth)\b\s*[:=]\s*['"]?([A-Za-z0-9/+_-]{20,})['"]?/gi,
+  // 2026-09-23 audit: `(?<![A-Za-z0-9])` rather than `\b` in front, because `\b` never
+  // fires after `_` - `OPENROUTER_API_KEY=` slipped through. An optional quote after the
+  // name catches JSON (`"password": "..."`).
+  /(?<![A-Za-z0-9])(api[_-]?key|secret|token|password|passwd|access[_-]?key|auth)\b['"]?\s*[:=]\s*['"]?([A-Za-z0-9/+_-]{20,})['"]?/gi,
+  // Stripe secret/restricted keys and GitHub fine-grained tokens (underscore-separated, so
+  // the `sk-` rule above never saw them).
+  /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{22,}\b/g,
+  // Env-style assignment to an upper-case name ending in KEY/TOKEN/SECRET/PASSWORD, with an
+  // opaque value: `GOOGLE_PLAY_PUBKEY=...`, `export DEPLOY_TOKEN="..."`. The value must be
+  // long, so `CACHE_KEY=1` stays.
+  /\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD))\s*=\s*['"]?([A-Za-z0-9/+_.-]{16,})['"]?/g,
+  // A password inside a URL: `scheme://user:pass@host`. Only the password goes.
+  /\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+):([^\s/@]+)@/gi,
 ];
 
 export function redactSecrets(text) {
@@ -297,6 +318,13 @@ function grep_repo({ pattern, file } = {}, { cwd }) {
     if (ignored.has(rel)) continue;
     let text;
     try { text = readFileSync(path, 'utf8'); } catch { continue; }
+    // A PEM block spans lines, and the per-line scan below never sees a whole one: its body
+    // lines came back in clear (2026-09-23 audit). Blank each block line by line first, so
+    // line numbers still point at the real lines.
+    text = text.replace(PEM_BLOCK, (block) => {
+      redactedCount += 1;
+      return block.split('\n').map(() => '[redacted: possible secret]').join('\n');
+    });
     text.split('\n').forEach((line, i) => {
       if (!re.test(line)) return;
       const { text: safe, redacted } = redactSecrets(line);
