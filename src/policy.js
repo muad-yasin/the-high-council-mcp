@@ -192,7 +192,9 @@ export function checkRequiredSignoffPaths(policy, ctx = {}) {
   if (path === null) {
     return [`required_signoff_paths: target_file "${cr.target_file}" is not a repo-relative path, so it cannot be checked against the signoff paths.`];
   }
-  const matched = patterns.find(p => globMatch(normalizeRelPath(p) ?? p, path));
+  // Case-insensitive on purpose: src/Auth/session.js is the same file as src/auth/session.js on a
+  // case-insensitive filesystem, and this check fails closed (bug audit 2026-09-23, GuardLayer #9).
+  const matched = patterns.find(p => globMatch((normalizeRelPath(p) ?? p).toLowerCase(), path.toLowerCase()));
   if (!matched) return [];
   if (typeof ctx.signoff === 'string' && ctx.signoff.trim() !== '') return [];
   return [`required_signoff_paths: target_file "${path}" matches "${matched}", which requires a signoff, and none was given.`];
@@ -205,11 +207,27 @@ export function checkRequiredSignoffPaths(policy, ctx = {}) {
 // that is present with an empty value comes back as '', never undefined, so the signoff-path check
 // fails closed on it ("no target_file") instead of treating the task as not-a-change-request.
 // Returns { target_file?, signoff? } - a key is absent iff its line is absent.
+//
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md #9): only the exact form
+// `target_file: path` at column 0 was read, so a quoted value, a markdown bullet or bold key, or a
+// trailing comment made the field vanish or keep its quotes - and required_signoff_paths let the
+// change through unsigned. The key may now sit behind a bullet and/or bold/italic markers; the
+// value loses one pair of surrounding quotes or backticks and a trailing " # comment". A mention
+// in the middle of a sentence still does not count.
+const FIELD_LINE = /^[ \t]*(?:[-*+][ \t]+)?(?:\*\*|__|\*|_)?(target_file|signoff)(?:\*\*|__|\*|_)?[ \t]*:(?:\*\*|__|\*|_)?[ \t]*(.*?)[ \t]*$/i;
+function cleanFieldValue(v) {
+  let out = v.replace(/[ \t]+#.*$/, '').trim();
+  const q = out.match(/^(["'`])(.*)\1$/);
+  if (q) out = q[2].trim();
+  return out;
+}
 export function parseChangeRequestFields(text) {
   const fields = {};
   for (const line of String(text ?? '').split(/\r?\n/)) {
-    const m = line.match(/^(target_file|signoff):[ \t]*(.*?)[ \t]*$/);
-    if (m && !(m[1] in fields)) fields[m[1]] = m[2];
+    const m = line.match(FIELD_LINE);
+    if (!m) continue;
+    const key = m[1].toLowerCase();
+    if (!(key in fields)) fields[key] = cleanFieldValue(m[2]);
   }
   return fields;
 }

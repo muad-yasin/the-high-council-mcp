@@ -50,3 +50,15 @@ export function deriveRunStatus(dir, runMeta) {
   const alive = runMeta && runMeta.pid ? isAlivePid(runMeta.pid) : isAliveByGrep();
   return alive ? 'running' : 'stopped';
 }
+
+// The `state` text for a run that has a report.json. Bug-audit fix, 2026-09-23
+// (Review/BugAudit_GuardLayer_2026-09-23.md #5): a run whose final security gate blocked (exit 7)
+// or could not judge (exit 8) still carries passed:true from the panel, and a detached run's exit
+// code never reaches the MCP server - so it read "every lab signed off". The gate outranks the panel.
+export function finishedRunState(report) {
+  const gate = report?.security_review?.gate;
+  if (gate && gate !== 'pass') {
+    return `done: security gate ${gate} - not a pass${report.passed ? ' (the panel signed off, the security review did not)' : ''}`;
+  }
+  return report?.passed ? 'done: every lab signed off' : 'done: open objections';
+}

@@ -94,3 +94,26 @@ test('#3/#6: report.json carries panelVerdicts, regressions and the dispute reco
     if (key === 'panelVerdicts') assert.ok(report.panelVerdicts.length > 0 && report.panelVerdicts.every(v => v.round && v.lab && v.verdict));
   }
 });
+
+test('#5: shapeOnlyRounds sees real lab names with dots and hyphens', async () => {
+  const { shapeRounds } = await import('../src/shape-rounds.js');
+  const dir = mkdtempSync(join(tmpdir(), 'thc-shape-'));
+  const shape = { meets: false, failures: [{ criterion: 'Headings', problem: 'section order and heading numbering are off' }] };
+  writeFileSync(join(dir, 'panel-4-gpt5.6-luna.md'), JSON.stringify(shape));
+  writeFileSync(join(dir, 'panel-4-glm5.3-flash.md'), JSON.stringify(shape));
+  writeFileSync(join(dir, 'panel-5-fable5.1.md'), JSON.stringify({ meets: false, failures: [{ criterion: 'Risk', problem: 'the rollback plan loses data' }] }));
+  const r = shapeRounds(dir);
+  assert.deepEqual(r.rounds.map(x => [x.round, x.failureCount, x.shapeOnly]), [[4, 2, true], [5, 1, false]]);
+  assert.equal(r.shapeOnlyRounds, 1);
+});
+
+test('#7: a round-robin chain whose critic reply was unreadable is degraded, not no_consensus', async () => {
+  const { computeOutcome } = await import('../src/outcome.js');
+  assert.equal(computeOutcome({ passed: false, signoff: null, dropouts: [], panelVerdicts: [{ round: 1, lab: 'x', verdict: 'unheard' }] }), 'degraded');
+  assert.equal(computeOutcome({ passed: false, signoff: null, dropouts: [], panelVerdicts: [{ round: 1, lab: 'x', verdict: 'objected' }] }), 'no_consensus');
+  // An end-to-end mock run, round-robin, with the unreadable critic.
+  const { runChain, setCache, setBudget } = await import('../src/chain.js');
+  setCache(null); setBudget(null);
+  const r = await runChain({ request: 'R', config: { name: 'rr', maxRounds: 1, criteria: ['It exists.'], seats: { builder: { provider: 'mock', model: 'mock-builder' }, critics: [{ provider: 'mock', model: 'mock-unreadable' }] } }, log: () => {} });
+  assert.equal(computeOutcome(r), 'degraded');
+});

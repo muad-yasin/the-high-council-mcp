@@ -185,3 +185,20 @@ test('artifact gate: --allow-unfenced proceeds, and the finding is still recorde
   assert.ok(!existsSync(join(dir, 'runs', runDirs[0], 'NEEDS-ARTIFACTS.md')));
   rmSync(dir, { recursive: true, force: true });
 });
+
+// Bug audit 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md #6, repro /tmp/audit9/fence.mjs):
+// a file named only INSIDE another file's fenced body is not fenced - its content never reached a lab.
+test('artifact gate: a filename that appears only inside another file\'s fence body does not count as fenced', () => {
+  const other = '## src/chain-lint.js\n\n```js\n// src/chain-lint.js\nimport { ALLOWED_TOOLS } from \'./tools.js\';\nconst prices = \'pricing.json\';\n```\n';
+  const task = `Is the allowlist in tools.js strict enough? Also check pricing.json.\n${other}`;
+  assert.deepEqual(checkArtifactReferences(task).map(w => w.path).sort(), ['pricing.json', 'tools.js']);
+  // Still counts: a heading above the fence, an info string, a first-line path comment, a lead-in line.
+  for (const fence of [
+    '## src/tools.js\n\n```js\nexport const x = 1;\n```',
+    '```js src/tools.js\nexport const x = 1;\n```',
+    '```js\n// src/tools.js\nexport const x = 1;\n```',
+    'Here is tools.js:\n```js\nexport const x = 1;\n```',
+  ]) {
+    assert.deepEqual(checkArtifactReferences(`Check tools.js.\n\n${fence}\n`), [], fence);
+  }
+});

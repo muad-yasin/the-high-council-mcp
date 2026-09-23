@@ -97,3 +97,14 @@ test('deriveRunStatus: also works with runMeta === null (no run.json at all)', (
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Bug audit 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md #5): MCP run_status called a run
+// whose security gate blocked "done: every lab signed off".
+test('finishedRunState: a blocked or unjudged security gate is never reported as every lab signed off', async () => {
+  const { finishedRunState } = await import('../src/run-status.js');
+  assert.match(finishedRunState({ passed: true, security_review: { gate: 'blocked' } }), /security gate blocked - not a pass/);
+  assert.match(finishedRunState({ passed: true, security_review: { gate: 'not_judged' } }), /security gate not_judged - not a pass/);
+  assert.equal(finishedRunState({ passed: true, security_review: { gate: 'pass' } }), 'done: every lab signed off');
+  assert.equal(finishedRunState({ passed: true }), 'done: every lab signed off');
+  assert.equal(finishedRunState({ passed: false }), 'done: open objections');
+});

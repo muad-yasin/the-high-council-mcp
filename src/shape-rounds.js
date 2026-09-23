@@ -23,8 +23,12 @@ export function classifyFailure(failure) {
 // Round number from a stage filename, e.g. "panel-2-glm.md" -> 2,
 // "critique-3.md" -> 3. Other stage files (criteria.md, build.md, ...)
 // return null.
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_Metrics_2026-09-23.md #5): the lab part was
+// `[a-z0-9]+`, which rejects every real lab name with a dot or a hyphen (gpt5.6-luna, glm5.3-flash,
+// fable5.1) - so shapeOnlyRounds was 0 on every real run. Any suffix counts now; a retry, re-ask or
+// question file only ever adds that round's own failures (an unreadable first attempt has none).
 function roundOfFile(name) {
-  const m = name.match(/^(?:panel|critique)-(\d+)(?:-[a-z0-9]+)?\.md$/);
+  const m = name.match(/^(?:panel|critique)-(\d+)(?:-.+)?\.md$/);
   return m ? Number(m[1]) : null;
 }
 

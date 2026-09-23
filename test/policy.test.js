@@ -372,3 +372,25 @@ test('CLI: a chain that satisfies the policy runs normally (allowed_providers in
   assert.match(out, /signed off|open objections|round cap/);
   rmSync(dir, { recursive: true, force: true });
 });
+
+// Bug audit 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md #9, repro /tmp/audit9/pol.mjs):
+// required_signoff_paths was bypassed by how target_file was written.
+test('required_signoff_paths cannot be bypassed by quoting, bullets, bold keys, case or a trailing comment', async () => {
+  const { parseChangeRequestFields, checkRequiredSignoffPaths } = await import('../src/policy.js');
+  const policy = { required_signoff_paths: ['src/auth/**'] };
+  for (const task of [
+    'target_file: src/auth/session.js',
+    '---\ntarget_file: "src/auth/session.js"\n---',
+    "target_file: 'src/auth/session.js'",
+    '- target_file: src/auth/session.js',
+    '**target_file:** src/auth/session.js',
+    'Target_File: `src/auth/session.js`',
+    'target_file: src/Auth/session.js',
+    'target_file: src/auth/session.js  # the login code',
+  ]) {
+    const f = parseChangeRequestFields(task);
+    assert.equal(checkRequiredSignoffPaths(policy, { changeRequest: { target_file: f.target_file } }).length, 1, JSON.stringify(task));
+  }
+  assert.deepEqual(parseChangeRequestFields('A plan about target_file: src/auth/x.js mid-line.'), {}, 'a mid-sentence mention is still not a field');
+  assert.equal(checkRequiredSignoffPaths(policy, { changeRequest: { target_file: 'src/Auth/a.js' }, signoff: 'muad' }).length, 0, 'a named signoff still clears it');
+});

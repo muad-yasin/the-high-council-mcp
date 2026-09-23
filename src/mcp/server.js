@@ -23,7 +23,7 @@ import { verdictStats } from '../verdict-stats.js';
 import { metricsReport } from '../metrics.js';
 import { checkClaimStaleness } from '../peer-claim.js';
 import { submitStageAnswer } from '../stage-submission.js';
-import { deriveRunStatus, waitingStage, isAlivePid, isAliveByGrep } from '../run-status.js';
+import { deriveRunStatus, waitingStage, isAlivePid, isAliveByGrep, finishedRunState } from '../run-status.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Same split as the CLI: `pkg` ships with the package (chains/, the CLI
@@ -97,7 +97,7 @@ function runSummary(id) {
     status: deriveRunStatus(dir, runMeta),
     chain: report?.chain || (log.match(/^chain: (\S+)/m) || [])[1] || null,
     task: report?.task || (log.match(/^task: +(\S+)/m) || [])[1] || null,
-    state: report ? (report.passed ? 'done: every lab signed off' : 'done: open objections')
+    state: report ? finishedRunState(report)
       : budget.stoppedByCap ? `stopped: per-run spend cap reached before stage ${budget.stoppedByCap.stage} - resume with a higher --max-usd`
       : waiting(dir) ? `paused: waiting for external stage ${waiting(dir)}`
       : alive ? 'running'
@@ -105,6 +105,7 @@ function runSummary(id) {
     usd: report?.totals?.usd ?? null,
     budget,
     signoff: report?.signoff ?? null,
+    securityGate: report?.security_review?.gate ?? null,
     scoreboard: report?.scoreboard?.labs ?? null,
     waitingFor: existsSync(dir) ? readdirSync(dir).filter(f => f.startsWith('NEEDS-')).map(f => f.slice(6, -3)).filter(l => !existsSync(join(dir, `${l}.md`))) : [],
     files: existsSync(dir) ? readdirSync(dir).filter(f => !f.endsWith('.usage.json')).sort() : [],

@@ -15,6 +15,11 @@ export function computeOutcome(result) {
   const hasDropout = Array.isArray(result?.dropouts) && result.dropouts.length > 0;
   const hasAbstention = Array.isArray(result?.signoff)
     && result.signoff.some(s => s.signedOff === null && s.passed === false);
-  if (hasDropout || hasAbstention) return 'degraded';
+  // Bug-audit fix, 2026-09-23 (Review/BugAudit_Metrics_2026-09-23.md #7): a round-robin ("first")
+  // chain has no signoff array and writes no dropout for an unreadable reply, so an infrastructure
+  // failure read as `no_consensus` - disagreement. Its final verdict is the last panelVerdicts row.
+  const verdicts = Array.isArray(result?.panelVerdicts) ? result.panelVerdicts : [];
+  const lastUnheard = !Array.isArray(result?.signoff) && verdicts.length > 0 && verdicts[verdicts.length - 1].verdict === 'unheard';
+  if (hasDropout || hasAbstention || lastUnheard) return 'degraded';
   return result?.passed === true ? 'consensus' : 'no_consensus';
 }
