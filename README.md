@@ -557,6 +557,12 @@ what each rule guards against and why. Copy the folders you want into your proje
   is not retried, because the generation was probably already billed. Its real usage cannot be
   read, so it is counted toward the per-run cap at its worst-case projection. It leaves no
   `<label>.usage.json`, so `council --spend` does not see it.
+- Some hosted reasoning models stop at a provider-side reasoning ceiling well below the seat's own
+  cap, before writing any answer (seen 2026-09-23: `deepseek/deepseek-v4.1-flash` via OpenRouter, 6 of
+  28 calls stopped at ~4.2k tokens, all reasoning, under a 36k cap). A bigger cap cannot fix that, so
+  such a reply is recorded as `REASONING_EXHAUSTED` and is not retried: the seat abstains, which
+  blocks unanimity and never counts as consent. Whether to change a chain's reasoning settings for it
+  is a roster decision, not something the harness does for you.
 - Prices in `src/pricing.json` are hand-maintained list prices, last verified 2026-09-06. They are
   estimates, not invoices. Your provider's bill is the real number.
 - Chains with many labs and high round caps get expensive quickly. `plan-unanimous` at three rounds

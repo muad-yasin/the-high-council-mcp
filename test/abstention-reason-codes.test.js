@@ -27,7 +27,7 @@ const run = critics => runChain({
 
 test('RESERVED_ABSTENTION_REASONS is a small closed set', () => {
   assert.deepEqual(RESERVED_ABSTENTION_REASONS, [
-    'SEAT_UNREACHABLE', 'PROVIDER_ERROR', 'REPLY_TRUNCATED', 'REPLY_UNPARSEABLE',
+    'SEAT_UNREACHABLE', 'PROVIDER_ERROR', 'REPLY_TRUNCATED', 'REPLY_UNPARSEABLE', 'REASONING_EXHAUSTED',
   ]);
 });
 
@@ -78,4 +78,43 @@ test('abstentionReasonCode: stop:"error" wins over a near-cap output, matching c
   const usage = { output: 7999, stop: 'error' };
   assert.equal(abstentionReasonCode(usage, 8000), 'PROVIDER_ERROR');
   assert.match(classifyUnreadable(usage, 8000), /error/i);
+});
+
+// 2026-09-23 seeded-defect paid run: deepseek/deepseek-v4.1-flash via OpenRouter stopped 6 times at
+// 4,224-4,226 output tokens, all of them reasoning, against a 36k cap - and all 3 bigger-cap (64k)
+// retries stopped at the same place. Fixtures are the real usage records of one first attempt and its
+// retry (relay/pilot/seeded-2026-09-23/runs/2026-09-23T02-35-53-867Z/panel-1-deepseek-v4.1-flash*.usage.json).
+const FIRST_ATTEMPT = { input: 9090, output: 4225, thinking: 4225, stop: 'length' };
+const BIGGER_CAP_RETRY = { input: 9090, output: 4225, thinking: 4225, stop: 'length' };
+
+test('REASONING_EXHAUSTED: all-reasoning, stopped far under the cap - the real first attempt and its 64k retry', () => {
+  assert.equal(abstentionReasonCode(FIRST_ATTEMPT, 36000), 'REASONING_EXHAUSTED');
+  assert.equal(abstentionReasonCode(BIGGER_CAP_RETRY, 64000), 'REASONING_EXHAUSTED');
+  assert.match(classifyUnreadable(FIRST_ATTEMPT, 36000), /^REASONING_EXHAUSTED: all 4225 tokens were reasoning/);
+  // Not this: reasoning that burned OUR cap is still a truncation the bigger-cap retry may fix...
+  assert.equal(abstentionReasonCode({ output: 36000, thinking: 36000, stop: 'length' }, 36000), 'REPLY_TRUNCATED');
+  // ...and so is an early stop that wrote some answer, or a stop with no reasoning at all.
+  assert.equal(abstentionReasonCode({ output: 4225, thinking: 3000, stop: 'length' }, 36000), 'REPLY_TRUNCATED');
+  assert.equal(abstentionReasonCode({ output: 4225, thinking: 0, stop: 'length' }, 36000), 'REPLY_TRUNCATED');
+});
+
+test('REASONING_EXHAUSTED on a panel seat: no bigger-cap retry is paid for, and the seat abstains, never consents', async () => {
+  const { setCache, setBudget } = await import('../src/chain.js');
+  const asked = [];
+  setBudget(null);
+  setCache({ get: label => {
+    asked.push(label);
+    return /^panel-\d+-ds/.test(label) ? { text: '', usage: FIRST_ATTEMPT, usd: 0, provider: 'openrouter', model: 'deepseek/deepseek-v4.1-flash' } : null;
+  } });
+  try {
+    const r = await runChain({ request: 'R', draft: 'REVISED MOCK DELIVERABLE\n\nBody.\n\nAssumptions: none.', log: () => {}, config: {
+      name: 'rx', signoff: 'unanimous', maxRounds: 1, criteria: ['It exists.'],
+      seats: { critics: [{ provider: 'mock', model: 'mock-critic-a', lab: 'ok' }, { provider: 'mock', model: 'm', lab: 'ds', maxTokens: 36000 }] },
+    } });
+    assert.ok(!asked.some(l => /-retry$/.test(l)), `no bigger-cap retry: ${asked.join(', ')}`);
+    const ds = r.signoff.find(s => s.provider === 'ds');
+    assert.equal(ds.signedOff, null);
+    assert.equal(ds.reason_code, 'REASONING_EXHAUSTED');
+    assert.equal(r.passed, false);
+  } finally { setCache(null); }
 });

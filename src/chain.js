@@ -337,6 +337,7 @@ export function parseJson(text) {
 export function classifyUnreadable(usage, maxTokens) {
   if (usage.stop === 'error') return 'provider returned an error mid-generation (stop: error) - not a truncation or a JSON-formatting problem';
   const cap = maxTokens ?? DEFAULT_MAX_TOKENS;
+  if (isReasoningExhausted(usage, cap)) return `REASONING_EXHAUSTED: all ${usage.output} tokens were reasoning, stopped far under the ${cap}-token cap - a provider-side reasoning ceiling, so no bigger-cap retry`;
   if (usage.output >= cap * 0.95 || usage.stop === 'length' || usage.stop === 'max_tokens') return 'hit the token cap, truncated';
   return 'malformed JSON - read the saved reply, it may still be an objection';
 }
@@ -357,11 +358,24 @@ export const RESERVED_ABSTENTION_REASONS = Object.freeze([
   'PROVIDER_ERROR',     // classifyUnreadable's stop:"error" branch - a reply came back but the provider aborted mid-generation
   'REPLY_TRUNCATED',    // classifyUnreadable's near-cap-output branch - the reply hit maxTokens before finishing
   'REPLY_UNPARSEABLE',  // classifyUnreadable's fallback branch - a complete reply that still isn't valid JSON
+  // Added 2026-09-23 (seeded-defect paid run): stopped at a length limit with every output token
+  // spent on reasoning, far below the seat's own cap - a provider-side reasoning ceiling, not our
+  // cap. deepseek-v4.1-flash via OpenRouter did this 6 times at 4,224-4,226 tokens against a 36k
+  // cap, and all 3 bigger-cap (64k) retries stopped at the same place, so the retry is skipped.
+  'REASONING_EXHAUSTED',
 ]);
+
+// "Well under the cap": a reply that ran out at half its budget or less did not hit OUR cap.
+const REASONING_CEILING_FRACTION = 0.5;
+function isReasoningExhausted(usage, cap) {
+  const cut = usage.stop === 'length' || usage.stop === 'max_tokens';
+  return cut && usage.thinking > 0 && usage.output > 0 && usage.thinking >= usage.output && usage.output <= cap * REASONING_CEILING_FRACTION;
+}
 
 export function abstentionReasonCode(usage, maxTokens) {
   if (usage.stop === 'error') return 'PROVIDER_ERROR';
   const cap = maxTokens ?? DEFAULT_MAX_TOKENS;
+  if (isReasoningExhausted(usage, cap)) return 'REASONING_EXHAUSTED';
   if (usage.output >= cap * 0.95 || usage.stop === 'length' || usage.stop === 'max_tokens') return 'REPLY_TRUNCATED';
   return 'REPLY_UNPARSEABLE';
 }
