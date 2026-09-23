@@ -72,6 +72,7 @@ const EXIT_RUN_LOCKED = 13;
 const EXIT_SCOPE_CHANGED = 14;
 const EXIT_ALREADY_FINISHED = 15;
 import { scanArtifacts } from './key-redaction.js';
+import { resetToolCallLog, renderToolsMd } from './tools.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -1278,8 +1279,12 @@ let policyChecks = null;
 // before checkSeats/dryRun so a policy violation is caught before either a missing-key check or
 // a price estimate - no provider is ever invoked either way, so ordering relative to those two
 // doesn't change what gets spent, only what gets reported first.
-if (!resumeMeta) {
-  const { policy, error: policyParseError } = loadPolicy(work);
+// Pre-release audit 2026-09-23 (GuardLayer #4): this used to be skipped on --resume, while the
+// chain itself is re-read on every sitting - so a seat added during a pause (e.g. a provider the
+// policy forbids) was called on resume. The policy is evaluated on EVERY sitting now; a resume
+// evaluates it against the run's own working directory.
+{
+  const { policy, error: policyParseError } = loadPolicy(resumeMeta?.cwd || work);
   if (policyParseError) {
     console.error(`\n${formatCouncilError('COUNCIL-E005', { path: POLICY_PATH(work), parseError: policyParseError })}`);
     process.exit(EXIT_FATAL);
@@ -1422,13 +1427,20 @@ if (contextArg) {
 // passed (see flag parsing above). Bug-audit fix, 2026-09-23 (Review/BugAudit_GuardLayer_2026-09-23.md
 // #3): it used to scan the task file alone, BEFORE --context was appended, and never the handed
 // draft (--draft / --from-run) - both reach every seat. It now scans everything a seat will read.
-if (piiGateMode !== null) {
+// Pre-release audit 2026-09-23 (GuardLayer #3): the mode came from argv only and was not stored,
+// so a resume (the pause hint, MCP resume) ran with no gate at all - while --context and --draft
+// are re-read, so text added during a pause went to every seat unscanned. The mode and allow-list
+// are saved in run.json on the first sitting and re-applied, with a fresh scan, on every sitting.
+// A flag given on resume wins over the saved one.
+const piiGateEff = piiGateMode !== null ? piiGateMode : (resumeMeta?.piiGate?.mode ?? null);
+const piiAllowEff = piiGateMode !== null || piiAllow ? piiAllowList : (resumeMeta?.piiGate?.allow ?? []);
+if (piiGateEff !== null) {
   const sources = [['the task file and --context documents', request], ['the handed draft (--draft / --from-run)', handedDraft]].filter(([, text]) => text);
   let blocked = false;
   for (const [where, text] of sources) {
-    const scanResult = scanForPii(text, { allow: piiAllowList });
-    const { block, messages } = applyPiiGate(scanResult, piiGateMode);
-    for (const m of messages) console.error(`  PII-GATE (${piiGateMode}): [${where}] ${m}`);
+    const scanResult = scanForPii(text, { allow: piiAllowEff });
+    const { block, messages } = applyPiiGate(scanResult, piiGateEff);
+    for (const m of messages) console.error(`  PII-GATE (${piiGateEff}): [${where}] ${m}`);
     if (block) {
       console.error(`\nPII-GATE: refusing to run - ${scanResult.findings.length} match(es) found in ${where} under --pii-gate hard-stop.`);
       blocked = true;
@@ -1494,7 +1506,7 @@ if (auditEnabled) {
 const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}) }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}) }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
@@ -1505,7 +1517,7 @@ if (!resumeMeta) {
   // submit_stage, resume_run without max_usd) keeps it instead of falling back to the old
   // cap - raised, the run stopped again at the old one; lowered, the next sitting went
   // back past it (audit finding 6).
-  resumeMeta = { ...resumeMeta, pid: process.pid, rootSpanId, ...(argv.includes('--max-usd') ? { maxUsd } : {}) };
+  resumeMeta = { ...resumeMeta, pid: process.pid, rootSpanId, ...(argv.includes('--max-usd') ? { maxUsd } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(policyChecks ? { policyChecks } : {}) };
   writeFileSync(join(runDir, 'run.json'), JSON.stringify(resumeMeta, null, 2));
 }
 
@@ -1779,6 +1791,8 @@ setProgressHook(event => {
 writeStateJson();
 
 log(resumeMeta ? `resume: stages already on disk replay for free` : '');
+// One run's tool calls, for TOOLS.md below (the log lives in tools.js's memory).
+resetToolCallLog();
 let result;
 try {
   result = await runChain({
@@ -1980,6 +1994,13 @@ if (result.lints?.length || result.claimWarnings?.length || result.toolRequestWa
 {
   const supersededUsd = supersededSpendOf(runDir);
   if (supersededUsd > 0) result.totals = { ...result.totals, usd: (result.totals.usd || 0) + supersededUsd, supersededUsd };
+}
+// TOOLS.md: every tool call this sitting made, after redaction (pre-release audit 2026-09-23,
+// FenceToolsRedaction #7 - the log was collected and never written). Appended, so a resumed run
+// keeps every sitting's calls.
+{
+  const toolsMd = renderToolsMd();
+  if (toolsMd) appendFileSync(join(runDir, 'TOOLS.md'), `${toolsMd}\n`);
 }
 writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
   runId, chain: config.name, task: taskPathEff, result, config,

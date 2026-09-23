@@ -139,6 +139,19 @@ const callLog = [];
 export function toolCallLog() { return callLog.slice(); }
 export function resetToolCallLog() { callLog.length = 0; }
 
+// TOOLS.md, written into the run folder by the CLI after a run that called any tool (pre-release
+// audit 2026-09-23, FenceToolsRedaction #7: the log was collected and never written anywhere).
+// Arguments and counts only - never the answer text, which is already in the stage files.
+export function renderToolsMd(log = callLog) {
+  if (!log.length) return null;
+  const row = c => `| ${c.at} | ${c.tool} | \`${JSON.stringify(c.args ?? {}).replace(/\|/g, '\\|').replace(/`/g, "'")}\` | ${c.ok ? 'ok' : `failed: ${String(c.error || '').replace(/\|/g, '\\|').slice(0, 200)}`} | ${c.bytes} | ${c.redacted || 0} | ${c.deniedPaths || 0} | ${c.gitIgnoredSkipped || 0} |`;
+  return ['# Tool calls', '',
+    'Every tool call this run made, and the size of the answer after redaction and capping (what a seat was actually shown).', '',
+    '| at | tool | args | result | bytes | secrets redacted | denied paths | gitignored skipped |',
+    '|---|---|---|---|---|---|---|---|',
+    ...log.map(row), ''].join('\n');
+}
+
 // Bug-audit fix, 2026-09-16: this check used to be purely lexical (string comparison after
 // resolve()) and its own comment claimed that also rejected symlink escapes - false. A symlink
 // physically sitting inside the workspace (e.g. workspace/link -> /etc) resolves lexically to
@@ -218,7 +231,12 @@ function check_versions(_args, { cwd }) {
   const root = resolve(cwd);
   const pkgPath = sandboxPath(root, 'package.json');
   if (!existsSync(pkgPath)) return { ok: false, error: 'no package.json in workspace' };
-  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+  // Redacted like every other tool result (pre-release audit 2026-09-23, FenceToolsRedaction #5):
+  // a dependency spec can carry a credential - `git+https://x-access-token:<token>@github.com/...`
+  // - and this result goes into every later prompt through the ground-truth block.
+  const { text: safeText, redacted } = redactSecrets(readFileSync(pkgPath, 'utf8'));
+  let pkg;
+  try { pkg = JSON.parse(safeText); } catch { return { ok: false, error: 'package.json is not valid JSON' }; }
   return {
     ok: true,
     node: process.version,
@@ -226,6 +244,7 @@ function check_versions(_args, { cwd }) {
     version: pkg.version,
     dependencies: pkg.dependencies || {},
     devDependencies: pkg.devDependencies || {},
+    ...(redacted ? { redacted } : {}),
   };
 }
 
@@ -265,7 +284,10 @@ function grep_repo({ pattern, file } = {}, { cwd }) {
     // 2026-09-20: refuse denied paths before reading them, not after. A file whose name
     // says "secret" is not searched at all, so its contents never exist in this process.
     const rel = relative(root, path);
-    if (isDeniedPath(rel)) { denied.push(rel); return; }
+    // The real path too, as read_file's pathRefusal does (pre-release audit 2026-09-23,
+    // FenceToolsRedaction #6): with cwd inside `secrets/`, the relative path alone was clean and
+    // grep_repo returned what read_file refuses.
+    if (isDeniedPath(rel) || isDeniedPath(path)) { denied.push(rel); return; }
     candidates.push({ path, rel });
   };
   const candidates = [];
@@ -364,7 +386,10 @@ function record(out) {
     args: out.args,
     ok: out.ok !== false,
     ...(out.error ? { error: out.error } : {}),
-    bytes: Buffer.byteLength(JSON.stringify(out.text ?? out.matches ?? '') || '', 'utf8'),
+    // The whole answer a seat would see, not only `text`/`matches`: run_tests and check_versions
+    // answer in other fields and were logged as 2 bytes (pre-release audit 2026-09-23,
+    // FenceToolsRedaction #7).
+    bytes: Buffer.byteLength(JSON.stringify((({ tool: _t, args: _a, ...answer }) => answer)(out)), 'utf8'),
     ...(out.redacted ? { redacted: out.redacted } : {}),
     ...(out.deniedPaths ? { deniedPaths: out.deniedPaths } : {}),
     ...(out.gitIgnoredSkipped ? { gitIgnoredSkipped: out.gitIgnoredSkipped } : {}),

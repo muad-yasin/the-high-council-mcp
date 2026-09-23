@@ -16,6 +16,19 @@
   depth), router ids with a suffix (`openrouter/auto:nitro`), and server-side presets
   (`@preset/...`).
 
+- **Descending chains keep their security gate.** It reviews the final stack once, and its
+  result (exit 7/8, `report.json`) now reaches the CLI. The panel, dispute and outage records are
+  forwarded too.
+- **The PII gate and `policy.json` apply on every resume.** `--pii-gate` and `--allow-pii` are
+  saved in `run.json` and re-applied with a fresh scan on each sitting (context and draft are
+  re-read). The policy is evaluated on every sitting, not only the first.
+- **The security gate never passes a "pass"** whose findings list was malformed or dropped a
+  finding that might have been blocking.
+- **Tools.** `check_versions` redacts credentials inside dependency specs. `grep_repo` checks the
+  denylist against the real path, as `read_file` does. The tool-call log is written to the run
+  folder as `TOOLS.md`, with the real size of each answer.
+- **The builder sees the skeleton** when the alternatives board is on, since it is told to build
+  on the architecture the skeleton chose.
 ## Unreleased - pre-release audit fixes, batch 1
 
 Fixes from the 2026-09-23 pre-release audits (reviser prompts, alternatives stage, canary probe).

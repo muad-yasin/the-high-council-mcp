@@ -163,7 +163,12 @@ export function parseSecurityReview(text, { usage, maxTokens, parseJson, abstent
 export function gateOf({ seat_verdict, findings, dropped_unsafe = 0, findings_malformed = false }) {
   if (findings.some(f => BLOCKING_SEVERITIES.includes(f.severity))) return 'blocked';
   if (seat_verdict !== 'pass' && seat_verdict !== 'fail') return 'not_judged';
-  if (seat_verdict === 'fail' && (findings.length === 0 || dropped_unsafe > 0 || findings_malformed)) return 'not_judged';
+  if (seat_verdict === 'fail' && findings.length === 0) return 'not_judged';
+  // Pre-release audit 2026-09-23 (GuardLayer #6): a "pass" whose findings list was malformed, or
+  // that dropped a finding which might have been blocking, used to pass - contradicting this
+  // function's own rule that the gate is judged from the findings, never from the seat's verdict.
+  // Either way, whatever verdict the seat stated.
+  if (dropped_unsafe > 0 || findings_malformed) return 'not_judged';
   return 'pass';
 }
 

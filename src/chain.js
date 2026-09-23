@@ -1146,6 +1146,10 @@ export async function runDescendingChain({ request, config, log = console.log, o
         maxRounds: 0,
         seats: { ...config.seats, finalist: undefined },
         handoff: false,
+        // The security gate reviews the FINAL stack, once. Pre-release audit 2026-09-23
+        // (GuardLayer #1): both sub-runs used to run it under the same `security-review` label,
+        // so the final review was replayed from the plan-stage one and never read the final stack.
+        security_review: undefined,
       };
       planResult = await runChain({ request, config: planConfig, log, onStage: subOnStage });
       content = planResult.deliverable;
@@ -1233,6 +1237,11 @@ export async function runDescendingChain({ request, config, log = console.log, o
     allocator: finalResult.allocator,
     disputes: finalResult.disputes,
     history: finalResult.history,
+    // Pre-release audit 2026-09-23 (GuardLayer #1, and PanelSignoff's backlog): these were dropped
+    // here, so a descending chain's security gate never reached the CLI (no exit 7/8, no gate in
+    // report.json) and the panel/dispute record was lost. Forwarded only when the final run set them.
+    ...Object.fromEntries(['security_review', 'panelVerdicts', 'dispute', 'regressions', 'noHeardReviewer']
+      .filter(k => finalResult[k] !== undefined).map(k => [k, finalResult[k]])),
     totals: summarise(stages),
   };
 }
@@ -1950,7 +1959,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     log('\nRound 1: build');
     draft = record(await invoke(config.seats.builder, {
       system: R.builderSystem(open, promptOpts),
-      user: R.builderUser({ request, criteria, proposals, board, alternatives: alternativesBoard }),
+      user: R.builderUser({ request, criteria, proposals, board, alternatives: alternativesBoard, skeleton }),
       log, label: 'build',
     })).text;
   }

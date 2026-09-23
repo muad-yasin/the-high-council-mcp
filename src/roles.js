@@ -136,8 +136,12 @@ produce the shipping version.
 - Do not add material. Do not expand scope. Length should go down, not up.
 - Output the deliverable only.`;
 
-export function builderUser({ request, criteria, proposals = [], board = null, alternatives = null }) {
-  return `# Request\n\n${request}\n\n# Acceptance criteria (the definition of done)\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}${alternativesBuilderSection(alternatives)}${proposalsSection(proposals, board)}`;
+export function builderUser({ request, criteria, proposals = [], board = null, alternatives = null, skeleton = null }) {
+  // The skeleton is shown when the alternatives board is: that section tells the builder to build
+  // on the alternative the skeleton chose, which it could not do without seeing it (pre-release
+  // audit 2026-09-23, RolesPrompts #4). Without alternatives the prompt is unchanged.
+  const skel = alternatives && skeleton ? `\n\n# Skeleton of the plan (the architecture it chose)\n\n${skeleton}` : '';
+  return `# Request\n\n${request}\n\n# Acceptance criteria (the definition of done)\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}${alternativesBuilderSection(alternatives)}${skel}${proposalsSection(proposals, board)}`;
 }
 
 export function criticUser({ request, criteria, draft, prior = [], answeredQuestion = null }) {
