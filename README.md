@@ -298,6 +298,14 @@ with a higher ceiling - completed stages replay from disk and cost nothing the s
 node src/cli.js --resume runs/<id> --max-usd 10
 ```
 
+A stage replays only if it would be asked the same thing again: the task text, the chain config
+and the stage's own prompt must all match what it answered. If one changed (you edited the chain,
+or an earlier stage came out differently this time), the stage runs again and its old files move
+into `superseded/` inside the run folder. What the old answer cost still counts toward the ceiling,
+`--spend` and `report.json`'s `totals.usd` (shown separately as `totals.supersededUsd`), so a resume
+cannot spend past the cap. An answer you wrote for an external stage is never re-used against a
+changed prompt: it is set aside the same way and the run asks you again.
+
 The cap governs one run. To see what you have spent across all of them:
 
 ```bash

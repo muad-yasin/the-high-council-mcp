@@ -14,6 +14,7 @@ import { parsePatches, applyPatches, changedSince } from './patch-revise.js';
 import { injectCanary, shouldSampleCanary, runIdUnit, pickCanaryTarget, CANARY_NOTE } from './canary.js';
 import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
 import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
+import { promptHashOf } from './cache-integrity.js';
 export { DeniedModel };
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
@@ -613,7 +614,11 @@ export function unionAmbiguities(lists) {
 // resumes from disk once <label>.md exists. Thrown, not returned, so the
 // chain's control flow stays linear.
 export class ExternalPause extends Error {
-  constructor(label, system, user) { super(`waiting for external stage ${label}`); this.controlFlow = true; this.label = label; this.system = system; this.user = user; }
+  constructor(label, system, user) {
+    super(`waiting for external stage ${label}`); this.controlFlow = true; this.label = label; this.system = system; this.user = user;
+    // The prompt the external answer will be checked against on resume (pre-release audit 5 #1/#4).
+    this.promptHash = promptHashOf(system, user);
+  }
 }
 
 // v4 item 2: a run's preflight stage found at least one blocking objection to the task
@@ -790,6 +795,12 @@ export function setCache(c) { cache = c || { get: () => null }; }
 let budget = { cap: null, spent: 0, reserved: 0 };
 export function setBudget(cap) { budget = { cap: cap ?? null, spent: 0, reserved: 0 }; }
 export function budgetState() { return { ...budget, remaining: budget.cap === null ? null : Math.max(0, budget.cap - budget.spent - budget.reserved) }; }
+// Pre-release audit, money path #2 (Review/PreRelease_Audit_moneypath_2026-09-23.md): spend from an
+// earlier sitting whose cached stage is no longer replayed - it went stale and was re-run - still
+// happened. The CLI counts it in here (on resume, from the archived `<label>.stale-*.usage.json`
+// files) so the cap sees it; otherwise every stale-cache resume got a fresh ceiling on top of what
+// was already spent, and "resuming cannot lap the cap" was false.
+export function countEarlierSpend(usd) { if (Number.isFinite(usd) && usd > 0) budget.spent += usd; }
 
 // v5 item 3, touch point 1: an optional module-level progress callback, same setter style as
 // setBudget/setCache. Unset (the default, and every caller other than the CLI, including every
@@ -807,11 +818,36 @@ async function invoke(seat, { system, user, log, label }) {
   if (denied.length) throw new DeniedModel([{ path: label, reasons: denied }]);
   // Resume: a stage that already ran in this run folder is replayed from
   // disk, so a paused-and-resumed run never pays twice.
-  const hit = cache.get(label);
+  //
+  // Pre-release audit 5 #1 (HIGH) and money path #2: only when it answered the SAME prompt. A cached
+  // stage records the hash of the prompt it was asked (`promptHash`); a different prompt means an
+  // earlier stage came out differently this sitting (a seat that failed before and answered now, an
+  // operator's new revision), and replaying the old answer would put - for example - a round-2
+  // sign-off of the old draft onto new text no critic read. That is a miss: the stage re-runs, and
+  // what the old answer cost still counts toward the cap. `staleInputs` is the CLI's own
+  // task/config fingerprint check (cache-integrity.js), decided here for the same two reasons.
+  // An external stage is never re-run silently: its old answer is set aside by the cache and the
+  // run pauses to ask the operator again with the current prompt. A cached stage from before
+  // prompt hashes existed has none; it replays as it always did, with a warning.
+  const promptHash = promptHashOf(system, user);
+  let hit = cache.get(label);
+  if (hit) {
+    const why = hit.staleInputs ? 'the task text or chain config changed since it was cached'
+      : hit.promptHash && hit.promptHash !== promptHash ? 'it answered a different prompt than the one this stage is asked now'
+      : null;
+    if (why) {
+      budget.spent += hit.usd || 0;
+      cache.invalidate?.(label, why);
+      log(`  CACHE STALENESS WARNING: stage "${label}" - ${why}; ${seat.provider === 'external' ? 'the old answer was set aside and the operator is asked again' : 're-running it'}${hit.usd ? ` (the ${formatUsd(hit.usd)} the old answer cost still counts toward the cap)` : ''}.`);
+      hit = null;
+    } else if (!hit.promptHash) {
+      log(`  CACHE: stage "${label}" was cached before prompt hashes were recorded - replayed without checking it answered the current prompt.`);
+    }
+  }
   if (hit) {
     budget.spent += hit.usd || 0;
     log(`  ${label}: ${hit.provider || seat.provider}/${hit.model || seat.model} - from disk (${hit.usage?.input ?? 0} in, ${hit.usage?.output ?? 0} out, ${formatUsd(hit.usd || 0)} already spent)`);
-    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage: hit.usage || { input: 0, output: 0 }, usd: hit.usd || 0, priced: true, ms: 0, text: hit.text, cached: true };
+    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage: hit.usage || { input: 0, output: 0 }, usd: hit.usd || 0, priced: true, ms: 0, text: hit.text, cached: true, promptHash: hit.promptHash };
   }
   if (seat.provider === 'external') throw new ExternalPause(label, system, user);
 
@@ -895,6 +931,7 @@ async function invoke(seat, { system, user, log, label }) {
       priced: cost.priced,
       ms: Date.now() - started,
       text: res.text,
+      promptHash,
     };
     budget.spent += cost.usd; // `wasted` was already added when the first attempt was discarded
     const think = res.usage.thinking ? ` (${res.usage.thinking} thinking)` : '';

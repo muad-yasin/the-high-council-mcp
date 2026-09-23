@@ -36,3 +36,15 @@ export function withStalenessCheck(baseGet, currentFingerprint, onStale = () => 
     return cached;
   };
 }
+
+// Pre-release audit 5 #1 (Review/PreRelease_Audit_ResumeCache_2026-09-23.md, HIGH): the stage cache
+// was looked up by label alone. A seat that failed in one sitting left no cache file, ran live in the
+// next and changed what later stages were asked - while those later stages replayed from disk
+// against the old prompt. By a third sitting a cached round-2 sign-off on the old draft was replayed
+// onto new text no critic had read, and the run finished passed=true. The fingerprint above cannot
+// see that (task and config never changed), so every cached stage now also records a hash of the
+// exact prompt it answered, and invoke() in chain.js treats a different prompt as a cache miss.
+/** A short hash of the exact prompt (system + user) a stage was asked. */
+export function promptHashOf(system, user) {
+  return createHash('sha256').update(JSON.stringify([system ?? '', user ?? ''])).digest('hex').slice(0, 16);
+}

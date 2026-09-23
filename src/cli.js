@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked, renderDisputeReviewBoard } from './chain.js';
+import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked, renderDisputeReviewBoard } from './chain.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
@@ -24,7 +24,8 @@ import { fenceFile, scanTaskForSecrets, FENCE_HEADER, FENCE_MAX_BYTES } from './
 import { scanForPii, applyPiiGate } from './pii-gate.js';
 import { stageKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
-import { fingerprintInputs, withStalenessCheck } from './cache-integrity.js';
+import { fingerprintInputs } from './cache-integrity.js';
+import { archiveSuperseded, supersededSpendOf } from './superseded.js';
 import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { schemaVersionWarning } from './schema-version.js';
@@ -1448,31 +1449,37 @@ if (resumeMeta) {
 }
 // Stage cache: <label>.md holds the text, <label>.usage.json what it cost.
 // Both are written as each stage completes, so a resume replays them.
+const SUPERSEDED_HINT = (label, n) => n ? `superseded/${label}.${n}.*` : '(no files)';
 const cacheFingerprint = fingerprintInputs(rawTaskTextForCacheFingerprint, config);
+// Pre-release audits (money path #2, resume-cache #1/#4): the getter no longer decides staleness by
+// returning null - that threw the old answer's cost away. It returns what is on disk, flagged
+// `staleInputs` when the task/config fingerprint differs, and invoke() in chain.js decides (it also
+// compares the stage's prompt hash, which only it can compute). A stale stage is moved into
+// superseded/ through `invalidate`, never overwritten. An external answer gets its prompt hash and
+// fingerprint from `<label>.prompt.json`, written when the run paused to ask for it, since the
+// operator (or submit_stage) writes only the answer.
 setCache({
-  get: withStalenessCheck(
-    label => {
-      const t = join(runDir, `${label}.md`);
-      if (!existsSync(t)) return null;
-      const up = join(runDir, `${label}.usage.json`);
-      let u = {};
-      if (existsSync(up)) {
-        // A torn or corrupt usage file used to throw here on every resume, until someone deleted it
-        // by hand (bug audit 2026-09-23, CLI #8). It is a cache miss instead: the stage re-runs.
-        try { u = JSON.parse(readFileSync(up, 'utf8')); } catch {
-          console.log(`  CACHE: ${label}.usage.json is unreadable - treating "${label}" as not yet run.`);
-          appendFileSync(join(runDir, 'WARNINGS.md'), `- cache_unreadable: ${label}.usage.json could not be parsed; the stage was re-run\n`);
-          return null;
-        }
+  get: label => {
+    const t = join(runDir, `${label}.md`);
+    if (!existsSync(t)) return null;
+    let u = {};
+    for (const f of [`${label}.prompt.json`, `${label}.usage.json`]) {
+      if (!existsSync(join(runDir, f))) continue;
+      // A torn or corrupt usage file used to throw here on every resume, until someone deleted it
+      // by hand (bug audit 2026-09-23, CLI #8). It is a cache miss instead: the stage re-runs.
+      try { u = { ...u, ...JSON.parse(readFileSync(join(runDir, f), 'utf8')) }; } catch {
+        console.log(`  CACHE: ${f} is unreadable - treating "${label}" as not yet run.`);
+        appendFileSync(join(runDir, 'WARNINGS.md'), `- cache_unreadable: ${f} could not be parsed; the stage was re-run\n`);
+        return null;
       }
-      return { text: readFileSync(t, 'utf8'), ...u };
-    },
-    cacheFingerprint,
-    label => {
-      console.log(`  CACHE STALENESS WARNING: stage "${label}" was cached against different task/chain-config inputs than are now in force; re-running it.`);
-      appendFileSync(join(runDir, 'WARNINGS.md'), `- cache_stale: stage "${label}" invalidated - task text or chain config changed since it was cached\n`);
-    },
-  ),
+    }
+    const staleInputs = !!u.inputsFingerprint && u.inputsFingerprint !== cacheFingerprint;
+    return { text: readFileSync(t, 'utf8'), ...u, staleInputs };
+  },
+  invalidate: (label, why) => {
+    const n = archiveSuperseded(runDir, label);
+    appendFileSync(join(runDir, 'WARNINGS.md'), `- cache_stale: stage "${label}" invalidated - ${why}; the old files are kept as ${SUPERSEDED_HINT(label, n)}\n`);
+  },
 });
 // A resumed run inherits the ceiling it was started under unless this
 // invocation names a different one - otherwise resuming would silently drop
@@ -1481,6 +1488,9 @@ const maxUsdEff = argv.includes('--max-usd') ? maxUsd
   : (resumeMeta && 'maxUsd' in resumeMeta) ? resumeMeta.maxUsd
   : maxUsd;
 setBudget(maxUsdEff);
+// Money path #2: what earlier sittings spent on stages that were later superseded still counts.
+const earlierSupersededUsd = supersededSpendOf(runDir);
+countEarlierSpend(earlierSupersededUsd);
 
 // A previous sitting may have stopped this run at the ceiling. Clear that
 // marker now that we are past it, so a run that goes on to finish is not
@@ -1498,6 +1508,7 @@ const log = (...parts) => {
 
 log(`council run ${runId}${resumeMeta ? ' (resumed)' : ''}`);
 log(`chain: ${config.name} (${config.maxRounds} round cap)`);
+if (earlierSupersededUsd > 0) log(`spent earlier on superseded stages: ${formatUsd(earlierSupersededUsd)} (counted toward the cap; see superseded/)`);
 log(`cap:   ${maxUsdEff === null ? 'none - this run has no spend ceiling' : `${formatUsd(maxUsdEff)} per run (--max-usd)`}`);
 log(`task:  ${taskPathEff}`);
 
@@ -1722,7 +1733,7 @@ try {
       // marks a stage done, so a crash between the two leaves a stage that re-runs rather than a
       // text trusted with no record of its cost, and a crash mid-write never leaves a torn file
       // for a resume to trip over (bug audit 2026-09-23, CLI #8).
-      writeFileAtomic(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint }));
+      writeFileAtomic(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint, promptHash: s.promptHash }));
       writeFileAtomic(join(runDir, `${s.label}.md`), s.text);
       if (auditWriter) auditWriter.recordStage(s);
       // v5 §1 candidate 14: one JSONL line per stage, alongside the existing markdown/usage
@@ -1788,6 +1799,8 @@ started.
   }
   if (err instanceof ExternalPause) {
     const need = join(runDir, `NEEDS-${err.label}.md`);
+    // The prompt this answer will be held to on resume (resume-cache audit #1/#4).
+    writeFileAtomic(join(runDir, `${err.label}.prompt.json`), JSON.stringify({ provider: 'external', promptHash: err.promptHash, inputsFingerprint: cacheFingerprint }));
     writeFileSync(need, withIntegrityFooter(`# External stage: ${err.label}\n\nWrite the reply to \`${join(runDir, `${err.label}.md`)}\` and run:\n\n    node src/cli.js --resume runs/${runId}\n\n## System prompt\n\n${err.system}\n\n## User prompt\n\n${err.user}`));
     log(`\nPAUSED: stage "${err.label}" is an external seat.`);
     log(`  prompt:  ${need}`);
@@ -1877,6 +1890,12 @@ if (result.lints?.length || result.claimWarnings?.length || result.toolRequestWa
   // v7.x item 3: seat-requested tool calls that exceeded the per-stage cap, or named a
   // disallowed tool, same WARNINGS.md the lint/claim lines above already append to.
   appendFileSync(join(runDir, 'WARNINGS.md'), (result.toolRequestWarnings || []).map(w => `- tool_request: ${w}\n`).join(''));
+}
+// Money path #2: the report's total includes what superseded stages cost (they were paid for, in
+// this sitting or an earlier one), shown separately as totals.supersededUsd.
+{
+  const supersededUsd = supersededSpendOf(runDir);
+  if (supersededUsd > 0) result.totals = { ...result.totals, usd: (result.totals.usd || 0) + supersededUsd, supersededUsd };
 }
 writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
   runId, chain: config.name, task: taskPathEff, result, config,

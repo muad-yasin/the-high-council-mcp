@@ -16,6 +16,7 @@ import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseSections, flatten, parseLedger, words } from '../ui/parse.js';
 import { spendReport, costToday } from '../spend.js';
+import { supersededSpendOf } from '../superseded.js';
 import { stageKindOf, buildStageContract, renderStagePromptBundle } from '../stage-contract.js';
 import { verifyIntegrityFooter } from '../integrity.js';
 import { generateResumeBrief } from '../resume-brief.js';
@@ -58,7 +59,9 @@ function budgetOf(dir, report) {
   if (spent === undefined || spent === null) {
     spent = !existsSync(dir) ? 0 : readdirSync(dir)
       .filter(f => f.endsWith('.usage.json'))
-      .reduce((sum, f) => sum + (readJson(join(dir, f))?.usd ?? 0), 0);
+      .reduce((sum, f) => sum + (readJson(join(dir, f))?.usd ?? 0), 0)
+      // Money path #2: stages a resume re-ran keep their first payment in superseded/.
+      + (existsSync(dir) ? supersededSpendOf(dir) : 0);
   }
   const cap = report?.maxUsd ?? stopped?.capUsd ?? readJson(join(dir, 'run.json'))?.maxUsd ?? null;
   return {

@@ -25,13 +25,20 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { supersededSpendOf, supersededStagesOf } from './superseded.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 
 // Run ids are ISO timestamps with : and . replaced, e.g.
 // 2026-09-11T10-06-06-899Z. Anything else in runs/ is not ours; skip it.
+// Pre-release audit, metrics #3 (Review/PreRelease_Audit_metrics_2026-09-23.md): the whole id is
+// matched now. `new Date()` alone accepted "2026-09-23", "old-2026-09-23" and "2026", so a renamed or
+// copied run folder was counted twice by --spend, --stats and --metrics.
+const RUN_ID = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/;
 export function runIdToDate(runId) {
-  const d = new Date(runId.replace(/T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, 'T$1:$2:$3.$4Z'));
+  const m = RUN_ID.exec(String(runId));
+  if (!m) return null;
+  const d = new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -71,6 +78,8 @@ function costOfRun(dir) {
   // A capped --rematch/--replay has no stage cache, so no usage files - its STOPPED-budget.json
   // carries what the sitting spent. A normal stopped run has usage files, which win.
   if (!stages) usd = readJson(join(dir, 'STOPPED-budget.json'))?.spentUsd ?? 0;
+  // Money path #2: stages a resume found stale and re-ran keep their first payment in superseded/.
+  usd += supersededSpendOf(dir);
   return { usd, chain: readJson(join(dir, 'run.json'))?.chain ?? null, complete: false, stages };
 }
 
@@ -84,7 +93,7 @@ function costOfRun(dir) {
 function stagesOfRun(dir) {
   const report = readJson(join(dir, 'report.json'));
   if (Array.isArray(report?.stages)) {
-    return report.stages.map(s => ({ label: s.label, provider: s.provider ?? null, model: s.model ?? null, usd: s.usd ?? 0 }));
+    return [...report.stages.map(s => ({ label: s.label, provider: s.provider ?? null, model: s.model ?? null, usd: s.usd ?? 0 })), ...supersededStagesOf(dir)];
   }
   const stages = [];
   for (const f of readdirSync(dir)) {
@@ -93,7 +102,7 @@ function stagesOfRun(dir) {
     if (!u) continue;
     stages.push({ label: f.replace(/\.usage\.json$/, ''), provider: u.provider ?? null, model: u.model ?? null, usd: u.usd ?? 0 });
   }
-  return stages;
+  return [...stages, ...supersededStagesOf(dir)];
 }
 
 // Aggregate per-model spend across a list of run directories - the "per-call granularity"
