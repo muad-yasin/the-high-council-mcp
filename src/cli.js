@@ -402,8 +402,8 @@ if (argv[0] === 'init') {
   }), null, 2));
 
   console.log(`\nWrote ${initRunDir} - a real run folder (report.json, deliverable.md) from the canned demo task, $0, no network call.`);
-  console.log(`\nNext, with a real key set: node src/cli.js --chain my-first-chain --task ${starterTaskPath.replace(work + '/', '')} --dry-run`);
-  console.log(`Then, for real: node src/cli.js --chain my-first-chain --task ${starterTaskPath.replace(work + '/', '')}`);
+  console.log(`\nNext, with a real key set: council --chain my-first-chain --task ${starterTaskPath.replace(work + '/', '')} --dry-run`);
+  console.log(`Then, for real: council --chain my-first-chain --task ${starterTaskPath.replace(work + '/', '')}`);
   if (!anyKeySet) console.log(`\nNo API keys are set yet - see README.md#setup, or "council doctor" any time to re-check.`);
   process.exit(0);
 }
@@ -704,7 +704,7 @@ if (rematchArg) {
       log: line => console.log(line),
     });
   } catch (err) {
-    if (err instanceof BudgetExceeded) writeSideRunBudgetStop(rematchRunDir, err, '--rematch');
+    if (err instanceof BudgetExceeded) writeSideRunBudgetStop(rematchRunDir, err, '--rematch'); // exits 4, like a normal run
     console.error(`--rematch: the reshuffled run did not complete (${err.message}). No diff written - a rematch that never reached a verdict has nothing to diff.`);
     process.exit(1);
   }
@@ -785,7 +785,7 @@ if (argv.includes('--replay')) {
     console.log(`\nWrote ${replayDir} (report.json, deliverable.md, replay-diff.json).`);
     console.log(`signoff_match: ${diff.signoff_match}  verdict_category_changed: ${diff.verdict_category_changed}`);
   } catch (err) {
-    if (err instanceof BudgetExceeded) writeSideRunBudgetStop(replayDirFor(runDir, date), err, '--replay');
+    if (err instanceof BudgetExceeded) writeSideRunBudgetStop(replayDirFor(runDir, date), err, '--replay'); // exits 4, like a normal run
     console.error(`--replay: ${err.message}`);
     process.exit(1);
   }
@@ -1913,11 +1913,11 @@ To continue: raise that seat's \`maxTokens\` in the chain (or, for an external s
     const need = join(runDir, `NEEDS-${err.label}.md`);
     // The prompt this answer will be held to on resume (resume-cache audit #1/#4).
     writeFileAtomic(join(runDir, `${err.label}.prompt.json`), JSON.stringify({ provider: 'external', promptHash: err.promptHash, inputsFingerprint: cacheFingerprint }));
-    writeFileSync(need, withIntegrityFooter(`# External stage: ${err.label}\n\nWrite the reply to \`${join(runDir, `${err.label}.md`)}\` and run:\n\n    node src/cli.js --resume runs/${runId}\n\n## System prompt\n\n${err.system}\n\n## User prompt\n\n${err.user}`));
+    writeFileSync(need, withIntegrityFooter(`# External stage: ${err.label}\n\nWrite the reply to \`${join(runDir, `${err.label}.md`)}\` and run:\n\n    council --resume runs/${runId}\n\n## System prompt\n\n${err.system}\n\n## User prompt\n\n${err.user}`));
     log(`\nPAUSED: stage "${err.label}" is an external seat.`);
     log(`  prompt:  ${need}`);
     log(`  answer:  write ${join(runDir, `${err.label}.md`)}`);
-    log(`  resume:  node src/cli.js --resume runs/${runId}`);
+    log(`  resume:  council --resume runs/${runId}`);
     process.exit(3);
   }
   if (err instanceof BudgetExceeded) {
@@ -1953,7 +1953,7 @@ enforced against the worst case on purpose.
 
 Every completed stage is on disk and replays for free, so resuming only pays for what is left:
 
-    node src/cli.js --resume runs/${runId} --max-usd ${(Math.ceil((err.cap + err.projected) * 100) / 100).toFixed(2)}
+    council --resume runs/${runId} --max-usd ${(Math.ceil((err.cap + err.projected) * 100) / 100).toFixed(2)}
 
 Or \`--max-usd none\` to continue with no ceiling.
 `);
@@ -1961,7 +1961,7 @@ Or \`--max-usd none\` to continue with no ceiling.
     log(`  spent:   ${formatUsd(err.spent)} of ${formatUsd(err.cap)} ceiling`);
     log(`  stage:   ${err.seat} could cost up to ${formatUsd(err.projected)}`);
     log(`  detail:  ${join(runDir, 'STOPPED-budget.md')}`);
-    log(`  resume:  node src/cli.js --resume runs/${runId} --max-usd <higher>`);
+    log(`  resume:  council --resume runs/${runId} --max-usd <higher>`);
     process.exit(4);
   }
   // A denied model is a lint failure (exit 1), found at run time instead of by chain-lint.
@@ -1973,7 +1973,7 @@ ${err?.message || String(err)}
 No report.json or deliverable.md was written, so this run does not read as finished. Completed
 stages are on disk and replay for free: fix the cause, then
 
-    node src/cli.js --resume runs/${runId}
+    council --resume runs/${runId}
 `);
   appendFileSync(logPath, `${err?.stack || String(err)}\n`);
   log(`\nSTOPPED: ${denied ? 'a denied model' : 'the run failed'} - ${err?.message || String(err)}`);

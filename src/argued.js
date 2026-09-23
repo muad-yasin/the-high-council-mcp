@@ -6,13 +6,14 @@
 // 2026-09-23.md, item 7) files it as MIGHT-WANT and says plainly that its usefulness to beginners is
 // an inference, not a measurement - so this module makes no quality claim, only a traceability one.
 //
-// The stage runs once, after the handoff, on the handoff seat (seats.argued || seats.handoff ||
-// seats.builder). In the plan-7 chains that seat is an external Claude Code session, so it adds no
+// The stage runs once, after the handoff, on the handoff seat (seats.handoff, else seats.builder). In the plan-7 chains that seat is an external Claude Code session, so it adds no
 // API call; a billed seat goes through invoke() and --dry-run prices an `argued` row.
 //
 // The writer never sees raw run prose alone. It gets a FACT PACK built here from the run's own
-// structured record - ids, edges, stances, counts - with short excerpts, and every fact the pack
-// carries has an id. The prompt requires a cited id on every claim; checkArguedRefs() then flags any
+// structured record - ids, edges, stances, counts - with short excerpts. The only ids it offers
+// for citation are the ones a reader can find in BOARD.md and the plan: proposal ids (MOCKA-1),
+// alternative ids (MOCKA-ALT), lab names and the plan's DECISIONS section. Internal post/reply
+// numbering never reaches the writer. The prompt requires a cited id on every claim; checkArguedRefs() then flags any
 // id or lab the section names that the pack does not contain. A flag is recorded (WARNINGS.md and
 // report.json), never silently dropped and never silently fixed: the text is the writer's, the
 // check is the harness's.
@@ -21,7 +22,7 @@ import { realDebate, isCanary } from './canary.js';
 export const ARGUED_FILE = 'ARGUED.md';
 export const ARGUED_LABEL = 'argued';
 const EXCERPT = 600;
-const TOP_OBJECTIONS = 5;
+const TOP_OBJECTED = 5;
 
 const clip = (s, n = EXCERPT) => {
   const t = String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -55,8 +56,8 @@ const signoffWord = s => s.passed ? 'passed (declined to give a verdict)'
 // scoreProposals(proposals, plan).rows (the plan's own accepted/cut/withdrawn record per proposal).
 export function buildArguedFacts({ proposals = [], scoreRows = [], debate = null, alternatives = null, disputes = [], dispute = null, signoff = null, panelVerdicts = [], plan = '' }) {
   const real = realDebate(debate) || { posts: [], replies: [] };
-  const posts = (real.posts || []).map((p, i) => ({ ref: `P${i + 1}`, by: p.by, on: p.on, stance: p.stance, text: clip(p.text), ...(p.merge_with ? { merge_with: p.merge_with } : {}) }));
-  const replies = (real.replies || []).map((r, i) => ({ ref: `R${i + 1}`, by: r.by || proposals.find(p => p.id === r.id)?.lab || null, on: r.id, action: r.action, text: clip(r.text), ...(r.replaced_by ? { replaced_by: r.replaced_by } : {}) }));
+  const posts = (real.posts || []).map(p => ({ by: p.by, on: p.on, stance: p.stance, text: clip(p.text), ...(p.merge_with ? { merge_with: p.merge_with } : {}) }));
+  const replies = (real.replies || []).map(r => ({ on: r.id, action: r.action, text: clip(r.text), ...(r.replaced_by ? { replaced_by: r.replaced_by } : {}) }));
   const statusOf = id => scoreRows.find(r => r.id === id)?.status || 'unaccounted';
 
   const props = proposals.filter(p => !isCanary(p)).map(p => ({
@@ -66,29 +67,41 @@ export function buildArguedFacts({ proposals = [], scoreRows = [], debate = null
     ...(p.withdrawn ? { withdrawn: true, ...(p.replaced_by ? { replaced_by: p.replaced_by } : {}) } : {}),
   }));
 
-  // The objections that moved something, most consequential first: a withdrawal it caused, then an
-  // amendment, then a part the plan cut. A support post is never an objection.
+  // Objections grouped by the proposal they were raised on. An author replies to the proposal as a
+  // whole, never to one post, so the record cannot say which objection (if any) caused a withdrawal
+  // or an amendment - only that labs objected and how the author then answered. One entry per
+  // proposal keeps several objections to the same part from crowding everything else out of the
+  // top five. Ranked by what followed: a withdrawal, then an amendment, then a part the plan cut.
+  // A support post is never an objection.
   const weight = { withdraw: 3, amend: 2 };
-  const objections = posts.filter(p => p.stance === 'object' || p.stance === 'merge').map(p => {
-    const answer = replies.find(r => r.on === p.on);
-    const target = props.find(x => x.id === p.on);
-    const score = (answer ? weight[answer.action] || 0 : 0) + (target?.in_plan === 'cut' ? 1 : 0);
-    return { post: p.ref, by: p.by, on: p.on, stance: p.stance, text: p.text, answer: answer ? { reply: answer.ref, action: answer.action, text: answer.text, ...(answer.replaced_by ? { replaced_by: answer.replaced_by } : {}) } : null, target_in_plan: target?.in_plan || null, score };
+  const objections = posts.filter(p => p.stance === 'object' || p.stance === 'merge');
+  const objected = [...new Set(objections.map(p => p.on))].map(id => {
+    const target = props.find(x => x.id === id);
+    const answers = replies.filter(r => r.on === id);
+    const score = Math.max(0, ...answers.map(r => weight[r.action] || 0)) + (target?.in_plan === 'cut' ? 1 : 0);
+    return {
+      on: id,
+      ...(target ? { title: target.title, author: target.lab } : {}),
+      objections: objections.filter(p => p.on === id).map(({ on, ...o }) => o),
+      author_replies: answers.map(({ on, ...r }) => r),
+      in_plan: target?.in_plan || null,
+      score,
+    };
   }).sort((a, b) => b.score - a.score);
-  const topObjections = objections.slice(0, TOP_OBJECTIONS).map(({ score, ...o }) => o);
+  const topObjected = objected.slice(0, TOP_OBJECTED).map(({ score, ...o }) => o);
 
   const alt = alternatives ? {
     items: (alternatives.items || []).map(a => ({ id: a.id, lab: a.lab, name: clip(a.name, 160), shape: clip(a.shape), bad_at: clip(a.bad_at, 300), status: a.withdrawn ? 'withdrawn' : a.amended ? 'amended' : 'stood', ...(a.replaced_by ? { replaced_by: a.replaced_by } : {}) })),
-    posts: (alternatives.posts || []).map((p, i) => ({ ref: `AP${i + 1}`, by: p.by, on: p.on, stance: p.stance, text: clip(p.text), ...(p.merge_with ? { merge_with: p.merge_with } : {}) })),
-    replies: (alternatives.replies || []).map((r, i) => ({ ref: `AR${i + 1}`, by: (alternatives.items || []).find(a => a.id === r.id)?.lab || null, on: r.id, action: r.action, text: clip(r.text) })),
+    posts: (alternatives.posts || []).map(p => ({ by: p.by, on: p.on, stance: p.stance, text: clip(p.text), ...(p.merge_with ? { merge_with: p.merge_with } : {}) })),
+    replies: (alternatives.replies || []).map(r => ({ on: r.id, action: r.action, text: clip(r.text) })),
     dropouts: (alternatives.dropouts || []).map(d => ({ lab: d.lab, reason: clip(d.reason, 200) })),
   } : null;
 
-  const declined = (disputes || []).map((d, i) => ({ ref: `D${i + 1}`, round: d.round, reason: clip(d.reason) }));
+  const declined = (disputes || []).map(d => ({ round: d.round, reason: clip(d.reason) }));
   const unresolved = dispute?.ran ? {
     reason: dispute.reason,
-    open_objections: (dispute.open_objections || []).map((o, i) => ({ ref: `U${i + 1}`, lab: o.lab, criterion: clip(o.criterion, 200), problem: clip(o.problem), first_raised_round: o.first_raised_round })),
-    ...(dispute.review ? { review: (dispute.review.entries || []).map((e, i) => ({ ref: `RV${i + 1}`, ...Object.fromEntries(Object.entries(e).map(([k, v]) => [k, typeof v === 'string' ? clip(v) : v])) })) } : {}),
+    open_objections: (dispute.open_objections || []).map(o => ({ lab: o.lab, criterion: clip(o.criterion, 200), problem: clip(o.problem), first_raised_round: o.first_raised_round })),
+    ...(dispute.review ? { review: (dispute.review.entries || []).map(e => ({ ...Object.fromEntries(Object.entries(e).map(([k, v]) => [k, typeof v === 'string' ? clip(v) : v])) })) } : {}),
   } : null;
 
   const labs = [...new Set([
@@ -117,7 +130,7 @@ export function buildArguedFacts({ proposals = [], scoreRows = [], debate = null
     alternatives: alt,
     decisions: decisions ? { ref: 'DECISIONS', text: decisions } : null,
     proposals: props,
-    top_objections: topObjections,
+    objected_proposals: topObjected,
     declined_objections: declined,
     unresolved,
     counts: {
@@ -126,6 +139,7 @@ export function buildArguedFacts({ proposals = [], scoreRows = [], debate = null
       proposals: props.length,
       debate_posts: posts.length,
       objections: objections.length,
+      objected_proposals: objected.length,
       withdrawn: props.filter(p => p.withdrawn).length,
       amended: props.filter(p => p.amended).length,
       declined_objections: declined.length,
@@ -134,24 +148,19 @@ export function buildArguedFacts({ proposals = [], scoreRows = [], debate = null
   };
 }
 
-// Every id and lab name the fact pack contains - the only things the section may cite.
+// Every id and lab name the fact pack contains - the only things the section may cite. All of them
+// are visible to a reader: proposal and alternative ids in BOARD.md, DECISIONS in the plan.
 export function knownRefsOf(facts) {
   const refs = new Set();
   const add = x => { if (x) refs.add(String(x)); };
   (facts.proposals || []).forEach(p => add(p.id));
-  (facts.top_objections || []).forEach(o => { add(o.post); add(o.answer?.reply); });
-  if (facts.alternatives) {
-    facts.alternatives.items.forEach(a => add(a.id));
-    facts.alternatives.posts.forEach(p => add(p.ref));
-    facts.alternatives.replies.forEach(r => add(r.ref));
-  }
-  (facts.declined_objections || []).forEach(d => add(d.ref));
-  if (facts.unresolved) { facts.unresolved.open_objections.forEach(o => add(o.ref)); (facts.unresolved.review || []).forEach(e => add(e.ref)); }
+  (facts.objected_proposals || []).forEach(o => add(o.on));
+  if (facts.alternatives) facts.alternatives.items.forEach(a => add(a.id));
   if (facts.decisions) add(facts.decisions.ref);
   return { refs, labs: new Set((facts.labs || []).map(l => l.lab)) };
 }
 
-export const ARGUED_SECTIONS = ['The big options', 'The objections that changed the plan', 'What is still disputed', 'Where each lab stood'];
+export const ARGUED_SECTIONS = ['The big options', 'The objections and how the authors answered', 'What is still disputed', 'Where each lab stood'];
 
 export const ARGUED_SYSTEM = `You write "How this plan was argued": a short companion to a finished plan, for a
 developer who is new to building software and wants to know why the plan looks the
@@ -166,9 +175,15 @@ id. You did not watch the debate; the fact pack is all you know about it.
 Rules:
 - Use only the fact pack. Never describe an argument, a lab, an option or a vote that
   is not in it. If a section has nothing in the pack, write "Nothing recorded." under it.
-- End every claim about the debate with the ids it rests on, in backticks, e.g.
-  (\`P3\`, \`R2\`) or (\`LAB-ALT\`). Write lab names and ids exactly as the pack
-  spells them, always in backticks, and use backticks for nothing else.
+- End every claim about the debate with the ids it rests on, in backticks: proposal
+  ids, alternative ids, lab names or \`DECISIONS\`, e.g. (\`OA-1\`, \`gg\`) or
+  (\`LAB-ALT\`). These are the ids a reader finds in BOARD.md and the plan. Write them
+  exactly as the pack spells them, always in backticks, and use backticks for nothing
+  else. Things without an id (a declined request, an open objection) cite their lab.
+- An author answers a proposal as a whole, not one objection. The pack records who
+  objected and how the author then answered; it never records that an objection caused
+  the answer. Write "\`gg\` objected; the author withdrew it", never "\`gg\`'s objection
+  made the author withdraw it".
 - Plain language. The first time you use a technical term, gloss it in a few words in
   brackets, e.g. "a queue (a waiting line for jobs)".
 - Say why the losing options lost, in the words of the record where you can - the
@@ -187,10 +202,11 @@ One or two sentences: what this page is, and the counts (labs, options, objectio
 The whole architectures and major decisions that were on the table, which one the
 plan took, and why each other one lost.
 
-## The objections that changed the plan
+## The objections and how the authors answered
 
-The three to five most consequential objections: what was objected to, how the author
-answered (kept, amended, withdrew), and what that changed in the plan.
+Up to five proposals from \`objected_proposals\`, in the pack's order: who objected
+and why, how the author answered (kept, amended, withdrew), and what the plan did with
+the part.
 
 ## What is still disputed
 
@@ -205,6 +221,8 @@ export function arguedUser({ request, plan, facts }) {
   return `# Request\n\n${request}\n\n# Fact pack\n\n\`\`\`json\n${JSON.stringify(facts, null, 2)}\n\`\`\`\n\n# The final plan\n\n${plan}`;
 }
 
+// AP/AR/RV/P/R/D/U numbers were internal refs in an earlier fact pack; none is citable any more, so
+// one in the text is flagged like any other id the run never produced.
 const ID_SHAPE = /\b(?:[A-Z][A-Z0-9]*-(?:\d+|ALT)|(?:AP|AR|RV|P|R|D|U)\d+|DECISIONS)\b/g;
 
 // The mechanical check: any id or lab the section names that the fact pack does not contain,

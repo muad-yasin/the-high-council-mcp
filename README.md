@@ -33,10 +33,8 @@ spending anything.
 > disagreement between models *visible and recorded* instead of averaged away - you can read who
 > objected to what, who withdrew a proposal under argument, and who held their position.
 
-**A visual walkthrough of all of this - the stages, one real run's debate board, and what that run
-cost - is at [muad-yasin.github.io/the-high-council-mcp](https://muad-yasin.github.io/the-high-council-mcp/).**
-A different write-up, built around one run's actual debate board, is at
-[sower-industries.de/en/MCP/](https://sower-industries.de/en/MCP/).
+**A visual write-up of all of this, built around one real run, is at
+[sower-industries.de/MCP](https://sower-industries.de/MCP).**
 
 ## How it works
 
@@ -612,8 +610,7 @@ what each rule guards against and why. Copy the folders you want into your proje
 
 ## Privacy
 
-This tool and the [demo page](https://muad-yasin.github.io/the-high-council-mcp/demo.html)
-collect nothing. Stated plainly, not as a claim about quality:
+This tool collects nothing. Stated plainly, not as a claim about quality:
 
 - No telemetry, no analytics, no tracking of any kind, anywhere in this repo.
 - The only network calls this tool ever makes are to the AI provider APIs you configure with

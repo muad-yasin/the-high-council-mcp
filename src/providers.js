@@ -262,23 +262,26 @@ async function callMock({ model, system, messages, maxTokens }) {
       '## The big options', ''];
     const alts = f.alternatives?.items || [];
     if (alts.length) {
-      for (const a of alts) out.push(`- ${a.name} ${a.status === 'withdrawn' ? `was withdrawn by its author${a.replaced_by ? ` in favour of ${tick(a.replaced_by)}` : ''}` : a.status === 'amended' ? 'was amended after the labs objected' : 'stood as written'} (${tick(a.id)}). Its weak spot, in its own words: ${a.bad_at}`);
+      for (const a of alts) out.push(`- ${a.name} ${a.status === 'withdrawn' ? `was withdrawn by its author${a.replaced_by ? ` in favour of ${tick(a.replaced_by)}` : ''}` : a.status === 'amended' ? 'was amended by its author' : 'stood as written'} (${tick(a.id)}). Its weak spot, in its own words: ${a.bad_at}`);
       if (f.decisions) out.push('', `The plan records its choice and why the other options lost in its "Decisions" section (${tick(f.decisions.ref)}).`);
     } else out.push(f.decisions ? `The plan's "Decisions" section records the options it weighed (${tick(f.decisions.ref)}).` : 'Nothing recorded.');
-    out.push('', '## The objections that changed the plan', '');
-    const objs = (f.top_objections || []).slice(0, 5);
+    out.push('', '## The objections and how the authors answered', '');
+    const objs = (f.objected_proposals || []).slice(0, 5);
+    const said = { withdraw: 'withdrew the part', amend: 'amended the part', keep: 'kept the part as it was' };
     if (objs.length) {
       for (const o of objs) {
-        const ans = o.answer ? `The author ${o.answer.action === 'withdraw' ? 'withdrew the part' : o.answer.action === 'amend' ? 'amended the part' : 'kept the part as it was'}: "${o.answer.text}" (${tick(o.answer.reply)}).` : 'The author did not answer it.';
-        out.push(`- ${tick(o.by)} ${o.stance === 'merge' ? 'asked to merge' : 'objected to'} ${tick(o.on)}: "${o.text}" (${tick(o.post)}). ${ans}`);
+        const who = o.objections.map(x => `${tick(x.by)} ${x.stance === 'merge' ? 'asked to merge it' : 'objected'} ("${x.text}")`).join('; ');
+        const ans = o.author_replies.length ? `The author then ${o.author_replies.map(r => `${said[r.action] || r.action} ("${r.text}")`).join('; then ')}.` : 'The author did not answer.';
+        out.push(`- ${tick(o.on)}: ${who}. ${ans} In the plan: ${o.in_plan || 'unaccounted'}.`);
       }
     } else out.push('Nothing recorded.');
     out.push('', '## What is still disputed', '');
     const open = f.unresolved?.open_objections || [];
     const declined = f.declined_objections || [];
     if (!open.length && !declined.length) out.push('Nothing recorded.');
-    for (const o of open) out.push(`- ${tick(o.lab)} still objects on "${o.criterion}": ${o.problem} (${tick(o.ref)}).`);
-    for (const d of declined) out.push(`- The plan's author declined one objection: ${d.reason} (${tick(d.ref)}).`);
+    const stop = t => /[.!?]$/.test(String(t)) ? t : `${t}.`;
+    for (const o of open) out.push(`- ${tick(o.lab)} still objects on "${o.criterion}": ${stop(o.problem)}`);
+    for (const d of declined) out.push(`- The plan's author declined one objection in round ${d.round}: ${stop(d.reason)}`);
     out.push('', '## Where each lab stood', '');
     for (const l of f.labs || []) out.push(`- ${tick(l.lab)}: proposed ${l.proposed} part(s), ${l.accepted} accepted in the plan; raised ${l.objections_raised} objection(s); final verdict: ${l.final_verdict}.`);
     if (model === 'mock-argued-inventor') out.push('', `A fourth option, a serverless design, was argued down by ${tick('phantom-lab')} (${tick('PHANTOM-9')}).`);

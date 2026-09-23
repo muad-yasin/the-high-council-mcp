@@ -16,7 +16,7 @@ import { runChain } from '../src/chain.js';
 import { estimateChainRows } from '../src/cost.js';
 import { lintChain } from '../src/chain-lint.js';
 import { reportJsonShape } from '../src/report-shape.js';
-import { buildArguedFacts, checkArguedRefs, decisionsSection, arguedWarnings, ARGUED_SYSTEM } from '../src/argued.js';
+import { buildArguedFacts, checkArguedRefs, decisionsSection, arguedWarnings, knownRefsOf, ARGUED_SYSTEM } from '../src/argued.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
@@ -54,7 +54,7 @@ test('argued: one stage after the handoff, on the handoff seat, and it writes a 
   assert.equal(st.model, 'mock-builder', 'no handoff seat in this chain, so the builder writes it');
   const { text, check, facts_counts, file } = r.argued;
   assert.equal(file, 'ARGUED.md');
-  for (const h of ['# How this plan was argued', '## The big options', '## The objections that changed the plan', '## What is still disputed', '## Where each lab stood']) assert.ok(text.includes(h), `missing ${h}`);
+  for (const h of ['# How this plan was argued', '## The big options', '## The objections and how the authors answered', '## What is still disputed', '## Where each lab stood']) assert.ok(text.includes(h), `missing ${h}`);
   assert.equal(check.ok, true, JSON.stringify(check));
   assert.ok(check.refs_cited >= 6);
   assert.equal(facts_counts.labs, 2);
@@ -117,20 +117,56 @@ const facts = () => buildArguedFacts({
   plan: '# Plan\n\n## 1. Scope\n\nx\n\n## 4. Decisions\n\n### Queue or pool\n- Choice: pool\n- Why the others lost: queue adds a broker\n\n## 5. Risks\n\ny',
 });
 
-test('facts: canary posts never reach the writer; the top objections are ranked by what they changed', () => {
+test('facts: canary posts never reach the writer; objected proposals are ranked by what followed', () => {
   const f = facts();
   assert.ok(!JSON.stringify(f).includes('evidence-free'), 'a canary post is not a lab\'s objection');
   assert.ok(!f.labs.some(l => l.lab === 'canary'));
-  assert.deepEqual(f.top_objections.map(o => o.on), ['OA-1', 'OA-2', 'GG-2'], 'withdrawal, then amendment, then a cut part');
-  assert.equal(f.top_objections[0].answer.action, 'withdraw');
-  assert.ok(!f.top_objections.some(o => o.stance === 'support'), 'a support post is not an objection');
+  assert.deepEqual(f.objected_proposals.map(o => o.on), ['OA-1', 'OA-2', 'GG-2'], 'withdrawal, then amendment, then a cut part');
+  assert.equal(f.objected_proposals[0].author_replies[0].action, 'withdraw');
+  assert.ok(!f.objected_proposals.some(o => o.objections.some(x => x.stance === 'support')), 'a support post is not an objection');
   assert.equal(f.counts.objections, 3);
 });
 
-test('facts: disputes, the decision records and per-lab stances all carry citable ids', () => {
+test('facts: several labs objecting to one withdrawn proposal make one entry, and the others still make the top five', () => {
+  const proposals = [
+    { id: 'AA-1', lab: 'aa', title: 'Monolith', withdrawn: true },
+    ...['AA-2', 'AA-3', 'AA-4', 'AA-5', 'AA-6'].map(id => ({ id, lab: 'aa', title: id })),
+  ];
+  const debate = {
+    posts: [
+      ...['bb', 'cc', 'dd'].map(by => ({ by, on: 'AA-1', stance: 'object', text: `${by}: too big` })),
+      ...['AA-2', 'AA-3', 'AA-4', 'AA-5'].map(on => ({ by: 'bb', on, stance: 'object', text: `nit on ${on}` })),
+    ],
+    replies: [
+      { id: 'AA-1', action: 'withdraw', text: 'split it' },
+      ...['AA-2', 'AA-3', 'AA-4', 'AA-5'].map(id => ({ id, action: 'keep', text: 'kept' })),
+    ],
+  };
+  const f = buildArguedFacts({ proposals, debate, scoreRows: [{ id: 'AA-1', status: 'withdrawn' }] });
+  assert.equal(f.objected_proposals.filter(o => o.on === 'AA-1').length, 1, 'one entry per proposal, however many labs objected');
+  const aa1 = f.objected_proposals[0];
+  assert.equal(aa1.on, 'AA-1');
+  assert.deepEqual(aa1.objections.map(o => o.by), ['bb', 'cc', 'dd']);
+  assert.deepEqual(aa1.author_replies, [{ action: 'withdraw', text: 'split it' }], 'the reply is the author\'s, to the proposal - listed once');
+  assert.ok(aa1.objections.every(o => !('answer' in o) && !('caused' in o)), 'no objection is paired with the reply as its cause');
+  assert.deepEqual(f.objected_proposals.map(o => o.on), ['AA-1', 'AA-2', 'AA-3', 'AA-4', 'AA-5']);
+  assert.equal(f.counts.objections, 7);
+  assert.equal(f.counts.objected_proposals, 5);
+  assert.match(ARGUED_SYSTEM, /never records that an objection caused/);
+});
+
+test('facts: the only citable ids are ones a reader can find in BOARD.md or the plan', () => {
   const f = facts();
-  assert.equal(f.declined_objections[0].ref, 'D1');
-  assert.equal(f.unresolved.open_objections[0].ref, 'U1');
+  assert.ok(!/"ref":\s*"(?:AP|AR|RV|P|R|D|U)\d+"/.test(JSON.stringify(f)), 'no internal post/reply/dispute numbering');
+  const { refs } = knownRefsOf(f);
+  assert.deepEqual([...refs].sort(), ['DECISIONS', 'GG-1', 'GG-2', 'OA-1', 'OA-2']);
+  assert.deepEqual(checkArguedRefs(GOOD.replace('(`OA-1`, `gg`)', '(`P2`, `R2`)'), f).unknown_refs, ['P2', 'R2']);
+});
+
+test('facts: disputes, the decision records and per-lab stances', () => {
+  const f = facts();
+  assert.equal(f.declined_objections[0].round, 2);
+  assert.equal(f.unresolved.open_objections[0].lab, 'gg');
   assert.match(f.decisions.text, /^## 4\. Decisions/);
   assert.ok(!f.decisions.text.includes('Risks'), 'the section stops at the next heading of its level');
   const oa = f.labs.find(l => l.lab === 'oa');
@@ -153,13 +189,13 @@ Two labs.
 
 The plan took the pool (\`DECISIONS\`).
 
-## The objections that changed the plan
+## The objections and how the authors answered
 
-- \`gg\` asked to merge \`OA-1\` into \`GG-1\` (\`P2\`); withdrawn (\`R2\`). UTF-8 input stays as it was.
+- \`gg\` asked to merge \`OA-1\` into \`GG-1\`; the author withdrew it (\`OA-1\`, \`gg\`). UTF-8 input stays as it was.
 
 ## What is still disputed
 
-- \`gg\` on security (\`U1\`); a declined request (\`D1\`).
+- \`gg\` on security; a declined request in round 2 (\`gg\`).
 
 ## Where each lab stood
 
@@ -174,7 +210,7 @@ test('check: a section that cites only the record passes, and prose like UTF-8 i
 
 test('check: an unknown id (backticked or bare), an unknown lab, a missing lab line and a missing section are each flagged', () => {
   const f = facts();
-  assert.deepEqual(checkArguedRefs(GOOD.replace('(`U1`)', '(`U7`)'), f).unknown_refs, ['U7']);
+  assert.deepEqual(checkArguedRefs(GOOD.replace('(`DECISIONS`)', '(`GG-7`)'), f).unknown_refs, ['GG-7']);
   assert.deepEqual(checkArguedRefs(GOOD.replace('Two labs.', 'Two labs, see P9 and OA-7.'), f).unknown_refs, ['OA-7', 'P9']);
   const lab = checkArguedRefs(GOOD.replace('- `gg`: objected.', '- `grok`: objected.'), f);
   assert.deepEqual(lab.unknown_labs, ['grok']);

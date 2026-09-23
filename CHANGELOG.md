@@ -17,11 +17,14 @@ files its usefulness to beginners as an inference.
 - **Written to `ARGUED.md`, never into the deliverable.** The plan is what gets scored, reviewed and
   built; a narrative naming proposal ids inside it would be read as plan content.
 - **Facts only.** `src/argued.js` builds a fact pack from the run's own record - alternatives and
-  their debate, the plan's "Decisions" section verbatim, the five most consequential objections
-  (ranked by the withdrawal or amendment they caused, then a part the plan cut), declined
-  objections, unresolved dissent and `dispute.review`, and each lab's counts and final verdict -
-  with every item carrying an id. Canary posts are excluded. The prompt requires a cited id on every
-  claim and "Nothing recorded." for an empty section.
+  their debate, the plan's "Decisions" section verbatim, up to five objected proposals (each with
+  every objection raised on it and its author's replies, ranked by a withdrawal, then an amendment,
+  then a part the plan cut), declined objections, unresolved dissent and `dispute.review`, and each
+  lab's counts and final verdict. Canary posts are excluded. An author replies to a proposal, not
+  to one objection, so the pack and the prompt never state that an objection caused a withdrawal.
+  The only citable ids are the ones a reader finds in BOARD.md and the plan (proposal and
+  alternative ids, lab names, `DECISIONS`). The prompt requires a cited id on every claim and
+  "Nothing recorded." for an empty section.
 - **A reference check.** Every id and lab the section names is checked against the fact pack;
   anything the run never had lands in `WARNINGS.md` (`argued_unknown_ref`, `argued_unknown_lab`,
   `argued_missing_lab`, `argued_missing_section`) and in `report.json`. The text is kept as written.

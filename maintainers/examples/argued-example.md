@@ -15,17 +15,17 @@ This page explains how 3 AI labs argued over the plan: 2 whole architecture(s) (
 
 ## The big options
 
-- Architecture from mock-proposer-a was amended after the labs objected (`MOCKA-ALT`). Its weak spot, in its own words: mock: high write volume.
-- Architecture from mock-proposer-b was amended after the labs objected (`MOCKB-ALT`). Its weak spot, in its own words: mock: high write volume.
+- Architecture from mock-proposer-a was amended by its author (`MOCKA-ALT`). Its weak spot, in its own words: mock: high write volume.
+- Architecture from mock-proposer-b was amended by its author (`MOCKB-ALT`). Its weak spot, in its own words: mock: high write volume.
 
-## The objections that changed the plan
+## The objections and how the authors answered
 
-- `mock-a` objected to `MOCKB-1`: "Quote: "mock.js" - no such file exists." (`P1`). The author amended the part: "Fair." (`R2`).
-- `mock-b` objected to `MOCKA-1`: "Quote: "mock.js" - no such file exists." (`P2`). The author amended the part: "Fair." (`R1`).
+- `MOCKB-1`: `mock-a` objected ("Quote: "mock.js" - no such file exists."). The author then amended the part ("Fair."). In the plan: unaccounted.
+- `MOCKA-1`: `mock-b` objected ("Quote: "mock.js" - no such file exists."). The author then amended the part ("Fair."). In the plan: unaccounted.
 
 ## What is still disputed
 
-- `mock-holdout` still objects on "It states the assumptions it was written under.": No assumptions section. (`U1`).
+- `mock-holdout` still objects on "It states the assumptions it was written under.": No assumptions section.
 
 ## Where each lab stood
 
@@ -47,6 +47,7 @@ This page explains how 3 AI labs argued over the plan: 2 whole architecture(s) (
       "proposals": 2,
       "debate_posts": 2,
       "objections": 2,
+      "objected_proposals": 2,
       "withdrawn": 0,
       "amended": 2,
       "declined_objections": 0,
@@ -56,7 +57,7 @@ This page explains how 3 AI labs argued over the plan: 2 whole architecture(s) (
     "unknown_labs": [],
     "missing_labs": [],
     "missing_sections": [],
-    "refs_cited": 12,
+    "refs_cited": 7,
     "ok": true
   }
 }
@@ -79,7 +80,7 @@ happened. The text is kept as written; the harness flags it:
   ],
   "missing_labs": [],
   "missing_sections": [],
-  "refs_cited": 12,
+  "refs_cited": 7,
   "ok": false
 }
 ```
