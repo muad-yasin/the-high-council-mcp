@@ -595,15 +595,25 @@ async function post(url, headers, body, label) {
 
 // Turns the two opaque no-response failures into something an operator can act on, and keeps
 // any URL credentials out of the message. The error object (flags, cause) is preserved.
+//
+// Pre-release audit, providers #1 (Review/PreRelease_Audit_providers_2026-09-23.md): this used to
+// assign `err.message` in place. The deadline's own error is a DOMException whose `message` is a
+// getter, so in strict mode the assignment threw a TypeError that replaced the real error - losing
+// `maybeBilled`, so a possibly-billed stalled call went uncounted by the cap. It now returns a new
+// Error that carries the original as `cause`, plus the flags and codes the retry logic reads.
 function explainFetchFailure(err, label) {
   const code = err.cause?.code ?? err.code;
+  let message = err.message;
   if (err.name === 'TimeoutError') {
-    err.message = `${label}: no response within ${Math.round(requestDeadlineMs / 1000)} s (request deadline) - not retried, the generation may already be billed`;
+    message = `${label}: no response within ${Math.round(requestDeadlineMs / 1000)} s (request deadline) - not retried, the generation may already be billed`;
   } else if (code === 'UND_ERR_HEADERS_TIMEOUT') {
-    err.message = `${label}: the provider sent no response headers within Node's 300 s limit. A direct, non-streaming call this long (a very high maxTokens) can't complete here; lower the seat's maxTokens or route it through OpenRouter. Not retried: it may already be billed.`;
+    message = `${label}: the provider sent no response headers within Node's 300 s limit. A direct, non-streaming call this long (a very high maxTokens) can't complete here; lower the seat's maxTokens or route it through OpenRouter. Not retried: it may already be billed.`;
   }
-  err.message = redactUrlCredentials(err.message);
-  return err;
+  const out = new Error(redactUrlCredentials(message), { cause: err });
+  out.name = err.name;
+  if (code !== undefined) out.code = code;
+  if (err.maybeBilled) out.maybeBilled = true;
+  return out;
 }
 
 async function callAnthropic({ model, system, messages, maxTokens, temperature, extra }) {

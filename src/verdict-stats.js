@@ -136,10 +136,24 @@ function roundOf(label) {
   return m ? Number(m[1]) : null;
 }
 
+// Pre-release audit, metrics #1 (Review/PreRelease_Audit_metrics_2026-09-23.md): the kind used to be
+// found by stripping a `-[a-z0-9]+` suffix, which never matches a real lab name (glm5.3,
+// gpt5.6-luna, fable5.1), so every lab became its own "stage type" (~170 instead of ~20). The kind
+// now comes from the label prefixes chain.js actually writes; anything else is its whole name minus
+// a trailing round number.
+const LAB_SUFFIXED_KINDS = ['alt-debate', 'alt-reply', 'alternative', 'canary-reply', 'dispute-review', 'preflight', 'propose', 'debate', 'reply', 'ambiguity', 'allocator', 'judge', 'descending'];
+export function stageKindOfFile(f) {
+  const label = f.replace(/^NEEDS-/, '').replace(/\.md$/, '');
+  const round = label.match(/^(panel|critique|revise)-\d+(?:-|$)/);
+  if (round) return round[1];
+  const kind = LAB_SUFFIXED_KINDS.find(k => label.startsWith(`${k}-`));
+  return kind || label.replace(/-\d+$/, '');
+}
+
 function largestPromptByStageType(dir, files, out) {
   for (const f of files) {
     if (!f.endsWith('.md')) continue;
-    const type = f.replace(/^NEEDS-/, '').replace(/-[a-z0-9]+\.md$/, '').replace(/\.md$/, '').replace(/-\d+$/, '');
+    const type = stageKindOfFile(f);
     let size = 0;
     try { size = statSync(join(dir, f)).size; } catch { continue; }
     const cur = out.get(type);

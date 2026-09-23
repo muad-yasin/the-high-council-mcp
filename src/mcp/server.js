@@ -327,6 +327,11 @@ server.tool('metrics_report', 'DESCRIPTIVE TELEMETRY ONLY, not an evaluation, be
     withdrawalRate: r.withdrawalRate,
     objectionFollowThroughRate: r.objectionFollowThroughRate,
     toolCallUsageRate: r.toolCallUsageRate,
+    // Pre-release audit, metrics #2: computed by metricsReport() and promised by the README, but
+    // never returned.
+    consensusInducedRegressionCount: r.consensusInducedRegressionCount,
+    consensusInducedRegression: r.consensusInducedRegression,
+    allocatorRubberStampRate: r.allocatorRubberStampRate,
     counts: r.counts,
     ...(r.unreadable ? { unreadableRunFolders: r.unreadable } : {}),
     note: r.note,

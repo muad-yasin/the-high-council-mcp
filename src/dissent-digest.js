@@ -35,6 +35,7 @@ import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 // canary.js has no imports at all, so this keeps the digest's import graph free of chain.js/roles.js.
 import { isCanary } from './canary.js';
+import { deniedReasonsOf, DeniedModel } from './denied-models.js';
 
 const NO_DISSENT_TOPICS = 'nothing - every critic signed off with no objections';
 
@@ -64,6 +65,12 @@ export async function generateDigestText({ report, call, model, provider, maxTok
   const summary = deriveDissentSummary(report);
   const fallback = renderDigestTemplate(summary);
   if (!call) return fallback;
+  // Money path #5 (Review/PreRelease_Audit_moneypath_2026-09-23.md): this is the one paid call made
+  // outside chain.js's invoke(), so the run-time denied-model check never saw it and
+  // `--provider openrouter --model x-ai/...` would have been sent. "No xAI/Grok, ever", no opt-out:
+  // checked before the try below, so it is thrown, never degraded to the template.
+  const denied = deniedReasonsOf({ provider, model });
+  if (denied.length) throw new DeniedModel([{ path: 'digest', reasons: denied }]);
   try {
     const reply = await call(provider, {
       model,

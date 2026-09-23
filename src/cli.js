@@ -14,6 +14,7 @@ import { computeOutcome } from './outcome.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName, keyFor, isKeyOptional, call } from './providers.js';
 import { readCompletedRun, generateDigestText, writeDigest } from './dissent-digest.js';
+import { deniedReasonsOf } from './denied-models.js';
 import { spendReport, costToday } from './spend.js';
 import { verdictStats, independenceStatsCsv } from './verdict-stats.js';
 import { metricsReport } from './metrics.js';
@@ -620,6 +621,14 @@ if (argv[0] === 'digest') {
   }
   const providerArg = flag('provider', null);
   const modelArg = flag('model', null);
+  // Money path #5: the digest's model call is refused for a denied model before anything is sent.
+  if (providerArg) {
+    const denied = deniedReasonsOf({ provider: providerArg, model: modelArg });
+    if (denied.length) {
+      console.error(`digest: refused - ${denied.join('; ')}. This harness never calls a denied model.`);
+      process.exit(2);
+    }
+  }
   const text = await generateDigestText({
     report,
     call: providerArg ? call : null,
@@ -655,6 +664,10 @@ else {
 // per-stage usage files, so this marker is the only record of what the stopped sitting spent -
 // spend.js falls back to it, which is how --spend still counts a capped rematch or replay.
 function writeSideRunBudgetStop(dir, err, what) {
+  // Money path #1: err.spent was read when the cap was hit, before sibling calls still in flight
+  // settled; their cost reaches budgetState() only afterwards. By the time this runs they have
+  // settled (runChain waits for them), so the budget is the true figure.
+  err.spent = Math.max(err.spent || 0, budgetState().spent);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'STOPPED-budget.json'), JSON.stringify({
     stoppedAt: err.label, seat: err.seat, spentUsd: err.spent, capUsd: err.cap, projectedStageUsd: err.projected,
@@ -962,6 +975,9 @@ if (argv.includes('--metrics')) {
   console.log(`  withdrawal rate:                ${pct(r.withdrawalRate)}  (${r.counts.withdrawn}/${r.counts.proposals} proposals)`);
   console.log(`  objection-follow-through rate:  ${pct(r.objectionFollowThroughRate)}  (${r.counts.objectedFollowedThrough}/${r.counts.objected} objected proposals later amended or withdrawn)`);
   console.log(`  tool-call usage:                ${pct(r.toolCallUsageRate)}  (${r.counts.acceptanceItemsNamingTool}/${r.counts.acceptanceItems} handoff acceptance items name a declared tool; ${r.counts.runsWithoutToolsSection} run(s) declared no "Available tools" section)`);
+  // Pre-release audit, metrics #2: computed and README-documented, but never printed.
+  console.log(`  consensus-induced regressions:  ${r.consensusInducedRegressionCount ?? 'no data'}${r.consensusInducedRegression?.excluded?.length ? `  (${r.consensusInducedRegression.excluded.length} case(s) excluded)` : ''}`);
+  console.log(`  allocator rubber-stamp rate:    ${pct(r.allocatorRubberStampRate ?? null)}`);
   if (r.unreadable) console.log(`\n  ${r.unreadable} run folder(s) could not be read and are not counted.`);
   console.log(`\n  Derived from the run folders on disk. Nothing is recorded anywhere else, and nothing leaves this machine.`);
   process.exit(0);
@@ -1878,6 +1894,9 @@ started.
     // carries those reads as a finished run everywhere else in this codebase.
     // What lands instead says plainly that the run stopped short.
     const state = budgetState();
+    // Money path #1: the budget after the in-flight siblings settled, not err.spent from the moment
+    // the cap was hit (see writeSideRunBudgetStop).
+    err.spent = Math.max(err.spent || 0, state.spent);
     writeFileSync(join(runDir, 'STOPPED-budget.json'), JSON.stringify({
       stoppedAt: err.label,
       seat: err.seat,

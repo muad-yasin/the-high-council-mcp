@@ -38,7 +38,11 @@ export function summarise(stages) {
     input += s.usage.input;
     output += s.usage.output;
     const c = costOf(s.provider, s.model, s.usage);
-    usd += c.usd;
+    // Money path #3 (Review/PreRelease_Audit_moneypath_2026-09-23.md): a stage's own `usd` is what it
+    // really cost, including an Anthropic attempt thrown away when thinking ate the whole budget
+    // (chain.js invoke(): usd = cost + wasted). Recomputing from the kept attempt's usage dropped
+    // that attempt from report.totals.usd, the CLI's cost line, --spend and MCP.
+    usd += Number.isFinite(s.usd) ? s.usd : c.usd;
     if (!c.priced) unpriced.add(`${s.provider}/${s.model}`);
   }
   return { input, output, total: input + output, usd, unpriced: [...unpriced] };
