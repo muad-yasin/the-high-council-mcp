@@ -11,7 +11,7 @@
 // A subfolder, not a renamed file next to the live ones: resume-brief.js, shape-rounds.js and
 // verdict-stats.js all read the run folder's own `*.md` files as stages, and an old answer must
 // never be read as a finished one.
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const SUPERSEDED_DIR = 'superseded';
@@ -34,6 +34,22 @@ export function archiveSuperseded(runDir, label) {
     if (files.includes(ext)) renameSync(join(runDir, `${label}.${ext}`), join(dir, `${label}.${n}.${ext}`));
   }
   return n;
+}
+
+/**
+ * Money path #4: a charge that is not a stage (a call that failed after it was sent, or a discarded
+ * thinking attempt whose retry failed) is written here too, as `<label>.charge-<n>.usage.json`, so
+ * every spend reader that adds this folder in counts it - and the cap does on resume.
+ */
+export function recordLostCharge(runDir, label, { provider = null, model = null, usd = 0, reason = '' } = {}) {
+  if (!(Number(usd) > 0)) return null;
+  const dir = join(runDir, SUPERSEDED_DIR);
+  mkdirSync(dir, { recursive: true });
+  let n = 1;
+  while (existsSync(join(dir, `${label}.charge-${n}.usage.json`))) n++;
+  const path = join(dir, `${label}.charge-${n}.usage.json`);
+  writeFileSync(path, JSON.stringify({ provider, model, usage: { input: 0, output: 0 }, usd: Number(usd), reason }));
+  return path;
 }
 
 /** Every superseded stage's cost record: [{ label, provider, model, usd }]. Never throws. */

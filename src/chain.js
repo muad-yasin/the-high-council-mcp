@@ -854,6 +854,15 @@ export function countEarlierSpend(usd) { if (Number.isFinite(usd) && usd > 0) bu
 let progressHook = () => {};
 export function setProgressHook(fn) { progressHook = fn || (() => {}); }
 
+// Money path #4 (Review/PreRelease_Audit_moneypath_2026-09-23.md): two charges were counted toward
+// the cap in memory only - a call that failed after it was sent (`maybeBilled`), and an Anthropic
+// attempt discarded for thinking when its retry then failed. Neither became a stage, so neither
+// reached a usage file, --spend, report.totals or the cap on the next resume, which broke the
+// "spend is derived from the run folder" rule. invoke() now reports each one here; the CLI writes it
+// to the run folder (superseded/<label>.charge-N.usage.json). Unset, a no-op.
+let chargeHook = () => {};
+export function setChargeHook(fn) { chargeHook = fn || (() => {}); }
+
 async function invoke(seat, { system, user, log, label }) {
   const started = Date.now();
   // Backstop for the check at the top of runChain: every call, including a replay from disk.
@@ -921,6 +930,7 @@ async function invoke(seat, { system, user, log, label }) {
   // Reserved synchronously - no await between the check above and this line - and released in the
   // finally below whether the call succeeds or throws. See `reserved` at the top of the budget block.
   budget.reserved += projected;
+  let unrecordedWaste = 0; // a discarded attempt's cost, until a stage that includes it is returned
   try {
 
     progressHook({ label, lab: labOf(seat), startedAt: new Date().toISOString() });
@@ -959,6 +969,7 @@ async function invoke(seat, { system, user, log, label }) {
       // Counted now, not with the final stage: if the retry below throws, this attempt was still
       // billed (bug-audit fix, 2026-09-23, BugAudit_MoneyPath #4a - it used to vanish from `spent`).
       budget.spent += wasted;
+      unrecordedWaste = wasted;
       const how = res.text.trim() ? `text cut off - ${res.usage.thinking} of ${res.usage.output} tokens went to thinking` : `empty text - all ${res.usage.output} tokens went to thinking`;
       log(`  ${label}: ${how} (stop: max_tokens, ${formatUsd(wasted)} spent); retrying once with thinking disabled.`);
       res = await ask({ ...(seat.extra || {}), thinking: { type: 'disabled' } });
@@ -977,11 +988,13 @@ async function invoke(seat, { system, user, log, label }) {
       promptHash,
     };
     budget.spent += cost.usd; // `wasted` was already added when the first attempt was discarded
+    unrecordedWaste = 0; // stage.usd carries it now
     const think = res.usage.thinking ? ` (${res.usage.thinking} thinking)` : '';
     const cut = res.usage.stop === 'max_tokens' || res.usage.stop === 'length' ? ' [hit the cap]' : '';
     log(`  ${label}: ${res.provider}/${res.model} - ${res.usage.input} in, ${res.usage.output} out${think}${cut}, ${formatUsd(stage.usd)}, ${(stage.ms / 1000).toFixed(1)}s`);
     return stage;
   } catch (err) {
+    if (unrecordedWaste > 0) chargeHook({ label, provider: seat.provider, model: seat.model, usd: unrecordedWaste, reason: 'an attempt discarded because thinking used the whole budget; its retry then failed' });
     // A call that failed after the request reached the provider (providers.js marks it
     // `maybeBilled`: a dropped 200 body, a non-JSON 200, a post-send timeout) was probably paid
     // for, and its usage is unreadable. Charge one attempt's projection so the cap still sees it
@@ -990,6 +1003,7 @@ async function invoke(seat, { system, user, log, label }) {
     if (err?.maybeBilled) {
       const charge = projected / (isAnthropicSeat ? 2 : 1);
       budget.spent += charge;
+      chargeHook({ label, provider: seat.provider, model: seat.model, usd: charge, reason: 'failed after it was sent and may have been billed (one attempt\'s worst case)' });
       log(`  ${label}: the call failed after it was sent and may have been billed - ${formatUsd(charge)} (one attempt's worst case) counted toward the cap.`);
     }
     throw err;

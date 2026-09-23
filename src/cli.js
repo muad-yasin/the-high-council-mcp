@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard } from './chain.js';
+import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard } from './chain.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
@@ -28,7 +28,7 @@ import { harnessVersion } from './version.js';
 import { stageKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs } from './cache-integrity.js';
-import { archiveSuperseded, supersededSpendOf } from './superseded.js';
+import { archiveSuperseded, supersededSpendOf, recordLostCharge } from './superseded.js';
 import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { schemaVersionWarning } from './schema-version.js';
@@ -1548,6 +1548,8 @@ setCache({
     appendFileSync(join(runDir, 'WARNINGS.md'), `- cache_stale: stage "${label}" invalidated - ${why}; the old files are kept as ${SUPERSEDED_HINT(label, n)}\n`);
   },
 });
+// Money path #4: charges that are not stages go to disk too, so --spend and a resume count them.
+setChargeHook(c => recordLostCharge(runDir, c.label, c));
 // A resumed run inherits the ceiling it was started under unless this
 // invocation names a different one - otherwise resuming would silently drop
 // the cap the run was created with.

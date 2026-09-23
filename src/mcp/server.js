@@ -344,8 +344,22 @@ async function resume(run, maxUsd) {
   const resumeArgs = ['--resume', join('runs', run)];
   if (maxUsd !== undefined) resumeArgs.push('--max-usd', maxUsd === 0 ? 'none' : String(maxUsd));
   const child = spawn(...cliCommand(resumeArgs), { cwd: work, env: cliEnv, detached: true, stdio: ['ignore', fd, fd] });
+  closeSync(fd);
+  // Same check start_run makes (2789f85): `resumed` is reported only once the child is known to be
+  // alive or to have ended well. It used to say resumed:true for a resume that died on its first line
+  // (a refused folder, a scope change, a lock, a crash).
+  let exited = null;
+  child.on('exit', (code, signal) => { exited = { code, signal }; });
   child.unref();
-  return { resumed: true, run, pid: child.pid, log: logPath, note: 'poll run_status(run); it may pause again at the next external stage' };
+  const t0 = Date.now();
+  while (!exited && Date.now() - t0 < 1500) await new Promise(r => setTimeout(r, 250));
+  if (exited && exited.code !== 0 && exited.code !== 3) {
+    let logTail = '';
+    try { logTail = readFileSync(logPath, 'utf8').split('\n').slice(-20).join('\n'); } catch { /* none */ }
+    return { resumed: false, run, exitCode: exited.code, signal: exited.signal, log: logPath, logTail };
+  }
+  const state = exited ? (exited.code === 0 ? 'finished' : 'paused at an external stage') : 'running';
+  return { resumed: true, run, pid: child.pid, state, log: logPath, note: 'poll run_status(run); it may pause again at the next external stage' };
 }
 
 server.tool('spend_report', 'What every run has cost across a window of days, not just one run. Derived from the run folders on disk - nothing is recorded anywhere else and nothing leaves this machine. Use this to answer "what have I spent today" before starting another run.', {
