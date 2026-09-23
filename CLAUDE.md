@@ -40,9 +40,11 @@ you which document needs updating. `docs/skills.html` carries the landing page's
 no scripts, no third-party requests.
 
 **Visibility (Muad's call, 2026-09-22): this repo is going private until the open-source release
-planned for later this year.** Its GitHub Pages landing page is being moved onto sower-industries.de
-first, then the repo is switched to private. The npm package `the-high-council` 0.7.5 stays
-published as it is, with no new releases unless he asks. The licence stays MIT. **Keep treating
+planned for later this year.** The landing page now lives at https://sower-industries.de/MCP (the
+npm `homepage`); the GitHub Pages workflow runs only by hand until the repo is public again. The npm
+package `the-high-council` stays public: **0.7.6 was published 2026-09-23** on Muad's go (after a
+24-audit pre-release round). No new releases unless he asks; `npm publish` is his (2FA passkey, run
+from a real terminal). The licence stays MIT. **Keep treating
 everything committed here as publishable:** the release will make it public again, so every rule
 below that says "this repo is public" still binds.
 
