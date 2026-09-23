@@ -163,6 +163,10 @@ date. Read the comment before changing the behaviour, and keep the regression te
 ## Rules that are not style preferences
 
 - **BYOK only.** Never add a default key, a proxy, or a hosted/"try it free" path.
+- **No xAI/Grok, ever** (Muad, 2026-09-23: "No grok, ever!!!"). Not in any chain, roster, example
+  or default, and not through a router id that could pick it (`openrouter/auto` and the like).
+  **Kimi K3 is dropped from every shipped chain** the same day. Chain-lint's `denied-model` rule
+  and a run-time check (both landing 2026-09-23) enforce this with no opt-out; never add one.
 - **No efficacy claims** in any user-facing text until something has actually been measured. The
   README is deliberately written without them.
 - **The README's "Known limits" section stays honest.** Delete a limit when it stops being true,
