@@ -105,8 +105,9 @@ Derived from the findings, not from the reviewer's own summary:
 | `pass` | neither of the above (lower-severity findings are still listed) | 0 |
 
 `not_judged` is never a pass. Its `reason_code` is one of `SEAT_UNREACHABLE`, `PROVIDER_ERROR`,
-`REPLY_TRUNCATED`, `REPLY_UNPARSEABLE` (the first four mirror the panel abstention codes) or
-`SEAT_COULD_NOT_JUDGE` (the reply was readable and the reviewer said it lacked what it needed).
+`REPLY_TRUNCATED`, `REPLY_UNPARSEABLE`, `REASONING_EXHAUSTED` (these five mirror the panel
+abstention codes) or `SEAT_COULD_NOT_JUDGE` (the reply was readable and the reviewer said it
+lacked what it needed).
 
 The blocking levels (`critical`, `high`) are fixed in `src/security-review.js`, not a chain
 setting, so a chain cannot loosen its own gate.
@@ -117,6 +118,11 @@ whose findings are all `medium`/`low`/`info` still yields `gate: "pass"`. This i
 a bug: severity is the reviewer's own graded judgment of how bad each finding is, and the gate
 exists to block on the findings that matter, not on the reviewer's summary label. `seat_verdict`
 is still recorded in the report for a human to read, it's just not what the gate keys on.
+
+One exception (2026-09-23 audit): a `fail` whose findings cannot be trusted is `not_judged`, never
+`pass` - a `fail` with no kept finding, a `fail` where a possibly-blocking finding was dropped as
+malformed, or a `findings` value that is not a list. A summary `fail` the gate cannot read the
+reasons for is treated as "could not judge", not as "nothing serious".
 
 ## Testing it at $0
 
