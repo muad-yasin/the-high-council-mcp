@@ -1,6 +1,6 @@
 {
   "name": "plan-open-7",
-  "description": "Seven independent labs vote; the Claude-role seats are external, so a Claude Code session writes the skeleton, the draft, every revision and the handoff by hand and only the panel is billed. Same roster and the same rules as cheap-7-v2: current-generation models, one OpenRouter key, no Anthropic seat on the panel, and no Kimi K3 (a seat that may route through another lab is not an independent seat). Criteria are written by Meta Llama 4 Maverick, which holds no panel seat, so neither the lab that drafts nor the lab that sets the bar votes on whether the bar was cleared. Round cap 7 with the stall rule: identical objections from the same labs two rounds running end the revise loop and send the disagreement to the dispute stage, which records it and never resolves it. For a substantial planning question where the drafting is worth a human session's attention and the panel's independence is the point. Price a real task with `npm run dry` before running.",
+  "description": "Seven independent labs vote; the Claude-role seats are external, so a Claude Code session writes the skeleton, the draft, every revision and the handoff by hand and only the panel is billed. Same roster and the same rules as cheap-7-v2: current-generation models, one OpenRouter key, no Anthropic seat on the panel, and no Kimi K3 (a seat that may route through another lab is not an independent seat). Criteria are written by Meta Llama 4 Maverick, which holds no panel seat, so neither the lab that drafts nor the lab that sets the bar votes on whether the bar was cleared. Round cap 7 with the stall rule: identical objections from the same labs two rounds running end the revise loop and send the disagreement to the dispute stage, which records it and never resolves it. For a substantial planning question where the drafting is worth a human session's attention and the panel's independence is the point. Price a real task with `npm run dry` before running. Decision records and whole alternative architectures on (2026-09-23): each lab blind-proposes one whole architecture before the skeleton, the labs debate them, and the plan's Decisions section records why the losers lost.",
   "maxRounds": 7,
   "signoff": "unanimous",
   "dispute": {
@@ -12,6 +12,8 @@
     "maxTokens": 4000
   },
   "debate": true,
+  "decisions": { "enabled": true },
+  "alternatives": { "enabled": true, "maxTokens": 3000 },
   "canary": { "enabled": true, "sampleRate": 0.1 },
   "handoff": true,
   "estimate": {
