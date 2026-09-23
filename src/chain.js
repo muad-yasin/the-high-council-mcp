@@ -13,6 +13,8 @@ import { fencedSourceOf, markFailures, quoteWarnings } from './quote-check.js';
 import { parsePatches, applyPatches, changedSince } from './patch-revise.js';
 import { injectCanary, shouldSampleCanary } from './canary.js';
 import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
+import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
+export { DeniedModel };
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
 // full chain. Tells the criteria seat what the chain's own contract will require in the
@@ -554,7 +556,9 @@ export class BudgetExceeded extends Error {
 // report.json instead of STOPPED-budget.json, so the run could not be resumed under a higher cap.
 // The panel's cut-off retry catch already did this; the six sibling catches did not.
 export function rethrowControlFlow(err) {
-  if (err instanceof BudgetExceeded || err instanceof ExternalPause) throw err;
+  // `controlFlow` also covers DeniedModel (src/denied-models.js), which must never be turned into an
+  // abstention either.
+  if (err instanceof BudgetExceeded || err instanceof ExternalPause || err?.controlFlow) throw err;
 }
 
 // Bug-audit fix, 2026-09-23 (BugAudit_MoneyPath #5): a parallel stage waits for EVERY call to
@@ -599,6 +603,9 @@ export function setProgressHook(fn) { progressHook = fn || (() => {}); }
 
 async function invoke(seat, { system, user, log, label }) {
   const started = Date.now();
+  // Backstop for the check at the top of runChain: every call, including a replay from disk.
+  const denied = deniedReasonsOf(seat);
+  if (denied.length) throw new DeniedModel([{ path: label, reasons: denied }]);
   // Resume: a stage that already ran in this run folder is replayed from
   // disk, so a paused-and-resumed run never pays twice.
   const hit = cache.get(label);
@@ -955,6 +962,9 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // 7.x single-vendor mode: resolved once, before either chain shape runs, so descending mode
   // and the normal stage flow both see vendor-routed seats without duplicating the call.
   config = resolveChainSeats(config);
+  // No denied model (xAI/Grok, Kimi/Moonshot, or a router that could reach one) is ever seated -
+  // checked on the resolved roster, before any stage runs. See src/denied-models.js.
+  assertNoDeniedModels(config);
   if (config.descending) return runDescendingChain({ request: requestIn, config, log, onStage });
 
   const stages = [];

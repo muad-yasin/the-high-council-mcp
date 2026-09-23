@@ -1,6 +1,6 @@
 {
   "name": "idea-open-c2",
-  "description": "For a genuinely NEW idea: questions first (external seat; the answers come from the human or the command-and-control session and become part of the request), then plan-debate-open-c2 - open scope, every seat may add on record, labs debate, Sonnet stages external, blind panel, handoff. The verdict pass afterwards cuts to a prototype phase. Kimi K3 added 2026-09-08 as a sixth critic/proposer seat (OpenRouter, real Sept-2026 pricing ~$2.50/$14 per M - pricier than the other five; kept because it is a genuinely different lab, not for its price).",
+  "description": "For a genuinely NEW idea: questions first (external seat; the answers come from the human or the command-and-control session and become part of the request), then plan-debate-open-c2 - open scope, every seat may add on record, labs debate, Sonnet stages external, blind panel, handoff. The verdict pass afterwards cuts to a prototype phase. Five critic/proposer seats: DeepSeek, Qwen, GLM, Mistral, Gemini. Kimi K3, a sixth seat added 2026-09-08, was removed 2026-09-23 (owner decision: \"Drop grok drop Kimi k3\").",
   "maxRounds": 3,
   "signoff": "unanimous",
   "proposals": {
@@ -80,17 +80,6 @@
         "model": "gemini-3.6-flash",
         "maxTokens": 20000,
         "lab": "gemini"
-      },
-      {
-        "provider": "openrouter",
-        "model": "moonshotai/kimi-k3",
-        "maxTokens": 20000,
-        "lab": "kimi",
-        "extra": {
-          "reasoning": {
-            "enabled": false
-          }
-        }
       }
     ],
     "questions": {

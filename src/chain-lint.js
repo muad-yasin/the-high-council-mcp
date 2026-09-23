@@ -7,7 +7,8 @@ import { providerNames } from './providers.js';
 import { validateSeatRole } from './seat-role.js';
 import { ALLOWED_TOOLS } from './tools.js';
 import { priceOf } from './cost.js';
-import { findSeatByLab, labOf } from './chain.js';
+import { findSeatByLab, labOf, resolveChainSeats } from './chain.js';
+import { deniedSeatsOf } from './denied-models.js';
 
 // Labs the source procurement report names as not EU-based (v7.x compliance
 // chains). Used only to enforce an EU-region compliance claim against the
@@ -570,6 +571,19 @@ export function lintChain(config, filePath = '<chain>') {
       kind: 'self-review',
       message: `selfReview must be the exact string "allowed" when present (got ${JSON.stringify(config.selfReview)}) - any other value silently reads as "not allowed".`,
       fix: `Set "selfReview": "allowed" in ${filePath}, or remove the key entirely.`,
+    });
+  }
+
+  // denied-model (2026-09-23, Muad: "Drop grok drop Kimi k3", "No grok, ever!!!"): a hard error,
+  // no opt-out. Checked on the roster AFTER resolveChainSeats, so a single-vendor rewrite cannot
+  // hide one. Router ids are errors too - they can route to a denied model. See src/denied-models.js.
+  let resolved = config;
+  try { resolved = resolveChainSeats(config || {}); } catch { /* malformed config: lint the raw one */ }
+  for (const { path, reasons } of deniedSeatsOf(resolved)) {
+    findings.push({
+      kind: 'denied-model',
+      message: `${path}: ${reasons.join('; ')}.`,
+      fix: `Remove that seat from ${filePath}. xAI/Grok and Kimi/Moonshot are never seated, and a router id cannot prove it avoids them. There is no override.`,
     });
   }
 

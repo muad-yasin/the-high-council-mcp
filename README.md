@@ -140,7 +140,12 @@ Fill in `.env` with only the keys your chosen chain needs. Supported providers:
 
 `ANTHROPIC_API_KEY` · `OPENAI_API_KEY` · `GOOGLE_API_KEY` · `MISTRAL_API_KEY` ·
 `DEEPSEEK_API_KEY` · `GROQ_API_KEY` · `TOGETHER_API_KEY` · `COHERE_API_KEY` ·
-`OPENROUTER_API_KEY` · `ZAI_API_KEY` · `XAI_API_KEY`
+`OPENROUTER_API_KEY` · `ZAI_API_KEY`
+
+xAI/Grok and Kimi/Moonshot are never seated, and neither is a router id (`openrouter/auto`, the
+Pareto Code router) that could route to them: chain-lint refuses such a chain and the run itself
+refuses such a seat, with no override. The `xai` adapter is still in `src/providers.js`, but no
+chain can reach it.
 
 The CLI refuses to start if any seat in the chosen chain is missing its key, rather than failing
 halfway through a paid run. `ollama` (below) is the one exception - it needs no key at all.
@@ -522,6 +527,11 @@ what each rule guards against and why. Copy the folders you want into your proje
   for `unpriced` before trusting a ceiling. `ollama` seats are the one deliberate exception: they
   price at an explicit $0 for any model name (they are genuinely free to run), so they never show
   up in that `unpriced` list and never need a pricing.json entry.
+- A call that fails **after** it reached the provider - the connection drops while a 200 reply is
+  being read, a 200 carries a body that is not JSON, or the request times out waiting for headers -
+  is not retried, because the generation was probably already billed. Its real usage cannot be
+  read, so it is counted toward the per-run cap at its worst-case projection. It leaves no
+  `<label>.usage.json`, so `council --spend` does not see it.
 - Prices in `src/pricing.json` are hand-maintained list prices, last verified 2026-09-06. They are
   estimates, not invoices. Your provider's bill is the real number.
 - Chains with many labs and high round caps get expensive quickly. `plan-unanimous` at three rounds
