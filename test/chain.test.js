@@ -380,3 +380,49 @@ test('parseDisputes: a trailing newline (or CRLF, or blank lines between) does n
   }
   assert.deepEqual(parseDisputes('body\n\nDECLINED: x\n\nDECLINED: y\n').disputes, ['x', 'y']);
 });
+
+// Bug audit 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #5, #7).
+test('criteria guards: legitimate criteria are not refused; the Zofia shapes still are', async () => {
+  const { metaCriteria, infeasibleCriteria } = await import('../src/chain.js');
+  assert.deepEqual(metaCriteria(['The /orders endpoint returns a JSON object with an id and a status.', 'Tags are stored as a list of strings.']), []);
+  assert.ok(metaCriteria(["Is a JSON object with a 'criteria' key containing a list of strings."]).length);
+  const opts = { handoff: true, debate: true };
+  assert.deepEqual(infeasibleCriteria(["Doesn't contradict DECISIONS.md or CLAUDE.md.", 'Is consistent with PLAN.md and ROADMAP.md.'], opts), []);
+  assert.equal(infeasibleCriteria(['Is in the format of three core documents (PLAN.md, BOARD.md, HANDOFF.md) as required'], opts).length, 1);
+  assert.equal(infeasibleCriteria(['Delivers PLAN.md and ROADMAP.md as two files.'], opts).length, 1);
+});
+
+test('criteria guards: criteria retried for being meta must also pass the feasibility guard', async () => {
+  const { runChain, setCache, setBudget } = await import('../src/chain.js');
+  const seat = model => ({ provider: 'mock', model, lab: model });
+  const replies = {
+    criteria: '{"criteria": ["Is a JSON object with a \'criteria\' key", "Names a rollback plan", "Lists owners"]}',
+    'criteria-retry': '{"criteria": ["Ships HANDOFF.md with the build order", "Names a rollback plan", "Lists owners"]}',
+  };
+  setBudget(null);
+  setCache({ get: l => replies[l] ? { text: replies[l], usage: { input: 1, output: 1 }, usd: 0 } : null });
+  try {
+    await assert.rejects(() => runChain({ request: 'Plan X.', log: () => {}, config: { name: 'audit', maxRounds: 1, signoff: 'unanimous', handoff: { enabled: true },
+      seats: { criteria: seat('mock-criteria'), builder: seat('mock-builder'), reviser: seat('mock-builder'), handoff: seat('mock-handoff'), critics: [seat('mock-critic-a')] } } }),
+      /retried criteria demand documents/);
+  } finally { setCache(null); }
+});
+
+// Bug audit 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #8).
+test('proposals: a proposal\'s own id/lab never overrides the harness identity; a regex-y id cannot throw', async () => {
+  const { runChain, setCache, setBudget, scoreProposals } = await import('../src/chain.js');
+  const cfg = JSON.parse(readFileSync(join(root, 'chains', 'mock-proposals.json'), 'utf8'));
+  const own = JSON.stringify({ proposals: [{ id: 'P(1', lab: 'someone-else', title: 'T', serves: 's', what: 'w', why: 'y', how: 'h', acceptance_test: 'a' }] });
+  setBudget(null);
+  setCache({ get: l => /^propose-mock-pa(-\d+)?$/.test(l) ? { text: own, usage: { input: 1, output: 1 }, usd: 0 } : null });
+  try {
+    const r = await runChain({ request: 'Plan X.', config: cfg, log: () => {} });
+    const p = r.proposals.find(x => x.proposer_id === 'P(1');
+    assert.ok(p, 'the proposal is kept, with the model\'s own id recorded as proposer_id');
+    assert.equal(p.id, 'MOCKPA-1');
+    assert.equal(p.lab, 'mock-pa');
+    assert.equal(p.proposer_lab, 'someone-else');
+  } finally { setCache(null); }
+  assert.doesNotThrow(() => scoreProposals([{ id: 'P(1', lab: 'a' }], 'P(1 - accepted - fine'));
+  assert.equal(scoreProposals([{ id: 'P(1', lab: 'a' }], 'P(1 - accepted - fine').rows[0].status, 'accepted');
+});

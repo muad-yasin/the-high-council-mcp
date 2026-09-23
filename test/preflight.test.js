@@ -202,3 +202,18 @@ test('artifact gate: a filename that appears only inside another file\'s fence b
     assert.deepEqual(checkArtifactReferences(`Check tools.js.\n\n${fence}\n`), [], fence);
   }
 });
+
+// Bug audit 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #6): a garbled or cut-off
+// preflight reply read as "pass".
+test('preflight stage: only a stated pass passes; a wrong-case "Object" still objects; garbage is unreadable', async () => {
+  const { runPreflightStage } = await import('../src/chain.js');
+  const run = async text => (await runPreflightStage({ preflight: { seats: [{ provider: 'mock', model: 'm', lab: 'x' }] }, seats: {} },
+    { request: 'R', invoke: async () => ({ text }), record: s => s })).verdicts[0];
+  assert.equal((await run('{"verdict":"pass","objections":[]}')).verdict, 'pass');
+  assert.equal((await run('{"verdict":"Object","objections":["the target file is unnamed"]}')).verdict, 'object');
+  const single = await run('{"verdict":"object","objections":"the acceptance test cannot pass"}');
+  assert.deepEqual([single.verdict, single.objections], ['object', ['the acceptance test cannot pass']]);
+  for (const text of ['{"verdict":"obj', 'I think this task is fine.', '{"objections":[]}']) {
+    assert.equal((await run(text)).verdict, 'unreadable', text);
+  }
+});

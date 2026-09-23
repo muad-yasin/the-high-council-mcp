@@ -143,8 +143,15 @@ export async function runPreflightStage(config, { request, invoke, record, log =
         log, label: `preflight-${lab}`,
       }));
       const parsed = parseJson(s.text);
-      const verdict = parsed?.verdict === 'object' ? 'object' : 'pass';
-      const objections = Array.isArray(parsed?.objections) ? parsed.objections.filter(o => typeof o === 'string' && o.trim()) : [];
+      // Bug-audit fix, 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #6): anything but the
+      // exact "object" used to read as "pass" - a null parse, a cut-off reply, "Object" in another
+      // case - so a garbled objection waved the task through. Only a stated "pass" passes now; an
+      // unreadable reply is recorded as `unreadable` (like an unreachable seat, it does not block on
+      // its own, and it is never a pass). A single string objection is still an objection.
+      const stated = typeof parsed?.verdict === 'string' ? parsed.verdict.trim().toLowerCase() : null;
+      const rawObjections = Array.isArray(parsed?.objections) ? parsed.objections : typeof parsed?.objections === 'string' ? [parsed.objections] : [];
+      const objections = rawObjections.filter(o => typeof o === 'string' && o.trim());
+      const verdict = stated === 'object' ? 'object' : stated === 'pass' ? 'pass' : 'unreadable';
       return { lab, verdict, objections };
     } catch (err) {
       rethrowControlFlow(err);
@@ -254,7 +261,11 @@ export const CUT_OFF_RETRY_MAX_TOKENS = 64000;
 // talking about "criterion/criteria" does. Returns the offending items.
 export function metaCriteria(criteria) {
   const list = (criteria || []).filter(c => typeof c === 'string');
-  const shape = list.filter(c => /json object|["'`]criteria["'`]\s*key|list of strings/i.test(c));
+  // Bug-audit fix, 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #7): "json object" or
+  // "list of strings" alone flagged a legitimate criterion about the deliverable (an API that
+  // returns a JSON object). The shape words now count only when the criterion is about criteria.
+  const shape = list.filter(c => /["'`]criteria["'`]\s*key/i.test(c)
+    || (/json object|list of strings/i.test(c) && /\bcriteri(on|a)\b/i.test(c)));
   if (shape.length) return shape;
   const about = list.filter(c => /\bcriteri(on|a)\b/i.test(c));
   return about.length >= 2 && about.length / list.length >= 1 / 3 ? about : [];
@@ -269,7 +280,11 @@ export function infeasibleCriteria(criteria, { handoff = false, debate = false }
   const list = (criteria || []).filter(c => typeof c === 'string');
   return list.filter(c => {
     const files = [...new Set((c.match(/\b[A-Za-z0-9_-]+\.md\b/g) || []).map(f => f.toUpperCase()))];
-    if (files.length > 1) return true;
+    // Bug-audit fix, 2026-09-23 (BugAudit_ChainParsers #7): any two .md names flagged it, so "does
+    // not contradict DECISIONS.md or CLAUDE.md" stopped the run. Naming documents to stay consistent
+    // with is not demanding them; only a criterion that asks for several documents is infeasible.
+    const refersOnly = /\b(contradict\w*|consistent|conflict\w*|cite[sd]?|citing|refer\w*|according to|per|in line with|align\w*|match(es|ing)?|agree\w*|respect\w*|follow\w*|honou?r\w*)\b/i.test(c);
+    if (files.length > 1 && !refersOnly) return true;
     if (handoff && /\bHANDOFF\.md\b/i.test(c)) return true;
     if (debate && /\bBOARD\.md\b/i.test(c)) return true;
     return false;
@@ -441,7 +456,9 @@ export function normaliseCritique(critique, log = () => {}) {
 // finding about the integrator, not the proposer.
 export function scoreProposals(proposals, plan) {
   const rows = proposals.map(p => {
-    const re = new RegExp(`^[\\s*_\`-]*${p.id}[\`*_]*\\s*[-:\u2013\u2014]\\s*\\**(accepted|cut|withdrawn)\\**\\s*[-:\u2013\u2014]?\\s*(.*)$`, 'im');
+    // p.id is escaped: an id is a harness-made tag today, but an unescaped "P(1" threw a
+    // SyntaxError here, after every paid stage had run (bug audit 2026-09-23, ChainParsers #8).
+    const re = new RegExp(`^[\\s*_\`-]*${String(p.id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\`*_]*\\s*[-:\u2013\u2014]\\s*\\**(accepted|cut|withdrawn)\\**\\s*[-:\u2013\u2014]?\\s*(.*)$`, 'im');
     const m = plan.match(re);
     return { ...p, status: m ? m[1].toLowerCase() : 'unaccounted', note: m ? m[2].trim() : '' };
   });
@@ -1182,6 +1199,14 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       if (!Array.isArray(retried) || retried.length === 0 || metaCriteria(retried).length) {
         throw new Error('The criteria stage twice returned criteria about the criteria list rather than the request. Stopped before any paid review round; see the run log.');
       }
+      // Bug-audit fix, 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #5): the retried
+      // criteria skipped the feasibility guard, so a retry demanding HANDOFF.md was accepted - the
+      // Zofia "criteria about files the panel doesn't grade" failure, reached in a different order.
+      // Both guards now hold on whatever criteria the run finally keeps.
+      const retriedInfeasible = infeasibleCriteria(retried, { handoff: !!config.handoff, debate: !!config.debate });
+      if (retriedInfeasible.length) {
+        throw new Error(`The retried criteria demand documents a single build stage cannot produce ("${retriedInfeasible[0]}"). Stopped before any paid review round; see the run log.`);
+      }
       criteria = retried;
     }
   }
@@ -1327,8 +1352,17 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       // proposal through to whatever reads proposals downstream (debate/critic stages). No
       // debate/critic prompt text or scoring reads this field yet - deferred to a v2 that would
       // render slice-awareness into critic prompts (see chains/mock-partitioned.json's comment).
-      list.forEach((p, i) => proposals.push({ id: `${tag}-${i + 1}`, lab: labOf(seat), model: seat.model, slice: slice || null, ...p }));
-      pool.forEach(p => proposalPool.push({ lab: labOf(seat), model: seat.model, ...p, kept: list.includes(p) }));
+      // Bug-audit fix, 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #8): the model's own
+      // object was spread LAST, so a proposal carrying its own `id` or `lab` overrode the harness's -
+      // duplicate ids were scored `unaccounted`, and a lab could be misattributed. The harness's
+      // identity fields now win; the model's values are kept, renamed, for the record.
+      const ownIdentity = p => ({
+        ...p,
+        ...(p.id !== undefined ? { proposer_id: p.id } : {}),
+        ...(p.lab !== undefined ? { proposer_lab: p.lab } : {}),
+      });
+      list.forEach((p, i) => proposals.push({ ...ownIdentity(p), id: `${tag}-${i + 1}`, lab: labOf(seat), model: seat.model, slice: slice || null }));
+      pool.forEach(p => proposalPool.push({ ...ownIdentity(p), lab: labOf(seat), model: seat.model, kept: list.includes(p) }));
     }
     log(`  ${proposals.length} proposal(s) go to the builder.`);
     if (dropouts.length) {
