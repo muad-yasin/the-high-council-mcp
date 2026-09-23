@@ -26,6 +26,22 @@ const STAGE_DEFS = {
     required_sections: ['criteria'],
     return_instructions: 'Return JSON: { "criteria": [string, ...] }.',
   },
+  // Whole alternative architectures (chain.js, config.alternatives.enabled; 2026-09-23).
+  alternative: {
+    role: 'Blind: propose ONE whole alternative architecture for the request - its name, shape, key trade-offs and what it is bad at - without seeing any other seat\'s.',
+    required_sections: ['name', 'shape'],
+    return_instructions: 'Return JSON: { "name": string, "shape": string, "key_tradeoffs": string, "bad_at": string }.',
+  },
+  'alt-debate': {
+    role: 'Post an anonymised objection, support, or merge suggestion against another seat\'s whole architecture, without knowing which lab wrote it.',
+    required_sections: ['posts'],
+    return_instructions: 'Return JSON: { "posts": [{ "on": string, "stance": "support"|"object"|"merge", "text": string }] }.',
+  },
+  'alt-reply': {
+    role: 'As the architecture\'s own author, decide whether to keep, amend, or withdraw it in light of the posts against it.',
+    required_sections: ['replies'],
+    return_instructions: 'Return JSON: { "replies": [{ "id": string, "action": "keep"|"amend"|"withdraw", "text": string }] }.',
+  },
   skeleton: {
     role: 'Sketch the buildable shape of the deliverable that proposers will each independently fill in, blind to one another.',
     required_sections: ['skeleton'],
@@ -104,6 +120,9 @@ const STAGE_DEFS = {
 const STAGE_KIND_PATTERNS = [
   [/^questions$/, 'questions'],
   [/^criteria$/, 'criteria'],
+  [/^alternative-/, 'alternative'],
+  [/^alt-debate-/, 'alt-debate'],
+  [/^alt-reply-/, 'alt-reply'],
   [/^skeleton$/, 'skeleton'],
   [/^propose-.+-retry$/, 'propose'],
   [/^propose-/, 'propose'],
@@ -132,6 +151,7 @@ export function stageKindsFor(config) {
   const kinds = [];
   if (config.questions) kinds.push('questions');
   kinds.push('criteria');
+  if (config.alternatives?.enabled === true) kinds.push('alternative', 'alt-debate', 'alt-reply');
   if (config.proposals) {
     kinds.push('skeleton', 'propose');
     if ((config.proposals.samples ?? 1) > 1) kinds.push('judge');
@@ -156,7 +176,7 @@ export function requiredSectionsFor(stageKind) {
 // check for) vs. freeform markdown/text (required_sections names a single symbolic slot,
 // satisfied by any non-empty text). Used by partial-deliverable detection (§7.1) to know how
 // to validate a stage's raw output without re-deriving it from return_instructions text.
-const STRUCTURED_STAGE_KINDS = new Set(['questions', 'criteria', 'propose', 'judge', 'debate', 'reply', 'panel', 'critique']);
+const STRUCTURED_STAGE_KINDS = new Set(['questions', 'criteria', 'alternative', 'alt-debate', 'alt-reply', 'propose', 'judge', 'debate', 'reply', 'panel', 'critique']);
 export function isStructuredStage(stageKind) {
   return STRUCTURED_STAGE_KINDS.has(stageKind);
 }

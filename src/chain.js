@@ -1345,6 +1345,134 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   log(`\nAcceptance criteria (${criteria.length}):`);
   criteria.forEach((c, i) => log(`  ${i + 1}. ${c}`));
 
+  // 1a. Whole alternative architectures (optional, config.alternatives.enabled; 2026-09-23, Muad:
+  //     "have the models argue over whole alternative architectures: I think this is a great
+  //     idea"). Before any skeleton exists, every proposer lab writes ONE whole architecture,
+  //     blind and concurrently; then the same anonymised post/reply debate proposals use runs over
+  //     the alternatives. The board goes to the skeleton and the builder, which choose one or
+  //     combine them and record every loser in the plan's "Decisions" section (promptOpts above).
+  //     Stage labels (alternative-<lab>, alt-debate-<lab>, alt-reply-<lab>) are stable so resume
+  //     and the stage cache replay them; every call goes through invoke(), so the spend cap and
+  //     the denied-model backstop apply; lab identity is labOf(), as everywhere else.
+  let alternatives = null;
+  let alternativesBoard = null;
+  if (config.alternatives?.enabled === true && !initialDraft) {
+    const altSeats = config.seats.proposers || config.seats.critics || [];
+    const perAlt = config.alternatives.maxTokens ?? 3000;
+    log(`\nStage: alternatives (${altSeats.length} labs each propose ONE whole architecture, blind)`);
+    const altResults = await settleAll(altSeats.map(async seat => {
+      const lines = []; const say = m => lines.push(m);
+      const lab = labOf(seat);
+      const capped = { ...seat, maxTokens: Math.min(seat.maxTokens ?? DEFAULT_MAX_TOKENS, perAlt) };
+      const readAlt = text => {
+        const j = parseJson(text);
+        const one = j && !Array.isArray(j) ? j : null;
+        // A model may hand back a list or an object where a string belongs; keep it, as text.
+        const str = v => typeof v === 'string' ? capField(v) : v == null ? '' : capField(JSON.stringify(v));
+        return one && typeof one.name === 'string' && one.name.trim() && typeof one.shape === 'string' && one.shape.trim()
+          ? { name: str(one.name), shape: str(one.shape), key_tradeoffs: str(one.key_tradeoffs), bad_at: str(one.bad_at) }
+          : null;
+      };
+      const ask = label => invoke(capped, {
+        system: R.ALTERNATIVE_SYSTEM,
+        user: R.alternativeUser({ request, criteria }),
+        log: say, label,
+      });
+      let alt = readAlt(record(await ask(`alternative-${lab}`)).text);
+      if (!alt) {
+        // Same one-retry rule as the proposal stage: an unreadable reply costs one more call,
+        // through invoke() like any other, then the lab drops out on the record.
+        alt = readAlt(record(await ask(`alternative-${lab}-retry`)).text);
+        say(`  ${lab}/${seat.model}: unreadable alternative; retried once - ${alt ? 'recovered' : 'still nothing'}.`);
+      }
+      if (alt) say(`  ${lab}/${seat.model}: "${alt.name}"`);
+      return { seat, lab, alt, lines };
+    }));
+    const items = [];
+    const altDropouts = [];
+    const seenTag = {};
+    for (const { seat, lab, alt, lines } of altResults) {
+      lines.forEach(m => log(m));
+      if (!alt) { altDropouts.push({ lab, model: seat.model, stage: 'alternatives', reason: 'no readable alternative after a retry' }); continue; }
+      let tag = lab.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      seenTag[tag] = (seenTag[tag] || 0) + 1;
+      if (seenTag[tag] > 1) tag += String(seenTag[tag]);
+      items.push({ id: `${tag}-ALT`, lab, model: seat.model, ...alt });
+    }
+    if (altDropouts.length) log(`  !! ${altDropouts.length} of ${altSeats.length} labs produced no alternative: ${altDropouts.map(d => d.lab).join(', ')}`);
+
+    const posts = [];
+    const replies = [];
+    if (items.length > 1) {
+      const maps = R.anonymise(items);
+      const labs = items.map(a => a.lab);
+      const seatOf = lab => altSeats.find(s => labOf(s) === lab);
+      log(`\nStage: alternatives debate (${labs.length} labs read each other's architectures, anonymised)`);
+      const postResults = await settleAll(labs.map(async lab => {
+        const lines = []; const say = m => lines.push(m);
+        try {
+          const st = record(await invoke(seatOf(lab), {
+            // No persona here: seat roles apply at exactly one call site, the proposal debate
+            // (test/stage-isolation.test.js guards that boundary). Widening it to this stage is a
+            // separate decision, not something to slip in with the stage.
+            system: R.ALT_DEBATE_SYSTEM,
+            user: R.altDebateUser({ request, criteria, alternatives: items, lab, maps }),
+            log: say, label: `alt-debate-${lab}`,
+          }));
+          const parsed = parseJson(st.text);
+          if (!parsed) { say(`  ${lab}: unreadable debate reply - no posts counted.`); return { lines, posts: [] }; }
+          const mine = (parsed.posts || []).map(x => ({ by: lab, on: maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: capField(x.text) || '', merge_with: x.merge_with ? (maps.idFrom[x.merge_with] || x.merge_with) : undefined }))
+            .filter(x => items.some(a => a.id === x.on && a.lab !== lab) && ['support', 'object', 'merge'].includes(x.stance));
+          say(`  ${lab}: ${mine.length} post(s)`);
+          return { lines, posts: mine };
+        } catch (err) {
+          rethrowControlFlow(err);
+          say(`  ${lab}: no debate reply (${String(err.message).slice(0, 100)}).`);
+          return { lines, posts: [] };
+        }
+      }));
+      for (const r of postResults) { r.lines.forEach(m => log(m)); posts.push(...r.posts); }
+
+      log(`\nStage: alternatives replies (each author answers the posts on its architecture)`);
+      const replyResults = await settleAll(labs.map(async lab => {
+        const lines = []; const say = m => lines.push(m);
+        const mine = items.filter(a => a.lab === lab && posts.some(x => x.on === a.id));
+        if (!mine.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
+        try {
+          const st = record(await invoke(seatOf(lab), {
+            system: R.ALT_REPLY_SYSTEM,
+            user: R.altReplyUser({ request, alternatives: items, posts, lab, maps }),
+            log: say, label: `alt-reply-${lab}`,
+          }));
+          const parsed = parseJson(st.text);
+          if (!parsed) { say(`  ${lab}: unreadable reply - its alternative stands as posted.`); return { lines, replies: [] }; }
+          const got = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: r.replaced_by ? (maps.idFrom[r.replaced_by] || r.replaced_by) : undefined, action: String(r.action || '').toLowerCase(), text: capField(r.text) || '' }))
+            .filter(r => mine.some(a => a.id === r.id) && ['keep', 'amend', 'withdraw'].includes(r.action));
+          say(`  ${lab}: ${got.map(r => r.action).join(', ') || 'no usable reply'}`);
+          return { lines, replies: got };
+        } catch (err) {
+          rethrowControlFlow(err);
+          say(`  ${lab}: no reply-round answer (${String(err.message).slice(0, 100)}).`);
+          return { lines, replies: [] };
+        }
+      }));
+      for (const r of replyResults) { r.lines.forEach(m => log(m)); replies.push(...r.replies); }
+      for (const r of replies) {
+        const a = items.find(x => x.id === r.id);
+        if (r.action === 'amend') { for (const k of ['shape', 'key_tradeoffs', 'bad_at']) if (typeof r[k] === 'string' && r[k].trim()) a[k] = capField(r[k]); a.amended = true; }
+        if (r.action === 'withdraw') { a.withdrawn = true; a.replaced_by = r.replaced_by; }
+      }
+    }
+    if (items.length) {
+      alternativesBoard = R.renderAlternativesBoard(items, posts, replies);
+      alternatives = { items, posts, replies, dropouts: altDropouts, board: alternativesBoard };
+      log(`  alternatives: ${items.length} architecture(s), ${posts.length} post(s), ${items.filter(a => a.withdrawn).length} withdrawn, ${items.filter(a => a.amended).length} amended.`);
+    } else {
+      alternatives = { items, posts, replies, dropouts: altDropouts, board: null };
+      log('  alternatives: no lab produced one - the plan proceeds without an alternatives board.');
+    }
+  }
+
   // 1b. Proposal stage (optional, config.proposals). A skeleton first, then
   //     every proposer seat - blind, concurrently - offers up to N buildable
   //     parts against it. The builder integrates and keeps a scope ledger.
@@ -1363,7 +1491,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     log('\nStage: skeleton');
     skeleton = record(await invoke(config.seats.skeleton || config.seats.builder, {
       system: R.SKELETON_SYSTEM,
-      user: R.skeletonUser({ request, criteria }),
+      user: R.skeletonUser({ request, criteria, alternatives: alternativesBoard }),
       log, label: 'skeleton',
     })).text;
     const proposers = config.seats.proposers || config.seats.critics;
@@ -1679,7 +1807,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     log('\nRound 1: build');
     draft = record(await invoke(config.seats.builder, {
       system: R.builderSystem(open, promptOpts),
-      user: R.builderUser({ request, criteria, proposals, board }),
+      user: R.builderUser({ request, criteria, proposals, board, alternatives: alternativesBoard }),
       log, label: 'build',
     })).text;
   }
@@ -2569,5 +2697,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     // Additive: absent unless the task carried fenced source for quotes to be checked against.
     ...(fencedSource ? { quoteFindings } : {}),
     ...(config.revise?.mode === 'patch' ? { patchFallbacks } : {}),
+    // Additive, per report.json's public contract: absent on any chain without the alternatives stage.
+    ...(alternatives !== null ? { alternatives } : {}),
   };
 }

@@ -80,6 +80,15 @@ anything on top of a run, read that instead. Do not parse the markdown.
     "replies": [ { "id": "DEEPSEEK-1", "action": "keep|amend|withdraw",
                    "text": "...", "replaced_by": "GLM-1" } ]
   },
+  // Only on chains with `alternatives: { enabled: true }`: one whole architecture per lab, written
+  // blind before the skeleton, and the same post/reply board the proposals get.
+  "alternatives": {
+    "items":   [ { "id": "GLM-ALT", "lab": "glm", "model": "...", "name": "...", "shape": "...",
+                   "key_tradeoffs": "...", "bad_at": "...", "amended": true, "withdrawn": false } ],
+    "posts":   [ { "by": "qwen", "on": "GLM-ALT", "stance": "object|support|merge", "text": "..." } ],
+    "replies": [ { "id": "GLM-ALT", "action": "keep|amend|withdraw", "text": "..." } ],
+    "dropouts": [ { "lab": "...", "model": "...", "stage": "alternatives", "reason": "..." } ]
+  },
   "signoff": [ { "provider": "qwen", "model": "...", "signedOff": false,
                  "objections": [ { "criterion": "...", "problem": "...", "fix": "..." } ] } ],
   "lastCritique": { "meets": false, "failures": [ { "criterion": "...", "lab": "qwen" } ] },

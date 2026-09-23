@@ -61,10 +61,28 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
   if (config.questions && !fromRun) push('questions', config.seats.questions || config.seats.criteria, a.promptTokens, 800);
   // A chain with hand-written criteria skips that stage entirely.
   if (!config.criteria?.length) push('criteria', config.seats.criteria, a.promptTokens, 400);
+  // Whole alternative architectures (config.alternatives.enabled): one architecture per proposer
+  // lab, then the same debate + reply rounds proposals get. Its board is read by the skeleton and
+  // the builder, so it is added to both inputs below. Output per alternative is the stage's own
+  // token cap - the same number runChain caps each call at.
+  let alternativeTokens = 0;
+  if (config.alternatives?.enabled === true && !fromRun) {
+    const per = config.alternatives.maxTokens ?? 3000;
+    const seats = config.seats.proposers || config.seats.critics || [];
+    for (const seat of seats) push(`alternative-${seat.lab || seat.provider}`, seat, a.promptTokens + 400, per);
+    alternativeTokens = seats.length * per;
+    if (seats.length > 1) {
+      for (const seat of seats) {
+        push(`alt-debate-${seat.lab || seat.provider}`, seat, a.promptTokens + 1600 + alternativeTokens, 1500);
+        push(`alt-reply-${seat.lab || seat.provider}`, seat, a.promptTokens + 3000, 800);
+      }
+      alternativeTokens += alternativeTokens; // the board roughly doubles what the next stages read
+    }
+  }
   let proposalTokens = 0;
   if (config.proposals && !fromRun) {
     const parts = config.proposals.parts ?? 3, per = config.proposals.maxTokens ?? 1500;
-    push('skeleton', config.seats.skeleton || config.seats.builder, a.promptTokens + 400, 1200);
+    push('skeleton', config.seats.skeleton || config.seats.builder, a.promptTokens + 400 + alternativeTokens, 1200);
     const samples = config.proposals.samples ?? 1, keep = config.proposals.keep ?? parts;
     for (const seat of config.seats.proposers || config.seats.critics) {
       for (let k = 0; k < samples; k++) push(`propose-${seat.lab || seat.provider}${samples > 1 ? `-${k + 1}` : ''}`, seat, a.promptTokens + 1600, parts * per);
@@ -79,7 +97,7 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
     }
     proposalTokens += proposalTokens; // the board roughly doubles what the builder reads
   }
-  if (!fromRun) push('build', config.seats.builder, a.promptTokens + 400 + proposalTokens, a.draftTokens);
+  if (!fromRun) push('build', config.seats.builder, a.promptTokens + 400 + proposalTokens + alternativeTokens, a.draftTokens);
   const unanimous = config.signoff === 'unanimous';
   for (let r = 1; r <= config.maxRounds; r++) {
     if (unanimous) {

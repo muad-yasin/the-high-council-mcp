@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased - decision records and whole alternative architectures
+
+Two opt-in planning structures, both from the 2026-09-23 research intake and both approved by the
+author ("a great idea", "another great idea"). Mechanism only: **no efficacy claim** - nothing here
+has been measured.
+
+- **Decision records** (`decisions: { enabled: true }`). The builder must write a "Decisions"
+  section: each major architecture decision with its context, at least two real options (a
+  strawman does not count), the trade-offs, the choice, why the others lost, and what would change
+  the call. The criteria seat adds a matching criterion, so reviewers check for real alternatives;
+  the reviser keeps records true and may not delete one to dodge an objection. Absent the flag,
+  every prompt is byte-identical to before.
+- **Whole alternative architectures** (`alternatives: { enabled: true, maxTokens? }`). Before the
+  skeleton, every proposer lab writes ONE whole architecture blind (name, shape, key trade-offs,
+  what it is bad at); the labs then debate them in the same anonymised post/reply format proposals
+  use. The skeleton names the architecture it builds on; the builder records every alternative in
+  the Decisions section (the stage switches decision records on). Stable stage labels
+  (`alternative-<lab>`, `alt-debate-<lab>`, `alt-reply-<lab>`) for resume and the stage cache;
+  every call goes through `invoke()`, so the spend cap and the denied-model check apply; `--dry-run`
+  prices the stage. `report.json` gains an additive `alternatives` field and `BOARD.md` an
+  "Alternative architectures" section, both absent on chains without the stage. No persona in the
+  alternatives debate: seat roles stay at their one call site, the proposal debate.
+
 ## Unreleased - Opus 5 and Sonnet 5 pricing corrected
 
 `src/pricing.json` listed `anthropic/claude-opus-5` at $15/$75 and `anthropic/claude-sonnet-5` at

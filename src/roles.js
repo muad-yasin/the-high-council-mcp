@@ -138,8 +138,8 @@ produce the shipping version.
 - Do not add material. Do not expand scope. Length should go down, not up.
 - Output the deliverable only.`;
 
-export function builderUser({ request, criteria, proposals = [], board = null }) {
-  return `# Request\n\n${request}\n\n# Acceptance criteria (the definition of done)\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}${proposalsSection(proposals, board)}`;
+export function builderUser({ request, criteria, proposals = [], board = null, alternatives = null }) {
+  return `# Request\n\n${request}\n\n# Acceptance criteria (the definition of done)\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}${alternativesBuilderSection(alternatives)}${proposalsSection(proposals, board)}`;
 }
 
 export function criticUser({ request, criteria, draft, prior = [], answeredQuestion = null }) {
@@ -298,8 +298,8 @@ Reply with a single JSON object and nothing else:
   ]
 }`;
 
-export function skeletonUser({ request, criteria }) {
-  return `# Request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
+export function skeletonUser({ request, criteria, alternatives = null }) {
+  return `# Request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}${alternativesSkeletonSection(alternatives)}`;
 }
 
 // `slice` (v1 context partitioning, opt-in via config.proposals.partition - see chain.js) is a
@@ -498,6 +498,127 @@ export function renderBoard(proposals, posts, replies) {
     const status = p.withdrawn ? `WITHDRAWN by ${p.lab}${p.replaced_by ? ` in favour of ${p.replaced_by}` : ''}` : p.amended ? 'AMENDED by its author after debate' : 'stands';
     return `## ${p.id} (${p.lab}) - ${status}\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}\n\n**Board:**\n${on.map(x => `- ${x.by} - ${x.stance}${x.merge_with ? ` with ${x.merge_with}` : ''}: ${x.text}`).join('\n') || '- (no posts)'}\n${re.map(r => `- ${p.lab} (author) - ${r.action}: ${r.text}`).join('\n')}`;
   }).join('\n\n');
+}
+
+// ---------------------------------------------------------------------------
+// Whole alternative architectures (2026-09-23, opt-in `alternatives: { enabled: true }`). Muad, on
+// the research intake: "have the models argue over whole alternative architectures: I think this
+// is a great idea". Proposals are additive parts against one skeleton, so until now no seat ever
+// argued for a different WHOLE shape - the skeleton's author chose the architecture alone. This
+// stage runs first: every lab proposes ONE whole architecture blind, the labs debate them in the
+// same anonymised post/reply format proposals use, and the skeleton and builder choose one or
+// combine them. The losers are recorded in the plan's "Decisions" section (decision records,
+// above), which this stage switches on. Mechanism only: no claim that it improves plans.
+
+export const ALTERNATIVE_SYSTEM = `You are an architect on a planning panel. Before any plan exists,
+each lab on the panel proposes, blind, ONE whole alternative architecture for the request. Not a
+part of a plan: a complete shape the whole deliverable could take. The labs will then debate the
+alternatives, and the plan's author will choose one or combine several, recording why the others
+lost.
+
+Rules:
+- Exactly one alternative. Make it the one you would defend, not a safe middle.
+- Whole: it covers the entire request end to end, at the level of the major
+  pieces, how they connect, and where data and authority live.
+- Say honestly what it is bad at. An alternative with no weakness is not
+  credible and will be discounted.
+- Every number carries a one-line reason or the word "placeholder".
+- Never propose anything the request names as out of scope or deferred.
+- No preamble, no commentary on the request, no addressing the author.
+
+Reply with a single JSON object and nothing else:
+
+{ "name": "<short name>",
+  "shape": "<the architecture: major pieces, how they connect, where data and authority live - concrete>",
+  "key_tradeoffs": "<what it buys and what it costs, for this request>",
+  "bad_at": "<what this architecture is genuinely bad at>" }`;
+
+export function alternativeUser({ request, criteria }) {
+  return `# Request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n# Your task\n\nPropose one whole alternative architecture.`;
+}
+
+export const ALT_DEBATE_SYSTEM = `You are one lab on an architecture panel. Every lab proposed ONE whole
+alternative architecture blind; now you read all of them and say what you think, so the plan's
+author chooses on evidence, not on who argued loudest.
+
+For each alternative by another lab, post one of:
+- support: it is a sound whole architecture for this request (one line why).
+- object: name the concrete problem - a requirement it cannot meet, a
+  constraint it breaks, a cost it hides, a weakness its own "bad at" understates.
+  Quote the phrase you object to.
+- merge: it and another alternative should be combined; say which one and
+  what the combined shape is.
+You may skip alternatives you have nothing to add to. Do not post on your own.
+Never withdraw here - each author decides that in the reply round.
+
+No pleasantries, no summary of the alternatives, no addressing the author.
+
+Reply with a single JSON object and nothing else:
+{
+  "posts": [
+    { "on": "<alternative id>", "stance": "support" | "object" | "merge",
+      "text": "<one to three sentences, concrete>",
+      "merge_with": "<alternative id, only for merge>" }
+  ]
+}`;
+
+export const ALT_REPLY_SYSTEM = `You are one lab on an architecture panel, answering what the other labs
+posted about YOUR alternative architecture. Decide:
+- keep: the objections are wrong or do not apply; say why in one or two sentences.
+- amend: an objection is right in part; give the amended "shape", "key_tradeoffs"
+  and/or "bad_at".
+- withdraw: the objections are right, or a merge makes yours redundant; say
+  which alternative replaces it, if any.
+Answer the substance, not the tone. A withdrawal is a first-class outcome.
+
+Reply with a single JSON object and nothing else:
+{
+  "replies": [
+    { "id": "<your alternative id>", "action": "keep" | "amend" | "withdraw",
+      "text": "<why, short>", "shape": "<if amended>", "key_tradeoffs": "<if amended>",
+      "bad_at": "<if amended>", "replaced_by": "<alternative id, if withdrawn in favour of one>" }
+  ]
+}`;
+
+function renderAlternative(a, idTo, labTo) {
+  return `## ${idTo[a.id]} (by ${labTo[a.lab]})\n**Name:** ${a.name}\n**Shape:** ${a.shape}\n**Key trade-offs:** ${a.key_tradeoffs}\n**Bad at:** ${a.bad_at}`;
+}
+
+export function altDebateUser({ request, criteria, alternatives, lab, maps }) {
+  const mine = alternatives.filter(a => a.lab === lab);
+  const others = alternatives.filter(a => a.lab !== lab);
+  return `# Request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n# Your own alternative (you are ${maps.labTo[lab]})\n\n${mine.map(a => renderAlternative(a, maps.idTo, maps.labTo)).join('\n\n')}\n\n# The other labs' alternatives\n\n${others.map(a => renderAlternative(a, maps.idTo, maps.labTo)).join('\n\n')}`;
+}
+
+export function altReplyUser({ request, alternatives, posts, lab, maps }) {
+  const threads = alternatives.filter(a => a.lab === lab).map(a => {
+    const on = posts.filter(x => x.on === a.id);
+    if (!on.length) return null;
+    return `${renderAlternative(a, maps.idTo, maps.labTo)}\n\n**Posts on it:**\n${on.map(x => `- ${maps.labTo[x.by]} - ${x.stance}${x.merge_with ? ` with ${maps.idTo[x.merge_with] || x.merge_with}` : ''}: ${x.text}`).join('\n')}`;
+  }).filter(Boolean);
+  return `# Request (for reference)\n\n${request}\n\n# Your alternative and the posts on it (you are ${maps.labTo[lab]})\n\n${threads.join('\n\n---\n\n')}`;
+}
+
+// The alternatives board with real names, as the skeleton, the builder and a human read it.
+export function renderAlternativesBoard(alternatives, posts, replies) {
+  return alternatives.map(a => {
+    const on = posts.filter(x => x.on === a.id);
+    const re = replies.filter(r => r.id === a.id);
+    const status = a.withdrawn ? `WITHDRAWN by ${a.lab}${a.replaced_by ? ` in favour of ${a.replaced_by}` : ''}` : a.amended ? 'AMENDED by its author after debate' : 'stands';
+    return `## ${a.id} (${a.lab}) - ${status}\n**Name:** ${a.name}\n**Shape:** ${a.shape}\n**Key trade-offs:** ${a.key_tradeoffs}\n**Bad at:** ${a.bad_at}\n\n**Board:**\n${on.map(x => `- ${x.by} - ${x.stance}${x.merge_with ? ` with ${x.merge_with}` : ''}: ${x.text}`).join('\n') || '- (no posts)'}\n${re.map(r => `- ${a.lab} (author) - ${r.action}: ${r.text}`).join('\n')}`;
+  }).join('\n\n');
+}
+
+// Absent (no alternatives stage), both sections are the empty string, so skeletonUser and
+// builderUser are byte-identical to what they were before this stage existed.
+export function alternativesSkeletonSection(board) {
+  if (!board) return '';
+  return `\n\n# Whole alternative architectures, with their debate board\n\nBefore this skeleton, each lab proposed one whole architecture blind, the labs debated them, and each author kept, amended or withdrew theirs. Build the skeleton on one of them or on a combination, and name the one(s) at the top of the skeleton by id. None is required and a lab's support is not a vote. A withdrawn alternative is out unless another one absorbed it.\n\n${board}`;
+}
+
+export function alternativesBuilderSection(board) {
+  if (!board) return '';
+  return `\n\n# Whole alternative architectures, with their debate board\n\nBefore this plan, each lab proposed one whole architecture blind, the labs debated them, and each author kept, amended or withdrew theirs. The plan is built on one of them or a combination; if the skeleton names one, build on that. None is required and a lab's support is not a vote.\n\nThe plan's "Decisions" section must record this as its architecture decision. Every alternative id below appears in that record as an option considered: the one(s) chosen, with which part came from which id, and one line per losing alternative saying why it lost. A withdrawn alternative is listed as withdrawn by its author.\n\n${board}`;
 }
 
 export function handoffUser({ request, draft, planFile = 'PLAN.md' }) {

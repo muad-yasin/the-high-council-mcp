@@ -121,6 +121,33 @@ async function callMock({ model, system, messages, maxTokens }) {
     await new Promise(r => setTimeout(r, 10));
     throw new Error('mock: provider unreachable (simulated network failure)');
   }
+  // Whole alternative architectures (the `alternatives` stage). `mock-alt-empty` never produces a
+  // readable alternative (exercises the retry and the dropout record); `mock-alt-withdraw`
+  // withdraws its own architecture in the reply round in favour of the first one it was told
+  // about. Every other model writes one architecture named after itself, objects to the first
+  // other alternative it reads and supports the rest, and amends when objected to.
+  if (system.startsWith('You are an architect on a planning panel.')) {
+    await new Promise(r => setTimeout(r, 10));
+    const text = model === 'mock-alt-empty'
+      ? 'I would rather not pick one.'
+      : JSON.stringify({ name: `Architecture from ${model}`, shape: `mock shape: one service per concern (${model})`, key_tradeoffs: 'mock: simple to build, slow to change.', bad_at: 'mock: high write volume.' });
+    return { text, usage: { input: 20, output: 30 }, provider: 'mock', model };
+  }
+  if (system.startsWith('You are one lab on an architecture panel. Every lab proposed')) {
+    await new Promise(r => setTimeout(r, 10));
+    const mineIdx = user.indexOf("# The other labs' alternatives");
+    const theirs = [...user.matchAll(/^## ([A-Z]-ALT) \(by Lab [A-Z]\)/gm)].filter(m => m.index > mineIdx).map(m => m[1]);
+    const posts = theirs.map((id, i) => ({ on: id, stance: i === 0 ? 'object' : 'support', text: i === 0 ? 'Quote: "one service per concern" - it cannot meet the latency bar.' : 'Sound for this request.' }));
+    return { text: JSON.stringify({ posts }), usage: { input: 30, output: 30 }, provider: 'mock', model };
+  }
+  if (system.startsWith('You are one lab on an architecture panel, answering')) {
+    await new Promise(r => setTimeout(r, 10));
+    const id = (user.match(/^## ([A-Z]-ALT) \(by/m) || [])[1];
+    const replies = !id ? [] : model === 'mock-alt-withdraw'
+      ? [{ id, action: 'withdraw', text: 'The objection is right.' }]
+      : [{ id, action: 'amend', text: 'Fair on latency.', shape: 'mock shape (amended): one service per concern, with a read cache' }];
+    return { text: JSON.stringify({ replies }), usage: { input: 30, output: 20 }, provider: 'mock', model };
+  }
   if (system.startsWith('You are a proposer')) {
     await new Promise(r => setTimeout(r, 10));
     const text = model === 'mock-proposer-empty'

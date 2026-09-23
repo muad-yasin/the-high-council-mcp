@@ -205,6 +205,9 @@ function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = 
     ...(result.patchFallbacks !== undefined ? { patchFallbacks: result.patchFallbacks } : {}),
     ...(result.coldRead != null ? { coldRead: result.coldRead } : {}),
     ...(result.noHeardReviewer ? { noHeardReviewer: result.noHeardReviewer } : {}),
+    // Whole alternative architectures: additive, present only when the chain ran the stage. The
+    // rendered board text lives in BOARD.md; the JSON carries the structured record only.
+    ...(result.alternatives ? { alternatives: (({ board, ...rest }) => rest)(result.alternatives) } : {}),
   };
 }
 
@@ -1844,7 +1847,10 @@ if (result.proposalPool?.length && result.proposalPool.length > result.proposals
 const disputesSection = (result.disputes?.length
   ? `\n\n## Disputed objections (declined by the reviser, kept out of the deliverable)\n\n${result.disputes.map(d => `- Round ${d.round}: ${d.reason}`).join('\n')}`
   : '') + renderDisputeReviewBoard(result.dispute);
-if (result.board || disputesSection) writeFileSync(join(runDir, 'BOARD.md'), `# Debate board - run ${runId}\n\n${result.board ? `Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${disputesSection}`);
+const alternativesSection = result.alternatives?.board
+  ? `## Alternative architectures\n\nEvery whole architecture a lab proposed before the plan existed, what the other labs posted on it, and the author's reply. The plan's "Decisions" section records which was chosen and why the others lost.\n\n${result.alternatives.board}\n\n`
+  : '';
+if (result.board || disputesSection || alternativesSection) writeFileSync(join(runDir, 'BOARD.md'), `# Debate board - run ${runId}\n\n${alternativesSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${disputesSection}`);
 if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff);
 // v4 item 2: written on every run that had a preflight config, blocked or not - the blocked
 // path also writes this same file from the PreflightBlocked catch above, before this line is
@@ -1908,7 +1914,7 @@ if (result.scoreboard) {
 }
 log(`tokens:   ${t.input} in, ${t.output} out, ${t.total} total`);
 log(`cost:     ${formatUsd(t.usd)}${t.unpriced.length ? ` (+ unpriced: ${t.unpriced.join(', ')})` : ''}${maxUsdEff === null ? '' : ` of ${formatUsd(maxUsdEff)} ceiling`}`);
-const boardWritten = result.board || disputesSection;
+const boardWritten = result.board || disputesSection || alternativesSection;
 log(`output:   ${join(runDir, 'deliverable.md')}${result.handoff ? `  (+ HANDOFF.md${boardWritten ? ', BOARD.md' : ''})` : boardWritten ? '  (+ BOARD.md)' : ''}`);
 // Final security-review gate. Checked last, after every artifact (report.json, state.json, the
 // audit close, RESUME.md) is on disk, so a failed gate still leaves a complete, readable run
