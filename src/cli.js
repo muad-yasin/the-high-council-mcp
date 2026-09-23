@@ -1097,16 +1097,19 @@ if (flag('rounds', null)) config.maxRounds = Number(flag('rounds'));
 // --from-run: the earlier run's criteria and first draft are reused verbatim,
 // so whatever differs in the outcome is the panel, not a fresh coin toss.
 let handedDraft = null;
+// The earlier run's criteria. A run that crashed has no report.json but does have criteria.md -
+// the criteria stage's raw reply - so the criteria can still be reused. One function for the
+// fresh start and the resume: the resume copy used to skip the criteria.md fallback, so a
+// --from-run of a crashed run regenerated its criteria on resume, changed the cache
+// fingerprint and re-paid every stage (2026-09-23 audit, MoneyPath #6).
+function criteriaOfRun(dir) {
+  const reportPath = join(dir, 'report.json');
+  if (existsSync(reportPath)) return JSON.parse(readFileSync(reportPath, 'utf8')).criteria;
+  const raw = readFileSync(join(dir, 'criteria.md'), 'utf8');
+  return JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).criteria;
+}
 if (fromRun) {
-  // A run that crashed has no report.json but does have criteria.md - the
-  // criteria stage's raw reply - so the criteria can still be reused.
-  const reportPath = join(resolve(fromRun), 'report.json');
-  if (existsSync(reportPath)) {
-    config.criteria = JSON.parse(readFileSync(reportPath, 'utf8')).criteria;
-  } else {
-    const raw = readFileSync(join(resolve(fromRun), 'criteria.md'), 'utf8');
-    config.criteria = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).criteria;
-  }
+  config.criteria = criteriaOfRun(resolve(fromRun));
   handedDraft = readFileSync(join(resolve(fromRun), 'build.md'), 'utf8');
 }
 // --draft <file>: review this exact text instead of building one. With
@@ -1114,9 +1117,11 @@ if (fromRun) {
 // the run. With --rounds 1 this is a panel-only pass: no builder, no reviser.
 const draftPath = resumeMeta ? resumeMeta.draft : flag('draft', null);
 if (draftPath) handedDraft = readFileSync(resolve(work, draftPath), 'utf8');
+// The earlier run's folder, as recorded: absolute for runs started since 2026-09-23, else
+// relative to the directory the run was started in (run.json's cwd) - the same rule as the task.
+const fromRunDirOnResume = resumeMeta?.fromRun ? resolve(resumeMeta.cwd || work, resumeMeta.fromRun) : null;
 if (resumeMeta?.fromRun && !fromRun) {
-  const rp = join(resolve(work, resumeMeta.fromRun), 'report.json');
-  if (existsSync(rp)) config.criteria = JSON.parse(readFileSync(rp, 'utf8')).criteria;
+  config.criteria = criteriaOfRun(fromRunDirOnResume);
   // Bug-audit fix, 2026-09-16: this branch restored the original run's criteria but never its
   // handed draft. A run started with `--from-run <X>` and NO separate `--draft` (the normal case
   // - `--from-run` alone already hands the earlier run's own build.md as the draft to review,
@@ -1127,7 +1132,7 @@ if (resumeMeta?.fromRun && !fromRun) {
   // the original (non-resumed) `--from-run` branch above does, but only when no explicit
   // `--draft` is already set (never override draftPath's own value with fromRun's build.md).
   if (!draftPath) {
-    handedDraft = readFileSync(join(resolve(work, resumeMeta.fromRun), 'build.md'), 'utf8');
+    handedDraft = readFileSync(join(fromRunDirOnResume, 'build.md'), 'utf8');
   }
 }
 
@@ -1352,7 +1357,7 @@ if (auditEnabled) {
 const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, context: contextArg || null, fromRun: fromRun || null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}) }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}) }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
