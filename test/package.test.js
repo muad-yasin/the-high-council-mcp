@@ -30,6 +30,7 @@ test('the tarball ships no private or irrelevant files', () => {
     /^tasks\//.test(f) ||       // as are task files
     f === '.env' ||
     /^\.env\..*(?<!example)$/.test(f) ||
+    /^maintainers\//.test(f) || // internal project docs (2026-09-23 layout)
     f === 'CLAUDE.md' || f === 'HANDOFF.md');
   assert.deepEqual(forbidden, [], 'these must not be published');
 });

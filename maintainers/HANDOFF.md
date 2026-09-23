@@ -8,7 +8,7 @@ style reasons.*
 file.** The "open decisions" below are settled (see `CLAUDE.md`'s note on that). The spend cap,
 the npm package rename, and the public npm publish that "Order of work" and "What done looks like"
 describe as not-yet-done have all since landed — `CLAUDE.md`'s "Architecture" section and
-`DECISIONS.md`/`CHANGELOG.md` are the current picture. This file is kept for its historical rules
+`maintainers/DECISIONS.md`/`CHANGELOG.md` are the current picture. This file is kept for its historical rules
 and reasoning, not as a source of current state.
 
 ## What this repo is

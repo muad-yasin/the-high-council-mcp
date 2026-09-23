@@ -366,7 +366,7 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
     objectionFollowThroughRate: rate(totalObjectedFollowedThrough, totalObjected),
     toolCallUsageRate: rate(totalItemsNamingTool, totalAcceptanceItems),
     // v7.3: the allocator's own required falsification watch (Review/
-    // v7x-gatekeeper-allocator-proposal.md's own falsifier condition) - a
+    // maintainers/proposals/v7x-gatekeeper-allocator-proposal.md's own falsifier condition) - a
     // high rubber-stamp rate here means the targeted extra rounds are pure
     // cost with no engagement gain, exactly the failure the proposal named.
     // Descriptive only, same as every other rate in this module: never a

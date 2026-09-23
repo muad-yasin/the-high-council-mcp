@@ -366,7 +366,7 @@ server.tool('spend_report', 'What every run has cost across a window of days, no
   days: z.number().min(0.1).max(365).optional().describe('how far back to look, in days. Defaults to 1.'),
 }, async ({ days = 1 }) => {
   const r = spendReport(runsDir, { days });
-  // v2 plan §8, narrowed per DECISIONS.md: session_cost_today, by local calendar day with
+  // v2 plan §8, narrowed per maintainers/DECISIONS.md: session_cost_today, by local calendar day with
   // a per-model breakdown, additive on this existing tool rather than a new one or a ledger.
   const today = costToday(runsDir);
   return text({

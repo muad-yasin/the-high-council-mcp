@@ -1,7 +1,7 @@
 // test/resource-allocator.test.js
 //
 // v7.3, Resource Allocator: disagreement-targeted round spending
-// (Review/v7x-gatekeeper-allocator-proposal.md item 2), built now per the author's own
+// (maintainers/proposals/v7x-gatekeeper-allocator-proposal.md item 2), built now per the author's own
 // instruction to build rather than just scope it. Its own Research: line flagged the real risk:
 // concentrating rounds on contested claims is structurally still repeated re-debate of that
 // claim, closer to the literature's degradation warning than v7 item 3 (descending rounds), not

@@ -141,7 +141,7 @@ test('spend accounting writes nothing at all', () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-// v2 plan §8, narrowed per DECISIONS.md: the granularity the plan wanted a ledger file for
+// v2 plan §8, narrowed per maintainers/DECISIONS.md: the granularity the plan wanted a ledger file for
 // (per-model breakdown, calendar-day boundary) derived from the same on-disk files instead.
 test('test_cost_today_sums_by_calendar_day_with_per_model_breakdown: only today\'s runs count, aggregated by model', () => {
   const { runs, add } = fixture();

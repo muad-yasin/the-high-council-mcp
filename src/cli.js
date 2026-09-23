@@ -819,7 +819,7 @@ if (argv.includes('--spend')) {
 // `council --cost-today [--date YYYY-MM-DD]` answers "what have I spent today", by the
 // local calendar day rather than --spend's rolling 24h window, with a per-model breakdown
 // across every run counted - the granularity v2 plan §8 wanted a ledger file for, derived
-// instead from the same run-folder files --spend already reads (see DECISIONS.md).
+// instead from the same run-folder files --spend already reads (see maintainers/DECISIONS.md).
 if (argv.includes('--cost-today')) {
   const dateArg = flag('date', null);
   const date = dateArg && dateArg !== true ? new Date(`${dateArg}T00:00:00`) : new Date();

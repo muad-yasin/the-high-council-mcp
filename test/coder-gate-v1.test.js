@@ -4,7 +4,7 @@
 // tests. Per the deliverable's own file list, `tasks/change-request-template.md` and
 // `tasks/examples/example-change-request.md` are new conventions - but this repo's own CLAUDE.md
 // hard rule forbids ever adding a real `tasks/` directory at the repo root (it exists to keep
-// private business material from the source repo out of this public one; see HANDOFF.md). Same
+// private business material from the source repo out of this public one; see maintainers/HANDOFF.md). Same
 // resolution used for the item-5/6 v7.x work earlier: the template/fixture content lives here,
 // written into a throwaway tmpdir cwd per test/github-install.test.js's own convention, never
 // committed as real files under a tasks/ directory in this repo.

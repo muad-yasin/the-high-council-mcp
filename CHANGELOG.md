@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased - repository layout: internal docs in maintainers/
+
+The internal project documents moved out of the repository root into `maintainers/`: `HANDOFF.md`,
+`DECISIONS.md`, `PROGRESS.md`, `STATUS-LEDGER.md`, `ideas/` (the idea matrix and its two PDFs) and
+`proposals/` (one design proposal that was tracked inside the gitignored `Review/`). User-facing
+files stay at the root. None of these was ever in the npm package, and the package's file list is
+unchanged. `test/repo-hygiene.test.js` keeps `runs/`, `tasks/`, `.council/`, `Review/` and
+`.idempotency/` gitignored and the moved documents out of the root, and `test/package.test.js`
+refuses `maintainers/` in the tarball.
+
 ## Unreleased - a cut-off draft never ships; stricter amendments; alternatives in the HTML board
 
 From the 2026-09-23 pre-release audits (`Review/PreRelease_Audit_revise`, `_contract`).
@@ -146,7 +156,7 @@ deliverable and returns typed findings (severity, category, file, line, evidence
 From the v6 plan (`relay/runs/2026-09-15T15-13-25-950Z/deliverable.md`, unanimous 5/5). V6-3,
 V6-4 and V6-7 deferred (the plan's own Mistral objection applies to V6-4 only) - not built here.
 
-**V6-1.** `STATUS-LEDGER.md` (new, tracked): a real, re-checkable status table for every v5 GUI
+**V6-1.** `maintainers/STATUS-LEDGER.md` (new, tracked; at the root until 2026-09-23): a real, re-checkable status table for every v5 GUI
 feature (built/partial/not started/cut) and the Project A overlap, each row citing the exact
 commit and file that backs it. `test/status-ledger.test.js` re-verifies every cited path exists
 at HEAD (in this repo or the named `coder-gate-agent-stub` sibling), that every status is one of
@@ -179,7 +189,7 @@ adopted as a dependency. No `src/chain.js` or `src/tools.js` change.
 From the v6 plan (`relay/runs/2026-09-15T15-13-25-950Z/deliverable.md`, unanimous 5/5). V6-3,
 V6-4 and V6-7 deferred (the plan's own Mistral objection applies to V6-4 only) - not built here.
 
-**V6-1.** `STATUS-LEDGER.md` (new, tracked): a real, re-checkable status table for every v5 GUI
+**V6-1.** `maintainers/STATUS-LEDGER.md` (new, tracked; at the root until 2026-09-23): a real, re-checkable status table for every v5 GUI
 feature (built/partial/not started/cut) and the Project A overlap, each row citing the exact
 commit and file that backs it. `test/status-ledger.test.js` re-verifies every cited path exists
 at HEAD (in this repo or the named `coder-gate-agent-stub` sibling), that every status is one of
@@ -618,7 +628,7 @@ anywhere below - these are correctness and resumability fixes, not performance c
   leak) the plan's debate never addressed. Built instead: `costToday()` (calendar-day boundary,
   per-model breakdown) as an extension of the existing derivation, a `--cost-today` CLI
   subcommand, and a `session_cost_today` field on the existing `spend_report` tool. No ledger, no
-  new tool. Full deviation recorded in `DECISIONS.md`.
+  new tool. Full deviation recorded in `maintainers/DECISIONS.md`.
 - **Static pre-flight check** - before any stage runs, a keyword check compares a chain's
   hard-required deliverable sections against the task text for the conflict class this project
   already hit once (a required "Scope ledger" section vs. a "standalone" requirement). Warns,
@@ -636,7 +646,7 @@ anywhere below - these are correctness and resumability fixes, not performance c
   operators without a flat-rate subscription (not the default anywhere in config or examples).
 
 Built and tested entirely offline against `chains/mock-*.json` fixtures - zero API spend for the
-whole build. See `PROGRESS.md` and `DECISIONS.md` for the full build log and every judgment call.
+whole build. See `maintainers/PROGRESS.md` and `maintainers/DECISIONS.md` for the full build log and every judgment call.
 
 ## 0.1.0
 

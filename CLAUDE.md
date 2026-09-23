@@ -46,7 +46,7 @@ published as it is, with no new releases unless he asks. The licence stays MIT. 
 everything committed here as publishable:** the release will make it public again, so every rule
 below that says "this repo is public" still binds.
 
-Read `HANDOFF.md` before starting work. It carries the release order and the hard rules. Its two
+Read `maintainers/HANDOFF.md` before starting work. It carries the release order and the hard rules. Its two
 "open decisions" are now settled and should not be reopened: the `LICENSE` holder stays
 **Sower Industries** (the legal company, confirmed by the author), and the package was renamed to
 **`the-high-council`** (npm names are lowercase, so `THC` would have shipped as `thc`; `THC` stays

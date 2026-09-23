@@ -1,5 +1,5 @@
 // V6-1 (relay/runs/2026-09-15T15-13-25-950Z/deliverable.md) - offline acceptance test for
-// STATUS-LEDGER.md, per the plan's own acceptance test wording: for each row, assert the cited
+// maintainers/STATUS-LEDGER.md, per the plan's own acceptance test wording: for each row, assert the cited
 // file exists at HEAD, the status is one of the four allowed values, and no row reads "assumed"
 // or "TBD". Read-only: never runs a chain, never touches network.
 import test from 'node:test';
@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
-const ledgerPath = join(repoRoot, 'STATUS-LEDGER.md');
+const ledgerPath = join(repoRoot, 'maintainers', 'STATUS-LEDGER.md');
 const ALLOWED_STATUSES = ['Built', 'Partial', 'Not started', 'Cut'];
 
 // A cited path in the Evidence column looks like `src/x.js`, `docs/y.md`,
@@ -45,7 +45,7 @@ function resolveCitedPath(p) {
 function parseRows(markdown) {
   const lines = markdown.split('\n');
   const tableStart = lines.findIndex(l => l.trim().startsWith('| v5 GUI feature'));
-  assert.ok(tableStart >= 0, 'STATUS-LEDGER.md must contain the v5 GUI feature table');
+  assert.ok(tableStart >= 0, 'maintainers/STATUS-LEDGER.md must contain the v5 GUI feature table');
   const rows = [];
   for (let i = tableStart + 2; i < lines.length; i++) {
     const line = lines[i];
@@ -61,7 +61,7 @@ function parseRows(markdown) {
 const ledgerText = readFileSync(ledgerPath, 'utf8');
 const rows = parseRows(ledgerText);
 
-test('1. STATUS-LEDGER.md exists and has at least the 7 v5 GUI feature rows', () => {
+test('1. maintainers/STATUS-LEDGER.md exists and has at least the 7 v5 GUI feature rows', () => {
   assert.ok(existsSync(ledgerPath));
   assert.ok(rows.length >= 7, `expected >= 7 rows, got ${rows.length}`);
 });

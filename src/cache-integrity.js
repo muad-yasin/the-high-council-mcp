@@ -10,7 +10,7 @@
 // Scope, deliberately narrow: the fingerprint covers the task's own text and the chain
 // config - not the full --context document bundle, which would fire on every irrelevant
 // context-doc edit and defeat the point of caching (this was an explicit board decision,
-// not an oversight - see DECISIONS.md).
+// not an oversight - see maintainers/DECISIONS.md).
 import { createHash } from 'node:crypto';
 
 /** A short fingerprint of the inputs a cached stage's validity depends on. */

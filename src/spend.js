@@ -84,7 +84,7 @@ function costOfRun(dir) {
 }
 
 // v2 plan §8 (~/Projects/relay/runs/2026-09-11T12-19-34-184Z/deliverable.md), narrowed per
-// decision in DECISIONS.md: §8 proposed a new ledger file to get per-call cost granularity
+// decision in maintainers/DECISIONS.md: §8 proposed a new ledger file to get per-call cost granularity
 // and a calendar-day "cost-today" view. Both are already derivable from what's on disk -
 // report.json's `stages` array for a finished run, individual `<label>.usage.json` files for
 // one still going - so this extends the existing derivation instead of adding a ledger.
