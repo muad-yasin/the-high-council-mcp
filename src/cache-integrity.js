@@ -19,22 +19,33 @@ export function fingerprintInputs(taskText, config) {
 }
 
 /**
- * Wrap a base cache getter (label -> { text, inputsFingerprint, ... } | null) so that a
- * cache hit computed against different inputs than `currentFingerprint` is treated as a
- * miss - forcing chain.js to re-run that stage - rather than silently replayed as valid.
- * `onStale(label)` is called once per invalidated hit, for logging/warning side effects;
- * this module has no file or console dependency of its own, so it stays unit-testable.
+ * The whole cache decision for one hit, in one pure function (wired into chain.js invoke(); it
+ * replaced withStalenessCheck, which was exported and tested but never called - pre-release cache
+ * audit, backlog). `hit` is what the cache returned: `staleInputs` is the CLI's task/config
+ * fingerprint comparison, `inputsFingerprint` is present when the entry recorded one, `promptHash`
+ * when it recorded the prompt it answered. Returns:
+ *   { status: 'fresh' }                   - the same prompt; replay it
+ *   { status: 'stale', why }             - re-run it (an external stage asks again)
+ *   { status: 'unverified', why }        - trusted, but recorded as unverified (see below)
+ *
+ * Pre-release cache audit #1 (HIGH, Review/PreRelease_Audit_cache_2026-09-23.md): an entry with NO
+ * record of its inputs at all (no fingerprint, no prompt hash - an external answer from before
+ * 9733a8d) used to be trusted with a log line, so an edited chain replayed an old build answer into
+ * deliverable.md. It is stale now. An entry from between the two fixes (a fingerprint, no prompt
+ * hash) passed the coarse check and cannot be checked more finely; it is trusted and recorded.
  */
-export function withStalenessCheck(baseGet, currentFingerprint, onStale = () => {}) {
-  return label => {
-    const cached = baseGet(label);
-    if (!cached) return null;
-    if (cached.inputsFingerprint && cached.inputsFingerprint !== currentFingerprint) {
-      onStale(label);
-      return null;
-    }
-    return cached;
-  };
+export function cacheVerdict(hit, promptHash) {
+  if (hit.staleInputs) return { status: 'stale', why: 'the task text or chain config changed since it was cached' };
+  if (hit.promptHash) {
+    return hit.promptHash === promptHash ? { status: 'fresh' }
+      : { status: 'stale', why: 'it answered a different prompt than the one this stage is asked now' };
+  }
+  if (hit.inputsFingerprint) return { status: 'unverified', why: 'it was cached before prompt hashes were recorded; its task and chain still match, but not that it answered this exact prompt' };
+  // `fromDisk` is set by the CLI's run-folder cache. An entry there with no record of its inputs is a
+  // pre-fingerprint file and is stale. A caller's own in-memory cache (a direct runChain() caller,
+  // the tests) records none by construction; its hits stay trusted, as unverified.
+  if (hit.fromDisk) return { status: 'stale', why: 'it carries no record of what it answered (cached before input fingerprints existed)' };
+  return { status: 'unverified', why: 'the cache that supplied it records no fingerprint or prompt hash' };
 }
 
 // Pre-release audit 5 #1 (Review/PreRelease_Audit_ResumeCache_2026-09-23.md, HIGH): the stage cache

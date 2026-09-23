@@ -1517,6 +1517,7 @@ if (resumeMeta) {
 // Stage cache: <label>.md holds the text, <label>.usage.json what it cost.
 // Both are written as each stage completes, so a resume replays them.
 const SUPERSEDED_HINT = (label, n) => n ? `superseded/${label}.${n}.*` : '(no files)';
+const unverifiedReplays = [];
 const cacheFingerprint = fingerprintInputs(rawTaskTextForCacheFingerprint, config);
 // Pre-release audits (money path #2, resume-cache #1/#4): the getter no longer decides staleness by
 // returning null - that threw the old answer's cost away. It returns what is on disk, flagged
@@ -1541,7 +1542,12 @@ setCache({
       }
     }
     const staleInputs = !!u.inputsFingerprint && u.inputsFingerprint !== cacheFingerprint;
-    return { text: readFileSync(t, 'utf8'), ...u, staleInputs };
+    return { text: readFileSync(t, 'utf8'), ...u, staleInputs, fromDisk: true };
+  },
+  // Pre-release cache audit #1: a replay that could only be checked coarsely is recorded, not silent.
+  warn: (label, why) => {
+    unverifiedReplays.push({ stage: label, why });
+    appendFileSync(join(runDir, 'WARNINGS.md'), `- cache_unverified: stage "${label}" replayed - ${why}\n`);
   },
   invalidate: (label, why) => {
     const n = archiveSuperseded(runDir, label);
@@ -1787,7 +1793,19 @@ try {
       currentStage = null;
       applyStageCompletion(s.label, s.lab);
       writeStateJson();
-      if (s.cached) return;
+      if (s.cached) {
+        // Pre-release cache audit #1: a trusted hit gets the hash of the prompt it was just matched
+        // against written back, so an entry cached before prompt hashes existed is checked properly
+        // from the next resume on.
+        const up = join(runDir, `${s.label}.usage.json`);
+        if (s.promptHash && existsSync(up)) {
+          try {
+            const u = JSON.parse(readFileSync(up, 'utf8'));
+            if (!u.promptHash) writeFileAtomic(up, JSON.stringify({ ...u, promptHash: s.promptHash, inputsFingerprint: u.inputsFingerprint ?? cacheFingerprint }));
+          } catch { /* unreadable: the getter already treats it as a miss next time */ }
+        }
+        return;
+      }
       // v2 plan §7.1: validate against the stage contract's required_sections before
       // trusting this deliverable - same class of bug as the lab-dropout fix, just one
       // stage later in the pipeline. Warns loudly and records it; does not, and cannot
@@ -2000,6 +2018,7 @@ if (result.lints?.length || result.claimWarnings?.length || result.toolRequestWa
 // this sitting or an earlier one), shown separately as totals.supersededUsd.
 {
   const supersededUsd = supersededSpendOf(runDir);
+  if (unverifiedReplays.length) result.unverifiedReplays = unverifiedReplays;
   if (supersededUsd > 0) result.totals = { ...result.totals, usd: (result.totals.usd || 0) + supersededUsd, supersededUsd };
 }
 // TOOLS.md: every tool call this sitting made, after redaction (pre-release audit 2026-09-23,

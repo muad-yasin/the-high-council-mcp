@@ -14,7 +14,7 @@ import { parsePatches, applyPatches, changedSince } from './patch-revise.js';
 import { injectCanary, shouldSampleCanary, runIdUnit, pickCanaryTarget, CANARY_NOTE } from './canary.js';
 import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
 import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
-import { promptHashOf } from './cache-integrity.js';
+import { promptHashOf, cacheVerdict } from './cache-integrity.js';
 export { DeniedModel };
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
@@ -884,22 +884,25 @@ async function invoke(seat, { system, user, log, label }) {
   const promptHash = promptHashOf(system, user);
   let hit = cache.get(label);
   if (hit) {
-    const why = hit.staleInputs ? 'the task text or chain config changed since it was cached'
-      : hit.promptHash && hit.promptHash !== promptHash ? 'it answered a different prompt than the one this stage is asked now'
-      : null;
-    if (why) {
+    // Pre-release cache audit #1: the decision is cacheVerdict() (cache-integrity.js). An entry with
+    // no record of its inputs is stale now; one from between the two fixes is trusted but recorded
+    // through cache.warn (WARNINGS.md and report.json), and every trusted hit's prompt hash is
+    // written back by the CLI (onStage), so the gap closes at the next resume.
+    const verdict = cacheVerdict(hit, promptHash);
+    if (verdict.status === 'stale') {
       budget.spent += hit.usd || 0;
-      cache.invalidate?.(label, why);
-      log(`  CACHE STALENESS WARNING: stage "${label}" - ${why}; ${seat.provider === 'external' ? 'the old answer was set aside and the operator is asked again' : 're-running it'}${hit.usd ? ` (the ${formatUsd(hit.usd)} the old answer cost still counts toward the cap)` : ''}.`);
+      cache.invalidate?.(label, verdict.why);
+      log(`  CACHE STALENESS WARNING: stage "${label}" - ${verdict.why}; ${seat.provider === 'external' ? 'the old answer was set aside and the operator is asked again' : 're-running it'}${hit.usd ? ` (the ${formatUsd(hit.usd)} the old answer cost still counts toward the cap)` : ''}.`);
       hit = null;
-    } else if (!hit.promptHash) {
-      log(`  CACHE: stage "${label}" was cached before prompt hashes were recorded - replayed without checking it answered the current prompt.`);
+    } else if (verdict.status === 'unverified') {
+      cache.warn?.(label, verdict.why);
+      log(`  CACHE: stage "${label}" replayed UNVERIFIED - ${verdict.why}. Recorded in WARNINGS.md and report.json.`);
     }
   }
   if (hit) {
     budget.spent += hit.usd || 0;
     log(`  ${label}: ${hit.provider || seat.provider}/${hit.model || seat.model} - from disk (${hit.usage?.input ?? 0} in, ${hit.usage?.output ?? 0} out, ${formatUsd(hit.usd || 0)} already spent)`);
-    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage: hit.usage || { input: 0, output: 0 }, usd: hit.usd || 0, priced: true, ms: 0, text: hit.text, cached: true, promptHash: hit.promptHash };
+    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage: hit.usage || { input: 0, output: 0 }, usd: hit.usd || 0, priced: true, ms: 0, text: hit.text, cached: true, promptHash };
   }
   if (seat.provider === 'external') throw new ExternalPause(label, system, user);
 

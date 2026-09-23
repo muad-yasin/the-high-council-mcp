@@ -5,7 +5,7 @@
 // the task text or chain config changed between when the stage was cached and now.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fingerprintInputs, withStalenessCheck } from '../src/cache-integrity.js';
+import { fingerprintInputs, cacheVerdict, promptHashOf } from '../src/cache-integrity.js';
 
 test('fingerprintInputs changes when the task text changes, stable otherwise', () => {
   const config = { name: 'verify' };
@@ -22,30 +22,28 @@ test('fingerprintInputs changes when the chain config changes', () => {
   assert.notEqual(a, b);
 });
 
-test('test_cache_invalidated_on_criteria_change: a hit fingerprinted against old inputs is treated as a miss', () => {
-  const oldFingerprint = fingerprintInputs('original task', { name: 'verify' });
-  const currentFingerprint = fingerprintInputs('edited task', { name: 'verify' });
-  let staleLabel = null;
-  const wrapped = withStalenessCheck(
-    () => ({ text: 'cached criteria output', inputsFingerprint: oldFingerprint }),
-    currentFingerprint,
-    label => { staleLabel = label; },
-  );
-  const result = wrapped('criteria');
-  assert.equal(result, null, 'a stale hit must be treated as a miss so chain.js re-runs the stage');
-  assert.equal(staleLabel, 'criteria', 'the staleness callback must name which stage was invalidated');
+// withStalenessCheck was exported and tested here but never called by the harness (pre-release
+// cache audit, backlog), so these tests covered nothing that ran. The decision chain.js actually
+// makes is cacheVerdict(); the CLI supplies `staleInputs` from the fingerprint above.
+const P = promptHashOf('system', 'user');
+
+test('test_cache_invalidated_on_criteria_change: a hit whose task/config fingerprint changed is stale', () => {
+  assert.equal(cacheVerdict({ text: 'x', staleInputs: true, promptHash: P }, P).status, 'stale');
 });
 
-test('a hit fingerprinted against current inputs is still served from cache', () => {
-  const fp = fingerprintInputs('task', { name: 'verify' });
-  const wrapped = withStalenessCheck(() => ({ text: 'cached', inputsFingerprint: fp }), fp, () => assert.fail('must not be called'));
-  assert.deepEqual(wrapped('criteria'), { text: 'cached', inputsFingerprint: fp });
+test('a hit that answered the same prompt is fresh; a different prompt is stale', () => {
+  assert.equal(cacheVerdict({ text: 'x', inputsFingerprint: 'f', promptHash: P }, P).status, 'fresh');
+  assert.equal(cacheVerdict({ text: 'x', inputsFingerprint: 'f', promptHash: P }, promptHashOf('system', 'other')).status, 'stale');
 });
 
-test('a cache miss stays a miss, and a hit with no fingerprint (pre-fix cache entry) is trusted rather than invalidated', () => {
-  const currentFingerprint = fingerprintInputs('task', {});
-  const wrapped = withStalenessCheck(() => null, currentFingerprint);
-  assert.equal(wrapped('criteria'), null);
-  const wrappedNoFingerprint = withStalenessCheck(() => ({ text: 'legacy cache entry' }), currentFingerprint, () => assert.fail('must not be called'));
-  assert.deepEqual(wrappedNoFingerprint('criteria'), { text: 'legacy cache entry' });
+test('cache audit #1: a hit with no record of its inputs at all is stale, not trusted', () => {
+  assert.equal(cacheVerdict({ text: 'legacy cache entry', fromDisk: true }, P).status, 'stale');
+  // A caller's own in-memory cache records nothing by construction: trusted, but unverified.
+  assert.equal(cacheVerdict({ text: 'in-memory entry' }, P).status, 'unverified');
+});
+
+test('cache audit #1: a hit from between the two fixes (fingerprint, no prompt hash) is trusted but unverified', () => {
+  const v = cacheVerdict({ text: 'x', inputsFingerprint: 'f' }, P);
+  assert.equal(v.status, 'unverified');
+  assert.match(v.why, /prompt/);
 });

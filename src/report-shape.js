@@ -98,6 +98,9 @@ export function reportJsonShape({ runId, chain, task, result, fromRun = null, ma
     ...(result.noHeardReviewer ? { noHeardReviewer: result.noHeardReviewer } : {}),
     // Whole alternative architectures: additive, present only when the chain ran the stage. The
     // rendered board text lives in BOARD.md; the JSON carries the structured record only.
+    // Pre-release cache audit #1: stages replayed from a cache entry that could only be checked
+    // against the task and chain, not the exact prompt. Absent when there were none.
+    ...(Array.isArray(result.unverifiedReplays) && result.unverifiedReplays.length ? { unverifiedReplays: result.unverifiedReplays } : {}),
     ...(result.alternatives ? { alternatives: (({ board, ...rest }) => rest)(result.alternatives) } : {}),
   };
 }
