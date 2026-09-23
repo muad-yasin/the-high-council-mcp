@@ -206,6 +206,16 @@
         }
       }
     },
+    "argued": {
+      "type": "object",
+      "description": "Opt-in \"How this plan was argued\" (ARGUED.md): a beginner-facing account of the debate, written on the handoff seat from the run's own record. Only \"enabled\" is read.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
     "claims": {
       "description": "v7 item 1 claim-extraction config. Engine-read, not re-validated here."
     },

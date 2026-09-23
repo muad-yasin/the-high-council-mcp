@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### "How this plan was argued" (opt-in)
+
+Muad, 2026-09-23 ("let's do #3"): the labs' arguments are part of the product, for beginner
+developers too. A new opt-in flag, `argued: { enabled: true }`, **off by default and enabled in no
+shipped chain** - that is his call after he has seen `maintainers/examples/argued-example.md`, which
+is rendered from a mock run only. No claim is made that the section helps anyone; research intake 2
+files its usefulness to beginners as an inference.
+
+- **One stage, `argued`, after the handoff, on the handoff seat** (the builder when there is none).
+  In the plan-7 chains that seat is the external Claude Code session, so the stage adds no API
+  call; a billed seat goes through `invoke()` like every free-text stage (spend cap, denied-model
+  check, the cut-off retry) and `--dry-run` prices an `argued` row.
+- **Written to `ARGUED.md`, never into the deliverable.** The plan is what gets scored, reviewed and
+  built; a narrative naming proposal ids inside it would be read as plan content.
+- **Facts only.** `src/argued.js` builds a fact pack from the run's own record - alternatives and
+  their debate, the plan's "Decisions" section verbatim, the five most consequential objections
+  (ranked by the withdrawal or amendment they caused, then a part the plan cut), declined
+  objections, unresolved dissent and `dispute.review`, and each lab's counts and final verdict -
+  with every item carrying an id. Canary posts are excluded. The prompt requires a cited id on every
+  claim and "Nothing recorded." for an empty section.
+- **A reference check.** Every id and lab the section names is checked against the fact pack;
+  anything the run never had lands in `WARNINGS.md` (`argued_unknown_ref`, `argued_unknown_lab`,
+  `argued_missing_lab`, `argued_missing_section`) and in `report.json`. The text is kept as written.
+- **Additive.** A new `report.json` field `argued`, present only when the flag is on. With the flag
+  off nothing runs and every prompt is byte-identical (`test/argued.test.js` pins each stage's
+  prompt hash on vs off). chain-lint: `argued` takes only `enabled` (schema and rule 5b), and
+  `argued-with-descending` refuses the pair, where the stage would silently not run.
+
 ## 0.7.6 - 2026-09-23
 
 Everything since 0.7.5. The summary comes first; the detailed notes, in the order they were

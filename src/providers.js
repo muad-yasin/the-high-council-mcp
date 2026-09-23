@@ -247,6 +247,44 @@ async function callMock({ model, system, messages, maxTokens }) {
     const text = '"The artifact" refers to the deliverable itself, as stated in the draft.';
     return { text, usage: { input: 20, output: 15 }, provider: 'mock', model };
   }
+  // "How this plan was argued" (src/argued.js). Written deterministically from the fact pack in the
+  // prompt, so the mock example in maintainers/examples/ shows the real shape and cites only real
+  // ids. mock-argued-inventor adds one sentence about a debate that never happened (an id and a lab
+  // the run never had), which the harness's reference check must flag.
+  if (system.startsWith('You write "How this plan was argued"')) {
+    await new Promise(r => setTimeout(r, 10));
+    const m = user.match(/# Fact pack\n\n```json\n([\s\S]*?)\n```/);
+    const f = m ? JSON.parse(m[1]) : { labs: [], counts: {}, top_objections: [] };
+    const c = f.counts || {};
+    const tick = x => `\`${x}\``;
+    const out = ['# How this plan was argued', '',
+      `This page explains how ${c.labs || 0} AI labs argued over the plan: ${c.alternatives || 0} whole architecture(s) (overall designs) and ${c.proposals || 0} proposed part(s) were on the table, and ${c.objections || 0} objection(s) were raised.`, '',
+      '## The big options', ''];
+    const alts = f.alternatives?.items || [];
+    if (alts.length) {
+      for (const a of alts) out.push(`- ${a.name} ${a.status === 'withdrawn' ? `was withdrawn by its author${a.replaced_by ? ` in favour of ${tick(a.replaced_by)}` : ''}` : a.status === 'amended' ? 'was amended after the labs objected' : 'stood as written'} (${tick(a.id)}). Its weak spot, in its own words: ${a.bad_at}`);
+      if (f.decisions) out.push('', `The plan records its choice and why the other options lost in its "Decisions" section (${tick(f.decisions.ref)}).`);
+    } else out.push(f.decisions ? `The plan's "Decisions" section records the options it weighed (${tick(f.decisions.ref)}).` : 'Nothing recorded.');
+    out.push('', '## The objections that changed the plan', '');
+    const objs = (f.top_objections || []).slice(0, 5);
+    if (objs.length) {
+      for (const o of objs) {
+        const ans = o.answer ? `The author ${o.answer.action === 'withdraw' ? 'withdrew the part' : o.answer.action === 'amend' ? 'amended the part' : 'kept the part as it was'}: "${o.answer.text}" (${tick(o.answer.reply)}).` : 'The author did not answer it.';
+        out.push(`- ${tick(o.by)} ${o.stance === 'merge' ? 'asked to merge' : 'objected to'} ${tick(o.on)}: "${o.text}" (${tick(o.post)}). ${ans}`);
+      }
+    } else out.push('Nothing recorded.');
+    out.push('', '## What is still disputed', '');
+    const open = f.unresolved?.open_objections || [];
+    const declined = f.declined_objections || [];
+    if (!open.length && !declined.length) out.push('Nothing recorded.');
+    for (const o of open) out.push(`- ${tick(o.lab)} still objects on "${o.criterion}": ${o.problem} (${tick(o.ref)}).`);
+    for (const d of declined) out.push(`- The plan's author declined one objection: ${d.reason} (${tick(d.ref)}).`);
+    out.push('', '## Where each lab stood', '');
+    for (const l of f.labs || []) out.push(`- ${tick(l.lab)}: proposed ${l.proposed} part(s), ${l.accepted} accepted in the plan; raised ${l.objections_raised} objection(s); final verdict: ${l.final_verdict}.`);
+    if (model === 'mock-argued-inventor') out.push('', `A fourth option, a serverless design, was argued down by ${tick('phantom-lab')} (${tick('PHANTOM-9')}).`);
+    const text = out.join('\n') + '\n';
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
   if (system.startsWith('You write the handoff file')) {
     await new Promise(r => setTimeout(r, 10));
     return { text: 'MOCK HANDOFF\n\nRead the plan. Start with "begin".', usage: { input: 30, output: 10 }, provider: 'mock', model };

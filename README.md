@@ -90,6 +90,16 @@ anything on top of a run, read that instead. Do not parse the markdown.
     "replies": [ { "id": "GLM-ALT", "action": "keep|amend|withdraw", "text": "..." } ],
     "dropouts": [ { "lab": "...", "model": "...", "stage": "alternatives", "reason": "..." } ]
   },
+  // Only on chains with `argued: { enabled: true }` (off by default, on in no shipped chain): the
+  // "How this plan was argued" section, written to ARGUED.md next to deliverable.md (never inside it)
+  // by the handoff seat, from a fact pack of this run's own record. unknown_refs / unknown_labs are
+  // ids and labs it named that the run never had; each is also a line in WARNINGS.md.
+  "argued": {
+    "file": "ARGUED.md",
+    "facts_counts": { "labs": 7, "alternatives": 7, "proposals": 14, "objections": 9, "...": 0 },
+    "unknown_refs": [], "unknown_labs": [], "missing_labs": [], "missing_sections": [],
+    "refs_cited": 23, "ok": true
+  },
   "signoff": [ { "provider": "qwen", "model": "...", "signedOff": false,
                  "objections": [ { "criterion": "...", "problem": "...", "fix": "..." } ] } ],
   "lastCritique": { "meets": false, "failures": [ { "criterion": "...", "lab": "qwen" } ] },

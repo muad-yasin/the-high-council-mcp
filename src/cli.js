@@ -83,6 +83,7 @@ const EXIT_RUN_FAILED = 16;
 const EXIT_DRAFT_TRUNCATED = 17;
 import { scanArtifacts } from './key-redaction.js';
 import { resetToolCallLog, renderToolsMd } from './tools.js';
+import { arguedWarnings } from './argued.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -1991,6 +1992,16 @@ if (result.proposalPool?.length && result.proposalPool.length > result.proposals
 const boardMd = renderBoardMd({ runId, result });
 if (boardMd) writeFileSync(join(runDir, 'BOARD.md'), boardMd);
 if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff);
+// "How this plan was argued" (src/argued.js): its own file next to the deliverable, never inside it,
+// and every id or lab it names that the run never had goes to WARNINGS.md as well as report.json.
+if (result.argued) {
+  writeFileSync(join(runDir, result.argued.file), result.argued.text);
+  const lines = arguedWarnings(result.argued.check);
+  if (lines.length) {
+    if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
+    appendFileSync(join(runDir, 'WARNINGS.md'), lines.map(l => `- ${l}\n`).join(''));
+  }
+}
 // v4 item 2: written on every run that had a preflight config, blocked or not - the blocked
 // path also writes this same file from the PreflightBlocked catch above, before this line is
 // ever reached, so this covers only the non-blocking case.
@@ -2069,6 +2080,7 @@ log(`tokens:   ${t.input} in, ${t.output} out, ${t.total} total`);
 log(`cost:     ${formatUsd(t.usd)}${t.unpriced.length ? ` (+ unpriced: ${t.unpriced.join(', ')})` : ''}${maxUsdEff === null ? '' : ` of ${formatUsd(maxUsdEff)} ceiling`}`);
 const boardWritten = !!boardMd;
 log(`output:   ${join(runDir, 'deliverable.md')}${result.handoff ? `  (+ HANDOFF.md${boardWritten ? ', BOARD.md' : ''})` : boardWritten ? '  (+ BOARD.md)' : ''}`);
+if (result.argued) log(`argued:   ${join(runDir, result.argued.file)}${result.argued.check.ok ? '' : '  (names things the run never had - see WARNINGS.md)'}`);
 // Final security-review gate. Checked last, after every artifact (report.json, state.json, the
 // audit close, RESUME.md) is on disk, so a failed gate still leaves a complete, readable run
 // folder. Exit 7 = blocked, 8 = not judged; both are failures a caller must not treat as a pass.

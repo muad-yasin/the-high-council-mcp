@@ -165,6 +165,10 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
   if (config.coldRead?.enabled === true) push('cold-read', config.seats.coldRead, a.draftTokens, a.critiqueTokens);
   push('final', config.seats.finalist, a.promptTokens + a.draftTokens, a.draftTokens);
   if (config.handoff) push('handoff', config.seats.handoff || config.seats.builder, a.promptTokens + a.draftTokens, 1200);
+  // "How this plan was argued" (src/argued.js): the request, the final plan and a fact pack about
+  // the size of one critique round's worth of posts, out as a short section (under 700 words). $0 on
+  // an external handoff seat, like the handoff row above; priced when that seat is billed.
+  if (config.argued?.enabled === true && !config.descending) push('argued', config.seats.handoff || config.seats.builder, a.promptTokens + a.draftTokens + a.critiqueTokens, 1500);
   // The final security review reads the request plus the finished draft (promptTokens +
   // draftTokens, same input as a panel critique) and replies with a findings list, which is
   // critique-shaped output - so it uses the chain's own critiqueTokens assumption, not a new number.

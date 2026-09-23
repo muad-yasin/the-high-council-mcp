@@ -15,6 +15,7 @@ import { injectCanary, shouldSampleCanary, runIdUnit, pickCanaryTarget, CANARY_N
 import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
 import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
 import { promptHashOf, cacheVerdict } from './cache-integrity.js';
+import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
 export { DeniedModel };
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
@@ -1191,6 +1192,10 @@ export async function runDescendingChain({ request, config, log = console.log, o
         // (GuardLayer #1): both sub-runs used to run it under the same `security-review` label,
         // so the final review was replayed from the plan-stage one and never read the final stack.
         security_review: undefined,
+        // "How this plan was argued" needs the plan sub-run's debate and the final sub-run's
+        // verdicts in one record, which neither sub-run has. Not supported with descending yet:
+        // chain-lint refuses the pair, and neither sub-run runs the stage.
+        argued: undefined,
       };
       planResult = await runChain({ request, config: planConfig, log, onStage: subOnStage });
       content = planResult.deliverable;
@@ -1249,6 +1254,7 @@ export async function runDescendingChain({ request, config, log = console.log, o
   const finalConfig = {
     ...config,
     descending: undefined,
+    argued: undefined,
     criteria: (planResult?.criteria && planResult.criteria.length) ? planResult.criteria : config.criteria,
   };
   const finalResult = await runChain({ request, config: finalConfig, draft: stackDeliverable, log, onStage: subOnStage });
@@ -2850,6 +2856,34 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     })).text;
   }
 
+  // 5b. "How this plan was argued" (config.argued.enabled, src/argued.js). Opt-in, enabled in no
+  // shipped chain. Runs once, on the handoff seat (the builder when there is no handoff seat) - an
+  // external Claude Code session in the plan-7 chains, so no API call; a billed seat goes through
+  // invoke() via draftStage like every other free-text stage, and --dry-run prices it. The writer
+  // gets a fact pack built from this run's own record and nothing else, and its reply is checked
+  // for ids and labs the pack does not contain. Written to ARGUED.md by the CLI, never into the
+  // deliverable: the plan is what gets scored, reviewed and built, and a narrative citing proposal
+  // ids inside it would be read as plan content. Absent or not `true`: nothing here runs, no stage
+  // label appears, and the result carries no `argued` key.
+  let argued;
+  if (config.argued?.enabled === true) {
+    log('\nStage: how this plan was argued');
+    const facts = buildArguedFacts({
+      proposals, scoreRows: proposals.length ? scoreProposals(proposals, draft).rows : [],
+      debate, alternatives, disputes, dispute, signoff, panelVerdicts, plan: draft,
+    });
+    const text = (await draftStage(config.seats.handoff || config.seats.builder, {
+      system: ARGUED_SYSTEM,
+      user: arguedUser({ request, plan: draft, facts }),
+      log, label: ARGUED_LABEL,
+    })).text;
+    const check = checkArguedRefs(text, facts);
+    argued = { file: ARGUED_FILE, text, facts_counts: facts.counts, check };
+    log(check.ok
+      ? `  ${ARGUED_FILE}: ${check.refs_cited} distinct id(s) and lab(s) cited, every one in the run's record.`
+      : `  !! ${ARGUED_FILE}: names things the run's record does not contain - ${[...check.unknown_refs, ...check.unknown_labs].join(', ') || 'none'}; missing labs: ${check.missing_labs.join(', ') || 'none'}; missing sections: ${check.missing_sections.join(', ') || 'none'}.`);
+  }
+
   // 6. Final security review (config.security_review.enabled, src/security-review.js). The very
   // last stage - after build, verify_post, every critic/revise round, the challenge, the final
   // edit and the handoff - so it always reviews the finished deliverable, never a draft that can
@@ -2912,6 +2946,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     orphanSections: ledger?.orphanSections ?? [],
     withdrawalCycles: ledger?.withdrawalCycles ?? 0,
     ...(ground_truth !== undefined ? { ground_truth } : {}),
+    ...(argued !== undefined ? { argued } : {}),
     ...(toolRequestWarnings !== undefined ? { toolRequestWarnings } : {}),
     ...(canary !== undefined ? { canary } : {}),
     ...(lints !== undefined ? { lints } : {}),

@@ -174,6 +174,7 @@ export function lintChain(config, filePath = '<chain>') {
     lints: { enabled: 'boolean', forks: 'array' },
     canary: { enabled: 'boolean', sampleRate: 'rate' },
     ambiguity_union: { enabled: 'boolean' },
+    argued: { enabled: 'boolean' },
   };
   const typeOk = (want, v) => want === 'boolean' ? typeof v === 'boolean'
     : want === 'positive-integer' ? Number.isInteger(v) && v >= 1
@@ -200,6 +201,17 @@ export function lintChain(config, filePath = '<chain>') {
         findings.push({ kind, message: `${block}.${key} must be ${typeText[keys[key]]}.`, fix: `Set "${block}.${key}" to ${typeText[keys[key]]} in ${filePath}.` });
       }
     }
+  }
+
+  // 5c. "How this plan was argued" with descending mode (src/argued.js). The section needs the
+  // plan sub-run's debate and the final sub-run's verdicts in one record, and neither sub-run has
+  // both, so chain.js runs the stage in neither - which would be a silent no-op without this rule.
+  if (config?.argued?.enabled === true && config?.descending) {
+    findings.push({
+      kind: 'argued-with-descending',
+      message: 'argued.enabled is set on a descending chain, where the "How this plan was argued" stage does not run - it would silently do nothing.',
+      fix: `Remove "argued" from ${filePath}, or turn off "descending".`,
+    });
   }
 
   // 6. Challenge stage (v7 item 5): `challenge.enabled` is the only key this

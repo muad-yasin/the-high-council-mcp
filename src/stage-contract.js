@@ -113,6 +113,11 @@ const STAGE_DEFS = {
     required_sections: ['tasks'],
     return_instructions: 'Return the handoff document as plain text/markdown.',
   },
+  argued: {
+    role: 'Write "How this plan was argued" for a beginner developer, from the fact pack only: the options considered and why the losers lost, the objections that changed the plan, what is still disputed, and one line per lab. Cite a fact-pack id on every claim.',
+    required_sections: ['How this plan was argued', 'The big options', 'The objections that changed the plan', 'What is still disputed', 'Where each lab stood'],
+    return_instructions: 'Return the section as plain markdown, with the headings exactly as named in the prompt.',
+  },
 };
 
 // Order matters only for readability; STAGE_KIND_PATTERNS is checked in
@@ -135,6 +140,7 @@ const STAGE_KIND_PATTERNS = [
   [/^revise-/, 'revise'],
   [/^final(-retry)?$/, 'final'],
   [/^handoff(-retry)?$/, 'handoff'],
+  [/^argued(-retry)?$/, 'argued'],
 ];
 
 /** Map a chain.js stage label (e.g. "propose-glm", "panel-2-mistral") to a canonical stage kind, or null if unrecognised. */
@@ -162,6 +168,7 @@ export function stageKindsFor(config) {
   kinds.push('revise');
   kinds.push('final');
   if (config.handoff) kinds.push('handoff');
+  if (config.argued?.enabled === true && !config.descending) kinds.push('argued');
   return kinds;
 }
 

@@ -102,6 +102,10 @@ export function reportJsonShape({ runId, chain, task, result, fromRun = null, ma
     // against the task and chain, not the exact prompt. Absent when there were none.
     ...(Array.isArray(result.unverifiedReplays) && result.unverifiedReplays.length ? { unverifiedReplays: result.unverifiedReplays } : {}),
     ...(result.alternatives ? { alternatives: (({ board, ...rest }) => rest)(result.alternatives) } : {}),
+    // "How this plan was argued" (src/argued.js): additive, present only when the chain enabled it.
+    // The text itself is ARGUED.md; the JSON carries where it is, the fact-pack counts and the
+    // reference check (unknown_refs / unknown_labs are ids and labs it named that the run never had).
+    ...(result.argued ? { argued: { file: result.argued.file, facts_counts: result.argued.facts_counts, ...result.argued.check } } : {}),
   };
 }
 
