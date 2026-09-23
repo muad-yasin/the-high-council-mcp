@@ -5,7 +5,7 @@ import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked, renderDisputeReviewBoard } from './chain.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
-import { deriveRunStatus } from './run-status.js';
+import { deriveRunStatus, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
 import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sumCostFromStageLogText } from './run-state.js';
 import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFromStageLogText, sumRoundUsdFromStageLogText } from './spans.js';
@@ -1434,13 +1434,20 @@ log(`task:  ${taskPathEff}`);
 // v2 plan §6: before any stage runs, before a single metered API call, a static keyword
 // check for the specific class of conflict this project already hit once (a chain requiring
 // an appended section against text demanding a standalone document). Warns, never blocks.
-if (!resumeMeta) {
+//
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_CLI_2026-09-23.md #2): the whole block used to sit
+// inside `if (!resumeMeta)`, so a run the artifact gate had blocked could simply be resumed - and
+// its unfenced task then went through every seat. Its marker was also named NEEDS-ARTIFACTS.md,
+// which run-status reads as an external pause, so MCP invited exactly that resume. The gate (free:
+// no call is made) now runs on every start AND every resume, which also re-checks a task edited or
+// amended in between; only the warnings are written once. The marker is BLOCKED-ARTIFACTS.md.
+{
   // v3 §3: same call site, same warn-never-block posture, checking for a task that names a
   // file it never inlines verbatim rather than a section/criteria conflict.
   const contractWarnings = preflightCheck(config, request);
   const artifactFindings = checkArtifactReferences(request, { allow: unfencedAllowList });
   const preflightWarnings = [...contractWarnings, ...artifactFindings];
-  if (preflightWarnings.length) {
+  if (preflightWarnings.length && !resumeMeta) {
     for (const w of preflightWarnings) log(`  PRE-FLIGHT WARNING: ${w.message}`);
     if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
     appendFileSync(join(runDir, 'WARNINGS.md'), preflightWarnings.map(w => `- pre_flight: ${w.message}\n`).join(''));
@@ -1453,7 +1460,7 @@ if (!resumeMeta) {
   // costs nothing. --allow-unfenced is the explicit override and is recorded in WARNINGS.md
   // above alongside the findings, so bypassing leaves a trace rather than erasing one.
   if (artifactFindings.length && !allowUnfenced) {
-    const needsPath = join(runDir, 'NEEDS-ARTIFACTS.md');
+    const needsPath = join(runDir, ARTIFACTS_BLOCKED_FILE);
     writeFileSync(needsPath, [
       '# Missing artifacts',
       '',
@@ -1489,6 +1496,9 @@ if (!resumeMeta) {
     log('  Nothing was called and nothing was spent. See that file for the two ways forward.');
     process.exit(2);
   }
+  // Passed this time (the task was fenced, or --allow-unfenced given): a marker left by an earlier
+  // blocked sitting would otherwise keep the run reading as blocked.
+  for (const f of [ARTIFACTS_BLOCKED_FILE, 'NEEDS-ARTIFACTS.md']) if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
 
 // v5 item 3: state.json, a live progress file rewritten atomically from files already on disk

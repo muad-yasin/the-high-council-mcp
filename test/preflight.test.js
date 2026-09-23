@@ -10,7 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -143,7 +143,7 @@ test('artifact gate: front-matter and caller allowlists both suppress, per file,
 
 // The gate end to end. Uses the offline mock chain, so a failure to block would spend
 // nothing here - but it would spend on a real chain, which is the whole point.
-test('artifact gate: the CLI exits 2, writes NEEDS-ARTIFACTS.md, and starts no run', () => {
+test('artifact gate: the CLI exits 2, writes BLOCKED-ARTIFACTS.md, and starts no run', () => {
   const dir = mkdtempSync(join(tmpdir(), 'thc-artifact-gate-'));
   mkdirSync(join(dir, 'chains'));
   writeFileSync(join(dir, 'chains', 'mock.json'), readFileSync(join(root, 'chains', 'mock.json'), 'utf8'));
@@ -162,7 +162,7 @@ test('artifact gate: the CLI exits 2, writes NEEDS-ARTIFACTS.md, and starts no r
 
   const runDirs = readdirSync(join(dir, 'runs'));
   assert.equal(runDirs.length, 1, 'the run folder is the record even of a refusal');
-  const needs = readFileSync(join(dir, 'runs', runDirs[0], 'NEEDS-ARTIFACTS.md'), 'utf8');
+  const needs = readFileSync(join(dir, 'runs', runDirs[0], 'BLOCKED-ARTIFACTS.md'), 'utf8');
   assert.match(needs, /SaveSystem\.cs/);
   assert.match(needs, /council fence/, 'the file must name the fix, not just the problem');
   assert.match(needs, /unfenced-ok/);
@@ -182,7 +182,7 @@ test('artifact gate: --allow-unfenced proceeds, and the finding is still recorde
   const runDirs = readdirSync(join(dir, 'runs'));
   const warnings = readFileSync(join(dir, 'runs', runDirs[0], 'WARNINGS.md'), 'utf8');
   assert.match(warnings, /SaveSystem\.cs/, 'bypassing the gate must leave the same trace as tripping it');
-  assert.ok(!existsSync(join(dir, 'runs', runDirs[0], 'NEEDS-ARTIFACTS.md')));
+  assert.ok(!existsSync(join(dir, 'runs', runDirs[0], 'BLOCKED-ARTIFACTS.md')));
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -216,4 +216,47 @@ test('preflight stage: only a stated pass passes; a wrong-case "Object" still ob
   for (const text of ['{"verdict":"obj', 'I think this task is fine.', '{"objections":[]}']) {
     assert.equal((await run(text)).verdict, 'unreadable', text);
   }
+});
+
+// Bug audit 2026-09-23 (Review/BugAudit_CLI_2026-09-23.md #2): a run the artifact gate blocked could
+// be resumed straight past it (the gate sat inside `if (!resumeMeta)`), and its NEEDS-ARTIFACTS.md
+// marker read as an external pause, so MCP called it "paused" - an invitation to resume.
+test('artifact gate: a blocked run reads as blocked, not paused, and --resume re-runs the gate', async () => {
+  const { deriveRunStatus, waitingStage } = await import('../src/run-status.js');
+  const dir = mkdtempSync(join(tmpdir(), 'thc-artifact-resume-'));
+  mkdirSync(join(dir, 'chains'));
+  writeFileSync(join(dir, 'chains', 'mock.json'), readFileSync(join(root, 'chains', 'mock.json'), 'utf8'));
+  writeFileSync(join(dir, 'task.md'), 'Review SaveSystem.cs and report what breaks.');
+  const cli = args => spawnSync('node', [resolve(root, 'src/cli.js'), ...args], { encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH } });
+  try {
+    assert.equal(cli(['--chain', 'mock', '--task', 'task.md']).status, 2);
+    const runDir = join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
+    assert.equal(deriveRunStatus(runDir, null), 'blocked');
+    assert.equal(waitingStage(runDir), null, 'a blocked run is not waiting for anyone');
+
+    const resumed = cli(['--resume', runDir]);
+    assert.equal(resumed.status, 2, `resume must stop at the gate again: ${resumed.stdout.slice(-300)}`);
+    assert.ok(!existsSync(join(runDir, 'criteria.md')), 'no stage ran on resume');
+
+    // Fixed task (the file is fenced): the resume passes the gate, runs, and clears the marker.
+    const fencedTask = 'Review SaveSystem.cs and report what breaks.\n\n## SaveSystem.cs\n\n```cs\n// SaveSystem.cs\nclass SaveSystem {}\n```\n';
+    writeFileSync(join(dir, 'task.md'), fencedTask);
+    // Changing a run's task is a recorded amendment (src/scope-freeze.js), not a silent edit.
+    const { taskHashOf } = await import('../src/scope-freeze.js');
+    const oldHash = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')).taskHash;
+    writeFileSync(join(runDir, 'AMENDMENTS.md'), `- ${oldHash} -> ${taskHashOf(fencedTask)}: fenced SaveSystem.cs so the gate passes (test), ${new Date().toISOString()}\n`);
+    const fixed = cli(['--resume', runDir]);
+    assert.equal(fixed.status, 0, fixed.stderr.slice(-300));
+    assert.ok(!existsSync(join(runDir, 'BLOCKED-ARTIFACTS.md')));
+    assert.equal(deriveRunStatus(runDir, null), 'done');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('artifact gate: a run folder with the legacy NEEDS-ARTIFACTS.md marker also reads as blocked', async () => {
+  const { deriveRunStatus, waitingStage } = await import('../src/run-status.js');
+  const dir = mkdtempSync(join(tmpdir(), 'thc-artifact-legacy-'));
+  writeFileSync(join(dir, 'NEEDS-ARTIFACTS.md'), '# Missing artifacts\n');
+  assert.equal(deriveRunStatus(dir, null), 'blocked');
+  assert.equal(waitingStage(dir), null);
+  rmSync(dir, { recursive: true, force: true });
 });

@@ -9,10 +9,20 @@ import { join } from 'node:path';
 // A run's unanswered external-pause label, if any - the same NEEDS-<label>.md-without-a-
 // matching-<label>.md convention src/mcp/server.js's own `waiting()` already used before this
 // module existed; kept here so both files call one implementation.
+// The artifact gate's marker (src/cli.js). Deliberately not NEEDS-*: a NEEDS- file means "waiting
+// for an external seat", and a blocked run must never read as one - resuming it would send the
+// unfenced task to every seat (bug audit 2026-09-23, CLI #2). NEEDS-ARTIFACTS.md is the pre-fix
+// name, still recognised as blocked for run folders written before it.
+export const ARTIFACTS_BLOCKED_FILE = 'BLOCKED-ARTIFACTS.md';
+const LEGACY_ARTIFACTS_BLOCKED_FILE = 'NEEDS-ARTIFACTS.md';
+export function artifactsBlocked(dir) {
+  return existsSync(join(dir, ARTIFACTS_BLOCKED_FILE)) || existsSync(join(dir, LEGACY_ARTIFACTS_BLOCKED_FILE));
+}
+
 export function waitingStage(dir) {
   if (!existsSync(dir)) return null;
   const w = readdirSync(dir)
-    .filter(f => f.startsWith('NEEDS-'))
+    .filter(f => f.startsWith('NEEDS-') && f !== LEGACY_ARTIFACTS_BLOCKED_FILE)
     .map(f => f.slice(6, -3))
     .filter(l => !existsSync(join(dir, `${l}.md`)));
   return w[0] || null;
@@ -42,10 +52,13 @@ export function isAliveByGrep() {
 }
 
 // dir: the run folder. runMeta: parsed run.json, or null/undefined if absent/unreadable.
-// Returns one of: 'done' | 'budget_stopped' | 'paused' | 'running' | 'stopped'.
+// Returns one of: 'done' | 'budget_stopped' | 'blocked' | 'paused' | 'running' | 'stopped'.
+// 'blocked' (added 2026-09-23, additive): the artifact gate stopped it before any call; fix the
+// task (fence the named files), then resume - resuming alone re-runs the gate and stops again.
 export function deriveRunStatus(dir, runMeta) {
   if (existsSync(join(dir, 'report.json'))) return 'done';
   if (existsSync(join(dir, 'STOPPED-budget.json'))) return 'budget_stopped';
+  if (artifactsBlocked(dir)) return 'blocked';
   if (waitingStage(dir)) return 'paused';
   const alive = runMeta && runMeta.pid ? isAlivePid(runMeta.pid) : isAliveByGrep();
   return alive ? 'running' : 'stopped';

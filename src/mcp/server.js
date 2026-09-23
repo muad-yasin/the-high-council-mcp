@@ -23,7 +23,7 @@ import { verdictStats } from '../verdict-stats.js';
 import { metricsReport } from '../metrics.js';
 import { checkClaimStaleness } from '../peer-claim.js';
 import { submitStageAnswer } from '../stage-submission.js';
-import { deriveRunStatus, waitingStage, isAlivePid, isAliveByGrep, finishedRunState } from '../run-status.js';
+import { deriveRunStatus, waitingStage, isAlivePid, isAliveByGrep, finishedRunState, artifactsBlocked, ARTIFACTS_BLOCKED_FILE } from '../run-status.js';
 import { lockHolder } from '../run-lock.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -92,13 +92,14 @@ function runSummary(id) {
   return {
     id,
     label: runMeta?.label ?? null,
-    // v5 item 2: the derived status enum (done/budget_stopped/paused/running/stopped),
+    // v5 item 2: the derived status enum (done/budget_stopped/blocked/paused/running/stopped),
     // alongside the existing free-text `state` string below - additive, `state`'s own shape
     // and every existing reader of it are unchanged.
     status: deriveRunStatus(dir, runMeta),
     chain: report?.chain || (log.match(/^chain: (\S+)/m) || [])[1] || null,
     task: report?.task || (log.match(/^task: +(\S+)/m) || [])[1] || null,
     state: report ? finishedRunState(report)
+      : artifactsBlocked(dir) ? `blocked: the task names files it never fences - see ${ARTIFACTS_BLOCKED_FILE}; fence them into the task (or allow them), then resume`
       : budget.stoppedByCap ? `stopped: per-run spend cap reached before stage ${budget.stoppedByCap.stage} - resume with a higher --max-usd`
       : waiting(dir) ? `paused: waiting for external stage ${waiting(dir)}`
       : alive ? 'running'
