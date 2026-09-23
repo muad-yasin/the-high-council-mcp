@@ -114,17 +114,28 @@ import { LOCK_FILE } from '../src/run-lock.js';
 import { hostname } from 'node:os';
 
 test('cli #4: three processes taking over one stale lock end with exactly one holder', async () => {
+  // Deterministic, no wall-clock window: every contender waits on a file barrier until all three are
+  // ready, takes its shot, records the result, and the holder keeps the lock until all three have
+  // recorded - so the three attempts always overlap, however loaded the machine is.
   const lockMod = resolve(dirname(fileURLToPath(import.meta.url)), '../src/run-lock.js');
   const { spawn } = await import('node:child_process');
   for (let trial = 0; trial < 8; trial++) {
     const d = mkdtempSync(join(tmpdir(), 'lockrace-'));
+    const sync = mkdtempSync(join(tmpdir(), 'lockrace-sync-'));
     writeFileSync(join(d, LOCK_FILE), JSON.stringify({ pid: 2 ** 22 + 4242, host: hostname(), at: 'then' }));
-    const go = Date.now() + 400;
-    const script = `import { acquireRunLock } from ${JSON.stringify(lockMod)};
-      while (Date.now() < ${go}) {}
-      try { acquireRunLock(${JSON.stringify(d)}); console.log('HELD'); setTimeout(() => {}, 300); } catch { console.log('LOCKED'); }`;
-    const outs = await Promise.all([0, 1, 2].map(() => new Promise(res => {
-      const c = spawn(process.execPath, ['--input-type=module', '-e', script]);
+    const script = i => `import { acquireRunLock } from ${JSON.stringify(lockMod)};
+      import { writeFileSync, readdirSync } from 'node:fs';
+      const sync = ${JSON.stringify(sync)};
+      const nap = new Int32Array(new SharedArrayBuffer(4));
+      const until = (pred, what) => { const t = Date.now(); while (!pred()) { if (Date.now() - t > 120000) { console.log('TIMEOUT ' + what); process.exit(2); } Atomics.wait(nap, 0, 0, 5); } };
+      writeFileSync(sync + '/ready-${i}', '');
+      until(() => readdirSync(sync).filter(f => f.startsWith('ready-')).length === 3, 'ready');
+      let r; try { acquireRunLock(${JSON.stringify(d)}); r = 'HELD'; } catch { r = 'LOCKED'; }
+      writeFileSync(sync + '/done-${i}', r);
+      until(() => readdirSync(sync).filter(f => f.startsWith('done-')).length === 3, 'done');
+      console.log(r);`;
+    const outs = await Promise.all([0, 1, 2].map(i => new Promise(res => {
+      const c = spawn(process.execPath, ['--input-type=module', '-e', script(i)]);
       let o = ''; c.stdout.on('data', b => { o += b; }); c.on('close', () => res(o.trim()));
     })));
     assert.equal(outs.filter(o => o === 'HELD').length, 1, `trial ${trial}: ${outs.join(',')}`);

@@ -351,8 +351,12 @@ async function resume(run, maxUsd) {
   let exited = null;
   child.on('exit', (code, signal) => { exited = { code, signal }; });
   child.unref();
+  // Wait for a real signal, not a fixed window (a fixed 1.5 s read a slow, loaded machine's dying
+  // resume as running): the child either exits, or takes the run's lock, which it does only once it
+  // is past every startup refusal. The bound is only a backstop.
+  const runDir = join(runsDir, run);
   const t0 = Date.now();
-  while (!exited && Date.now() - t0 < 1500) await new Promise(r => setTimeout(r, 250));
+  while (!exited && lockHolder(runDir)?.pid !== child.pid && Date.now() - t0 < 60_000) await new Promise(r => setTimeout(r, 100));
   if (exited && exited.code !== 0 && exited.code !== 3) {
     let logTail = '';
     try { logTail = readFileSync(logPath, 'utf8').split('\n').slice(-20).join('\n'); } catch { /* none */ }
