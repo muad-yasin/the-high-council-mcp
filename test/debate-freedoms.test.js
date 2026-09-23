@@ -38,13 +38,17 @@ test('a blocking question pauses the round and resumes once the proposer answers
 
 test('blocking_question is ignored when the freedom is not enabled', async () => {
   // Without the flag, chain.js never reads parsed.blocking_question, so the mock's question-only
-  // reply falls straight into normaliseCritique: no failures/no meets:true means an unmet draft.
+  // reply falls straight into normaliseCritique. It states no verdict, so it is an abstention that
+  // blocks unanimity - never a sign-off, and never a pause. Tightened 2026-09-23
+  // (Review/BugAudit_ChainParsers_2026-09-23.md #1): the old `notEqual(null)` assertion was also
+  // satisfied by `true`, and a question-only reply was in fact signing off (audit repro t7.mjs).
   const result = await run(
     [seat('mock-critic-blocking', 'mock-a'), seat('mock-critic-a', 'mock-b')],
     undefined,
   );
   const asked = result.signoff.find(s => s.provider === 'mock-a');
-  assert.notEqual(asked.signedOff, null, 'without the flag the seat still produces a real (if unmet) verdict, not a pause');
+  assert.notEqual(asked.signedOff, true, 'a question-only reply is never a sign-off');
+  assert.equal(result.passed, false, 'a seat that stated no verdict blocks unanimity');
 });
 
 test('a pass is recorded with its reason, and does not count as a sign-off or an objection', async () => {

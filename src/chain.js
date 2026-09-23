@@ -370,19 +370,61 @@ function capField(value) {
     : value;
 }
 
+// Bug-audit fix, 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #1, #2): `meets` used to be
+// `failures.length === 0` and nothing else, so anything that failed to NAME a failure signed off -
+// an explicit {"meets":false,"verdict_line":"Fails criterion 2"}, a failure with no `criterion`
+// key, a table saying "FAIL" or "NOT MET" instead of the exact "FAILED", a question-only reply, a
+// fenced snippet picked out of a prose objection, a truncated array's first element. That is the
+// "garbled counts as consent" incident class again. A sign-off now needs no failures AND a stated
+// pass: `meets: true`, or a non-empty table whose every row is MET (the table is still the honest
+// signal for the 2026-09-07 Llama shape - all MET, meets:false, placeholder failure - which stays a
+// sign-off). An explicit meets:false with nothing named becomes an objection; a reply that states
+// no verdict at all comes back `unreadable: true`, which callers turn into an abstention (it blocks
+// unanimity; it is never consent). A non-array `failures` or a non-object reply is unreadable too,
+// rather than a throw - the reply is on disk before it is parsed, so a throw here used to crash
+// every resume on the same replayed file (#2).
+const MET_VERDICT = /^(MET|PASS|PASSED|YES)$/;
+const FAILED_VERDICT = /^(FAILED|FAIL|NOT[\s_-]*MET|UNMET|NO)$/;
+const NO_VERDICT_FAILURE_CRITERION = '(objection named no criterion)';
+
 export function normaliseCritique(critique, log = () => {}) {
-  const placeholder = f => !f || !f.criterion || /^(none|n\/?a|-|no failures?)\.?$/i.test(String(f.criterion).trim());
-  const failures = (critique.failures || []).filter(f => !placeholder(f))
-    .map(f => ({ ...f, criterion: capField(f.criterion), problem: capField(f.problem), fix: capField(f.fix) }));
-  const dropped = (critique.failures || []).length - failures.length;
+  const unreadable = why => {
+    log(`    (no usable verdict: ${why} - counted as an abstention, not a sign-off)`);
+    return { ...(critique && typeof critique === 'object' && !Array.isArray(critique) ? critique : {}), failures: [], meets: false, unreadable: true, unreadableWhy: why };
+  };
+  if (!critique || typeof critique !== 'object' || Array.isArray(critique)) return unreadable(`the reply is ${Array.isArray(critique) ? 'an array' : typeof critique}, not a verdict object`);
+  if (critique.failures != null && !Array.isArray(critique.failures)) return unreadable(`"failures" is ${typeof critique.failures}, not a list`);
+  const rawFailures = critique.failures || [];
+  const rows = Array.isArray(critique.criteria) ? critique.criteria.filter(r => r && typeof r === 'object' && !Array.isArray(r)) : [];
+  const verdictOf = row => String(row.verdict || '').trim().toUpperCase();
+
+  // A placeholder names no criterion AND says nothing - an entry with a real problem but no
+  // criterion key is still an objection, just an unlabelled one.
+  const noneCriterion = f => /^(none|n\/?a|-|no failures?)\.?$/i.test(String(f.criterion).trim());
+  const placeholder = f => !f || typeof f !== 'object' || (f.criterion ? noneCriterion(f) : !String(f.problem || '').trim());
+  const failures = rawFailures.filter(f => !placeholder(f))
+    .map(f => ({ ...f, criterion: capField(f.criterion ? String(f.criterion) : NO_VERDICT_FAILURE_CRITERION), problem: capField(f.problem), fix: capField(f.fix) }));
+  const dropped = rawFailures.length - failures.length;
   if (dropped) log(`    (ignored ${dropped} placeholder failure entr${dropped === 1 ? 'y' : 'ies'} that named no criterion)`);
-  for (const row of Array.isArray(critique.criteria) ? critique.criteria : []) {
-    if (String(row.verdict || '').toUpperCase() !== 'FAILED') continue;
+  for (const row of rows) {
+    if (!FAILED_VERDICT.test(verdictOf(row))) continue;
     if (failures.some(f => f.criterion === row.criterion)) continue;
-    failures.push({ criterion: capField(row.criterion), problem: capField(row.evidence) || 'marked FAILED in the criteria table', fix: '' });
-    log(`    (added a failure the critic marked FAILED in its table but left out of its failures list)`);
+    failures.push({ criterion: capField(String(row.criterion ?? '(unnamed criterion)')), problem: capField(row.evidence) || `marked ${verdictOf(row)} in the criteria table`, fix: '' });
+    log(`    (added a failure the critic marked ${verdictOf(row)} in its table but left out of its failures list)`);
   }
-  return { ...critique, failures, verdict_line: capField(critique.verdict_line), meets: failures.length === 0 };
+  const verdict_line = capField(critique.verdict_line);
+  if (failures.length) return { ...critique, failures, verdict_line, meets: false };
+
+  const allMet = rows.length > 0 && rows.every(r => MET_VERDICT.test(verdictOf(r)));
+  if (critique.meets === true || allMet) return { ...critique, failures, verdict_line, meets: true };
+  if (critique.meets === false) {
+    // A stated objection that named nothing. Kept as an objection (never consent), with whatever
+    // the critic did say as its text, so the reviser has something to act on.
+    const said = verdict_line || 'the critic answered meets:false but named no criterion and gave no reason';
+    log(`    (the critic said meets:false but named no criterion - kept as an unlabelled objection)`);
+    return { ...critique, verdict_line, meets: false, failures: [{ criterion: NO_VERDICT_FAILURE_CRITERION, problem: said, fix: '' }] };
+  }
+  return unreadable('the reply states no verdict (no meets:true, no all-MET table, no failure)');
 }
 
 // Reads the plan's own "Scope ledger" lines: `<id> - accepted|cut - <reason>`.
@@ -1564,6 +1606,13 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           return { seat: criticSeat, critique: null, passed: true, passReason: capField(parsed.pass_reason) || '' };
         }
         const critique = normaliseCritique(parsed, say);
+        if (critique.unreadable) {
+          // Parsed as JSON but stated no verdict - the same abstention as an unparseable reply.
+          const reasonCode = abstentionReasonCode(cs.usage, effectiveCap);
+          say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply states no verdict (${critique.unreadableWhy}) - counted as an abstention, not a sign-off.`);
+          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+          return { seat: criticSeat, critique: null, abstained: true, reasonCode };
+        }
         say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
         // v5 item 3, touch point 2: the verdict update the live view needs - `passed` (chain.js's
         // own name for "meets every criterion") is already computed here, no new parsing.
@@ -1872,6 +1921,16 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         break;
       }
       const critique = normaliseCritique(parsed, log);
+      if (critique.unreadable) {
+        // Parsed, but no verdict in it - handled exactly like the unparseable reply above: not a
+        // pass, not an objection, and the run stops saying why (bug audit 2026-09-23).
+        log(`  critic reply states no verdict (${critique.unreadableWhy}); stopping without a verdict from this critic - not a pass, not counted as an objection either.`);
+        lastCritique = { meets: false, failures: [{
+          criterion: '(critic reply stated no verdict)',
+          problem: `${criticSeat.provider}/${criticSeat.model}'s round ${round} reply parsed but stated no verdict: ${critique.unreadableWhy}.`,
+        }] };
+        break;
+      }
       lastCritique = critique;
       const failures = critique.failures;
       log(`  verdict: ${critique.meets ? 'MEETS' : `${failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
@@ -1879,7 +1938,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
 
       history.push(`## Round ${round} critique (${criticSeat.provider}/${criticSeat.model})\n${critique.verdict_line || ''}\n${failures.map(f => `- FAILED: ${f.criterion} - ${f.problem}`).join('\n')}`);
 
-      if (critique.meets === true || failures.length === 0) {
+      if (critique.meets === true) {
         passed = true;
         if (stopOnPass) {
           log(`  a critic from a different lab passed it; stopping early rather than inventing work.`);
