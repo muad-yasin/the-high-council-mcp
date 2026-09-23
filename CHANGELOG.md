@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased - a cut-off draft never ships; stricter amendments; alternatives in the HTML board
+
+From the 2026-09-23 pre-release audits (`Review/PreRelease_Audit_revise`, `_contract`).
+
+- **A truncated draft stops the run (exit 17).** Every stage whose reply becomes the deliverable
+  (build, revise, the dispute pass, the challenge and allocator revisions, the final edit, the
+  handoff) is checked for a cut-off: the provider's `length`/`max_tokens` stop, or no stop reason
+  and the whole cap used. A cut-off reply is retried once with a bigger cap (the panel's
+  `cutOffRetryCap` rule) under `<label>-retry`; if that is cut off too, or the seat is external,
+  the run stops with `STOPPED-truncated.md` and no `report.json` or `deliverable.md`. Before this,
+  a truncated final edit became the shipped deliverable with no review after it.
+  `partial-deliverable` also warns on a cut-off reply and on free text that ends mid-structure
+  (an unclosed code block, an unfinished table row, a trailing heading or empty list item).
+- **Amendments: only the latest entry counts.** A task change is covered only when its hash is the
+  target of `AMENDMENTS.md`'s latest entry; reverting to a hash an earlier entry mentioned now needs
+  a new entry of its own.
+- **`council export-board` renders the alternatives stage**, escaped like the rest.
+- **Patch-mode critics see whole changes:** `changedSince()` fences each edit with a fence longer
+  than any backtick run in it, so a fenced snippet inside a patch no longer closes its block early.
+
 ## Unreleased - pre-release audit fixes, batch 3 (security)
 
 - **One secret-pattern list.** `src/secret-patterns.js` is now the only list, used by the

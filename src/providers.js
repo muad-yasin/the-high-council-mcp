@@ -340,6 +340,15 @@ async function callMock({ model, system, messages, maxTokens }) {
       : JSON.stringify({ amend: null });
     return { text, usage: { input: 20, output: 10 }, provider: 'mock', model };
   }
+  // A draft-producing seat (builder, reviser, finalist, handoff) cut off at its token cap - the
+  // pre-release audit's truncated-deliverable case. `mock-draft-cut` is cut off at any cap;
+  // `mock-draft-cut-then-fits` only at a cap of 1000 or less, so the chain's one bigger-cap retry
+  // rescues it and the retried reply is the ordinary mock draft below.
+  if ((model === 'mock-draft-cut' || (model === 'mock-draft-cut-then-fits' && maxTokens <= 1000))
+      && !system.startsWith('You are an independent critic') && !system.includes('turn a request into acceptance criteria')) {
+    await new Promise(r => setTimeout(r, 10));
+    return { text: '# Plan\n\n## Decisions\n\nWe chose approach A because it re', usage: { input: 10, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model };
+  }
   const isReviser = system.startsWith('You are the builder in a multi-model review chain,\nrevising');
   const isCritic = !isReviser && system.startsWith('You are an independent critic');
   const isCriteria = system.includes('turn a request into acceptance criteria');

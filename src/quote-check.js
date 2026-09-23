@@ -25,7 +25,7 @@
 // prose became "source", and an objection quoting that prose was shown to the reviser as a
 // verified quote. `council fence` now also writes a fence longer than any backtick run in the
 // file (src/fence.js), so its blocks always parse whole.
-// Returns [{ index (offset of the opening line), info, firstLine, body }].
+// Returns [{ index (offset of the opening line), info, firstLine, body, closed }].
 export function parseFences(text) {
   const src = String(text || '');
   const lines = src.split('\n');
@@ -41,13 +41,15 @@ export function parseFences(text) {
       }
     } else {
       const c = new RegExp(`^ {0,3}(\\${open.char}{${open.len},})\\s*$`).exec(line);
-      if (c) { blocks.push(close(open)); open = null; } else open.lines.push(line);
+      if (c) { blocks.push(close(open, true)); open = null; } else open.lines.push(line);
     }
     offset += raw.length + 1;
   }
-  if (open) blocks.push(close(open));
+  if (open) blocks.push(close(open, false));
   return blocks;
-  function close(b) { return { index: b.index, info: b.info, firstLine: b.lines[0] ?? '', body: b.lines.join('\n') }; }
+  // `closed` (additive, 2026-09-23): false for a block that runs to the end of the text with no
+  // closing fence - partial-deliverable.js uses it to spot a draft cut off inside a code block.
+  function close(b, closed) { return { index: b.index, info: b.info, firstLine: b.lines[0] ?? '', body: b.lines.join('\n'), closed }; }
 }
 
 // Extracted from the task text, which is the only source any seat sees.

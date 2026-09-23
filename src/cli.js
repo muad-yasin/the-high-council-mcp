@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked, renderDisputeReviewBoard } from './chain.js';
+import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard } from './chain.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
@@ -77,6 +77,10 @@ const EXIT_ALREADY_FINISHED = 15;
 // local model, a provider error nothing caught) rethrew and exited 1 - the code the README reserves
 // for lint and missing input - with a raw stack and nothing in the run folder saying it stopped.
 const EXIT_RUN_FAILED = 16;
+// Pre-release audit 2026-09-23 (PreRelease_Audit_revise #1): a build, revise, dispute, final or
+// handoff reply was cut off at its token cap and its one bigger-cap retry was cut off too (or the
+// seat is external). The run stops rather than grade, report or ship the fragment.
+const EXIT_DRAFT_TRUNCATED = 17;
 import { scanArtifacts } from './key-redaction.js';
 import { resetToolCallLog, renderToolsMd } from './tools.js';
 
@@ -1558,7 +1562,7 @@ countEarlierSpend(earlierSupersededUsd);
 // A previous sitting may have stopped this run at the ceiling. Clear that
 // marker now that we are past it, so a run that goes on to finish is not
 // still advertising itself as capped.
-for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', 'STOPPED-error.md']) {
+for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', 'STOPPED-error.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md']) {
   if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
 
@@ -1788,7 +1792,7 @@ try {
       // from here, change chain.js's own in-run control flow (§11: mechanism untouched).
       const kind = stageKindOf(s.label);
       if (kind) {
-        const check = validateDeliverable(kind, s.text);
+        const check = validateDeliverable(kind, s.text, s.usage);
         if (!check.ok) {
           log(`  PARTIAL OUTPUT WARNING: stage "${s.label}" (${kind}) - ${check.reason}`);
           appendFileSync(join(runDir, 'WARNINGS.md'), `- partial_output: stage "${s.label}" (${kind}) - ${check.reason}\n`);
@@ -1861,6 +1865,28 @@ started.
     log(`  detail:  ${join(runDir, 'STOPPED-preflight.md')}`);
     log(`  verdict: ${join(runDir, 'preflight-verdict.json')}`);
     process.exit(EXIT_PREFLIGHT_BLOCKED);
+  }
+  if (err instanceof DraftTruncated) {
+    // Same posture as the budget and preflight stops: no report.json and no deliverable.md, so a
+    // stopped run never reads as a finished one. The cut-off replies are on disk under their own
+    // labels for inspection. A resume replays them from disk and stops again until the chain gives
+    // that seat a larger maxTokens (which changes the chain, so the stage is asked again) or the
+    // external reply is replaced with a complete one.
+    const stopped = { stage: err.label, detail: err.detail, spentUsd: budgetState().spent };
+    writeFileSync(join(runDir, 'STOPPED-truncated.json'), JSON.stringify(stopped, null, 2));
+    writeFileSync(join(runDir, 'STOPPED-truncated.md'), `# Run stopped: a draft was cut off at its token cap
+
+Stage \`${err.label}\` produced a reply that ended at the seat's token limit: ${err.detail}.
+
+A cut-off draft is never graded, reported or shipped. Nothing after this stage ran, and there is no
+\`report.json\` or \`deliverable.md\` for this run.
+
+To continue: raise that seat's \`maxTokens\` in the chain (or, for an external seat, replace
+\`${err.label}.md\` with a complete reply), then \`--resume\` this run.
+`);
+    log(`\nSTOPPED: stage "${err.label}" was cut off at its token cap - ${err.detail}.`);
+    log(`  detail:  ${join(runDir, 'STOPPED-truncated.md')}`);
+    process.exit(EXIT_DRAFT_TRUNCATED);
   }
   if (err instanceof ExternalPause) {
     const need = join(runDir, `NEEDS-${err.label}.md`);

@@ -645,6 +645,30 @@ export class ExternalPause extends Error {
 // as ExternalPause/BudgetExceeded - the chain's control flow stays linear, and the preflight
 // verdicts computed so far are handed to the caller to persist, the same shape BudgetExceeded
 // already uses for its own already-completed stages.
+// A draft-producing stage (build, a revise, the dispute pass, the final edit, the handoff) came back
+// cut off at its token cap, and a retry with a bigger cap was cut off too - or the seat is external
+// and cannot be retried. Pre-release audit 2026-09-23 (PreRelease_Audit_revise #1): these replies
+// used to flow straight on, so a truncated final edit became the shipped deliverable with no review
+// after it. Thrown, not returned, like BudgetExceeded: the CLI stops the run with STOPPED-truncated.md
+// and never grades, reports or ships the fragment.
+export class DraftTruncated extends Error {
+  constructor(label, detail) {
+    super(`stage "${label}" was cut off at its token cap: ${detail}`);
+    this.controlFlow = true;
+    this.label = label;
+    this.detail = detail;
+  }
+}
+
+// Whether a free-text reply was cut off. Only the provider's own stop reason, or - when a provider
+// reports none - a reply that used its whole cap, counts: a long reply that finished is not truncated,
+// which is why this does not reuse the 95%-of-cap heuristic JSON seats use.
+export function draftCutOff(usage, cap) {
+  if (!usage) return false;
+  if (usage.stop === 'length' || usage.stop === 'max_tokens') return true;
+  return usage.stop == null && Number.isFinite(cap) && (usage.output || 0) >= cap;
+}
+
 export class PreflightBlocked extends Error {
   constructor(preflight) {
     super('preflight stage found a blocking objection to the task description');
@@ -1264,6 +1288,27 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
 
   const stages = [];
   const record = s => { stages.push(s); onStage(s); return s; };
+  // Every stage whose reply becomes (part of) the deliverable goes through here: a reply cut off at
+  // its cap is retried once with a bigger one (cutOffRetryCap, the panel's rule), under its own
+  // stable `<label>-retry` label, and if that is cut off too - or the seat is external and cannot be
+  // retried - the run stops (DraftTruncated) rather than carry the fragment forward.
+  const draftStage = async (seat, opts) => {
+    const cap = seat.maxTokens ?? DEFAULT_MAX_TOKENS;
+    const first = record(await invoke(seat, opts));
+    if (!draftCutOff(first.usage, cap)) return first;
+    const bigger = cutOffRetryCap(cap);
+    if (seat.provider === 'external' || bigger <= cap) {
+      throw new DraftTruncated(opts.label, seat.provider === 'external'
+        ? `the external reply reports stop "${first.usage?.stop}" - write a complete reply to ${opts.label}.md and resume`
+        : `it already had the largest retry cap (${cap} tokens)`);
+    }
+    log(`  ${opts.label}: cut off at ${cap} tokens - retrying once with ${bigger}.`);
+    const second = record(await invoke({ ...seat, maxTokens: bigger }, { ...opts, label: `${opts.label}-retry` }));
+    if (draftCutOff(second.usage, bigger)) {
+      throw new DraftTruncated(opts.label, `cut off at ${cap} tokens, and again at ${bigger} on the retry`);
+    }
+    return second;
+  };
   let request = requestIn;
 
   // The fenced source a human put in the task (src/fence.js), read once before any stage runs
@@ -1957,7 +2002,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     log('\nRound 1: build (skipped - reviewing a draft handed in)');
   } else {
     log('\nRound 1: build');
-    draft = record(await invoke(config.seats.builder, {
+    draft = (await draftStage(config.seats.builder, {
       system: R.builderSystem(open, promptOpts),
       user: R.builderUser({ request, criteria, proposals, board, alternatives: alternativesBoard, skeleton }),
       log, label: 'build',
@@ -2328,7 +2373,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       log(`\nRound ${round}: revise (union of everything any lab flagged)`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
       const patchMode = config.revise?.mode === 'patch';
-      const revised = record(await invoke(reviserSeat, {
+      const revised = (await draftStage(reviserSeat, {
         system: patchMode ? R.patchReviserSystem(open, !!fencedSource, promptOpts) : R.reviserSystem(open, !!fencedSource, promptOpts),
         user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }),
         log, label: `revise-${round}`,
@@ -2349,7 +2394,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         } else {
           log(`  patch mode: ${applied.reason} - falling back to one full rewrite for this round.`);
           patchFallbacks.push({ round, reason: applied.reason });
-          const full = record(await invoke(reviserSeat, {
+          const full = (await draftStage(reviserSeat, {
             system: R.reviserSystem(open, !!fencedSource, promptOpts),
             user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }),
             log, label: `revise-${round}-full`,
@@ -2392,7 +2437,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             groundTruthBlock = `\n\n# Ground truth for the contested claim (tool output, verbatim)\n## ${spec.tool}${spec.args ? ` ${JSON.stringify(spec.args)}` : ''}\n${JSON.stringify(result)}`;
           }
           const draftBefore = draft;
-          const targeted = record(await invoke(reviserSeat, {
+          const targeted = (await draftStage(reviserSeat, {
             system: R.reviserSystem(open, !!fencedSource, promptOpts),
             user: R.reviserUser({
               request, criteria, draft,
@@ -2509,7 +2554,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
 
       log(`\nRound ${round}: revise`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
-      const revised = record(await invoke(reviserSeat, {
+      const revised = (await draftStage(reviserSeat, {
         system: R.reviserSystem(open, !!fencedSource, promptOpts),
         user: R.reviserUser({ request, criteria, draft, critique }),
         log, label: `revise-${round}`,
@@ -2615,7 +2660,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     }
 
     const reviserSeat = config.seats.reviser || config.seats.builder;
-    const revised = record(await invoke(reviserSeat, {
+    const revised = (await draftStage(reviserSeat, {
       system: R.DISPUTE_SYSTEM,
       user: R.disputeUser({ request, criteria, draft, failures: openFailures }),
       log, label: 'dispute',
@@ -2713,7 +2758,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     if (parsed?.challenge === true && parsed.decision && parsed.evidence) {
       log(`  challenge raised against "${parsed.decision}" - evidence that would settle it: ${parsed.evidence}`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
-      const revised = record(await invoke(reviserSeat, {
+      const revised = (await draftStage(reviserSeat, {
         system: R.reviserSystem(open, !!fencedSource, promptOpts),
         user: R.reviserUser({
           request, criteria, draft,
@@ -2765,7 +2810,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // 4. Optional final edit: strips chain artifacts. Never adds material.
   if (config.seats.finalist) {
     log('\nStage: final edit');
-    draft = record(await invoke(config.seats.finalist, {
+    draft = (await draftStage(config.seats.finalist, {
       system: R.FINALIST_SYSTEM,
       user: R.finalistUser({ request, draft, history: history.join('\n\n') }),
       log, label: 'final',
@@ -2781,7 +2826,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   let handoff = null;
   if (config.handoff) {
     log('\nStage: handoff');
-    handoff = record(await invoke(config.seats.handoff || config.seats.builder, {
+    handoff = (await draftStage(config.seats.handoff || config.seats.builder, {
       system: R.HANDOFF_SYSTEM,
       user: R.handoffUser({ request, draft, planFile: config.handoffPlanFile || 'PLAN.md' }),
       log, label: 'handoff',

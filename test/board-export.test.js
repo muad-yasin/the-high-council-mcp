@@ -75,3 +75,29 @@ test('council export-board --run --out writes a real file', () => {
   assert.match(html, /A cheap fix/);
   assert.doesNotMatch(html, /http/i);
 });
+
+// Pre-release audit 2026-09-23 (PreRelease_Audit_contract #1): the exported board never showed the
+// alternatives stage, so a shared board dropped the architecture debate without a word.
+test('renderBoardHtml: the alternatives stage is rendered, escaped, and absent when the stage never ran', async () => {
+  const { renderBoardHtml } = await import('../src/board-export.js');
+  const report = {
+    runId: 'r1', chain: 'plan-open-7', passed: false,
+    alternatives: {
+      items: [
+        { id: 'GLM-ALT', lab: 'glm', name: 'Event log <b>first</b>', shape: 'ALT_MARKER one log', key_tradeoffs: 'simple', bad_at: 'joins', amended: true },
+        { id: 'QWEN-ALT', lab: 'qwen', name: 'Monolith', shape: 's', key_tradeoffs: 't', bad_at: 'b', withdrawn: true, replaced_by: 'GLM-ALT' },
+      ],
+      posts: [{ by: 'qwen', on: 'GLM-ALT', stance: 'object', text: '<script>alert(1)</script>' }],
+      replies: [{ id: 'GLM-ALT', action: 'amend', text: 'fair' }],
+      dropouts: [],
+    },
+  };
+  const html = renderBoardHtml(report);
+  assert.match(html, /<h2>Alternative architectures<\/h2>/);
+  assert.match(html, /ALT_MARKER one log/);
+  assert.match(html, /GLM-ALT \(glm\) - Event log &lt;b&gt;first&lt;\/b&gt; - AMENDED/);
+  assert.match(html, /WITHDRAWN by qwen in favour of GLM-ALT/);
+  assert.ok(!html.includes('<script>'), 'model-written text is escaped');
+  assert.ok(html.indexOf('Alternative architectures') < html.indexOf('<h2>Proposals'));
+  assert.ok(!renderBoardHtml({ runId: 'r2', chain: 'x' }).includes('Alternative architectures'));
+});

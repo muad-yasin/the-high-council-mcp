@@ -129,12 +129,12 @@ const STAGE_KIND_PATTERNS = [
   [/^judge-/, 'judge'],
   [/^debate-/, 'debate'],
   [/^reply-/, 'reply'],
-  [/^build$/, 'build'],
+  [/^build(-retry)?$/, 'build'],
   [/^panel-/, 'panel'],
   [/^critique-/, 'critique'],
   [/^revise-/, 'revise'],
-  [/^final$/, 'final'],
-  [/^handoff$/, 'handoff'],
+  [/^final(-retry)?$/, 'final'],
+  [/^handoff(-retry)?$/, 'handoff'],
 ];
 
 /** Map a chain.js stage label (e.g. "propose-glm", "panel-2-mistral") to a canonical stage kind, or null if unrecognised. */

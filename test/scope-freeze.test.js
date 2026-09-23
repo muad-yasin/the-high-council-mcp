@@ -52,3 +52,20 @@ test('taskHashOf is deterministic and content-sensitive', () => {
   assert.equal(taskHashOf('same text'), taskHashOf('same text'));
   assert.notEqual(taskHashOf('same text'), taskHashOf('different text'));
 });
+
+// Pre-release audit 2026-09-23 (PreRelease_Audit_revise #2): coverage was a bare substring match, so
+// reverting the task to a hash that appeared anywhere in AMENDMENTS.md's history passed silently.
+test('test_scope_freeze: reverting to an earlier hash is not covered by an older amendment entry', () => {
+  const a = taskHashOf('Version A of the task.');
+  const b = taskHashOf('Version B of the task.');
+  const history = `old hash: ${a}, new hash: ${b} | reason: added a requirement | 2026-09-23T10:00:00Z\n`;
+  // The approved change A -> B is covered.
+  assert.deepEqual(checkFrozenScope({ storedHash: a, currentHash: b, amendmentsText: history }), { ok: true, amended: true });
+  // Later the file goes back to A with no new entry: refused, and the message says why.
+  const revert = checkFrozenScope({ storedHash: b, currentHash: a, amendmentsText: history });
+  assert.equal(revert.ok, false);
+  assert.match(revert.message, /only as part of an earlier entry/);
+  // A new entry for B -> A covers it.
+  const withRevert = `${history}old hash: ${b}, new hash: ${a} | reason: reverted | 2026-09-23T11:00:00Z\n`;
+  assert.deepEqual(checkFrozenScope({ storedHash: b, currentHash: a, amendmentsText: withRevert }), { ok: true, amended: true });
+});

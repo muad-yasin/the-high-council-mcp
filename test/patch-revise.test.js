@@ -99,3 +99,18 @@ test('chain-lint: revise.mode accepts only full or patch, and no other key', () 
     .some(f => f.kind === 'invalid-revise-config' && /tolerance/.test(f.message)));
   assert.deepEqual(lintChain({ ...base, revise: { mode: 'full' } }, 'x.json'), []);
 });
+
+// Pre-release audit 2026-09-23 (PreRelease_Audit_revise #3): patch text that itself contains a
+// fenced snippet closed changedSince()'s fixed ``` fence early. Parse the result the CommonMark way
+// and require each Was/Now block to come back whole.
+test('changedSince: a patch containing its own fenced snippet stays in one block', async () => {
+  const { changedSince } = await import('../src/patch-revise.js');
+  const { parseFences } = await import('../src/quote-check.js');
+  const replace = 'Run the suite before merging:\n\n```bash\nnpm test\n```\n\nAll tests must pass.';
+  const out = changedSince([{ search: 'old line', replace }]);
+  const blocks = parseFences(out);
+  assert.equal(blocks.length, 2, 'exactly the Was and the Now block');
+  assert.ok(blocks.every(b => b.closed), 'both blocks are closed');
+  assert.equal(blocks[1].body, replace, 'the Now block carries the replacement verbatim, fence and all');
+  assert.ok(!/All tests must pass\.\n(?!```)/.test(out.split(blocks[1].body)[1] || ''), 'no replacement text leaks outside its block');
+});

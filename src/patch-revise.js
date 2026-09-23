@@ -15,6 +15,8 @@
 // the moment any block fails to apply. The fallback is the feature: a chain that turns this on
 // gets cheaper runs when it works and today's behaviour when it does not.
 
+import { fenceFor } from './fence.js';
+
 export const PATCH_BLOCK_RE = /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g;
 
 /** Parse search/replace blocks out of a reviser reply. Never throws. */
@@ -71,18 +73,19 @@ export function applyPatches(draft, patches) {
  */
 export function changedSince(patches) {
   if (!patches?.length) return '';
+  // Pre-release audit 2026-09-23 (PreRelease_Audit_revise #3): a fixed ``` fence was closed early by
+  // any fenced snippet inside the patch text itself, so critics saw a garbled change directly under
+  // "everything not shown is byte-identical". Each block now gets a fence longer than any backtick
+  // run in its own content (fence.js's fenceFor, the rule `council fence` uses), so it parses whole.
+  const block = text => { const f = fenceFor(text); return [f, text, f]; };
   const body = patches.map((p, i) => [
     `### Change ${i + 1}`,
     '',
     'Was:',
-    '```',
-    p.search,
-    '```',
+    ...block(p.search),
     '',
     'Now:',
-    '```',
-    p.replace,
-    '```',
+    ...block(p.replace),
   ].join('\n')).join('\n\n');
   return `\n\n## Changed since your last review\n\nEverything not shown below is byte-identical to the draft you reviewed.\n\n${body}`;
 }

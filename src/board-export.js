@@ -31,6 +31,31 @@ ${boardItems}
 </details>`;
 }
 
+// Whole alternative architectures (report.json `alternatives`, present only when the chain ran that
+// stage). Pre-release audit 2026-09-23 (PreRelease_Audit_contract #1): the HTML board never rendered
+// them, so a shared board silently dropped the debate that decided the plan's shape. Same shape and
+// the same escaping as a proposal's section.
+function alternativeSection(a, posts, replies) {
+  const on = posts.filter(x => x.on === a.id);
+  const re = replies.filter(r => r.id === a.id);
+  const status = a.withdrawn
+    ? `WITHDRAWN by ${esc(a.lab)}${a.replaced_by ? ` in favour of ${esc(a.replaced_by)}` : ''}`
+    : a.amended ? 'AMENDED by its author after debate' : 'stands';
+  const boardItems = on.map(x => `<li>${esc(x.by)} - ${esc(x.stance)}${x.merge_with ? ` with ${esc(x.merge_with)}` : ''}: ${esc(x.text)}</li>`)
+    .concat(re.map(r => `<li>${esc(a.lab)} (author) - ${esc(r.action)}: ${esc(r.text)}</li>`))
+    .join('\n') || '<li>(no posts)</li>';
+  return `<details>
+<summary>${esc(a.id)} (${esc(a.lab)}) - ${esc(a.name)} - ${status}</summary>
+<p><strong>Shape:</strong> ${esc(a.shape)}</p>
+<p><strong>Key trade-offs:</strong> ${esc(a.key_tradeoffs)}</p>
+<p><strong>Bad at:</strong> ${esc(a.bad_at)}</p>
+<p><strong>Board:</strong></p>
+<ul>
+${boardItems}
+</ul>
+</details>`;
+}
+
 /**
  * A run's report.json as one self-contained HTML string: no external
  * assets, no <script>, no server. Never throws on a partial report -
@@ -51,6 +76,14 @@ export function renderBoardHtml(report) {
   const proposalsHtml = proposals.length
     ? proposals.map(p => proposalSection(p, posts, replies)).join('\n')
     : '<p>No proposal debate ran this run.</p>';
+
+  const alt = report.alternatives;
+  const alternativesHtml = alt && Array.isArray(alt.items)
+    ? `<h2>Alternative architectures</h2>
+<p>Every whole architecture a lab proposed before the plan existed, the other labs' posts on it, and the author's reply. The plan's "Decisions" section records which was chosen and why the others lost.</p>
+${alt.items.length ? alt.items.map(a => alternativeSection(a, alt.posts || [], alt.replies || [])).join('\n') : '<p>No lab produced an alternative.</p>'}
+`
+    : '';
 
   const verdictItems = signoff.map(s =>
     `<li>${esc(s.provider)}: ${s.signedOff === null ? 'abstained' : s.signedOff ? 'signed off' : 'objected'}</li>`).join('\n') || '<li>(no panel signoff recorded)</li>';
@@ -75,7 +108,7 @@ export function renderBoardHtml(report) {
 <ul>
 ${verdictItems}
 </ul>
-<h2>Proposals</h2>
+${alternativesHtml}<h2>Proposals</h2>
 ${proposalsHtml}
 </body>
 </html>
