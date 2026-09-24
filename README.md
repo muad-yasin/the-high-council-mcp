@@ -1,28 +1,26 @@
 # The High Council
 
-> **Repository status (2026-09-22): going private until the open-source release.** Development
-> continues in a private repository, and the public open-source release is planned for later this
-> year. Until then, the published npm package `the-high-council` (0.7.6) stays installable as it
-> is, and the `npx github:...` lines below only work for someone with access to this repository.
-> The licence of everything already released stays MIT.
+A planning harness that runs one idea past several AI models from different labs, makes them
+argue about it on the record, and stops at a checkable result.
 
 See it work right now - no keys, no setup, no cost:
 
     npx the-high-council council demo
 
-Add it to Claude Code as an MCP server the same way:
+The demo takes one example request (a tool that renames holiday photos by date) through every
+stage: blind proposals, an anonymised debate in which one proposal is withdrawn and two are
+amended, a panel that splits in round 1 and signs off in round 2, and the handoff file. Every
+model reply in it is written in advance; what is real is the code that runs the stages around
+them.
+
+Add it to Claude Code as an MCP server:
 
     claude mcp add council -- npx -y the-high-council council --mcp
-
-*(With access to this repository, `npx github:muad-yasin/the-high-council-mcp council demo` runs
-the current source instead of the published package.)*
-
-A planning harness that runs one idea past several AI models from different labs, makes them
-argue about it on the record, and stops at a checkable result.
 
 Runs as an **MCP server** (so an agent like Claude Code can drive it) or as a **CLI**. Bring your
 own API keys. Nothing is resold, nothing is hosted for you, and your keys go only to the
 providers you choose, never to us.
+
 Run `npx the-high-council council doctor` to see which of your own keys are
 set, which shipped chains you can already run with them, and what each would cost - before
 spending anything.
@@ -34,7 +32,8 @@ spending anything.
 > objected to what, who withdrew a proposal under argument, and who held their position.
 
 **A visual write-up of all of this, built around one real run, is at
-[sower-industries.de/MCP](https://sower-industries.de/MCP).**
+[sower-industries.de/MCP](https://sower-industries.de/MCP).** What changed in each release:
+[CHANGELOG.md](CHANGELOG.md).
 
 ## How it works
 
@@ -147,14 +146,18 @@ page, drop that field. The debate itself is the part worth showing.
 
 ## Setup
 
+Nothing to install beyond Node: `npx the-high-council council <command>` fetches the published
+package and runs it. To keep a `council` command on your PATH instead:
+
 ```bash
-git clone https://github.com/muad-yasin/the-high-council-mcp.git
-cd the-high-council-mcp
-npm install
-cp .env.example .env
+npm install -g the-high-council
+council doctor
 ```
 
-Fill in `.env` with only the keys your chosen chain needs. Supported providers:
+`council` reads and writes in the directory you run it from: `.env` for keys, `tasks/` for
+requests, `runs/` for output, and a `chains/` of your own there takes precedence over the bundled
+ones. Put only the keys your chosen chain needs in that `.env`, one `NAME=value` per line
+(`.env.example` in the package lists them all). Supported providers:
 
 `ANTHROPIC_API_KEY` · `OPENAI_API_KEY` · `GOOGLE_API_KEY` · `MISTRAL_API_KEY` ·
 `DEEPSEEK_API_KEY` · `GROQ_API_KEY` · `TOGETHER_API_KEY` · `COHERE_API_KEY` ·
@@ -166,6 +169,19 @@ refuses such a seat, with no override. There is no `xai` provider.
 
 The CLI refuses to start if any seat in the chosen chain is missing its key, rather than failing
 halfway through a paid run. `ollama` (below) is the one exception - it needs no key at all.
+
+### From source
+
+```bash
+git clone https://github.com/muad-yasin/the-high-council-mcp.git
+cd the-high-council-mcp
+npm install
+cp .env.example .env
+```
+
+In a clone, `node src/cli.js` does what `council` does, on the current source rather than the
+published package. `npx github:muad-yasin/the-high-council-mcp council demo` runs the current
+source without cloning.
 
 ### Standalone binaries (build them yourself)
 
@@ -226,15 +242,16 @@ mkdir -p tasks
 echo "Plan the data model for a bookmarking app. Single user, offline-first." > tasks/your-idea.md
 
 # see what's available and what it would cost
-node src/cli.js --help
-npm run dry -- --task tasks/your-idea.md --chain verify
+council --help
+council --task tasks/your-idea.md --chain verify --dry-run
 
 # a real run
-node src/cli.js --task tasks/your-idea.md --chain verify
+council --task tasks/your-idea.md --chain verify
 ```
 
-`tasks/` and `runs/` are both gitignored. Your requests and everything the council writes about
-them stay on your machine - if you fork this repo, you will not accidentally publish them.
+Your requests and everything the council writes about them stay on your machine, in `tasks/` and
+`runs/` under the directory you ran from. In a clone of this repo both are gitignored, so a fork
+will not accidentally publish them.
 
 `verify` is the cheap default: two labs, a hard two-round cap. Start there.
 
@@ -295,8 +312,8 @@ stage - a stage that could take the run past the ceiling is never called, so the
 than reporting the overspend afterwards.
 
 ```bash
-node src/cli.js --task tasks/x.md --max-usd 2     # this run stops at $2
-node src/cli.js --task tasks/x.md --max-usd none  # no ceiling
+council --task tasks/x.md --max-usd 2     # this run stops at $2
+council --task tasks/x.md --max-usd none  # no ceiling
 export MAX_USD_PER_RUN=20                         # change the default
 ```
 
@@ -306,7 +323,7 @@ stage it stopped at, and what that stage would have cost. Nothing is half-writte
 with a higher ceiling - completed stages replay from disk and cost nothing the second time:
 
 ```bash
-node src/cli.js --resume runs/<id> --max-usd 10
+council --resume runs/<id> --max-usd 10
 ```
 
 A stage replays only if it would be asked the same thing again: the task text, the chain config
@@ -320,11 +337,11 @@ changed prompt: it is set aside the same way and the run asks you again.
 The cap governs one run. To see what you have spent across all of them:
 
 ```bash
-node src/cli.js --spend            # today
-node src/cli.js --spend --days 7   # the last week
-node src/cli.js --cost-today       # today by calendar day, with a per-model breakdown
-node src/cli.js --cost-today --date 2026-09-01
-node src/cli.js --stats --days 30    # how the debate mechanism itself is doing
+council --spend            # today
+council --spend --days 7   # the last week
+council --cost-today       # today by calendar day, with a per-model breakdown
+council --cost-today --date 2026-09-01
+council --stats --days 30    # how the debate mechanism itself is doing
 ```
 
 That is read back off the run folders on disk - there is no ledger file, nothing is recorded
@@ -336,7 +353,7 @@ To watch this work without spending anything, the `mock-budget` chain calls no A
 fixture prices:
 
 ```bash
-node src/cli.js --task tasks/your-idea.md --chain mock-budget --max-usd 1
+council --task tasks/your-idea.md --chain mock-budget --max-usd 1
 ```
 
 If a chain pauses for your input, it writes `NEEDS-<stage>.md` into the run folder and tells you
@@ -344,7 +361,7 @@ how to resume:
 
 ```bash
 # write your answer to runs/<id>/answers.md, then:
-node src/cli.js --resume runs/<id>
+council --resume runs/<id>
 ```
 
 ## Quick start (MCP)
@@ -355,9 +372,8 @@ Register the server with your MCP client. No clone needed - from the published n
 claude mcp add council -- npx -y the-high-council council --mcp
 ```
 
-With access to this repository (private until the open-source release), the same line with
-`npx -y github:muad-yasin/the-high-council-mcp` runs the current source instead. The clone and
-plugin-marketplace routes below need that access too.
+The same line with `npx -y github:muad-yasin/the-high-council-mcp` runs the current source
+instead.
 
 Or from a clone of this repo:
 
@@ -396,10 +412,10 @@ Either way the server reads and writes in **your** working directory, not inside
 `.env` for keys, `tasks/` for requests, `runs/` for output, and a `chains/` of your own takes
 precedence over the bundled ones.
 
-To run it by hand, from a clone:
+To run it by hand:
 
 ```bash
-npm run mcp          # or: node src/cli.js --mcp
+council --mcp        # from a clone: npm run mcp
 ```
 
 Then drive it with these tools:
@@ -468,57 +484,6 @@ Read a chain's `description` field before running it; they say what they cost yo
   source-level guard, not just an intention. A chain with no `role` set is byte-identical to
   before. **No efficacy claim**: this ships the mechanism, not evidence that it helps - see
   CHANGELOG.md's 0.6.0 entry.
-
-## New in 0.6.0
-
-- **Role-assigned debate seats** - see the `role` field above. Ships the mechanism only; whether
-  it changes anything about a real debate is untested by this release.
-- **`report.json`'s `debate.diagnostics`** - four failure-mode signals computed from a run's own
-  real debate output (never from an offline probe): a seat quoting no evidence despite objecting
-  or merging, textual overlap between differently-lensed seats' posts on the same proposal, a
-  same-run gap between role-bearing and role-less seats' evidence quoting, and the share of a
-  seat's own words that fall inside quoted evidence versus voice. Present (with nulls/empty
-  flags where there's nothing to compute) on any run that had a debate stage; absent otherwise.
-- **`debate.tie_break`** - a `report.json` field recording a weighted-tiebreak event, when one
-  fires. Not yet wired into a live vote-counting decision in this release.
-- **`PERSONAS.md`** - the five default public persona names and their voice directives, and how
-  an operator replaces the whole set with their own via `COUNCIL_PERSONAS_FILE`.
-
-## New in 0.5.0
-
-- **`council init [--yes]`** - the first thing to run in a fresh clone with no keys yet. Prints a
-  key check, writes a starter chain and task file you own (`chains/my-first-chain.json`,
-  `tasks/my-first-task.md` - a rerun never overwrites an edit you made to either), prices the
-  starter chain with no network call, then runs a canned, all-mock, $0 task end to end so the
-  first thing you inspect is a real run folder, not just terminal output.
-- **`council doctor --chain <file>`** - lints one chain config before you ever run it: a seat
-  under a misspelled key (never wired to any stage), a missing or empty `seats.critics` (the
-  review round can't run), or a seat naming a provider this codebase doesn't know. The same check
-  also runs automatically, fail-loud, the moment you try to actually run a broken chain - before
-  any paid call.
-- **`council doctor --scan-artifacts`** - scans your `tasks/` and `chains/` for the key formats
-  listed in `src/secret-patterns.js` before you commit or share them. A format not on that list is
-  not caught. Reports the file and line, never the matched text.
-- **`council --forecast-cost --chain <name> [--days N]`** - a realistic-case USD range for a
-  chain, built from its own historical runs on your machine and repriced at today's rates -
-  distinct from `--dry-run`'s worst-case estimate from a chain's declared token assumptions.
-- **`council export-board --run <folder> --out <file>`** - a run's proposals, debate, replies and
-  verdict as one self-contained HTML file. No external assets, no server, `<details>` sections.
-- **`council replay --run <folder> [--json]`** - a numbered, step-by-step transcript of a run's
-  reasoning in your terminal, with a `--json` mode for scripting.
-- **A structured error catalog** (`COUNCIL-E001`-`COUNCIL-E005`, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md))
-  for the hard-fail paths this project actually has - a missing key, an unpriced model, a
-  malformed chain file, an unreadable stage reply - each with a plain-words cause, a concrete fix
-  naming the real file, and a doc pointer. Degradable conditions exit 5; fatal ones exit 6.
-- **Structured per-stage JSON logs** - every run now also writes `stage-log.jsonl` (one line per
-  stage: seat, lab, token counts, cost, timing - no prompt content) alongside the existing
-  markdown/`report.json` artifacts.
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - the three smallest landable contribution shapes, for
-  anyone who wants to send a PR rather than only file an issue.
-
-None of the above change any existing chain's behaviour. `schemaVersion` and
-`max_proposals_per_seat` are both opt-in; a chain file that predates 0.5.0 runs exactly as it did
-before.
 
 ## How this was built
 
@@ -617,8 +582,7 @@ This tool collects nothing. Stated plainly, not as a claim about quality:
   your own keys (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, and so on) - and only when you start
   a real run with a non-mock, non-external seat. `council doctor` and `council demo` make zero
   network calls; both are implemented to read only local files and environment variable names.
-- The landing page (`docs/`, moving from GitHub Pages to sower-industries.de while this
-  repository is private) ships no JavaScript and loads no third-party resource - see
+- The landing page in `docs/` ships no JavaScript and loads no third-party resource - see
   `test/landing-page.test.js`, which fails the build if either ever changes.
 - Everything a run produces - the task, the debate, the deliverable, the cost - is written to a
   folder on your own disk (`runs/<id>/`) and nowhere else. Deleting that folder deletes the
@@ -653,8 +617,10 @@ hand, 2026-09-13, on the live site:
 
 ## Reporting a bug
 
-Write to [contact@sower-industries.de](mailto:contact@sower-industries.de). (GitHub issues open
-again with the public release; while the repository is private, email is the only route.)
+Open an issue at
+[github.com/muad-yasin/the-high-council-mcp/issues](https://github.com/muad-yasin/the-high-council-mcp/issues).
+For anything security-related, or that should not be public, write to
+[contact@sower-industries.de](mailto:contact@sower-industries.de) instead.
 
 ## If this makes you money
 
