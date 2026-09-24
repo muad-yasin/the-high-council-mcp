@@ -715,8 +715,38 @@ export function rethrowControlFlow(err) {
 export async function settleAll(promises) {
   const results = await Promise.allSettled(promises);
   const failed = results.find(r => r.status === 'rejected');
-  if (failed) throw failed.reason;
+  if (failed) {
+    // Parallel external seats (2026-09-25, Muad's "yes" to a subscription-seat panel): when the
+    // first rejection is an ExternalPause, every OTHER seat of the same stage that paused rides
+    // along on it as `siblings`, so the CLI writes all their NEEDS files at once and the operator
+    // can answer them in parallel. Before this, a panel of seven external seats surfaced one pause
+    // per resume - seven resumes per round. Only pauses ride along: a BudgetExceeded or any other
+    // rejection that settled first still wins exactly as before, and a pause that settled after
+    // one is still thrown on the next resume, as it always was.
+    if (failed.reason instanceof ExternalPause) {
+      const siblings = results
+        .filter(r => r.status === 'rejected' && r.reason !== failed.reason && r.reason instanceof ExternalPause)
+        .map(r => r.reason);
+      if (siblings.length) failed.reason.siblings = [...(failed.reason.siblings || []), ...siblings];
+    }
+    throw failed.reason;
+  }
   return results.map(r => r.value);
+}
+
+/** Every pause an ExternalPause carries (itself first, then its siblings, nested ones flattened),
+ *  one per label. */
+export function pendingPauses(err) {
+  const out = [];
+  const seen = new Set();
+  const walk = p => {
+    if (!p || seen.has(p.label)) return;
+    seen.add(p.label);
+    out.push(p);
+    for (const s of p.siblings || []) walk(s);
+  };
+  walk(err);
+  return out;
 }
 
 // Dispute review (2026-09-23, opt-in `dispute: { enabled: true, review: true }`). Muad: "Reviewers

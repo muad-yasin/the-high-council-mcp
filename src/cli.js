@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard } from './chain.js';
+import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
@@ -1920,13 +1920,25 @@ To continue: raise that seat's \`maxTokens\` in the chain (or, for an external s
     process.exit(EXIT_DRAFT_TRUNCATED);
   }
   if (err instanceof ExternalPause) {
-    const need = join(runDir, `NEEDS-${err.label}.md`);
-    // The prompt this answer will be held to on resume (resume-cache audit #1/#4).
-    writeFileAtomic(join(runDir, `${err.label}.prompt.json`), JSON.stringify({ provider: 'external', promptHash: err.promptHash, inputsFingerprint: cacheFingerprint }));
-    writeFileSync(need, withIntegrityFooter(`# External stage: ${err.label}\n\nWrite the reply to \`${join(runDir, `${err.label}.md`)}\` and run:\n\n    council --resume runs/${runId}\n\n## System prompt\n\n${err.system}\n\n## User prompt\n\n${err.user}`));
-    log(`\nPAUSED: stage "${err.label}" is an external seat.`);
-    log(`  prompt:  ${need}`);
-    log(`  answer:  write ${join(runDir, `${err.label}.md`)}`);
+    // A parallel stage with several external seats pauses on all of them at once (settleAll
+    // attaches the siblings): one NEEDS file per seat, so they can be answered in parallel. The
+    // run resumes once every one has its <label>.md; answering only some just pauses again on
+    // the rest.
+    const pauses = pendingPauses(err);
+    for (const p of pauses) {
+      const need = join(runDir, `NEEDS-${p.label}.md`);
+      // The prompt this answer will be held to on resume (resume-cache audit #1/#4).
+      writeFileAtomic(join(runDir, `${p.label}.prompt.json`), JSON.stringify({ provider: 'external', promptHash: p.promptHash, inputsFingerprint: cacheFingerprint }));
+      writeFileSync(need, withIntegrityFooter(`# External stage: ${p.label}\n\nWrite the reply to \`${join(runDir, `${p.label}.md`)}\` and run:\n\n    council --resume runs/${runId}\n\n## System prompt\n\n${p.system}\n\n## User prompt\n\n${p.user}`));
+    }
+    if (pauses.length === 1) {
+      log(`\nPAUSED: stage "${err.label}" is an external seat.`);
+      log(`  prompt:  ${join(runDir, `NEEDS-${err.label}.md`)}`);
+      log(`  answer:  write ${join(runDir, `${err.label}.md`)}`);
+    } else {
+      log(`\nPAUSED: ${pauses.length} external seats are waiting (answer each, in any order):`);
+      for (const p of pauses) log(`  ${p.label}:  prompt ${join(runDir, `NEEDS-${p.label}.md`)}  ->  answer ${join(runDir, `${p.label}.md`)}`);
+    }
     log(`  resume:  council --resume runs/${runId}`);
     process.exit(3);
   }

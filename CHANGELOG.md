@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Several external seats pause together
+
+A stage that asks several seats at once (panel, proposals, alternatives, debate) now writes one
+`NEEDS-<label>.md` per external seat that paused, instead of surfacing only the first and pausing
+again on the next after each resume. A panel of seven external seats used to need seven resumes per
+round; now the operator answers all of them, in parallel if they like, and resumes once. Answering
+only some pauses again on the rest. A budget stop that settled first still wins exactly as before.
+`waitingStages()` already listed every open NEEDS file, so `run_status` and the resume brief needed
+no change.
+
 ### "How this plan was argued" (opt-in)
 
 Muad, 2026-09-23 ("let's do #3"): the labs' arguments are part of the product, for beginner
