@@ -14,6 +14,7 @@ import { computeOutcome } from './outcome.js';
 import { reportJsonShape, renderBoardMd } from './report-shape.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName, keyFor, isKeyOptional, call } from './providers.js';
+import { DEMO_REQUEST } from './mock-demo.js';
 import { readCompletedRun, generateDigestText, writeDigest } from './dissent-digest.js';
 import { deniedReasonsOf, DeniedModel } from './denied-models.js';
 import { spendReport, costToday } from './spend.js';
@@ -278,18 +279,27 @@ if (argv[0] === 'doctor') {
 // mock provider (calls nothing real) and prints the resulting deliverable and
 // debate board to stdout, so a stranger who just installed this can see the
 // whole mechanism - proposals, anonymised debate, panel sign-off - work
-// before ever touching a real key.
+// before ever touching a real key. The seats are mock-debate's, renamed to
+// the `mock-demo-*` models, whose replies are the scripted photo-renamer
+// scenario in src/mock-demo.js rather than the tests' placeholder text.
 if (argv[0] === 'demo') {
-  const demoChainName = 'mock-debate';
-  const demoConfig = JSON.parse(readFileSync(join(pkg, 'chains', `${demoChainName}.json`), 'utf8'));
-  console.log(`\nThe High Council - offline demo (chain: ${demoChainName}, provider: mock)`);
-  console.log(`No API key, no network call, $0. This is what the mechanism looks like end to end.\n`);
+  const demoConfig = JSON.parse(readFileSync(join(pkg, 'chains', 'mock-debate.json'), 'utf8'));
+  const demoSeat = seat => ({ ...seat, model: seat.model.replace(/^mock-/, 'mock-demo-'), ...(seat.lab ? { lab: seat.lab.replace(/^mock-/, 'lab-') } : {}) });
+  demoConfig.name = 'demo';
+  for (const [role, seat] of Object.entries(demoConfig.seats)) {
+    demoConfig.seats[role] = Array.isArray(seat) ? seat.map(demoSeat) : demoSeat(seat);
+  }
+  console.log(`\nThe High Council - offline demo (provider: mock)`);
+  console.log(`No API key, no network call, $0. Every seat's reply below is scripted in advance`);
+  console.log(`(src/mock-demo.js) - no model is judging anything. What is real is the mechanism`);
+  console.log(`around them: blind proposals, anonymised debate, the board, panel rounds, the ledger.`);
+  console.log(`\nThe request:\n\n${DEMO_REQUEST.replace(/^/gm, '  ')}\n`);
   const demoResult = await runChain({
-    request: 'Demo request. The mock provider ignores this text - see chains/mock-debate.json for what it always returns.',
+    request: DEMO_REQUEST,
     config: demoConfig,
     log: line => console.log(line),
   });
-  console.log(`\n${'='.repeat(72)}\nDELIVERABLE\n${'='.repeat(72)}\n`);
+  console.log(`\n${'='.repeat(72)}\nDELIVERABLE (the plan)\n${'='.repeat(72)}\n`);
   console.log(demoResult.deliverable);
   if (demoResult.board) {
     console.log(`\n${'='.repeat(72)}\nDEBATE BOARD\n${'='.repeat(72)}\n`);

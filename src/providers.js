@@ -6,6 +6,8 @@
 // Anthropic uses its own Messages API. Everything else here speaks the
 // OpenAI chat-completions shape, which is why they share one adapter.
 
+import { demoReply } from './mock-demo.js';
+
 const OPENAI_COMPAT = {
   openai:   { base: 'https://api.openai.com/v1',                 key: 'OPENAI_API_KEY' },
   google:   { base: 'https://generativelanguage.googleapis.com/v1beta/openai', key: 'GOOGLE_API_KEY' },
@@ -98,6 +100,15 @@ export function resolveVendorSeat(seat, transport) {
 // branch, including the early stop.
 async function callMock({ model, system, messages, maxTokens }) {
   const user = messages.map(m => m.content).join('\n');
+  // `council demo`'s scripted scenario (src/mock-demo.js): realistic text for every stage the
+  // demo chain runs. Returns null for a stage it has no script for, which falls through below.
+  if (model.startsWith('mock-demo-')) {
+    const demo = demoReply({ model, system, user });
+    if (demo) {
+      await new Promise(r => setTimeout(r, 10));
+      return demo;
+    }
+  }
   // A critic whose reply can't be parsed - stands in for a real reply cut
   // off at the token cap. Exercises the abstention path offline.
   if (model === 'mock-unreadable') {
