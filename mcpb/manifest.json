@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "the-high-council",
   "display_name": "The High Council",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "description": "A planning council: models from different labs propose, debate and review one plan. Bring your own keys.",
   "long_description": "The High Council runs one request past seats filled by models from different labs. Each lab proposes blind, the proposals are debated on the record, one plan is built and reviewed under a round cap, and the run folder keeps every stage.\n\n**Bring your own keys.** Nothing is hosted and there is no default key: add a key only for the labs you want to seat. The `mock` chains run offline, free, with no key at all, so you can try the tools first.\n\n**Spend ceiling.** Every run stops before any stage that could pass the ceiling you set here. Claude cannot lift it from a conversation.\n\nNo claim is made that a council produces better plans than one model; nothing has measured that yet.",
   "author": {

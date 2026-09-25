@@ -1,19 +1,92 @@
 # Changelog
 
-## Unreleased
+## 0.7.7 - unreleased
 
-### `report.json` is a versioned, published format
+Everything since 0.7.6. The summary comes first; the detailed notes follow under "Detail". This
+release makes no claim that a council's output is better than a single model's: nothing like that
+has been measured.
+
+### Breaking changes
+
+- **Deep imports are blocked.** `package.json` now has an `exports` map, so only the package root
+  (`import ... from 'the-high-council'`, the new JS API below) and `the-high-council/package.json`
+  resolve. An import such as `the-high-council/src/chain.js` now fails with
+  `ERR_PACKAGE_PATH_NOT_EXPORTED`. The `council` command, `npx the-high-council` and the MCP server
+  (`--mcp`) are unaffected. Code that imported a file under `src/` directly should move to the JS
+  API, or pin 0.7.6.
+- **`report.json`'s `task` is never an absolute path.** After `--resume`, `--rematch`, `--replay`
+  and `council init` it used to be the absolute path from `run.json` (`/home/<user>/...`). It is now
+  relative to the directory the run was started in (`run.json`'s `cwd`), or the file name alone when
+  the task lives outside it. Code that opened the task file from `report.json` must resolve it
+  against that directory. `run.json` still keeps the absolute path, for resume.
+
+### Added
+
+- **`report.json` is a versioned, published format:** `schemaVersion: 1` and
+  `schemas/report-v1.json` (JSON Schema 2020-12, shipped in the package), every field described and
+  marked `stable` or `experimental`. Additive fields in the same release: `producer`
+  (`{ name, version }`), `started_at`, `finished_at`, `task_sha256`, `signoff[].lab`, and
+  `reason_code` on alternatives dropouts. `signoff[].provider` (which has always held the lab) and
+  `alternatives.dropouts[].reasonCode` stay as deprecated aliases until a schema version 2. See
+  `docs/report-format.md`.
+- **More ways in:**
+  - An MCP Registry entry: `mcpName` (`io.github.muad-yasin/the-high-council`) in `package.json`
+    and a `server.json` for the registry. The registry checks `mcpName` against the published npm
+    version, so the listing can only follow this version's publish.
+  - A Claude Desktop bundle: `mcpb/manifest.json` and `scripts/build-mcpb.sh` build a `.mcpb`. For
+    it the MCP server gained `COUNCIL_WORKDIR` (where `tasks/` and `runs/` go) and
+    `COUNCIL_MAX_USD_LIMIT` (a ceiling the tool arguments cannot lift or remove), reads a leftover
+    `${user_config.x}` placeholder as unset, and starts its CLI child with the running Node, not
+    whatever `node` is on `PATH`.
+  - A JS API, the package's main entry: `run`, `resume`, `price`, `readRun`, `listRuns`,
+    `listChains`, `version`, with TypeScript types in `types/`. Every run goes through the CLI as a
+    child process, so the spend cap, the key check and the run lock apply exactly as on the
+    command line. `runChain` is deliberately not exported.
+- **The first ten minutes:**
+  - `council doctor` ends with a "Start here" block: the $0 demo and `init`, the shipped chains one
+    key runs on its own (with worst case and panel size), and how to price before paying. The
+    `schemaVersion` warning is printed once, not under every chain.
+  - Hints name `npx the-high-council ...` when the CLI was started through `npx`.
+  - A refused key (401/402/403) says what to check and names the environment variable; a local
+    model server that is not running says so and how to start it; `doctor` flags Ollama chains and
+    warns when git would commit a `.env`.
+  - `--dry-run --task` reports the task's size and prices again when the task is bigger than the
+    estimate assumes; a run whose worst case is above its cap says so before the first stage.
+  - README: "Your first ten minutes" and "Words used here"; TROUBLESHOOTING: a first-run section.
+- **Checkable criteria (opt-in, off in every shipped chain except the offline
+  `mock-criteria-kinds`):** `criteria_kinds: { enabled: true }` has the criteria stage mark each
+  criterion `checkable` (with the check and whether it runs on the plan or the build) or
+  `judgement`, flags vague ones, and records a critic's MET on a checkable criterion given with no
+  evidence. `council --criteria <file>` takes hand-written criteria through the same guards.
+  `report.json` gains `criteria_kinds`, `criteria_summary` and `criteria_met_without_evidence`.
+  With the flag off, prompts and `report.json` are unchanged.
+- **Several external seats in one stage pause together** and **"How this plan was argued"
+  (opt-in, off everywhere)**: see Detail.
+
+### Fixed
+
+- A descending-mode run's `report.json` lacked `questions`, `scoreboard`, `orphanSections` and
+  `withdrawalCycles`; they are now `null`, `null`, `[]` and `0`.
+- `ajv`, which four test files import, is a declared devDependency; it used to arrive only through
+  the MCP SDK.
+
+### Detail
+
+#### `report.json` is a versioned, published format
 
 `report.json` now starts with `schemaVersion: 1`, and its shape is published as a JSON Schema
 (draft 2020-12) in `schemas/report-v1.json`, which now ships in the npm package. Every field has a
 description, and every top-level field is marked `stable` or `experimental`. The version is an
 integer and changes only on a breaking change. New fields are added without a bump, and readers
 ignore fields they do not know. A report with no `schemaVersion` was written by an earlier version
-and reads as 1. `test/report-schema.test.js` validates real offline runs of every shipped mock chain,
-plus one run with every optional stage turned on. It also fails if a writer emits a top-level field
-the schema does not document. Details: `docs/report-format.md`.
+and reads as 1. `test/report-schema.test.js` validates real offline runs of the 13 shipped mock
+chains that finish in one sitting (all but `mock-external` and `mock-questions-wait`, which pause for
+a person, and `mock-budget`, which stops at its cap and writes no report), one `mock-external` run
+answered and resumed to the end, a descending-mode run, and one run with every optional stage
+turned on. It also fails if a writer emits a top-level field the schema does not document. Details:
+`docs/report-format.md`.
 
-### Several external seats pause together
+#### Several external seats pause together
 
 A stage that asks several seats at once (panel, proposals, alternatives, debate) now writes one
 `NEEDS-<label>.md` per external seat that paused, instead of surfacing only the first and pausing
@@ -23,7 +96,7 @@ only some pauses again on the rest. A budget stop that settled first still wins 
 `waitingStages()` already listed every open NEEDS file, so `run_status` and the resume brief needed
 no change.
 
-### "How this plan was argued" (opt-in)
+#### "How this plan was argued" (opt-in)
 
 Muad, 2026-09-23 ("let's do #3"): the labs' arguments are part of the product, for beginner
 developers too. A new opt-in flag, `argued: { enabled: true }`, **off by default and enabled in no

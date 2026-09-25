@@ -63,5 +63,7 @@ const validate = ajv.compile(schemaJson);   // schemas/report-v1.json
 validate(reportJson) || console.error(validate.errors);
 ```
 
-`test/report-schema.test.js` does the same against real offline runs of every shipped mock chain,
-plus one run with every optional stage turned on.
+`test/report-schema.test.js` does the same against real offline runs of the shipped mock chains
+that finish in one sitting (13 of the 16; the other three pause for a person or stop at their cap),
+a resumed `mock-external` run, a descending-mode run, and one run with every optional stage turned
+on.
