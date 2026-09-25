@@ -1,0 +1,19 @@
+{
+  "name": "mock-criteria-kinds",
+  "description": "Offline. Calls no API and costs nothing. The mock chain with criterion kinds on: every criterion is checkable (with its command) or judgement, and the board counts them.",
+  "maxRounds": 2,
+  "stopOnPass": true,
+  "handoff": true,
+  "criteria_kinds": { "enabled": true },
+  "estimate": { "promptTokens": 1000, "draftTokens": 1000, "critiqueTokens": 300 },
+  "seats": {
+    "criteria": { "provider": "mock", "model": "mock-criteria" },
+    "builder":  { "provider": "mock", "model": "mock-builder" },
+    "reviser":  { "provider": "mock", "model": "mock-builder" },
+    "critics": [
+      { "provider": "mock", "model": "mock-critic-a" },
+      { "provider": "mock", "model": "mock-critic-bare-met" }
+    ],
+    "handoff":  { "provider": "mock", "model": "mock-builder" }
+  }
+}

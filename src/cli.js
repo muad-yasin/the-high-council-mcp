@@ -24,6 +24,7 @@ import { withIntegrityFooter } from './integrity.js';
 import { generateResumeBrief } from './resume-brief.js';
 import { preflightCheck, checkArtifactReferences } from './preflight.js';
 import { fenceFile, scanTaskForSecrets, FENCE_HEADER, FENCE_MAX_BYTES } from './fence.js';
+import { parseCriteriaFile } from './criteria-kinds.js';
 import { scanForPii, applyPiiGate } from './pii-gate.js';
 import { harnessVersion } from './version.js';
 import { stageKindOf } from './stage-contract.js';
@@ -85,6 +86,7 @@ const EXIT_DRAFT_TRUNCATED = 17;
 import { scanArtifacts } from './key-redaction.js';
 import { resetToolCallLog, renderToolsMd } from './tools.js';
 import { arguedWarnings } from './argued.js';
+import { councilCommand, unignoredEnvFile } from './invocation.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -246,6 +248,10 @@ if (argv[0] === 'doctor') {
   const chainsDir = join(pkg, 'chains');
   const files = readdirSync(chainsDir).filter(f => f.endsWith('.json')).sort();
   const cw = Math.max(...files.map(f => f.length - 5));
+  // A beginner's question is "what is the least I need to set up?", not "what is every chain's
+  // state?". Collected while listing, answered after it (see "Start here" below).
+  const schemaWarnings = new Map();
+  const oneKey = new Map();
   for (const f of files) {
     const cfg = JSON.parse(readFileSync(join(chainsDir, f), 'utf8'));
     // Pre-release audit 2026-09-23 (lint #3): this listing hand-built its own seat list and missed
@@ -258,10 +264,34 @@ if (argv[0] === 'doctor') {
     const runnable = missing.length === 0;
     const worst = estimateChainRows(cfg).reduce((sum, r) => sum + r.usd, 0);
     const label = f.replace(/\.json$/, '');
-    console.log(`  ${label.padEnd(cw)}  ${(runnable ? 'runnable' : 'blocked ').padEnd(8)}  worst-case ${formatUsd(worst).padStart(9)}/run${runnable ? '' : `  (missing: ${missing.join(', ')})`}`);
+    const providers = new Set(seats.filter(Boolean).map(s => s.provider));
+    const local = providers.has('ollama') ? '  (needs Ollama running locally, with the chain\'s models pulled)' : '';
+    console.log(`  ${label.padEnd(cw)}  ${(runnable ? 'runnable' : 'blocked ').padEnd(8)}  worst-case ${formatUsd(worst).padStart(9)}/run${runnable ? local : `  (missing: ${missing.join(', ')})`}`);
     // v5 §1 candidate 13: warn, never fail - an old chain file is read exactly as it always was.
+    // Printed once per distinct warning after the list, with the chains it covers, rather than
+    // once under every chain (48 identical lines buried the listing).
     const warning = schemaVersionWarning(cfg);
-    if (warning) console.log(`    schemaVersion: ${warning.split('\n').join('\n    ')}`);
+    if (warning) schemaWarnings.set(warning, [...(schemaWarnings.get(warning) || []), label]);
+    // Chains every seat of which runs on one paid key, with nobody to wait for (no external or
+    // mock seat) and no lint finding: the shortest path from "no keys" to a real council.
+    const keyNames = [...providers].map(p => (p === 'mock' || p === 'external' || isKeyOptional(p)) ? null : envKeyName(p));
+    if (keyNames.length && keyNames.every(Boolean) && new Set(keyNames).size === 1 && !lintChain(cfg, join(chainsDir, f)).length) {
+      oneKey.set(keyNames[0], [...(oneKey.get(keyNames[0]) || []), { label, worst, labs: new Set(seats.filter(Boolean).map(s => s.provider === 'openrouter' ? (s.model || '').split('/')[0] : s.provider)).size }]);
+    }
+  }
+  for (const [warning, labels] of schemaWarnings) {
+    console.log(`\n  schemaVersion (${labels.length} of ${files.length} chains): ${warning.split('\n').join('\n    ')}`);
+  }
+
+  console.log(`\nStart here:`);
+  console.log(`  $0, no key:  "${councilCommand()} demo" shows every stage on a scripted example; "${councilCommand()} init" writes a task and chain you own.`);
+  for (const [envName, chains] of oneKey) {
+    const shown = chains.sort((a, b) => a.worst - b.worst).slice(0, 3).map(c => `${c.label} (worst case ${formatUsd(c.worst)}, ${c.labs} lab${c.labs === 1 ? '' : 's'})`);
+    console.log(`  one key:     ${envName} alone runs ${shown.join(', ')}`);
+  }
+  console.log(`  before paying: "${councilCommand()} --task tasks/<yours>.md --chain <name> --dry-run" prices it; every run stops at its spend cap ($7 unless you set --max-usd).`);
+  if (unignoredEnvFile(work)) {
+    console.log(`\nWARNING: ${join(work, '.env')} holds your API keys and git would commit it. Add ".env" to .gitignore before your next commit.`);
   }
   console.log(`\nNo network calls were made - this only reads environment variable names and chains/*.json.`);
 
@@ -310,8 +340,8 @@ if (argv[0] === 'demo') {
     console.log(demoResult.handoff);
   }
   console.log(`\nThat was $0 and touched no network - the mock provider calls nothing real.`);
-  console.log(`Next: "council doctor" to see which real chains you can run with your own keys,`);
-  console.log(`or "council --chain verify --dry-run" to price a real run before spending anything.`);
+  console.log(`Next: "${councilCommand()} init" writes a first task and chain you own, or`);
+  console.log(`"${councilCommand()} doctor" shows which real chains your own keys can run and what each would cost.`);
   process.exit(0);
 }
 
@@ -350,7 +380,7 @@ if (argv[0] === 'init') {
   // "_note" convention src/pricing.json already uses: a real, readable
   // field that JSON.parse happily ignores as unused chain config.
   const starterChain = {
-    _note: 'Your first chain. One lab writes a plan, another lab reviews it once. Edit the seats below to use whichever labs you have keys for - see README.md#chains for the full field list.',
+    _note: 'Your first chain. One seat writes a plan, one critic reviews it once. As written every seat is Anthropic, so this is one lab checking itself: put the critic on another lab you have a key for (e.g. provider openrouter, model openai/gpt-5.6-luna) to get a second lab\'s opinion. See README.md#chains for the full field list.',
     name: 'my-first-chain',
     description: 'A minimal real chain: one builder, one critic, one round.',
     maxRounds: 1,
@@ -412,9 +442,9 @@ if (argv[0] === 'init') {
   }), null, 2));
 
   console.log(`\nWrote ${initRunDir} - a real run folder (report.json, deliverable.md) from the canned demo task, $0, no network call.`);
-  console.log(`\nNext, with a real key set: council --chain my-first-chain --task ${starterTaskPath.replace(work + '/', '')} --dry-run`);
-  console.log(`Then, for real: council --chain my-first-chain --task ${starterTaskPath.replace(work + '/', '')}`);
-  if (!anyKeySet) console.log(`\nNo API keys are set yet - see README.md#setup, or "council doctor" any time to re-check.`);
+  console.log(`\nNext, with a real key set: ${councilCommand()} --chain my-first-chain --task ${starterTaskPath.replace(work + '/', '')} --dry-run`);
+  console.log(`Then, for real: ${councilCommand()} --chain my-first-chain --task ${starterTaskPath.replace(work + '/', '')}`);
+  if (!anyKeySet) console.log(`\nNo API keys are set yet - see README.md#setup, or "${councilCommand()} doctor" any time to re-check.`);
   process.exit(0);
 }
 
@@ -1031,6 +1061,10 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        so two panels can be compared on one draft
   council --task tasks/x.md --chain plan-unanimous --from-run runs/<r> --draft file.md --rounds 1
                                        panel-only: grade this draft against that run's criteria
+  council --task tasks/x.md --criteria criteria.md
+                                       use these acceptance criteria instead of the
+                                       criteria stage (one per line, or JSON with
+                                       optional kind/check per criterion)
   council --task tasks/x.md --chain plan-debate --context context/war-of-love
                                        append standing direction docs to the request
   council --resume runs/<r>            continue a run that paused at an external seat
@@ -1225,6 +1259,24 @@ if (resumeMeta?.fromRun && !fromRun) {
   }
 }
 
+// --criteria <file>: hand-written acceptance criteria, used instead of the criteria stage. JSON (an
+// array, or { "criteria": [...] }, items plain strings or { criterion, kind, check, on } objects) or
+// text/markdown with one criterion per line. It is the same slot a chain's own "criteria" list and
+// --from-run fill, so runChain's criteria guards hold on it too. Resolved like --draft, and recorded
+// in run.json so a resume reads the same file rather than regenerating criteria.
+const criteriaPathRaw = resumeMeta ? resumeMeta.criteriaFile : flag('criteria', null);
+if (criteriaPathRaw === true) { console.error('--criteria: needs a file path, e.g. --criteria criteria.md'); process.exit(2); }
+const criteriaPath = criteriaPathRaw ? resolve(startDir, criteriaPathRaw) : null;
+if (criteriaPath) {
+  if (fromRun || resumeMeta?.fromRun) { console.error('--criteria: cannot be combined with --from-run, which already supplies that run\'s criteria.'); process.exit(2); }
+  try {
+    config.criteria = parseCriteriaFile(readFileSync(criteriaPath, 'utf8'), `--criteria ${criteriaPathRaw}`);
+  } catch (e) {
+    console.error(e.code === 'ENOENT' ? `--criteria: no such file: ${criteriaPath}` : e.message);
+    process.exit(2);
+  }
+}
+
 // 7.x single-vendor mode: resolved once, before checkSeats and --dry-run both read config.seats,
 // so a missing-key check and the resolution printout (the existing --dry-run output, which
 // already lists each seat's provider/model) both see the real vendor routing rather than the
@@ -1294,6 +1346,21 @@ if (dryRun) {
   const t = rows.reduce((s, r) => ({ i: s.i + r.input, o: s.o + r.output, u: s.u + r.usd }), { i: 0, o: 0, u: 0 });
   console.log(`\n  TOTAL        ${''.padEnd(w)}  ${String(t.i).padStart(7)} in  ${String(t.o).padStart(6)} out  ${formatUsd(t.u)}  per run`);
   console.log(`\n  Worst case is the full round cap. A clean first critique stops early and costs less.`);
+  // The rows above price the chain's own assumed prompt size, not the task in hand: a 13-word task
+  // and a 30,000-token one priced the same (walked 2026-09-25). With --task, say how the task
+  // compares, and reprice with it added when it is larger. Four characters per token is a rough
+  // rule, not a tokenizer; the per-run cap still checks every real prompt before it is sent.
+  if (taskPath && existsSync(resolve(work, taskPath))) {
+    const assumed = config.estimate?.promptTokens ?? 4000;
+    const taskTokens = Math.ceil(readFileSync(resolve(work, taskPath), 'utf8').length / 4);
+    if (taskTokens > assumed) {
+      const bigger = estimateChainRows({ ...config, estimate: { ...(config.estimate || {}), promptTokens: assumed + taskTokens } }, { fromRun }).reduce((sum, r) => sum + r.usd, 0);
+      console.log(`  Your task is roughly ${taskTokens} tokens, more than the ${assumed} this estimate assumes for a whole prompt.`);
+      console.log(`  Priced again with your task added to every prompt: ${formatUsd(bigger)} per run, worst case.`);
+    } else {
+      console.log(`  Your task (roughly ${taskTokens} tokens) fits inside the ${assumed}-token prompt this estimate assumes.`);
+    }
+  }
   // mock/external are synthetic seats that are never billed and were never
   // going to be in pricing.json - only a real provider's missing price is
   // worth telling anyone about.
@@ -1319,7 +1386,7 @@ if (missing.length) {
     console.error(formatCouncilError('COUNCIL-E001', { provider, chain: config.name, envVar: envKeyName(provider) }));
     console.error('');
   }
-  console.error(`Run "council doctor" to see exactly which keys each shipped chain needs.`);
+  console.error(`Run "${councilCommand()} doctor" to see exactly which keys each shipped chain needs.`);
   process.exit(EXIT_DEGRADABLE);
 }
 
@@ -1491,7 +1558,7 @@ if (auditEnabled) {
 const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}) }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}) }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
@@ -1597,6 +1664,13 @@ log(`chain: ${config.name} (${config.maxRounds} round cap)`);
 if (earlierSupersededUsd > 0) log(`spent earlier on superseded stages: ${formatUsd(earlierSupersededUsd)} (counted toward the cap; see superseded/)`);
 log(`cap:   ${maxUsdEff === null ? 'none - this run has no spend ceiling' : `${formatUsd(maxUsdEff)} per run (--max-usd)`}`);
 log(`task:  ${taskPathEff}`);
+// A chain whose worst case is above the ceiling may stop part-way, with no deliverable yet. Said
+// before anything is spent, not only when the cap trips (walked 2026-09-25: plan-premium-7's worst
+// case is $18.55 against the $7 default).
+if (!resumeMeta && maxUsdEff !== null) {
+  const worstCase = estimateChainRows(config, { fromRun }).reduce((sum, r) => sum + r.usd, 0);
+  if (worstCase > maxUsdEff) log(`note:  this chain's worst case is ${formatUsd(worstCase)}, above the ${formatUsd(maxUsdEff)} cap. If it gets that far it stops before the stage that would cross it, keeps what it has, and resumes with a higher --max-usd.`);
+}
 
 // v2 plan §6: before any stage runs, before a single metered API call, a static keyword
 // check for the specific class of conflict this project already hit once (a chain requiring
@@ -1929,7 +2003,7 @@ To continue: raise that seat's \`maxTokens\` in the chain (or, for an external s
       const need = join(runDir, `NEEDS-${p.label}.md`);
       // The prompt this answer will be held to on resume (resume-cache audit #1/#4).
       writeFileAtomic(join(runDir, `${p.label}.prompt.json`), JSON.stringify({ provider: 'external', promptHash: p.promptHash, inputsFingerprint: cacheFingerprint }));
-      writeFileSync(need, withIntegrityFooter(`# External stage: ${p.label}\n\nWrite the reply to \`${join(runDir, `${p.label}.md`)}\` and run:\n\n    council --resume runs/${runId}\n\n## System prompt\n\n${p.system}\n\n## User prompt\n\n${p.user}`));
+      writeFileSync(need, withIntegrityFooter(`# External stage: ${p.label}\n\nWrite the reply to \`${join(runDir, `${p.label}.md`)}\` and run:\n\n    ${councilCommand()} --resume runs/${runId}\n\n## System prompt\n\n${p.system}\n\n## User prompt\n\n${p.user}`));
     }
     if (pauses.length === 1) {
       log(`\nPAUSED: stage "${err.label}" is an external seat.`);
@@ -1939,7 +2013,7 @@ To continue: raise that seat's \`maxTokens\` in the chain (or, for an external s
       log(`\nPAUSED: ${pauses.length} external seats are waiting (answer each, in any order):`);
       for (const p of pauses) log(`  ${p.label}:  prompt ${join(runDir, `NEEDS-${p.label}.md`)}  ->  answer ${join(runDir, `${p.label}.md`)}`);
     }
-    log(`  resume:  council --resume runs/${runId}`);
+    log(`  resume:  ${councilCommand()} --resume runs/${runId}`);
     process.exit(3);
   }
   if (err instanceof BudgetExceeded) {
@@ -1975,7 +2049,7 @@ enforced against the worst case on purpose.
 
 Every completed stage is on disk and replays for free, so resuming only pays for what is left:
 
-    council --resume runs/${runId} --max-usd ${(Math.ceil((err.cap + err.projected) * 100) / 100).toFixed(2)}
+    ${councilCommand()} --resume runs/${runId} --max-usd ${(Math.ceil((err.cap + err.projected) * 100) / 100).toFixed(2)}
 
 Or \`--max-usd none\` to continue with no ceiling.
 `);
@@ -1983,7 +2057,7 @@ Or \`--max-usd none\` to continue with no ceiling.
     log(`  spent:   ${formatUsd(err.spent)} of ${formatUsd(err.cap)} ceiling`);
     log(`  stage:   ${err.seat} could cost up to ${formatUsd(err.projected)}`);
     log(`  detail:  ${join(runDir, 'STOPPED-budget.md')}`);
-    log(`  resume:  council --resume runs/${runId} --max-usd <higher>`);
+    log(`  resume:  ${councilCommand()} --resume runs/${runId} --max-usd <higher>`);
     process.exit(4);
   }
   // A denied model is a lint failure (exit 1), found at run time instead of by chain-lint.
@@ -1995,7 +2069,7 @@ ${err?.message || String(err)}
 No report.json or deliverable.md was written, so this run does not read as finished. Completed
 stages are on disk and replay for free: fix the cause, then
 
-    council --resume runs/${runId}
+    ${councilCommand()} --resume runs/${runId}
 `);
   appendFileSync(logPath, `${err?.stack || String(err)}\n`);
   log(`\nSTOPPED: ${denied ? 'a denied model' : 'the run failed'} - ${err?.message || String(err)}`);

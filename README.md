@@ -33,6 +33,62 @@ spending anything.
 > disagreement between models *visible and recorded* instead of averaged away - you can read who
 > objected to what, who withdrew a proposal under argument, and who held their position.
 
+## Your first ten minutes
+
+New to API keys, or to this? This path costs nothing until step 4, and step 4 tells you the price
+before anything is spent.
+
+1. **Watch one.** `npx the-high-council demo` walks an example request through every stage with
+   scripted replies. No key, no network, $0.
+2. **Make it yours.** `npx the-high-council init` writes `tasks/my-first-task.md` (edit it into
+   your own idea, in plain words) and `chains/my-first-chain.json`, and runs a $0 mock pass so
+   you can look inside a real run folder.
+3. **Find the least setup.** `npx the-high-council doctor` lists what your keys can run. Its
+   "Start here" block names the chains that need **one key only**: a single `OPENROUTER_API_KEY`
+   (one account at [openrouter.ai](https://openrouter.ai) that reaches many labs' models) is
+   enough for a seven-lab panel. Put the key in a file called `.env` in the folder you run from,
+   as `OPENROUTER_API_KEY=...`, and add `.env` to your `.gitignore` so it is never committed.
+4. **Price it, then run it.** Add `--dry-run` to see the worst-case price for your task, then run
+   it without:
+
+       npx the-high-council --task tasks/my-first-task.md --chain cheap-7-v2 --dry-run
+       npx the-high-council --task tasks/my-first-task.md --chain cheap-7-v2
+
+   Every run stops before it would pass its spend cap ($7 unless you set `--max-usd`). A run
+   stopped by the cap keeps what it paid for but has no plan yet, so pick a cap at or above the
+   dry run's price. A panel that signs off early costs less than the worst case.
+
+   The plan lands in `runs/<time>/deliverable.md`; the argument behind it is in `BOARD.md`.
+
+No key and no budget? A chain can run on models on your own machine through
+[Ollama](#local-models-ollama-lm-studio-) at $0, if your computer can run them.
+Everywhere below, `council` means `npx the-high-council` unless you installed it globally.
+
+## Words used here
+
+- **Lab** - a company that makes AI models (Anthropic, OpenAI, Google, DeepSeek, ...). "Different
+  labs" means models trained by different companies.
+- **Provider** - where a call goes and who bills it: a lab's own API, OpenRouter (many labs, one
+  key and one bill), or `ollama` (your own machine).
+- **API key** - a secret string from a provider that lets a program use your account there. You
+  pay the provider for what the program uses; nobody else sees the key.
+- **Seat** - one job in a run, filled by one model: the one that writes criteria, the builder, a
+  critic, and so on.
+- **Chain** - a JSON file that says which model sits in which seat and which stages run. Pick one
+  with `--chain`; `council doctor` lists them all.
+- **Task** - your request, a plain text file in `tasks/`. No format.
+- **Criteria** - yes/no checks the plan has to pass, written from your task before anyone plans.
+- **Proposal, debate** - each lab suggests parts of the plan without seeing the others, then
+  they read each other's (with names hidden) and object, support or merge.
+- **Panel, round, sign-off** - the critics grade the draft against the criteria; each failed check
+  goes back for a revision, which is one round. Sign-off means a critic found nothing failing.
+- **Dry run** - `--dry-run`: price a run, call nothing.
+- **Spend cap** - the most one run may cost. It is checked before every paid call.
+- **Mock** - a fake provider with scripted replies, for trying the machinery for free.
+- **External** - a seat that waits for a person or another agent (such as your Claude Code session)
+  to answer it from a file.
+- **Handoff** - `HANDOFF.md`, the build instructions a coding agent works from.
+
 **A visual write-up of all of this, built around one real run, is at
 [sower-industries.de/MCP](https://sower-industries.de/MCP).** What changed in each release:
 [CHANGELOG.md](CHANGELOG.md).
@@ -62,11 +118,13 @@ withdrawal), `HANDOFF.md`, a per-lab scoreboard, and the real token/cost account
 ### Reading a run with a program
 
 `BOARD.md` is for people. **`report.json` is the same board, structured** - if you are building
-anything on top of a run, read that instead. Do not parse the markdown.
+anything on top of a run, read that instead. Do not parse the markdown. The format is versioned
+(`schemaVersion`) and published as a JSON Schema, `schemas/report-v1.json`; which fields are stable,
+which are experimental, and how versions change: [docs/report-format.md](docs/report-format.md).
 
 ```jsonc
 {
-  "runId": "...", "chain": "...", "passed": false, "maxUsd": 5,
+  "schemaVersion": 1, "runId": "...", "chain": "...", "passed": false, "maxUsd": 5,
   "criteria":  [ "each acceptance criterion, as written before the debate" ],
   "questions": [ { "question": "...", "why": "...", "default": "..." } ],  // null if the chain skipped them
   "proposals": [ { "id": "DEEPSEEK-1", "lab": "deepseek", "model": "...",
@@ -255,7 +313,9 @@ Your requests and everything the council writes about them stay on your machine,
 `runs/` under the directory you ran from. In a clone of this repo both are gitignored, so a fork
 will not accidentally publish them.
 
-`verify` is the cheap default: two labs, a hard two-round cap. Start there.
+`verify` is the default when you name no chain: a panel of two labs, a hard two-round cap. It
+needs three keys (Anthropic, OpenAI and Google, one account each). With one OpenRouter key, start
+with `cheap-7-v2` instead; `council doctor` lists every chain that runs on the keys you have.
 
 ### Exit codes
 
@@ -404,15 +464,11 @@ clone itself, so run `npm install` in it first.
 Registering with a client other than Claude Code (DeepSeek Harness, OpenHands, Cline, goose,
 Continue): [docs/mcp-clients.md](docs/mcp-clients.md) has the real config for each.
 
-An npm package is also live:
-
-```bash
-claude mcp add high-council -- npx -y the-high-council --mcp
-```
-
-Either way the server reads and writes in **your** working directory, not inside the package:
-`.env` for keys, `tasks/` for requests, `runs/` for output, and a `chains/` of your own takes
-precedence over the bundled ones.
+Whichever way you add it, the server reads and writes in **your** working directory, not inside
+the package: `.env` for keys, `tasks/` for requests, `runs/` for output, and a `chains/` of your
+own takes precedence over the bundled ones. In a git project, add `.env` (and `runs/` if your
+ideas are private) to `.gitignore` before an agent commits everything; `council doctor` warns
+when `.env` is not ignored.
 
 To run it by hand:
 
@@ -451,7 +507,7 @@ for anyone with a subscription, since the project's cost story depends on it.
 
 ## Chains
 
-48 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
+49 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
 which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be
 copied and edited.
 

@@ -9,6 +9,14 @@ import { computeOutcome } from './outcome.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { deriveDisagreementGroups } from './disagreement-groups.js';
 import { renderDisputeReviewBoard } from './chain.js';
+import { summaryLine } from './criteria-kinds.js';
+
+// report.json's format version, published as schemas/report-v1.json (docs/report-format.md). An
+// integer that moves only on a breaking change - a field renamed, removed, or its type or meaning
+// changed. Adding a field never moves it: readers ignore fields they do not know. Independent of
+// the chain-config schemaVersion in src/schema-version.js; the two describe different files.
+// A report.json with no schemaVersion was written before 0.7.7 and reads as version 1.
+export const REPORT_SCHEMA_VERSION = 1;
 
 // The shape of a run's report.json, in one place - bug-audit finding
 // (2026-09-13, v5 Phase 2): `council init`'s canned demo run used to
@@ -45,6 +53,7 @@ export function reportJsonShape({ runId, chain, task, result, fromRun = null, ma
     : result.debate;
 
   return {
+    schemaVersion: REPORT_SCHEMA_VERSION,
     runId,
     chain,
     task,
@@ -106,6 +115,13 @@ export function reportJsonShape({ runId, chain, task, result, fromRun = null, ma
     // The text itself is ARGUED.md; the JSON carries where it is, the fact-pack counts and the
     // reference check (unknown_refs / unknown_labs are ids and labs it named that the run never had).
     ...(result.argued ? { argued: { file: result.argued.file, facts_counts: result.argued.facts_counts, ...result.argued.check } } : {}),
+    // Criterion kinds (src/criteria-kinds.js): additive, present only when the chain enabled them.
+    // `criteria` above stays the plain list of strings; `criteria_kinds` is index-aligned with it.
+    ...(result.criteriaKinds ? {
+      criteria_kinds: result.criteriaKinds,
+      criteria_summary: result.criteriaSummary,
+      criteria_met_without_evidence: result.metWithoutEvidence,
+    } : {}),
   };
 }
 
@@ -118,6 +134,9 @@ export function renderBoardMd({ runId, result }) {
   const alternativesSection = result.alternatives?.board
     ? `## Alternative architectures\n\nEvery whole architecture a lab proposed before the plan existed, what the other labs posted on it, and the author's reply. The plan's "Decisions" section records which was chosen and why the others lost.\n\n${result.alternatives.board}\n\n`
     : '';
-  if (!(result.board || disputesSection || alternativesSection)) return '';
-  return `# Debate board - run ${runId}\n\n${alternativesSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${disputesSection}`;
+  // Criterion kinds: the count goes at the top of the board, where a person sees how much of the
+  // definition of done a command can settle and how much rests on reviewers' judgement.
+  const kindsSection = result.criteriaSummary ? `${summaryLine(result.criteriaSummary)}\n\n` : '';
+  if (!(result.board || disputesSection || alternativesSection || kindsSection)) return '';
+  return `# Debate board - run ${runId}\n\n${kindsSection}${alternativesSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${disputesSection}`;
 }

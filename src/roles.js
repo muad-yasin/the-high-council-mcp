@@ -144,8 +144,9 @@ export function builderUser({ request, criteria, proposals = [], board = null, a
   return `# Request\n\n${request}\n\n# Acceptance criteria (the definition of done)\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}${alternativesBuilderSection(alternatives)}${skel}${proposalsSection(proposals, board)}`;
 }
 
-export function criticUser({ request, criteria, draft, prior = [], answeredQuestion = null }) {
-  let base = `# Original request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n# Draft under review\n\n${draft}`;
+// `checks` is the "How the checkable criteria are settled" block (src/criteria-kinds.js), or ''.
+export function criticUser({ request, criteria, draft, prior = [], answeredQuestion = null, checks = '' }) {
+  let base = `# Original request\n\n${request}\n\n# Acceptance criteria\n\n${criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}${checks}\n\n# Draft under review\n\n${draft}`;
   // v7 item 4: the round-trip resume prompt, once the proposer has answered the one blocking
   // question this critic asked in its first reply this round. Wrapped for the same S3 reason as
   // <prior-review> below - the answer is the proposer's own text, a claim to weigh, not a new
@@ -662,8 +663,14 @@ export function alternativesBuilderSection(board) {
   return `\n\n# Whole alternative architectures, with their debate board\n\nBefore this plan, each lab proposed one whole architecture blind, the labs debated them, and each author kept, amended or withdrew theirs. The plan is built on one of them or a combination; if the skeleton names one, build on that. None is required and a lab's support is not a vote.\n\nThe plan's "Decisions" section must record this as its architecture decision. Every alternative id below appears in that record as an option considered: the one(s) chosen, with which part came from which id, and one line per losing alternative saying why it lost. A withdrawn alternative is listed as withdrawn by its author.\n\n${board}`;
 }
 
-export function handoffUser({ request, draft, planFile = 'PLAN.md' }) {
-  return `# Request\n\n${request}\n\n# Final plan\n\nIt will be saved next to the handoff as \`${planFile}\`; refer to it by that name and its section numbers.\n\n${draft}`;
+// `checks` (criterion kinds): the checkable criteria with their commands, or ''. When present the
+// handoff carries every one of them into its acceptance tests, so a number the plan committed to is
+// actually measured by the session that builds it rather than only argued over by the panel.
+export function handoffUser({ request, draft, planFile = 'PLAN.md', checks = '' }) {
+  const carry = checks
+    ? `${checks}\n\nCarry every check above into the acceptance tests, word for word, as a check the build session runs and records the result of. Do not soften a threshold.`
+    : '';
+  return `# Request\n\n${request}\n\n# Final plan\n\nIt will be saved next to the handoff as \`${planFile}\`; refer to it by that name and its section numbers.\n\n${draft}${carry}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -803,6 +810,48 @@ recorded in its "Decisions" section with its context, at least two real options
 the trade-offs, the choice, why each rejected option lost, and what would
 change the call.`;
 
+// Criterion kinds (2026-09-25, research brief 02). Opt-in per chain via
+// `criteria_kinds: { enabled: true }`; absent, every prompt below is byte-identical to before.
+// The criterion text itself stays a property a reader checks in the plan - the plan is what this
+// chain grades - and `check` is what settles it once something exists to run it on. That split is
+// what keeps a build-time number from being "met" on a plan's say-so: at plan time the reviewer
+// can only confirm the plan names the check and designs to pass it, and the handoff carries the
+// check to the build session, which runs it.
+const CRITERIA_REPLY_SHAPE = `Reply with a single JSON object and nothing else:
+{ "criteria": ["...", "..."] }`;
+
+export const KINDS_RULE_CRITERIA = `Give every criterion a kind.
+- "checkable": a named command, test or measurement settles it with no reader's
+  opinion. Put it in "check" with its pass threshold (for example: "npm audit
+  --audit-level=high exits 0"; "p95 latency under 200 ms at 100 concurrent
+  requests, measured with the load tool the plan names"; "the plan is under 1500
+  words"). Set "on" to "plan" when the check runs on the deliverable document
+  itself, or "build" when it runs on what gets built from it. The criterion text
+  stays a property a reader can confirm in the deliverable ("commits to p95 under
+  200 ms at 100 concurrent requests and names how it is measured").
+- "judgement": only a careful reader can settle it. Leave "check" out.
+Make a criterion checkable wherever the request honestly allows one; never invent
+a threshold the request gives no ground for - a made-up number is worse than a
+judgement criterion. A property with no way to tell it holds ("scalable",
+"secure", "user-friendly") is neither kind: restate it with a threshold and a
+check, or as a judgement criterion that names exactly what the reader looks for.
+
+Reply with a single JSON object and nothing else:
+{ "criteria": [
+  { "criterion": "...", "kind": "checkable", "check": "...", "on": "plan" | "build" },
+  { "criterion": "...", "kind": "judgement" }
+] }`;
+
+export const KINDS_RULE_CRITIC = `
+- Some criteria are checkable: the section "How the checkable criteria are settled" names the
+  command or measurement for each. For those, MET needs evidence of the check, never trust:
+  - If a "Ground truth" section carries that check's output, judge by the output alone.
+  - A check that runs on the plan document itself and is mechanical (a count, a presence, a
+    pointer that must resolve): do it, and put what you counted or found in "evidence".
+  - A check that runs on the build cannot run yet. MET then means the draft names that check with
+    its threshold and describes a design that could pass it; quote that passage as evidence.
+  With no such passage or output, the criterion is FAILED - name the missing check.`;
+
 export function criticSystem(open, freedoms = null) {
   const rules = [];
   if (freedoms?.blocking_questions) rules.push(FREEDOMS_RULE.blocking_questions);
@@ -819,13 +868,20 @@ export function criticSystem(open, freedoms = null) {
     .replace('__CRITIC_QUOTE_FIELD__', freedoms?.fencedSource
       ? ',\n      "quote": "<required when this objection claims something about the repository: the exact text from the fenced source it rests on. Omit entirely otherwise.>"'
       : '')
-    + (freedoms?.fencedSource ? QUOTE_RULE_CRITIC : '');
+    + (freedoms?.fencedSource ? QUOTE_RULE_CRITIC : '')
+    + (freedoms?.criteriaKinds ? KINDS_RULE_CRITIC : '');
 }
 // `fenced` is opt-in per call: absent, every prompt is byte-identical to what it was before
 // quote validation existed, so no chain without fenced source changes behaviour at all.
 // `opts.decisions` (decision records, above) is opt-in the same way: absent or false, the prompt
 // is byte-identical to the one without it.
-export const criteriaSystem = (open, fenced = false, opts = {}) => CRITERIA_SYSTEM_TEMPLATE.replace('__CRITERIA_SCOPE_RULE__', scopeOf(open).criteria + (opts.decisions ? DECISIONS_RULE_CRITERIA : '')) + (fenced ? QUOTE_RULE_CRITERIA : '');
+// `opts.kinds` (criterion kinds, src/criteria-kinds.js) is opt-in the same way: absent, the prompt
+// is byte-identical; present, the reply shape at the end of the prompt is swapped for the one
+// that carries a kind per criterion.
+export const criteriaSystem = (open, fenced = false, opts = {}) => {
+  const base = CRITERIA_SYSTEM_TEMPLATE.replace('__CRITERIA_SCOPE_RULE__', scopeOf(open).criteria + (opts.decisions ? DECISIONS_RULE_CRITERIA : ''));
+  return (opts.kinds ? base.replace(CRITERIA_REPLY_SHAPE, KINDS_RULE_CRITERIA) : base) + (fenced ? QUOTE_RULE_CRITERIA : '');
+};
 export const builderSystem = (open, opts = {}) => BUILDER_SYSTEM + scopeOf(open).builder + (opts.decisions ? DECISIONS_RULE_BUILDER : '');
 export const reviserSystem = (open, fenced = false, opts = {}) => REVISER_SYSTEM + scopeOf(open).reviser + (fenced ? QUOTE_RULE_REVISER : '') + (opts.decisions ? DECISIONS_RULE_REVISER : '');
 export const proposerSystem = open => PROPOSER_SYSTEM + scopeOf(open).proposer;

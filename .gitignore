@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 .env
 runs/
 quality-probe-runs/

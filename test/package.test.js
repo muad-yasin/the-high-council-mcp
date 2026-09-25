@@ -35,6 +35,12 @@ test('the tarball ships no private or irrelevant files', () => {
   assert.deepEqual(forbidden, [], 'these must not be published');
 });
 
+test('the tarball ships the published report.json schema', () => {
+  // Not needed at runtime: shipped so a reader can validate a run folder against the format version
+  // its report.json names (docs/report-format.md), from the same package that wrote it.
+  assert.ok(packed.includes('schemas/report-v1.json'), 'schemas/report-v1.json is missing from the tarball');
+});
+
 test('the tarball ships everything the CLI needs at runtime', () => {
   // Excluding one of these produces a package that installs and then fails on
   // first use - the packaged equivalent of the missing-tasks/ README bug.

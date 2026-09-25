@@ -1,8 +1,19 @@
 {
   "name": "the-high-council",
   "version": "0.7.6",
+  "mcpName": "io.github.muad-yasin/the-high-council",
   "description": "The High Council: a multi-model planning harness. One builder, independent critics from other labs, checkable acceptance criteria, a debate on the record, and a hard stop.",
   "type": "module",
+  "main": "./src/api.js",
+  "types": "./types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./src/api.js",
+      "default": "./src/api.js"
+    },
+    "./package.json": "./package.json"
+  },
   "license": "MIT",
   "bin": {
     "council": "src/cli.js"
@@ -44,6 +55,8 @@
   "files": [
     "src/",
     "chains/",
+    "schemas/",
+    "types/",
     "README.md",
     "TROUBLESHOOTING.md",
     "CONTRIBUTING.md",

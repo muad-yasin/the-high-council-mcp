@@ -16,6 +16,7 @@ import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './securi
 import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
 import { promptHashOf, cacheVerdict } from './cache-integrity.js';
 import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
+import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine } from './criteria-kinds.js';
 export { DeniedModel };
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
@@ -1475,6 +1476,26 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   // the `alternatives` stage, whose losing architectures are recorded in the same "Decisions"
   // section. Absent both, every prompt that takes these options is byte-identical to before.
   const promptOpts = { decisions: config.decisions?.enabled === true || config.alternatives?.enabled === true };
+  // Criterion kinds (src/criteria-kinds.js): opt-in via `criteria_kinds.enabled`. Absent, no prompt
+  // changes, no kinds are recorded, and the result carries no criteria_kinds/criteria_summary key.
+  const kindsOn = config.criteria_kinds?.enabled === true;
+  if (kindsOn) promptOpts.kinds = true;
+  let criteriaKinds = null;
+  // Every criteria list this run takes - a seat's reply, a retry's, a hand-written one - goes
+  // through here, so the guards below always see plain strings and kinds stay index-aligned.
+  const takeCriteria = raw => {
+    if (!Array.isArray(raw)) return raw;
+    const n = normaliseCriteria(raw);
+    criteriaKinds = kindsOn ? (n.kinds || n.texts.map(() => ({ kind: null }))) : null;
+    return n.texts;
+  };
+  const metWithoutEvidence = [];
+  const noteUnevidenced = (critique, round, lab, say) => {
+    for (const criterion of unevidencedCheckableMets(critique, criteria, criteriaKinds)) {
+      metWithoutEvidence.push({ round, lab, criterion });
+      say(`    !! MET with no evidence on a checkable criterion: ${criterion}`);
+    }
+  };
   if (open) log('scope: OPEN - every seat may add scope; additions are recorded, the verdict pass cuts');
 
   // 0. Preflight (config.preflight, v4 item 2). Absent config: never called, zero behaviour
@@ -1496,7 +1517,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
 
   // 1. Acceptance criteria. Written before the deliverable exists, so they
   //    describe the request rather than rationalising whatever got built.
-  let criteria = config.criteria;
+  let criteria = takeCriteria(config.criteria);
   // Resume-cache audit #2: criteria handed in (a chain's fixed list, or --from-run's) skipped both
   // guards below, so a run could reuse criteria a guard had rejected. They hold here too; there is
   // no retry for a handed-in list, so a failing one stops before any paid review round.
@@ -1518,7 +1539,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       log, label: 'criteria',
     }));
     const parsed = parseJson(s.text);
-    criteria = parsed?.criteria;
+    criteria = takeCriteria(parsed?.criteria);
     if (!Array.isArray(criteria) || criteria.length === 0) {
       throw new Error('The criteria stage returned no usable criteria. Raw output kept in the run log.');
     }
@@ -1536,7 +1557,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         user: `${criteriaUserPrompt(request, config)}\n\nYour previous answer contained a criterion the draft can never satisfy: "${infeasible[0]}". The draft is ONE document. Any other file named in the request is produced by a later stage of this pipeline, not by the draft. Write criteria that one document can satisfy.`,
         log, label: 'criteria-feasibility-retry',
       }));
-      const retried = parseJson(again.text)?.criteria;
+      const retried = takeCriteria(parseJson(again.text)?.criteria);
       if (!Array.isArray(retried) || retried.length === 0 || infeasibleCriteria(retried, { handoff: !!config.handoff, debate: !!config.debate }).length) {
         throw new Error('The criteria stage twice demanded documents a single build stage cannot produce. Stopped before any paid review round; see the run log.');
       }
@@ -1549,7 +1570,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         user: `${criteriaUserPrompt(request, config)}\n\nYour previous answer described the format of a criteria list ("${metaCriteria(criteria)[0]}") instead of the deliverable the request asks for. Write criteria that a reader checks against that deliverable itself.`,
         log, label: 'criteria-retry',
       }));
-      const retried = parseJson(again.text)?.criteria;
+      const retried = takeCriteria(parseJson(again.text)?.criteria);
       if (!Array.isArray(retried) || retried.length === 0 || metaCriteria(retried).length) {
         throw new Error('The criteria stage twice returned criteria about the criteria list rather than the request. Stopped before any paid review round; see the run log.');
       }
@@ -1566,6 +1587,13 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   }
   log(`\nAcceptance criteria (${criteria.length}):`);
   criteria.forEach((c, i) => log(`  ${i + 1}. ${c}`));
+  if (kindsOn) {
+    criteriaKinds.forEach((k, i) => { if (k.kind === 'checkable') log(`     ${i + 1}: checkable on ${k.on} - ${k.check}`); });
+    log(`  ${summaryLine(criteriaSummary(criteria, criteriaKinds))}`);
+  }
+  // The "How the checkable criteria are settled" block for critic and handoff prompts; '' when
+  // kinds are off or nothing is checkable, which keeps those prompts byte-identical.
+  const checks = kindsOn ? checksSection(criteria, criteriaKinds) : '';
 
   // 1a. Whole alternative architectures (optional, config.alternatives.enabled; 2026-09-23, Muad:
   //     "have the models argue over whole alternative architectures: I think this is a great
@@ -2130,7 +2158,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       // fencedSource rides along on `freedoms` so criticSystem keeps one options argument
       // rather than growing a positional flag at three call sites. It is not a freedom; it is
       // a fact about the task that decides whether the quote rule is honest to state at all.
-      const freedoms = { ...(config.freedoms || null), fencedSource: !!fencedSource };
+      const freedoms = { ...(config.freedoms || null), fencedSource: !!fencedSource, ...(checks ? { criteriaKinds: true } : {}) };
       const reviewSeat = async (criticSeat, prior, say, tag = '') => {
         let cs, parsed, answeredQuestion = null;
         // `panelMaxTokens` (2026-09-22): an optional per-seat output cap for the panel review only.
@@ -2147,7 +2175,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
               // Patch mode shows the full draft plus the edits made since the last review, so a
               // reviewer can see what moved without re-reading the plan. Empty in full-rewrite
               // mode and on round 1, where there is no "since" to speak of.
-              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion }),
+              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion, checks }),
               log: say, label: attempt === 0 ? `panel-${round}-${labOf(criticSeat)}${tag}` : `panel-${round}-${labOf(criticSeat)}${tag}-answered`,
             }));
           } catch (err) {
@@ -2175,7 +2203,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
             try {
               cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
                 system: R.criticSystem(open, freedoms),
-                user: R.criticUser({ request, criteria, draft, prior, answeredQuestion }),
+                user: R.criticUser({ request, criteria, draft, prior, answeredQuestion, checks }),
                 log: say, label: `panel-${round}-${labOf(criticSeat)}${tag}-retry`,
               }));
               effectiveCap = biggerCap;
@@ -2235,6 +2263,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
         }
         say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
+        if (checks) noteUnevidenced(critique, round, labOf(criticSeat), say);
         // v5 item 3, touch point 2: the verdict update the live view needs - `passed` (chain.js's
         // own name for "meets every criterion") is already computed here, no new parsing.
         progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), passed: critique.meets === true });
@@ -2531,8 +2560,8 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       let cs;
       try {
         cs = record(await invoke(criticSeat, {
-          system: R.criticSystem(open),
-          user: R.criticUser({ request, criteria, draft }),
+          system: checks ? R.criticSystem(open, { criteriaKinds: true }) : R.criticSystem(open),
+          user: R.criticUser({ request, criteria, draft, checks }),
           log, label: `critique-${round}`,
         }));
       } catch (err) {
@@ -2585,6 +2614,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
         break;
       }
       lastCritique = critique;
+      if (checks) noteUnevidenced(critique, round, labOf(criticSeat), log);
       panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: critique.meets === true ? 'signed_off' : 'objected', reason_code: null, reasked: false });
       const failures = critique.failures;
       log(`  verdict: ${critique.meets ? 'MEETS' : `${failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
@@ -2881,7 +2911,7 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     log('\nStage: handoff');
     handoff = (await draftStage(config.seats.handoff || config.seats.builder, {
       system: R.HANDOFF_SYSTEM,
-      user: R.handoffUser({ request, draft, planFile: config.handoffPlanFile || 'PLAN.md' }),
+      user: R.handoffUser({ request, draft, planFile: config.handoffPlanFile || 'PLAN.md', checks }),
       log, label: 'handoff',
     })).text;
   }
@@ -2992,5 +3022,11 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
     ...(config.revise?.mode === 'patch' ? { patchFallbacks } : {}),
     // Additive, per report.json's public contract: absent on any chain without the alternatives stage.
     ...(alternatives !== null ? { alternatives } : {}),
+    // Additive: absent unless the chain enabled criterion kinds (src/criteria-kinds.js).
+    ...(kindsOn ? {
+      criteriaKinds: kindsRecord(criteria, criteriaKinds),
+      criteriaSummary: criteriaSummary(criteria, criteriaKinds, { metWithoutEvidence }),
+      metWithoutEvidence,
+    } : {}),
   };
 }

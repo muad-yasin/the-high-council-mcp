@@ -35,17 +35,47 @@ const here = dirname(fileURLToPath(import.meta.url));
 // the user's project as cwd, so task files and run output land where they can
 // find them rather than inside node_modules. In a clone the two are identical.
 const pkg = resolve(here, '../..');
-const work = process.cwd();
+// A host that fills the environment from a template (a Claude Desktop bundle's
+// `${user_config.x}`) can leave a placeholder behind for an optional setting the user left empty.
+// A literal "${user_config.openai_api_key}" would pass the key check as if it were a key and fail
+// at the provider; a literal "${user_config.max_usd}" would stop every run as a malformed ceiling.
+// Such a value is read as unset.
+for (const [k, v] of Object.entries(process.env)) if (/^\$\{user_config\.[^}]*\}$/.test(v || '')) delete process.env[k];
+// COUNCIL_WORKDIR sets the working directory when the client gives the server none it controls:
+// Claude Desktop's bundle format has no cwd setting, so a bundled server otherwise writes tasks
+// and runs wherever the app happened to start it. Unset, nothing changes.
+const work = process.env.COUNCIL_WORKDIR ? resolve(process.env.COUNCIL_WORKDIR) : process.cwd();
+if (process.env.COUNCIL_WORKDIR) mkdirSync(work, { recursive: true });
 const runsDir = join(work, 'runs');
 const cli = join(pkg, 'src', 'cli.js');
 // How to start the CLI as a child process. From source that's `node src/cli.js`; inside a
 // packaged binary (`process.pkg` is set by @yao-pkg/pkg) there is no `node` or on-disk cli.js
 // to hand it, but the binary itself IS the CLI, so it is re-invoked with the same arguments.
-const cliCommand = args => process.pkg ? [process.execPath, args] : ['node', [cli, ...args]];
+// process.execPath, not 'node': a host that runs this server on its own bundled Node (Claude
+// Desktop does, for a bundle) need not put any `node` on PATH for the child to find.
+const cliCommand = args => process.pkg ? [process.execPath, args] : [process.execPath, [cli, ...args]];
 // pkg's runtime marks a child spawned from process.execPath with PKG_EXECPATH, which makes that
 // child start as plain node and read `--chain` as a script path. It skips the marker when the
 // caller already set the variable, so an empty value keeps the child running as the council CLI.
 const cliEnv = process.pkg ? { ...process.env, PKG_EXECPATH: '' } : process.env;
+
+// COUNCIL_MAX_USD_LIMIT: a ceiling the tool arguments cannot lift. Through MCP it is the client's
+// model, not the person, that picks start_run's and resume_run's max_usd, and max_usd 0 means no
+// ceiling at all. A user who set a limit when installing the server (a Claude Desktop bundle asks
+// for one) keeps it: a larger max_usd or 0 is refused, and a call with none runs under the lower of
+// the limit and MAX_USD_PER_RUN. Unset, the tools behave exactly as before.
+const usdLimit = (() => {
+  const v = Number(process.env.COUNCIL_MAX_USD_LIMIT);
+  return process.env.COUNCIL_MAX_USD_LIMIT && Number.isFinite(v) && v > 0 ? v : null;
+})();
+function ceilingArgs(maxUsd) {
+  if (usdLimit === null) return maxUsd === undefined ? [] : ['--max-usd', maxUsd === 0 ? 'none' : String(maxUsd)];
+  if (maxUsd === 0) return { refused: `max_usd 0 (no ceiling) is refused: the user set COUNCIL_MAX_USD_LIMIT to $${usdLimit}. Ask the user to raise it in the server's settings.` };
+  if (maxUsd !== undefined && maxUsd > usdLimit) return { refused: `max_usd ${maxUsd} is above the user's COUNCIL_MAX_USD_LIMIT of $${usdLimit}. Ask the user to raise it in the server's settings.` };
+  if (maxUsd !== undefined) return ['--max-usd', String(maxUsd)];
+  const envDefault = Number(process.env.MAX_USD_PER_RUN);
+  return ['--max-usd', String(Math.min(usdLimit, Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 7))];
+}
 
 const text = s => ({ content: [{ type: 'text', text: typeof s === 'string' ? s : JSON.stringify(s, null, 2) }] });
 // Status audit #2 (Review/PreRelease_Audit_status_2026-09-23.md): `<id>.rematch-N` and
@@ -237,7 +267,9 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   if (draft) args.push('--draft', resolve(work, draft));
   if (from_run) args.push('--from-run', resolve(work, from_run));
   if (rounds) args.push('--rounds', String(rounds));
-  if (max_usd !== undefined) args.push('--max-usd', max_usd === 0 ? 'none' : String(max_usd));
+  const ceiling = ceilingArgs(max_usd);
+  if (ceiling.refused) return text({ started: false, error: ceiling.refused });
+  args.push(...ceiling);
   if (pii_gate) args.push('--pii-gate', pii_gate);
   if (allow_unfenced === true) args.push('--allow-unfenced');
   else if (Array.isArray(allow_unfenced) && allow_unfenced.length) args.push('--allow-unfenced', allow_unfenced.join(','));
@@ -350,10 +382,11 @@ async function resume(run, maxUsd) {
   if (holder) {
     return { resumed: false, run, error: `run is already running (pid ${holder.pid} on ${holder.host}); poll run_status(run) instead of resuming it again` };
   }
+  const ceiling = ceilingArgs(maxUsd);
+  if (ceiling.refused) return { resumed: false, run, error: ceiling.refused };
   const logPath = join(work, `council-${Date.now()}.log`);
   const fd = openSync(logPath, 'a');
-  const resumeArgs = ['--resume', join('runs', run)];
-  if (maxUsd !== undefined) resumeArgs.push('--max-usd', maxUsd === 0 ? 'none' : String(maxUsd));
+  const resumeArgs = ['--resume', join('runs', run), ...ceiling];
   const spawnedAt = Date.now();
   const child = spawn(...cliCommand(resumeArgs), { cwd: work, env: cliEnv, detached: true, stdio: ['ignore', fd, fd] });
   closeSync(fd);

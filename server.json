@@ -1,0 +1,117 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.muad-yasin/the-high-council",
+  "title": "The High Council",
+  "description": "Several models from different labs plan in a blind proposal, debate and review loop. Your own keys.",
+  "repository": {
+    "url": "https://github.com/muad-yasin/the-high-council-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://sower-industries.de/MCP",
+  "version": "0.7.6",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "the-high-council",
+      "version": "0.7.6",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "--mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "description": "Your own Anthropic API key. Needed only by chains that seat Anthropic models.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "description": "Your own OpenAI API key. Needed only by chains that seat OpenAI models.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "GOOGLE_API_KEY",
+          "description": "Your own Google (Gemini) API key. Needed only by chains that seat Google (Gemini) models.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MISTRAL_API_KEY",
+          "description": "Your own Mistral API key. Needed only by chains that seat Mistral models.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "DEEPSEEK_API_KEY",
+          "description": "Your own DeepSeek API key. Needed only by chains that seat DeepSeek models.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "GROQ_API_KEY",
+          "description": "Your own Groq API key. Needed only by chains that seat Groq models.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "TOGETHER_API_KEY",
+          "description": "Your own Together API key. Needed only by chains that seat Together models.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "COHERE_API_KEY",
+          "description": "Your own Cohere API key. Needed only by chains that seat Cohere models.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "OPENROUTER_API_KEY",
+          "description": "Your own OpenRouter API key. Needed only by chains that seat OpenRouter models.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "ZAI_API_KEY",
+          "description": "Your own Z.ai API key. Needed only by chains that seat Z.ai models.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MAX_USD_PER_RUN",
+          "description": "Per-run spend ceiling in US dollars. The run stops before any stage that could pass it. Default 7.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "number",
+          "default": "7"
+        },
+        {
+          "name": "COUNCIL_WORKDIR",
+          "description": "Folder for task files and run output. Default: the directory the client starts the server in.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "filepath"
+        }
+      ]
+    }
+  ]
+}

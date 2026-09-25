@@ -182,6 +182,16 @@
         }
       }
     },
+    "criteria_kinds": {
+      "type": "object",
+      "description": "Criterion kinds (src/criteria-kinds.js): each criterion is checkable (with the command or measurement that settles it) or judgement. Only \"enabled\" is read. Unknown keys fail here and in chain-lint.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
     "decisions": {
       "type": "object",
       "description": "Only \"enabled\" is read. Unknown keys fail here and in chain-lint.",
@@ -337,9 +347,22 @@
     "criteria": {
       "type": "array",
       "items": {
-        "type": "string"
+        "anyOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["criterion"],
+            "additionalProperties": false,
+            "properties": {
+              "criterion": { "type": "string" },
+              "kind": { "enum": ["checkable", "judgement"] },
+              "check": { "type": "string" },
+              "on": { "enum": ["plan", "build"] }
+            }
+          }
+        ]
       },
-      "description": "Hand-written criteria, bypassing the criteria stage - see chains/gp-judge-*.json."
+      "description": "Hand-written criteria, bypassing the criteria stage - see chains/gp-judge-*.json. An item may be an object carrying its kind (src/criteria-kinds.js)."
     },
     "seats": {
       "type": "object",

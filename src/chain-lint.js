@@ -170,6 +170,7 @@ export function lintChain(config, filePath = '<chain>') {
   // a JSON chain file, so they are deliberately not listed.
   const FLAG_BLOCKS = {
     decisions: { enabled: 'boolean' },
+    criteria_kinds: { enabled: 'boolean' },
     alternatives: { enabled: 'boolean', maxTokens: 'positive-integer' },
     lints: { enabled: 'boolean', forks: 'array' },
     canary: { enabled: 'boolean', sampleRate: 'rate' },

@@ -56,3 +56,51 @@ starts, so nothing was spent.
 **Fix:** if the file itself won't parse, fix its JSON syntax. Otherwise, either
 change the chain so it no longer violates the listed limit(s), or change
 `policy.json` if the limit itself was wrong. See [docs/policy.md](docs/policy.md).
+
+## Before any code: first-run problems
+
+These have no code of their own. Each is something a first-time user hit when the path was
+walked from zero (2026-09-25).
+
+### `council: command not found`
+
+`council` is only a command after `npm install -g the-high-council`. With `npx`, type
+`npx the-high-council` wherever the docs say `council` (for example
+`npx the-high-council doctor`). The CLI's own hints use the `npx` form when you started it
+with `npx`.
+
+### `HTTP 401` - the key was not accepted
+
+The provider rejected the key in the named variable (for example `OPENROUTER_API_KEY`). Check
+that it was copied whole, with no quotes or spaces around it, that it is still active on the
+provider's site, and that it belongs to that provider (an OpenAI key does not work as an
+OpenRouter key). Fix `.env`, then `council --resume runs/<id>`.
+
+### `HTTP 402` - no credit
+
+The provider would not bill the call: the account has no credit or reached its own spend limit.
+A new account usually needs credit added before paid models answer. Add it on the provider's
+site, then resume. Completed stages replay for free.
+
+### `HTTP 403` - refused
+
+A disabled key, a model your account is not allowed to use, or a block on the provider's side.
+Check the key and the model name on the provider's site.
+
+### `nothing is listening at http://localhost:11434`
+
+A seat uses `ollama` and no Ollama server is running. Start Ollama (the app, or `ollama serve`),
+pull every model the chain names (`ollama pull llama3.1`), then resume. `council doctor` lists
+local chains as runnable because they need no key, not because the server is up.
+
+### A run stopped with `STOPPED: per-run spend cap reached` (exit 4)
+
+The next stage's worst case would have crossed the cap. Nothing past the cap was spent, and no
+plan was written yet. `council --resume runs/<id> --max-usd <higher>` continues from where it
+stopped. The run tells you at the start when a chain's worst case is above your cap.
+
+### `.env holds your API keys and git would commit it`
+
+`council doctor` found a `.env` in a git repository that `.gitignore` does not cover. Add a line
+`.env` to `.gitignore` before the next commit. If a key was ever committed or pushed, revoke it on
+the provider's site and make a new one: deleting the file later does not remove it from history.

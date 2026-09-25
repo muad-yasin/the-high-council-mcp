@@ -1,0 +1,739 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://the-high-council.dev/schema/report-v1.json",
+  "title": "report.json - a council run, structured",
+  "description": "The machine-readable record of one finished council run: runs/<id>/report.json, built by reportJsonShape() in src/report-shape.js for every writer (a normal run, a resumed run, `council init`/`council demo`, --rematch, --replay). BOARD.md is the same record for people; nothing should parse BOARD.md. A run that stopped early (spend cap, pre-flight block, external pause, crash) writes no report.json at all - its absence means 'not finished'. Versioning: `schemaVersion` is an integer that moves only on a breaking change (a field renamed, removed, or its meaning or type changed). Adding a field is not breaking and does not move it, so a reader MUST ignore fields it does not know; that is why additionalProperties is left open everywhere. Each top-level property carries an `x-stability` annotation: `stable` fields keep their name, type and meaning for the whole of schemaVersion 1; `experimental` fields may change shape in a minor release and are listed in the changelog when they do. Fields marked 'model-supplied' come from a model's own JSON reply and are passed through with little or no checking: read them defensively.",
+  "type": "object",
+  "required": [
+    "runId", "chain", "task", "fromRun", "criteria", "passed", "outcome", "lastCritique", "signoff",
+    "challenge", "allocator", "proposals", "dropouts", "debate", "disputes", "totals", "maxUsd", "stages"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "x-stability": "stable",
+      "description": "Format version of this file. Integer; bumped only on a breaking change. Absent on report.json files written before 0.7.7: read those as version 1.",
+      "const": 1
+    },
+    "runId": {
+      "x-stability": "stable",
+      "type": "string",
+      "minLength": 1,
+      "description": "The run folder's name: an ISO-8601 timestamp with ':' and '.' replaced by '-' (e.g. 2026-09-25T15-08-53-698Z), plus a suffix for derived runs ('-init', '.rematch-<n>', '.replay-<date>')."
+    },
+    "chain": {
+      "x-stability": "stable",
+      "type": "string",
+      "description": "The chain config's `name` (chains/<name>.json). Names the recipe, not its contents: the chain file can change after the run."
+    },
+    "task": {
+      "x-stability": "stable",
+      "type": "string",
+      "description": "Path to the task file as given on the command line, or its resolved absolute path on a resumed run. A path on the author's own disk: drop it before publishing a run."
+    },
+    "fromRun": {
+      "x-stability": "stable",
+      "type": ["string", "null"],
+      "description": "Path of the earlier run whose criteria (and first draft) this run reused via --from-run; null when the run wrote its own."
+    },
+    "criteria": {
+      "x-stability": "stable",
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Acceptance criteria, written before any draft or debate, in the order the panel was asked to check them. Model-supplied: the criteria stage checks that the list is non-empty and not meta, not that each item is a string."
+    },
+    "questions": {
+      "x-stability": "stable",
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/question" },
+      "description": "Clarifying questions the planner asked before writing criteria, each with its own default. null when the chain has no questions stage. Currently absent (not null) on a descending-mode run."
+    },
+    "passed": {
+      "x-stability": "stable",
+      "type": "boolean",
+      "description": "True if the panel signed off on the final draft under the chain's sign-off rule (`first`: one critic; `unanimous`: every critic on the same draft). Read `outcome` before quoting this: a run can pass with part of its roster unheard."
+    },
+    "outcome": {
+      "x-stability": "stable",
+      "enum": ["consensus", "no_consensus", "degraded"],
+      "description": "Verdict class, computed by src/outcome.js from the rest of this file. `degraded` wins: some seat dropped out, abstained, or no reviewer was heard, so the intended roster never reached a verdict. Otherwise `consensus` if passed, else `no_consensus`."
+    },
+    "lastCritique": {
+      "x-stability": "stable",
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/critique" }],
+      "description": "The last review round's verdict. Unanimous chains: the union of every critic's failures, each tagged with `lab`. First-to-pass chains: the one critic's own parsed reply. null only if no review round ran."
+    },
+    "signoff": {
+      "x-stability": "stable",
+      "type": ["array", "null"],
+      "items": { "$ref": "#/$defs/signoffEntry" },
+      "description": "One entry per critic seat for the final unanimous round. null on chains whose sign-off is `first` (see panelVerdicts for those)."
+    },
+    "proposals": {
+      "x-stability": "stable",
+      "type": "array",
+      "items": { "$ref": "#/$defs/proposal" },
+      "description": "Every proposal kept for the debate, one node per proposal. Empty when the chain has no proposal stage. A lab that produced none is not here: see dropouts."
+    },
+    "dropouts": {
+      "x-stability": "stable",
+      "type": "array",
+      "items": { "$ref": "#/$defs/dropout" },
+      "description": "Seats that were on the roster but produced nothing usable (unreadable proposals after a retry, a provider failure in review). Count labs from here plus proposals, never from proposals alone."
+    },
+    "debate": {
+      "x-stability": "stable",
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/debate" }],
+      "description": "The anonymised argument over the proposals: posts (who said what about which proposal) and replies (what each author then did). null when the chain has no debate stage."
+    },
+    "scoreboard": {
+      "x-stability": "stable",
+      "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/scoreboard" }],
+      "description": "What the final plan did with each proposal, read from the plan's own 'Scope ledger' lines, per proposal and per lab. null when there were no proposals. Currently absent (not null) on a descending-mode run."
+    },
+    "totals": {
+      "x-stability": "stable",
+      "$ref": "#/$defs/totals",
+      "description": "Token and cost totals over every stage in `stages`, plus any superseded stages paid for earlier."
+    },
+    "maxUsd": {
+      "x-stability": "stable",
+      "type": ["number", "null"],
+      "minimum": 0,
+      "description": "The per-run spend ceiling in USD this run was held to (--max-usd, MAX_USD_PER_RUN, or the default); null when the ceiling was disabled (--max-usd none) or, for init/rematch/replay, not recorded."
+    },
+    "stages": {
+      "x-stability": "stable",
+      "type": "array",
+      "items": { "$ref": "#/$defs/stage" },
+      "description": "One record per model call, in the order they were recorded (concurrent calls may interleave). The reply text itself is in <label>.md in the run folder, not here."
+    },
+    "alternatives": {
+      "x-stability": "stable",
+      "$ref": "#/$defs/alternatives",
+      "description": "Present only on chains with alternatives.enabled: one whole architecture per lab, written blind before the skeleton, and the same post/reply board the proposals get."
+    },
+
+    "challenge": {
+      "x-stability": "experimental",
+      "anyOf": [
+        { "type": "null" },
+        { "type": "object", "required": ["raised"], "properties": { "raised": { "const": false } } },
+        {
+          "type": "object",
+          "required": ["raised", "by", "reopened_rounds"],
+          "properties": {
+            "raised": { "const": true },
+            "by": { "type": "string", "description": "Lab of the challenger seat." },
+            "decision": { "description": "Model-supplied: the decision the challenger re-opened." },
+            "evidence_needed": { "description": "Model-supplied: what evidence would settle it." },
+            "reopened_rounds": { "type": "integer", "description": "Always 1 today: one challenge re-opens one decision for one round." }
+          }
+        }
+      ],
+      "description": "Post-sign-off challenge stage (challenge.enabled). null when the chain does not enable it."
+    },
+    "allocator": {
+      "x-stability": "experimental",
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["targetedRounds", "engagedCount", "rubberStampCount"],
+          "properties": {
+            "targetedRounds": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["round", "criterion", "engaged"],
+                "properties": {
+                  "round": { "type": "integer" },
+                  "criterion": { "type": "string" },
+                  "failedBy": { "type": "array", "items": { "type": "string" }, "description": "Labs that failed this criterion." },
+                  "votingCount": { "type": "integer" },
+                  "tool": { "type": ["string", "null"] },
+                  "engaged": { "type": "boolean", "description": "False when the reviser left the draft byte-for-byte unchanged (a rubber stamp)." }
+                }
+              }
+            },
+            "engagedCount": { "type": "integer", "minimum": 0 },
+            "rubberStampCount": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ],
+      "description": "Extra rounds aimed at the most contested criterion (allocator.enabled). null when off."
+    },
+    "disputes": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["round", "reason"],
+        "properties": {
+          "round": {
+            "type": ["integer", "string"],
+            "description": "A review round number, or one of the strings 'dispute', 'challenge', 'allocator-<n>' for revisions made outside the numbered rounds. Mixed type: see the report's fix list."
+          },
+          "reason": { "type": "string", "description": "Model-supplied: why the reviser declined this objection." }
+        }
+      },
+      "description": "Objections the reviser declined and kept out of the deliverable (its DECLINED lines). Not the same thing as `dispute`."
+    },
+    "orphanSections": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "Sections left with no surviving owner after a withdrawal chain cycled or dead-ended. Currently absent on a descending-mode run."
+    },
+    "withdrawalCycles": {
+      "x-stability": "experimental",
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many withdrawal chains cycled (e.g. two labs withdrawing in each other's favour). Currently absent on a descending-mode run."
+    },
+    "panelVerdicts": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["round", "lab", "model", "verdict"],
+        "properties": {
+          "round": { "type": "integer" },
+          "lab": { "type": "string" },
+          "model": { "type": "string" },
+          "verdict": { "enum": ["signed_off", "objected", "passed", "unheard"] },
+          "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] },
+          "reasked": { "type": "boolean", "description": "True if the seat was unheard once and asked again this round." }
+        }
+      },
+      "description": "Every critic's verdict in every review round, both sign-off modes. The per-round history that signoff[] (final round only) does not keep."
+    },
+    "regressions": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["round", "criterion", "labs"],
+        "properties": {
+          "round": { "type": "integer" },
+          "criterion": { "type": "string" },
+          "labs": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "description": "Criteria that had been met and then failed again in a later round, with the labs that failed them."
+    },
+    "dispute": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["ran", "reason"],
+      "properties": {
+        "ran": { "type": "boolean" },
+        "reason": { "enum": ["stalled", "round_cap", "no_heard_reviewer", "panel_signed_off", "no_open_objections"] },
+        "stall_rounds": { "type": ["integer", "null"] },
+        "stopped_at_round": { "type": ["integer", "null"] },
+        "open_objections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["criterion"],
+            "properties": {
+              "criterion": { "type": "string" },
+              "lab": { "type": ["string", "null"] },
+              "problem": { "type": ["string", "null"] },
+              "first_raised_round": { "type": ["integer", "null"] },
+              "unheard_in_final_round": { "type": "boolean" },
+              "last_raised_round": { "type": ["integer", "null"] }
+            }
+          }
+        },
+        "panel_rereviewed": { "type": "boolean" },
+        "review": { "type": "object", "description": "Present when the chain sets dispute.review: per-objection checks of how the draft handled it." }
+      },
+      "description": "Present only on chains with dispute.enabled: whether the dispute stage ran, why, and the objections left open (recorded at the top of the deliverable)."
+    },
+    "disagreement_groups": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["on", "outcome", "posts"],
+        "properties": {
+          "on": { "type": "string", "description": "Proposal id." },
+          "title": { "description": "Model-supplied proposal title, or null if the id is unknown." },
+          "author_lab": { "type": ["string", "null"] },
+          "outcome": { "enum": ["kept", "amended", "withdrawn", "unknown"] },
+          "posts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["by", "stance"],
+              "properties": {
+                "by": { "type": "string" },
+                "stance": { "enum": ["support", "object", "merge"] },
+                "text": { "type": "string" },
+                "merge_with": { "type": "string" }
+              }
+            },
+            "description": "The debate posts on this proposal, without `on` (it is the group's)."
+          }
+        }
+      },
+      "description": "Present only when the run debated: the debate's posts grouped by the proposal they argue about. Derived from debate and proposals; adds no new facts."
+    },
+    "ground_truth": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool", "result"],
+        "properties": {
+          "tool": { "type": "string" },
+          "args": { "type": "object" },
+          "result": { "type": "object", "description": "The tool's own result: ok, exitCode, stdout, stderr and so on." },
+          "result_ref": { "type": "string" }
+        }
+      },
+      "description": "Present only on chains with verify.enabled: allowlisted tool results shown verbatim to later stages."
+    },
+    "lints": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "message"],
+        "properties": {
+          "id": { "enum": ["ledger_id", "bare_number", "unresolved_fork", "bad_acceptance_test"] },
+          "message": { "type": "string" }
+        }
+      },
+      "description": "Present only on chains with lints.enabled: deterministic plan lints. Informational, never a failure."
+    },
+    "claims": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim", "evidence"],
+        "properties": {
+          "claim": { "type": "string" },
+          "evidence": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "enum": ["quote", "tool", "reasoning"] },
+              "quote": { "type": "string" },
+              "result_ref": { "type": "string" }
+            }
+          }
+        }
+      },
+      "description": "Present only on chains with claims.enabled: objections restated with typed evidence. Claims whose evidence failed the offline check are dropped (and listed in WARNINGS.md)."
+    },
+    "policy": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["checks"],
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["capability", "ok"],
+            "properties": { "capability": { "type": "string" }, "field": { "type": "string" }, "ok": { "type": "boolean" } }
+          }
+        }
+      },
+      "description": "Present only when a policy.json was in force: the checks it configured. Absent means no policy."
+    },
+    "security_review": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["gate", "findings", "blocking_count"],
+      "properties": {
+        "label": { "type": "string" },
+        "seat": { "type": "string" },
+        "lab": { "type": "string" },
+        "gate": { "enum": ["pass", "blocked", "not_judged"], "description": "Judged from the findings, never from the seat's own verdict. not_judged is never a pass." },
+        "seat_verdict": { "type": ["string", "null"] },
+        "reason_code": { "type": ["string", "null"] },
+        "reason": { "type": ["string", "null"] },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "severity": { "type": "string" },
+              "category": { "type": "string" },
+              "file": { "type": "string" },
+              "line": { "type": ["integer", "null"] },
+              "evidence": { "type": "string" },
+              "problem": { "type": "string" },
+              "severity_assumed": { "type": "boolean" }
+            }
+          }
+        },
+        "blocking_count": { "type": "integer", "minimum": 0 },
+        "dropped_findings": { "type": "integer", "minimum": 0 }
+      },
+      "description": "Present only on chains with security_review.enabled: the final read-only security gate. Same object as security-review.json in the run folder."
+    },
+    "canary": {
+      "x-stability": "experimental",
+      "type": "object",
+      "properties": {
+        "injected": { "type": "boolean" },
+        "on": { "type": "string", "description": "Proposal id the canary objection was posted on." },
+        "capitulated": { "type": "boolean", "description": "True if the author amended or withdrew in answer to an evidence-free objection." },
+        "note": { "type": "string" }
+      },
+      "description": "Present only when a canary objection was sampled into the debate (canary.enabled). The canary post and reply are also in debate.posts/replies, each with canary: true and by: 'canary'."
+    },
+    "quoteFindings": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Present when the task fenced source text: one human-readable line per objection whose quote could not be found in that source, or that quoted nothing. Nothing is dropped because of these."
+    },
+    "patchFallbacks": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["round", "reason"],
+        "properties": { "round": { "type": "integer" }, "reason": { "type": "string" } }
+      },
+      "description": "Present on chains with revise.mode 'patch': rounds where the reviser's patch could not be applied and a whole-draft revision was used instead."
+    },
+    "coldRead": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["raised", "contradictions"],
+      "properties": {
+        "raised": { "type": "boolean" },
+        "contradictions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["note"],
+            "properties": { "sections": { "type": "array" }, "note": { "type": "string" } }
+          }
+        }
+      },
+      "description": "Present only on chains with coldRead.enabled: a fresh seat that saw only the final draft, listing contradictions between its sections."
+    },
+    "noHeardReviewer": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["round"],
+      "properties": {
+        "round": { "type": "integer" },
+        "unheard": { "type": "integer" },
+        "passedOnly": { "type": "integer" }
+      },
+      "description": "Present only when a review round heard no reviewer at all and the loop stopped there. Makes outcome 'degraded'."
+    },
+    "unverifiedReplays": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stage", "why"],
+        "properties": { "stage": { "type": "string" }, "why": { "type": "string" } }
+      },
+      "description": "Present only when some stage was replayed from the stage cache but could be checked only against the task and chain, not the exact prompt."
+    },
+    "argued": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["file", "ok"],
+      "properties": {
+        "file": { "type": "string", "description": "ARGUED.md, next to deliverable.md." },
+        "facts_counts": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "ok": { "type": "boolean" },
+        "refs_cited": { "type": "integer" },
+        "unknown_refs": { "type": "array", "items": { "type": "string" } },
+        "unknown_labs": { "type": "array", "items": { "type": "string" } },
+        "missing_labs": { "type": "array", "items": { "type": "string" } },
+        "missing_sections": { "type": "array", "items": { "type": "string" } }
+      },
+      "description": "Present only on chains with argued.enabled: where the 'How this plan was argued' text is, and the check of every id and lab it names against this run's record."
+    },
+    "criteria_kinds": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "criterion": { "type": "string" },
+          "kind": { "enum": ["checkable", "judgement", null] },
+          "check": { "type": "string", "description": "The command, test or measurement that settles it (model-supplied)." },
+          "on": { "type": "string", "description": "plan or build: what the check runs against." },
+          "downgraded": { "type": "string", "description": "Why a criterion marked checkable was counted as judgement (it named no check)." },
+          "vague": { "type": "boolean" }
+        }
+      },
+      "description": "Present only on chains with criteria_kinds.enabled. Index-aligned with `criteria`: whether a named check settles each criterion (checkable) or a reader's judgement does. kind is null when the seat classified nothing."
+    },
+    "criteria_summary": {
+      "x-stability": "experimental",
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer" },
+        "checkable": { "type": "integer" },
+        "checkable_on_plan": { "type": "integer" },
+        "checkable_on_build": { "type": "integer" },
+        "judgement": { "type": "integer" },
+        "unclassified": { "type": "integer" },
+        "downgraded": { "type": "integer" },
+        "vague": { "type": "integer" },
+        "met_without_evidence": { "type": "integer" }
+      },
+      "description": "Present only on chains with criteria_kinds.enabled: counts over criteria_kinds and criteria_met_without_evidence."
+    },
+    "criteria_met_without_evidence": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "round": { "type": "integer" },
+          "lab": { "type": "string" },
+          "criterion": {}
+        }
+      },
+      "description": "Present only on chains with criteria_kinds.enabled: every MET verdict on a checkable criterion that cited no evidence. Counted on the board; it does not overturn the verdict."
+    }
+  },
+
+  "$defs": {
+    "abstentionReason": {
+      "enum": ["SEAT_UNREACHABLE", "PROVIDER_ERROR", "REPLY_TRUNCATED", "REPLY_UNPARSEABLE", "REASONING_EXHAUSTED"],
+      "description": "Closed set (RESERVED_ABSTENTION_REASONS in src/chain.js): why a seat gave no usable reply."
+    },
+    "question": {
+      "type": "object",
+      "required": ["question"],
+      "properties": {
+        "question": { "type": "string" },
+        "why": { "description": "Model-supplied: why the planner asks." },
+        "default": { "description": "Model-supplied: the answer the plan assumes if nobody answers." }
+      }
+    },
+    "objection": {
+      "type": "object",
+      "required": ["criterion"],
+      "properties": {
+        "criterion": { "type": "string", "description": "The criterion text this objection is against (or a harness placeholder when the critic named none)." },
+        "problem": { "type": "string" },
+        "fix": { "type": "string" },
+        "lab": { "type": "string", "description": "Present in lastCritique.failures on unanimous chains: the lab that raised it." },
+        "quote": { "type": "string" },
+        "quote_status": { "enum": ["verified", "unverified", "unquoted"] }
+      }
+    },
+    "critique": {
+      "type": "object",
+      "required": ["meets", "failures"],
+      "properties": {
+        "meets": { "type": "boolean" },
+        "failures": { "type": "array", "items": { "$ref": "#/$defs/objection" } },
+        "verdict_line": { "type": ["string", "null"] },
+        "criteria": { "type": "array", "description": "Model-supplied per-criterion table, when the critic gave one." },
+        "dropped": { "type": "boolean", "description": "True when the last critic failed at the provider and the round was recorded as a failure." }
+      }
+    },
+    "signoffEntry": {
+      "type": "object",
+      "required": ["provider", "model", "signedOff", "objections"],
+      "properties": {
+        "provider": { "type": "string", "description": "Despite the name, the seat's LAB (labOf(seat): `lab` if set, else the provider). Kept for compatibility; see the fix list." },
+        "model": { "type": "string" },
+        "signedOff": { "type": ["boolean", "null"], "description": "true: signed off. false: objected (see objections). null: gave no verdict - abstained or stated a pass." },
+        "objections": {
+          "anyOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/objection" } }],
+          "description": "Why the seat declined, on its own record. [] for a seat that signed off; null when signedOff is null."
+        },
+        "passed": { "type": "boolean", "description": "True if the seat stated a pass (declined to give a verdict, with a reason). Not the same as the top-level `passed`." },
+        "passReason": { "type": ["string", "null"] },
+        "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] }
+      }
+    },
+    "proposal": {
+      "type": "object",
+      "required": ["id", "lab", "model"],
+      "properties": {
+        "id": { "type": "string", "description": "Harness-made: the lab tag in capitals, a counter if the tag repeats, '-', and the proposal's number (e.g. MOCKA-1). The model's own id, if it gave one, is kept as proposer_id." },
+        "lab": { "type": "string", "description": "The proposing seat's lab (independence accounting key)." },
+        "model": { "type": "string" },
+        "slice": { "type": ["string", "null"], "description": "The per-seat instruction slice that produced this proposal, if the chain partitions the work." },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "title": { "description": "Model-supplied." },
+        "serves": { "description": "Model-supplied: which criterion or goal it serves." },
+        "what": { "description": "Model-supplied." },
+        "why": { "description": "Model-supplied." },
+        "how": { "description": "Model-supplied; replaced by the author's amendment when amended." },
+        "acceptance_test": { "description": "Model-supplied; replaced by the author's amendment when amended." },
+        "amended": { "type": "boolean", "description": "Present and true when the author amended it after the debate." },
+        "withdrawn": { "type": "boolean", "description": "Present and true when the author withdrew it." },
+        "replaced_by": { "type": "string", "description": "When withdrawn in favour of another proposal: that proposal's id (checked to exist)." },
+        "proposer_id": { "description": "The model's own id field, kept for the record." },
+        "proposer_lab": { "description": "The model's own lab field, kept for the record." }
+      }
+    },
+    "post": {
+      "type": "object",
+      "required": ["by", "on", "stance"],
+      "properties": {
+        "by": { "type": "string", "description": "Lab that posted, or 'canary' for an injected canary objection." },
+        "on": { "type": "string", "description": "Id of the proposal (or alternative) the post is about; never the poster's own." },
+        "stance": { "enum": ["support", "object", "merge"] },
+        "text": { "type": "string" },
+        "merge_with": { "type": "string", "description": "With stance 'merge': the other id to merge with (checked to exist)." },
+        "canary": { "type": "boolean" }
+      }
+    },
+    "reply": {
+      "type": "object",
+      "required": ["id", "action"],
+      "properties": {
+        "id": { "type": "string", "description": "The author's own proposal (or alternative) id." },
+        "action": { "enum": ["keep", "amend", "withdraw"] },
+        "text": { "description": "Model-supplied." },
+        "replaced_by": { "type": "string", "description": "With action 'withdraw': the id it defers to (checked to exist)." },
+        "how": { "description": "Model-supplied; an amend usually brings the new how." },
+        "acceptance_test": { "description": "Model-supplied; an amend may bring a new one." },
+        "canary": { "type": "boolean" },
+        "capitulated": { "type": "boolean" }
+      },
+      "description": "Built by spreading the model's own reply object and normalising id/action/replaced_by over it, so it may carry more model-supplied keys."
+    },
+    "debate": {
+      "type": "object",
+      "required": ["posts", "replies"],
+      "properties": {
+        "posts": { "type": "array", "items": { "$ref": "#/$defs/post" } },
+        "replies": { "type": "array", "items": { "$ref": "#/$defs/reply" } },
+        "tie_break": {
+          "type": "object",
+          "required": ["occurred"],
+          "properties": { "occurred": { "type": "boolean" } },
+          "description": "Experimental. Always { occurred: false } today: no debate step decides by vote yet."
+        },
+        "diagnostics": {
+          "type": "object",
+          "description": "Experimental. Role failure-mode diagnostics computed from this run's own posts (src/role-diagnostics.js): perSeat, pairwiseAgreement, roleVsPlainSubstanceGap, flags."
+        }
+      }
+    },
+    "scoreboard": {
+      "type": "object",
+      "required": ["rows", "labs"],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "allOf": [{ "$ref": "#/$defs/proposal" }],
+            "type": "object",
+            "required": ["status", "note"],
+            "properties": {
+              "status": { "enum": ["accepted", "cut", "withdrawn", "unaccounted"], "description": "From the plan's 'Scope ledger' line for this id; 'unaccounted' if the plan never mentions it." },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "labs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["lab", "model", "proposed", "accepted", "cut", "withdrawn", "unaccounted", "built"],
+            "properties": {
+              "lab": { "type": "string" },
+              "model": { "type": "string" },
+              "proposed": { "type": "integer", "minimum": 0 },
+              "accepted": { "type": "integer", "minimum": 0 },
+              "cut": { "type": "integer", "minimum": 0 },
+              "withdrawn": { "type": "integer", "minimum": 0 },
+              "unaccounted": { "type": "integer", "minimum": 0 },
+              "built": { "type": ["integer", "null"], "description": "Always null when written: left for a person to fill in after the build session." }
+            }
+          }
+        }
+      }
+    },
+    "dropout": {
+      "type": "object",
+      "required": ["lab", "model", "stage", "reason"],
+      "properties": {
+        "lab": { "type": "string" },
+        "model": { "type": "string" },
+        "stage": { "type": "string", "description": "'proposals', 'alternatives', or 'critique-<round>'." },
+        "reason": { "type": "string" },
+        "reasonCode": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "required": ["input", "output"],
+      "properties": {
+        "input": { "type": "integer", "minimum": 0 },
+        "output": { "type": "integer", "minimum": 0 },
+        "thinking": { "type": "integer", "minimum": 0 },
+        "stop": { "type": "string", "description": "Provider stop reason, when reported (e.g. 'length', 'max_tokens', 'error')." }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "required": ["label", "provider", "model", "lab", "usage", "usd", "priced", "ms"],
+      "properties": {
+        "label": { "type": "string", "description": "Stable stage label; <label>.md in the run folder holds the reply text." },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "lab": { "type": "string" },
+        "usage": { "$ref": "#/$defs/usage" },
+        "usd": { "type": "number", "minimum": 0, "description": "What this call cost, including any attempt thrown away and retried." },
+        "priced": { "type": "boolean", "description": "False when the model has no price in pricing.json: usd is then 0 and means 'unknown', not 'free'." },
+        "ms": { "type": "integer", "minimum": 0 },
+        "promptHash": { "type": "string" },
+        "cached": { "type": "boolean", "description": "True when replayed from <label>.md on disk at no cost." }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "required": ["input", "output", "total", "usd", "unpriced"],
+      "properties": {
+        "input": { "type": "integer", "minimum": 0 },
+        "output": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 },
+        "usd": { "type": "number", "minimum": 0, "description": "Priced spend only; includes supersededUsd when present." },
+        "unpriced": { "type": "array", "items": { "type": "string" }, "description": "provider/model pairs with no price: their spend is not in usd." },
+        "supersededUsd": { "type": "number", "minimum": 0, "description": "Present when stages were paid for and later superseded (a resume that re-ran them)." }
+      }
+    },
+    "alternatives": {
+      "type": "object",
+      "required": ["items", "posts", "replies", "dropouts"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "lab", "model", "name", "shape"],
+            "properties": {
+              "id": { "type": "string", "description": "Lab tag plus '-ALT' (e.g. MOCKA-ALT)." },
+              "lab": { "type": "string" },
+              "model": { "type": "string" },
+              "name": { "type": "string" },
+              "shape": { "type": "string" },
+              "key_tradeoffs": { "type": "string" },
+              "bad_at": { "type": "string" },
+              "amended": { "type": "boolean" },
+              "withdrawn": { "type": "boolean" },
+              "replaced_by": { "type": "string" }
+            }
+          }
+        },
+        "posts": { "type": "array", "items": { "$ref": "#/$defs/post" } },
+        "replies": { "type": "array", "items": { "$ref": "#/$defs/reply" } },
+        "dropouts": { "type": "array", "items": { "$ref": "#/$defs/dropout" } }
+      }
+    }
+  }
+}

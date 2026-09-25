@@ -1,0 +1,225 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.3.schema.json",
+  "manifest_version": "0.3",
+  "name": "the-high-council",
+  "display_name": "The High Council",
+  "version": "0.7.6",
+  "description": "A planning council: models from different labs propose, debate and review one plan. Bring your own keys.",
+  "long_description": "The High Council runs one request past seats filled by models from different labs. Each lab proposes blind, the proposals are debated on the record, one plan is built and reviewed under a round cap, and the run folder keeps every stage.\n\n**Bring your own keys.** Nothing is hosted and there is no default key: add a key only for the labs you want to seat. The `mock` chains run offline, free, with no key at all, so you can try the tools first.\n\n**Spend ceiling.** Every run stops before any stage that could pass the ceiling you set here. Claude cannot lift it from a conversation.\n\nNo claim is made that a council produces better plans than one model; nothing has measured that yet.",
+  "author": {
+    "name": "Muad Yasin",
+    "url": "https://sower-industries.de/MCP"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/muad-yasin/the-high-council-mcp.git"
+  },
+  "homepage": "https://sower-industries.de/MCP",
+  "documentation": "https://github.com/muad-yasin/the-high-council-mcp#readme",
+  "support": "https://github.com/muad-yasin/the-high-council-mcp/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "src/mcp/server.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/src/mcp/server.js"
+      ],
+      "env": {
+        "COUNCIL_WORKDIR": "${user_config.workdir}",
+        "MAX_USD_PER_RUN": "${user_config.max_usd}",
+        "COUNCIL_MAX_USD_LIMIT": "${user_config.max_usd}",
+        "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}",
+        "OPENAI_API_KEY": "${user_config.openai_api_key}",
+        "GOOGLE_API_KEY": "${user_config.google_api_key}",
+        "MISTRAL_API_KEY": "${user_config.mistral_api_key}",
+        "DEEPSEEK_API_KEY": "${user_config.deepseek_api_key}",
+        "OPENROUTER_API_KEY": "${user_config.openrouter_api_key}",
+        "GROQ_API_KEY": "${user_config.groq_api_key}",
+        "TOGETHER_API_KEY": "${user_config.together_api_key}",
+        "COHERE_API_KEY": "${user_config.cohere_api_key}",
+        "ZAI_API_KEY": "${user_config.zai_api_key}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_chains",
+      "description": "Chains available to run, with a description and worst-case price each."
+    },
+    {
+      "name": "dry_run",
+      "description": "Price a chain without calling any model."
+    },
+    {
+      "name": "write_task",
+      "description": "Write a task file under tasks/ for the council to plan against."
+    },
+    {
+      "name": "start_run",
+      "description": "Start a run in the background under the per-run spend ceiling."
+    },
+    {
+      "name": "run_status",
+      "description": "Where a run stands: stage, verdicts, scoreboard, cost."
+    },
+    {
+      "name": "list_runs",
+      "description": "Runs on disk, newest first, with state and cost."
+    },
+    {
+      "name": "read_run_file",
+      "description": "Read a file from a run folder (deliverable.md, BOARD.md, HANDOFF.md, report.json and others)."
+    },
+    {
+      "name": "plan_outline",
+      "description": "Section tree of a run's deliverable with word counts."
+    },
+    {
+      "name": "resume_run",
+      "description": "Resume a paused run, or one the spend ceiling stopped."
+    },
+    {
+      "name": "external_prompt",
+      "description": "The prompt a run paused at an external seat is waiting on."
+    },
+    {
+      "name": "prepare_stage_prompt",
+      "description": "Write a self-contained prompt file for a paused external stage."
+    },
+    {
+      "name": "submit_stage",
+      "description": "Answer a paused external stage and resume the run."
+    },
+    {
+      "name": "spend_report",
+      "description": "What runs have cost across a window of days, read from disk."
+    },
+    {
+      "name": "verdict_stats",
+      "description": "Descriptive statistics on sign-offs, rounds and objections across runs."
+    },
+    {
+      "name": "metrics_report",
+      "description": "Descriptive telemetry from run logs. Not an evaluation or benchmark."
+    }
+  ],
+  "tools_generated": false,
+  "keywords": [
+    "planning",
+    "multi-model",
+    "debate",
+    "review",
+    "byok"
+  ],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  },
+  "user_config": {
+    "workdir": {
+      "type": "directory",
+      "title": "Council folder",
+      "description": "Where task files and run folders (deliverable.md, BOARD.md, HANDOFF.md, report.json) are written. Runs can hold sensitive plans; pick a private folder.",
+      "required": true,
+      "default": "${DOCUMENTS}/The High Council"
+    },
+    "max_usd": {
+      "type": "number",
+      "title": "Spend ceiling per run (USD)",
+      "description": "A run stops before any stage that could take it past this, billed to your own keys. Claude cannot raise or remove it from a chat; change it here.",
+      "required": true,
+      "default": 7,
+      "min": 0.5,
+      "max": 200
+    },
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API key",
+      "description": "Optional. Your own Anthropic key, used only for seats that name Anthropic. Stored by the app, passed to the server as ANTHROPIC_API_KEY, never sent anywhere but Anthropic's API.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "openai_api_key": {
+      "type": "string",
+      "title": "OpenAI API key",
+      "description": "Optional. Your own OpenAI key, used only for seats that name OpenAI. Stored by the app, passed to the server as OPENAI_API_KEY, never sent anywhere but OpenAI's API.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "google_api_key": {
+      "type": "string",
+      "title": "Google Gemini API key",
+      "description": "Optional. Your own Google Gemini key, used only for seats that name Google Gemini. Stored by the app, passed to the server as GOOGLE_API_KEY, never sent anywhere but Google Gemini's API.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "mistral_api_key": {
+      "type": "string",
+      "title": "Mistral API key",
+      "description": "Optional. Your own Mistral key, used only for seats that name Mistral. Stored by the app, passed to the server as MISTRAL_API_KEY, never sent anywhere but Mistral's API.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "deepseek_api_key": {
+      "type": "string",
+      "title": "DeepSeek API key",
+      "description": "Optional. Your own DeepSeek key, used only for seats that name DeepSeek. Stored by the app, passed to the server as DEEPSEEK_API_KEY, never sent anywhere but DeepSeek's API.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "openrouter_api_key": {
+      "type": "string",
+      "title": "OpenRouter API key",
+      "description": "Optional. Your own OpenRouter key, used only for seats that name OpenRouter. Stored by the app, passed to the server as OPENROUTER_API_KEY, never sent anywhere but OpenRouter's API.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "groq_api_key": {
+      "type": "string",
+      "title": "Groq API key",
+      "description": "Optional. Your own Groq key, used only for seats that name Groq. Stored by the app, passed to the server as GROQ_API_KEY, never sent anywhere but Groq's API.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "together_api_key": {
+      "type": "string",
+      "title": "Together API key",
+      "description": "Optional. Your own Together key, used only for seats that name Together. Stored by the app, passed to the server as TOGETHER_API_KEY, never sent anywhere but Together's API.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "cohere_api_key": {
+      "type": "string",
+      "title": "Cohere API key",
+      "description": "Optional. Your own Cohere key, used only for seats that name Cohere. Stored by the app, passed to the server as COHERE_API_KEY, never sent anywhere but Cohere's API.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "zai_api_key": {
+      "type": "string",
+      "title": "Z.ai API key",
+      "description": "Optional. Your own Z.ai key, used only for seats that name Z.ai. Stored by the app, passed to the server as ZAI_API_KEY, never sent anywhere but Z.ai's API.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    }
+  }
+}

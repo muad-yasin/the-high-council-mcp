@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### `report.json` is a versioned, published format
+
+`report.json` now starts with `schemaVersion: 1`, and its shape is published as a JSON Schema
+(draft 2020-12) in `schemas/report-v1.json`, which now ships in the npm package. Every field has a
+description, and every top-level field is marked `stable` or `experimental`. The version is an
+integer and changes only on a breaking change. New fields are added without a bump, and readers
+ignore fields they do not know. A report with no `schemaVersion` was written by an earlier version
+and reads as 1. `test/report-schema.test.js` validates real offline runs of every shipped mock chain,
+plus one run with every optional stage turned on. It also fails if a writer emits a top-level field
+the schema does not document. Details: `docs/report-format.md`.
+
 ### Several external seats pause together
 
 A stage that asks several seats at once (panel, proposals, alternatives, debate) now writes one

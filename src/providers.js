@@ -427,6 +427,16 @@ async function callMock({ model, system, messages, maxTokens }) {
     await new Promise(r => setTimeout(r, 10));
     return { text: '{"meets": false, "criteria": [], "failures": [{"criterion": "It states the assum', usage: { input: 10, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model };
   }
+  // Criterion kinds (src/criteria-kinds.js): a critic that signs off with every criterion MET and
+  // no evidence at all - the "met on trust" reply the chain must record on a checkable criterion.
+  if (isCritic && model === 'mock-critic-bare-met') {
+    await new Promise(r => setTimeout(r, 10));
+    const listed = (user.match(/# Acceptance criteria\n\n([\s\S]*?)\n\n#/) || [])[1] || '';
+    const rows = listed.split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean)
+      .map(criterion => ({ criterion, verdict: 'MET', evidence: '' }));
+    const text = JSON.stringify({ meets: true, criteria: rows, failures: [], verdict_line: 'All criteria met.' });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
   if (isCritic && model === 'mock-critic-passer') {
     await new Promise(r => setTimeout(r, 10));
     const text = JSON.stringify({ pass: true, pass_reason: 'Outside my domain expertise; deferring to the rest of the panel.' });
@@ -450,7 +460,18 @@ async function callMock({ model, system, messages, maxTokens }) {
     return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
   }
   let text;
-  if (isCriteria) {
+  if (isCriteria && system.includes('Give every criterion a kind.')) {
+    // Criterion kinds (src/criteria-kinds.js): the same three criteria plus one checkable on the
+    // build and one checkable on the plan, and one "checkable" with no check - which the chain
+    // must downgrade to judgement rather than count.
+    text = JSON.stringify({ criteria: [
+      { criterion: 'The deliverable is the artifact itself, not a plan for one.', kind: 'judgement' },
+      { criterion: 'It states the assumptions it was written under.', kind: 'checkable', check: 'the deliverable has a heading named "Assumptions"', on: 'plan' },
+      { criterion: 'It adds no scope the request did not ask for.', kind: 'judgement' },
+      { criterion: 'It commits to the test suite passing and names the command that runs it.', kind: 'checkable', check: 'npm test exits 0', on: 'build' },
+      { criterion: 'It is scalable.', kind: 'checkable' },
+    ]});
+  } else if (isCriteria) {
     text = JSON.stringify({ criteria: [
       'The deliverable is the artifact itself, not a plan for one.',
       'It states the assumptions it was written under.',
@@ -600,6 +621,20 @@ export function redactUrlCredentials(text) {
   return String(text).replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, '$1[redacted]@');
 }
 
+// The HTTP statuses that mean "your account", not "the model": said in words, with the env var the
+// key came from, because a raw `HTTP 401 {"error":...}` was all a first-time user saw (walked
+// 2026-09-25). Returns null for every other status.
+export function accountHint(status, label) {
+  const provider = String(label || '').split('/')[0];
+  let envName = null;
+  try { envName = envKeyName(provider); } catch { /* unknown provider: name no variable */ }
+  const key = envName ? `the key in ${envName}` : 'the API key';
+  if (status === 401) return `${provider} did not accept ${key}. Check it was copied whole, is still active, and was made on ${provider}'s own site; fix it in .env, then resume the run.`;
+  if (status === 402) return `${provider} would not bill this call: the account has no credit left or hit its own spend limit. Add credit on ${provider}'s site, then resume the run.`;
+  if (status === 403) return `${provider} refused ${key} for this request: a disabled key, a model your account cannot use, or a provider-side block. Check the key and the model on ${provider}'s site.`;
+  return null;
+}
+
 async function withRetry(fn, { tries = 3, label = '' } = {}) {
   for (let i = 0; ; i++) {
     try { return await fn(); }
@@ -635,11 +670,12 @@ async function post(url, headers, body, label) {
       // No response. Only a failure to connect proves the request never reached the provider;
       // anything else (reset mid-request, headers timeout) may have started a billed generation.
       if (!PRE_SEND_CODES.has(err.cause?.code ?? err.code)) err.maybeBilled = true;
-      throw explainFetchFailure(err, label);
+      throw explainFetchFailure(err, label, parsed);
     }
     if (!res.ok) {
       const detail = (await res.text().catch(() => '')).slice(0, 600);
-      const err = new Error(`HTTP ${res.status} ${detail}`);
+      const hint = accountHint(res.status, label);
+      const err = new Error(`HTTP ${res.status} ${detail}${hint ? `\n  what to do: ${hint}` : ''}`);
       err.status = res.status;
       err.retryAfterMs = retryAfterMs(res.headers?.get?.('retry-after'));
       throw err;
@@ -669,10 +705,14 @@ async function post(url, headers, body, label) {
 // getter, so in strict mode the assignment threw a TypeError that replaced the real error - losing
 // `maybeBilled`, so a possibly-billed stalled call went uncounted by the cap. It now returns a new
 // Error that carries the original as `cause`, plus the flags and codes the retry logic reads.
-function explainFetchFailure(err, label) {
+function explainFetchFailure(err, label, url = null) {
   const code = err.cause?.code ?? err.code;
   let message = err.message;
-  if (err.name === 'TimeoutError') {
+  if (code === 'ECONNREFUSED' && url) {
+    // "fetch failed" was all a first-time user saw when Ollama was not running (walked 2026-09-25).
+    const local = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(url.hostname);
+    message = `${label}: nothing is listening at ${url.origin}${local ? ' - is the local model server running? For Ollama: start it (the app, or `ollama serve`) and pull the chain\'s models (`ollama pull <model>`).' : ''}`;
+  } else if (err.name === 'TimeoutError') {
     message = `${label}: no response within ${Math.round(requestDeadlineMs / 1000)} s (request deadline) - not retried, the generation may already be billed`;
   } else if (code === 'UND_ERR_HEADERS_TIMEOUT') {
     message = `${label}: the provider sent no response headers within Node's 300 s limit. A direct, non-streaming call this long (a very high maxTokens) can't complete here; lower the seat's maxTokens or route it through OpenRouter. Not retried: it may already be billed.`;
