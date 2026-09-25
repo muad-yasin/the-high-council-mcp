@@ -435,6 +435,7 @@ if (argv[0] === 'init') {
   const initRunId = `${new Date().toISOString().replace(/[:.]/g, '-')}-init`;
   const initRunDir = join(work, 'runs', initRunId);
   mkdirSync(initRunDir, { recursive: true });
+  const initStartedAt = new Date().toISOString();
   const initResult = await runChain({
     request: readFileSync(starterTaskPath, 'utf8'),
     config: cannedConfig,
@@ -442,7 +443,7 @@ if (argv[0] === 'init') {
   });
   writeFileSync(join(initRunDir, 'deliverable.md'), initResult.deliverable);
   writeFileSync(join(initRunDir, 'report.json'), JSON.stringify(reportJsonShape({
-    runId: initRunId, chain: cannedConfig.name, task: starterTaskPath, taskCwd: work, taskText: readFileSync(starterTaskPath, 'utf8'), result: initResult, config: cannedConfig,
+    runId: initRunId, chain: cannedConfig.name, task: starterTaskPath, taskCwd: work, taskText: readFileSync(starterTaskPath, 'utf8'), startedAt: initStartedAt, result: initResult, config: cannedConfig,
   }), null, 2));
 
   console.log(`\nWrote ${initRunDir} - a real run folder (report.json, deliverable.md) from the canned demo task, $0, no network call.`);
@@ -741,6 +742,7 @@ if (rematchArg) {
   setBudget(maxUsd);
   console.log(`cap:   ${maxUsd === null ? 'none - this rematch has no spend ceiling' : `${formatUsd(maxUsd)} (--max-usd)`}`);
   let rematchResult;
+  const rematchStartedAt = new Date().toISOString();
   try {
     rematchResult = await runChain({
       request: originalRequest,
@@ -757,7 +759,7 @@ if (rematchArg) {
   const rematchBoard = renderBoardMd({ runId: rematchRunId, result: rematchResult });
   if (rematchBoard) writeFileSync(join(rematchRunDir, 'BOARD.md'), rematchBoard);
   const newReport = reportJsonShape({
-    runId: rematchRunId, chain: chainName, task: originalTaskPath, taskCwd: originalRunMeta.cwd || work, taskText: originalRequest, result: rematchResult,
+    runId: rematchRunId, chain: chainName, task: originalTaskPath, taskCwd: originalRunMeta.cwd || work, taskText: originalRequest, startedAt: rematchStartedAt, result: rematchResult,
   });
   writeFileSync(join(rematchRunDir, 'report.json'), JSON.stringify(newReport, null, 2));
 
@@ -1501,7 +1503,10 @@ if (requestedRunId !== null && (resumeMeta || !/^[0-9TZ-]+$/.test(requestedRunId
   console.error(resumeMeta ? '--run-id: a resume keeps its own folder' : `--run-id: digits, T, Z and "-" only, got "${requestedRunId}"`);
   process.exit(2);
 }
-const runId = resumeMeta ? basename(resolve(resumeRun)) : (requestedRunId || new Date().toISOString().replace(/[:.]/g, '-'));
+// report.json's started_at (0.7.7): saved in run.json on the first sitting, so a resumed run's
+// report still says when the run began.
+const runStartedAt = new Date().toISOString();
+const runId = resumeMeta ? basename(resolve(resumeRun)) : (requestedRunId || runStartedAt.replace(/[:.]/g, '-'));
 // A resume uses the folder it was pointed at. It used to rebuild the path as
 // <cwd>/runs/<basename>, so resuming from another directory (an MCP-started run keeps an
 // absolute task path) silently started a fresh folder and paid for every stage again
@@ -1562,7 +1567,7 @@ if (auditEnabled) {
 const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}) }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}) }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
@@ -2140,7 +2145,9 @@ if (result.lints?.length || result.claimWarnings?.length || result.toolRequestWa
   if (toolsMd) appendFileSync(join(runDir, 'TOOLS.md'), `${toolsMd}\n`);
 }
 writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
-  runId, chain: config.name, task: taskPathEff, taskCwd: resumeMeta?.cwd || work, taskText: rawTaskTextForCacheFingerprint, result, config,
+  runId, chain: config.name, task: taskPathEff, taskCwd: resumeMeta?.cwd || work, taskText: rawTaskTextForCacheFingerprint,
+  // A run.json from before 0.7.7 has no startedAt: the report then has no started_at either.
+  startedAt: resumeMeta ? (resumeMeta.startedAt ?? null) : runStartedAt, result, config,
   fromRun: fromRun || resumeMeta?.fromRun || null, maxUsd: maxUsdEff,
   policyChecks: policyChecks ?? resumeMeta?.policyChecks ?? null,
 }), null, 2));

@@ -73,6 +73,10 @@ for (const name of ONE_SITTING) {
     const report = JSON.parse(readFileSync(join(dir, 'runs', runs[0], 'report.json'), 'utf8'));
     assert.equal(report.schemaVersion, REPORT_SCHEMA_VERSION);
     assert.equal(report.chain, name);
+    // Brief 03 fix 6: who wrote the file, and when the run began and ended.
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+    assert.deepEqual(report.producer, { name: pkg.name, version: pkg.version });
+    assert.ok(Date.parse(report.started_at) <= Date.parse(report.finished_at), `${name}: started_at <= finished_at`);
     // Brief 03 fix 2: signoff[].lab next to the deprecated, misnamed signoff[].provider.
     for (const e of report.signoff || []) {
       assert.equal(typeof e.lab, 'string', `${name}: signoff[].lab`);
@@ -206,6 +210,8 @@ test('report schema: a resumed run writes the task relative to where it started,
   assert.ok(sittings >= 1, 'the run was resumed at least once');
   const report = JSON.parse(readFileSync(join(runDir, 'report.json'), 'utf8'));
   assert.equal(report.task, 'tasks/smoke.md');
+  assert.equal(report.started_at, runMeta.startedAt, 'started_at is the first sitting\'s, carried in run.json across resumes');
+  assert.ok(Date.parse(report.finished_at) > Date.parse(report.started_at));
   const sha = createHash('sha256').update(text, 'utf8').digest('hex');
   assert.equal(report.task_sha256, sha);
   assert.equal(sha.slice(0, runMeta.taskHash.length), runMeta.taskHash, 'task_sha256 extends run.json\'s taskHash');

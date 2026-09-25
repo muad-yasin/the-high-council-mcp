@@ -99,9 +99,10 @@ export async function runCouncilReplay(runDir, {
   const config = loadChainConfig(chainsDir, runMeta.chain);
   log(`council-replay: replaying ${runDir} (chain "${runMeta.chain}") against today's roster`);
 
+  const startedAt = new Date().toISOString();
   const result = await runChain({ request: taskText, config, log });
   const replayRunId = basename(replayDirFor(runDir, date));
-  const newReport = reportJsonShape({ runId: replayRunId, chain: config.name, task: runMeta.task, taskCwd: runMeta.cwd || workDir, taskText, result, config });
+  const newReport = reportJsonShape({ runId: replayRunId, chain: config.name, task: runMeta.task, taskCwd: runMeta.cwd || workDir, taskText, startedAt, result, config });
 
   const diff = computeVerdictDiff(originalReport, newReport);
 

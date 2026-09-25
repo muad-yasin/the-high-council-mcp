@@ -14,6 +14,28 @@
       "description": "Format version of this file. Integer; bumped only on a breaking change. Absent on report.json files written before 0.7.7: read those as version 1.",
       "const": 1
     },
+    "producer": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "description": "The npm package that wrote the file: the-high-council." },
+        "version": { "type": "string", "description": "Its version, from its package.json ('unknown' if unreadable)." }
+      },
+      "description": "Which program, at which version, wrote this report. Added in 0.7.7; absent on earlier reports."
+    },
+    "started_at": {
+      "x-stability": "experimental",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+      "description": "When the run's first sitting began (ISO 8601, UTC). For --rematch, --replay and init: when that run began. Absent on reports written before 0.7.7, and on a resumed run whose first sitting predates 0.7.7 (its run.json never recorded the time)."
+    },
+    "finished_at": {
+      "x-stability": "experimental",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+      "description": "When this report was written (ISO 8601, UTC): the end of the run's last sitting. Added in 0.7.7; absent on earlier reports. Time spent paused at an external seat falls between the two timestamps."
+    },
     "runId": {
       "x-stability": "stable",
       "type": "string",

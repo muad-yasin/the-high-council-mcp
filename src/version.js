@@ -6,13 +6,20 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 let cached;
-export function harnessVersion() {
+function pkgJson() {
   if (cached === undefined) {
     try {
-      cached = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8')).version || 'unknown';
+      cached = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8'));
     } catch {
-      cached = 'unknown';
+      cached = {};
     }
   }
   return cached;
+}
+export function harnessVersion() {
+  return pkgJson().version || 'unknown';
+}
+// report.json's `producer` (0.7.7, brief 03 fix 6): which package, at which version, wrote the file.
+export function harnessProducer() {
+  return { name: pkgJson().name || 'the-high-council', version: harnessVersion() };
 }

@@ -12,6 +12,7 @@ import { renderDisputeReviewBoard } from './chain.js';
 import { summaryLine } from './criteria-kinds.js';
 import { isAbsolute, relative, basename, sep } from 'node:path';
 import { createHash } from 'node:crypto';
+import { harnessProducer } from './version.js';
 
 // report.json's format version, published as schemas/report-v1.json (docs/report-format.md). An
 // integer that moves only on a breaking change - a field renamed, removed, or its type or meaning
@@ -46,7 +47,9 @@ export function reportTaskPath(task, cwd) {
 // `taskCwd` is the directory the run was started in (run.json's `cwd`); `taskText` is the task
 // file's text as this sitting read it, hashed into `task_sha256` (its first 12 hex characters are
 // run.json's `taskHash`).
-export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText = null, result, fromRun = null, maxUsd = null, config = null, policyChecks = null }) {
+// `startedAt` is when the run's first sitting began (ISO 8601), when the writer knows it; the
+// report is stamped `finished_at` as it is built.
+export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText = null, startedAt = null, result, fromRun = null, maxUsd = null, config = null, policyChecks = null }) {
   // v6 §7: failure-mode diagnostics, computed from this run's own real
   // debate output - never from the phase 4 measurement harness, which
   // is a deterministic heuristic probe and cannot speak to real debate
@@ -75,7 +78,10 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
 
   return {
     schemaVersion: REPORT_SCHEMA_VERSION,
+    producer: harnessProducer(),
     runId,
+    ...(typeof startedAt === 'string' ? { started_at: startedAt } : {}),
+    finished_at: new Date().toISOString(),
     chain,
     task: reportTaskPath(task, taskCwd),
     ...(typeof taskText === 'string' ? { task_sha256: createHash('sha256').update(taskText, 'utf8').digest('hex') } : {}),
