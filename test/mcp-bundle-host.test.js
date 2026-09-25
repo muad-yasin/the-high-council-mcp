@@ -98,7 +98,16 @@ test('COUNCIL_MAX_USD_LIMIT is a ceiling the tool arguments cannot lift or remov
     }
     // No max_usd: the lower of the limit ($1) and MAX_USD_PER_RUN ($50) applies, and stops the run.
     const capped = payload(res.get(5));
-    assert.equal(capped?.exitCode, 4, JSON.stringify(capped));
+    // On a quiet machine the cap stops the run before start_run returns (exitCode 4). On a loaded
+    // one the child can get past startup first, so start_run says started:true and the stop lands
+    // a moment later; either way the run must end at the cap.
+    if (capped?.started) {
+      const file = join(work, 'runs', capped.run, 'STOPPED-budget.json');
+      const t0 = Date.now();
+      while (!existsSync(file) && Date.now() - t0 < 60_000) spawnSync('sleep', ['0.2']);
+    } else {
+      assert.equal(capped?.exitCode, 4, JSON.stringify(capped));
+    }
     const stop = JSON.parse(readFileSync(join(work, 'runs', capped.run, 'STOPPED-budget.json'), 'utf8'));
     assert.equal(stop.capUsd, 1);
   } finally {
