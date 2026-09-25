@@ -1,7 +1,9 @@
 # The High Council
 
 A planning harness that runs one idea past several AI models from different labs, makes them
-argue about it on the record, and stops at a checkable result.
+argue about software engineering, architecture, specific features, roadmaps and philosophy, and
+stops at a checkable result at an estimated price, with a variable number of debate rounds, model
+seats and labs (except xAI) and variable token limits per response and model.
 
 See it work right now - no keys, no setup, no cost:
 
