@@ -14,11 +14,13 @@ has been measured.
   `ERR_PACKAGE_PATH_NOT_EXPORTED`. The `council` command, `npx the-high-council` and the MCP server
   (`--mcp`) are unaffected. Code that imported a file under `src/` directly should move to the JS
   API, or pin 0.7.6.
-- **`report.json`'s `task` is never an absolute path.** After `--resume`, `--rematch`, `--replay`
-  and `council init` it used to be the absolute path from `run.json` (`/home/<user>/...`). It is now
-  relative to the directory the run was started in (`run.json`'s `cwd`), or the file name alone when
-  the task lives outside it. Code that opened the task file from `report.json` must resolve it
-  against that directory. `run.json` still keeps the absolute path, for resume.
+- **`report.json`'s `task` and `fromRun` are never absolute paths.** After `--resume`, `--rematch`,
+  `--replay` and `council init`, `task` used to be the absolute path from `run.json`
+  (`/home/<user>/...`); `fromRun` was absolute on every resumed run, and on any run given an
+  absolute `--from-run`. Both are now relative to the directory the run was started in
+  (`run.json`'s `cwd`), or the file or run folder's name alone when it lies outside it. Code that
+  opened either path from `report.json` must resolve it against that directory. `run.json` still
+  keeps the absolute paths, for resume.
 
 ### Added
 

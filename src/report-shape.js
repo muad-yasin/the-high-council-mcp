@@ -21,12 +21,14 @@ import { harnessProducer } from './version.js';
 // A report.json with no schemaVersion was written before 0.7.7 and reads as version 1.
 export const REPORT_SCHEMA_VERSION = 1;
 
-// report.json's `task`: never an absolute path. run.json records the task as an absolute path
+// report.json's `task` and `fromRun`: never an absolute path. run.json records the task as an absolute path
 // (so a resume from anywhere finds it), and every writer after the first sitting (--resume,
 // --rematch, --replay, init) used to copy that into report.json, putting /home/<user>/... into a
 // file people share (brief 03, fix 4). A path inside the run's working directory is written
 // relative to it; one outside it is written as its file name only. A relative path is kept as
-// given. Forward slashes on every platform.
+// given. Forward slashes on every platform. `fromRun` (a run folder, saved absolute in run.json
+// since the 2026-09-23 resume fix) had the same leak and gets the same treatment: relative to the
+// start directory, else the run folder's name.
 export function reportTaskPath(task, cwd) {
   if (typeof task !== 'string' || !task) return task ?? null;
   if (!isAbsolute(task)) return task.split(sep).join('/');
@@ -49,7 +51,7 @@ export function reportTaskPath(task, cwd) {
 // run.json's `taskHash`).
 // `startedAt` is when the run's first sitting began (ISO 8601), when the writer knows it; the
 // report is stamped `finished_at` as it is built.
-export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText = null, startedAt = null, result, fromRun = null, maxUsd = null, config = null, policyChecks = null }) {
+export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText = null, startedAt = null, result, fromRun = null, fromRunCwd = taskCwd, maxUsd = null, config = null, policyChecks = null }) {
   // v6 §7: failure-mode diagnostics, computed from this run's own real
   // debate output - never from the phase 4 measurement harness, which
   // is a deterministic heuristic probe and cannot speak to real debate
@@ -85,7 +87,7 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     chain,
     task: reportTaskPath(task, taskCwd),
     ...(typeof taskText === 'string' ? { task_sha256: createHash('sha256').update(taskText, 'utf8').digest('hex') } : {}),
-    fromRun,
+    fromRun: reportTaskPath(fromRun, fromRunCwd),
     criteria: result.criteria,
     // A descending-mode run never set these four, so JSON.stringify dropped the keys (brief 03
     // fix 1). Every writer now emits them: null, [] and 0 mean the stage did not apply.

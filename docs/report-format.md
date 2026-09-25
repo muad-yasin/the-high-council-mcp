@@ -52,6 +52,8 @@ missing, the stage did not run. It does not mean the stage found nothing.
   absolute path after a resume, rematch, replay or `init`. `task_sha256` (experimental) is the
   SHA-256 of the task text, so a reader can match a report to its task file without the path. The
   path still names a file on the author's disk; consider dropping it before you publish a run.
+- `fromRun` follows the same rule since 0.7.7: relative to the start directory, or the run
+  folder's name alone.
 
 ## Checking a run folder
 

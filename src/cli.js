@@ -2148,7 +2148,7 @@ writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
   runId, chain: config.name, task: taskPathEff, taskCwd: resumeMeta?.cwd || work, taskText: rawTaskTextForCacheFingerprint,
   // A run.json from before 0.7.7 has no startedAt: the report then has no started_at either.
   startedAt: resumeMeta ? (resumeMeta.startedAt ?? null) : runStartedAt, result, config,
-  fromRun: fromRun || resumeMeta?.fromRun || null, maxUsd: maxUsdEff,
+  fromRun: fromRun || resumeMeta?.fromRun || null, fromRunCwd: fromRun ? work : (resumeMeta?.cwd || work), maxUsd: maxUsdEff,
   policyChecks: policyChecks ?? resumeMeta?.policyChecks ?? null,
 }), null, 2));
 // v5 item 3: one last write now that report.json exists on disk, so `phase` in state.json

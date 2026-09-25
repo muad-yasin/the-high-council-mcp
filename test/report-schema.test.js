@@ -225,4 +225,42 @@ test('reportTaskPath: relative inside the start directory, the file name outside
   assert.equal(reportTaskPath('/home/u/proj/tasks/x.md', null), 'x.md', 'no start directory known: the file name only');
   assert.equal(reportTaskPath('tasks/x.md', '/home/u/proj'), 'tasks/x.md', 'a relative path is kept as given');
   assert.equal(reportTaskPath(null, '/home/u/proj'), null);
+  assert.equal(reportTaskPath('/home/u/other/runs/2026-09-25T00-00-00-000Z', '/home/u/proj'), '2026-09-25T00-00-00-000Z', 'a run folder outside: its name');
+});
+
+// fromRun had the same leak as task: run.json saves it absolute, and an absolute --from-run went
+// straight into report.json. Checked on a fresh run and on a resumed one (the resume reads
+// run.json's absolute copy).
+test('report schema: fromRun is written relative to where the run started, fresh and resumed', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-report-fromrun-'));
+  mkdirSync(join(dir, 'tasks'));
+  writeFileSync(join(dir, 'tasks', 'smoke.md'), 'Plan a small offline tool that keeps a list of notes.');
+  const env = { PATH: process.env.PATH };
+  const node = (args, what) => {
+    const r = spawnSync('node', [cli, ...args], { encoding: 'utf8', cwd: dir, env });
+    assert.ok([0, 3].includes(r.status), `${what}: exit ${r.status}\n${r.stdout}\n${r.stderr}`);
+  };
+  node(['--chain', 'mock', '--task', 'tasks/smoke.md', '--run-id', '2026-01-01T00-00-00-000Z'], 'base run');
+  const base = join(dir, 'runs', '2026-01-01T00-00-00-000Z');
+  node(['--chain', 'mock', '--task', 'tasks/smoke.md', '--run-id', '2026-01-02T00-00-00-000Z', '--from-run', base], 'fresh from-run');
+  const fresh = JSON.parse(readFileSync(join(dir, 'runs', '2026-01-02T00-00-00-000Z', 'report.json'), 'utf8'));
+  assert.equal(fresh.fromRun, 'runs/2026-01-01T00-00-00-000Z');
+  assertValid(fresh, 'fresh from-run');
+
+  node(['--chain', 'mock-external', '--task', 'tasks/smoke.md', '--run-id', '2026-01-03T00-00-00-000Z', '--from-run', 'runs/2026-01-01T00-00-00-000Z'], 'external from-run');
+  const runDir = join(dir, 'runs', '2026-01-03T00-00-00-000Z');
+  assert.equal(JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')).fromRun, base, 'run.json keeps it absolute, for resume');
+  let sittings = 0;
+  while (!existsSync(join(runDir, 'report.json'))) {
+    assert.ok(++sittings <= 6, `never finished: ${readdirSync(runDir).join(', ')}`);
+    for (const f of readdirSync(runDir).filter(n => /^NEEDS-.*\.md$/.test(n))) {
+      const answer = join(runDir, f.slice('NEEDS-'.length));
+      if (!existsSync(answer)) writeFileSync(answer, '# Plan\n\nOne JSON file of notes; add, list and delete from the command line.\n');
+    }
+    node(['--resume', join('runs', '2026-01-03T00-00-00-000Z')], 'resume');
+  }
+  const resumed = JSON.parse(readFileSync(join(runDir, 'report.json'), 'utf8'));
+  assert.equal(resumed.fromRun, 'runs/2026-01-01T00-00-00-000Z');
+  assert.ok(!JSON.stringify(resumed).includes(dir), 'no absolute path under the run\'s own directory anywhere in report.json');
+  assertValid(resumed, 'resumed from-run');
 });
