@@ -68,11 +68,17 @@ const usdLimit = (() => {
   const v = Number(process.env.COUNCIL_MAX_USD_LIMIT);
   return process.env.COUNCIL_MAX_USD_LIMIT && Number.isFinite(v) && v > 0 ? v : null;
 })();
-function ceilingArgs(maxUsd) {
+// `saved` is the resumed run's run.json, or undefined for a new run. A resume with no max_usd must
+// keep the run's own cap: the CLI replaces the saved cap whenever it sees --max-usd, so passing the
+// limit here used to lift a run started at max_usd 2 to the $7 default on its next sitting. It
+// passes a ceiling only when the saved one is missing, none, or above the limit.
+function ceilingArgs(maxUsd, saved) {
   if (usdLimit === null) return maxUsd === undefined ? [] : ['--max-usd', maxUsd === 0 ? 'none' : String(maxUsd)];
   if (maxUsd === 0) return { refused: `max_usd 0 (no ceiling) is refused: the user set COUNCIL_MAX_USD_LIMIT to $${usdLimit}. Ask the user to raise it in the server's settings.` };
   if (maxUsd !== undefined && maxUsd > usdLimit) return { refused: `max_usd ${maxUsd} is above the user's COUNCIL_MAX_USD_LIMIT of $${usdLimit}. Ask the user to raise it in the server's settings.` };
   if (maxUsd !== undefined) return ['--max-usd', String(maxUsd)];
+  if (saved && typeof saved.maxUsd === 'number' && saved.maxUsd > 0 && saved.maxUsd <= usdLimit) return [];
+  if (saved && 'maxUsd' in saved) return ['--max-usd', String(usdLimit)];
   const envDefault = Number(process.env.MAX_USD_PER_RUN);
   return ['--max-usd', String(Math.min(usdLimit, Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 7))];
 }
@@ -382,7 +388,7 @@ async function resume(run, maxUsd) {
   if (holder) {
     return { resumed: false, run, error: `run is already running (pid ${holder.pid} on ${holder.host}); poll run_status(run) instead of resuming it again` };
   }
-  const ceiling = ceilingArgs(maxUsd);
+  const ceiling = ceilingArgs(maxUsd, readJson(join(runsDir, run, 'run.json')) ?? undefined);
   if (ceiling.refused) return { resumed: false, run, error: ceiling.refused };
   const logPath = join(work, `council-${Date.now()}.log`);
   const fd = openSync(logPath, 'a');

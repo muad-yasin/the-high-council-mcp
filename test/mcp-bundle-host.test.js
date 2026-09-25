@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,6 +101,55 @@ test('COUNCIL_MAX_USD_LIMIT is a ceiling the tool arguments cannot lift or remov
     assert.equal(capped?.exitCode, 4, JSON.stringify(capped));
     const stop = JSON.parse(readFileSync(join(work, 'runs', capped.run, 'STOPPED-budget.json'), 'utf8'));
     assert.equal(stop.capUsd, 1);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+// A resume with no max_usd (submit_stage always, resume_run when the agent omits it) used to pass
+// `--max-usd <limit>`, and the CLI replaces a run's saved cap whenever it sees --max-usd: a run
+// started at $0.5 under a $1 limit went on at $1. It keeps its own cap now, and a run saved with no
+// ceiling at all (started before the limit was set) is brought under the limit.
+test('COUNCIL_MAX_USD_LIMIT: a resume without max_usd keeps the run\'s own lower cap, and caps a run that had none', async () => {
+  const work = mkdtempSync(join(tmpdir(), 'thc-work-'));
+  const waitFor = async (cond, what) => {
+    const t0 = Date.now();
+    while (!cond()) {
+      if (Date.now() - t0 > 60_000) throw new Error(`timed out waiting for ${what}`);
+      await new Promise(r => setTimeout(r, 100));
+    }
+  };
+  const paused = dir => !existsSync(join(dir, '.council.lock')) && readdirSync(dir).some(f => /^NEEDS-.*\.md$/.test(f) && !existsSync(join(dir, f.slice('NEEDS-'.length))));
+  const startPaused = async (env, maxUsd) => {
+    const res = mcpSession({
+      cwd: work, env,
+      calls: [
+        { name: 'write_task', arguments: { name: 'demo', content: '# Task\n\nPlan a small todo app.\n' } },
+        { name: 'start_run', arguments: { chain: 'mock-external', task: 'tasks/demo.md', max_usd: maxUsd } },
+      ],
+    });
+    const started = payload(res.get(3));
+    assert.equal(started?.started, true, JSON.stringify(started));
+    const dir = join(work, 'runs', started.run);
+    await waitFor(() => paused(dir), 'the first external pause');
+    return { run: started.run, dir };
+  };
+  const submitAndSettle = async (env, { run, dir }) => {
+    const stage = readdirSync(dir).find(f => /^NEEDS-.*\.md$/.test(f) && !existsSync(join(dir, f.slice('NEEDS-'.length)))).slice('NEEDS-'.length, -'.md'.length);
+    const res = mcpSession({ cwd: work, env, calls: [{ name: 'submit_stage', arguments: { run, stage, content: '# Plan\n\nA small todo app: one list, add and tick items.\n' } }] });
+    const r = payload(res.get(2));
+    assert.equal(r?.resumed, true, JSON.stringify(r));
+    await waitFor(() => existsSync(join(dir, 'report.json')) || paused(dir), 'the resumed sitting to pause or finish');
+    return JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')).maxUsd;
+  };
+  try {
+    const limited = { COUNCIL_MAX_USD_LIMIT: '1' };
+    const low = await startPaused(limited, 0.5);
+    assert.equal(await submitAndSettle(limited, low), 0.5, 'the run\'s own $0.5 cap survives the resume');
+
+    const uncapped = await startPaused({}, 0);
+    assert.equal(JSON.parse(readFileSync(join(uncapped.dir, 'run.json'), 'utf8')).maxUsd, null);
+    assert.equal(await submitAndSettle(limited, uncapped), 1, 'a run with no ceiling resumes under the limit');
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
