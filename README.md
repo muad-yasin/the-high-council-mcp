@@ -157,7 +157,7 @@ which are experimental, and how versions change: [docs/report-format.md](docs/re
     "unknown_refs": [], "unknown_labs": [], "missing_labs": [], "missing_sections": [],
     "refs_cited": 23, "ok": true
   },
-  "signoff": [ { "provider": "qwen", "model": "...", "signedOff": false,
+  "signoff": [ { "lab": "qwen", "provider": "qwen", "model": "...", "signedOff": false,
                  "objections": [ { "criterion": "...", "problem": "...", "fix": "..." } ] } ],
   "lastCritique": { "meets": false, "failures": [ { "criterion": "...", "lab": "qwen" } ] },
   "scoreboard": {
@@ -189,6 +189,8 @@ those plus `text` and may carry more (an `amend` often brings a `how`). `replace
 when the action is `withdraw`. `proposals[]` likewise carries `withdrawn` / `amended` /
 `replaced_by` only when they apply. Read defensively: check for a field, do not assume it.
 
+`signoff[].lab` is the seat's lab; `signoff[].provider` holds the same value under an older,
+misleading name and is deprecated (kept until the report format's version 2).
 `signoff[].objections` is why a seat declined, on the seat's own record. `signedOff: null` means
 the seat gave no usable reply and abstained - neither a pass nor an objection, and `objections` is
 `null` rather than empty so the two stay apart. A seat that agreed has an empty list.
@@ -196,7 +198,7 @@ The same objections also appear flattened in `lastCritique.failures[]`, tagged w
 the reviser wants the union across the whole panel. Both are built in one pass; they cannot drift.
 
 **Before you publish a run,** note that `report.json` records `task` as the path to your task file
-on your own disk. Nothing transmits it anywhere - but if you are rendering a board onto a public
+(relative to where you started the run, never absolute). Nothing transmits it anywhere - but if you are rendering a board onto a public
 page, drop that field. The debate itself is the part worth showing.
 
 ## Requirements

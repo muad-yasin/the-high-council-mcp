@@ -39,7 +39,10 @@ missing, the stage did not run. It does not mean the stage found nothing.
 - Some fields come from a model's own JSON reply, and the harness passes them through with little
   checking. The schema marks them "model-supplied". Examples: a proposal's `title`/`what`/`how`, a
   reply's `text`, the extra keys an `amend` reply brings. Check a field exists before you use it.
-- `signoff[].provider` holds the seat's **lab**, not its provider. The name is historical.
+- `signoff[].lab` is the seat's lab (since 0.7.7). `signoff[].provider` holds the same value despite
+  its name; it is deprecated and stays until a version 2. Read `lab ?? provider`.
+- `alternatives.dropouts[].reason_code` (since 0.7.7) matches the spelling in `signoff[]` and
+  `panelVerdicts[]`; `reasonCode` is its deprecated alias.
 - `signoff[].passed` means the seat *stated a pass*: it declined to give a verdict. It is not the
   run's top-level `passed`.
 - A `stages[]` entry with `priced: false` shows `usd: 0`, which means *unknown*, not free. Check

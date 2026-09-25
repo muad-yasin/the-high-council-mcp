@@ -51,7 +51,7 @@
       "x-stability": "stable",
       "type": ["array", "null"],
       "items": { "$ref": "#/$defs/question" },
-      "description": "Clarifying questions the planner asked before writing criteria, each with its own default. null when the chain has no questions stage. Currently absent (not null) on a descending-mode run."
+      "description": "Clarifying questions the planner asked before writing criteria, each with its own default. null when the chain has no questions stage (and on a descending-mode run). Absent on descending-mode reports written before 0.7.7."
     },
     "passed": {
       "x-stability": "stable",
@@ -94,7 +94,7 @@
     "scoreboard": {
       "x-stability": "stable",
       "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/scoreboard" }],
-      "description": "What the final plan did with each proposal, read from the plan's own 'Scope ledger' lines, per proposal and per lab. null when there were no proposals. Currently absent (not null) on a descending-mode run."
+      "description": "What the final plan did with each proposal, read from the plan's own 'Scope ledger' lines, per proposal and per lab. null when there were no proposals (and on a descending-mode run). Absent on descending-mode reports written before 0.7.7."
     },
     "totals": {
       "x-stability": "stable",
@@ -187,13 +187,13 @@
     "orphanSections": {
       "x-stability": "experimental",
       "type": "array",
-      "description": "Sections left with no surviving owner after a withdrawal chain cycled or dead-ended. Currently absent on a descending-mode run."
+      "description": "Sections left with no surviving owner after a withdrawal chain cycled or dead-ended. [] on a descending-mode run; absent on descending-mode reports written before 0.7.7."
     },
     "withdrawalCycles": {
       "x-stability": "experimental",
       "type": "integer",
       "minimum": 0,
-      "description": "How many withdrawal chains cycled (e.g. two labs withdrawing in each other's favour). Currently absent on a descending-mode run."
+      "description": "How many withdrawal chains cycled (e.g. two labs withdrawing in each other's favour). 0 on a descending-mode run; absent on descending-mode reports written before 0.7.7."
     },
     "panelVerdicts": {
       "x-stability": "experimental",
@@ -550,7 +550,8 @@
       "type": "object",
       "required": ["provider", "model", "signedOff", "objections"],
       "properties": {
-        "provider": { "type": "string", "description": "Despite the name, the seat's LAB (labOf(seat): `lab` if set, else the provider). Kept for compatibility; see the fix list." },
+        "provider": { "type": "string", "deprecated": true, "description": "Deprecated: use `lab`, which holds the same value. Despite the name, this is the seat's LAB (labOf(seat): `lab` if set, else the provider), not its transport provider. Kept for compatibility; removed only in schemaVersion 2." },
+        "lab": { "type": "string", "description": "The seat's lab (labOf(seat): `lab` if set, else the provider), the independence accounting key. Added in 0.7.7; absent on earlier reports, where `provider` holds this value." },
         "model": { "type": "string" },
         "signedOff": { "type": ["boolean", "null"], "description": "true: signed off. false: objected (see objections). null: gave no verdict - abstained or stated a pass." },
         "objections": {
@@ -672,7 +673,8 @@
         "model": { "type": "string" },
         "stage": { "type": "string", "description": "'proposals', 'alternatives', or 'critique-<round>'." },
         "reason": { "type": "string" },
-        "reasonCode": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] }
+        "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }], "description": "Why the seat produced nothing, in the same spelling as signoff[] and panelVerdicts[]. Written on alternatives dropouts since 0.7.7." },
+        "reasonCode": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }], "deprecated": true, "description": "Deprecated alias of reason_code, same value; written on alternatives dropouts only. Removed only in schemaVersion 2." }
       }
     },
     "usage": {

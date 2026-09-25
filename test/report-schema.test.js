@@ -73,6 +73,11 @@ for (const name of ONE_SITTING) {
     const report = JSON.parse(readFileSync(join(dir, 'runs', runs[0], 'report.json'), 'utf8'));
     assert.equal(report.schemaVersion, REPORT_SCHEMA_VERSION);
     assert.equal(report.chain, name);
+    // Brief 03 fix 2: signoff[].lab next to the deprecated, misnamed signoff[].provider.
+    for (const e of report.signoff || []) {
+      assert.equal(typeof e.lab, 'string', `${name}: signoff[].lab`);
+      assert.equal(e.provider, e.lab, `${name}: provider keeps holding the lab until a v2`);
+    }
     assertValid(report, name);
   });
 }
@@ -125,7 +130,7 @@ test('report schema: a run with every optional stage on validates, and each opti
   assertValid(report, 'kitchen sink');
 });
 
-test('report schema: a descending-mode run validates (and still lacks the four fields the report names)', async () => {
+test('report schema: a descending-mode run validates and carries questions, scoreboard, orphanSections, withdrawalCycles', async () => {
   const config = {
     ...chain('mock'), name: 'mock-descending', descending: true, signoff: 'unanimous', handoff: true,
     proposals: { parts: 2 }, debate: true,
@@ -138,8 +143,11 @@ test('report schema: a descending-mode run validates (and still lacks the four f
   const result = await runDescendingChain({ request: 'Plan a small offline tool.', config, log: () => {} });
   const report = JSON.parse(JSON.stringify(reportJsonShape({ runId: 'd', chain: config.name, task: 't', result, config })));
   assertValid(report, 'descending');
-  // Known gap, documented in the schema's descriptions: remove this assertion when it is fixed.
-  for (const key of ['questions', 'scoreboard', 'orphanSections', 'withdrawalCycles']) assert.ok(!(key in report), key);
+  // Brief 03 fix 1: runDescendingChain never set these, so the keys vanished from report.json.
+  assert.equal(report.questions, null);
+  assert.equal(report.scoreboard, null);
+  assert.deepEqual(report.orphanSections, []);
+  assert.equal(report.withdrawalCycles, 0);
 });
 
 test('report schema: a report written before 0.7.7 (no schemaVersion) still validates', () => {

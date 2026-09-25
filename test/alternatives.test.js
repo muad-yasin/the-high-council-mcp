@@ -310,7 +310,8 @@ test('alternatives: a lab still cut off after the retry drops out labelled as tr
   ]));
   const d = r.alternatives.dropouts.find(x => x.lab === 'mock-b');
   assert.ok(d, 'mock-b drops out');
-  assert.equal(d.reasonCode, 'REPLY_TRUNCATED');
+  assert.equal(d.reason_code, 'REPLY_TRUNCATED', 'same spelling as signoff[] and panelVerdicts[] (brief 03 fix 3)');
+  assert.equal(d.reasonCode, 'REPLY_TRUNCATED', 'the old spelling stays as a deprecated alias');
   assert.match(d.reason, /cut off|truncat/);
   assert.doesNotMatch(d.reason, /readable/);
 });

@@ -1664,7 +1664,8 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
           : reasonCode === 'REASONING_EXHAUSTED' ? 'every output token spent on reasoning, far under the cap (provider-side reasoning ceiling)'
           : reasonCode === 'PROVIDER_ERROR' ? 'provider returned an error mid-generation'
           : 'no readable alternative after a retry';
-        altDropouts.push({ lab, model: seat.model, stage: 'alternatives', reason, reasonCode });
+        // reason_code matches signoff[]/panelVerdicts[]; reasonCode is its deprecated alias (brief 03 fix 3).
+        altDropouts.push({ lab, model: seat.model, stage: 'alternatives', reason, reason_code: reasonCode, reasonCode });
         continue;
       }
       let tag = lab.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -2372,8 +2373,11 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
       // folder concluded a holdout's reason was not machine-readable, because
       // signoff carried the verdict and nothing else - the join through
       // lastCritique.failures[].lab existed but was undiscoverable.
+      // `lab` (0.7.7, brief 03 fix 2) is the same value as `provider`, which has always held the
+      // lab despite its name. `provider` stays for compatibility and is marked deprecated in
+      // schemas/report-v1.json; it can go only with a schemaVersion 2.
       signoff = verdicts.map(v => ({
-        provider: labOf(v.seat), model: v.seat.model,
+        provider: labOf(v.seat), lab: labOf(v.seat), model: v.seat.model,
         signedOff: v.abstained || v.passed ? null : v.critique.meets === true,
         objections: v.abstained || v.passed ? null : v.critique.failures,
         // v7 item 4: a pass is a stated, recorded refusal to verdict - distinct from an
