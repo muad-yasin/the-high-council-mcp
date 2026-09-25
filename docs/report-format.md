@@ -44,7 +44,11 @@ missing, the stage did not run. It does not mean the stage found nothing.
   run's top-level `passed`.
 - A `stages[]` entry with `priced: false` shows `usd: 0`, which means *unknown*, not free. Check
   `totals.unpriced` too.
-- `task` is a path on the author's own disk. Drop it before you publish a run.
+- `task` is never absolute (since 0.7.7): it is relative to the directory the run was started in,
+  or the file name alone if the task lives outside it. Reports from 0.7.6 and earlier can carry an
+  absolute path after a resume, rematch, replay or `init`. `task_sha256` (experimental) is the
+  SHA-256 of the task text, so a reader can match a report to its task file without the path. The
+  path still names a file on the author's disk; consider dropping it before you publish a run.
 
 ## Checking a run folder
 

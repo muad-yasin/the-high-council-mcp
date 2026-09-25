@@ -10,6 +10,8 @@ import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { deriveDisagreementGroups } from './disagreement-groups.js';
 import { renderDisputeReviewBoard } from './chain.js';
 import { summaryLine } from './criteria-kinds.js';
+import { isAbsolute, relative, basename, sep } from 'node:path';
+import { createHash } from 'node:crypto';
 
 // report.json's format version, published as schemas/report-v1.json (docs/report-format.md). An
 // integer that moves only on a breaking change - a field renamed, removed, or its type or meaning
@@ -18,6 +20,22 @@ import { summaryLine } from './criteria-kinds.js';
 // A report.json with no schemaVersion was written before 0.7.7 and reads as version 1.
 export const REPORT_SCHEMA_VERSION = 1;
 
+// report.json's `task`: never an absolute path. run.json records the task as an absolute path
+// (so a resume from anywhere finds it), and every writer after the first sitting (--resume,
+// --rematch, --replay, init) used to copy that into report.json, putting /home/<user>/... into a
+// file people share (brief 03, fix 4). A path inside the run's working directory is written
+// relative to it; one outside it is written as its file name only. A relative path is kept as
+// given. Forward slashes on every platform.
+export function reportTaskPath(task, cwd) {
+  if (typeof task !== 'string' || !task) return task ?? null;
+  if (!isAbsolute(task)) return task.split(sep).join('/');
+  if (cwd && isAbsolute(cwd)) {
+    const rel = relative(cwd, task);
+    if (rel && !rel.startsWith('..') && !isAbsolute(rel)) return rel.split(sep).join('/');
+  }
+  return basename(task);
+}
+
 // The shape of a run's report.json, in one place - bug-audit finding
 // (2026-09-13, v5 Phase 2): `council init`'s canned demo run used to
 // hand-roll a second, independently-maintained literal missing fields
@@ -25,7 +43,10 @@ export const REPORT_SCHEMA_VERSION = 1;
 // `--from-run` against an init-produced run silently reran the criteria
 // stage instead of reusing it - no crash, just a broken promise. Both
 // writers now build from this one function.
-export function reportJsonShape({ runId, chain, task, result, fromRun = null, maxUsd = null, config = null, policyChecks = null }) {
+// `taskCwd` is the directory the run was started in (run.json's `cwd`); `taskText` is the task
+// file's text as this sitting read it, hashed into `task_sha256` (its first 12 hex characters are
+// run.json's `taskHash`).
+export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText = null, result, fromRun = null, maxUsd = null, config = null, policyChecks = null }) {
   // v6 §7: failure-mode diagnostics, computed from this run's own real
   // debate output - never from the phase 4 measurement harness, which
   // is a deterministic heuristic probe and cannot speak to real debate
@@ -56,7 +77,8 @@ export function reportJsonShape({ runId, chain, task, result, fromRun = null, ma
     schemaVersion: REPORT_SCHEMA_VERSION,
     runId,
     chain,
-    task,
+    task: reportTaskPath(task, taskCwd),
+    ...(typeof taskText === 'string' ? { task_sha256: createHash('sha256').update(taskText, 'utf8').digest('hex') } : {}),
     fromRun,
     criteria: result.criteria,
     questions: result.questions,

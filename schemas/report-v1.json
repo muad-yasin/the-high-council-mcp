@@ -28,7 +28,13 @@
     "task": {
       "x-stability": "stable",
       "type": "string",
-      "description": "Path to the task file as given on the command line, or its resolved absolute path on a resumed run. A path on the author's own disk: drop it before publishing a run."
+      "description": "Path to the task file, never absolute: relative to the directory the run was started in (forward slashes), or the file name alone when the file lies outside it. Written the same way by every writer since 0.7.7; earlier reports carry an absolute path after --resume, --rematch, --replay and init. Still names a file on the author's disk: consider dropping it before publishing a run."
+    },
+    "task_sha256": {
+      "x-stability": "experimental",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 (hex) of the task file's UTF-8 text as the report's last sitting read it. Its first 12 characters are run.json's `taskHash`, the frozen-scope check a resume makes. Lets a reader match a report to a task file without the path. Added in 0.7.7; absent on earlier reports."
     },
     "fromRun": {
       "x-stability": "stable",

@@ -101,7 +101,7 @@ export async function runCouncilReplay(runDir, {
 
   const result = await runChain({ request: taskText, config, log });
   const replayRunId = basename(replayDirFor(runDir, date));
-  const newReport = reportJsonShape({ runId: replayRunId, chain: config.name, task: runMeta.task, result, config });
+  const newReport = reportJsonShape({ runId: replayRunId, chain: config.name, task: runMeta.task, taskCwd: runMeta.cwd || workDir, taskText, result, config });
 
   const diff = computeVerdictDiff(originalReport, newReport);
 

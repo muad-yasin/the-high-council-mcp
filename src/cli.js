@@ -442,7 +442,7 @@ if (argv[0] === 'init') {
   });
   writeFileSync(join(initRunDir, 'deliverable.md'), initResult.deliverable);
   writeFileSync(join(initRunDir, 'report.json'), JSON.stringify(reportJsonShape({
-    runId: initRunId, chain: cannedConfig.name, task: starterTaskPath, result: initResult, config: cannedConfig,
+    runId: initRunId, chain: cannedConfig.name, task: starterTaskPath, taskCwd: work, taskText: readFileSync(starterTaskPath, 'utf8'), result: initResult, config: cannedConfig,
   }), null, 2));
 
   console.log(`\nWrote ${initRunDir} - a real run folder (report.json, deliverable.md) from the canned demo task, $0, no network call.`);
@@ -757,7 +757,7 @@ if (rematchArg) {
   const rematchBoard = renderBoardMd({ runId: rematchRunId, result: rematchResult });
   if (rematchBoard) writeFileSync(join(rematchRunDir, 'BOARD.md'), rematchBoard);
   const newReport = reportJsonShape({
-    runId: rematchRunId, chain: chainName, task: originalTaskPath, result: rematchResult,
+    runId: rematchRunId, chain: chainName, task: originalTaskPath, taskCwd: originalRunMeta.cwd || work, taskText: originalRequest, result: rematchResult,
   });
   writeFileSync(join(rematchRunDir, 'report.json'), JSON.stringify(newReport, null, 2));
 
@@ -2140,7 +2140,7 @@ if (result.lints?.length || result.claimWarnings?.length || result.toolRequestWa
   if (toolsMd) appendFileSync(join(runDir, 'TOOLS.md'), `${toolsMd}\n`);
 }
 writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
-  runId, chain: config.name, task: taskPathEff, result, config,
+  runId, chain: config.name, task: taskPathEff, taskCwd: resumeMeta?.cwd || work, taskText: rawTaskTextForCacheFingerprint, result, config,
   fromRun: fromRun || resumeMeta?.fromRun || null, maxUsd: maxUsdEff,
   policyChecks: policyChecks ?? resumeMeta?.policyChecks ?? null,
 }), null, 2));

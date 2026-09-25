@@ -12,13 +12,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { runChain, runDescendingChain } from '../src/chain.js';
-import { reportJsonShape, REPORT_SCHEMA_VERSION } from '../src/report-shape.js';
+import { reportJsonShape, reportTaskPath, REPORT_SCHEMA_VERSION } from '../src/report-shape.js';
+import { createHash } from 'node:crypto';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -114,11 +115,11 @@ test('report schema: a run with every optional stage on validates, and each opti
   const config = kitchenSink();
   const result = await runChain({ config, request: 'Plan a small offline tool.\n\n```source\nNotes live in one JSON file.\n```', log: () => {} });
   const report = JSON.parse(JSON.stringify(reportJsonShape({
-    runId: '2026-09-25T00-00-00-000Z', chain: config.name, task: 'tasks/smoke.md', result, config, maxUsd: 7,
+    runId: '2026-09-25T00-00-00-000Z', chain: config.name, task: 'tasks/smoke.md', taskText: 'Plan a small offline tool.', result, config, maxUsd: 7,
     policyChecks: [{ capability: 'max_usd_per_run', field: 'max_usd_per_run', ok: true }],
   })));
   for (const key of ['questions', 'alternatives', 'argued', 'coldRead', 'challenge', 'allocator', 'canary', 'lints',
-    'claims', 'dispute', 'security_review', 'ground_truth', 'policy', 'quoteFindings', 'disagreement_groups', 'panelVerdicts']) {
+    'claims', 'dispute', 'security_review', 'ground_truth', 'policy', 'quoteFindings', 'disagreement_groups', 'panelVerdicts', 'task_sha256']) {
     assert.ok(report[key] != null, `the kitchen-sink run should carry ${key}`);
   }
   assertValid(report, 'kitchen sink');
@@ -168,4 +169,46 @@ test('report schema: a report written before 0.7.7 (no schemaVersion) still vali
     mutate(copy);
     assert.equal(validate(copy), false, `the schema accepted ${what}`);
   }
+});
+
+// Brief 03 fix 4: run.json keeps the task as an absolute path so a resume finds it, and every writer
+// after the first sitting used to copy that into report.json (/home/<user>/...). Walked here as a
+// person would: a mock-external run, paused, answered and resumed until it finishes.
+test('report schema: a resumed run writes the task relative to where it started, plus task_sha256', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-report-task-'));
+  mkdirSync(join(dir, 'tasks'));
+  const text = 'Plan a small offline tool that keeps a list of notes.';
+  writeFileSync(join(dir, 'tasks', 'smoke.md'), text);
+  const env = { PATH: process.env.PATH };
+  spawnSync('node', [cli, '--chain', 'mock-external', '--task', 'tasks/smoke.md'], { encoding: 'utf8', cwd: dir, env });
+  const run = readdirSync(join(dir, 'runs'))[0];
+  const runDir = join(dir, 'runs', run);
+  const runMeta = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
+  assert.equal(runMeta.task, join(dir, 'tasks', 'smoke.md'), 'run.json itself keeps the absolute path, for resume');
+  let sittings = 0;
+  while (!existsSync(join(runDir, 'report.json'))) {
+    assert.ok(++sittings <= 6, `mock-external never finished: ${readdirSync(runDir).join(', ')}`);
+    for (const f of readdirSync(runDir).filter(n => /^NEEDS-.*\.md$/.test(n))) {
+      const answer = join(runDir, f.slice('NEEDS-'.length));
+      if (!existsSync(answer)) writeFileSync(answer, '# Plan\n\nOne JSON file of notes; add, list and delete from the command line.\n');
+    }
+    const r = spawnSync('node', [cli, '--resume', join('runs', run)], { encoding: 'utf8', cwd: dir, env });
+    assert.ok([0, 3].includes(r.status), `resume exit ${r.status}\n${r.stdout}\n${r.stderr}`);
+  }
+  assert.ok(sittings >= 1, 'the run was resumed at least once');
+  const report = JSON.parse(readFileSync(join(runDir, 'report.json'), 'utf8'));
+  assert.equal(report.task, 'tasks/smoke.md');
+  const sha = createHash('sha256').update(text, 'utf8').digest('hex');
+  assert.equal(report.task_sha256, sha);
+  assert.equal(sha.slice(0, runMeta.taskHash.length), runMeta.taskHash, 'task_sha256 extends run.json\'s taskHash');
+  assert.ok(!JSON.stringify(report).includes(dir), 'no absolute path under the run\'s own directory anywhere in report.json');
+  assertValid(report, 'resumed mock-external');
+});
+
+test('reportTaskPath: relative inside the start directory, the file name outside it, never absolute', () => {
+  assert.equal(reportTaskPath('/home/u/proj/tasks/x.md', '/home/u/proj'), 'tasks/x.md');
+  assert.equal(reportTaskPath('/home/u/elsewhere/x.md', '/home/u/proj'), 'x.md');
+  assert.equal(reportTaskPath('/home/u/proj/tasks/x.md', null), 'x.md', 'no start directory known: the file name only');
+  assert.equal(reportTaskPath('tasks/x.md', '/home/u/proj'), 'tasks/x.md', 'a relative path is kept as given');
+  assert.equal(reportTaskPath(null, '/home/u/proj'), null);
 });
