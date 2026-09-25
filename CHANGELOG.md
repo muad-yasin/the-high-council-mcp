@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.7 - unreleased
+## 0.7.7 - 2026-09-25
 
 Everything since 0.7.6. The summary comes first; the detailed notes follow under "Detail". This
 release makes no claim that a council's output is better than a single model's: nothing like that
