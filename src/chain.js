@@ -1187,7 +1187,7 @@ export function checkSeats(seats) {
 // it, per this project's documented history of unenforced prompt rules).
 const DEFAULT_DESCENDING_ORDER = ['plan', 'architecture', 'edge_cases', 'code'];
 
-export async function runDescendingChain({ request, config, log = console.log, onStage = () => {} }) {
+export async function runDescendingChain({ request, config, log = console.log, onStage = () => {}, snap = null }) {
   const stages = [];
   // Every stage this function runs - its own descending-build/critic calls, and every stage
   // invoke()'d inside the two runChain() sub-calls below via the shared onStage hook - lands in
@@ -1202,6 +1202,24 @@ export async function runDescendingChain({ request, config, log = console.log, o
   const frozen = {};
   const rejectedAmendments = [];
   let planResult = null;
+  // report-partial.json (see partialDefaults): a cap hit inside either sub-run arrives with that
+  // sub-run's own partial attached; the plan sub-run's debate record and every stage of the whole
+  // descending run (this array) replace what the sub-run alone could see.
+  if (snap) snap.fn = err => {
+    const sub = err?.partial || {};
+    return {
+      ...partialDefaults(),
+      ...sub,
+      ...(planResult ? {
+        proposals: planResult.proposals ?? [], proposalPool: planResult.proposalPool ?? [],
+        dropouts: planResult.dropouts ?? [], board: planResult.board ?? null, debate: planResult.debate ?? null,
+      } : {}),
+      criteria: sub.criteria?.length ? sub.criteria : (planResult?.criteria ?? []),
+      descending: true,
+      stages,
+      totals: summarise(stages),
+    };
+  };
 
   for (let i = 0; i < order.length; i++) {
     const stageName = order[i];
@@ -1326,7 +1344,38 @@ export async function runDescendingChain({ request, config, log = console.log, o
   };
 }
 
-export async function runChain({ request: requestIn, config, draft: initialDraft = null, log = console.log, onStage = () => {}, runId = null }) {
+// A run the per-run spend cap stopped (0.7.7, report-partial.json). A stopped run writes no
+// report.json - that file's existence means "finished" everywhere - so a run capped after 11
+// rounds (premium-7, 2026-09-25, $33.33 of $36) left ~300 stage files and no machine-readable
+// summary of its proposals, debate, per-round verdicts or costs. runChain now attaches what it has
+// so far to the BudgetExceeded it throws, as `err.partial`: a result object of the same shape it
+// returns on success, with every stage it never reached at the value meaning "did not run". The
+// CLI writes it through reportJsonShape() as report-partial.json. Additive only: no stage, label or
+// cache entry changes, and nothing is attached to any other error.
+function partialDefaults() {
+  return {
+    criteria: [], questions: null, proposals: [], proposalPool: [], dropouts: [], board: null, debate: null,
+    scoreboard: null, passed: false, lastCritique: null, signoff: null, challenge: null, allocator: null,
+    disputes: [], regressions: [], panelVerdicts: [], history: [], orphanSections: [], withdrawalCycles: 0,
+  };
+}
+
+export async function runChain(args) {
+  // `snap.fn(err)` is set by the running chain (runChainStages, or runDescendingChain for a
+  // descending chain) and returns its state so far. A nested runChain (descending mode's two
+  // sub-runs) attaches its own first; the outer one then reads err.partial and replaces it.
+  const snap = { fn: null };
+  try {
+    return await runChainStages(args, snap);
+  } catch (err) {
+    if (err instanceof BudgetExceeded && snap.fn) {
+      try { err.partial = snap.fn(err); } catch { /* keep whatever an inner run attached */ }
+    }
+    throw err;
+  }
+}
+
+async function runChainStages({ request: requestIn, config, draft: initialDraft = null, log = console.log, onStage = () => {}, runId = null }, snap) {
   // 7.x single-vendor mode: resolved once, before either chain shape runs, so descending mode
   // and the normal stage flow both see vendor-routed seats without duplicating the call.
   config = resolveChainSeats(config);
@@ -1340,10 +1389,67 @@ export async function runChain({ request: requestIn, config, draft: initialDraft
   if (shared.length) {
     throw new Error(`two seats share a lab, so they would share one stage label and one cached reply: ${shared.map(d => `seats.${d.slot} (${d.labs.join(', ')})`).join('; ')}. Give each seat its own "lab".`);
   }
-  if (config.descending) return runDescendingChain({ request: requestIn, config, log, onStage });
+  if (config.descending) return runDescendingChain({ request: requestIn, config, log, onStage, snap });
 
   const stages = [];
   const record = s => { stages.push(s); onStage(s); return s; };
+  // report-partial.json (see partialDefaults above): the run so far, read only when the spend cap
+  // stops it. A local the run never reached is still in its temporal dead zone, so `peek` reads it
+  // as the fallback that means "that stage did not run"; this is safe to call from any point.
+  snap.fn = () => {
+    const peek = (read, fallback) => { try { return read() ?? fallback; } catch { return fallback; } };
+    const props = peek(() => proposals, []);
+    const plan = peek(() => draft, null);
+    const ledger = props.length ? peek(() => withdrawalLedger(props), null) : null;
+    const optional = {
+      noHeardReviewer: peek(() => noHeardReviewer, null) || undefined,
+      ground_truth: peek(() => ground_truth, undefined),
+      canary: peek(() => canary, undefined),
+      lints: peek(() => lints, undefined),
+      claims: peek(() => claims, undefined),
+      security_review: peek(() => security_review, undefined),
+      dispute: peek(() => dispute, undefined),
+      coldRead: peek(() => coldRead, undefined),
+      alternatives: peek(() => alternatives, undefined),
+      quoteFindings: fencedSource ? quoteFindings : undefined,
+      patchFallbacks: config.revise?.mode === 'patch' ? patchFallbacks : undefined,
+    };
+    const crit = peek(() => criteria, []);
+    return {
+      ...partialDefaults(),
+      criteria: crit,
+      questions: peek(() => questions, null),
+      proposals: props,
+      proposalPool: peek(() => proposalPool, []),
+      dropouts: peek(() => dropouts, []),
+      board: peek(() => board, null),
+      debate: peek(() => debate, null),
+      scoreboard: props.length && plan ? peek(() => scoreProposals(props, plan), null) : null,
+      passed: peek(() => passed, false),
+      lastCritique: peek(() => lastCritique, null),
+      signoff: peek(() => signoff, null),
+      challenge: peek(() => challenge, null),
+      allocator: config.allocator?.enabled ? peek(() => ({
+        targetedRounds: allocatorRounds,
+        engagedCount: allocatorRounds.filter(r => r.engaged).length,
+        rubberStampCount: allocatorRounds.filter(r => !r.engaged).length,
+      }), null) : null,
+      disputes: peek(() => disputes, []),
+      regressions: peek(() => regressions, []),
+      panelVerdicts: peek(() => panelVerdicts, []),
+      history: peek(() => history, []),
+      stages,
+      totals: summarise(stages),
+      orphanSections: ledger?.orphanSections ?? [],
+      withdrawalCycles: ledger?.withdrawalCycles ?? 0,
+      ...Object.fromEntries(Object.entries(optional).filter(([, v]) => v !== undefined)),
+      ...(kindsOn ? peek(() => ({
+        criteriaKinds: kindsRecord(crit, criteriaKinds),
+        criteriaSummary: criteriaSummary(crit, criteriaKinds, { metWithoutEvidence }),
+        metWithoutEvidence,
+      }), {}) : {}),
+    };
+  };
   // Every stage whose reply becomes (part of) the deliverable goes through here: a reply cut off at
   // its cap is retried once with a bigger one (cutOffRetryCap, the panel's rule), under its own
   // stable `<label>-retry` label, and if that is cut off too - or the seat is external and cannot be

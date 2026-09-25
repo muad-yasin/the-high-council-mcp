@@ -55,6 +55,34 @@ missing, the stage did not run. It does not mean the stage found nothing.
 - `fromRun` follows the same rule since 0.7.7: relative to the start directory, or the run
   folder's name alone.
 
+## A run the spend cap stopped (`report-partial.json`)
+
+A run that stops early writes no `report.json`: that file existing means the run finished. Since
+0.7.7, a run the per-run spend cap stopped writes `report-partial.json` next to
+`STOPPED-budget.json` instead, so a run capped after many rounds can still be read as data. It is
+the same schema, built by the same function from what the run had when it stopped, with three
+experimental fields added:
+
+- `partial`: always `true`. It never appears in `report.json`.
+- `stoppedBy`: `"budget"`, the only stop that writes a partial report so far.
+- `stoppedAtStage`: the label of the stage the run stopped before. That stage was never paid for.
+
+Read it knowing the run did not finish:
+
+- A stage the run never reached has the value that means "did not run": `null`, `[]`, `false`,
+  or the field is absent. `passed`, `outcome` and `signoff` describe the state at the stop. They
+  are not a verdict.
+- `stages`, `totals`, `proposals`, `debate` and `panelVerdicts` (one row per seat per review round)
+  hold everything that did happen, up to the stop.
+- `finished_at` is when the run stopped. The privacy rules are the same as for `report.json`:
+  `task` and `fromRun` are never absolute.
+- `BOARD-partial.md` is the same board for people, headed as a stopped run's. It is written once
+  the run has got far enough to have a board.
+- A `--resume` deletes both files together with `STOPPED-budget.json`, because they describe the
+  run as it stood at that stop. If the resumed run finishes, it writes `report.json`. If the cap
+  stops it again, it writes fresh partial files. A capped `--rematch` or `--replay` folder gets
+  them too.
+
 ## Checking a run folder
 
 ```js
@@ -68,4 +96,5 @@ validate(reportJson) || console.error(validate.errors);
 `test/report-schema.test.js` does the same against real offline runs of the shipped mock chains
 that finish in one sitting (13 of the 16; the other three pause for a person or stop at their cap),
 a resumed `mock-external` run, a descending-mode run, and one run with every optional stage turned
-on.
+on. `test/report-partial.test.js` validates the `report-partial.json` of capped `mock-budget`,
+multi-round, descending, `--rematch` and `--replay` runs against the same schema.

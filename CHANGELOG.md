@@ -62,6 +62,16 @@ has been measured.
   evidence. `council --criteria <file>` takes hand-written criteria through the same guards.
   `report.json` gains `criteria_kinds`, `criteria_summary` and `criteria_met_without_evidence`.
   With the flag off, prompts and `report.json` are unchanged.
+- **A run the spend cap stops leaves `report-partial.json`.** A capped run writes no
+  `report.json`, so a premium-7 run stopped after 11 rounds left nothing machine-readable: its
+  proposals, debate, per-round verdicts and costs had to be rebuilt from about 300 stage files.
+  Now the stop also writes `report-partial.json` (the same schema, built by the same function from
+  what the run had, plus the experimental `partial: true`, `stoppedBy: "budget"` and
+  `stoppedAtStage`) and `BOARD-partial.md`, and `STOPPED-budget.md` points to it. `report.json`
+  still means "finished": status, `--spend`, the JS API and the MCP server read a capped run
+  exactly as before. A `--resume` deletes the partial files with the stop marker. Capped
+  `--rematch` and `--replay` folders and descending-mode runs get them too. See
+  `docs/report-format.md`.
 - **Several external seats in one stage pause together** and **"How this plan was argued"
   (opt-in, off everywhere)**: see Detail.
 

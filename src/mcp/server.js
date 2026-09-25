@@ -508,7 +508,7 @@ server.tool('run_status', 'State of one run: stage reached, panel verdicts, scor
   return text(s);
 });
 
-server.tool('read_run_file', 'Read a file from a run folder (deliverable.md, BOARD.md, HANDOFF.md, proposals.md, build.md, revise-1.md, panel-1-<lab>.md, run.log, report.json).', { run: z.string(), file: z.string() }, async ({ run, file }) => {
+server.tool('read_run_file', 'Read a file from a run folder (deliverable.md, BOARD.md, HANDOFF.md, proposals.md, build.md, revise-1.md, panel-1-<lab>.md, run.log, report.json; report-partial.json for a run the spend cap stopped).', { run: z.string(), file: z.string() }, async ({ run, file }) => {
   if (!safeRun(run) || !/^[A-Za-z0-9._-]+$/.test(file)) return text({ error: 'no such run or bad file name' });
   const p = join(runsDir, run, file);
   if (!existsSync(p)) return text({ error: 'no such file', files: readdirSync(join(runsDir, run)) });

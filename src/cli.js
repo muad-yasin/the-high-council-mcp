@@ -11,7 +11,7 @@ import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sum
 import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFromStageLogText, sumRoundUsdFromStageLogText } from './spans.js';
 import { appendSpanRecord, buildSpanRecord } from './progress-spans.js';
 import { computeOutcome } from './outcome.js';
-import { reportJsonShape, renderBoardMd } from './report-shape.js';
+import { reportJsonShape, renderBoardMd, partialReportJsonShape, renderPartialBoardMd, PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE } from './report-shape.js';
 import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
 import { providerNames, envKeyName, keyFor, isKeyOptional, call } from './providers.js';
 import { DEMO_REQUEST } from './mock-demo.js';
@@ -635,7 +635,9 @@ else {
 // --rematch / --replay stop at the ceiling like a normal run. They have no stage cache and no
 // per-stage usage files, so this marker is the only record of what the stopped sitting spent -
 // spend.js falls back to it, which is how --spend still counts a capped rematch or replay.
-function writeSideRunBudgetStop(dir, err, what) {
+// `reportArgs` (everything reportJsonShape needs but the result) turns the partial result runChain
+// attached to the error into report-partial.json, as for a normal run.
+function writeSideRunBudgetStop(dir, err, what, reportArgs = null) {
   // Money path #1: err.spent was read when the cap was hit, before sibling calls still in flight
   // settled; their cost reaches budgetState() only afterwards. By the time this runs they have
   // settled (runChain waits for them), so the budget is the true figure.
@@ -644,6 +646,17 @@ function writeSideRunBudgetStop(dir, err, what) {
   writeFileSync(join(dir, 'STOPPED-budget.json'), JSON.stringify({
     stoppedAt: err.label, seat: err.seat, spentUsd: err.spent, capUsd: err.cap, projectedStageUsd: err.projected,
   }, null, 2));
+  if (err.partial && reportArgs) {
+    try {
+      writeFileSync(join(dir, PARTIAL_REPORT_FILE), JSON.stringify(partialReportJsonShape({
+        stoppedBy: 'budget', stoppedAtStage: err.label, ...reportArgs, result: err.partial,
+      }), null, 2));
+      const board = renderPartialBoardMd({ runId: reportArgs.runId, result: err.partial, stoppedAtStage: err.label });
+      if (board) writeFileSync(join(dir, PARTIAL_BOARD_FILE), board);
+    } catch (e) {
+      console.error(`${what}: ${PARTIAL_REPORT_FILE} not written (${e?.message || e})`);
+    }
+  }
   console.error(`${what}: STOPPED - per-run spend cap reached before stage "${err.label}" (${formatUsd(err.spent)} spent of ${formatUsd(err.cap)}; ${err.seat} could cost up to ${formatUsd(err.projected)}). Raise it with --max-usd <higher> or --max-usd none.`);
   process.exit(4);
 }
@@ -750,7 +763,9 @@ if (rematchArg) {
       log: line => console.log(line),
     });
   } catch (err) {
-    if (err instanceof BudgetExceeded) writeSideRunBudgetStop(rematchRunDir, err, '--rematch'); // exits 4, like a normal run
+    if (err instanceof BudgetExceeded) writeSideRunBudgetStop(rematchRunDir, err, '--rematch', { // exits 4, like a normal run
+      runId: rematchRunId, chain: chainName, task: originalTaskPath, taskCwd: originalRunMeta.cwd || work, taskText: originalRequest, startedAt: rematchStartedAt, config: rematchConfig,
+    });
     console.error(`--rematch: the reshuffled run did not complete (${err.message}). No diff written - a rematch that never reached a verdict has nothing to diff.`);
     process.exit(1);
   }
@@ -831,7 +846,7 @@ if (argv.includes('--replay')) {
     console.log(`\nWrote ${replayDir} (report.json, deliverable.md, replay-diff.json).`);
     console.log(`signoff_match: ${diff.signoff_match}  verdict_category_changed: ${diff.verdict_category_changed}`);
   } catch (err) {
-    if (err instanceof BudgetExceeded) writeSideRunBudgetStop(replayDirFor(runDir, date), err, '--replay'); // exits 4, like a normal run
+    if (err instanceof BudgetExceeded) writeSideRunBudgetStop(replayDirFor(runDir, date), err, '--replay', err.partialReportArgs); // exits 4, like a normal run
     console.error(`--replay: ${err.message}`);
     process.exit(1);
   }
@@ -1656,8 +1671,11 @@ countEarlierSpend(earlierSupersededUsd);
 
 // A previous sitting may have stopped this run at the ceiling. Clear that
 // marker now that we are past it, so a run that goes on to finish is not
-// still advertising itself as capped.
-for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', 'STOPPED-error.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md']) {
+// still advertising itself as capped. report-partial.json and BOARD-partial.md go with
+// STOPPED-budget.json: they describe the run as it stood at that stop, which this sitting is
+// about to change, so they live and die with the marker. If this sitting is capped again they are
+// written fresh; if it finishes, report.json replaces them.
+for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md']) {
   if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
 
@@ -1869,6 +1887,23 @@ writeStateJson();
 log(resumeMeta ? `resume: stages already on disk replay for free` : '');
 // One run's tool calls, for TOOLS.md below (the log lives in tools.js's memory).
 resetToolCallLog();
+// What report.json (a finished run) and report-partial.json (a run the spend cap stopped) are built
+// from, besides the result itself: one list, so the two files cannot drift apart.
+const reportArgsFor = result => {
+  // Money path #2: the report's total includes what superseded stages cost (they were paid for, in
+  // this sitting or an earlier one), shown separately as totals.supersededUsd.
+  const supersededUsd = supersededSpendOf(runDir);
+  if (unverifiedReplays.length) result.unverifiedReplays = unverifiedReplays;
+  if (supersededUsd > 0) result.totals = { ...result.totals, usd: (result.totals.usd || 0) + supersededUsd, supersededUsd };
+  return {
+    runId, chain: config.name, task: taskPathEff, taskCwd: resumeMeta?.cwd || work, taskText: rawTaskTextForCacheFingerprint,
+    // A run.json from before 0.7.7 has no startedAt: the report then has no started_at either.
+    startedAt: resumeMeta ? (resumeMeta.startedAt ?? null) : runStartedAt, result, config,
+    fromRun: fromRun || resumeMeta?.fromRun || null, fromRunCwd: fromRun ? work : (resumeMeta?.cwd || work), maxUsd: maxUsdEff,
+    policyChecks: policyChecks ?? resumeMeta?.policyChecks ?? null,
+  };
+};
+
 let result;
 try {
   result = await runChain({
@@ -2041,6 +2076,22 @@ To continue: raise that seat's \`maxTokens\` in the chain (or, for an external s
       projectedStageUsd: err.projected,
       note: 'Stopped before the stage above was paid for. Completed stages are on disk and replay for free on resume.',
     }, null, 2));
+    // report-partial.json (0.7.7): the run so far as data, in report.json's shape plus partial: true,
+    // so a run capped after many rounds can be read without rebuilding it from its stage files. Its
+    // own name, because report.json means "finished". Writing it must never mask the stop itself.
+    let partialWritten = false;
+    if (err.partial) {
+      try {
+        writeFileSync(join(runDir, PARTIAL_REPORT_FILE), JSON.stringify(partialReportJsonShape({
+          stoppedBy: 'budget', stoppedAtStage: err.label, ...reportArgsFor(err.partial),
+        }), null, 2));
+        const partialBoard = renderPartialBoardMd({ runId, result: err.partial, stoppedAtStage: err.label });
+        if (partialBoard) writeFileSync(join(runDir, PARTIAL_BOARD_FILE), partialBoard);
+        partialWritten = true;
+      } catch (e) {
+        log(`  (${PARTIAL_REPORT_FILE} not written: ${e?.message || e})`);
+      }
+    }
     writeFileSync(join(runDir, 'STOPPED-budget.md'), `# Run stopped: per-run spend cap reached
 
 This run stopped **before** stage \`${err.label}\` (${err.seat}) was called, so that stage was
@@ -2049,7 +2100,7 @@ never paid for.
 - spent so far: **${formatUsd(err.spent)}**
 - ceiling: **${formatUsd(err.cap)}**
 - that stage could have cost up to: **${formatUsd(err.projected)}**
-
+${partialWritten ? `- what the run has so far, as data: \`${PARTIAL_REPORT_FILE}\` (same shape as report.json, \`partial: true\`)\n` : ''}
 Stage cost is projected as the whole prompt billed as input plus the seat's entire \`maxTokens\`
 budget billed as output, so the real cost would very likely have been lower. The ceiling is
 enforced against the worst case on purpose.
@@ -2066,6 +2117,7 @@ Or \`--max-usd none\` to continue with no ceiling.
     log(`  spent:   ${formatUsd(err.spent)} of ${formatUsd(err.cap)} ceiling`);
     log(`  stage:   ${err.seat} could cost up to ${formatUsd(err.projected)}`);
     log(`  detail:  ${join(runDir, 'STOPPED-budget.md')}`);
+    if (partialWritten) log(`  so far:  ${join(runDir, PARTIAL_REPORT_FILE)}`);
     log(`  resume:  ${councilCommand()} --resume runs/${runId} --max-usd <higher>`);
     process.exit(4);
   }
@@ -2130,13 +2182,6 @@ if (result.lints?.length || result.claimWarnings?.length || result.toolRequestWa
   // disallowed tool, same WARNINGS.md the lint/claim lines above already append to.
   appendFileSync(join(runDir, 'WARNINGS.md'), (result.toolRequestWarnings || []).map(w => `- tool_request: ${w}\n`).join(''));
 }
-// Money path #2: the report's total includes what superseded stages cost (they were paid for, in
-// this sitting or an earlier one), shown separately as totals.supersededUsd.
-{
-  const supersededUsd = supersededSpendOf(runDir);
-  if (unverifiedReplays.length) result.unverifiedReplays = unverifiedReplays;
-  if (supersededUsd > 0) result.totals = { ...result.totals, usd: (result.totals.usd || 0) + supersededUsd, supersededUsd };
-}
 // TOOLS.md: every tool call this sitting made, after redaction (pre-release audit 2026-09-23,
 // FenceToolsRedaction #7 - the log was collected and never written). Appended, so a resumed run
 // keeps every sitting's calls.
@@ -2144,13 +2189,7 @@ if (result.lints?.length || result.claimWarnings?.length || result.toolRequestWa
   const toolsMd = renderToolsMd();
   if (toolsMd) appendFileSync(join(runDir, 'TOOLS.md'), `${toolsMd}\n`);
 }
-writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape({
-  runId, chain: config.name, task: taskPathEff, taskCwd: resumeMeta?.cwd || work, taskText: rawTaskTextForCacheFingerprint,
-  // A run.json from before 0.7.7 has no startedAt: the report then has no started_at either.
-  startedAt: resumeMeta ? (resumeMeta.startedAt ?? null) : runStartedAt, result, config,
-  fromRun: fromRun || resumeMeta?.fromRun || null, fromRunCwd: fromRun ? work : (resumeMeta?.cwd || work), maxUsd: maxUsdEff,
-  policyChecks: policyChecks ?? resumeMeta?.policyChecks ?? null,
-}), null, 2));
+writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape(reportArgsFor(result)), null, 2));
 // v5 item 3: one last write now that report.json exists on disk, so `phase` in state.json
 // reflects `done` rather than staying on whatever it said mid-run (`deriveRunStatus` checks
 // report.json first; without this call, a completed run's state.json would show "running"

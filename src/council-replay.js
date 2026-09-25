@@ -100,8 +100,16 @@ export async function runCouncilReplay(runDir, {
   log(`council-replay: replaying ${runDir} (chain "${runMeta.chain}") against today's roster`);
 
   const startedAt = new Date().toISOString();
-  const result = await runChain({ request: taskText, config, log });
   const replayRunId = basename(replayDirFor(runDir, date));
+  let result;
+  try {
+    result = await runChain({ request: taskText, config, log });
+  } catch (err) {
+    // A spend-cap stop carries the run so far (err.partial); these are the rest of what the CLI
+    // needs to write it as report-partial.json in the replay folder.
+    if (err?.partial) err.partialReportArgs = { runId: replayRunId, chain: config.name, task: runMeta.task, taskCwd: runMeta.cwd || workDir, taskText, startedAt, config };
+    throw err;
+  }
   const newReport = reportJsonShape({ runId: replayRunId, chain: config.name, task: runMeta.task, taskCwd: runMeta.cwd || workDir, taskText, startedAt, result, config });
 
   const diff = computeVerdictDiff(originalReport, newReport);

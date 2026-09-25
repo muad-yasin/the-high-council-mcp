@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://the-high-council.dev/schema/report-v1.json",
   "title": "report.json - a council run, structured",
-  "description": "The machine-readable record of one finished council run: runs/<id>/report.json, built by reportJsonShape() in src/report-shape.js for every writer (a normal run, a resumed run, `council init`/`council demo`, --rematch, --replay). BOARD.md is the same record for people; nothing should parse BOARD.md. A run that stopped early (spend cap, pre-flight block, external pause, crash) writes no report.json at all - its absence means 'not finished'. Versioning: `schemaVersion` is an integer that moves only on a breaking change (a field renamed, removed, or its meaning or type changed). Adding a field is not breaking and does not move it, so a reader MUST ignore fields it does not know; that is why additionalProperties is left open everywhere. Each top-level property carries an `x-stability` annotation: `stable` fields keep their name, type and meaning for the whole of schemaVersion 1; `experimental` fields may change shape in a minor release and are listed in the changelog when they do. Fields marked 'model-supplied' come from a model's own JSON reply and are passed through with little or no checking: read them defensively.",
+  "description": "The machine-readable record of one finished council run: runs/<id>/report.json, built by reportJsonShape() in src/report-shape.js for every writer (a normal run, a resumed run, `council init`/`council demo`, --rematch, --replay). BOARD.md is the same record for people; nothing should parse BOARD.md. A run that stopped early (spend cap, pre-flight block, external pause, crash) writes no report.json at all - its absence means 'not finished'. A run the per-run spend cap stopped (since 0.7.7) writes runs/<id>/report-partial.json instead: this same schema, built by the same function from what the run had when it stopped, plus `partial: true`, `stoppedBy` and `stoppedAtStage`. In it a stage the run never reached has the value that means 'did not run' (null, [], false, or the field absent); `passed`, `outcome` and `signoff` describe the state at the stop, not a verdict; `finished_at` is when the run stopped. A resume removes it together with STOPPED-budget.json; a resumed run that finishes writes report.json. Versioning: `schemaVersion` is an integer that moves only on a breaking change (a field renamed, removed, or its meaning or type changed). Adding a field is not breaking and does not move it, so a reader MUST ignore fields it does not know; that is why additionalProperties is left open everywhere. Each top-level property carries an `x-stability` annotation: `stable` fields keep their name, type and meaning for the whole of schemaVersion 1; `experimental` fields may change shape in a minor release and are listed in the changelog when they do. Fields marked 'model-supplied' come from a model's own JSON reply and are passed through with little or no checking: read them defensively.",
   "type": "object",
   "required": [
     "runId", "chain", "task", "fromRun", "criteria", "passed", "outcome", "lastCritique", "signoff",
@@ -528,6 +528,21 @@
         }
       },
       "description": "Present only on chains with criteria_kinds.enabled: every MET verdict on a checkable criterion that cited no evidence. Counted on the board; it does not overturn the verdict."
+    },
+    "partial": {
+      "x-stability": "experimental",
+      "const": true,
+      "description": "Present, and true, only in report-partial.json: the run did not finish and this is what it had when it stopped. Never present in report.json. Added in 0.7.7."
+    },
+    "stoppedBy": {
+      "x-stability": "experimental",
+      "enum": ["budget"],
+      "description": "report-partial.json only: what stopped the run. `budget` is the per-run spend cap (--max-usd), the only stop that writes a partial report so far. Added in 0.7.7."
+    },
+    "stoppedAtStage": {
+      "x-stability": "experimental",
+      "type": "string",
+      "description": "report-partial.json only: the label of the stage the run stopped before (never called, never paid for) - the stage STOPPED-budget.json's `stoppedAt` names. Added in 0.7.7."
     }
   },
 

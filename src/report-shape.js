@@ -158,6 +158,30 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
 }
 
 
+// report-partial.json (0.7.7): a run the per-run spend cap stopped. Same shape as report.json, built
+// from the partial result runChain attaches to BudgetExceeded (`err.partial`), plus `partial: true`,
+// `stoppedBy` and `stoppedAtStage`. Its own file name on purpose: report.json existing means
+// "finished" to run-status, spend, the API and the MCP server, and a stopped run is not finished.
+// `finished_at` here is when the run stopped. Same privacy rules as report.json (task and fromRun
+// relative, never absolute), because it is built by the same function.
+export const PARTIAL_REPORT_FILE = 'report-partial.json';
+export const PARTIAL_BOARD_FILE = 'BOARD-partial.md';
+export function partialReportJsonShape({ stoppedBy, stoppedAtStage = null, ...args }) {
+  return {
+    ...reportJsonShape(args),
+    partial: true,
+    stoppedBy,
+    ...(typeof stoppedAtStage === 'string' ? { stoppedAtStage } : {}),
+  };
+}
+
+/** BOARD-partial.md's text: the same board, headed as a stopped run's, or '' when there is none. */
+export function renderPartialBoardMd({ runId, result, stoppedAtStage = null }) {
+  const board = renderBoardMd({ runId, result });
+  if (!board) return '';
+  return `> **Partial board.** This run stopped at its spend cap${stoppedAtStage ? ` before stage \`${stoppedAtStage}\`` : ''} and did not finish. The same record as data: \`${PARTIAL_REPORT_FILE}\`.\n\n${board}`;
+}
+
 /** BOARD.md's text for a finished run, or '' when there is no board to write. */
 export function renderBoardMd({ runId, result }) {
   const disputesSection = (result.disputes?.length
