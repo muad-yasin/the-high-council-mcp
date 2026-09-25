@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.8 - unreleased
+
+### Fixed
+
+- **`src/http-server.js` (not part of the release, but in the package): a path-shaped
+  `idempotencyKey` could write the task file outside its temp directory.** `POST /runs` now
+  refuses any key outside `[A-Za-z0-9_-]{1,128}` and any chain name that is a path, with
+  `400 malformed_request`, before anything touches the disk. Reported by Socket.dev's AI scan of
+  the published 0.7.7. The endpoint needs its bearer token, so only a holder of the token could
+  have used it.
+
 ## 0.7.7 - 2026-09-25
 
 Everything since 0.7.6. The summary comes first; the detailed notes follow under "Detail". This

@@ -210,6 +210,14 @@ export function createRelayHttpServer({
       res.status(400).json({ error: 'malformed_request' });
       return;
     }
+    // The key names the task file below (`<taskDir>/<key>.md`), so a key such as `../../x` wrote
+    // outside the temp dir (Socket.dev's AI scan of the published 0.7.7, 2026-09-25). One strict
+    // shape, refused before anything touches the disk; idempotencyPath's own sanitising stays as a
+    // second line. A chain name is a name, not a path: the CLI would otherwise load any JSON file.
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(idempotencyKey) || !/^[A-Za-z0-9._-]{1,100}$/.test(chain) || chain.startsWith('.')) {
+      res.status(400).json({ error: 'malformed_request' });
+      return;
+    }
 
     const usage = dailyUsage(runsDir);
     if (usage.usd >= maxUsdPerDay || usage.count >= maxRunsPerDay) {

@@ -81,6 +81,35 @@ test('POST /runs without a bearer token -> 401, no spawn attempted', async () =>
   }
 });
 
+test('POST /runs refuses a path-shaped idempotency key or chain name before touching the disk', async () => {
+  const spawnCalls = [];
+  const relayRoot = mkdtempSync(join(tmpdir(), 'relay-traversal-'));
+  const { base, close } = await startServer({ relayRoot, spawnFn: (...a) => { spawnCalls.push(a); return fakeChildProcess(0); } });
+  try {
+    for (const bad of [
+      { chain: 'mock', idempotencyKey: '../../escape' },
+      { chain: 'mock', idempotencyKey: 'a/b' },
+      { chain: 'mock', idempotencyKey: 'x'.repeat(129) },
+      { chain: '../chains/mock', idempotencyKey: 'ok-key' },
+      { chain: '/etc/passwd', idempotencyKey: 'ok-key' },
+      { chain: '..', idempotencyKey: 'ok-key' },
+    ]) {
+      const res = await fetch(`${base}/runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth() },
+        body: JSON.stringify({ taskContent: 'x', ...bad }),
+      });
+      assert.equal(res.status, 400, JSON.stringify(bad));
+      assert.equal((await res.json()).error, 'malformed_request');
+    }
+    assert.equal(spawnCalls.length, 0);
+    assert.equal(existsSync(join(relayRoot, '.idempotency')), false, 'no idempotency record was claimed');
+  } finally {
+    await close();
+    rmSync(relayRoot, { recursive: true, force: true });
+  }
+});
+
 test('POST /runs budget_exceeded refuses before any spawn', async () => {
   const spawnCalls = [];
   const { base, close } = await startServer({
