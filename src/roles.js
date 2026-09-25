@@ -411,12 +411,17 @@ export function proposalMergeUser({ request, criteria, skeleton, list, cap }) {
 }
 
 // ---------------------------------------------------------------------------
-// Debate (his call, 2026-09-07: "the labs should talk to each other"). The
-// evidence says where: talk about WHAT TO BUILD helped in the literature
-// (2510.20963, roles that disagree), talk about VERDICTS hurt in our own
-// relay test (anchoring). So the labs debate proposals, in two rounds, and
-// still grade blind. Labs are anonymised inside the prompts so nobody defers
-// to a name; the saved board carries real names.
+// Debate (his call, 2026-09-07: "the labs should talk to each other"). Where
+// the talk happens is a design choice, not a measured result. Talk about
+// VERDICTS hurt in our own relay test (anchoring), so the labs debate
+// PROPOSALS, in two rounds, and still grade blind. This comment used to cite
+// arXiv 2510.20963 (ColMAD) as support for "roles that disagree"; the paper
+// does not support that reading. It argues that, in error detection, competitive debate
+// between assigned opponents tends to slide into cheap talk (persuading, not
+// finding errors), and it proposes collaborative debate, where agents pool
+// complementary evidence toward one answer, instead. It does not test debate
+// about what to build. Labs are anonymised inside the prompts so nobody
+// defers to a name; the saved board carries real names.
 
 export const DEBATE_SYSTEM = `You are one lab on a planning panel. Every lab proposed parts of a plan
 blind; now you read all of them and say what you think, so the integrator
