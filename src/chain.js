@@ -546,6 +546,8 @@ export function scoreProposals(proposals, plan) {
 // could drift from this one, and the thing that would silently break is
 // exactly what the harness exists to measure (lab independence).
 export const labOf = seat => seat.lab || seat.provider;
+// How many labs sit on a chain's panel: its critics, by labOf. What `council doctor` advertises.
+export const panelLabCount = config => new Set((config?.seats?.critics || []).filter(Boolean).map(labOf)).size;
 
 // Bug-audit fix, 2026-09-23 (Review/BugAudit_RunChainStages_2026-09-23.md #1): several stages
 // label a call by lab alone (`panel-<round>-<lab>`, `propose-<lab>`, `debate-<lab>`, `reply-<lab>`,

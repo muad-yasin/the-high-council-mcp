@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, everySeatOf, resolveChainSeats, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
+import { runChain, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
@@ -258,8 +258,9 @@ if (argv[0] === 'doctor') {
     // the challenger, cold reader, claims, ambiguity, descending, preflight and default security
     // reviewer seats, so it called a chain "runnable" that a real run refuses. It now uses the same
     // enumerator the real run path checks (everySeatOf after vendor resolution).
-    let seats;
-    try { seats = everySeatOf(resolveChainSeats(cfg)); } catch { seats = everySeatOf(cfg); }
+    let resolved;
+    try { resolved = resolveChainSeats(cfg); } catch { resolved = cfg; }
+    const seats = everySeatOf(resolved);
     const missing = checkSeats(seats);
     const runnable = missing.length === 0;
     const worst = estimateChainRows(cfg).reduce((sum, r) => sum + r.usd, 0);
@@ -276,7 +277,10 @@ if (argv[0] === 'doctor') {
     // mock seat) and no lint finding: the shortest path from "no keys" to a real council.
     const keyNames = [...providers].map(p => (p === 'mock' || p === 'external' || isKeyOptional(p)) ? null : envKeyName(p));
     if (keyNames.length && keyNames.every(Boolean) && new Set(keyNames).size === 1 && !lintChain(cfg, join(chainsDir, f)).length) {
-      oneKey.set(keyNames[0], [...(oneKey.get(keyNames[0]) || []), { label, worst, labs: new Set(seats.filter(Boolean).map(s => s.provider === 'openrouter' ? (s.model || '').split('/')[0] : s.provider)).size }]);
+      // The labs a chain advertises are its panel's: critics only, by labOf (a seat's own `lab`
+      // wins). Counting every seat by model-id prefix called cheap-7-v2 a 9-lab chain while the
+      // README calls it a seven-lab panel.
+      oneKey.set(keyNames[0], [...(oneKey.get(keyNames[0]) || []), { label, worst, labs: panelLabCount(resolved) }]);
     }
   }
   for (const [warning, labels] of schemaWarnings) {
@@ -286,7 +290,7 @@ if (argv[0] === 'doctor') {
   console.log(`\nStart here:`);
   console.log(`  $0, no key:  "${councilCommand()} demo" shows every stage on a scripted example; "${councilCommand()} init" writes a task and chain you own.`);
   for (const [envName, chains] of oneKey) {
-    const shown = chains.sort((a, b) => a.worst - b.worst).slice(0, 3).map(c => `${c.label} (worst case ${formatUsd(c.worst)}, ${c.labs} lab${c.labs === 1 ? '' : 's'})`);
+    const shown = chains.sort((a, b) => a.worst - b.worst).slice(0, 3).map(c => `${c.label} (worst case ${formatUsd(c.worst)}${c.labs ? `, ${c.labs}-lab panel` : ''})`);
     console.log(`  one key:     ${envName} alone runs ${shown.join(', ')}`);
   }
   console.log(`  before paying: "${councilCommand()} --task tasks/<yours>.md --chain <name> --dry-run" prices it; every run stops at its spend cap ($7 unless you set --max-usd).`);

@@ -6,15 +6,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { councilCommand, unignoredEnvFile } from '../src/invocation.js';
 import { call, setRetrySleep, accountHint } from '../src/providers.js';
+import { panelLabCount } from '../src/chain.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = resolve(here, '../src/cli.js');
+const root = resolve(here, '..');
 const noKeys = { PATH: process.env.PATH };
 
 test('councilCommand: npx users are told to type npx, everyone else council', () => {
@@ -115,4 +117,18 @@ test('a run whose worst case is above the cap says so before spending, and still
   assert.equal(r.status, 4);
   const note = r.stdout.indexOf('note:  this chain\'s worst case is');
   assert.ok(note > 0 && note < r.stdout.indexOf('Stage:'), 'the note comes before the first stage');
+});
+
+test('doctor: the one-key line counts a chain\'s panel labs by labOf, critics only', () => {
+  // Every seat by model-id prefix called cheap-7-v2 a 9-lab chain; its panel is seven labs.
+  const cheap7 = JSON.parse(readFileSync(join(root, 'chains', 'cheap-7-v2.json'), 'utf8'));
+  assert.equal(panelLabCount(cheap7), 7);
+  const seat = (lab, model = 'm') => ({ provider: 'openrouter', model: `vendor/${model}`, ...(lab ? { lab } : {}) });
+  assert.equal(panelLabCount({ seats: { builder: seat('x'), critics: [seat('a'), seat('a', 'n'), seat('b')] } }), 2, 'a seat\'s own lab wins; the builder is not on the panel');
+  assert.equal(panelLabCount({ seats: { critics: [seat(null), seat(null, 'n')] } }), 1, 'no lab: the provider is the lab');
+  assert.equal(panelLabCount({ seats: {} }), 0);
+  const out = execFileSync('node', [cli, 'doctor'], { encoding: 'utf8', env: noKeys });
+  const line = out.split('\n').find(l => l.includes('OPENROUTER_API_KEY alone runs'));
+  if (line.includes('cheap-7-v2')) assert.match(line, /cheap-7-v2 \(worst case [^,]+, 7-lab panel\)/);
+  assert.doesNotMatch(line, /\d+ labs?\)/, 'the old every-seat count is gone');
 });
