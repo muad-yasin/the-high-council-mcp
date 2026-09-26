@@ -138,6 +138,12 @@
   resumes, `--rematch`, `--replay`, the demo and `init`. Stage files and everything sent to a seat
   keep the text exactly as it was.
 
+- **The opt-in `run_tests` seat tool runs test files only.** With `tools.seat_requests` on, a
+  seat's `run_tests` request ran any readable file in the workspace under Node, a run folder's
+  saved model output included. The file must now be a `.js`, `.mjs`, `.cjs` or `.ts` file (by its
+  real name, so a symlink named like a test does not count), and nothing under `runs/` is run.
+  `run_tests` with no file is unchanged.
+
 ## 0.7.7 - 2026-09-25
 
 Everything since 0.7.6. The summary comes first; the detailed notes follow under "Detail". This

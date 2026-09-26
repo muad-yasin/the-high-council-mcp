@@ -187,6 +187,8 @@ function readTextFile(path, maxBytes = 200_000) {
   return { text: buf.subarray(0, maxBytes).toString('utf8'), truncated };
 }
 
+const TEST_FILE_EXT = /\.(js|mjs|cjs|ts)$/i;
+
 // run_tests: { file? } - runs `node --test [file]` under the sandboxed cwd.
 // No shell (`shell: false`, spawnSync's default), no network flags, no
 // caller-supplied argv beyond one optional path already sandboxed above.
@@ -200,6 +202,12 @@ function run_tests({ file } = {}, { cwd }) {
     // offending line of a file it can't parse - {"file": ".env"} returned the key.
     const refusal = pathRefusal(root, target);
     if (refusal) return { ok: false, error: refusal };
+    // Security scan 2026-09-26 (THC #4): any readable file ran under node, run folders included -
+    // and a run folder holds model output. Only a test file runs now (by its real name, so a
+    // symlink named like one does not count), and never one under runs/.
+    const rel = relative(root, target).split(sep).join('/');
+    if (!TEST_FILE_EXT.test(target) || !TEST_FILE_EXT.test(file)) return { ok: false, error: `refused: ${file} is not a test file (.js, .mjs, .cjs or .ts)` };
+    if (rel === 'runs' || rel.startsWith('runs/')) return { ok: false, error: `refused: ${file} is inside runs/, which holds run output, not tests` };
     args.push(target);
   }
   // Inside a packaged binary process.execPath is the council binary, not node, so `--test` would
