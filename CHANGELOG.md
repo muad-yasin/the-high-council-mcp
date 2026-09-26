@@ -12,6 +12,10 @@
   nothing was dropped) and listed under "Dropped from the debate" in `BOARD.md`. A reply that did
   not parse at all counts as `unreadable`. The filters are unchanged, and the board text the
   builder reads is unchanged: the new section is `BOARD.md`'s alone.
+- **The price table says how old it is.** `src/pricing.json` has a machine-readable top-level
+  `asOf` (`2026-09-06`: the oldest date every entry was last checked, so it errs old), and
+  `council doctor` and `--dry-run` print it. Past 60 days they add a warning: the spend cap and
+  every estimate project with these static prices.
 
 ### Changed
 

@@ -18,6 +18,29 @@ const PRICES = JSON.parse(readFileSync(join(here, 'pricing.json'), 'utf8'));
 // what matters here: it is what keeps a local seat out of summarise()'s and dry_run's "unpriced"
 // warning list, which otherwise reads identically to "uncapped" - a worse user experience for a
 // seat that is genuinely, structurally free.
+// The price table's as-of date (pricing.json `asOf`, 0.7.8): the oldest date every entry was last
+// checked. `council doctor` and `--dry-run` print it, and warn once it is older than
+// PRICE_TABLE_STALE_DAYS, because the spend cap is only as good as the table it projects with and
+// the table is static between releases (thc-research briefs 09/11: the dry-run never said how old
+// its prices were). `now` is injectable for tests. Returns null fields when the table has no date.
+export const PRICE_TABLE_STALE_DAYS = 60;
+export function priceTableAge(now = new Date(), table = PRICES) {
+  const asOf = typeof table?.asOf === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(table.asOf) ? table.asOf : null;
+  if (!asOf) return { asOf: null, days: null, stale: true };
+  const days = Math.floor((Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - Date.parse(`${asOf}T00:00:00Z`)) / 86_400_000);
+  return { asOf, days, stale: days > PRICE_TABLE_STALE_DAYS };
+}
+
+// The lines doctor and --dry-run print: one always, a WARNING line too when the table is stale.
+export function priceTableLines(now = new Date(), table = PRICES) {
+  const { asOf, days, stale } = priceTableAge(now, table);
+  if (!asOf) return ['Prices: src/pricing.json carries no as-of date.', 'WARNING: the price table has no date, so its age is unknown. Check each lab\'s pricing page before trusting this estimate or the spend cap.'];
+  const age = days < 0 ? 'dated in the future' : days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} ago`;
+  const lines = [`Prices: src/pricing.json as of ${asOf} (${age}). List prices change; treat every figure as an estimate.`];
+  if (stale) lines.push(`WARNING: the price table is ${days} days old (more than ${PRICE_TABLE_STALE_DAYS}). Estimates and the spend cap project with these prices, so they may be off. Update the-high-council, or check each lab's pricing page.`);
+  return lines;
+}
+
 export function priceOf(provider, model) {
   if (isFreeProvider(provider)) return { in: 0, out: 0 };
   return PRICES[`${provider}/${model}`] || null;

@@ -12,7 +12,7 @@ import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFrom
 import { appendSpanRecord, buildSpanRecord } from './progress-spans.js';
 import { computeOutcome } from './outcome.js';
 import { reportJsonShape, renderBoardMd, partialReportJsonShape, renderPartialBoardMd, PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE } from './report-shape.js';
-import { summarise, formatUsd, priceOf, estimateChainRows } from './cost.js';
+import { summarise, formatUsd, priceOf, estimateChainRows, priceTableLines } from './cost.js';
 import { providerNames, envKeyName, keyFor, isKeyOptional, call } from './providers.js';
 import { DEMO_REQUEST } from './mock-demo.js';
 import { readCompletedRun, generateDigestText, writeDigest } from './dissent-digest.js';
@@ -298,6 +298,8 @@ if (argv[0] === 'doctor') {
   if (unignoredEnvFile(work)) {
     console.log(`\nWARNING: ${join(work, '.env')} holds your API keys and git would commit it. Add ".env" to .gitignore before your next commit.`);
   }
+  console.log('');
+  for (const line of priceTableLines()) console.log(line);
   console.log(`\nNo network calls were made - this only reads environment variable names and chains/*.json.`);
 
   // v5 §1 candidate 4: doctor's own diagnostic block also names every code
@@ -1371,6 +1373,7 @@ if (dryRun) {
   const t = rows.reduce((s, r) => ({ i: s.i + r.input, o: s.o + r.output, u: s.u + r.usd }), { i: 0, o: 0, u: 0 });
   console.log(`\n  TOTAL        ${''.padEnd(w)}  ${String(t.i).padStart(7)} in  ${String(t.o).padStart(6)} out  ${formatUsd(t.u)}  per run`);
   console.log(`\n  Worst case is the full round cap. A clean first critique stops early and costs less.`);
+  for (const line of priceTableLines()) console.log(`  ${line}`);
   // The rows above price the chain's own assumed prompt size, not the task in hand: a 13-word task
   // and a 30,000-token one priced the same (walked 2026-09-25). With --task, say how the task
   // compares, and reprice with it added when it is larger. Four characters per token is a rough
