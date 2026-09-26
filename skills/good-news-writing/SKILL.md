@@ -1,6 +1,6 @@
 ---
 name: good-news-writing
-description: Writes warm, positive coverage of a real person, company or organization doing something good, in a register that avoids press-release tone, invented villains and backhanded praise. Use when a piece's engine is a real subject's good choice and the verified record holds no wrongdoing - a founder profile, a company doing right by customers or staff, a positive milestone, a human-interest piece about a living person. Not for critical or investigative coverage, memorials, ghostwriting in the subject's own voice, or fiction with no real subject.
+description: Writes warm, positive coverage of a real person, company or organization doing something good, in a register that avoids press-release tone, invented villains and backhanded praise. Use when a piece's engine is a real subject's good choice and the verified record holds no wrongdoing - a founder profile, a company doing right by customers or staff, a positive milestone, a human-interest piece about a living person. Not for critical or investigative coverage (drafting and fact-checking, applied straight), memorials, ghostwriting in the subject's own voice, or fiction with no real subject.
 license: MIT
 ---
 
@@ -8,7 +8,7 @@ license: MIT
 
 Writing about someone real doing something good fails in three predictable ways, none of them dishonesty: the copy curdles into a press release, it reaches sideways for a villain who isn't in the story, or it backhands the subject with praise that imports the doubt it claims to dismiss. This skill is the register that avoids all three.
 
-**The sourcing floor applies unchanged and comes first.** Claims about real people follow `research-and-sourcing` (primary sources for figures, dates and quotes; no invented quotes; no conduct not in the record), and the finished piece gets an independent read under `verification-and-critique`. If you also use a dedicated writing or fact-checking skill set, its rules bind as well. Everything below is *additional*: a real, living subject written about warmly raises the bar on every claim, it does not lower it.
+**The sourcing floor applies unchanged and comes first.** Claims about a real subject go through `fact-checking` before drafting (every quote traced to a real utterance, figures to the primary document, no conduct not in the record), and the finished piece gets `final-read` before anyone sees it. General drafting - the brief, structure, endings - is `drafting`'s; this skill is the one register it hands off. Everything below is *additional*: a real, living subject written about warmly raises the bar on every claim, it does not lower it.
 
 ## When this skill, and when not
 
@@ -55,7 +55,7 @@ The sentence travels with the draft into review, so the stance can be checked wi
 
 **Step 3 - write from inside their logic.** Take the subject's odd, consistent reasoning seriously and narrate from inside it until it vindicates itself. Admiration stated by the writer is asked on faith; admiration the reader reaches from a specific detail is their own judgment. **The closer grants continuation, not resolution:** they are still doing it, it is working anyway, they would do it again. When no such fact exists, end on the last real thing and stop - a manufactured closer is worse than none. The devices good material reaches for on its own (with the one-"refusal"-per-batch limit) are in `references/failure-modes.md`.
 
-**Step 4 - hand off** the warm sentence, the quote-trace list and the piece for an independent read. The fact pass should be *more* armed on a warm piece, not less: the subject is real, alive and named.
+**Step 4 - hand off** the warm sentence, the quote-trace list and the piece to `final-read`. The fact pass should be *more* armed on a warm piece, not less: the subject is real, alive and named.
 
 ## Mistakes to flag
 
@@ -64,6 +64,6 @@ The sentence travels with the draft into review, so the stance can be checked wi
 - An absence claim that wasn't checked.
 - A closer that states the virtue instead of a fact that grants continuation.
 - Any joke whose target is the subject rather than the gap between them and the default.
-- Flattering adjectives (*inspiring, heartwarming, remarkable*) standing in for a concrete detail.
+- Flattering adjectives (*inspiring, heartwarming, remarkable*) standing in for a concrete detail (also a machine-writing tell; `line-editing`).
 
 Named failure modes, the drafting toolkit, and batch-level checks: `references/failure-modes.md`.

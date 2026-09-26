@@ -42,7 +42,7 @@ Research exists to produce claims someone can act on without re-checking them. T
 
 ## Real people and organizations
 
-When a claim names a real person or organization: never invent a quote, never paraphrase inside quotation marks, never attribute conduct not in the record, and trace every figure about them to the primary source. Satire and warm coverage do not lower this bar - a real, living subject raises it. (If a dedicated fact-checking or writing skill is installed, it governs the details; these are the floor.)
+When a claim names a real person or organization: never invent a quote, never paraphrase inside quotation marks, never attribute conduct not in the record, and trace every figure about them to the primary source. Satire and warm coverage do not lower this bar - a real, living subject raises it. For published writing, `fact-checking` carries the details - quotes, names in satire, the fact line, legal risk; these are the floor.
 
 ## Mistakes to flag
 
