@@ -61,8 +61,16 @@
   ($14.89 worst case for the default estimate with today's price table; a long task costs more).
   `src/roles.js` gained the deep-dive and guard prompts; every prompt the existing mock chains send
   is unchanged (`test/prompt-pin.test.js`).
+- **Four writing skills:** `drafting`, `fact-checking`, `line-editing` and `final-read` join the
+  published set (now fourteen). `good-news-writing` links to them.
 
 ### Changed
+
+- **All ten existing skills revised** for current practice: descriptions say what each skill does
+  and when to use it, main files are shorter with detail in `references/`, citations were checked
+  and several corrected, `backend-developer` gained a security baseline (OWASP Top 10:2025),
+  `frontend-developer` an accessibility section, `ux-design` the WCAG 2.2 criteria. The install
+  instructions in `skills/README.md` and `docs/skills.html` now name the real skill folders.
 
 - **The dry-run prices each reviewer's review at that model's typical output.** A chain's
   `estimate.critiqueTokens` was one figure for every panel seat, but reasoning models spend most of

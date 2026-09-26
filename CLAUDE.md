@@ -18,10 +18,9 @@ plugins, which this repo does not bundle). `good-news-writing` (added on the
 `skills/news-content-generic` branch, de-SMO'd from Stock Market Oasis's four `news-*` skills per
 that project's own migration plan, which named it as deferred, real work rather than invented
 scope) covers the warm-register content craft for writing genuine positive coverage of a real
-person or organization - composes with the `sower-writer` plugin's drafting/fact-checking/
-line-editing/final-read skills rather than duplicating them; three of SMO's four source skills
-were found, on inspection, to already be fully generalized into `sower-writer`, so only the one
-genuinely novel register shipped here. `ux-design` and `visual-craft` followed the same way. The
+person or organization - composes with the `drafting`/`fact-checking`/`line-editing`/`final-read`
+skills rather than duplicating them. Those four came from the private `sower-writer` plugin and
+were published here in 0.7.8 (Muad's call, 2026-09-26), after a privacy and leftover-content check. `ux-design` and `visual-craft` followed the same way. The
 `skills/core-task-skills` branch (2026-09-14, Muad's direct request) added five cross-domain core
 agentic skills - `task-scoping`, `research-and-sourcing`, `verification-and-critique`,
 `context-and-handoff`, `tool-and-action-discipline` - built from a research pass on agent and
