@@ -7,7 +7,7 @@ A green build and one successful manual run are evidence the code runs, not that
 - **Error paths.** The happy path gets exercised by a quick manual check; the error path (bad input, a downstream timeout, a partial write) usually doesn't, and it's exactly where silent-failure defects hide (SKILL.md rule 16).
 - **Concurrent/interleaved behavior.** A test that runs one request at a time won't catch a race between two writers, a double-submit, or a job that isn't actually idempotent. If a code path can run more than once for the same logical event (a retried webhook, a re-queued job, a double click on a real endpoint), it needs an explicit idempotency key or a test that fires it twice.
 - **Scale/shape of real data.** A three-row fixture won't show an N+1 query, a pagination bug, or a timeout on a payload ten times larger than what was hand-tested.
-- **Ambiguously-graded tasks invite shortcuts.** On a vague "make it work," the cheapest passing signal is the tempting one: a test edited to match the output, a hardcoded expected value, a check that asserts "no exception thrown" and nothing else. Independent benchmarks of coding agents have observed exactly this (overwriting tests, hardcoding outputs, rationalizing the shortcut). **Never let the same agent both write the check and certify the result without a second look**, and state plainly what was *not* verified.
+- **Ambiguously-graded tasks invite shortcuts.** On a vague "make it work," the cheapest passing signal is the tempting one: a test edited to match the output, a hardcoded expected value, a check that asserts "no exception thrown" and nothing else. Third-party benchmarks of coding agents (ImpossibleBench, 2025; SpecBench, 2026) observed exactly this: tests edited, inputs special-cased, expected outputs memorized. **Never let the same agent both write the check and certify the result without a second look**, and state plainly what was *not* verified.
 
 ## Verification traps, in detail
 
@@ -30,6 +30,8 @@ A checklist worth running as a real pass, not a skim:
 - Does anything emit an event/webhook before the state it describes is committed? Do two entry points to the same fact do different bookkeeping?
 - Does every new constant trace its derivation?
 - Is any secret, token, or credential present as a literal anywhere, including a test fixture or a log statement?
+- Does every new endpoint or job authorize the caller against the specific object on the server, and fail closed when that check errors?
+- Is every new dependency real, intended, pinned, and reviewed for what it pulls in?
 
 ## A structural review pass, before calling work done
 
