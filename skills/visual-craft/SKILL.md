@@ -1,74 +1,59 @@
 ---
 name: visual-craft
-description: Composition, color/material/palette discipline, spatial staging, and asset-quality QA for any visual surface - 2D or 3D, UI or scene. Use once flow/implementation are already correct and the question becomes "does this actually look right" - any task touching palette, materials, lighting, composition, camera framing, prop/element placement, screenshot verification, icon/logo/backdrop quality, or generated/procedural asset review, even if the request just says something "looks off" or "looks cheap." Complements ux-design (owns flow/wireframe/states, the what/where) and frontend-developer (owns implementation correctness). Not for game-engine-specific rendering concerns - that is a visual-craft skill's job if a game-specific one is installed.
+description: Judges and fixes whether a visual surface actually looks right - composition and focal hierarchy, palette, typography roles, material consistency, spatial staging, contrast and colorblind checks, and screenshot-based QA of icons, UI chrome, backdrops, 3D scenes and generated assets. Use once flow and implementation are correct and the question is "does this look right", including when something only "looks off" or "looks cheap". Not for flow, wireframes or screen states (ux-design) or implementation correctness (frontend-developer).
+license: MIT
 ---
 
 # Visual Craft
 
-You own whether something *looks* right, across every visual medium a project might touch - illustration, UI chrome, icons/logos/backdrops, 3D scenes, generated/procedural assets. Distinct from `ux-design` (owns flow, wireframe, information architecture - the *what* and *where*) and `frontend-developer` (owns implementation correctness) - you own composition, color, material, spatial staging, and asset-quality verification, the layer that starts only once flow and implementation are already right.
+You own whether something *looks* right, in any medium: UI chrome, icons, logos, backdrops, illustration, 3D scenes, generated or procedural assets. `ux-design` owns the flow, wireframe and states (the *what* and *where*); `frontend-developer` owns implementation correctness. This skill starts once both are right. Where a rule carries extra weight for 3D-scene work, it says so.
 
-This skill is deliberately medium-agnostic. Where a technique has extra weight for 3D-scene work specifically, it's called out explicitly rather than silently generalized to everything.
+## 1. Anchor the visual language before touching an object
 
-## Step 1: Anchor the visual language before touching a single object
+- **Extend what exists; never invent a style in isolation.** Anchor to shipped assets, reference images, a written palette or token file - and re-open that reference at every addition, not from memory of it. A "style" is a stack of separate decisions (shape language, value range, palette, material vocabulary); camera, perspective and layout are a *presentation* layer on top. Name which layer a complaint lives in before fixing it.
+- **Know the generic default before you land on it by accident.** Each domain has instantly recognizable defaults (the dark fintech dashboard, the cream-and-terracotta startup palette, the stock-photo hero banner). Landing on one unexamined is not a choice; name it and either justify it or move off it.
+- **Resolve composition in value before color.** Check focal hierarchy and depth in grayscale or silhouette first - at the scale of the whole screen or scene (one dominant value mass), each asset (a clear silhouette), and UI-over-content (the UI holds its own value territory). A composition that doesn't read in value is not rescued by a palette.
+- **One dominant focal read per frame.** Two elements competing for first glance is a composition bug, not a taste disagreement.
+- **Small, reused palette.** Vary value and saturation within a few hues rather than adding hues. A new color needs a stated reason tied to meaning, never "it looked nice" on one element or a generated asset that drifted.
+- **Materials agree.** Everything sharing a space agrees on how shiny, rough or flat it reads, and each material reads as its substance before any label does. Copy-pasting one element's setup without checking its neighbors is the usual way this breaks. 3D specifics: `references/3d-staging-and-performance.md`.
+- **Typography is an identity decision.** Name each font role (display, body, numerals) and give any new typeface a stated reason, like a new color. Keep to a small reused type scale - roughly two sizes or weights per screen unless justified. Live-updating numerals need tabular (fixed-width) digits so a changing value never reflows the layout.
 
-- Never invent a new style in isolation. Anchor to what already exists - shipped assets, reference images, an established palette - and extend it rather than starting fresh. Keep the layers distinct: a "style" is a stack of separate decisions (shape language, value range, palette, material vocabulary), while camera/perspective or layout is a *presentation* choice sitting on top of it - the two can move independently, so name which layer a visual complaint actually lives in before trying to fix it.
-- **Where there is no precedent to anchor to, know what the generic default looks like before you choose it by accident.** A handful of instantly-recognizable defaults exist per domain (a "broadsheet" news layout, a "dark fintech dashboard," a "cream-and-terracotta AI startup" palette, a stock-photo hero-banner composition) - each has known tells, and landing on one unexamined is not a choice. Recognizing a candidate default and stating explicitly why it's still the right call here (or deliberately moving off it) clears the same bar as introducing any other new visual decision.
-- **Resolve composition in value before color.** Check focal hierarchy and depth read in grayscale/silhouette first - a composition that doesn't read in value won't be rescued by an appealing palette, and fixing it after color is committed means redoing both. This applies at three scales: the whole scene/screen (one dominant value mass/focal point), each individual asset (a clear silhouette before any color pass), and UI-over-content specifically (the UI layer needs to hold its own distinct value territory so it doesn't fight what's behind it for read priority).
-- **Composition:** every frame/screen needs one dominant focal read. If two elements compete for first-glance attention, that's a composition bug, not a taste disagreement. In a fixed-camera 3D scene, work out what the camera's actual angle reveals first (what's closest/largest/most contrasted) and design around that, not around an idealized top-down plan view.
-- **Palette discipline:** a small, deliberate, reused palette beats a large expressive one - variation should come from value/saturation range within a few hues, not from adding more hues. A new color needs a stated reason tied to meaning (a new subsystem, a semantic distinction) - never introduced just because a generated asset happened to drift, or because it "looked nice" for one element in isolation. If the palette is written down anywhere (a style guide, a shared design-token file), treat that as a real reference to actively check against at every addition, not a one-time note that gets filed away and forgotten.
-- **Material/surface consistency:** every object sharing a space should agree on how "shiny," "rough," or "flat" it reads, and materials should read as the substance they represent (wood reads as wood, metal as metal) so the material itself communicates what an object is before any label does. A scene where materials disagree on light response looks incoherent even when every individual color is correct - check this explicitly, it's easy to introduce by copy-pasting one element's setup without checking its neighbors. For PBR-style 3D materials specifically, keep non-metal base-color values in a physically plausible mid-range (not near-black or near-white) - values at the extremes break the engine's lighting response and are a common, easy-to-miss source of a scene looking subtly "off." The wider form of this rule: let the engine's lighting do its physical job, and put the *style* in deliberately narrowed value ranges, palette restraint, simplified geometry, and exaggerated proportions - not in fighting the shading model. That combination is what keeps disparate assets reading as one coherent product.
-- **Typography is an identity decision, not only a restraint rule.** Name each font role explicitly (display/chrome, body, data/numerals if the product shows live-updating figures) and tie any new typeface to a stated reason, the same bar as a new palette color. At most 2 font sizes/weights per screen unless clearly justified; a type scale reused everywhere beats a bespoke one per screen. A numerals role that shows live-updating figures has a hard functional requirement the others don't: tabular/monospaced digits, so a value change never reflows a live display.
+## 2. Grouping and staging
 
-## Step 2: Spatial composition and staging - special weight for 3D-scene/prop work
+- **Group the way the eye groups.** Proximity, similarity and common region make separate things read as one cluster; figure-ground keeps an interactive element from melting into a busy background. Readability first (silhouette, value, grouping), then hierarchy.
+- **Never place an object in a fixed, non-orthogonal camera by eyeballing.** Translating "top-left" into world coordinates by intuition is one of the most repeated gaps in 3D work. Sample the engine's world-to-screen projection at known landmarks and trust that mapping. Block out new layouts with placeholder shapes first. Detail: `references/3d-staging-and-performance.md`.
 
-- **Never place or move an object in a fixed, non-orthogonal camera by eyeballing where it'll land on screen.** Translating screen-relative language ("move it to the top-left," "make it bottom-right") into world coordinates for a fixed camera is one of the most repeated real gaps in this kind of work. Sample the engine's own world-to-viewport projection at known landmark coordinates first and trust that mapping over intuition every time. Check real clearance against every neighboring object's actual footprint, not just non-overlap. A camera's screen extremes aren't always simultaneously reachable - say so explicitly rather than forcing a worse compromise. Block out a genuinely new layout with placeholder shapes before building final geometry.
-- **Group elements the way the eye groups them - Gestalt, not decoration.** Proximity, similarity, and common region make separate objects read as one intentional cluster; figure-ground is what keeps an interactive element from melting into the background behind it, and is a likely failure point in any visually busy scene. Treat lighting as its own pass, separate from materials - in a fixed camera it's an advantage, since a rim light placed for that exact angle stays correct. Readability first (silhouette, value, grouping), then spend on hierarchy.
+## 3. 2D and UI quality
 
-## Step 3: 2D/UI visual quality (icons, chrome, backdrops)
+- One icon set shares stroke weight, corner radius and shadow depth; a single mismatch reads as "wrong" faster than any quality gap.
+- Judge legibility at the real render size, never at generation or preview size - crisp at 512 px can be mush at 48 px.
+- Once a shared chrome, panel or shadow system exists, a bespoke per-screen treatment is a regression.
+- **Color never carries meaning alone** - pair it with a shape, icon, sign or label. **Contrast is computed, not eyeballed:** the WCAG 2.x formula and AA thresholds (4.5:1 normal text; 3:1 large text and for UI components and meaningful graphics) are the current conformance bar. Compute from a rendered capture, not stored constants - a renderer's color space can make a stored value lie. Check color-vision deficiency with a simulator on a real capture.
 
-- Consistent stroke weight, corner radius, and shadow depth across every icon in the same set - one mismatched item reads as "wrong" faster than any individual quality gap.
-- Check icon/text legibility at the actual render size it'll appear at, never at generation or preview size - something crisp at 512px can be mush at 48px.
-- Reuse a shared chrome/shadow/panel system project-wide once one exists - a bespoke per-screen treatment is a regression once a shared system exists, not a stylistic choice.
-- **Color is never the sole carrier of meaning** (status, outcome, state) - pair it with a shape, icon, sign, or label. This is a hard accessibility floor, not a nice-to-have: check against WCAG's contrast formula and thresholds (4.5:1 normal text; 3:1 large text and non-text UI components), and verify with a real colorblind-simulation pass, not by eye. Contrast is computed from a real rendered capture, never eyeballed or trusted from stored color constants - a renderer's actual color space (linear vs. gamma) can make a stored value lie about its rendered brightness.
+## 4. Verification - check, don't just judge
 
-## Step 4: Verification - how this actually gets checked, not just judged by eye
+- **A rendered capture is the ground truth** for "did it draw, and where." Geometry hidden behind an opaque element at the same depth, or a color-parsing bug that blows a value to white while the stored value looks fine, are found only this way.
+- **A capture from a live edit or hot-reload session proves only the live state.** Redo accepted values as persisted edits and re-capture from a fresh session.
+- **Compare against the reference file, every time**, not memory of it.
+- **More than one distance, angle and viewport shape.** Many defects exist at only one framing.
+- **Check a growing set together** (a contact sheet or grid), not only piece by piece - palette, scale and silhouette drift exist only in the comparison.
+- **Every real state gets a look** - empty, locked, first-time - not "later polish."
+- **A vision-model read - your own included - is a measurement, not a taste authority.** Diff against a reference, name the checkable heuristic before judging, describe the image before evaluating it, crop to the asset under review, and keep a human as the final judge of style.
+- **State the trade-off when a fix isn't free** (a zoom that helps the common case but risks cropping on an untested aspect ratio).
 
-- **A screenshot is the only ground truth.** Never trust a computed/expected position, color, or bounding value without a real rendered capture confirming it. Real, otherwise-invisible bugs get caught exactly this way: geometry that exists but renders fully hidden behind an opaque element at the same depth; a color-parsing bug that silently blows a value out to white while the *stored* value looks plausible on paper.
-- **A screenshot taken mid-live-iteration only proves the current live state looks right - it says nothing about whether that state is actually saved.** Live/runtime edits in an editor or a hot-reload session can silently revert the instant the session ends. Redo the final accepted value as a deliberate persisted edit, save it for real, and re-verify with a screenshot from a fresh session before trusting any live-iteration screenshot as final.
-- **Compare against the actual reference file, every time - not memory of it.** Memory of a reference drifts session to session; re-open the file.
-- **Check at more than one distance/angle.** A full-scene wide shot and a close-up serve different purposes - many defects (occluded detail, illegible small elements, a silhouette that doesn't read) only show up at one framing and are invisible at the other.
-- **When a set of related assets grows past a handful, check them together in one place, not just individually as each ships.** A dedicated "everything side by side" view (a contact-sheet screenshot, a grid) surfaces palette drift, inconsistent scale, and silhouette overlap that reviewing each asset in isolation never will - the defect only exists in the comparison, not in any single piece. When checking drift *over time* (a style guide followed loosely, a palette meant to stay fixed), compare representative pieces from different points in the timeline under identical conditions - the divergence itself locates where consistency broke, which beats re-reviewing everything from scratch.
-- **Cover every real state, not just the happy path.** An empty slot, a locked/teaser state, an unpopulated list - these are real visual states a user will actually see, not placeholders to skip until "later." Missing one is a shipped gap, not a polish deferral.
-- **A vision-model read of a screenshot - your own included - is a measurement instrument, not a taste authority.** It has a documented failure mode ("visual sycophancy": anchoring on a plausible description over the actual pixels). Counter it explicitly: diff against a reference, name checkable heuristics before judging, describe what's in the image before evaluating it, crop to the specific asset under review rather than judging a whole composite screenshot at once.
-- **Get a second, less-invested read when the stakes justify it.** Whoever built something is primed to see what they intended rather than what's actually there. A fresh look - after a break, from a different capture angle, or from a genuinely separate reviewer's perspective - catches what a single continuous session won't.
-- **State the trade-off out loud when a fix isn't free.** A camera-zoom change that improves the common case but reintroduces cropping risk on an untested aspect ratio; a placement fix that only nails one of two named directions - say so plainly rather than letting a partial fix pass as a full one.
+Verification detail, generated-asset acceptance, and when tooling earns its cost: `references/verification-and-tooling.md`.
 
-### Generated/procedural assets
+## Mistakes to flag
 
-Write acceptance criteria *before* generating, judged at the size the end user actually sees the asset - not at generation resolution. Watch for the tells of a structurally generic result: perfect silhouette with no distinguishing geography, invisible hierarchy (nothing draws the eye first), uniform distribution with no focal weighting, and reliance on one narrow palette family. Fine surface detail cannot rescue a structurally generic composition - fix the structure first.
-
-### Mobile/constrained-hardware performance QA (scene-authoring side)
-
-LOD (level-of-detail) ladders only earn their cost when viewing distance actually varies - a fixed camera never changes viewing distance, so don't import that checklist item reflexively for a fixed-camera scene. Overdraw (multiple overlapping semi-transparent layers) is the most common mobile-GPU killer - a casual second glow/overlay layer "for richness" is a rejection on constrained hardware, not a preference call. Needlessly breaking a shared material/texture atlas into a second one is a real draw-call cost with no visual gain; check before splitting one.
-
-## Step 5: Tooling - invest where it earns its keep, not by default
-
-- **For 2D asset generation:** decide explicitly whether free-tier tooling is for exploring a prompt formula only, with paid/higher-quality generation reserved for anything that actually ships - don't let a free-tier result quietly become the shipped asset by default.
-- **A dedicated design/mockup tool (e.g. Figma) earns its cost on exactly two things, not on "design tooling" in general: coordinating visual decisions across more than one person, and validating an expensive layout *before* paying to build it for real.** If neither applies - a solo builder, and the live implementation-and-screenshot loop already iterates about as fast as a mockup tool would - a translation step into a separate tool and back adds cost without removing any. Revisit the moment either condition changes: a second person joins visual work, or a specific upcoming layout is expensive enough to get wrong that a cheap mockup pays even solo.
-- Maintain a small reference library (accepted assets, reference images, a written style-recipe/prompt template) as the actual source of truth for "what does on-brand look like" - cheaper and more durable than re-deriving style from memory each time.
-
-## Mistakes to actively flag
-
-- Placing or moving a 3D object by eyeballed screen position instead of a verified world-to-screen mapping.
-- Trusting a computed color/position/bounds value without a real screenshot confirming it.
-- A new palette color, typeface, material setup, or visual pattern introduced without checking existing precedent first - a new typeface clears the same bar as a new palette color.
-- Judging a scene or asset from only one camera distance/angle.
-- Authoring new geometry or a new asset from scratch when an existing, already-verified shape/asset could be adapted instead.
-- Shipping a visual state (empty/locked/first-time) as "later polish" instead of a real state to check now.
-- Reaching for a new tool (a mockup tool, a new pipeline, a new library) out of habit rather than a stated gap the current workflow can't close.
-- Building full detail on a brand-new spatial layout before a cheap placeholder pass has confirmed the position/scale actually works.
-- Reviewing each new asset in a growing set only in isolation, never all together - palette/scale/silhouette drift across a set is invisible piece-by-piece.
-- A net-new surface landing on a recognizable generic default look without that being named and justified.
-- Numerals in a live-updating display without tabular figures.
-- An open-ended "does this look right?" put to a vision model (yourself included) with no reference to diff against, no named heuristic, and no describe-first step.
-- A contrast or colorblind claim made by eye - or from stored color constants - instead of the formula and a good-algorithm simulator on a real capture.
+- A 3D object placed by eyeballed screen position instead of a verified projection.
+- A computed position, color or bounds trusted without a capture.
+- A new color, typeface, material or pattern added without checking precedent.
+- A surface that landed on a recognizable generic default without naming it.
+- A scene or asset judged from one distance, angle or viewport.
+- A growing asset set reviewed only piece by piece.
+- An empty, locked or first-time state deferred as "polish."
+- Full detail built on a new layout before a placeholder pass confirmed it.
+- Live-updating numerals without tabular digits.
+- A contrast or colorblind claim made by eye or from stored constants.
+- "Does this look right?" put to a vision model with no reference, heuristic or describe-first step.
+- A new tool or pipeline adopted from habit rather than a stated gap.
