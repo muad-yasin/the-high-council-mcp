@@ -88,6 +88,7 @@ import { scanArtifacts } from './key-redaction.js';
 import { resetToolCallLog, renderToolsMd } from './tools.js';
 import { arguedWarnings } from './argued.js';
 import { councilCommand, unignoredEnvFile } from './invocation.js';
+import { contextFileList, readContextFile, ContextFileError } from './context-files.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -1478,14 +1479,17 @@ const contextArg = contextArgRaw && contextArgRaw !== true
 // work, since MCP cannot pass --allow-unfenced). The gate reads the task text alone.
 const requestForArtifactGate = request;
 if (contextArg) {
-  const files = [];
-  for (const entry of String(contextArg).split(',').map(x => x.trim()).filter(Boolean)) {
-    const p = entry;
-    if (statSync(p).isDirectory()) {
-      for (const f of readdirSync(p).sort()) if (f.endsWith('.md') && f !== 'README.md') files.push(join(p, f));
-    } else files.push(p);
+  // Which files, and each one read non-blocking with a size cap: a FIFO, a device or an oversized
+  // file is refused with its name, before any call (src/context-files.js).
+  let files, docs;
+  try {
+    files = contextFileList(contextArg);
+    docs = files.map(f => `## ${f.split('/').pop()}\n\n${readContextFile(f)}`).join('\n\n---\n\n');
+  } catch (e) {
+    if (!(e instanceof ContextFileError)) throw e;
+    console.error(`${e.message}. Refused before any call.`);
+    process.exit(2);
   }
-  const docs = files.map(f => `## ${f.split('/').pop()}\n\n${readFileSync(f, 'utf8')}`).join('\n\n---\n\n');
   request += `\n\n---\n\n# Standing context - direction documents\n\nThese are the mission, the decisions already taken and the ideas parked for later, as the people running this project keep them. Plan within them. Do not restate them, do not re-decide anything they settle, and do not pull a parked idea into scope unless the request above asks for it. Where the request and a document conflict, the request wins and you say so under "Assumptions".\n\n${docs}`;
   console.log(`context: ${files.length} document(s) appended (${files.map(f => f.split('/').pop()).join(', ')})`);
 }

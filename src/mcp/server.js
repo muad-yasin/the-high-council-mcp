@@ -28,6 +28,7 @@ import { deriveRunStatus, waitingStage, waitingStages, isAlivePid, isAliveByGrep
 import { lockHolder } from '../run-lock.js';
 import { harnessVersion } from '../version.js';
 import { isDeniedPath, pathRefusal } from '../tools.js';
+import { contextFileList } from '../context-files.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Same split as the CLI: `pkg` ships with the package (chains/, the CLI
@@ -107,7 +108,22 @@ function chainConfigFor(name, runMeta = null) {
 // gitignore check. plan_outline used to readFileSync any path and hand its "# ..." lines back,
 // a commented-out key in .env included (pre-release audit 2026-09-23, McpServer #1).
 const MAX_CLIENT_FILE_BYTES = 2_000_000;
-function clientFileRefusal(p, { jail = false, ext = null } = {}) {
+// start_run's inputs (task, draft, context, from_run) live in the harness's own folders more often
+// than not: write_task writes tasks/, the CLI writes runs/, and context/ is the documented home of
+// --context folders. Projects commonly gitignore all three, so read_file's gitignore check would
+// refuse the normal case there. Inside them only the denylist applies; anywhere else in the working
+// directory the gitignore check applies as well, since a gitignored file may hold local secrets.
+const HARNESS_INPUT_DIRS = new Set(['tasks', 'runs', 'context']);
+function jailRefusal(p, real, { harnessInput = false } = {}) {
+  const root = realpathSync(work);
+  const rel = relative(root, real);
+  if (rel.startsWith('..') || isAbsolute(rel) || rel.split(sep)[0] === '..') return `refused: ${p} is outside the working directory`;
+  if (harnessInput && HARNESS_INPUT_DIRS.has(rel.split(sep)[0])) {
+    return isDeniedPath(rel) || isDeniedPath(real) ? `refused: ${p} matches the secret/credential denylist` : null;
+  }
+  try { return pathRefusal(root, real); } catch (e) { return e.message; }
+}
+function clientFileRefusal(p, { jail = false, ext = null, harnessInput = false } = {}) {
   const abs = resolve(work, p);
   if (!existsSync(abs)) return `no such file: ${p}`;
   const st = lstatSync(abs);
@@ -117,11 +133,57 @@ function clientFileRefusal(p, { jail = false, ext = null } = {}) {
   if (statSync(real).size > MAX_CLIENT_FILE_BYTES) return `refused: ${p} is over ${MAX_CLIENT_FILE_BYTES} bytes`;
   if (ext && !real.toLowerCase().endsWith(ext)) return `refused: ${p} is not a ${ext} file`;
   if (isDeniedPath(basename(real)) || isDeniedPath(real)) return `refused: ${p} matches the secret/credential denylist`;
-  if (jail) {
-    const root = realpathSync(work);
-    const rel = relative(root, real);
-    if (rel.startsWith('..') || isAbsolute(rel) || rel.split(sep)[0] === '..') return `refused: ${p} is outside the working directory`;
-    return pathRefusal(root, real);
+  if (jail) return jailRefusal(p, real, { harnessInput });
+  return null;
+}
+// A folder a client hands in (a --context folder, a --from-run run folder): inside the working
+// directory and not on the denylist. The files in it are checked one by one by the caller.
+function clientDirRefusal(p) {
+  const abs = resolve(work, p);
+  if (!existsSync(abs)) return `no such folder: ${p}`;
+  const real = realpathSync(abs);
+  if (!statSync(real).isDirectory()) return `not a folder: ${p}`;
+  if (isDeniedPath(basename(real)) || isDeniedPath(real)) return `refused: ${p} matches the secret/credential denylist`;
+  return jailRefusal(p, real, { harnessInput: true });
+}
+// Security scan 2026-09-26 (THC #1): start_run checked task and draft against the denylist only,
+// and `context` and `from_run` not at all, so a client could hand the CLI any readable file (a .env
+// included) to be appended to every seat's prompt. Every file the CLI would read for these four
+// inputs is now checked here, and all of them must lie inside the working directory.
+const FROM_RUN_FILES = ['report.json', 'criteria-retry.md', 'criteria-feasibility-retry.md', 'criteria.md', 'build.md'];
+function startRunInputRefusal({ task, draft, context, from_run }) {
+  for (const [what, p] of [['task', task], ['draft', draft]]) {
+    const refusal = p ? clientFileRefusal(p, { jail: true, harnessInput: true }) : null;
+    if (refusal) return `${what}: ${refusal}`;
+  }
+  if (context) {
+    for (const entry of context.split(',').map(x => x.trim()).filter(Boolean)) {
+      const abs = resolve(work, entry);
+      if (existsSync(abs) && statSync(abs).isDirectory()) {
+        const refusal = clientDirRefusal(entry);
+        if (refusal) return `context: ${refusal}`;
+        let files;
+        try { files = contextFileList(abs); } catch (e) { return `context: ${e.message}`; }
+        for (const f of files) {
+          const r = clientFileRefusal(f, { jail: true, harnessInput: true });
+          if (r) return `context: ${r}`;
+        }
+      } else {
+        const refusal = clientFileRefusal(entry, { jail: true, harnessInput: true });
+        if (refusal) return `context: ${refusal}`;
+      }
+    }
+  }
+  if (from_run) {
+    const refusal = clientDirRefusal(from_run);
+    if (refusal) return `from_run: ${refusal}`;
+    const dir = resolve(work, from_run);
+    if (!existsSync(join(dir, 'build.md'))) return `from_run: ${from_run} is not a run folder with a build.md`;
+    for (const f of FROM_RUN_FILES) {
+      if (!existsSync(join(dir, f))) continue;
+      const r = clientFileRefusal(join(dir, f), { jail: true, harnessInput: true });
+      if (r) return `from_run: ${r}`;
+    }
   }
   return null;
 }
@@ -247,7 +309,7 @@ async function untilPastStartup(child, runDir, spawnedAt, exited) {
   while (!exited() && !pastStartup() && Date.now() - t0 < 60_000) await new Promise(r => setTimeout(r, 100));
 }
 
-server.tool('start_run', 'Start a harness run in the background. Returns the run id to poll with run_status, or started:false with the exit code and log tail if the run stopped at once. task is a path relative to your working directory (tasks/x.md) or absolute; context is optional (context/war-of-love). draft + from_run + rounds=1 makes a panel-only grading pass.', {
+server.tool('start_run', 'Start a harness run in the background. Returns the run id to poll with run_status, or started:false with the exit code and log tail if the run stopped at once. task, draft, context and from_run are paths inside your working directory (tasks/x.md, context/war-of-love, runs/<id>); anything outside it, or on the secret/credential denylist, is refused. draft + from_run + rounds=1 makes a panel-only grading pass.', {
   chain: z.string(),
   task: z.string(),
   context: z.string().optional(),
@@ -260,16 +322,14 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
 }, async ({ chain, task, context, draft, from_run, rounds, max_usd, pii_gate, allow_unfenced }) => {
   // The task and draft go to every seat, so the same denylist as the seat tools applies: no
   // .env, key files or credentials by path (pre-release audit 2026-09-23, McpServer #1 addendum).
-  for (const [what, p] of [['task', task], ['draft', draft]]) {
-    const refusal = p ? clientFileRefusal(p) : null;
-    if (refusal) return text({ started: false, error: `${what}: ${refusal}` });
-  }
+  const refusal = startRunInputRefusal({ task, draft, context, from_run });
+  if (refusal) return text({ started: false, error: refusal });
   // The folder name is chosen here and handed to the CLI, not guessed afterwards from whatever
   // appeared in runs/: two start_run calls in one instant used to both report the first folder
   // (McpServer #2).
   const id = nextRunId();
   const args = ['--chain', chain, '--task', resolve(work, task), '--run-id', id];
-  if (context) args.push('--context', resolve(work, context));
+  if (context) args.push('--context', context.split(',').map(x => x.trim()).filter(Boolean).map(e => resolve(work, e)).join(','));
   if (draft) args.push('--draft', resolve(work, draft));
   if (from_run) args.push('--from-run', resolve(work, from_run));
   if (rounds) args.push('--rounds', String(rounds));

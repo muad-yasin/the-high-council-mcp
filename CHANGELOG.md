@@ -87,6 +87,18 @@
   the published 0.7.7. The endpoint needs its bearer token, so only a holder of the token could
   have used it.
 
+### Security
+
+- **MCP `start_run` checks every file it hands the CLI.** `task` and `draft` were checked against
+  the secret/credential denylist only, and `context` and `from_run` not at all, so an MCP client
+  could have a file such as `.env`, or one outside the project, appended to every seat's prompt.
+  All four inputs, and each file inside a `context` folder or a `from_run` run folder, now go
+  through the denylist and must lie inside the working directory (symlinks are followed before the
+  check). Paths outside it are refused, including absolute ones. Outside `tasks/`, `runs/` and
+  `context/` a gitignored file is refused as well. The CLI now reads each `--context` file with a
+  2 MB limit and refuses a file that is not a regular file (a FIFO or a device), with exit 2 and
+  the file's name, before any call. Reported by the 2026-09-26 security scan.
+
 ## 0.7.7 - 2026-09-25
 
 Everything since 0.7.6. The summary comes first; the detailed notes follow under "Detail". This
