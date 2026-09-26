@@ -101,6 +101,14 @@
   difference in the verdict could come from the criteria rather than the panel. Refused before any
   call, exit 2. Reported by the 2026-09-26 bug audit (#3).
 
+- **MCP: every external stage a run waits on can be answered.** A panel of external critics (or
+  external proposers) pauses for all of them at once, but `external_prompt` named only the first
+  and `submit_stage` accepted only the first, so the others could not be answered over MCP.
+  `external_prompt` now lists every waiting stage under `waiting` and takes an optional `stage` to
+  return that one's prompt; `submit_stage` accepts any waiting stage and resumes the run only once
+  none is left (until then it answers `resumed: false` with the stages still waiting). Reported by
+  the 2026-09-26 bug audit (#4).
+
 ### Security
 
 - **MCP `start_run` checks every file it hands the CLI.** `task` and `draft` were checked against

@@ -363,11 +363,18 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   return text({ started: true, pid: child.pid, run: id, state, log: logPath, note: 'poll run_status(run)' });
 });
 
-server.tool('external_prompt', 'When a run is paused at an external seat: the exact system and user prompt that stage needs answered. Answer with submit_stage.', { run: z.string() }, async ({ run }) => {
+// Bug audit 2026-09-26 #4: a stage that calls several seats at once (a panel of external critics,
+// external proposers) pauses for all of them together, but this tool named only the first and
+// submit_stage accepted only the first, so the others could not be answered through MCP. `waiting`
+// now lists every stage the run is waiting on, and `stage` picks which prompt to return (the first
+// by default); submit_stage accepts any of them.
+server.tool('external_prompt', 'When a run is paused at an external seat: the exact system and user prompt that stage needs answered. A run can wait on several stages at once (e.g. a panel of external critics): `waiting` lists them all; pass stage to get another one\'s prompt. Answer each with submit_stage; the run resumes once none is left.', { run: z.string(), stage: z.string().regex(/^[a-z0-9-]+$/).optional().describe('which waiting stage to return; defaults to the first in `waiting`') }, async ({ run, stage }) => {
   if (!safeRun(run)) return text({ error: 'no such run' });
   const dir = join(runsDir, run);
-  const label = waiting(dir);
-  if (!label) return text({ error: 'this run is not waiting for an external stage', state: runSummary(run).state });
+  const all = waitingStages(dir);
+  if (!all.length) return text({ error: 'this run is not waiting for an external stage', state: runSummary(run).state });
+  if (stage && !all.includes(stage)) return text({ error: `run is not waiting for "${stage}"`, waiting: all });
+  const label = stage || all[0];
   const prompt = readFileSync(join(dir, `NEEDS-${label}.md`), 'utf8');
   // v2 plan §10 Phase 2 item 4: a large prompt file silently truncated by a read is the
   // exact failure this project already suffered once - a session that could not see its
@@ -376,7 +383,7 @@ server.tool('external_prompt', 'When a run is paused at an external seat: the ex
   // v3 plan §1: a claim's staleness/contest status alongside the prompt this tool already
   // returns - no new tool call needed to see whether this stage is stalled or contested.
   const claimWarning = checkClaimStaleness(dir, label);
-  return text({ run, stage: label, prompt, answerWith: `submit_stage(run, "${label}", <text>)`, ...(check.ok ? {} : { integrity_warning: check.warning }), claim: claimWarning || { type: 'none' } });
+  return text({ run, stage: label, prompt, answerWith: `submit_stage(run, "${label}", <text>)`, waiting: all, ...(check.ok ? {} : { integrity_warning: check.warning }), claim: claimWarning || { type: 'none' } });
 });
 
 // v2 plan §3 (~/Projects/relay/runs/2026-09-11T12-19-34-184Z/deliverable.md). A driving
@@ -405,7 +412,7 @@ server.tool('prepare_stage_prompt', 'For a run paused at an external seat: write
   return text({ written: join(dir, 'stage_prompt.md'), stage: label, dispatch: 'Fork a subagent and give it only this file\'s path - not its contents inline.' });
 });
 
-server.tool('submit_stage', 'Write the answer for an external stage into the run folder, then resume the run in the background. The stage must be the one external_prompt reported. claimed_by is optional (v3 §1): a self-declared peer-session name, recorded as this stage\'s claim; every check here is warn-only and never blocks the write, so a caller that omits it sees exactly today\'s behavior.', { run: z.string(), stage: z.string().regex(/^[a-z0-9-]+$/), content: z.string(), claimed_by: z.string().optional().describe('self-declared peer-session name, recorded as this stage\'s claim before the answer is written') }, async ({ run, stage, content, claimed_by }) => {
+server.tool('submit_stage', 'Write the answer for an external stage into the run folder, then resume the run in the background. The stage must be one external_prompt lists under `waiting`; the run resumes once all of them are answered. claimed_by is optional (v3 §1): a self-declared peer-session name, recorded as this stage\'s claim; every check here is warn-only and never blocks the write, so a caller that omits it sees exactly today\'s behavior.', { run: z.string(), stage: z.string().regex(/^[a-z0-9-]+$/), content: z.string(), claimed_by: z.string().optional().describe('self-declared peer-session name, recorded as this stage\'s claim before the answer is written') }, async ({ run, stage, content, claimed_by }) => {
   if (!safeRun(run)) return text({ error: 'no such run' });
   const dir = join(runsDir, run);
   // A stage this run never paused for is still rejected outright - that is not one of §1's
@@ -415,8 +422,8 @@ server.tool('submit_stage', 'Write the answer for an external stage into the run
   // to the duplicate_answer warning below instead, so neither answer is silently lost.
   const wasExternalStage = existsSync(join(dir, `NEEDS-${stage}.md`));
   const alreadyAnswered = existsSync(join(dir, `${stage}.md`));
-  if (!wasExternalStage || (!alreadyAnswered && waiting(dir) !== stage)) {
-    return text({ error: `run is not waiting for "${stage}"`, waitingFor: waiting(dir) });
+  if (!wasExternalStage || (!alreadyAnswered && !waitingStages(dir).includes(stage))) {
+    return text({ error: `run is not waiting for "${stage}"`, waitingFor: waiting(dir), waiting: waitingStages(dir) });
   }
 
   // v3 plan §1: three warn-only checks, all evaluated before the answer file is accepted as
@@ -429,6 +436,12 @@ server.tool('submit_stage', 'Write the answer for an external stage into the run
 
   if (isDuplicate) {
     return text({ written: `${stage}.late.md`, words: words(content), warnings, note: `"${stage}.md" already existed and was left untouched; this submission was kept as "${stage}.late.md" for a human or driving session to resolve.` });
+  }
+  // The run resumes once every stage it paused for has an answer; until then it would only pause
+  // again at once (and a resume per answer used to replay the whole run up to the pause each time).
+  const left = waitingStages(dir);
+  if (left.length) {
+    return text({ written: `${stage}.md`, words: words(content), ...(warnings.length ? { warnings } : {}), resumed: false, waiting: left, note: `${left.length} more stage(s) to answer before the run resumes: ${left.join(', ')}` });
   }
   return text({ written: `${stage}.md`, words: words(content), ...(warnings.length ? { warnings } : {}), ...(await resume(run)) });
 });
