@@ -908,7 +908,7 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
-  // denied-model (2026-09-23, Muad: "Drop grok drop Kimi k3", "No grok, ever!!!"): a hard error,
+  // denied-model (2026-09-23, Muad: "No grok, ever!!!"; Kimi allowed in user chains since 2026-09-26): a hard error,
   // no opt-out. Checked on the roster AFTER resolveChainSeats, so a single-vendor rewrite cannot
   // hide one. Router ids are errors too - they can route to a denied model. See src/denied-models.js.
   let resolved = config;
@@ -917,7 +917,7 @@ export function lintChain(config, filePath = '<chain>') {
     findings.push({
       kind: 'denied-model',
       message: `${path}: ${reasons.join('; ')}.`,
-      fix: `Remove that seat from ${filePath}. xAI/Grok and Kimi/Moonshot are never seated, and a router id cannot prove it avoids them. There is no override.`,
+      fix: `Remove that seat from ${filePath}. xAI/Grok is never seated, and a router id cannot prove it avoids it. There is no override.`,
     });
   }
 

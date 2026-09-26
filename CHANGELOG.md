@@ -66,6 +66,8 @@
 
 ### Changed
 
+- **Kimi/Moonshot models may be seated in your own chains again.** They stay out of every chain
+  this package ships. xAI/Grok, and router ids that could pick it, stay refused with no override.
 - **All ten existing skills revised** for current practice: descriptions say what each skill does
   and when to use it, main files are shorter with detail in `references/`, citations were checked
   and several corrected, `backend-developer` gained a security baseline (OWASP Top 10:2025),

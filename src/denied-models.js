@@ -12,7 +12,11 @@
 
 import { knownProviderHosts } from './providers.js';
 
-export const DENIED_MODEL = /grok|x-ai|\bxai\b|kimi|moonshot/i;
+// 2026-09-26, Muad: "Kimi K3 is not excluded completely from being used, it was just removed from
+// our own chain configs." So Kimi/Moonshot is no longer denied here: a user may seat it in their own
+// chain. It stays out of every chain this package ships (test/shipped-chains-no-kimi.test.js).
+// xAI/Grok stays denied, always.
+export const DENIED_MODEL = /grok|x-ai|\bxai\b/i;
 // `openrouter/auto`, `.../pareto-code`, and any id or plugin naming a router ("pareto-router",
 // "auto-router"). "openrouter" itself is a provider name and does not match: the router word must
 // start the id or follow a separator.
@@ -52,7 +56,7 @@ export function baseUrlReasons(seat) {
   let host;
   try { host = new URL(String(seat.baseUrl)).hostname.toLowerCase(); } catch { return [`baseUrl "${seat.baseUrl}" is not a valid URL, so where the request goes cannot be checked`]; }
   if (DENIED_HOST.test(host) || DENIED_MODEL.test(host) || /(^|[.-])router([.-]|$)/i.test(host)) {
-    return [`baseUrl host "${host}" is a denied lab or a router (no xAI/Grok, no Kimi/Moonshot; no override)`];
+    return [`baseUrl host "${host}" is a denied lab or a router (no xAI/Grok; no override)`];
   }
   if (isLoopback(host)) return [];
   if (seat.provider === 'ollama' && isPrivateNet(host)) return [];
@@ -69,7 +73,7 @@ function reasonsForSeat(seat) {
     ...(Array.isArray(seat.extra?.models) ? seat.extra.models.map(m => ['extra.models', m]) : []),
   ].filter(([, v]) => typeof v === 'string');
   for (const [field, id] of ids) {
-    if (DENIED_MODEL.test(id)) out.push(`${field} "${id}" is a denied model (no xAI/Grok, no Kimi/Moonshot)`);
+    if (DENIED_MODEL.test(id)) out.push(`${field} "${id}" is a denied model (no xAI/Grok)`);
     else if (field !== 'provider' && ROUTER_MODEL.test(id)) out.push(`${field} "${id}" is a router id that could route to a denied model`);
   }
   for (const plugin of Array.isArray(seat.extra?.plugins) ? seat.extra.plugins : []) {
@@ -80,7 +84,7 @@ function reasonsForSeat(seat) {
   for (const key of EXTRA_ROUTING_KEYS) {
     if (key === 'models' || key === 'plugins') continue; // reported above, with their own wording
     for (const id of stringsIn(extra[key])) {
-      if (DENIED_MODEL.test(id)) out.push(`extra.${key} "${id}" names a denied model (no xAI/Grok, no Kimi/Moonshot)`);
+      if (DENIED_MODEL.test(id)) out.push(`extra.${key} "${id}" names a denied model (no xAI/Grok)`);
       else if (ROUTER_MODEL.test(id)) out.push(`extra.${key} "${id}" is a router id that could route to a denied model`);
     }
   }
@@ -91,7 +95,7 @@ function reasonsForSeat(seat) {
     ...(Array.isArray(extra.plugins) ? extra.plugins.flatMap(p => stringsIn(p && typeof p === 'object' ? { ...p, id: undefined } : p)) : stringsIn(extra.plugins)),
   ];
   for (const id of loose) {
-    if (DENIED_MODEL.test(id)) out.push(`extra "${id}" names a denied model (no xAI/Grok, no Kimi/Moonshot)`);
+    if (DENIED_MODEL.test(id)) out.push(`extra "${id}" names a denied model (no xAI/Grok)`);
     else if (ROUTER_MODEL.test(id)) out.push(`extra "${id}" is a router id that could route to a denied model`);
   }
   return out;

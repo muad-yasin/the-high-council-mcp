@@ -1,6 +1,7 @@
-// Owner decision 2026-09-23: "Drop grok drop Kimi k3", then "No grok, ever!!!". A hard error in
-// chain-lint (no opt-out) and at run time, so neither a user-written chain nor a direct runChain()
-// caller can seat xAI/Grok, Kimi/Moonshot, or a router that could route to them.
+// Owner decision 2026-09-23: "No grok, ever!!!". A hard error in chain-lint (no opt-out) and at run
+// time, so neither a user-written chain nor a direct runChain() caller can seat xAI/Grok or a router
+// that could route to it. Kimi/Moonshot was denied the same way until 2026-09-26, when the owner
+// said it was only meant to leave the shipped chains (test/shipped-chains-no-kimi.test.js).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -23,19 +24,23 @@ test('every shipped chain is free of denied models and router seats', () => {
   }
 });
 
-test('lint: xAI/Grok and Kimi/Moonshot are errors in every spelling and slot', () => {
+test('lint: xAI/Grok is an error in every spelling and slot; Kimi/Moonshot is allowed in a user chain', () => {
   for (const seat of [
     { provider: 'xai', model: 'grok-4' },
     { provider: 'openrouter', model: 'x-ai/grok-4.1' },
-    { provider: 'openrouter', model: 'moonshotai/kimi-k3' },
-    { provider: 'together', model: 'Moonshot/Kimi-K2-Instruct' },
     { provider: 'openrouter', model: 'openai/gpt-5', extra: { models: ['x-ai/grok-4'] } },
   ]) {
     assert.equal(denied(withCritic(seat)).length, 1, JSON.stringify(seat));
   }
+  for (const seat of [
+    { provider: 'openrouter', model: 'moonshotai/kimi-k3' },
+    { provider: 'together', model: 'Moonshot/Kimi-K2-Instruct' },
+  ]) {
+    assert.equal(denied(withCritic(seat)).length, 0, JSON.stringify(seat));
+  }
   // Outside the critics list too - the check walks the whole config.
   assert.equal(denied({ seats: { critics: [{ provider: 'mock', model: 'mock-critic-a' }] }, preflight: { seats: [{ provider: 'xai', model: 'grok-4' }] } }).length, 1);
-  assert.equal(denied({ seats: { critics: [{ provider: 'mock', model: 'mock-critic-a' }], builder: { provider: 'openrouter', model: 'moonshotai/kimi-k3' } } }).length, 1);
+  assert.equal(denied({ seats: { critics: [{ provider: 'mock', model: 'mock-critic-a' }], builder: { provider: 'openrouter', model: 'moonshotai/kimi-k3' } } }).length, 0);
 });
 
 test('lint: router ids are errors, not warnings (they can route to a denied model)', () => {

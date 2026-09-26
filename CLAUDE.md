@@ -168,8 +168,11 @@ date. Read the comment before changing the behaviour, and keep the regression te
 - **BYOK only.** Never add a default key, a proxy, or a hosted/"try it free" path.
 - **No xAI/Grok, ever** (Muad, 2026-09-23: "No grok, ever!!!"). Not in any chain, roster, example
   or default, and not through a router id that could pick it (`openrouter/auto` and the like).
-  **Kimi K3 is dropped from every shipped chain** the same day. Chain-lint's `denied-model` rule
-  and a run-time check (both landing 2026-09-23) enforce this with no opt-out; never add one.
+  Chain-lint's `denied-model` rule and a run-time check (both landing 2026-09-23) enforce this with
+  no opt-out; never add one. **Kimi K3 is out of every shipped chain** (the same day), but a user may
+  seat it in their own chain: Muad, 2026-09-26, *"Kimi K3 is not excluded completely from being used,
+  it was just removed from our own chain configs."* `test/shipped-chains-no-kimi.test.js` keeps it out
+  of `chains/`.
 - **No efficacy claims** in any user-facing text until something has actually been measured. The
   README is deliberately written without them.
 - **The README's "Known limits" section stays honest.** Delete a limit when it stops being true,

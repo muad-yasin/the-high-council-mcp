@@ -1483,7 +1483,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   // 7.x single-vendor mode: resolved once, before either chain shape runs, so descending mode
   // and the normal stage flow both see vendor-routed seats without duplicating the call.
   config = resolveChainSeats(config);
-  // No denied model (xAI/Grok, Kimi/Moonshot, or a router that could reach one) is ever seated -
+  // No denied model (xAI/Grok, or a router that could reach it) is ever seated -
   // checked on the resolved roster, before any stage runs. See src/denied-models.js.
   assertNoDeniedModels(config);
   if ('signoff' in config && config.signoff !== undefined && !SIGNOFF_MODES.includes(config.signoff)) {
