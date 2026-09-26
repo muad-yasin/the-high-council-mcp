@@ -31,7 +31,8 @@ Each top-level property in the schema carries `"x-stability": "stable"` or `"exp
   release, and the changelog says so when one does. Examples: `panelVerdicts`, `dispute`,
   `disputes`, `security_review`, `claims`, `lints`, `argued`, `debate.diagnostics`,
   `debate.dropped` (since 0.7.8: the debate posts and author replies the harness rejected, per lab
-  and reason; `[]` when none were).
+  and reason; `[]` when none were), `notQuorate` (since 0.7.8: only on a chain that sets
+  `quorum.minHeard`, when a round's sign-off had too few verdicts to count).
 
 Most optional stages add their field only when the chain turns that stage on. When the field is
 missing, the stage did not run. It does not mean the stage found nothing.

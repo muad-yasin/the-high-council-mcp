@@ -259,6 +259,14 @@
       },
       "description": "src/chain-lint.js rule 6 already hard-validates this exhaustively (only 'enabled' is a real key) - this schema mirrors that exact shape rather than re-deriving it."
     },
+    "quorum": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Opt-in quorum floor for unanimous sign-off (0.7.8): the panel's sign-off counts only when at least minHeard reviewers gave a verdict. Off when absent; no shipped chain sets it.",
+      "properties": {
+        "minHeard": { "type": "integer", "minimum": 1 }
+      }
+    },
     "dispute": {
       "type": "object",
       "additionalProperties": false,

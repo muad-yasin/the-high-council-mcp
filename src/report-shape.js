@@ -137,6 +137,7 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     ...(result.patchFallbacks !== undefined ? { patchFallbacks: result.patchFallbacks } : {}),
     ...(result.coldRead != null ? { coldRead: result.coldRead } : {}),
     ...(result.noHeardReviewer ? { noHeardReviewer: result.noHeardReviewer } : {}),
+    ...(result.notQuorate ? { notQuorate: result.notQuorate } : {}),
     // Whole alternative architectures: additive, present only when the chain ran the stage. The
     // rendered board text lives in BOARD.md; the JSON carries the structured record only.
     // Pre-release cache audit #1: stages replayed from a cache entry that could only be checked

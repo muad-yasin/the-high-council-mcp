@@ -1381,7 +1381,7 @@ export async function runDescendingChain({ request, config, log = console.log, o
     // Pre-release audit 2026-09-23 (GuardLayer #1, and PanelSignoff's backlog): these were dropped
     // here, so a descending chain's security gate never reached the CLI (no exit 7/8, no gate in
     // report.json) and the panel/dispute record was lost. Forwarded only when the final run set them.
-    ...Object.fromEntries(['security_review', 'panelVerdicts', 'dispute', 'regressions', 'noHeardReviewer']
+    ...Object.fromEntries(['security_review', 'panelVerdicts', 'dispute', 'regressions', 'noHeardReviewer', 'notQuorate']
       .filter(k => finalResult[k] !== undefined).map(k => [k, finalResult[k]])),
     totals: summarise(stages),
   };
@@ -1446,6 +1446,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     const ledger = props.length ? peek(() => withdrawalLedger(props), null) : null;
     const optional = {
       noHeardReviewer: peek(() => noHeardReviewer, null) || undefined,
+      notQuorate: peek(() => notQuorate, null) || undefined,
       ground_truth: peek(() => ground_truth, undefined),
       canary: peek(() => canary, undefined),
       lints: peek(() => lints, undefined),
@@ -2298,6 +2299,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   const failedByRound = [];
   const regressions = [];
   let noHeardReviewer = null; // set when a panel round heard no reviewer at all - see the panel loop
+  // Quorum floor (0.7.8, thc-research brief 11; chain flag `quorum: { minHeard: N }`, off unless a
+  // chain sets it, and no shipped chain does). A unanimous sign-off counts only when at least N
+  // reviewers gave a verdict (signed off or objected). Today a panel of seven where one seat signs
+  // off and six only state a pass reads as unanimous; with a floor, that round is recorded as not
+  // quorate and the loop stops the way a round with no heard reviewer does: not agreement.
+  const minHeard = Number.isInteger(config.quorum?.minHeard) && config.quorum.minHeard > 0 ? config.quorum.minHeard : 0;
+  let notQuorate = null;
   // Every verdict opportunity this run had, one row per seat per round, including seats that were
   // never heard (thrown call, cut off, unreadable, no verdict). Bug-audit fix, 2026-09-23
   // (Review/BugAudit_Metrics_2026-09-23.md #3): verdict-stats used to reconstruct this from stage
@@ -2527,7 +2535,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // reviewer that WAS heard signed off, the old check declared "every lab that answered signed
       // off" and passed, with a truncated or malformed dissent silently outside the vote. The
       // relay engine already carries this rule (run 2026-09-13T20-20-07-757Z); ported here.
-      const allSignedOff = allVotersClean && unheard === 0;
+      // With no quorum set (minHeard 0) every round is quorate and this is exactly the old rule.
+      const quorate = voting.length >= minHeard;
+      const allSignedOff = allVotersClean && unheard === 0 && quorate;
       lastCritique = { meets: allSignedOff, failures: allFailures };
       // `objections` is why a seat declined, co-located with the decision itself.
       // The same failures also appear flattened in lastCritique.failures, tagged
@@ -2579,6 +2589,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // for, or paid for, a full rewrite with nothing to fix, up to the round cap. The stall rule
       // could not catch it (an empty signature). An OpenRouter outage takes out every critic in the
       // shipped seven-lab chains at once, so this is the outage path. Stop instead, and say why.
+      if (allVotersClean && unheard === 0 && !quorate) {
+        notQuorate = { round, heard: voting.length, minHeard, passedOnly: verdicts.length - voting.length };
+        log(`\n  round ${round}: every reviewer that gave a verdict signed off, but only ${voting.length} did (${verdicts.length - voting.length} stated a pass), below this chain's quorum of ${minHeard}. Not quorate: stopping the loop; this is not agreement.`);
+        passed = false;
+        break;
+      }
+
       if (voting.length === 0) {
         noHeardReviewer = { round, unheard, passedOnly: verdicts.length - unheard };
         log(`\n  round ${round}: no reviewer was heard (${unheard} unreadable or unreachable, ${verdicts.length - unheard} stated a pass) - there is nothing to revise against. Stopping the loop; this is not agreement.`);
@@ -2884,7 +2901,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   // unheard in the final round, so nobody reads them as a current position.
   const finalPanelRound = panelVerdicts.length ? Math.max(...panelVerdicts.map(v => v.round)) : null;
   // In a round nobody was heard in, a seat that only stated a pass cast no vote either.
-  const notHeard = v => v.verdict === 'unheard' || (noHeardReviewer && v.verdict === 'passed');
+  // The same for a round that was not quorate: its stated passes were not votes.
+  const notHeard = v => v.verdict === 'unheard' || ((noHeardReviewer || notQuorate) && v.verdict === 'passed');
   const unheardAtEnd = (!passed && config.signoff === 'unanimous')
     ? panelVerdicts.filter(v => v.round === finalPanelRound && notHeard(v)).map(v => v.lab)
     : [];
@@ -2897,7 +2915,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   });
   const openFailures = [...heardOpenFailures, ...carriedFailures];
   if (disputeEnabled && config.signoff === 'unanimous' && openFailures.length) {
-    const stopWhy = noHeardReviewer ? `no reviewer heard in round ${noHeardReviewer.round}` : stalled ? `stalled after ${stalled.rounds} identical rounds` : 'round cap reached';
+    const stopWhy = noHeardReviewer ? `no reviewer heard in round ${noHeardReviewer.round}` : notQuorate ? `round ${notQuorate.round} not quorate` : stalled ? `stalled after ${stalled.rounds} identical rounds` : 'round cap reached';
     log(`\nStage: dispute (${stopWhy}, ${openFailures.length} open objection(s))`);
     log('  This does not re-open the vote. The panel is done; this records what it could not settle.');
 
@@ -2954,7 +2972,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       '## Unresolved dissent',
       '',
       `${openFailures.length} objection(s) were still open when this run stopped` +
-        `${noHeardReviewer ? ` (no reviewer could be heard in round ${noHeardReviewer.round}, so the panel stopped there; nobody has reviewed the latest draft)` : stalled ? ` (the same objections for ${stalled.rounds} rounds running)` : ' (round cap reached)'}.`,
+        `${noHeardReviewer ? ` (no reviewer could be heard in round ${noHeardReviewer.round}, so the panel stopped there; nobody has reviewed the latest draft)` : notQuorate ? ` (in round ${notQuorate.round} only ${notQuorate.heard} reviewer(s) gave a verdict, below this chain's quorum of ${notQuorate.minHeard}, so the panel stopped there)` : stalled ? ` (the same objections for ${stalled.rounds} rounds running)` : ' (round cap reached)'}.`,
       'The panel did not agree. This plan is one draft with known, named disagreement against it,',
       'not a signed-off deliverable - read these before acting on anything below.',
       '',
@@ -2973,9 +2991,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
 
     dispute = {
       ran: true,
-      reason: noHeardReviewer ? 'no_heard_reviewer' : stalled ? 'stalled' : 'round_cap',
+      reason: noHeardReviewer ? 'no_heard_reviewer' : notQuorate ? 'not_quorate' : stalled ? 'stalled' : 'round_cap',
       stall_rounds: stalled ? stalled.rounds : null,
-      stopped_at_round: noHeardReviewer ? noHeardReviewer.round : stalled ? stalled.round : (finalPanelRound ?? maxRounds),
+      stopped_at_round: noHeardReviewer ? noHeardReviewer.round : notQuorate ? notQuorate.round : stalled ? stalled.round : (finalPanelRound ?? maxRounds),
       open_objections: openFailures.map(f => ({
         criterion: f.criterion,
         lab: f.lab || null,
@@ -2989,7 +3007,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     };
     log(`  recorded ${openFailures.length} unresolved objection(s) at the top of the deliverable. Outcome stays "no consensus".`);
   } else if (disputeEnabled && config.signoff === 'unanimous') {
-    dispute = { ran: false, reason: passed ? 'panel_signed_off' : noHeardReviewer ? 'no_heard_reviewer' : 'no_open_objections', ...(noHeardReviewer ? { stopped_at_round: noHeardReviewer.round } : {}) };
+    dispute = { ran: false, reason: passed ? 'panel_signed_off' : noHeardReviewer ? 'no_heard_reviewer' : notQuorate ? 'not_quorate' : 'no_open_objections', ...(noHeardReviewer ? { stopped_at_round: noHeardReviewer.round } : notQuorate ? { stopped_at_round: notQuorate.round } : {}) };
   }
 
   // 3b. Post-signoff challenge (config.challenge: { enabled: true }), v7
@@ -3170,6 +3188,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     panelVerdicts,
     // Additive: present only when a panel round heard no reviewer and the loop stopped there.
     ...(noHeardReviewer ? { noHeardReviewer } : {}),
+    // Additive (0.7.8): present only when the chain set a quorum and a round fell short of it.
+    ...(notQuorate ? { notQuorate } : {}),
     history,
     stages,
     totals: summarise(stages),

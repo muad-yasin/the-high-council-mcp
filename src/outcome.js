@@ -24,6 +24,7 @@ export function computeOutcome(result) {
   // failure read as `no_consensus` - disagreement. Its final verdict is the last panelVerdicts row.
   const verdicts = Array.isArray(result?.panelVerdicts) ? result.panelVerdicts : [];
   const lastUnheard = !Array.isArray(result?.signoff) && verdicts.length > 0 && verdicts[verdicts.length - 1].verdict === 'unheard';
-  if (hasDropout || hasAbstention || lastUnheard || result?.noHeardReviewer) return 'degraded';
+  // A round that fell short of the chain's quorum (0.7.8) is degraded the same way: too few verdicts.
+  if (hasDropout || hasAbstention || lastUnheard || result?.noHeardReviewer || result?.notQuorate) return 'degraded';
   return result?.passed === true ? 'consensus' : 'no_consensus';
 }

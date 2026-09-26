@@ -16,6 +16,14 @@
   `asOf` (`2026-09-06`: the oldest date every entry was last checked, so it errs old), and
   `council doctor` and `--dry-run` print it. Past 60 days they add a warning: the spend cap and
   every estimate project with these static prices.
+- **An opt-in quorum floor for unanimous sign-off:** `quorum: { "minHeard": N }` in a chain. The
+  panel's sign-off counts only when at least N reviewers gave a verdict (signed off or objected);
+  a stated pass is not a verdict. Without it, a seven-seat panel where one seat signs off and six
+  state a pass reads as unanimous. A round short of the floor is recorded as `notQuorate`
+  (experimental, in `report.json`), `passed` is false, the outcome is `degraded`, and the loop
+  stops, as it does after a round with no heard reviewer. With the dispute stage on, its reason is
+  `not_quorate`. chain-lint refuses a floor on a non-unanimous chain or above the panel's size.
+  **No shipped chain sets it**, so every shipped chain behaves as before.
 
 ### Changed
 

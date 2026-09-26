@@ -556,6 +556,34 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
+  // 11a. Quorum floor (0.7.8): `minHeard` is the only key chain.js reads, and only on a unanimous
+  // chain (round-robin hears one critic a round). A floor above the panel's size can never be met,
+  // so every such run would stop not-quorate however the panel voted.
+  if (config?.quorum !== undefined) {
+    const q = config.quorum;
+    const panelSize = Array.isArray(seats.critics) ? seats.critics.length : 0;
+    if (!q || typeof q !== 'object' || Array.isArray(q) || Object.keys(q).some(k => k !== 'minHeard')
+      || !Number.isInteger(q.minHeard) || q.minHeard < 1) {
+      findings.push({
+        kind: 'invalid-quorum-config',
+        message: `quorum must be an object like { "minHeard": 4 } - an integer of at least 1, and no other key.`,
+        fix: `Set "quorum" to { "minHeard": <reviewers that must give a verdict> } or remove it in ${filePath}.`,
+      });
+    } else if (config.signoff !== 'unanimous') {
+      findings.push({
+        kind: 'invalid-quorum-config',
+        message: `quorum applies to unanimous sign-off only; this chain's signoff is ${JSON.stringify(config.signoff ?? 'first')}.`,
+        fix: `Set "signoff": "unanimous", or remove "quorum", in ${filePath}.`,
+      });
+    } else if (q.minHeard > panelSize) {
+      findings.push({
+        kind: 'invalid-quorum-config',
+        message: `quorum.minHeard is ${q.minHeard} but the panel has ${panelSize} critic(s), so no round could ever be quorate.`,
+        fix: `Lower "quorum.minHeard" to ${panelSize} or less in ${filePath}.`,
+      });
+    }
+  }
+
   // 11b. Dispute stage (2026-09-20): `enabled` and `stall_rounds` are the only keys chain.js
   // reads. Same narrow stance as challenge/coldRead - a key that silently does nothing is the
   // failure check 1 exists for. Requires `signoff: "unanimous"`, for the same reason the

@@ -254,7 +254,7 @@
       "required": ["ran", "reason"],
       "properties": {
         "ran": { "type": "boolean" },
-        "reason": { "enum": ["stalled", "round_cap", "no_heard_reviewer", "panel_signed_off", "no_open_objections"] },
+        "reason": { "enum": ["stalled", "round_cap", "no_heard_reviewer", "not_quorate", "panel_signed_off", "no_open_objections"] },
         "stall_rounds": { "type": ["integer", "null"] },
         "stopped_at_round": { "type": ["integer", "null"] },
         "open_objections": {
@@ -457,6 +457,18 @@
         "passedOnly": { "type": "integer" }
       },
       "description": "Present only when a review round heard no reviewer at all and the loop stopped there. Makes outcome 'degraded'."
+    },
+    "notQuorate": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["round", "heard", "minHeard"],
+      "properties": {
+        "round": { "type": "integer" },
+        "heard": { "type": "integer", "description": "Reviewers that gave a verdict (signed off or objected) that round." },
+        "minHeard": { "type": "integer", "description": "The chain's quorum.minHeard." },
+        "passedOnly": { "type": "integer", "description": "Reviewers that only stated a pass." }
+      },
+      "description": "Since 0.7.8. Present only when the chain sets quorum.minHeard and a review round in which every verdict was a sign-off had fewer verdicts than that; the loop stopped there. Not agreement: passed is false and outcome is 'degraded'."
     },
     "unverifiedReplays": {
       "x-stability": "experimental",
