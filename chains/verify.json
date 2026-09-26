@@ -1,6 +1,6 @@
 {
   "name": "verify",
-  "description": "The recommended default. Two labs, a hard 2-round cap: the smallest cross-lab review, and the cheapest.",
+  "description": "The CLI default when --chain is not given. Two labs, a hard 2-round cap: the smallest cross-lab review. For a first real council, start with cheap-7-v2 (one OpenRouter key); see the README's chain table.",
   "maxRounds": 2,
   "stopOnPass": true,
   "estimate": {

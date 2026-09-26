@@ -226,9 +226,11 @@ $0.0442. A cross-canonical between two pages that are not duplicates is at best 
 engines and at worst deindexes a page with its own content and its own audience, on the domain
 that actually hosts the code.
 
-So `docs/index.html` stays self-canonical, permanently, and the two pages link to each other as
-what they are: two different write-ups. The README and the page footer now link the live URL
-rather than calling it forthcoming. Do not "finish" the flip - it was reconsidered, not forgotten.
+That reasoning held while GitHub Pages served this page. **Update 2026-09-26 (Muad: "Point it to
+my live"):** Pages is off and `muad-yasin.github.io/the-high-council-mcp/` returns 404, so a
+self-canonical would name a page that does not exist. `docs/index.html`'s `rel=canonical` and
+`og:url` now point to https://sower-industries.de/en/MCP/, the live page. If Pages is ever turned
+back on, revisit this.
 
 ## Cross-run spend (`src/spend.js`)
 
