@@ -194,5 +194,26 @@ export function renderBoardMd({ runId, result }) {
   // definition of done a command can settle and how much rests on reviewers' judgement.
   const kindsSection = result.criteriaSummary ? `${summaryLine(result.criteriaSummary)}\n\n` : '';
   if (!(result.board || disputesSection || alternativesSection || kindsSection)) return '';
-  return `# Debate board - run ${runId}\n\n${kindsSection}${alternativesSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${disputesSection}`;
+  return `# Debate board - run ${runId}\n\n${kindsSection}${alternativesSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${renderDroppedBoard(result.debate?.dropped)}${disputesSection}`;
+}
+
+// 0.7.8: what the debate stage's filters rejected (report.json debate.dropped). Only in BOARD.md,
+// never in the board text the builder reads (R.renderBoard), so no seat's prompt changes.
+const DROP_REASON_TEXT = {
+  unknown_target: 'named a proposal id that does not exist',
+  own_proposal: 'posted on its own proposal',
+  bad_stance: 'had a stance other than support, object or merge',
+  not_own_proposal: "answered another lab's proposal",
+  not_posted_on: 'answered one of its proposals nobody posted on',
+  bad_action: 'had an action other than keep, amend or withdraw',
+  unreadable: 'reply did not parse at all',
+};
+export function renderDroppedBoard(dropped) {
+  if (!Array.isArray(dropped) || !dropped.length) return '';
+  const rows = dropped.map(d => {
+    const what = d.stage === 'replies' ? 'author reply' : 'debate post';
+    const n = d.reason === 'unreadable' ? `the whole ${d.stage === 'replies' ? 'reply round' : 'debate reply'}` : `${d.count} ${what}${d.count === 1 ? '' : 's'}`;
+    return `- ${d.by}: ${n} - ${DROP_REASON_TEXT[d.reason] || d.reason}${d.reason === 'unreadable' && d.count > 1 ? ` (${d.count} times)` : ''}`;
+  });
+  return `\n\n## Dropped from the debate\n\nPosts and replies the harness could not place on this board, so they are not above. The raw replies are in this run folder (\`debate-<lab>.md\`, \`reply-<lab>.md\`).\n\n${rows.join('\n')}`;
 }

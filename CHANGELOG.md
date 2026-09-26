@@ -2,6 +2,17 @@
 
 ## 0.7.8 - unreleased
 
+### Added
+
+- **Dropped debate posts and replies are counted.** The debate stage has always filtered out a
+  post on an unknown proposal id, on the poster's own proposal, or with a stance other than
+  support/object/merge, and the reply stage the same for replies; the filtered item vanished and
+  only the raw reply on disk showed it. Each one is now counted per lab and reason in
+  `report.json`'s `debate.dropped` (experimental: `[{ stage, by, reason, count }]`, `[]` when
+  nothing was dropped) and listed under "Dropped from the debate" in `BOARD.md`. A reply that did
+  not parse at all counts as `unreadable`. The filters are unchanged, and the board text the
+  builder reads is unchanged: the new section is `BOARD.md`'s alone.
+
 ### Changed
 
 - **`src/http-server.js` and `express` are out of the npm package.** The HTTP trigger service was

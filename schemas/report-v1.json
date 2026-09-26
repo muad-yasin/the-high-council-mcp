@@ -664,6 +664,20 @@
         "diagnostics": {
           "type": "object",
           "description": "Experimental. Role failure-mode diagnostics computed from this run's own posts (src/role-diagnostics.js): perSeat, pairwiseAgreement, roleVsPlainSubstanceGap, flags."
+        },
+        "dropped": {
+          "type": "array",
+          "description": "Experimental (0.7.8). Debate posts and author replies the stage's filters rejected, one row per stage, lab and reason; [] when none were. Absent in runs made before 0.7.8. Reasons: for stage 'debate' unknown_target, own_proposal, bad_stance, unreadable; for stage 'replies' unknown_target, not_own_proposal, not_posted_on, bad_action, unreadable. An 'unreadable' row counts whole replies that did not parse, not posts.",
+          "items": {
+            "type": "object",
+            "required": ["stage", "by", "reason", "count"],
+            "properties": {
+              "stage": { "enum": ["debate", "replies"] },
+              "by": { "type": "string", "description": "The lab whose post or reply was dropped." },
+              "reason": { "enum": ["unknown_target", "own_proposal", "bad_stance", "not_own_proposal", "not_posted_on", "bad_action", "unreadable"] },
+              "count": { "type": "integer", "minimum": 1 }
+            }
+          }
         }
       }
     },

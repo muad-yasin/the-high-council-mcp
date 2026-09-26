@@ -29,7 +29,9 @@ Each top-level property in the schema carries `"x-stability": "stable"` or `"exp
   `stages`, `alternatives`.
 - **Experimental** fields belong to newer or opt-in stages. They may change shape in a minor
   release, and the changelog says so when one does. Examples: `panelVerdicts`, `dispute`,
-  `disputes`, `security_review`, `claims`, `lints`, `argued`, `debate.diagnostics`.
+  `disputes`, `security_review`, `claims`, `lints`, `argued`, `debate.diagnostics`,
+  `debate.dropped` (since 0.7.8: the debate posts and author replies the harness rejected, per lab
+  and reason; `[]` when none were).
 
 Most optional stages add their field only when the chain turns that stage on. When the field is
 missing, the stage did not run. It does not mean the stage found nothing.

@@ -346,6 +346,49 @@ export function boardRef(raw, maps, ids) {
   return typeof id === 'string' && ids.has(id) ? id : undefined;
 }
 
+// Debate posts and author replies the stage's filters reject (0.7.8, thc-research brief 10 W3).
+// The filters are unchanged; what changed is that a rejected item is counted, per lab and per
+// reason, into report.json's `debate.dropped` and BOARD.md, instead of vanishing. Silent drops were
+// the most common defect across the 22 council/debate repos that brief read, and the raw reply on
+// disk was the only trace of one here. Reasons:
+//   debate  - unknown_target (no proposal has that id), own_proposal (a lab posting on its own),
+//             bad_stance (not support/object/merge), unreadable (the whole reply did not parse;
+//             how many posts it held is unknown, so it counts once).
+//   replies - unknown_target, not_own_proposal (another lab's proposal), not_posted_on (its own
+//             proposal, but nobody posted on it, so there was nothing to answer), bad_action (not
+//             keep/amend/withdraw), unreadable.
+export function debatePostDropReason(post, lab, proposals) {
+  if (!proposals.some(p => p.id === post.on)) return 'unknown_target';
+  if (!proposals.some(p => p.id === post.on && p.lab !== lab)) return 'own_proposal';
+  if (!['support', 'object', 'merge'].includes(post.stance)) return 'bad_stance';
+  return null;
+}
+
+export function debateReplyDropReason(reply, lab, proposals, mineWithPosts) {
+  if (!proposals.some(p => p.id === reply.id)) return 'unknown_target';
+  if (!proposals.some(p => p.id === reply.id && p.lab === lab)) return 'not_own_proposal';
+  if (!mineWithPosts.some(p => p.id === reply.id)) return 'not_posted_on';
+  if (!['keep', 'amend', 'withdraw'].includes(reply.action)) return 'bad_action';
+  return null;
+}
+
+// [{ stage, by, reason }] -> [{ stage, by, reason, count }], one row per (stage, lab, reason), in
+// the order first seen (labs settle in roster order, so this is stable across runs).
+export function tallyDropped(items) {
+  const rows = new Map();
+  for (const { stage, by, reason } of items) {
+    const key = `${stage}\u0000${by}\u0000${reason}`;
+    if (rows.has(key)) rows.get(key).count += 1;
+    else rows.set(key, { stage, by, reason, count: 1 });
+  }
+  return [...rows.values()];
+}
+
+function describeDropped(items) {
+  const rows = tallyDropped(items);
+  return `${rows.reduce((a, r) => a + r.count, 0)} dropped (${rows.map(r => `${r.count} ${r.reason}`).join(', ')})`;
+}
+
 export function cutOffRetryCap(cap) {
   return Math.max(cap, Math.min(cap * 2, CUT_OFF_RETRY_MAX_TOKENS));
 }
@@ -2022,6 +2065,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       const postResults = await settleAll(labs.map(async lab => {
         const lines = []; const say = m => lines.push(m);
         let posts = [], revisions = [], toolResults = [], toolWarnings = [];
+        const dropped = [];
         try {
           // v6 §1/§3: role augmentation applies only here, the debate-stage
           // system prompt - never to the panel/critique stage. A seat with
@@ -2037,13 +2081,19 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             log: say, label: `debate-${lab}`,
           }));
           const parsed = parseJson(st.text);
-          if (!parsed) say(`  ${lab}: unreadable debate reply - no posts counted.`);
+          if (!parsed) { say(`  ${lab}: unreadable debate reply - no posts counted.`); dropped.push({ stage: 'debate', by: lab, reason: 'unreadable' }); }
           else {
+            // 0.7.8 (thc-research brief 10, W3): the same filter as before, but every post it
+            // rejects is counted with its reason instead of vanishing (debate.dropped).
             posts = (parsed.posts || []).map(x => ({ by: lab, on: maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: x.text || '', merge_with: boardRef(x.merge_with, maps, new Set(proposals.map(p => p.id))) }))
-              .filter(x => proposals.some(p => p.id === x.on && p.lab !== lab) && ['support', 'object', 'merge'].includes(x.stance));
+              .filter(x => {
+                const reason = debatePostDropReason(x, lab, proposals);
+                if (reason) dropped.push({ stage: 'debate', by: lab, reason });
+                return !reason;
+              });
             revisions = (parsed.revisions || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id })).filter(r => proposals.some(p => p.id === r.id && p.lab === lab));
             const n = st => posts.filter(x => x.stance === st).length;
-            say(`  ${lab}: ${posts.length} post(s) - ${n('support')} support, ${n('object')} object, ${n('merge')} merge${revisions.length ? `; revised ${revisions.length} of its own` : ''}`);
+            say(`  ${lab}: ${posts.length} post(s) - ${n('support')} support, ${n('object')} object, ${n('merge')} merge${revisions.length ? `; revised ${revisions.length} of its own` : ''}${dropped.length ? `; ${describeDropped(dropped)}` : ''}`);
 
             // v7.x item 3: this lab's seat may have asked for bounded, allowlisted tool calls in
             // the same reply (`tool_requests: [{tool, args}]`). Gated (see the declaration of
@@ -2067,12 +2117,14 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           rethrowControlFlow(err);
           say(`  ${lab}: no debate reply (${String(err.message).slice(0, 100)}).`);
         }
-        return { lines, posts, revisions, toolResults, toolWarnings };
+        return { lines, posts, revisions, toolResults, toolWarnings, dropped };
       }));
       const posts = [];
+      const droppedItems = [];
       for (const r of postResults) {
         r.lines.forEach(m => log(m));
         posts.push(...r.posts);
+        droppedItems.push(...(r.dropped || []));
         for (const rev of r.revisions) { const p = proposals.find(x => x.id === rev.id); if (rev.how) p.how = rev.how; if (rev.acceptance_test) p.acceptance_test = rev.acceptance_test; p.amended = true; }
         // v7.x item 3: appended to the same ground_truth array v7 item 1's config-time tools use,
         // in the same { tool, args, result } shape, plus `result_ref` - re-presented verbatim to
@@ -2095,25 +2147,30 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             log: say, label: `reply-${lab}`,
           }));
           const parsed = parseJson(st.text);
-          if (!parsed) { say(`  ${lab}: unreadable reply round - proposals stand as posted.`); return { lines, replies: [] }; }
+          if (!parsed) { say(`  ${lab}: unreadable reply round - proposals stand as posted.`); return { lines, replies: [], dropped: [{ stage: 'replies', by: lab, reason: 'unreadable' }] }; }
+          const dropped = [];
           const mine = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: boardRef(r.replaced_by, maps, new Set(proposals.map(p => p.id))), action: String(r.action || '').toLowerCase() }))
-            .filter(r => mineWithPosts.some(p => p.id === r.id) && ['keep', 'amend', 'withdraw'].includes(r.action));
+            .filter(r => {
+              const reason = debateReplyDropReason(r, lab, proposals, mineWithPosts);
+              if (reason) dropped.push({ stage: 'replies', by: lab, reason });
+              return !reason;
+            });
           const n = a => mine.filter(r => r.action === a).length;
-          say(`  ${lab}: ${n('keep')} keep, ${n('amend')} amend, ${n('withdraw')} withdraw`);
+          say(`  ${lab}: ${n('keep')} keep, ${n('amend')} amend, ${n('withdraw')} withdraw${dropped.length ? `; ${describeDropped(dropped)}` : ''}`);
           // v5 item 3, touch point 2: decisions already counted just above, no new parsing.
           // "held" (the design's council-seal wedge for "kept a proposal against an objection")
           // is a reply seat's own decision, not a provider outcome - kept distinct from
           // objected/signed, which belong to the critic side of a round (item 3's own
           // Assumptions note).
           progressHook({ kind: 'verdict', label: `reply-${lab}`, lab, decisions: { keep: n('keep'), amend: n('amend'), withdraw: n('withdraw') } });
-          return { lines, replies: mine };
+          return { lines, replies: mine, dropped };
         } catch (err) {
           rethrowControlFlow(err);
           say(`  ${lab}: no reply-round answer (${String(err.message).slice(0, 100)}).`);
           return { lines, replies: [] };
         }
       }));
-      for (const r of replyResults) { r.lines.forEach(m => log(m)); replies.push(...r.replies); }
+      for (const r of replyResults) { r.lines.forEach(m => log(m)); replies.push(...r.replies); droppedItems.push(...(r.dropped || [])); }
       for (const r of replies) {
         const p = proposals.find(x => x.id === r.id);
         if (r.action === 'amend') { if (r.how) p.how = r.how; if (r.acceptance_test) p.acceptance_test = r.acceptance_test; p.amended = true; }
@@ -2127,9 +2184,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // tonight. Phase 3 delivers the arithmetic and this always-present
       // field; no call site in this stage decides pass/fail by vote yet, so
       // debate runs record the no-op result until a future phase wires one.
-      debate = { posts, replies, tie_break: NO_TIE_BREAK };
+      // `dropped` (0.7.8, experimental): always present once the debate ran, [] when nothing was.
+      debate = { posts, replies, tie_break: NO_TIE_BREAK, dropped: tallyDropped(droppedItems) };
       const w = proposals.filter(p => p.withdrawn).length;
-      log(`  board: ${posts.length} post(s), ${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}, ${w} proposal(s) withdrawn, ${proposals.filter(p => p.amended).length} amended.`);
+      log(`  board: ${posts.length} post(s), ${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}, ${w} proposal(s) withdrawn, ${proposals.filter(p => p.amended).length} amended.${droppedItems.length ? ` Dropped: ${describeDropped(droppedItems)}.` : ''}`);
 
       // v7.x item 4: canary objections (src/canary.js). Gated on config.canary.enabled +
       // config.canary.sampleRate. Runs after the board is already rendered (above), so a canary

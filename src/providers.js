@@ -199,6 +199,15 @@ async function callMock({ model, system, messages, maxTokens }) {
     const mineIdx = user.indexOf('# The other labs');
     const theirs = others.filter(id => user.indexOf(`## ${id} `) > mineIdx);
     const posts = theirs.map((id, i) => ({ on: id, stance: i % 2 ? 'support' : 'object', text: i % 2 ? 'Fine as written.' : 'Quote: "mock.js" - no such file exists.' }));
+    // 0.7.8 debate.dropped fixtures (test/debate-dropped.test.js): a seat whose posts the stage's
+    // filter must reject, one of each kind, next to its valid ones; and a seat whose reply is not JSON.
+    if (model === 'mock-proposer-garbled') return { text: 'Several thoughts on these proposals, and no JSON at all.', usage: { input: 30, output: 10 }, provider: 'mock', model };
+    if (model === 'mock-proposer-sloppy') {
+      const mine = others.filter(id => user.indexOf(`## ${id} `) < mineIdx);
+      posts.push({ on: 'Z-99', stance: 'object', text: 'No such proposal.' },
+        ...(mine.length ? [{ on: mine[0], stance: 'support', text: 'Praising my own.' }] : []),
+        ...(theirs.length ? [{ on: theirs[0], stance: 'maybe', text: 'Not a stance.' }] : []));
+    }
     // v7.x item 3 test fixture: a debate seat that asks for bounded, allowlisted tool calls in
     // the same reply - one allowed request and one disallowed one, to exercise both branches of
     // runSeatToolRequests offline (test/seat-tool-calls.test.js).
@@ -211,6 +220,8 @@ async function callMock({ model, system, messages, maxTokens }) {
     await new Promise(r => setTimeout(r, 10));
     const ids = [...user.matchAll(/^## ([A-Z]-\d+) \(by/gm)].map(m => m[1]);
     const replies = ids.map((id, i) => i === 0 ? { id, action: 'amend', text: 'Fair.', how: 'mock.js (amended)' } : { id, action: 'keep', text: 'The file is created by the plan.' });
+    if (model === 'mock-proposer-garbled') return { text: 'I stand by everything, but not in JSON.', usage: { input: 30, output: 10 }, provider: 'mock', model };
+    if (model === 'mock-proposer-sloppy') replies.push({ id: 'Z-99', action: 'keep', text: 'No such proposal.' }, ...(ids.length ? [{ id: ids[0], action: 'shrug', text: 'Not an action.' }] : []));
     return { text: JSON.stringify({ replies }), usage: { input: 30, output: 20 }, provider: 'mock', model };
   }
   // v4 item 2: the preflight stage's mock seats. `mock-preflight-object` always objects (one
