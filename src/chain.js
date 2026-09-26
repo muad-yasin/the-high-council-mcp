@@ -483,10 +483,26 @@ export function abstentionReasonCode(usage, maxTokens) {
 // hold something (Llama 3.3 70B did exactly this on 2026-09-07, and the
 // harness counted it as an objection). The per-criterion table is the honest
 // signal, so the summary fields are derived from it rather than trusted.
-function shuffle(list) {
+// The relay panel's order, shuffled from a seed, not from Math.random - bug audit 2026-09-26 #2.
+// A relay reviewer is handed the verdicts before it, so the order is part of every later reviewer's
+// prompt: a fresh random order on resume changed those prompts, the stage cache read them as stale,
+// and every completed panel stage of the round was paid for again. Seeded from the run id and the
+// round, the order still differs from round to round (no lab is always the anchor) and a resumed
+// run replays the order it had. mulberry32 over an FNV-1a hash of the seed string: small, and
+// deterministic across platforms. test/resume-determinism.test.js keeps Math.random out of this file.
+function seededShuffle(list, seed) {
+  let h = 0x811c9dc5;
+  for (const ch of String(seed)) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+  const next = () => {
+    h = (h + 0x6d2b79f5) >>> 0;
+    let t = h;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
   const out = [...list];
   for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(next() * (i + 1));
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
@@ -2469,10 +2485,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       };
 
       if (relay) {
-        // Relay seats run one after another, in a fresh random order each
-        // round so no lab is always the anchor, and earlier verdicts are
-        // handed on anonymised so a seat can't defer to a name.
-        for (const criticSeat of shuffle(config.seats.critics)) {
+        // Relay seats run one after another, in a fresh order each round so
+        // no lab is always the anchor (seeded, so a resume replays it), and
+        // earlier verdicts are handed on anonymised so a seat can't defer to a name.
+        for (const criticSeat of seededShuffle(config.seats.critics, `${runId ?? ''}:relay:${round}`)) {
           const prior = verdicts.filter(v => v.critique).map((v, i) => ({ lab: `Reviewer ${String.fromCharCode(65 + i)}`, verdict_line: v.critique.verdict_line, failures: v.critique.failures }));
           verdicts.push(await reviewSeat(criticSeat, prior, log));
         }

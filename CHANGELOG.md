@@ -87,6 +87,14 @@
   the published 0.7.7. The endpoint needs its bearer token, so only a holder of the token could
   have used it.
 
+- **Resuming a relay-panel run no longer pays for its finished review round again.** The relay
+  panel's order was drawn at random on every sitting, and a relay reviewer's prompt holds the
+  verdicts before it, so a resumed run saw different prompts, set the finished panel stages aside
+  as stale and re-ran them. The order is now derived from the run id and the round: it still
+  changes from round to round, and a resume replays it. A new test resumes every mock chain after
+  an external pause or a spend-cap stop and fails on any stale stage, and another keeps unseeded
+  randomness out of `src/chain.js` and `src/roles.js`. Reported by the 2026-09-26 bug audit (#2).
+
 ### Security
 
 - **MCP `start_run` checks every file it hands the CLI.** `task` and `draft` were checked against
