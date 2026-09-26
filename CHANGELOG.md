@@ -25,6 +25,14 @@
   `not_quorate`. chain-lint refuses a floor on a non-unanimous chain or above the panel's size.
   **No shipped chain sets it**, so every shipped chain behaves as before.
 
+- **A new chain, `plan-highest-7`: a tiered council.** Seven low-cost "mass" seats (the `cheap-7-v2`
+  roster) write the blind proposals and alternative architectures and do all the debating; four
+  "anchor" seats (GPT-6 Astra, Claude Fable 5.1, DeepSeek V4 Pro, GLM-5.3) form the review panel
+  and are the only seats that vote, under unanimous sign-off. Writer seats are external (a Claude
+  Code session), as in `plan-premium-7`, with decision records and the dispute stage on. It has not
+  been run with real models, and nothing about its output has been measured. Price it before any
+  run: `npm run dry -- --chain plan-highest-7` (about $10.49 worst case with today's price table).
+
 ### Changed
 
 - **The dry-run prices each reviewer's review at that model's typical output.** A chain's
