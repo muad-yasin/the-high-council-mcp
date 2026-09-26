@@ -509,7 +509,7 @@ for anyone with a subscription, since the project's cost story depends on it.
 
 ## Chains
 
-49 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
+50 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
 which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be
 copied and edited.
 
