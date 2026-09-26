@@ -40,7 +40,7 @@ independence accounting never see the vendor, only the lab.
 Price the routing before spending anything with the existing dry-run:
 
 ```
-node src/cli.js --chain my-chain --task tasks/x.md --dry-run
+council --chain my-chain --task tasks/x.md --dry-run
 ```
 
 Every row will show `openrouter/<vendor-model-id>` once `transport` is resolved - the same

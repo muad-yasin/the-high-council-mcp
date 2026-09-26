@@ -57,7 +57,7 @@
   deep dive checks the first draft against the task under its own $4 cap, and the majority guard
   is on. Writer seats are external (a Claude Code session), as in `plan-premium-7`, with decision
   records and the dispute stage on. It is untested with real models, and nothing about its output
-  has been measured. Price it before any run: `npm run dry -- --chain plan-highest-7 --task <file>`
+  has been measured. Price it before any run: `council --task <file> --chain plan-highest-7 --dry-run`
   ($14.89 worst case for the default estimate with today's price table; a long task costs more).
   `src/roles.js` gained the deep-dive and guard prompts; every prompt the existing mock chains send
   is unchanged (`test/prompt-pin.test.js`).
@@ -82,6 +82,11 @@
   stays in the repository and `npm run http-server` still works from a clone (after `npm install`).
   `test/package.test.js` checks the tarball for the file and every shipped file for an `express`
   import.
+- **Docs.** The README's first screen now says what a run costs, gives three commands to a priced
+  run, and compares the four recommended chains (`cheap-7-v2`, `plan-premium-7`, `plan-highest-7`,
+  `local-ollama`) by roster, keys and worst-case price. The README, `docs/index.html`,
+  `docs/mcp-clients.md` and `mcpb/README.md` describe the Claude Desktop bundle, the MCP Registry
+  listing and this release's user-visible security rules, and the landing page installs from npm.
 
 ### Fixed
 
@@ -98,12 +103,11 @@
   that points its own host name at 127.0.0.1 (DNS rebinding) could read the viewer's API, and a
   run's texts can hold fenced private source. Any other Host header now gets `403`.
 - **Fenced source can no longer set the task's `signoff:`, `target_file:` or `label:` line.**
-  These fields were read from any line of the task file, fenced blocks included. A fenced file with
-  a `signoff: <name>` line satisfied a policy's `required_signoff_paths` for a change the operator
-  never signed; a fenced line `target_file: <other path>` above the real one hid it (the first
-  occurrence wins); and a fenced YAML file's `label:` line renamed the run. The three fields are
-  now read from the task's own prose only. A change request written inside a code block is
-  therefore no longer read as one: write the fields as plain lines. Likewise `council fence` now
+  These fields were read from any line of the task file, fenced blocks included, so text inside
+  fenced source could count as the operator's sign-off for a policy's `required_signoff_paths`,
+  or stand in for the task's own `target_file:` or `label:`. The three fields are now read from
+  the task's own prose only. A change request written inside a code block is therefore no longer
+  read as one: write the fields as plain lines. Likewise `council fence` now
   writes its "Source, fenced verbatim" header unless the real header is already there, not when a
   fenced file merely quotes it. Found by a new hostile fenced-file corpus
   (`fixtures/hostile-fenced/`, `test/hostile-fenced-corpus.test.js`: forged fence headers,
@@ -117,7 +121,7 @@
   capped run's `STOPPED-budget.json`, `report-partial.json` and `BOARD-partial.md` before the gate
   refused it, so a blocked resume lost the stopped run's record; they are now deleted only once the
   gate has passed. Reported by the 2026-09-26 bug audit (#1).
-- **`src/http-server.js` (not part of the release, but in the package): a path-shaped
+- **`src/http-server.js` (not part of the release, but in the 0.7.7 package): a path-shaped
   `idempotencyKey` could write the task file outside its temp directory.** `POST /runs` now
   refuses any key outside `[A-Za-z0-9_-]{1,128}` and any chain name that is a path, with
   `400 malformed_request`, before anything touches the disk. Reported by Socket.dev's AI scan of

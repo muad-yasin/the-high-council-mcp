@@ -8,10 +8,8 @@ of this needs any new code in this repo. Point each one at the same server entry
 npx -y the-high-council council --mcp
 ```
 
-The GitHub repository is private until the open-source release planned for later this year, so
-install from npm, as above. A `github:` spec only works for someone with access to the repository.
-
-or, from a local clone/install:
+That runs the published npm package. `npx -y github:muad-yasin/the-high-council-mcp council --mcp`
+runs the current source instead, or, from a local clone:
 
 ```bash
 node /absolute/path/to/the-high-council-mcp/src/mcp/server.js
@@ -19,6 +17,14 @@ node /absolute/path/to/the-high-council-mcp/src/mcp/server.js
 
 **The path must be absolute** for the local-clone form - a client starts the server from its own
 working directory, not this repo's, so a relative path resolves somewhere unexpected.
+
+Claude Code and Claude Desktop are covered in the README's "Quick start (MCP)" section (Claude
+Desktop installs from the `.mcpb` file on the GitHub Releases page). A client that installs from
+the official MCP Registry finds the server as `io.github.muad-yasin/the-high-council`.
+
+Whichever client starts it, the server reads and writes in its working directory (or in
+`COUNCIL_WORKDIR`, if set), takes chains by name only, and refuses any file path outside that
+directory.
 
 No efficacy claim is made about how well any of these tools' agents make use of The High Council's
 tools once registered - this page only covers registration.

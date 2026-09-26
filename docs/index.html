@@ -447,11 +447,11 @@
       <div style="min-width:0">
         <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:34px;letter-spacing:-0.02em;color:#faf8f4">Setup</h2>
         <p style="margin:10px 0 16px;font-size:15.5px;color:#8d8a84">Node 20+, plus API keys for whichever labs your chain uses.</p>
-        <pre style="margin:0;padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0d0d0f;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.8;color:#c9c4ba;overflow-x:auto"><span style="color:#e3b23c">git</span> clone https://github.com/muad-yasin/the-high-council-mcp.git
-<span style="color:#e3b23c">cd</span> the-high-council-mcp
-<span style="color:#e3b23c">npm</span> install
-<span style="color:#e3b23c">cp</span> .env.example .env</pre>
-        <p style="margin:16px 0 10px;font-size:15px;color:#8d8a84">Fill in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">.env</code> with only the keys your chain needs:</p>
+        <pre style="margin:0;padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0d0d0f;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.8;color:#c9c4ba;overflow-x:auto"><span style="color:#e3b23c">npx</span> the-high-council demo     <span style="color:#5f5c57"># $0, no key, no network</span>
+<span style="color:#e3b23c">npx</span> the-high-council doctor   <span style="color:#5f5c57"># your keys, runnable chains, prices</span>
+<span style="color:#5f5c57"># or keep a council command on your PATH:</span>
+<span style="color:#e3b23c">npm</span> install -g the-high-council</pre>
+        <p style="margin:16px 0 10px;font-size:15px;color:#8d8a84">Put only the keys your chain needs in a <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">.env</code> in the folder you run from (one OpenRouter key runs <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">cheap-7-v2</code>):</p>
         <div style="display:flex;flex-wrap:wrap;gap:6px">
           <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8a84;background:#141416;border:1px solid #1e1e21;padding:4px 9px;border-radius:6px">ANTHROPIC_API_KEY</span>
           <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8a84;background:#141416;border:1px solid #1e1e21;padding:4px 9px;border-radius:6px">OPENAI_API_KEY</span>
@@ -464,7 +464,7 @@
           <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8a84;background:#141416;border:1px solid #1e1e21;padding:4px 9px;border-radius:6px">OPENROUTER_API_KEY</span>
           <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8a84;background:#141416;border:1px solid #1e1e21;padding:4px 9px;border-radius:6px">ZAI_API_KEY</span>
         </div>
-        <p style="margin:14px 0 0;font-size:14.5px;line-height:1.6;color:#8d8a84;text-wrap:pretty">The CLI refuses to start if any seat in the chosen chain is missing its key, rather than failing halfway through a paid run.</p>
+        <p style="margin:14px 0 0;font-size:14.5px;line-height:1.6;color:#8d8a84;text-wrap:pretty">The CLI refuses to start if any seat in the chosen chain is missing its key, rather than failing halfway through a paid run. A key is sent only to its own provider's https API.</p>
       </div>
 
       <div style="min-width:0">
@@ -474,14 +474,15 @@
 echo &quot;What I want planned, in plain words.&quot; &gt; tasks/your-idea.md
 
 # see what's available and what it would cost</span>
-node src/cli.js --help
-npm run dry -- --task tasks/your-idea.md --chain verify
+council --help
+council --task tasks/your-idea.md --chain cheap-7-v2 --dry-run
 
 <span style="color:#5f5c57"># a real run</span>
-node src/cli.js --task tasks/your-idea.md --chain verify</pre>
-        <p style="margin:14px 0 16px;font-size:15px;line-height:1.6;color:#8d8a84"><code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c;background:#1a1a1d;padding:1px 5px;border-radius:4px">verify</code> is the cheap default: two labs, a hard two-round cap. Start there.</p>
-        <p style="margin:0 0 10px;font-size:15.5px;color:#8d8a84">Or run it as an MCP server and let your client drive it:</p>
-        <pre style="margin:0;padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0d0d0f;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.8;color:#c9c4ba">npm run mcp</pre>
+council --task tasks/your-idea.md --chain cheap-7-v2</pre>
+        <p style="margin:14px 0 16px;font-size:15px;line-height:1.6;color:#8d8a84"><code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c;background:#1a1a1d;padding:1px 5px;border-radius:4px">council</code> is <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">npx the-high-council</code> unless you installed it globally. <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">cheap-7-v2</code> needs one OpenRouter key; its worst case is $5.38. Name no chain and you get <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">verify</code>, which needs Anthropic, OpenAI and Google keys.</p>
+        <p style="margin:0 0 10px;font-size:15.5px;color:#8d8a84">Or add it to Claude Code as an MCP server and let it drive:</p>
+        <pre style="margin:0;padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0d0d0f;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.8;color:#c9c4ba;overflow-x:auto">claude mcp add council -- npx -y the-high-council council --mcp</pre>
+        <p style="margin:14px 0 0;font-size:14.5px;line-height:1.6;color:#8d8a84;text-wrap:pretty">Claude Desktop: open the <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">.mcpb</code> file from the GitHub Releases page. MCP Registry: <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">io.github.muad-yasin/the-high-council</code>.</p>
       </div>
     </section>
 
@@ -494,11 +495,11 @@ node src/cli.js --task tasks/your-idea.md --chain verify</pre>
             <div style="font-family:'Space Grotesk',sans-serif;font-size:64px;font-weight:600;letter-spacing:-0.03em;color:#f0c75a;line-height:1;text-shadow:0 0 40px rgba(227,178,60,0.3)">$7</div>
             <div style="margin-top:8px;font-size:14px;color:#8d8a84">per-run ceiling by default, checked <em style="color:#c9c4ba">before</em> each paid stage</div>
           </div>
-          <p style="margin:0;font-size:15.5px;line-height:1.7;color:#8d8a84;text-wrap:pretty">A stage that could take the run past the ceiling is never called, so the cap holds rather than reporting the overspend afterwards. A run that hits it stops cleanly and writes <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">STOPPED-budget.md</code>. Nothing is half-written - continue it with a higher ceiling and completed stages replay from disk for free.</p>
+          <p style="margin:0;font-size:15.5px;line-height:1.7;color:#8d8a84;text-wrap:pretty">A stage that could take the run past the ceiling is never called, so the cap holds rather than reporting the overspend afterwards. A run that hits it stops cleanly and writes <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">STOPPED-budget.md</code>. Nothing is half-written: what it got through is in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">report-partial.json</code>. Continue it with a higher ceiling and completed stages replay from disk for free.</p>
         </div>
-        <pre style="margin:24px 0 0;padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0a0a0c;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.8;color:#c9c4ba;overflow-x:auto">node src/cli.js --task tasks/x.md --max-usd 2      <span style="color:#5f5c57"># this run stops at $2</span>
-node src/cli.js --task tasks/x.md --max-usd none   <span style="color:#5f5c57"># no ceiling</span>
-node src/cli.js --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># continue with headroom</span></pre>
+        <pre style="margin:24px 0 0;padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0a0a0c;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.8;color:#c9c4ba;overflow-x:auto">council --task tasks/x.md --max-usd 2      <span style="color:#5f5c57"># this run stops at $2</span>
+council --task tasks/x.md --max-usd none   <span style="color:#5f5c57"># no ceiling</span>
+council --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># continue with headroom</span></pre>
       </div>
     </section>
 
@@ -594,8 +595,28 @@ node src/cli.js --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
         
           <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">cheap-7-v2</div>
+            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Claude Sonnet 5 writes; seven other labs review and must all sign off. One OpenRouter key, $5.38 worst case.</div>
+          </div>
+        
+          <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">plan-premium-7</div>
+            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">A Claude Code session writes; a seven-lab panel of larger models reviews. $21.59 worst case, above the default cap.</div>
+          </div>
+        
+          <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">plan-highest-7</div>
+            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Tiered: seven low-cost models propose and debate, four top models write architectures and alone vote. Untested with real models; $14.89 worst case.</div>
+          </div>
+        
+          <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">local-ollama</div>
+            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Every seat on your own machine through Ollama. No key, $0.</div>
+          </div>
+        
+          <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
             <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">verify</div>
-            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Two labs, two rounds. The recommended starting point.</div>
+            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Two labs, two rounds. The default when you name no chain.</div>
           </div>
         
           <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h21">
@@ -628,8 +649,8 @@ node src/cli.js --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5
     </section>
 
     <section style="margin-top:72px">
-      <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:34px;letter-spacing:-0.02em;color:#faf8f4">New in v5</h2>
-      <p style="margin:10px 0 24px;max-width:760px;font-size:16px;line-height:1.65;color:#8d8a84;text-wrap:pretty">Ten additions, mostly opt-in and read-only - a chain you already have keeps behaving exactly as it always has unless you deliberately use one of these.</p>
+      <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:34px;letter-spacing:-0.02em;color:#faf8f4">Around a run</h2>
+      <p style="margin:10px 0 24px;max-width:760px;font-size:16px;line-height:1.65;color:#8d8a84;text-wrap:pretty">Tools for setting up, checking and reading runs, mostly opt-in and read-only - a chain keeps behaving exactly as it always has unless you deliberately use one of these.</p>
       <div style="margin-top:0;display:grid;gap:1px;background:#1a1a1d;border:1px solid #1a1a1d;border-radius:14px;overflow:hidden">
         <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:start">
           <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">council init</div>
@@ -732,7 +753,7 @@ node src/cli.js --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5
         
           <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:start">
             <div style="margin-top:4px;width:7px;height:7px;border-radius:50%;background:#4a463f;box-shadow:0 0 0 4px rgba(74,70,63,0.18)"></div>
-            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">Prices in src/pricing.json are hand-maintained list prices, last verified 2026-09-06. They are estimates, not invoices. Your provider's bill is the real number.</p>
+            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">Prices in src/pricing.json are hand-maintained list prices, as of 2026-09-06; council doctor and --dry-run print that date and warn once it is more than 60 days old. They are estimates, not invoices. Your provider's bill is the real number.</p>
           </div>
         
           <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:start">
@@ -750,6 +771,11 @@ node src/cli.js --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5
             <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">Some chains pause for human input by design. They are not stuck.</p>
           </div>
         
+          <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:start">
+            <div style="margin-top:4px;width:7px;height:7px;border-radius:50%;background:#4a463f;box-shadow:0 0 0 4px rgba(74,70,63,0.18)"></div>
+            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">plan-highest-7, the tiered council, has not been run with real models, and none of its mechanisms has been measured. Its dry-run price is a projection.</p>
+          </div>
+        
       </div>
     </section>
 
@@ -757,7 +783,7 @@ node src/cli.js --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5
       <div style="position:absolute;bottom:-220px;left:50%;transform:translateX(-50%);width:720px;height:420px;background:radial-gradient(ellipse at center,rgba(227,178,60,0.16),transparent 70%);pointer-events:none"></div>
       <div style="position:relative">
         <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:700;font-size:36px;letter-spacing:-0.025em;color:#faf8f4">Free, public, MIT.</h2>
-        <p style="margin:12px auto 0;max-width:520px;font-size:16px;line-height:1.6;color:#8d8a84">Clone it, bring your own keys, run it. Nothing is resold and nothing is hosted for you.</p>
+        <p style="margin:12px auto 0;max-width:520px;font-size:16px;line-height:1.6;color:#8d8a84">Install it from npm or clone it, bring your own keys, run it. Nothing is resold and nothing is hosted for you.</p>
         <div style="display:flex;justify-content:center;flex-wrap:wrap;gap:12px;margin-top:28px">
           <a href="https://github.com/muad-yasin/the-high-council-mcp" style="display:inline-flex;align-items:center;padding:13px 24px;border-radius:10px;background:linear-gradient(180deg,#f0c75a,#dba52c);color:#17130a;font-weight:600;font-size:15px;font-family:'Space Grotesk',sans-serif;box-shadow:0 0 0 1px rgba(255,255,255,0.14) inset,0 12px 32px rgba(227,178,60,0.22);text-decoration:none" class="h26">github.com/muad-yasin/the-high-council-mcp</a>
         </div>

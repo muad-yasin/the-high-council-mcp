@@ -24,6 +24,10 @@ from the same public-domain legend and is not itself claimed as anyone's tradema
 here is a secondary association in a reader's mind, not a legal one - worth having on the record,
 not worth revisiting a decision already made.
 
+A `role.persona` key that is not in the set in use is sent as a bare name, with no voice
+directive. `plan-premium-7` seats two such keys, `hypatia` and `avicenna`, next to the five
+defaults: without a persona file of your own they reach the debate prompt as those names alone.
+
 **You can replace the whole set.** `loadPersonas()` in `src/personas.js` reads an operator-supplied
 JSON file (path via the `COUNCIL_PERSONAS_FILE` environment variable, or passed directly) and uses
 it in place of the default five entirely - nothing in this repo needs editing to do that. A

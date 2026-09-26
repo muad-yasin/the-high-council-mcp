@@ -7,8 +7,8 @@ this repo doesn't build one.
 
 ## When it's written
 
-On by default only when `policy.json` exists at the repo's documented, locked path (see item 1's
-own docs) - otherwise opt-in via `"audit": true` in a chain config. A default user who sets neither
+On by default only when a `policy.json` exists in the working directory (see
+[policy.md](policy.md)) - otherwise opt-in via `"audit": true` in a chain config. A default user who sets neither
 gets no `audit.jsonl` and no other change to their run folder; this item is fully inert unless
 turned on.
 
@@ -40,7 +40,7 @@ carry `label`/`provider`/`model`/`lab`/`usage`/`usd`) - nothing here is separate
 tracked outside the run folder. `user` comes from `os.userInfo().username`, falling back to
 `$USER`/`$USERNAME`/`"unknown"` on a sandboxed environment with no passwd entry for the running
 uid. `region` is currently always `null` - no seat in this repo declares one yet; the field exists
-so a future seat-level `region` (e.g. for item 1's `allowed_regions` policy check) has somewhere to
+so a future seat-level `region` (e.g. for the policy file's `allowed_regions` check) has somewhere to
 land in the audit trail without a schema version bump.
 
 `hash` is `sha256` over the line's own fields (`seq`, `ts`, `run`, `chain`, `user`, `stage`,

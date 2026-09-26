@@ -1090,7 +1090,19 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council doctor                       which API keys you have (names only),
                                        which chains you can run with them, and
                                        each one's worst-case price. No network call.
-  council --task tasks/example.md [--chain verify|seven] [--rounds N]
+  council doctor --chain <file>        lint one chain file before any paid run
+  council doctor --scan-artifacts      scan your tasks and chains for key formats
+  council --task tasks/example.md [--chain <name>] [--rounds N]
+                                       --chain takes a chain name (default verify),
+                                       never a path. Recommended: cheap-7-v2 (one
+                                       OpenRouter key), plan-premium-7, plan-highest-7
+                                       (untested with real models), local-ollama ($0)
+  council fence --task tasks/x.md --repo <path> <file> [file...]
+                                       append real files to the task, fenced, so the
+                                       seats read the code instead of guessing it
+  council --task tasks/x.md --allow-unfenced [a.js,b.ts]
+                                       run although the task names files it does not
+                                       include (all of them, or only those listed)
   council --task tasks/x.md --chain plan-relay --from-run runs/<earlier run>
                                        reuse that run's criteria and first draft,
                                        so two panels can be compared on one draft
@@ -1100,8 +1112,9 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        use these acceptance criteria instead of the
                                        criteria stage (one per line, or JSON with
                                        optional kind/check per criterion)
-  council --task tasks/x.md --chain plan-debate --context context/war-of-love
+  council --task tasks/x.md --chain plan-debate --context context/my-project
                                        append standing direction docs to the request
+                                       (each file 2 MB at most)
   council --resume runs/<r>            continue a run that paused at an external seat
                                        (after writing runs/<r>/<label>.md); completed
                                        stages replay from disk and cost nothing
@@ -1147,6 +1160,8 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council --rematch runs/<r>           the same task again with the panel reshuffled,
                                        and a verdict diff against the original
   council --replay runs/<r>            the same task and chain again today, with a diff
+  council replay --run runs/<r> [--json]
+                                       a finished run as a numbered transcript
   council --forecast-cost --chain <name> [--days N]
                                        a realistic cost range from this chain's own
                                        past runs on this machine

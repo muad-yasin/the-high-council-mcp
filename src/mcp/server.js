@@ -5,7 +5,7 @@
 // price a chain. Runs are spawned detached so a long run outlives the tool
 // call; the client polls with run_status.
 //
-//   claude mcp add high-council -- npx -y the-high-council
+//   claude mcp add council -- npx -y the-high-council council --mcp
 //   from a clone: claude mcp add high-council -- node /absolute/path/to/src/mcp/server.js
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -283,7 +283,7 @@ server.tool('list_chains', 'Chains available to run, with their description and 
   return text(chains);
 });
 
-server.tool('dry_run', 'Price a chain without calling any model.', { chain: z.string() }, async ({ chain }) => {
+server.tool('dry_run', 'Price a chain without calling any model. chain is a chain name as list_chains shows it, never a path.', { chain: z.string() }, async ({ chain }) => {
   const bad = chainNameRefusal(chain);
   if (bad) return text({ error: bad });
   const out = execFileSync(...cliCommand(['--chain', chain, '--dry-run']), { encoding: 'utf8', cwd: work, env: cliEnv });
@@ -312,7 +312,7 @@ async function untilPastStartup(child, runDir, spawnedAt, exited) {
   while (!exited() && !pastStartup() && Date.now() - t0 < 60_000) await new Promise(r => setTimeout(r, 100));
 }
 
-server.tool('start_run', 'Start a harness run in the background. Returns the run id to poll with run_status, or started:false with the exit code and log tail if the run stopped at once. task, draft, context and from_run are paths inside your working directory (tasks/x.md, context/war-of-love, runs/<id>); anything outside it, or on the secret/credential denylist, is refused. draft + from_run + rounds=1 makes a panel-only grading pass.', {
+server.tool('start_run', 'Start a harness run in the background. Returns the run id to poll with run_status, or started:false with the exit code and log tail if the run stopped at once. chain is a chain name as list_chains shows it (never a path). task, draft, context and from_run are paths inside your working directory (tasks/x.md, context/my-project, runs/<id>); anything outside it, or on the secret/credential denylist, is refused. draft + from_run + rounds=1 makes a panel-only grading pass.', {
   chain: z.string(),
   task: z.string(),
   context: z.string().optional(),

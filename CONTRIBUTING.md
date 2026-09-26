@@ -14,9 +14,9 @@ discussion first.
    in `node --test`, real calls are opt-in and cost real money.
 
 2. **A new chain config** (`chains/*.json`). A chain is data, not code - it names which seats run
-   which stages. `council doctor` validates any chain you add against every shipped-provider's key
-   presence and prices it worst-case with zero network calls; run that against your new file
-   before opening a PR. Look at `chains/plan-debate.json` or `chains/verify.json` as a starting
+   which stages. `council doctor --chain chains/<yours>.json` lints it (the same rules every run
+   applies, including the denied-model and `key-host` rules), and `council doctor` prices it
+   worst-case, both with zero network calls; run both against your new file before opening a PR. Look at `chains/plan-debate.json` or `chains/verify.json` as a starting
    shape depending on whether you want a debate-and-panel chain or a single-critic chain.
 
 3. **A new mock fixture** (`src/providers.js`'s `callMock`, exercised from `test/*.test.js`). If

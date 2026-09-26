@@ -130,7 +130,7 @@ reasons for is treated as "could not judge", not as "nothing serious".
 reports one high finding:
 
 ```bash
-node src/cli.js --chain mock-security-review --task tasks/<your-task>.md
+council --chain mock-security-review --task tasks/<your-task>.md
 echo $?   # 7
 ```
 

@@ -32,7 +32,10 @@ Each top-level property in the schema carries `"x-stability": "stable"` or `"exp
   `disputes`, `security_review`, `claims`, `lints`, `argued`, `debate.diagnostics`,
   `debate.dropped` (since 0.7.8: the debate posts and author replies the harness rejected, per lab
   and reason; `[]` when none were), `notQuorate` (since 0.7.8: only on a chain that sets
-  `quorum.minHeard`, when a round's sign-off had too few verdicts to count).
+  `quorum.minHeard`, when a round's sign-off had too few verdicts to count), `deep_dive` (since
+  0.7.8: only on a chain with a deep-dive seat, what it checked and found, and what it cost).
+  Also since 0.7.8, with the majority guard on, a `debate.replies[]` withdrawal that does not quote
+  the argument it concedes to carries `unargued: true`, and its proposal stays for the builder.
 
 Most optional stages add their field only when the chain turns that stage on. When the field is
 missing, the stage did not run. It does not mean the stage found nothing.
@@ -97,7 +100,7 @@ validate(reportJson) || console.error(validate.errors);
 ```
 
 `test/report-schema.test.js` does the same against real offline runs of the shipped mock chains
-that finish in one sitting (13 of the 16; the other three pause for a person or stop at their cap),
+that finish in one sitting (14 of the 17; the other three pause for a person or stop at their cap),
 a resumed `mock-external` run, a descending-mode run, and one run with every optional stage turned
 on. `test/report-partial.test.js` validates the `report-partial.json` of capped `mock-budget`,
 multi-round, descending, `--rematch` and `--replay` runs against the same schema.

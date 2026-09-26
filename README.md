@@ -7,8 +7,8 @@ You choose the number of debate rounds, the seats and labs (any lab except xAI),
 limit for each model's replies.
 
 We recommend our own chains: `cheap-7-v2`, `plan-premium-7` and `plan-highest-7` (the top
-models, GPT-6 Astra and Claude Fable 5.1, write the alternative architectures and are the only
-seats that vote; cheaper seats write the proposals and the debate). You can also edit a chain to suit yourself, or run every seat on
+models, GPT-6 Astra, Claude Fable 5.1, DeepSeek V4 Pro and GLM-5.3, write the alternative
+architectures and are the only seats that vote; cheaper seats write the proposals and the debate). You can also edit a chain to suit yourself, or run every seat on
 your own machine with `local-ollama`.
 
 See it work right now - no keys, no setup, no cost:
@@ -21,9 +21,40 @@ amended, a panel that splits in round 1 and signs off in round 2, and the handof
 model reply in it is written in advance; what is real is the code that runs the stages around
 them.
 
+**What it costs.** You pay the model providers directly, with your own API keys. The demo,
+`doctor`, `init` and the `mock` chains cost $0 and make no network call. `--dry-run` prints a
+run's worst-case price before anything is called, and every run stops before any stage that could
+take it past its spend cap ($7 unless you set `--max-usd`). Most runs cost less than the worst
+case: a panel that signs off early skips the remaining rounds.
+
+Three commands from nothing to a priced run of your own idea (no key needed until you drop
+`--dry-run`; [Your first ten minutes](#your-first-ten-minutes) walks through them):
+
+    npx the-high-council demo       # $0: every stage, scripted replies, no network
+    npx the-high-council init       # writes tasks/my-first-task.md for your idea, plus a $0 mock run
+    npx the-high-council --task tasks/my-first-task.md --chain cheap-7-v2 --dry-run
+
+**Which chain.** Worst-case prices as `council doctor` prints them, from the shipped price table
+(prices as of 2026-09-06) and the default task-size estimate; a long task costs more.
+
+| Chain | Who does what | Needs | Worst case |
+|---|---|---|---|
+| `cheap-7-v2` | Claude Sonnet 5 writes the plan; low-cost models from seven other labs review it, and all seven must sign off. Up to 7 rounds. | one OpenRouter key | $5.38 |
+| `plan-premium-7` | A Claude Code session writes the plan; a seven-lab panel of larger models (GPT-6 Astra, Claude Fable 5.1, Gemini 3.8 Flash, Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, GLM-5.3) proposes, debates and reviews. | OpenRouter key + a Claude Code session | $21.59 |
+| `plan-highest-7` | Seven low-cost models propose and debate; four top models write whole architectures and are the only reviewers; one deep-dive seat checks the first draft against the task. **Untested with real models.** | OpenRouter key + a Claude Code session | $14.89 |
+| `local-ollama` | Every seat on your own machine, through Ollama. | Ollama and the models pulled | $0 |
+
+`plan-premium-7` and `plan-highest-7` cost more than the default cap, so give them a `--max-usd` at
+or above their dry-run price. Their writer seats are [external](#quick-start-mcp): the run pauses
+and a Claude Code session (or you) writes that stage, at no API cost. Nothing about any chain's
+output quality has been measured.
+
 Add it to Claude Code as an MCP server:
 
     claude mcp add council -- npx -y the-high-council council --mcp
+
+It is also listed in the official MCP Registry as `io.github.muad-yasin/the-high-council`, and
+there is a one-file Claude Desktop bundle ([Quick start (MCP)](#quick-start-mcp)).
 
 Runs as an **MCP server** (so an agent like Claude Code can drive it) or as a **CLI**. Bring your
 own API keys. Nothing is resold, nothing is hosted for you, and your keys go only to the
@@ -31,7 +62,7 @@ providers you choose, never to us.
 
 Run `npx the-high-council council doctor` to see which of your own keys are
 set, which shipped chains you can already run with them, and what each would cost - before
-spending anything.
+spending anything. Where it falls short: [Known limits](#known-limits-stated-plainly).
 
 > **On what this does and doesn't claim.** This repo publishes the mechanism: the chains, the seat
 > rosters, the stage order. It does not claim to produce better plans than a single good model
@@ -118,6 +149,10 @@ A run moves through fixed stages. Which stages fire depends on the chain you pic
    again, up to the chain's round cap.
 8. **Handoff** - a `HANDOFF.md` written for whoever executes the result.
 
+Some chains add optional stages to this: whole alternative architectures written blind before
+the skeleton, a deep-dive check of the first draft, a dispute stage that records unresolved
+objections at the top of the plan, and a final security review.
+
 Every run writes a folder: the deliverable, `BOARD.md` (the full debate - every post, every
 withdrawal), `HANDOFF.md`, a per-lab scoreboard, and the real token/cost accounting.
 
@@ -130,7 +165,7 @@ which are experimental, and how versions change: [docs/report-format.md](docs/re
 
 ```jsonc
 {
-  "schemaVersion": 1, "runId": "...", "chain": "...", "passed": false, "maxUsd": 5,
+  "schemaVersion": 1, "runId": "...", "chain": "...", "passed": false, "maxUsd": 7,
   "criteria":  [ "each acceptance criterion, as written before the debate" ],
   "questions": [ { "question": "...", "why": "...", "default": "..." } ],  // null if the chain skipped them
   "proposals": [ { "id": "DEEPSEEK-1", "lab": "deepseek", "model": "...",
@@ -142,7 +177,11 @@ which are experimental, and how versions change: [docs/report-format.md](docs/re
     "posts":   [ { "by": "deepseek", "on": "QWEN-1", "stance": "object|support|merge",
                    "text": "...", "merge_with": "GLM-2" } ],
     "replies": [ { "id": "DEEPSEEK-1", "action": "keep|amend|withdraw",
-                   "text": "...", "replaced_by": "GLM-1" } ]
+                   "text": "...", "replaced_by": "GLM-1" } ],
+    // Since 0.7.8 (experimental): posts and replies the harness rejected, counted per lab and
+    // reason (unknown_target, own_proposal, bad_stance, not_own_proposal, not_posted_on,
+    // bad_action, unreadable). [] when nothing was dropped.
+    "dropped": [ { "stage": "debate|replies", "by": "qwen", "reason": "unknown_target", "count": 1 } ]
   },
   // Only on chains with `alternatives: { enabled: true }`: one whole architecture per lab, written
   // blind before the skeleton, and the same post/reply board the proposals get.
@@ -195,6 +234,11 @@ those plus `text` and may carry more (an `amend` often brings a `how`). `replace
 when the action is `withdraw`. `proposals[]` likewise carries `withdrawn` / `amended` /
 `replaced_by` only when they apply. Read defensively: check for a field, do not assume it.
 
+Chains with newer, opt-in stages add their own fields (`deep_dive`, `notQuorate`, `dispute`,
+`security_review`, ...); [docs/report-format.md](docs/report-format.md) lists which are stable and
+which experimental. With the majority guard on, a withdrawal that does not quote the argument it
+concedes to carries `unargued: true` in `debate.replies[]` and its proposal stays for the builder.
+
 `signoff[].lab` is the seat's lab; `signoff[].provider` holds the same value under an older,
 misleading name and is deprecated (kept until the report format's version 2).
 `signoff[].objections` is why a seat declined, on the seat's own record. `signedOff: null` means
@@ -237,6 +281,22 @@ refuses such a seat, with no override. There is no `xai` provider.
 
 The CLI refuses to start if any seat in the chosen chain is missing its key, rather than failing
 halfway through a paid run. `ollama` (below) is the one exception - it needs no key at all.
+
+A keyed seat sends its key only to its own provider's https API. A chain that points a keyed
+seat's `baseUrl` anywhere else is refused before any call (see
+[Local models](#local-models-ollama-lm-studio-)).
+
+Other settings, all optional, read from the environment or `.env`:
+
+| Variable | What it does |
+|---|---|
+| `MAX_USD_PER_RUN` | The default per-run spend cap (`7` when unset). `--max-usd` overrides it for one run. |
+| `COUNCIL_WORKDIR` | MCP server only: the folder for `tasks/` and `runs/`, when the client starts the server somewhere else. |
+| `COUNCIL_MAX_USD_LIMIT` | MCP server only: a cap the MCP client cannot raise or remove through `max_usd`. |
+| `COUNCIL_ALLOW_LOOPBACK_KEY_HOST` | `1` lets a keyed seat use a loopback `baseUrl` (a local proxy in front of the provider). Nothing else. |
+| `OLLAMA_API_KEY` | Sent to an `ollama` seat's server only if you set it. |
+| `COUNCIL_PERSONAS_FILE` | Your own persona set for debate seats ([PERSONAS.md](PERSONAS.md)). |
+| `AUDIT_HMAC_KEY` / `AUDIT_HMAC_KEY_FILE` | Signs the opt-in audit log (see [Privacy](#privacy)). |
 
 ### From source
 
@@ -287,9 +347,9 @@ If your local runner listens somewhere else (LM Studio, a different port, a remo
 
 Put a local or self-hosted server on an `ollama` seat, as above. A seat with a keyed provider
 (`openrouter`, `openai`, ...) sends that provider's key to its `baseUrl`, so chain lint refuses
-one whose `baseUrl` is anything but that provider's own https API address (`key-host`). For a
-local proxy in front of the provider, set `COUNCIL_ALLOW_LOOPBACK_KEY_HOST=1` in your environment:
-it allows a loopback address, nothing else.
+one whose `baseUrl` is anything but that provider's own https API address (`key-host`), and the
+CLI lints before every run and every resume. For a local proxy in front of the provider, set
+`COUNCIL_ALLOW_LOOPBACK_KEY_HOST=1` in your environment: it allows a loopback address, nothing else.
 
 A local seat prices at $0 in every estimate and run report - `dry_run` shows it as priced, not
 "unpriced," and it can never trip the spend cap. See `chains/local-ollama.json` for a full
@@ -330,6 +390,16 @@ will not accidentally publish them.
 `verify` is the default when you name no chain: a panel of two labs, a hard two-round cap. It
 needs three keys (Anthropic, OpenAI and Google, one account each). With one OpenRouter key, start
 with `cheap-7-v2` instead; `council doctor` lists every chain that runs on the keys you have.
+`--chain` takes a chain's name (`cheap-7-v2`), never a file path: a `chains/<name>.json` of your
+own in the working directory is found by its name.
+
+**If your task names files.** A task that names a file (`src/app.js`) without including its
+content is stopped before any call (exit 9, `BLOCKED-ARTIFACTS.md`), because the seats would
+otherwise plan against code they never saw. Put the real content in with
+`council fence --task tasks/x.md --repo <path to your repo> src/app.js` (it appends each file,
+fenced and labelled, and refuses to write if it finds a key), read the task file, then run.
+If a name is only a location, pass `--allow-unfenced` for the whole task or
+`--allow-unfenced app.js` for named files. Everything in the task file goes to every seat.
 
 ### Exit codes
 
@@ -339,7 +409,7 @@ Each outcome has its own code, so a script or CI job can branch on it:
 |---|---|
 | 0 | Finished: a deliverable and `report.json` were written. |
 | 1 | The chain failed lint, or an input is missing (no task file, a resume from the wrong directory). |
-| 2 | Usage error: a flag is missing its value or has an invalid one. |
+| 2 | Usage error: a flag is missing its value or has an invalid one, `--chain` is not a chain name, a `--context` file is not a regular file or is over 2 MB, or `--rematch`/`--replay` of a run given `--criteria`. |
 | 3 | Paused at an external seat: answer `NEEDS-<stage>.md`, then `--resume`. |
 | 4 | Stopped at the per-run spend cap before the next stage was paid for; resume with a higher `--max-usd`. |
 | 5 | A provider key the chain needs is missing (degradable: set it and run again). |
@@ -395,8 +465,10 @@ export MAX_USD_PER_RUN=20                         # change the default
 
 A run that hits the ceiling stops cleanly and writes `STOPPED-budget.md` saying what it spent, which
 stage it stopped at, and what that stage would have cost. Nothing is half-written: it produces no
-`deliverable.md` and no `report.json`, so a stopped run never reads as a finished one. Continue it
-with a higher ceiling - completed stages replay from disk and cost nothing the second time:
+`deliverable.md` and no `report.json`, so a stopped run never reads as a finished one. What it did
+get through is in `report-partial.json` and `BOARD-partial.md`
+([docs/report-format.md](docs/report-format.md)). Continue it with a higher ceiling - completed
+stages replay from disk and cost nothing the second time:
 
 ```bash
 council --resume runs/<id> --max-usd 10
@@ -475,6 +547,17 @@ up in `claude mcp list` as `plugin:the-high-council:high-council`. Remove it wit
 local clone instead (`claude plugin marketplace add /path/to/clone`), the server runs from the
 clone itself, so run `npm install` in it first.
 
+**Claude Desktop:** download `the-high-council-<version>.mcpb` from the
+[GitHub Releases](https://github.com/muad-yasin/the-high-council-mcp/releases) page (its SHA-256
+is next to it) and open it. Claude Desktop shows a settings form: a council folder for tasks and
+runs, a per-run spend ceiling that Claude cannot raise or remove from a chat, and one optional
+field per provider key (marked sensitive, so the app keeps them in the OS keychain). The bundle is unsigned. How it is built:
+[mcpb/README.md](mcpb/README.md).
+
+**MCP Registry:** the server is listed in the official registry as
+`io.github.muad-yasin/the-high-council` (npm package, stdio). A client that installs from the
+registry runs the same `npx` command as above.
+
 Registering with a client other than Claude Code (DeepSeek Harness, OpenHands, Cline, goose,
 Continue): [docs/mcp-clients.md](docs/mcp-clients.md) has the real config for each.
 
@@ -483,6 +566,13 @@ the package: `.env` for keys, `tasks/` for requests, `runs/` for output, and a `
 own takes precedence over the bundled ones. In a git project, add `.env` (and `runs/` if your
 ideas are private) to `.gitignore` before an agent commits everything; `council doctor` warns
 when `.env` is not ignored.
+
+The server only works inside that directory. `dry_run` and `start_run` take a chain by name.
+Every path `start_run` is given (`task`, `draft`, `context`, `from_run`, and each file inside a
+`context` folder or `from_run` run folder) must resolve inside the working directory, after
+symlinks, and must not be on the secret/credential denylist; outside `tasks/`, `runs/` and
+`context/` a gitignored file is refused too. Set `COUNCIL_MAX_USD_LIMIT` in the server's
+environment to cap what the client's `max_usd` can ask for.
 
 To run it by hand:
 
@@ -497,7 +587,7 @@ Then drive it with these tools:
 | `list_chains` | Available chains with descriptions and worst-case price |
 | `write_task` | Write the request the harness plans against |
 | `dry_run` | Price a run before spending anything |
-| `start_run` | Start a run in the background (`max_usd` sets its ceiling) |
+| `start_run` | Start a run in the background (`max_usd` sets its ceiling). `chain` is a chain name; `task`, `draft`, `context` and `from_run` must be inside the working directory |
 | `run_status` | Stage reached, panel verdicts, scoreboard, cost, budget remaining |
 | `spend_report` | What every run has cost across a window of days, plus `session_cost_today` (calendar-day, per-model breakdown), derived from disk |
 | `verdict_stats` | How the debate mechanism itself is doing, per chain and per lab: sign-off rate, rounds, objections, dropouts, cost/wall time, largest prompt files - derived from disk |
@@ -506,9 +596,9 @@ Then drive it with these tools:
 | `prepare_stage_prompt` | Write a self-contained bundle for a paused stage, so a driving session doing other work at the same time can dispatch it to a fresh subagent instead of authoring it inline - see [`docs/dispatch-pattern.md`](docs/dispatch-pattern.md) |
 | `submit_stage` | Answer a paused stage; the run resumes once every stage it waits on has an answer. Optional `claimed_by` records who's answering; a second submission for an already-answered stage no longer errors - it's kept as `<stage>.late.md` with a warning instead of being rejected |
 | `resume_run` | Resume a paused run, or raise `max_usd` on one the cap stopped |
-| `read_run_file` | Read any file from a run folder |
+| `read_run_file` | Read any file from a run folder (`report-partial.json` for a run the cap stopped) |
 | `list_runs` | Past runs |
-| `plan_outline` | Outline pass |
+| `plan_outline` | Section tree of a run's deliverable (or a `.md` file in the working directory) with word counts |
 
 **External vs. API-backed seats.** `{ "provider": "external" }` pauses a run at that seat so a
 Claude Code session on a flat-rate subscription plays it - free at the point of use, since the
@@ -525,9 +615,13 @@ for anyone with a subscription, since the project's cost story depends on it.
 which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be
 copied and edited.
 
-A few worth knowing:
+The four recommended ones (`cheap-7-v2`, `plan-premium-7`, `plan-highest-7`, `local-ollama`) are
+in the table at the top. A few more worth knowing:
 
-- **`verify`** - two labs, two rounds. The recommended starting point.
+- **`verify`** - two labs, two rounds. The default when you name no chain; needs Anthropic, OpenAI
+  and Google keys.
+- **`plan-open-7`** - the `cheap-7-v2` panel, with a Claude Code session writing the plan instead
+  of a paid seat.
 - **`cheap`** - small models throughout. For testing the harness itself, not for real work.
 - **`plan-debate`** - five labs propose blind, debate each other's proposals anonymised, then a
   blind panel grades the integrated draft.
@@ -556,6 +650,17 @@ Read a chain's `description` field before running it; they say what they cost yo
   source-level guard, not just an intention. A chain with no `role` set is byte-identical to
   before. **No efficacy claim**: this ships the mechanism, not evidence that it helps - see
   CHANGELOG.md's 0.6.0 entry.
+- **`quorum: { "minHeard": N }`** - opt-in, unanimous chains only, set in no shipped chain. A
+  round's sign-off counts only when at least N reviewers gave a verdict (signed off or objected);
+  a round short of it is recorded as `notQuorate`, the run does not pass, and the loop stops.
+- **Tiered councils (experimental, used by `plan-highest-7` and `mock-tiered`).**
+  `seats.alternatives` names who writes the whole alternative architectures, separately from the
+  proposers. `deep_dive` + `seats.deep_dive` add one non-voting seat with its own dollar cap
+  (`usd`, required) inside the run's cap. `majority_guard.enabled` shows each author every
+  argument once, with no lab name or count, and keeps a proposal whose withdrawal does not quote
+  the argument it gives in to. chain-lint refuses a tiered chain where a lab or model sits
+  both among the proposers and among the reviewers or architecture authors, or where the deep-dive seat shares a lab or model with a reviewer. See
+  CHANGELOG.md's 0.7.8 entry.
 
 ## How this was built
 
@@ -630,8 +735,16 @@ what each rule guards against and why. Copy the folders you want into your proje
   such a reply is recorded as `REASONING_EXHAUSTED` and is not retried: the seat abstains, which
   blocks unanimity and never counts as consent. Whether to change a chain's reasoning settings for it
   is a roster decision, not something the harness does for you.
-- Prices in `src/pricing.json` are hand-maintained list prices, last verified 2026-09-06. They are
-  estimates, not invoices. Your provider's bill is the real number.
+- Prices in `src/pricing.json` are hand-maintained list prices. Its `asOf` date (2026-09-06: the
+  oldest date every entry was last checked) is printed by `council doctor` and `--dry-run`, with a
+  warning once it is more than 60 days old. The spend cap and every estimate use these static
+  prices. They are estimates, not invoices. Your provider's bill is the real number.
+- `plan-highest-7`, the tiered council, has not been run with real models, and none of its
+  mechanisms (tiers, the deep-dive seat, the majority guard) has been measured. Its dry-run price
+  is a projection.
+- Seats marked `external` (the writer seats in `plan-premium-7`, `plan-highest-7` and
+  `plan-open-7`) pause the run until someone answers them, and are $0 only because a Claude Code
+  session on a subscription writes them. Nothing checks who wrote the answer.
 - Chains with many labs and high round caps get expensive quickly. `plan-unanimous` at three rounds
   is fifteen critic calls; `plan-auto` runs several frontier models over multiple rounds. Price
   before you run.
@@ -681,8 +794,9 @@ hand, 2026-09-13, on the live site:
 - No custom widget on any page (`index.html`, `board.html`, `demo.html`) uses a `<div>` or
   `<span>` with a click handler in place of a real interactive element - checked directly in the
   page source, not inferred.
-- No image ships anywhere in `docs/` (checked directly - zero `<img>` tags across all three
-  pages), so there is no informative image that could be missing alt text.
+- The only image in `docs/` is the local logo (`logo-diamond.png`): the header copy carries alt
+  text, the faint background copy on `index.html` has an empty `alt=""` as decoration.
+  `test/landing-page.test.js` checks both on every page.
 - Primary body text (`#8d8a84`/`#b9b5ad`) against the page background (`#0a0a0b`) measures
   roughly 5.7:1 contrast by the WCAG relative-luminance formula, above the 4.5:1 AA threshold
   for normal text.

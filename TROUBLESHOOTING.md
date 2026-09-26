@@ -96,8 +96,28 @@ local chains as runnable because they need no key, not because the server is up.
 ### A run stopped with `STOPPED: per-run spend cap reached` (exit 4)
 
 The next stage's worst case would have crossed the cap. Nothing past the cap was spent, and no
-plan was written yet. `council --resume runs/<id> --max-usd <higher>` continues from where it
-stopped. The run tells you at the start when a chain's worst case is above your cap.
+plan was written yet; what the run got through is in `report-partial.json` and `BOARD-partial.md`.
+`council --resume runs/<id> --max-usd <higher>` continues from where it stopped. The run tells you
+at the start when a chain's worst case is above your cap. `plan-premium-7` and `plan-highest-7`
+are above the default $7 cap before they start: price them with `--dry-run` and pass a
+`--max-usd` at or above that.
+
+### `BLOCKED: ... file(s) named but never fenced` (exit 9)
+
+The task names a file (`src/app.js`, `package.json`) but does not include its content, so the
+seats would plan against code they never saw. Nothing was called. Either append the real files
+with `council fence --task tasks/x.md --repo <path> <file> ...` and read the task file before
+running, or, if the names are only locations, run with `--allow-unfenced` (whole task) or
+`--allow-unfenced a.js,b.ts` (those files). `BLOCKED-ARTIFACTS.md` in the run folder lists the
+names it found.
+
+### `--chain` refused, or a chain lint error naming `key-host`
+
+`--chain` takes a chain's name (`cheap-7-v2`, or `my-chain` for your own `chains/my-chain.json`),
+never a path; anything else is a usage error (exit 2). `key-host` means a seat with a keyed
+provider has a `baseUrl` that is not that provider's own https API, and its key would go there.
+Move a local or self-hosted server to an `ollama` seat, or, for a local proxy in front of the
+provider, set `COUNCIL_ALLOW_LOOPBACK_KEY_HOST=1` (loopback addresses only).
 
 ### `.env holds your API keys and git would commit it`
 
