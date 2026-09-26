@@ -99,6 +99,13 @@
   2 MB limit and refuses a file that is not a regular file (a FIFO or a device), with exit 2 and
   the file's name, before any call. Reported by the 2026-09-26 security scan.
 
+- **The local run viewer (`npm run ui`) reads run folders only.** A run id in its API is now
+  accepted only in the exact run-folder shape the MCP tools use, and only when the folder's real
+  path is directly inside `runs/`; before, an encoded path could read `.md`, `run.log` and
+  `report.json` files outside it. A request line the server cannot parse is answered `400` instead
+  of stopping the viewer, and the page now escapes every value it shows from a run folder, numbers
+  from `report.json` included. The viewer also honours `COUNCIL_WORKDIR`, like the MCP server.
+
 ## 0.7.7 - 2026-09-25
 
 Everything since 0.7.6. The summary comes first; the detailed notes follow under "Detail". This

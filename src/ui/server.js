@@ -5,14 +5,16 @@
 //   npm run ui            -> http://127.0.0.1:8787
 //   PORT=9000 npm run ui
 import { createServer } from 'node:http';
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
-import { join, dirname, resolve, extname } from 'node:path';
+import { readFileSync, readdirSync, existsSync, statSync, realpathSync } from 'node:fs';
+import { join, dirname, resolve, extname, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSections, compareDrafts, parseLedger, words } from './parse.js';
+import { RUN_FOLDER } from '../run-status.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
-const runsDir = join(root, 'runs');
+// COUNCIL_WORKDIR, as for the MCP server: the directory whose runs/ is shown. Unset, the clone's own.
+const runsDir = join(process.env.COUNCIL_WORKDIR ? resolve(process.env.COUNCIL_WORKDIR) : root, 'runs');
 const port = Number(process.env.PORT || 8787);
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
@@ -23,7 +25,7 @@ function readText(p) { try { return readFileSync(p, 'utf8'); } catch { return nu
 function listRuns() {
   if (!existsSync(runsDir)) return [];
   return readdirSync(runsDir)
-    .filter(id => statSync(join(runsDir, id)).isDirectory())
+    .filter(id => runDir(id))
     .sort()
     .reverse()
     .map(id => {
@@ -50,9 +52,23 @@ function draftFiles(dir) {
   return names.filter(n => order(n) >= 0).sort((a, b) => order(a) - order(b));
 }
 
+// Security scan 2026-09-26 (THC #2): the id came from the URL, percent-decoded, and was joined onto
+// runs/ as it was, so an encoded "/" reached folders outside it. A run id is now the exact shape
+// the MCP tools accept (src/run-status.js RUN_FOLDER), and the folder's real path, symlinks
+// followed, must be a direct child of runs/. Anything else is "no such run".
+function runDir(id) {
+  if (typeof id !== 'string' || !RUN_FOLDER.test(id)) return null;
+  try {
+    const real = realpathSync(join(runsDir, id));
+    const rel = relative(realpathSync(runsDir), real);
+    if (!rel || rel.startsWith('..') || isAbsolute(rel) || rel.includes(sep)) return null;
+    return statSync(real).isDirectory() ? real : null;
+  } catch { return null; }
+}
+
 function runDetail(id) {
-  const dir = join(runsDir, id);
-  if (!existsSync(dir) || !statSync(dir).isDirectory()) return null;
+  const dir = runDir(id);
+  if (!dir) return null;
   const report = readJson(join(dir, 'report.json'));
   const files = readdirSync(dir).sort();
   const drafts = draftFiles(dir).map(name => {
@@ -105,12 +121,17 @@ const server = createServer((req, res) => {
     res.end(body);
   };
   if (!hostAllowed(req.headers.host)) return send(403, '{"error":"loopback only"}');
-  const url = new URL(req.url, `http://${req.headers.host}`);
   try {
+    // Inside the try: a request line the URL parser rejects used to throw out of the handler and
+    // stop the viewer (security scan 2026-09-26, THC #8). It is a 400 now.
+    let url;
+    try { url = new URL(req.url, `http://${req.headers.host}`); } catch { return send(400, '{"error":"bad request"}'); }
     if (url.pathname === '/api/runs') return send(200, JSON.stringify(listRuns()));
     const m = url.pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (m) {
-      const d = runDetail(decodeURIComponent(m[1]));
+      let id;
+      try { id = decodeURIComponent(m[1]); } catch { return send(404, '{"error":"no such run"}'); }
+      const d = runDetail(id);
       return d ? send(200, JSON.stringify(d)) : send(404, '{"error":"no such run"}');
     }
     const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);

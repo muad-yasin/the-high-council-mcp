@@ -14,6 +14,11 @@ import { join } from 'node:path';
 // unfenced task to every seat (bug audit 2026-09-23, CLI #2). NEEDS-ARTIFACTS.md is the pre-fix
 // name, still recognised as blocked for run folders written before it.
 export const ARTIFACTS_BLOCKED_FILE = 'BLOCKED-ARTIFACTS.md';
+
+// The exact shape of a run folder's name: a plain ISO timestamp, or a --rematch/--replay side run
+// of one. Anything that takes a run id from outside (the MCP tools, the run viewer) accepts this and
+// nothing else, so an id is never a path.
+export const RUN_FOLDER = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2}))?$/;
 const LEGACY_ARTIFACTS_BLOCKED_FILE = 'NEEDS-ARTIFACTS.md';
 export function artifactsBlocked(dir) {
   return existsSync(join(dir, ARTIFACTS_BLOCKED_FILE)) || existsSync(join(dir, LEGACY_ARTIFACTS_BLOCKED_FILE));

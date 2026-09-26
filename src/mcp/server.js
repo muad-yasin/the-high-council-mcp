@@ -24,7 +24,7 @@ import { verdictStats } from '../verdict-stats.js';
 import { metricsReport } from '../metrics.js';
 import { checkClaimStaleness } from '../peer-claim.js';
 import { submitStageAnswer } from '../stage-submission.js';
-import { deriveRunStatus, waitingStage, waitingStages, isAlivePid, isAliveByGrep, finishedRunState, artifactsBlocked, ARTIFACTS_BLOCKED_FILE } from '../run-status.js';
+import { deriveRunStatus, waitingStage, waitingStages, isAlivePid, isAliveByGrep, finishedRunState, artifactsBlocked, ARTIFACTS_BLOCKED_FILE, RUN_FOLDER } from '../run-status.js';
 import { lockHolder } from '../run-lock.js';
 import { harnessVersion } from '../version.js';
 import { isDeniedPath, pathRefusal } from '../tools.js';
@@ -88,7 +88,7 @@ const text = s => ({ content: [{ type: 'text', text: typeof s === 'string' ? s :
 // Status audit #2 (Review/PreRelease_Audit_status_2026-09-23.md): `<id>.rematch-N` and
 // `<id>.replay-DATE`, which list_runs shows, were rejected as "no such run". Still an exact shape -
 // never a path.
-const RUN_FOLDER = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2}))?$/;
+// The pattern itself lives in src/run-status.js, shared with the run viewer.
 const safeRun = id => typeof id === 'string' && RUN_FOLDER.test(id) && existsSync(join(runsDir, id));
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 

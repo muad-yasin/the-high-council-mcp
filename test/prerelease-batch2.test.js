@@ -205,8 +205,11 @@ test('replay #2: a rematch keeps roster.criteria_seat pointing at the same model
 
 test('status #2 / replay: MCP safeRun shape accepts rematch and replay folders and nothing path-like', () => {
   const RUN_FOLDER = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z(\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2}))?$/;
-  const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/mcp/server.js'), 'utf8');
-  assert.ok(src.includes(RUN_FOLDER.source), 'server.js uses the run-folder shape');
+  // The pattern moved to src/run-status.js in 0.7.8, shared with the run viewer; server.js imports it.
+  const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/run-status.js'), 'utf8');
+  assert.ok(src.includes(RUN_FOLDER.source), 'run-status.js holds the run-folder shape');
+  const server = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/mcp/server.js'), 'utf8');
+  assert.match(server, /import \{[^}]*\bRUN_FOLDER\b[^}]*\} from '\.\.\/run-status\.js'/, 'server.js uses the shared shape');
   for (const ok of ['2026-09-23T10-06-06-899Z', '2026-09-23T10-06-06-899Z.rematch-5', '2026-09-23T10-06-06-899Z.replay-2026-09-24']) assert.ok(RUN_FOLDER.test(ok), ok);
   for (const bad of ['../x', '2026-09-23T10-06-06-899Z/../x', '2026-09-23T10-06-06-899Z.rematch-5/..']) assert.ok(!RUN_FOLDER.test(bad), bad);
 });
