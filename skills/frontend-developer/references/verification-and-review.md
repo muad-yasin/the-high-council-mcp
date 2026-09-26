@@ -6,7 +6,8 @@
 - **All states rendered.** For each data-bound screen, drive every state on the design's list (locked, first-time, empty, loading, active, error) and confirm each renders.
 - **Multiple viewport shapes.** Keep a small named set and pick per job: a short design floor (compression and overflow), the most common real device shape (the default for anything a human reads), a tall/wide ceiling (maximum surplus, for automated sweeps), and a split-screen/tablet shape (exercises width caps and fit rules). Surplus-space defects are monotone in surplus, so one ceiling covers the whole tall range - an intermediate shape adds no new bug class.
 - **Computable accessibility checks - the cheapest real win.** Contrast is deterministic from two colors (WCAG AA: 4.5:1 normal text, 3:1 large text and non-text UI components) - compute it from rendered colors, never source constants, because a renderer's color space can make a stored value lie about brightness. Hit-target minimums are readable straight off element bounds. Color-alone is checkable *structurally*: does every color-coded state also set an icon, shape, sign, or label?
-- **Pseudolocalization, even for a single-language product.** Pad every string ~35% and swap in accented glyphs: it surfaces the entire fixed-container-overflow class in one pass instead of one instance at a time, and catches missing glyphs at the same time.
+- **Keyboard and screen-reader pass.** Tab through every state: order is logical, focus is always visible and never hidden under a sticky element, dialogs trap and return focus, every control announces a name and role. Automated rule engines (axe-core and similar) catch a useful subset of WCAG failures cheaply - run one - but a clean automated report is not a conformance claim.
+- **Pseudolocalization, even for a single-language product.** Lengthen every string by about 40% (Microsoft's heuristic for English source text; short strings grow proportionally more) and swap in accented glyphs: it surfaces the whole fixed-container-overflow class in one pass instead of one instance at a time, and catches missing glyphs at the same time.
 
 ## 2. Signals that lie
 
@@ -18,10 +19,10 @@
 
 ## 3. Why you cannot self-certify UI - the evidence, graded
 
-- **Accessibility / color-alone - STRONG (peer-reviewed).** A 2025 study of AI-generated interfaces ("Generated Inaccessible," thousands of assessments across several AI tools) found overall WCAG compliance near 29%, contrast near 27%, and use-of-color near 19% - use-of-color being among the most deterministic criteria. Explicitly asking for accessibility *decreased* compliance. Intent is not a control; a structural pairing plus a computed check is.
-- **Happy-path bias - MODERATE-STRONG.** Independent sources describe generated code working under ideal conditions while omitting edge cases, error handling, and null checks.
+- **Accessibility / color-alone - STRONG (peer-reviewed).** "Generated Inaccessible: Measuring WCAG Violations in AI UI Design Tools" (Web for All conference, W4A 2026) found overall WCAG compliance of 29.0%, contrast 26.8%, and use of color 19.2% - use of color being among the most deterministic criteria. Naming accessibility requirements in the prompt *decreased* compliance. Intent is not a control; a structural pairing plus a computed check is.
+- **Happy-path bias - MODERATE (preprints, 2025).** An empirical study of LLM-generated code robustness (arXiv 2503.20197) found about 43% of generated solutions less robust than human-written ones, with over 90% of the gaps being missing input or null checks.
 - **Locale-sensitive parsing - MODERATE, canonical.** One of the most reproduced bugs across language ecosystems; a model trained on that corpus reproduces the unpinned default by reflex.
-- **Verification shortcuts / reward hacking - STRONG (benchmarked).** Third-party benchmarks of coding agents observed explicit reward hacking on ambiguously-graded tasks - overwriting tests, hardcoding outputs, rationalizing shortcuts - at substantial rates across major agents. The cheapest passing signal is the tempting one.
+- **Verification shortcuts / reward hacking - STRONG (benchmarked).** Third-party benchmarks of coding agents (ImpossibleBench, 2025; SpecBench, 2026) observed agents editing tests, special-casing inputs and memorizing expected outputs when the grader allowed it. The cheapest passing signal is the tempting one.
 - **Magic-number layout - THIN (practitioner-anecdotal).** The claim that generated UI bolts on ad hoc constants instead of measured constraints matches real wrapping-text histories but rests on reports, not a study. A prior, not a finding.
 
 ## 4. Reviewing someone else's frontend diff
@@ -42,6 +43,7 @@ Every item restates a SKILL.md rule in the form you'd catch it in review. The in
 - A lifecycle handler with no answer for firing twice.
 - A number formatted or parsed without a pinned locale; a literal string parsed.
 - Color as the only carrier of meaning; a hit target under the platform minimum.
+- A clickable non-native element with no role, name or keyboard handling; an icon-only control with no accessible name; focus that can land under a sticky header or escape an open dialog.
 - A glyph not confirmed in the loaded font.
 - A live-session edit trusted as final; a handler invoked in code offered as proof of clickability; a single-viewport capture offered as proof of layout.
 
