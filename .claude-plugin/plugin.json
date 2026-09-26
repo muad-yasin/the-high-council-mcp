@@ -2,7 +2,7 @@
   "name": "the-high-council",
   "displayName": "The High Council",
   "description": "The High Council MCP server (multi-model planning harness, BYOK) plus the generic skills in skills/, packaged as one Claude Code plugin.",
-  "version": "0.7.7",
+  "version": "0.7.8",
   "author": { "name": "Muad Yasin" },
   "homepage": "https://sower-industries.de/MCP",
   "repository": "https://github.com/muad-yasin/the-high-council-mcp",
