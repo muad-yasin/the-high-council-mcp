@@ -40,7 +40,7 @@ Criteria describe the *property* checked, never a phrase the result must contain
 - **Investigation** - open-ended, many sources: a lead plus several workers with distinct, non-overlapping briefs.
 - **Build** - state changes: plan, cheapest end-to-end instance, verify, then volume.
 
-Writing tiers down explicitly is what stopped one research orchestrator from spawning many workers for a simple fact lookup.
+Write the tiers into the orchestrator's instructions; an unwritten tier is not applied.
 
 ## Ordering heuristics
 
