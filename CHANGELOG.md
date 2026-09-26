@@ -114,6 +114,13 @@
   error was swallowed, and the stopped run left no `report-partial.json` or `BOARD-partial.md`.
   Reported by the 2026-09-26 bug audit (#5).
 
+- **The argued stage's contract names the headings the argued prompt asks for.** The stage
+  contract (read by `prepare_stage_prompt`, the resume brief and the completeness check) kept its
+  own list of headings, which had drifted from the prompt: it required "The objections that changed
+  the plan" where the prompt asks for "The objections and how the authors answered". It now uses
+  the argued module's own list. The argued prompt itself is unchanged. Reported by the 2026-09-26
+  bug audit (#6).
+
 ### Security
 
 - **MCP `start_run` checks every file it hands the CLI.** `task` and `draft` were checked against

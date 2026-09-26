@@ -11,6 +11,8 @@
 // checks - those are later phases and read this contract, not the other
 // way around.
 
+import { ARGUED_SECTIONS } from './argued.js';
+
 // Canonical stage kinds. chain.js emits per-lab/per-round labels
 // (`propose-glm`, `panel-2-mistral`, `revise-3`, ...); STAGE_KIND_PATTERNS
 // maps any such label back to one of these fixed kinds so the contract
@@ -115,7 +117,10 @@ const STAGE_DEFS = {
   },
   argued: {
     role: 'Write "How this plan was argued" for a beginner developer, from the fact pack only: the options considered and why the losers lost, the objections that changed the plan, what is still disputed, and one line per lab. Cite a fact-pack id on every claim.',
-    required_sections: ['How this plan was argued', 'The big options', 'The objections that changed the plan', 'What is still disputed', 'Where each lab stood'],
+    // The headings the argued prompt asks for and argued.js checks (ARGUED_SECTIONS), under the
+    // section's own title. This list used to be typed out here and had drifted from both (bug audit
+    // 2026-09-26 #6: 'The objections that changed the plan' vs '...and how the authors answered').
+    required_sections: ['How this plan was argued', ...ARGUED_SECTIONS],
     return_instructions: 'Return the section as plain markdown, with the headings exactly as named in the prompt.',
   },
 };
