@@ -7,7 +7,8 @@ You choose the number of debate rounds, the seats and labs (any lab except xAI),
 limit for each model's replies.
 
 We recommend our own chains: `cheap-7-v2`, `plan-premium-7` and `plan-highest-7` (the top
-models, GPT-6 Astra, Claude Opus 5.5, DeepSeek V4 Pro and GLM-5.3, write the alternative
+models, GPT-6 Astra, Claude Opus 5.5 (Claude Fable 5.1 in the published 0.7.8), DeepSeek V4 Pro
+and GLM-5.3, write the alternative
 architectures and are the only seats that vote; cheaper seats write the proposals and the debate). You can also edit a chain to suit yourself, or run every seat on
 your own machine with `local-ollama`.
 
