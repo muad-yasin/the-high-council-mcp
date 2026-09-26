@@ -8,6 +8,7 @@
 - [ ] Shared workspace? Status checked; anything uncommitted preserved first
 - [ ] Spend? Worst case projected and under the ceiling, through the one enforcement point
 - [ ] External or visible to others? Content reviewed for secrets and sensitive data
+- [ ] Private data + untrusted input + an outbound channel all present? Remove one leg first
 - [ ] A human gate applies? It is actually satisfied by a human, not asserted
 - [ ] If this fails halfway, is there a route back?
 
@@ -19,7 +20,8 @@
 - [ ] Output truncated/paginated with a notice saying how to narrow
 - [ ] Meaningful identifiers in results, not opaque IDs
 - [ ] Errors: what's wrong, what the concept is, the concrete fix, a doc pointer
-- [ ] Read-only vs write-capable decided explicitly; write-capable gets its own risk analysis
+- [ ] Read-only vs write-capable decided explicitly; write-capable gets its own risk analysis (and honest MCP annotations, if it is an MCP tool)
+- [ ] Name says which system it touches; no two loaded tools can be confused
 - [ ] Network access decided explicitly; none unless required
 - [ ] Budget/rate implications routed through the existing enforcement point
 - [ ] Testable offline with fixtures; no credentials needed for tests
@@ -29,7 +31,7 @@
 
 | Condition | Action |
 |---|---|
-| Rate limit (429), timeout, 5xx | Retry with exponential backoff, bounded attempts |
+| Rate limit (429), timeout, 5xx | Retry with exponential backoff and jitter, bounded attempts; honor `Retry-After`; writes only with an idempotency key |
 | Other 4xx | Don't retry; surface the error with the fix |
 | Truncated output (hit token limit) | Don't blind-retry; raise the limit or shrink the input, or abstain |
 | Malformed output | One bounded repair of known mechanical breakage; otherwise abstain/fail |
