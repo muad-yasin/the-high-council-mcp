@@ -1,9 +1,15 @@
 # The High Council
 
-A planning harness that runs one idea past several AI models from different labs, makes them
-argue about software engineering, architecture, specific features, roadmaps and philosophy, and
-stops at a checkable result at an estimated price, with a variable number of debate rounds, model
-seats and labs (except xAI) and variable token limits per response and model.
+A planning harness that runs one idea past several AI models from different labs and makes
+them argue about software engineering, architecture, specific features, roadmaps and
+philosophy. It stops at a checkable result, at a price estimated before you spend anything.
+You choose the number of debate rounds, the seats and labs (any lab except xAI), and the token
+limit for each model's replies.
+
+We recommend our own chains: `cheap-7-v2`, `plan-premium-7` and `plan-highest-7` (the top
+models, GPT-6 Astra and Claude Fable 5.1, only review and vote; cheaper seats write the
+proposals and the debate). You can also edit a chain to suit yourself, or run every seat on
+your own machine with `local-ollama`.
 
 See it work right now - no keys, no setup, no cost:
 
