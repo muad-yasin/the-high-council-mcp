@@ -81,8 +81,27 @@ export function formatUsd(n) {
 // walks a chain's stage shape (questions/criteria/skeleton/proposals/debate/
 // panel rounds/handoff) to price it - `--dry-run` and `council doctor` both
 // call this rather than each re-deriving the shape themselves.
+// The typical output of one review by this seat, for the estimate only (0.7.8). The chain's flat
+// estimate.critiqueTokens (5000 in plan-premium-7) was one number for every reviewer, but reasoning
+// models spend most of a review thinking: premium-7's Fable seat was projected at ~$0.45 a round and
+// really cost ~$1.04 (thc-research brief 08), and its GLM seat ran to its 36000 cap. Now, in order:
+//   1. the seat's own `estimate.critiqueTokens`, when its chain sets one (configurable per seat);
+//   2. otherwise the larger of the chain's figure and the model's measured typical review output
+//      (pricing.json `critiqueTokens`, from real runs) - it can raise the chain's figure, never
+//      lower it;
+// and never more than the seat's review cap (panelMaxTokens, else maxTokens), which it cannot
+// exceed. The spend cap does not use this: it projects the full maxTokens, as it always has.
+export function critiqueTokensFor(seat, chainCritiqueTokens) {
+  const cap = seat?.panelMaxTokens ?? seat?.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS;
+  const own = seat?.estimate?.critiqueTokens;
+  if (Number.isInteger(own) && own >= 0) return Math.min(own, cap);
+  const measured = seat && seat.provider !== 'external' ? priceOf(seat.provider, seat.model)?.critiqueTokens : null;
+  return Math.min(Math.max(chainCritiqueTokens, Number.isInteger(measured) ? measured : 0), cap);
+}
+
 export function estimateChainRows(config, { fromRun = false } = {}) {
   const a = config.estimate || { promptTokens: 4000, draftTokens: 6000, critiqueTokens: 1200 };
+  const reviewOut = seat => critiqueTokensFor(seat, a.critiqueTokens);
   const rows = [];
   const push = (label, seat, input, output) => {
     if (!seat) return;
@@ -153,11 +172,11 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
   for (let r = 1; r <= config.maxRounds; r++) {
     if (unanimous) {
       for (const critic of config.seats.critics) {
-        push(`panel-${r}-${critic.lab || critic.provider}`, critic, a.promptTokens + a.draftTokens, a.critiqueTokens);
+        push(`panel-${r}-${critic.lab || critic.provider}`, critic, a.promptTokens + a.draftTokens, reviewOut(critic));
       }
     } else {
       const critic = config.seats.critics[(r - 1) % config.seats.critics.length];
-      push(`critique-${r}`, critic, a.promptTokens + a.draftTokens, a.critiqueTokens);
+      push(`critique-${r}`, critic, a.promptTokens + a.draftTokens, reviewOut(critic));
     }
     if (r < config.maxRounds) push(`revise-${r}`, config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens + a.critiqueTokens + proposalTokens, a.draftTokens);
   }
@@ -172,7 +191,7 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
     const critics = config.seats.critics || [];
     push('dispute', config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens + critics.length * a.critiqueTokens, a.draftTokens);
     if (config.dispute.review) {
-      for (const critic of critics) push(`dispute-review-${critic.lab || critic.provider}`, critic, a.promptTokens + 2 * a.draftTokens + a.critiqueTokens, a.critiqueTokens);
+      for (const critic of critics) push(`dispute-review-${critic.lab || critic.provider}`, critic, a.promptTokens + 2 * a.draftTokens + a.critiqueTokens, reviewOut(critic));
     }
   }
   if (config.canary?.enabled && config.debate && !fromRun) {

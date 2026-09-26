@@ -19,6 +19,17 @@
 
 ### Changed
 
+- **The dry-run prices each reviewer's review at that model's typical output.** A chain's
+  `estimate.critiqueTokens` was one figure for every panel seat, but reasoning models spend most of
+  a review thinking: `plan-premium-7` projected its Fable seat at $0.45 a round where a real run
+  paid about $1.04, and its GLM 5.3 seat ran to its 36,000-token cap. Price entries now carry a
+  measured `critiqueTokens` (the median panel-review output in the author's own runs; 13 models so
+  far), which raises a seat's estimate above the chain's figure but never lowers it, and a seat can
+  set its own `estimate: { critiqueTokens }`. Nothing exceeds the seat's review cap. `plan-premium-7`
+  goes from $18.55 to $21.59 worst case, `cheap-7-v2` from $5.34 to $5.38, `plan-open-7` from $2.45
+  to $2.49. The spend cap is unchanged: it still projects every stage at the seat's full
+  `maxTokens`. No shipped chain file changed, so paused runs resume from their cache as before.
+
 - **`src/http-server.js` and `express` are out of the npm package.** The HTTP trigger service was
   never part of the release but shipped in the tarball, with `express` as a runtime dependency that
   nothing else in the package uses. `package.json` `files` now excludes the file and `express` is a

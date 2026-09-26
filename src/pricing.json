@@ -2,6 +2,7 @@
   "_note": "USD per 1,000,000 tokens. List prices change often - re-check each lab's pricing page before quoting these to anyone. Verified against public pricing pages as of 2026-09-06 (the anthropic/* entries re-checked against Anthropic's pricing page on 2026-09-15). Bug-audit fix, 2026-09-16: together/Qwen/Qwen2.5-72B-Instruct-Turbo was missing entirely (used by src/budget.js's ROSTERS.frontier and .frontier-sonnet, silently understating priceRoster()'s total by ~14% - one of seven roster seats treated as $0), added at Together AI's public Turbo-endpoint rate for this model class (same tier as the already-listed together/meta-llama/Llama-3.3-70B-Instruct-Turbo entry, slightly above it per Together's own published per-model pricing); re-verify before quoting. Refreshed 2026-09-20 against openrouter.ai/api/v1/models directly (the live API, not a secondary aggregator): four openrouter/* entries had drifted - glm-5.3-flash and glm-5.2 were both UNDERSTATED, which understates every projection the spend cap enforces against, and glm-5.2 had been taken from an aggregator rather than the source. openrouter/mistralai/mistral-large-2512 was REMOVED: OpenRouter no longer serves the non-batch variant at all, so the entry priced a model this harness could not call. Five current-generation entries added for cheap-7-v2. Non-openrouter entries were NOT re-checked in that pass and still carry their older dates. Treat every entry as an estimate, not an invoice.",
   "asOf": "2026-09-06",
   "_asOf": "Machine-readable date for the table as a whole (0.7.8): the OLDEST date every entry was last checked against its lab's page, so it errs old. Some entries were re-checked since (see _note and their _source); none is older. `council doctor` and `--dry-run` print it and warn past 60 days. Move it forward only when every entry has been re-checked on or after the new date.",
+  "_critiqueTokensNote": "critiqueTokens on an entry (0.7.8) is that model's typical output for one panel review, measured from the author's own runs (reasoning models spend most of it thinking, so it runs well past the old flat 5000). Used only by the dry-run and doctor estimate, and only to RAISE a chain's estimate.critiqueTokens for that seat, never to lower it; a seat's own estimate.critiqueTokens overrides both. The spend cap does not read it: it always projects the seat's full maxTokens.",
   "anthropic/claude-fable-5-1": {
     "in": 10.0,
     "out": 50.0
@@ -101,7 +102,9 @@
   "openrouter/z-ai/glm-5.3-flash": {
     "in": 0.15,
     "out": 0.5,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22 (was 0.09/0.3 on 2026-09-20 - understated)"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22 (was 0.09/0.3 on 2026-09-20 - understated)",
+    "critiqueTokens": 14500,
+    "_critiqueTokens": "median panel-review output over 30 panel stages in 7 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/meta-llama/llama-4-maverick": {
     "in": 0.1875,
@@ -111,7 +114,9 @@
   "openrouter/mistralai/mistral-medium-3-5": {
     "in": 1.5,
     "out": 7.5,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20",
+    "critiqueTokens": 1000,
+    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/mistralai/mistral-small-2603": {
     "in": 0.15,
@@ -121,37 +126,51 @@
   "openrouter/openai/gpt-5.6-luna": {
     "in": 0.2,
     "out": 1.2,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20",
+    "critiqueTokens": 3000,
+    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/google/gemini-3.8-flash": {
     "in": 0.75,
     "out": 3.75,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20",
+    "critiqueTokens": 2500,
+    "_critiqueTokens": "median panel-review output over 44 panel stages in 8 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/deepseek/deepseek-v4.1-flash": {
     "in": 0.15,
     "out": 0.6,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20",
+    "critiqueTokens": 7000,
+    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/qwen/qwen3.7-plus": {
     "in": 0.32,
     "out": 1.28,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20",
+    "critiqueTokens": 2500,
+    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/deepseek/deepseek-v4-pro": {
     "in": 0.96,
     "out": 1.91,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
+    "critiqueTokens": 7500,
+    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/z-ai/glm-5.3": {
     "in": 0.84,
     "out": 2.64,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
+    "critiqueTokens": 36000,
+    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/qwen/qwen3.8-max-0902": {
     "in": 2.0,
     "out": 6.0,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
+    "critiqueTokens": 21000,
+    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/openai/gpt-5.6-sol": {
     "in": 2.0,
@@ -161,21 +180,29 @@
   "openrouter/anthropic/claude-fable-5.1": {
     "in": 10.0,
     "out": 50.0,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
+    "critiqueTokens": 10000,
+    "_critiqueTokens": "median panel-review output over 16 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/openai/gpt-6-astra": {
     "in": 10.0,
     "out": 50.0,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
+    "critiqueTokens": 3500,
+    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/meta/muse-spark-1.2": {
     "in": 1.25,
     "out": 4.25,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
+    "critiqueTokens": 5500,
+    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/minimax/minimax-m3": {
     "in": 0.3,
-    "out": 1.2
+    "out": 1.2,
+    "critiqueTokens": 3500,
+    "_critiqueTokens": "median panel-review output over 31 panel stages in 7 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/deepseek/deepseek-v3.2": {
     "in": 0.269,
