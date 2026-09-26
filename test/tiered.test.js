@@ -277,7 +277,7 @@ test('dry run: deep-dive rows stop at its own cap; anchors reply, mass seats onl
   assert.ok(big.reduce((s, r) => s + r.usd, 0) <= cfg.deep_dive.usd + 1e-9, 'a huge task still stops at the own cap');
   assert.ok(big.length > dd.length);
   const L = rows.map(r => r.label);
-  for (const lab of ['gpt6-astra', 'fable5.1']) { assert.ok(L.includes(`alternative-${lab}`)); assert.ok(L.includes(`alt-reply-${lab}`)); }
+  for (const lab of ['gpt6-astra', 'opus5.5']) { assert.ok(L.includes(`alternative-${lab}`)); assert.ok(L.includes(`alt-reply-${lab}`)); }
   assert.ok(L.includes('alt-debate-gpt5.6-luna') && !L.includes('alt-reply-gpt5.6-luna') && !L.includes('alternative-gpt5.6-luna'));
 });
 

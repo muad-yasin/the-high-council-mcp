@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.9 - unreleased
+
+### Changed
+
+- **`plan-highest-7`: Claude Opus 5.5 takes the Anthropic anchor seat** (architectures and review),
+  in place of Claude Fable 5.1. `src/pricing.json` gains Opus 5.5 at OpenRouter's $4 / $20 per million
+  tokens.
+
 ## 0.7.8 - 2026-09-26
 
 ### Added

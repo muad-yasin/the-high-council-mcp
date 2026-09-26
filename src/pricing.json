@@ -177,6 +177,11 @@
     "out": 10.0,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
   },
+  "openrouter/anthropic/claude-opus-5.5": {
+    "in": 4.0,
+    "out": 20.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-26"
+  },
   "openrouter/anthropic/claude-fable-5.1": {
     "in": 10.0,
     "out": 50.0,

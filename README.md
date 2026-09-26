@@ -7,7 +7,7 @@ You choose the number of debate rounds, the seats and labs (any lab except xAI),
 limit for each model's replies.
 
 We recommend our own chains: `cheap-7-v2`, `plan-premium-7` and `plan-highest-7` (the top
-models, GPT-6 Astra, Claude Fable 5.1, DeepSeek V4 Pro and GLM-5.3, write the alternative
+models, GPT-6 Astra, Claude Opus 5.5, DeepSeek V4 Pro and GLM-5.3, write the alternative
 architectures and are the only seats that vote; cheaper seats write the proposals and the debate). You can also edit a chain to suit yourself, or run every seat on
 your own machine with `local-ollama`.
 
@@ -41,7 +41,7 @@ Three commands from nothing to a priced run of your own idea (no key needed unti
 |---|---|---|---|
 | `cheap-7-v2` | Claude Sonnet 5 writes the plan; low-cost models from seven other labs review it, and all seven must sign off. Up to 7 rounds. | one OpenRouter key | $5.38 |
 | `plan-premium-7` | A Claude Code session writes the plan; a seven-lab panel of larger models (GPT-6 Astra, Claude Fable 5.1, Gemini 3.8 Flash, Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, GLM-5.3) proposes, debates and reviews. | OpenRouter key + a Claude Code session | $21.59 |
-| `plan-highest-7` | Seven low-cost models propose and debate; four top models write whole architectures and are the only reviewers; one deep-dive seat checks the first draft against the task. **Untested with real models.** | OpenRouter key + a Claude Code session | $14.89 |
+| `plan-highest-7` | Seven low-cost models propose and debate; four top models write whole architectures and are the only reviewers; one deep-dive seat checks the first draft against the task. **Untested with real models.** | OpenRouter key + a Claude Code session | $10.54 |
 | `local-ollama` | Every seat on your own machine, through Ollama. | Ollama and the models pulled | $0 |
 
 `plan-premium-7` and `plan-highest-7` cost more than the default cap, so give them a `--max-usd` at
