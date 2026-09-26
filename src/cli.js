@@ -1499,6 +1499,14 @@ if (contextArg) {
 // are re-read, so text added during a pause went to every seat unscanned. The mode and allow-list
 // are saved in run.json on the first sitting and re-applied, with a fresh scan, on every sitting.
 // A flag given on resume wins over the saved one.
+// Bug audit 2026-09-26 #1: --allow-unfenced was read from this sitting's argv only, so a run
+// started with it and resumed without it (MCP resume_run/submit_stage cannot pass it; nor does the
+// pause hint) was blocked at exit 9 by the gate it had been allowed past. Saved in run.json like
+// piiGate.allow and applied on resume; a flag given on the resume replaces the saved value.
+const allowUnfencedEff = unfencedArg !== null ? allowUnfenced : resumeMeta?.allowUnfenced === true;
+const unfencedAllowListEff = unfencedArg !== null ? unfencedAllowList
+  : (Array.isArray(resumeMeta?.unfencedAllowList) ? resumeMeta.unfencedAllowList.map(String) : []);
+const unfencedMeta = { ...(allowUnfencedEff ? { allowUnfenced: true } : {}), ...(unfencedAllowListEff.length ? { unfencedAllowList: unfencedAllowListEff } : {}) };
 const piiGateEff = piiGateMode !== null ? piiGateMode : (resumeMeta?.piiGate?.mode ?? null);
 const piiAllowEff = piiGateMode !== null || piiAllow ? piiAllowList : (resumeMeta?.piiGate?.allow ?? []);
 if (piiGateEff !== null) {
@@ -1590,7 +1598,7 @@ if (auditEnabled) {
 const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}) }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...unfencedMeta }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
@@ -1601,7 +1609,10 @@ if (!resumeMeta) {
   // submit_stage, resume_run without max_usd) keeps it instead of falling back to the old
   // cap - raised, the run stopped again at the old one; lowered, the next sitting went
   // back past it (audit finding 6).
-  resumeMeta = { ...resumeMeta, pid: process.pid, rootSpanId, ...(argv.includes('--max-usd') ? { maxUsd } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(policyChecks ? { policyChecks } : {}) };
+  // The unfenced-gate waiver is rewritten from the effective values, so a flag given on this resume
+  // (a narrower list, or none at all over a saved whole-gate waiver) is what the next sitting reads.
+  const { allowUnfenced: _savedAllow, unfencedAllowList: _savedList, ...resumeRest } = resumeMeta;
+  resumeMeta = { ...resumeRest, pid: process.pid, rootSpanId, ...(argv.includes('--max-usd') ? { maxUsd } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(policyChecks ? { policyChecks } : {}), ...unfencedMeta };
   writeFileSync(join(runDir, 'run.json'), JSON.stringify(resumeMeta, null, 2));
 }
 
@@ -1677,16 +1688,6 @@ setBudget(maxUsdEff);
 const earlierSupersededUsd = supersededSpendOf(runDir);
 countEarlierSpend(earlierSupersededUsd);
 
-// A previous sitting may have stopped this run at the ceiling. Clear that
-// marker now that we are past it, so a run that goes on to finish is not
-// still advertising itself as capped. report-partial.json and BOARD-partial.md go with
-// STOPPED-budget.json: they describe the run as it stood at that stop, which this sitting is
-// about to change, so they live and die with the marker. If this sitting is capped again they are
-// written fresh; if it finishes, report.json replaces them.
-for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md']) {
-  if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
-}
-
 const logPath = join(runDir, 'run.log');
 const log = (...parts) => {
   const line = parts.join(' ');
@@ -1721,7 +1722,7 @@ if (!resumeMeta && maxUsdEff !== null) {
   // v3 §3: same call site, same warn-never-block posture, checking for a task that names a
   // file it never inlines verbatim rather than a section/criteria conflict.
   const contractWarnings = preflightCheck(config, request);
-  const artifactFindings = checkArtifactReferences(requestForArtifactGate, { allow: unfencedAllowList });
+  const artifactFindings = checkArtifactReferences(requestForArtifactGate, { allow: unfencedAllowListEff });
   const preflightWarnings = [...contractWarnings, ...artifactFindings];
   if (preflightWarnings.length && !resumeMeta) {
     for (const w of preflightWarnings) log(`  PRE-FLIGHT WARNING: ${w.message}`);
@@ -1735,7 +1736,7 @@ if (!resumeMeta && maxUsdEff !== null) {
   // printed this same warning and run anyway. Exits BEFORE any metered call, so a blocked run
   // costs nothing. --allow-unfenced is the explicit override and is recorded in WARNINGS.md
   // above alongside the findings, so bypassing leaves a trace rather than erasing one.
-  if (artifactFindings.length && !allowUnfenced) {
+  if (artifactFindings.length && !allowUnfencedEff) {
     const needsPath = join(runDir, ARTIFACTS_BLOCKED_FILE);
     writeFileSync(needsPath, [
       '# Missing artifacts',
@@ -1775,6 +1776,19 @@ if (!resumeMeta && maxUsdEff !== null) {
   // Passed this time (the task was fenced, or --allow-unfenced given): a marker left by an earlier
   // blocked sitting would otherwise keep the run reading as blocked.
   for (const f of [ARTIFACTS_BLOCKED_FILE, 'NEEDS-ARTIFACTS.md']) if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
+}
+
+// A previous sitting may have stopped this run at the ceiling. Clear that
+// marker now that we are past it, so a run that goes on to finish is not
+// still advertising itself as capped. report-partial.json and BOARD-partial.md go with
+// STOPPED-budget.json: they describe the run as it stood at that stop, which this sitting is
+// about to change, so they live and die with the marker. If this sitting is capped again they are
+// written fresh; if it finishes, report.json replaces them.
+// Bug audit 2026-09-26 #1: this ran before the artifact gate above, so a resume the gate blocked
+// (exit 9, nothing spent) had already deleted the stopped run's partial report and its marker. It
+// now runs only once the gate has passed.
+for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md']) {
+  if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
 
 // v5 item 3: state.json, a live progress file rewritten atomically from files already on disk

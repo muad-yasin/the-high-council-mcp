@@ -53,6 +53,14 @@
   (`fixtures/hostile-fenced/`, `test/hostile-fenced-corpus.test.js`: forged fence headers,
   verdict and sign-off lines, fence-breaking lines, homoglyphs, bidi, base64, notes to reviewers,
   an over-limit line). What is sent to the seats is unchanged.
+- **A run started with `--allow-unfenced` can be resumed without it.** The artifact gate runs again
+  on every resume, but the waiver was read from that sitting's command line only, so the first
+  resume without the flag stopped at exit 9. That was every MCP resume: `resume_run` and
+  `submit_stage` cannot pass it. The waiver (whole-gate or a file list) is now saved in `run.json`
+  and applied on resume; a flag given on a resume replaces it. The same resume also deleted a
+  capped run's `STOPPED-budget.json`, `report-partial.json` and `BOARD-partial.md` before the gate
+  refused it, so a blocked resume lost the stopped run's record; they are now deleted only once the
+  gate has passed. Reported by the 2026-09-26 bug audit (#1).
 - **`src/http-server.js` (not part of the release, but in the package): a path-shaped
   `idempotencyKey` could write the task file outside its temp directory.** `POST /runs` now
   refuses any key outside `[A-Za-z0-9_-]{1,128}` and any chain name that is a path, with
