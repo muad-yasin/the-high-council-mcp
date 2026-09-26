@@ -109,6 +109,11 @@
   none is left (until then it answers `resumed: false` with the stages still waiting). Reported by
   the 2026-09-26 bug audit (#4).
 
+- **A run the spend cap stops at the ambiguity or questions stage writes `report-partial.json`.**
+  The record of the run so far was built from a value that did not exist yet at those stages, the
+  error was swallowed, and the stopped run left no `report-partial.json` or `BOARD-partial.md`.
+  Reported by the 2026-09-26 bug audit (#5).
+
 ### Security
 
 - **MCP `start_run` checks every file it hands the CLI.** `task` and `draft` were checked against

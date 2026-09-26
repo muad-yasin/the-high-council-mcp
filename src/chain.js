@@ -1493,8 +1493,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       dispute: peek(() => dispute, undefined),
       coldRead: peek(() => coldRead, undefined),
       alternatives: peek(() => alternatives, undefined),
-      quoteFindings: fencedSource ? quoteFindings : undefined,
-      patchFallbacks: config.revise?.mode === 'patch' ? patchFallbacks : undefined,
+      quoteFindings: peek(() => fencedSource, null) ? peek(() => quoteFindings, undefined) : undefined,
+      patchFallbacks: config.revise?.mode === 'patch' ? peek(() => patchFallbacks, undefined) : undefined,
     };
     const crit = peek(() => criteria, []);
     return {
@@ -1525,7 +1525,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       orphanSections: ledger?.orphanSections ?? [],
       withdrawalCycles: ledger?.withdrawalCycles ?? 0,
       ...Object.fromEntries(Object.entries(optional).filter(([, v]) => v !== undefined)),
-      ...(kindsOn ? peek(() => ({
+      // Through peek like everything else: kindsOn is declared with the criteria stage, so a cap
+      // stop at the ambiguity or questions stage read it in its temporal dead zone, the throw was
+      // swallowed by runChain, and no report-partial.json was written (bug audit 2026-09-26 #5).
+      ...(peek(() => kindsOn, false) ? peek(() => ({
         criteriaKinds: kindsRecord(crit, criteriaKinds),
         criteriaSummary: criteriaSummary(crit, criteriaKinds, { metWithoutEvidence }),
         metWithoutEvidence,
