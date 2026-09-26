@@ -46,6 +46,39 @@ export function priceOf(provider, model) {
   return PRICES[`${provider}/${model}`] || null;
 }
 
+// Security scan 2026-09-26 (THC #3): a provider's usage numbers went straight into costOf() and
+// the spend cap. A NaN, a negative count or a string there made the stage's cost NaN or negative,
+// and `spent + NaN` is NaN, which no ceiling comparison ever breaches: one odd reply switched the cap
+// off. readUsage() accepts a token count only as a finite number >= 0 (a plain digit string is read
+// as its number). Anything else, or no usage at all, is reported as unreadable, with every count
+// zeroed so the stage record and the log stay sane; invoke() then charges the stage's projected
+// worst case instead of a measured cost.
+function tokenCount(v) {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && /^\s*\d+(\.\d+)?\s*$/.test(v) ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+export function readUsage(usage) {
+  if (!usage || typeof usage !== 'object') return { usage: { input: 0, output: 0, thinking: 0 }, unreadable: 'no usage reported' };
+  const clean = { ...usage };
+  delete clean.unreadable;
+  const bad = [];
+  for (const k of ['input', 'output', 'thinking', 'cached']) {
+    const required = k === 'input' || k === 'output';
+    if (!required && usage[k] == null) continue;
+    const n = tokenCount(usage[k]);
+    if (n === null) { bad.push(k); clean[k] = 0; } else clean[k] = n;
+  }
+  const why = [...(usage.unreadable ? [String(usage.unreadable)] : []), ...(bad.length ? [`unreadable ${bad.join(', ')}`] : [])];
+  return { usage: clean, unreadable: why.length ? why.join('; ') : null };
+}
+// A dollar figure read back from disk (<label>.usage.json on replay). Absent is $0, as it always
+// was (an external stage, a cache entry from before costs were recorded); present, it must be a
+// finite number >= 0, else null, which the caller charges as the stage's worst case.
+export function readUsd(v) {
+  if (v === undefined || v === null) return 0;
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+}
+
 export function costOf(provider, model, usage) {
   const p = priceOf(provider, model);
   if (!p) return { usd: 0, priced: false };

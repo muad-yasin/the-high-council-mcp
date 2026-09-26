@@ -106,6 +106,13 @@
   of stopping the viewer, and the page now escapes every value it shows from a run folder, numbers
   from `report.json` included. The viewer also honours `COUNCIL_WORKDIR`, like the MCP server.
 
+- **The spend cap no longer trusts a provider's usage numbers blindly.** A token count that was
+  not a finite number of zero or more (a string, a negative, an overflowing value), or a reply with
+  no usage at all, could turn a stage's cost into something no ceiling comparison ever breaches,
+  and the run then continued past its cap. Such usage is now recorded as zero tokens and charged
+  toward the cap at that call's projected worst case, with a line in the log. A stage's cost read
+  back from disk on resume is checked the same way. Well-formed usage is priced exactly as before.
+
 ## 0.7.7 - 2026-09-25
 
 Everything since 0.7.6. The summary comes first; the detailed notes follow under "Detail". This

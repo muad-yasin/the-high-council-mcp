@@ -763,6 +763,7 @@ async function callAnthropic({ model, system, messages, maxTokens, temperature, 
   return {
     text,
     usage: {
+      ...usageGap(json.usage, 'input_tokens', 'output_tokens'),
       input: json.usage?.input_tokens ?? 0,
       output: json.usage?.output_tokens ?? 0,
       thinking: json.usage?.output_tokens_details?.thinking_tokens ?? 0,
@@ -812,7 +813,7 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
   }
   return {
     text: json.choices?.[0]?.message?.content ?? '',
-    usage: { ...usageOfOpenAICompat(json.usage), stop: normaliseStop(json.choices?.[0]?.finish_reason) },
+    usage: { ...usageOfOpenAICompat(json.usage), stop: normaliseStop(json.choices?.[0]?.finish_reason), ...usageGap(json.usage, 'prompt_tokens', 'completion_tokens') },
     provider,
     // v3 §Item 3: a provider-array fallback (`extra.models`) can answer with a model other
     // than the one requested - `json.model` is the response's own record of which model
@@ -843,6 +844,15 @@ export function normaliseStop(stop) {
 // spend cap were under-counted and the near-cap truncation check could never fire. When the
 // reasoning field is absent, the hidden remainder of total_tokens is thinking, billed as output.
 // Where total = prompt + completion (every provider that reports reasoning, or has none) this is 0.
+// A reply with no usage, or no input or output count in it, is marked rather than read as zero
+// tokens: chain.js charges such a stage its projected worst case (security scan 2026-09-26, THC #3;
+// the value checks themselves are cost.js readUsage()).
+function usageGap(u, inKey, outKey) {
+  if (!u || typeof u !== 'object') return { unreadable: 'no usage reported' };
+  if (u[inKey] == null || u[outKey] == null) return { unreadable: 'usage without token counts' };
+  return {};
+}
+
 export function usageOfOpenAICompat(u = {}) {
   const input = u?.prompt_tokens ?? 0;
   const completion = u?.completion_tokens ?? 0;

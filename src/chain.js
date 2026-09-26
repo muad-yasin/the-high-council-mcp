@@ -1,6 +1,6 @@
 import { call, keyFor, resolveVendorSeat } from './providers.js';
 import * as R from './roles.js';
-import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach, SEAT_DEFAULT_MAX_TOKENS } from './cost.js';
+import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach, SEAT_DEFAULT_MAX_TOKENS, readUsage, readUsd } from './cost.js';
 import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { applySeatRole } from './seat-role.js';
@@ -959,33 +959,8 @@ async function invoke(seat, { system, user, log, label }) {
   // run pauses to ask the operator again with the current prompt. A cached stage from before
   // prompt hashes existed has none; it replays as it always did, with a warning.
   const promptHash = promptHashOf(system, user);
-  let hit = cache.get(label);
-  if (hit) {
-    // Pre-release cache audit #1: the decision is cacheVerdict() (cache-integrity.js). An entry with
-    // no record of its inputs is stale now; one from between the two fixes is trusted but recorded
-    // through cache.warn (WARNINGS.md and report.json), and every trusted hit's prompt hash is
-    // written back by the CLI (onStage), so the gap closes at the next resume.
-    const verdict = cacheVerdict(hit, promptHash);
-    if (verdict.status === 'stale') {
-      budget.spent += hit.usd || 0;
-      cache.invalidate?.(label, verdict.why);
-      log(`  CACHE STALENESS WARNING: stage "${label}" - ${verdict.why}; ${seat.provider === 'external' ? 'the old answer was set aside and the operator is asked again' : 're-running it'}${hit.usd ? ` (the ${formatUsd(hit.usd)} the old answer cost still counts toward the cap)` : ''}.`);
-      hit = null;
-    } else if (verdict.status === 'unverified') {
-      cache.warn?.(label, verdict.why);
-      log(`  CACHE: stage "${label}" replayed UNVERIFIED - ${verdict.why}. Recorded in WARNINGS.md and report.json.`);
-    }
-  }
-  if (hit) {
-    budget.spent += hit.usd || 0;
-    log(`  ${label}: ${hit.provider || seat.provider}/${hit.model || seat.model} - from disk (${hit.usage?.input ?? 0} in, ${hit.usage?.output ?? 0} out, ${formatUsd(hit.usd || 0)} already spent)`);
-    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage: hit.usage || { input: 0, output: 0 }, usd: hit.usd || 0, priced: true, ms: 0, text: hit.text, cached: true, promptHash };
-  }
-  if (seat.provider === 'external') throw new ExternalPause(label, system, user);
-
-  // The cap is checked here, before the only line in this file that spends
-  // money. Anthropic seats are projected at two attempts because invoke()
-  // below may pay for the same stage twice (the thinking-disabled retry).
+  // The cap's projection for this stage, worked out before the cache is read: a replayed stage whose
+  // recorded cost is unreadable is charged one attempt of it (security scan 2026-09-26, THC #3).
   //
   // Bug-audit fix, 2026-09-16: checks `seat.originalProvider ?? seat.provider`, not
   // `seat.provider` alone - resolveVendorSeat() (single-vendor mode) rewrites `provider` to the
@@ -1001,6 +976,44 @@ async function invoke(seat, { system, user, log, label }) {
     maxTokens,
     retries: isAnthropicSeat ? 2 : 1,
   }).usd;
+  const oneAttempt = projected / (isAnthropicSeat ? 2 : 1);
+  const recordedUsd = h => {
+    const usd = readUsd(h.usd);
+    if (usd !== null) return usd;
+    log(`  ${label}: the cost recorded on disk for this stage is not a valid amount - ${formatUsd(oneAttempt)} (one attempt's worst case) counted toward the cap instead.`);
+    return oneAttempt;
+  };
+  let hit = cache.get(label);
+  if (hit) {
+    // Pre-release cache audit #1: the decision is cacheVerdict() (cache-integrity.js). An entry with
+    // no record of its inputs is stale now; one from between the two fixes is trusted but recorded
+    // through cache.warn (WARNINGS.md and report.json), and every trusted hit's prompt hash is
+    // written back by the CLI (onStage), so the gap closes at the next resume.
+    const verdict = cacheVerdict(hit, promptHash);
+    if (verdict.status === 'stale') {
+      const oldUsd = recordedUsd(hit);
+      budget.spent += oldUsd;
+      cache.invalidate?.(label, verdict.why);
+      log(`  CACHE STALENESS WARNING: stage "${label}" - ${verdict.why}; ${seat.provider === 'external' ? 'the old answer was set aside and the operator is asked again' : 're-running it'}${oldUsd ? ` (the ${formatUsd(oldUsd)} the old answer cost still counts toward the cap)` : ''}.`);
+      hit = null;
+    } else if (verdict.status === 'unverified') {
+      cache.warn?.(label, verdict.why);
+      log(`  CACHE: stage "${label}" replayed UNVERIFIED - ${verdict.why}. Recorded in WARNINGS.md and report.json.`);
+    }
+  }
+  if (hit) {
+    const usd = recordedUsd(hit);
+    const usage = hit.usage ? readUsage(hit.usage).usage : { input: 0, output: 0 };
+    budget.spent += usd;
+    log(`  ${label}: ${hit.provider || seat.provider}/${hit.model || seat.model} - from disk (${usage.input} in, ${usage.output} out, ${formatUsd(usd)} already spent)`);
+    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage, usd, priced: true, ms: 0, text: hit.text, cached: true, promptHash };
+  }
+  if (seat.provider === 'external') throw new ExternalPause(label, system, user);
+
+  // The cap is checked here, before the only line in this file that spends
+  // money. Anthropic seats are projected at two attempts because invoke()
+  // below may pay for the same stage twice (the thinking-disabled retry).
+  // (isAnthropicSeat and `projected` are worked out above, before the cache is read.)
   const verdict = wouldBreach({ spent: budget.spent + budget.reserved, cap: budget.cap, projected });
   if (verdict.breach) {
     const inFlight = budget.reserved > 0 ? ` (plus up to ${formatUsd(budget.reserved)} reserved by calls still in flight)` : '';
@@ -1027,7 +1040,16 @@ async function invoke(seat, { system, user, log, label }) {
       // callOpenAICompat, which is the only one that reads it.
       baseUrl: seat.baseUrl,
     });
-    let res = await ask(seat.extra);
+    // Usage the cap cannot read (a NaN, a negative or non-numeric count, no usage at all) is
+    // zeroed in the record and charged at one attempt's projection (cost.js readUsage).
+    const readRes = r => { const { usage, unreadable } = readUsage(r.usage); return { ...r, usage, unreadable }; };
+    const costOfRes = r => {
+      const measured = costOf(r.provider, r.model, r.usage);
+      if (!r.unreadable) return measured;
+      if (oneAttempt > 0) log(`  ${label}: ${r.provider}/${r.model} reported usage the spend cap cannot read (${r.unreadable}) - ${formatUsd(oneAttempt)} (one attempt's worst case) counted toward the cap.`);
+      return { usd: oneAttempt, priced: measured.priced };
+    };
+    let res = readRes(await ask(seat.extra));
     let wasted = 0;
     // Claude's adaptive thinking counts against max_tokens and is not text. On
     // a hard prompt it can spend the whole budget before writing a word - the
@@ -1045,16 +1067,16 @@ async function invoke(seat, { system, user, log, label }) {
     // checked both spellings; this retry trigger only checked one, so it silently never fired for
     // any single-vendor-routed Anthropic seat even after the `isAnthropicSeat` fix above.
     if (isAnthropicSeat && res.usage.thinking > 0 && (res.usage.stop === 'max_tokens' || res.usage.stop === 'length')) {
-      wasted = costOf(res.provider, res.model, res.usage).usd;
+      wasted = costOfRes(res).usd;
       // Counted now, not with the final stage: if the retry below throws, this attempt was still
       // billed (bug-audit fix, 2026-09-23, BugAudit_MoneyPath #4a - it used to vanish from `spent`).
       budget.spent += wasted;
       unrecordedWaste = wasted;
       const how = res.text.trim() ? `text cut off - ${res.usage.thinking} of ${res.usage.output} tokens went to thinking` : `empty text - all ${res.usage.output} tokens went to thinking`;
       log(`  ${label}: ${how} (stop: max_tokens, ${formatUsd(wasted)} spent); retrying once with thinking disabled.`);
-      res = await ask({ ...(seat.extra || {}), thinking: { type: 'disabled' } });
+      res = readRes(await ask({ ...(seat.extra || {}), thinking: { type: 'disabled' } }));
     }
-    const cost = costOf(res.provider, res.model, res.usage);
+    const cost = costOfRes(res);
     const stage = {
       label,
       provider: res.provider,
