@@ -14,6 +14,18 @@
 
 ### Fixed
 
+- **`council fence` refuses a file whose name holds a control or bidi character.** A file name with
+  a line break in it (legal on Linux and macOS) wrote a line of its own into the fenced block; when
+  that line was a backtick run it closed the fence early, so the rest of the file read as task prose
+  and the task prose after it read as fenced source. Names with C0/C1 control characters (line
+  breaks included) or bidi embeddings, overrides or isolates are now refused with an error naming
+  the file. Bidi and zero-width characters inside a file's content are still sent, since real
+  source has them, but `council fence` now counts them in its summary line. Found by a hostile-name
+  test matrix (`test/hostile-strings.test.js`).
+- **The local run viewer (`npm run ui`) answers only `Host: 127.0.0.1:<port>` or
+  `localhost:<port>`.** Listening on 127.0.0.1 keeps other machines out, not other web pages: a page
+  that points its own host name at 127.0.0.1 (DNS rebinding) could read the viewer's API, and a
+  run's texts can hold fenced private source. Any other Host header now gets `403`.
 - **`src/http-server.js` (not part of the release, but in the package): a path-shaped
   `idempotencyKey` could write the task file outside its temp directory.** `POST /runs` now
   refuses any key outside `[A-Za-z0-9_-]{1,128}` and any chain name that is a path, with

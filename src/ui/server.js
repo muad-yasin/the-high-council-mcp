@@ -89,12 +89,23 @@ function runDetail(id) {
   };
 }
 
+// Binding to 127.0.0.1 keeps other machines out, not other web pages. A page on any site can
+// point its own hostname at 127.0.0.1 (DNS rebinding) and then read this API as same-origin -
+// and a run's texts can hold fenced private source. The browser still sends the page's own
+// hostname in Host, so only the two names this server is reached by, on its own port, are
+// answered: 127.0.0.1:<port> and localhost:<port>. (2026-09-25; the same class as opencode's
+// CVE-2026-22812, a local server any web page could reach.) It listens on 127.0.0.1 only, so
+// [::1] never reaches it and is not listed.
+const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+const hostAllowed = host => allowedHosts.has(String(host || '').toLowerCase());
+
 const server = createServer((req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
   const send = (code, body, type = 'application/json; charset=utf-8') => {
     res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
     res.end(body);
   };
+  if (!hostAllowed(req.headers.host)) return send(403, '{"error":"loopback only"}');
+  const url = new URL(req.url, `http://${req.headers.host}`);
   try {
     if (url.pathname === '/api/runs') return send(200, JSON.stringify(listRuns()));
     const m = url.pathname.match(/^\/api\/runs\/([^/]+)$/);

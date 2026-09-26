@@ -54,7 +54,32 @@ function jail(root, requested) {
     throw new Error(`refused: '${requested}' escapes the repository via a symlink`);
   }
   if (!statSync(realTarget).isFile()) throw new Error(`not a file: ${requested}`);
-  return { base, path: realTarget, rel: realRel.split(sep).join('/') };
+  const relPath = realRel.split(sep).join('/');
+  // The path is written twice, into the heading and inside the fence. A name with a line break
+  // in it (legal on Linux and macOS) puts a line of its own into the block, and if that line is
+  // a backtick run it closes the fence early: the rest of the file becomes task prose and the
+  // task's prose after it becomes "source" (found 2026-09-25 by feeding hostile names through
+  // fenceFile + parseFences). Bidi controls are refused for the other half of the same promise:
+  // the operator reads the task file before it is sent, and a right-to-left override makes a
+  // name read differently from what it is. Refused, not escaped: no real source file needs one.
+  if (HIDDEN_IN_NAME.test(relPath)) {
+    throw new Error(`refused: ${JSON.stringify(relPath)} has a control or bidi-override character in its name`);
+  }
+  return { base, path: realTarget, rel: relPath };
+}
+
+// C0/C1 control characters (line breaks included), and the bidi embeddings, overrides and
+// isolates (U+202A-U+202E, U+2066-U+2069).
+const HIDDEN_IN_NAME = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/;
+
+// Characters that change how text looks without looking like anything: the same bidi controls,
+// plus zero-width ones (U+200B-U+200F, U+2060, U+FEFF after the first byte). Not refused in a
+// file's CONTENT - real source has them (RTL strings, BOMs) - but counted, so the operator is
+// told that what they read in the task file may not be what a seat reads.
+const INVISIBLE_IN_TEXT = /[\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069]|(?!^)\ufeff/g;
+
+export function countInvisible(text) {
+  return (String(text).match(INVISIBLE_IN_TEXT) || []).length;
 }
 
 // A backtick fence longer than the longest backtick run anywhere in `text`, and never shorter
@@ -93,6 +118,8 @@ export function fenceFile(root, requested) {
     bytes: raw.length,
     truncated,
     redacted,
+    // Additive (2026-09-25): count of bidi and zero-width characters in what is sent.
+    invisible: countInvisible(safe),
     // The path is repeated inside the fence as well as in the heading: the artifact
     // pre-flight matches a filename against fenced text, and a seat reading the block
     // needs to know which file it is looking at without relying on the surrounding prose.

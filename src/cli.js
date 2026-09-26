@@ -569,6 +569,7 @@ if (argv[0] === 'fence') {
     const notes = [
       b.truncated ? `truncated at ${FENCE_MAX_BYTES} bytes of ${b.bytes}` : `${b.bytes} bytes`,
       b.redacted ? `${b.redacted} value(s) redacted as possible secrets` : null,
+      b.invisible ? `${b.invisible} invisible (bidi or zero-width) character(s): the text you read may not be the text a seat reads` : null,
     ].filter(Boolean).join(', ');
     console.log(`  ${b.rel} - ${notes}`);
   }
