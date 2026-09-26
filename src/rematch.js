@@ -18,32 +18,49 @@ function rotate(arr, shift) {
 }
 
 // Permutes which {provider, model, extra} triple sits in which seat slot within one seat array
-// (critics or proposers), and re-anonymizes the `lab` field to a fresh sequential label
-// independent of the original lab identity. The original lab name is exactly the framing signal
-// a rematch exists to test robustness against (a critic's past reputation, or its position in a
-// debate), so carrying it forward unchanged would defeat the point. Arrays shorter than 2 have no
-// non-trivial permutation and are returned unchanged - not an error, just nothing to reshuffle.
-function reshuffleSeatArray(seats, seed, relabel = new Map()) {
-  if (!Array.isArray(seats) || seats.length < 2) return seats;
+// (critics, proposers or alternatives), and re-anonymizes the `lab` field to a fresh sequential
+// label independent of the original lab identity. The original lab name is exactly the framing
+// signal a rematch exists to test robustness against (a critic's past reputation, or its position
+// in a debate), so carrying it forward unchanged would defeat the point. Arrays shorter than 2 have
+// no non-trivial permutation and keep their models; their labels are still renamed.
+//
+// Labels come from ONE map for the whole config (verification of thc-research PR #13, finding 4):
+// a lab keeps one new label in every list it sits in, and two different labs never share one. The
+// labels used to be per list (slot i was `lab-${i + 1}` in critics AND in proposers), which was
+// harmless while both lists held the same labs, but in a tiered chain (seven mass proposers, four
+// anchor critics) it gave a mass seat and an anchor the same `lab-1` - one lab to every check keyed
+// on labOf - and left seats.alternatives and seats.deep_dive under their real names. A lab seen for
+// the first time takes `lab-${slot + 1}` when that label is still free (so a single list, or lists
+// that hold the same labs, label exactly as before), else the lowest free `lab-N`.
+function reshuffleSeatArray(seats, seed, relabel, used) {
+  if (!Array.isArray(seats)) return seats;
   const n = seats.length;
-  const shift = 1 + (((seed % (n - 1)) + (n - 1)) % (n - 1));
-  // Where each original seat's model ends up: slot i carries original seat (i + shift) % n.
-  for (let j = 0; j < n; j++) relabel.set(seats[j].lab || seats[j].provider, `lab-${(((j - shift) % n) + n) % n + 1}`);
-  const triples = seats.map(s => ({ provider: s.provider, model: s.model, extra: s.extra }));
+  const shift = n < 2 ? 0 : 1 + (((seed % (n - 1)) + (n - 1)) % (n - 1));
+  const triples = seats.map(s => ({ provider: s.provider, model: s.model, extra: s.extra, lab: s.lab || s.provider }));
   const rotated = rotate(triples, shift);
   return seats.map((s, i) => {
-    const next = { ...s, provider: rotated[i].provider, model: rotated[i].model, lab: `lab-${i + 1}` };
+    const next = { ...s, provider: rotated[i].provider, model: rotated[i].model, lab: labelFor(rotated[i].lab, i + 1, relabel, used) };
     if (rotated[i].extra !== undefined) next.extra = rotated[i].extra; else delete next.extra;
     return next;
   });
 }
 
+function labelFor(original, preferred, relabel, used) {
+  if (relabel.has(original)) return relabel.get(original);
+  let label = `lab-${preferred}`;
+  for (let k = 1; used.has(label); k++) label = `lab-${k}`;
+  relabel.set(original, label);
+  used.add(label);
+  return label;
+}
+
 /**
- * A deterministic, seedable reshuffle of a chain config's critic/proposer seats. Contract:
+ * A deterministic, seedable reshuffle of a chain config's seat lists. Contract:
  *   reshuffleSeats(config, seed) -> a new config object (config itself is never mutated)
- *   - `seats.critics` and `seats.proposers`, if present as arrays of length >= 2, each get an
- *     independent rotation-based permutation of their provider/model/extra assignment, and a
- *     fresh `lab-1`, `lab-2`, ... label per slot.
+ *   - `seats.proposers`, `seats.critics` and `seats.alternatives`, if present as arrays of length
+ *     >= 2, each get an independent rotation-based permutation of their provider/model/extra
+ *     assignment. Every seat in them, and `seats.deep_dive`, gets an anonymous `lab-N` label from
+ *     one config-wide map: one lab, one label, in every list (see reshuffleSeatArray).
  *   - Every other seat kind (criteria, builder, reviser, finalist, skeleton, handoff, questions,
  *     judge) and every non-seat chain-config field (rounds, signoff, maxRounds, ...) is passed
  *     through byte-for-byte - a rematch varies who argues, never the rules of the argument.
@@ -56,11 +73,19 @@ export function reshuffleSeats(config, seed) {
   // Pre-release audit, replay #2 (Review/PreRelease_Audit_replay_2026-09-23.md): `roster.*_seat`
   // names a seat by its lab ("criteria_seat": "mock-a"). The relabelling below renamed every lab, so
   // the reference matched nothing and every --rematch of such a chain failed. It now follows the
-  // seat's model to its new label. Proposers first, so a critic wins where both share a lab - the
-  // same order chain.js's findSeatByLab searches in.
+  // seat's lab to its new label, which is the same in every list.
   const relabel = new Map();
-  if (Array.isArray(seats.proposers)) seats.proposers = reshuffleSeatArray(seats.proposers, seed, relabel);
-  if (Array.isArray(seats.critics)) seats.critics = reshuffleSeatArray(seats.critics, seed, relabel);
+  const used = new Set();
+  for (const key of ['proposers', 'critics', 'alternatives']) {
+    if (Array.isArray(seats[key]) && seats[key].length >= 2) seats[key] = reshuffleSeatArray(seats[key], seed, relabel, used);
+  }
+  // Lists too short to permute, and the one deep-dive seat, keep their model but lose their name.
+  for (const key of ['proposers', 'critics', 'alternatives']) {
+    if (Array.isArray(seats[key]) && seats[key].length === 1 && seats[key][0]) seats[key] = [{ ...seats[key][0], lab: labelFor(seats[key][0].lab || seats[key][0].provider, 1, relabel, used) }];
+  }
+  if (seats.deep_dive && typeof seats.deep_dive === 'object' && !Array.isArray(seats.deep_dive)) {
+    seats.deep_dive = { ...seats.deep_dive, lab: labelFor(seats.deep_dive.lab || seats.deep_dive.provider, 1, relabel, used) };
+  }
   let roster = config.roster;
   if (roster && typeof roster === 'object') {
     roster = { ...roster };

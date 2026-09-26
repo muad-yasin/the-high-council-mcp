@@ -204,7 +204,7 @@
     },
     "alternatives": {
       "type": "object",
-      "description": "Only \"enabled\" and \"maxTokens\" are read. Unknown keys fail here and in chain-lint (a typo like \"enable\" would otherwise silently skip a paid stage).",
+      "description": "Only \"enabled\", \"maxTokens\" and \"debaters\" are read. Unknown keys fail here and in chain-lint (a typo like \"enable\" would otherwise silently skip a paid stage). Who writes the architectures is seats.alternatives when set (tiered councils), else seats.proposers, else seats.critics.",
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -213,7 +213,32 @@
         "maxTokens": {
           "type": "integer",
           "minimum": 1
+        },
+        "debaters": {
+          "enum": ["authors", "all"],
+          "description": "Experimental (tiered councils). \"authors\" (the default): the authors post on each other's architectures. \"all\": seats.proposers (the mass seats) post on them too; only the authors reply."
         }
+      }
+    },
+    "majority_guard": {
+      "type": "object",
+      "description": "Experimental (tiered councils). With enabled true: authors see each argument once with no lab letter and no count, the reply prompts carry an evidence bar, and a withdrawal that does not quote the argument it concedes to is recorded as unargued and the proposal stays for the builder to judge. Changes prompts; off in every chain written before it existed.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "deep_dive": {
+      "type": "object",
+      "description": "Experimental (tiered councils). One seat (seats.deep_dive), one job, a large output cap and its own dollar cap (usd, required when enabled) inside the run's cap. It reads the source in chunks, once per focus entry; its findings go to the reviser before the panel's first review. It does not vote.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "job": { "enum": ["sources", "subsystem"] },
+        "focus": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "usd": { "type": "number", "exclusiveMinimum": 0 },
+        "maxCalls": { "type": "integer", "minimum": 1 },
+        "chunkChars": { "type": "integer", "minimum": 1000 }
       }
     },
     "argued": {

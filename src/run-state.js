@@ -16,7 +16,10 @@ export function parseRoundFromLabel(label) {
 // absent here - those are classified from chain.js's own 'verdict' progressHook events instead
 // (touch point 2), which carry the real parsed outcome this function has no way to know.
 export function classifyStageCompletion(label) {
-  return /^(propose|debate)-/.test(label || '') ? 'posted' : null;
+  // alternative-/alt-debate-/alt-reply- (an architecture, a post on one, its author's answer: no
+  // verdict event is sent for them) and deep-dive-<lab>-<n> (tiered
+  // councils, 0.7.8) are the same kind of work: something written, no verdict.
+  return /^(propose|debate|alternative|alt-debate|alt-reply|deep-dive)-/.test(label || '') && label !== 'deep-dive-revise' ? 'posted' : null;
 }
 
 // A 'verdict' progressHook event -> the wedge status it implies, or null if it implies none

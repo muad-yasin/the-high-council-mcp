@@ -1,13 +1,15 @@
 {
   "name": "plan-highest-7",
-  "description": "Tiered council, Muad's design (2026-09-26): the highest models for the highest tasks, the cheapest models for the mass work. MASS SEATS (seats.proposers, the cheap-7-v2 roster: GPT-5.6 Luna, Gemini 3.8 Flash, DeepSeek V4.1 Flash, GLM 5.3 Flash, Qwen 3.7 Plus, MiniMax M3, Mistral Medium 3.5) write the blind proposals, the whole alternative architectures and all the debate posts and replies. ANCHOR SEATS (seats.critics, the review panel that must sign off unanimously): GPT-6 Astra and Claude Fable 5.1 (his deliberate exception: an Anthropic model reviews a draft a Claude Code session writes), plus DeepSeek V4 Pro and GLM-5.3 as deep-dive reviewers with a larger output cap. The mass seats argue; only the anchors vote, so a cheap majority can never out-vote them. Criteria move to Llama 4 Maverick, which holds no other seat. Same Claude Code writer seats and stages as plan-premium-7, including decision records and the dispute stage. No Kimi, no xAI. Untested with real models: price it with `npm run dry` and get an explicit go before any paid run. The anchors do not write alternatives yet: the engine has one seat list for proposals, alternatives and debate (seats.proposers).",
+  "description": "Tiered council, Muad's design (2026-09-26): the highest models for the highest tasks, the cheapest models for the mass work. MASS SEATS (seats.proposers, the cheap-7-v2 roster: GPT-5.6 Luna, Gemini 3.8 Flash, DeepSeek V4.1 Flash, GLM 5.3 Flash, Qwen 3.7 Plus, MiniMax M3, Mistral Medium 3.5) write the blind proposals and all the proposal debate posts and replies, and post on the anchors' architectures (alternatives.debaters \"all\"). ANCHOR SEATS: GPT-6 Astra and Claude Fable 5.1 (his deliberate exception: an Anthropic model reviews a draft a Claude Code session writes), DeepSeek V4 Pro and GLM-5.3 write the whole alternative architectures (seats.alternatives), answer the posts on them, and form the review panel that must sign off unanimously (seats.critics). The mass seats argue; only the anchors vote, so a cheap majority can never out-vote them. DEEP-DIVE SEAT (seats.deep_dive, DeepSeek V4.1 Flash, a mass-tier model: it must not share a lab with a voting anchor, chain-lint deep-dive-votes): one job, checking the first draft against every part of the task, 40,000 characters per call at a 36k output cap, up to 24 calls under its OWN $4 cap inside the run's; it does not vote, and the reviser answers its findings before the anchors' first review. The MAJORITY GUARD is ON (majority_guard, Muad's go 2026-09-26; off in every other shipped chain but mock-tiered): authors see each argument once with no lab letter or count, the reply prompts carry an evidence bar, and a withdrawal that does not quote the argument it concedes to is kept for the builder. Criteria move to Llama 4 Maverick, which holds no other seat. Same Claude Code writer seats and stages as plan-premium-7, including decision records and the dispute stage. No Kimi, no xAI. Untested with real models: price it with `npm run dry` and get an explicit go before any paid run.",
   "maxRounds": 7,
   "signoff": "unanimous",
   "dispute": { "enabled": true, "stall_rounds": 2 },
   "proposals": { "parts": 3, "maxTokens": 4000 },
   "debate": true,
   "decisions": { "enabled": true },
-  "alternatives": { "enabled": true },
+  "alternatives": { "enabled": true, "debaters": "all" },
+  "deep_dive": { "enabled": true, "job": "sources", "usd": 4, "maxCalls": 24, "chunkChars": 40000 },
+  "majority_guard": { "enabled": true },
   "canary": { "enabled": true, "sampleRate": 0.1 },
   "handoff": true,
   "estimate": { "promptTokens": 10000, "draftTokens": 10000, "critiqueTokens": 5000 },
@@ -26,11 +28,18 @@
       { "provider": "openrouter", "model": "minimax/minimax-m3", "maxTokens": 36000, "lab": "minimax-m3" },
       { "provider": "openrouter", "model": "mistralai/mistral-medium-3-5", "maxTokens": 36000, "lab": "mistral-medium3.5" }
     ],
+    "alternatives": [
+      { "provider": "openrouter", "model": "openai/gpt-6-astra", "maxTokens": 36000, "lab": "gpt6-astra" },
+      { "provider": "openrouter", "model": "anthropic/claude-fable-5.1", "maxTokens": 36000, "lab": "fable5.1" },
+      { "provider": "openrouter", "model": "deepseek/deepseek-v4-pro", "maxTokens": 64000, "lab": "deepseek-v4-pro" },
+      { "provider": "openrouter", "model": "z-ai/glm-5.3", "maxTokens": 64000, "lab": "glm5.3" }
+    ],
     "critics": [
       { "provider": "openrouter", "model": "openai/gpt-6-astra", "maxTokens": 36000, "lab": "gpt6-astra" },
       { "provider": "openrouter", "model": "anthropic/claude-fable-5.1", "maxTokens": 36000, "lab": "fable5.1" },
       { "provider": "openrouter", "model": "deepseek/deepseek-v4-pro", "maxTokens": 64000, "lab": "deepseek-v4-pro" },
       { "provider": "openrouter", "model": "z-ai/glm-5.3", "maxTokens": 64000, "lab": "glm5.3" }
-    ]
+    ],
+    "deep_dive": { "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash", "maxTokens": 36000, "lab": "deepseek-v4.1-flash" }
   }
 }

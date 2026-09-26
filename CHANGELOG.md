@@ -25,13 +25,42 @@
   `not_quorate`. chain-lint refuses a floor on a non-unanimous chain or above the panel's size.
   **No shipped chain sets it**, so every shipped chain behaves as before.
 
-- **A new chain, `plan-highest-7`: a tiered council.** Seven low-cost "mass" seats (the `cheap-7-v2`
-  roster) write the blind proposals and alternative architectures and do all the debating; four
-  "anchor" seats (GPT-6 Astra, Claude Fable 5.1, DeepSeek V4 Pro, GLM-5.3) form the review panel
-  and are the only seats that vote, under unanimous sign-off. Writer seats are external (a Claude
-  Code session), as in `plan-premium-7`, with decision records and the dispute stage on. It has not
-  been run with real models, and nothing about its output has been measured. Price it before any
-  run: `npm run dry -- --chain plan-highest-7` (about $10.49 worst case with today's price table).
+- **Tiered councils (experimental), and a new chain that uses them, `plan-highest-7`.** Three
+  additions, each off unless a chain turns it on, so every other shipped chain behaves as before:
+  - `seats.alternatives` names who writes the whole alternative architectures, separately from who
+    proposes parts (`seats.proposers`). With `alternatives.debaters: "all"` the proposers post on
+    those architectures too, and only their authors reply.
+  - A **deep-dive seat** (`deep_dive` + `seats.deep_dive`): one seat, one job (`sources` or
+    `subsystem`), a large output cap and a dollar cap of its own (`usd`, required) inside the run's.
+    It reads the task in chunks, once per `focus` entry, up to `maxCalls`; every call goes through
+    the run's spend cap, and its own cap counts what the run cap counts (a stale cached call's old
+    cost included). It does not vote: the reviser answers its findings before the panel's first
+    review. Recorded in `report.json` as `deep_dive` (experimental) and on `BOARD.md`.
+  - The **majority guard** (`majority_guard.enabled`): an author sees each argument on its proposal
+    once, with no lab letter and no count; the reply prompts carry an evidence bar; and a withdrawal
+    that does not quote the argument it concedes to is recorded with `unargued: true` and the
+    proposal stays for the builder. It adds reply prompts, so it is on only in `plan-highest-7` and
+    `mock-tiered`.
+  - chain-lint: `deep-dive-uncapped`, `deep-dive-unpriced`, `deep-dive-votes` (the deep-dive seat
+    may not share a lab or model with a voting reviewer), `alternatives-seats-unused`,
+    `alternatives-seats-too-few`, `alternatives-debaters-unused`, `majority-guard-without-debate`,
+    and `mass-seat-votes` (in any chain using these fields, a lab or model may not sit in both the
+    proposers and the reviewers or architecture authors, guard on or off). `--rematch` now gives
+    one anonymous label per lab across every seat list (tiered lists used to share `lab-1`), and
+    relabels and key-checks `seats.alternatives` and `seats.deep_dive`; the live `state.json` board
+    lists those seats. `chains/mock-tiered.json` runs every new path offline for $0.
+
+  `plan-highest-7`: seven low-cost "mass" seats (the `cheap-7-v2` roster) write the blind proposals
+  and do the proposal debate, and post on the architectures. Four "anchor" seats (GPT-6 Astra,
+  Claude Fable 5.1, DeepSeek V4 Pro, GLM-5.3) write the architectures, answer the posts on them and
+  form the review panel, the only seats that vote, under unanimous sign-off. A DeepSeek V4.1 Flash
+  deep dive checks the first draft against the task under its own $4 cap, and the majority guard
+  is on. Writer seats are external (a Claude Code session), as in `plan-premium-7`, with decision
+  records and the dispute stage on. It is untested with real models, and nothing about its output
+  has been measured. Price it before any run: `npm run dry -- --chain plan-highest-7 --task <file>`
+  ($14.89 worst case for the default estimate with today's price table; a long task costs more).
+  `src/roles.js` gained the deep-dive and guard prompts; every prompt the existing mock chains send
+  is unchanged (`test/prompt-pin.test.js`).
 
 ### Changed
 

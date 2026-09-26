@@ -1,6 +1,6 @@
 import { call, keyFor, resolveVendorSeat } from './providers.js';
 import * as R from './roles.js';
-import { costOf, summarise, formatUsd, worstCaseOf, wouldBreach, SEAT_DEFAULT_MAX_TOKENS, readUsage, readUsd } from './cost.js';
+import { costOf, summarise, formatUsd, wouldBreach, projectStage, SEAT_DEFAULT_MAX_TOKENS, readUsage, readUsd } from './cost.js';
 import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { applySeatRole } from './seat-role.js';
@@ -17,6 +17,7 @@ import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-mod
 import { promptHashOf, cacheVerdict } from './cache-integrity.js';
 import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
 import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine } from './criteria-kinds.js';
+import { runDeepDive, deepDiveFailures } from './deep-dive.js';
 export { DeniedModel };
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
@@ -332,9 +333,35 @@ export function infeasibleCriteria(criteria, { handoff = false, debate = false }
 // poster shown under a normal anonymised lab label (R.canaryPosterLabel) instead of the raw
 // `canary` id, which rendered as "undefined". Pre-release audit 2026-09-23
 // (ProposalsDebateDispute #1); test/canary.test.js pins that no probe wording reaches it.
-export function canaryReplyPrompt({ request, proposals, post, lab, maps }) {
+export function canaryReplyPrompt({ request, proposals, post, lab, maps, guard = false }) {
   const shown = { ...maps, labTo: { ...maps.labTo, [post.by]: R.canaryPosterLabel(maps, lab) } };
-  return R.replyUser({ request, proposals, posts: [post], lab, maps: shown });
+  return R.replyUser({ request, proposals, posts: [post], lab, maps: shown, guard });
+}
+
+// Tiered councils, the majority guard (config.majority_guard.enabled): a withdrawal counts only when
+// it quotes the argument it concedes to. `conceded_to` must match the text of a post on that same
+// proposal (normalised: case, whitespace and quote marks); otherwise the reply is kept on the record
+// as a withdrawal with `unargued: true`, and the proposal stays for the builder to judge. Mutates
+// the replies in place (the report keeps both the action and the flag).
+//
+// The quote is matched against the post as the author was shown it (R.boardText: a leading "#"
+// escaped as "\#", the <critic-claim> tag defused) as well as the raw post, so an author that
+// copies an objection containing "#" verbatim from its prompt is not marked unargued (verification
+// of thc-research PR #13, finding 3).
+export function guardWithdrawals(replies, posts, log = () => {}) {
+  const norm = t => String(t || '').toLowerCase().replace(/[\u2018\u2019\u201c\u201d"'`]/g, '').replace(/\s+/g, ' ').trim();
+  for (const r of replies) {
+    if (r.action !== 'withdraw') continue;
+    const quote = norm(r.conceded_to);
+    const on = posts.filter(x => x.on === r.id && x.stance !== 'support');
+    const hit = quote.length >= 8 && on.some(x => norm(x.text).includes(quote) || norm(R.boardText(x.text)).includes(quote));
+    r.conceded_to = typeof r.conceded_to === 'string' ? capField(r.conceded_to) : undefined;
+    if (!hit) {
+      r.unargued = true;
+      log(`  majority guard: ${r.id} - its author withdrew it without quoting the argument it concedes to; it stays for the builder to judge.`);
+    }
+  }
+  return replies;
 }
 
 // A merge_with / replaced_by reference as recorded: a real id on this board or nothing. Pre-release
@@ -635,7 +662,7 @@ export function duplicateLabSlots(config) {
   // recurrence) were missing, and descending critics label per lab too.
   if (config?.signoff === 'unanimous' || config?.descending) check('critics', seats.critics);
   if (config?.proposals) check('proposers', seats.proposers || seats.critics);
-  if (config?.alternatives?.enabled === true) check('alternatives', seats.proposers || seats.critics);
+  if (config?.alternatives?.enabled === true) check('alternatives', seats.alternatives || seats.proposers || seats.critics);
   if (config?.ambiguity_union?.enabled) check('ambiguity', seats.ambiguity || (seats.critics || []).slice(0, 3));
   if (config?.preflight) check('preflight', (config.preflight.seats && config.preflight.seats.length) ? config.preflight.seats : seats.critics);
   return out;
@@ -651,7 +678,7 @@ export function findSeatByLab(config, id) {
   const seats = config?.seats || {};
   const named = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger']
     .map(k => seats[k]).filter(Boolean);
-  const all = [...named, ...(seats.critics || []), ...(seats.proposers || [])];
+  const all = [...named, ...(seats.critics || []), ...(seats.proposers || []), ...(seats.alternatives || [])];
   return all.find(s => labOf(s) === id) || null;
 }
 
@@ -986,12 +1013,8 @@ async function invoke(seat, { system, user, log, label }) {
   // retry below can still cost 2), the same failure this comment already names for a direct
   // Anthropic seat.
   const isAnthropicSeat = (seat.originalProvider ?? seat.provider) === 'anthropic';
-  const maxTokens = seat.maxTokens ?? DEFAULT_MAX_TOKENS;
-  const projected = worstCaseOf(seat.provider, seat.model, {
-    promptChars: (system || '').length + (user || '').length,
-    maxTokens,
-    retries: isAnthropicSeat ? 2 : 1,
-  }).usd;
+  // projectStage (cost.js) is this same worst case, shared with the deep-dive seat's own cap.
+  const projected = projectStage(seat, { system, user });
   const oneAttempt = projected / (isAnthropicSeat ? 2 : 1);
   const recordedUsd = h => {
     const usd = readUsd(h.usd);
@@ -1163,10 +1186,10 @@ export function resolveChainSeats(config) {
     return out;
   };
   const seats = { ...config.seats };
-  for (const key of ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'security_reviewer']) {
+  for (const key of ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'security_reviewer', 'deep_dive']) {
     if (seats[key]) seats[key] = rw(seats[key]);
   }
-  for (const key of ['critics', 'proposers', 'ambiguity']) {
+  for (const key of ['critics', 'proposers', 'ambiguity', 'alternatives']) {
     if (Array.isArray(seats[key])) seats[key] = seats[key].map(rw);
   }
   // `descending` is a map of stageName -> seat (src/chain.js's own builderSeat lookup:
@@ -1202,8 +1225,8 @@ function allSeatsOf(config) {
   const s = config.seats || {};
   return [
     s.criteria, s.builder, s.reviser, s.finalist, s.skeleton, s.handoff, s.questions, s.judge,
-    s.challenger, s.coldRead, s.claims, s.security_reviewer,
-    ...(s.critics || []), ...(s.proposers || []), ...(s.ambiguity || []),
+    s.challenger, s.coldRead, s.claims, s.security_reviewer, s.deep_dive,
+    ...(s.critics || []), ...(s.proposers || []), ...(s.ambiguity || []), ...(s.alternatives || []),
     ...Object.values(s.descending || {}),
   ].filter(Boolean);
 }
@@ -1493,6 +1516,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       dispute: peek(() => dispute, undefined),
       coldRead: peek(() => coldRead, undefined),
       alternatives: peek(() => alternatives, undefined),
+      deep_dive: peek(() => deepDive, undefined),
       quoteFindings: peek(() => fencedSource, null) ? peek(() => quoteFindings, undefined) : undefined,
       patchFallbacks: config.revise?.mode === 'patch' ? peek(() => patchFallbacks, undefined) : undefined,
     };
@@ -1669,6 +1693,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   // the `alternatives` stage, whose losing architectures are recorded in the same "Decisions"
   // section. Absent both, every prompt that takes these options is byte-identical to before.
   const promptOpts = { decisions: config.decisions?.enabled === true || config.alternatives?.enabled === true };
+  // Tiered councils: the majority guard. Off (absent) in every chain written before it existed, so
+  // those runs keep today's reply prompts byte for byte.
+  const guard = config.majority_guard?.enabled === true;
   // Criterion kinds (src/criteria-kinds.js): opt-in via `criteria_kinds.enabled`. Absent, no prompt
   // changes, no kinds are recorded, and the result carries no criteria_kinds/criteria_summary key.
   const kindsOn = config.criteria_kinds?.enabled === true;
@@ -1800,7 +1827,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   let alternatives = null;
   let alternativesBoard = null;
   if (config.alternatives?.enabled === true && !initialDraft) {
-    const altSeats = config.seats.proposers || config.seats.critics || [];
+    // Tiered councils (2026-09-26): seats.alternatives, when set, names who writes the whole
+    // architectures (the anchors), separately from who proposes parts and debates them (the mass
+    // seats in seats.proposers). Absent: today's list, unchanged.
+    const altSeats = config.seats.alternatives || config.seats.proposers || config.seats.critics || [];
     // Cap: the seat's own maxTokens, as the proposal stage uses, unless the chain sets
     // alternatives.maxTokens. Pre-release audit 2026-09-23 (Alternatives #1, DecisionRecords #1):
     // a fixed 3000 sat below these rosters' thinking spend (qwen3.8-max 12300, glm5.3-flash 10612
@@ -1871,9 +1901,18 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     if (items.length > 1) {
       const maps = R.anonymise(items);
       const labs = items.map(a => a.lab);
-      const seatOf = lab => altSeats.find(s => labOf(s) === lab);
-      log(`\nStage: alternatives debate (${labs.length} labs read each other's architectures, anonymised)`);
-      const postResults = await settleAll(labs.map(async lab => {
+      // Tiered councils: alternatives.debaters "all" lets the proposers (the mass seats) read and post
+      // on the architectures too; only the authors reply. Each extra poster gets the next unused
+      // "Lab X" letter. Absent or "authors": the posters are the authors, as before.
+      const posterSeats = [...altSeats];
+      if (config.alternatives.debaters === 'all') {
+        for (const s of config.seats.proposers || []) if (!posterSeats.some(p => labOf(p) === labOf(s))) posterSeats.push(s);
+      }
+      const posterLabs = [...labs, ...posterSeats.map(labOf).filter(l => !labs.includes(l))];
+      posterLabs.forEach(l => { if (!maps.labTo[l]) maps.labTo[l] = `Lab ${String.fromCharCode(65 + Object.keys(maps.labTo).length)}`; });
+      const seatOf = lab => posterSeats.find(s => labOf(s) === lab);
+      log(`\nStage: alternatives debate (${posterLabs.length} labs read ${posterLabs.length > labs.length ? `the ${labs.length} authors'` : "each other's"} architectures, anonymised)`);
+      const postResults = await settleAll(posterLabs.map(async lab => {
         const lines = []; const say = m => lines.push(m);
         try {
           const st = record(await invoke(seatOf(lab), {
@@ -1905,8 +1944,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         if (!mine.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
         try {
           const st = record(await invoke(seatOf(lab), {
-            system: R.ALT_REPLY_SYSTEM,
-            user: R.altReplyUser({ request, alternatives: items, posts, lab, maps }),
+            system: R.altReplySystem(guard),
+            user: R.altReplyUser({ request, alternatives: items, posts, lab, maps, guard }),
             log: say, label: `alt-reply-${lab}`,
           }));
           const parsed = parseJson(st.text);
@@ -1922,14 +1961,16 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         }
       }));
       for (const r of replyResults) { r.lines.forEach(m => log(m)); replies.push(...r.replies); }
+      if (guard) guardWithdrawals(replies, posts, log);
       for (const r of replies) {
         const a = items.find(x => x.id === r.id);
         if (r.action === 'amend') { for (const k of ['shape', 'key_tradeoffs', 'bad_at']) if (typeof r[k] === 'string' && r[k].trim()) a[k] = capField(r[k]); a.amended = true; }
-        if (r.action === 'withdraw') { a.withdrawn = true; a.replaced_by = r.replaced_by; }
+        if (r.action === 'withdraw' && r.unargued) a.withdraw_unargued = true;
+        else if (r.action === 'withdraw') { a.withdrawn = true; a.replaced_by = r.replaced_by; }
       }
     }
     if (items.length) {
-      alternativesBoard = R.renderAlternativesBoard(items, posts, replies);
+      alternativesBoard = (guard ? `${R.GUARD_BOARD_NOTE}\n\n` : '') + R.renderAlternativesBoard(items, posts, replies);
       alternatives = { items, posts, replies, dropouts: altDropouts, board: alternativesBoard };
       log(`  alternatives: ${items.length} architecture(s), ${posts.length} post(s), ${items.filter(a => a.withdrawn).length} withdrawn, ${items.filter(a => a.amended).length} amended.`);
     } else {
@@ -2184,8 +2225,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         if (!mineWithPosts.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
         try {
           const st = record(await invoke(seatOf(lab), {
-            system: R.REPLY_SYSTEM,
-            user: R.replyUser({ request, proposals, posts, lab, maps }),
+            system: R.replySystem(guard),
+            user: R.replyUser({ request, proposals, posts, lab, maps, guard }),
             log: say, label: `reply-${lab}`,
           }));
           const parsed = parseJson(st.text);
@@ -2213,12 +2254,14 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         }
       }));
       for (const r of replyResults) { r.lines.forEach(m => log(m)); replies.push(...r.replies); droppedItems.push(...(r.dropped || [])); }
+      if (guard) guardWithdrawals(replies, posts, log);
       for (const r of replies) {
         const p = proposals.find(x => x.id === r.id);
         if (r.action === 'amend') { if (r.how) p.how = r.how; if (r.acceptance_test) p.acceptance_test = r.acceptance_test; p.amended = true; }
-        if (r.action === 'withdraw') { p.withdrawn = true; p.replaced_by = r.replaced_by; }
+        if (r.action === 'withdraw' && r.unargued) p.withdraw_unargued = true;
+        else if (r.action === 'withdraw') { p.withdrawn = true; p.replaced_by = r.replaced_by; }
       }
-      board = R.renderBoard(proposals, posts, replies);
+      board = (guard ? `${R.GUARD_BOARD_NOTE}\n\n` : '') + R.renderBoard(proposals, posts, replies);
       // v6 §4: the field is always present once a debate stage has run, even
       // when no tie ever occurred - an absent field reads as "no tie-break
       // happened" and as "the feature isn't wired up" identically, which is
@@ -2250,8 +2293,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           if (!seat) return 'keep';
           try {
             const cst = record(await invoke(seat, {
-              system: R.REPLY_SYSTEM,
-              user: canaryReplyPrompt({ request, proposals, post, lab, maps }),
+              system: R.replySystem(guard),
+              user: canaryReplyPrompt({ request, proposals, post, lab, maps, guard }),
               log, label: `canary-reply-${lab}`,
             }));
             const parsed = parseJson(cst.text);
@@ -2328,6 +2371,31 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     lints = runLints({ deliverable: draft, proposals, forks: config.lints.forks || [] });
     if (lints.length) lints.forEach(l => log(`  LINT [${l.id}]: ${l.message}`));
     else log('  clean - no lint failures.');
+  }
+
+  // 2c. Tiered councils: the deep-dive seat (config.deep_dive, src/deep-dive.js). One seat, one job,
+  //     its own dollar cap inside the run's, every call through invoke(). It runs on the first
+  //     draft, before any anchor reviews it, and does not vote: its findings go to the reviser in
+  //     one pass (label `deep-dive-revise`), fixed or DECLINED like a critic's, and the anchors
+  //     then review that draft. Skipped when a draft was handed in (--from-run, a panel comparison
+  //     on a fixed draft), like the proposal stages. Absent or not `true`: nothing here runs, no
+  //     stage label appears, and the result carries no `deep_dive` key.
+  let deepDive;
+  if (config.deep_dive?.enabled === true && !initialDraft) {
+    log(`\nStage: deep dive (${labOf(config.seats.deep_dive)}/${config.seats.deep_dive.model}, job: ${config.deep_dive.job || 'sources'}, its own cap ${formatUsd(config.deep_dive.usd)})`);
+    deepDive = await runDeepDive(config, { request, criteria, draft, invoke, record, parseJson, rethrowControlFlow, log, runSpent: () => budget.spent });
+    if (deepDive.findings.length) {
+      log(`\nStage: revise (the deep dive's ${deepDive.findings.length} finding(s), before the panel's first review)`);
+      const revised = (await draftStage(config.seats.reviser || config.seats.builder, {
+        system: R.reviserSystem(open, !!fencedSource, promptOpts),
+        user: R.reviserUser({ request, criteria, draft, critique: { failures: deepDiveFailures(deepDive), verdict_line: `Deep dive (${deepDive.job}): ${deepDive.findings.length} finding(s). This seat does not vote.` }, proposals, board }),
+        log, label: 'deep-dive-revise',
+      })).text;
+      const parsed = parseDisputes(revised);
+      draft = parsed.draft;
+      deepDive.revise = { declined: parsed.disputes };
+      parsed.disputes.forEach(reason => log(`  declined: ${reason}`));
+    }
   }
 
   // 3. Critic / revise rounds, hard-capped.
@@ -3253,6 +3321,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     ...(config.revise?.mode === 'patch' ? { patchFallbacks } : {}),
     // Additive, per report.json's public contract: absent on any chain without the alternatives stage.
     ...(alternatives !== null ? { alternatives } : {}),
+    // Additive: absent on any chain without the deep-dive seat (tiered councils).
+    ...(deepDive !== undefined ? { deep_dive: deepDive } : {}),
     // Additive: absent unless the chain enabled criterion kinds (src/criteria-kinds.js).
     ...(kindsOn ? {
       criteriaKinds: kindsRecord(criteria, criteriaKinds),

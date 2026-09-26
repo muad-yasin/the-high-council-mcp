@@ -140,6 +140,11 @@
       "$ref": "#/$defs/alternatives",
       "description": "Present only on chains with alternatives.enabled: one whole architecture per lab, written blind before the skeleton, and the same post/reply board the proposals get."
     },
+    "deep_dive": {
+      "x-stability": "experimental",
+      "type": "object",
+      "description": "Present only on chains with deep_dive.enabled (tiered councils): the one deep-dive seat's calls, its own dollar cap, what it spent, why it stopped (null, own_cap or max_calls) and its findings, each with a quote_status. The seat does not vote."
+    },
 
     "challenge": {
       "x-stability": "experimental",

@@ -29,6 +29,14 @@ test('classifyStageCompletion: posted for propose-/debate- prefixes, null for ev
   assert.equal(classifyStageCompletion('criteria'), null);
 });
 
+test('classifyStageCompletion: the tiered-council stages (architectures, posts on them, deep-dive calls) are posted', () => {
+  assert.equal(classifyStageCompletion('alternative-gpt6-astra'), 'posted');
+  assert.equal(classifyStageCompletion('alt-debate-gpt5.6-luna'), 'posted');
+  assert.equal(classifyStageCompletion('deep-dive-deepseek-v4.1-flash-3'), 'posted');
+  assert.equal(classifyStageCompletion('deep-dive-revise'), null, 'the reviser, not the deep-dive seat');
+  assert.equal(classifyStageCompletion('alt-reply-fable5.1'), 'posted', 'no verdict event is sent for an architecture reply');
+});
+
 test('classifyVerdictEvent: dropped wins, distinct from objected/signed', () => {
   assert.equal(classifyVerdictEvent({ dropped: true }), 'dropped');
   assert.equal(classifyVerdictEvent({ passed: false }), 'objected');

@@ -17,7 +17,8 @@ const NON_EU_PROVIDERS = ['deepseek', 'zai'];
 
 // `claims` and `descending` added 2026-09-23 (bug audit GuardLayer #7): chain.js reads both, so a
 // valid seat there was falsely refused as a typo.
-const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger', 'ambiguity', 'coldRead', 'claims', 'descending', 'security_reviewer'];
+// `alternatives` and `deep_dive` added 2026-09-26 (tiered councils).
+const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger', 'ambiguity', 'coldRead', 'claims', 'descending', 'security_reviewer', 'alternatives', 'deep_dive'];
 
 /**
  * Lint findings for a chain config, each `{ kind, message, fix }`. Never
@@ -171,7 +172,10 @@ export function lintChain(config, filePath = '<chain>') {
   const FLAG_BLOCKS = {
     decisions: { enabled: 'boolean' },
     criteria_kinds: { enabled: 'boolean' },
-    alternatives: { enabled: 'boolean', maxTokens: 'positive-integer' },
+    alternatives: { enabled: 'boolean', maxTokens: 'positive-integer', debaters: 'debaters' },
+    // Tiered councils (2026-09-26). Both experimental, both off in every chain written before them.
+    majority_guard: { enabled: 'boolean' },
+    deep_dive: { enabled: 'boolean', job: 'job', focus: 'string-array', usd: 'positive-number', maxCalls: 'positive-integer', chunkChars: 'chunk' },
     lints: { enabled: 'boolean', forks: 'array' },
     canary: { enabled: 'boolean', sampleRate: 'rate' },
     ambiguity_union: { enabled: 'boolean' },
@@ -181,8 +185,13 @@ export function lintChain(config, filePath = '<chain>') {
     : want === 'positive-integer' ? Number.isInteger(v) && v >= 1
     : want === 'array' ? Array.isArray(v)
     : want === 'rate' ? typeof v === 'number' && v >= 0 && v <= 1
+    : want === 'debaters' ? v === 'authors' || v === 'all'
+    : want === 'job' ? v === 'sources' || v === 'subsystem'
+    : want === 'string-array' ? Array.isArray(v) && v.every(x => typeof x === 'string' && x.trim())
+    : want === 'positive-number' ? typeof v === 'number' && Number.isFinite(v) && v > 0
+    : want === 'chunk' ? Number.isInteger(v) && v >= 1000
     : true;
-  const typeText = { boolean: 'true or false', 'positive-integer': 'a whole number of at least 1', array: 'an array', rate: 'a number from 0 to 1' };
+  const typeText = { boolean: 'true or false', 'positive-integer': 'a whole number of at least 1', array: 'an array', rate: 'a number from 0 to 1', debaters: '"authors" or "all"', job: '"sources" or "subsystem"', 'string-array': 'a list of non-empty strings', 'positive-number': 'a dollar amount above 0', chunk: 'a whole number of at least 1000' };
   for (const [block, keys] of Object.entries(FLAG_BLOCKS)) {
     const value = config?.[block];
     if (value === undefined) continue;
@@ -795,6 +804,108 @@ export function lintChain(config, filePath = '<chain>') {
       message: `seats.${slot} has more than one seat in lab ${labs.map(l => `"${l}"`).join(', ')} - they would share one stage label, so one seat's reply would stand in for the other's.`,
       fix: `Give each of those seats its own "lab" in ${filePath} (e.g. "${labs[0]}-a", "${labs[0]}-b").`,
     });
+  }
+
+  // Tiered councils (2026-09-26): anchor seats, mass seats, a deep-dive seat. Each rule names a
+  // config that would silently do nothing, or spend without a ceiling.
+  const dd = config?.deep_dive;
+  if (dd && typeof dd === 'object' && dd.enabled === true) {
+    const seat = seats.deep_dive;
+    if (!seat || Array.isArray(seat) || typeof seat !== 'object') {
+      findings.push({
+        kind: 'unreachable-stage',
+        message: `deep_dive.enabled is true but seats.deep_dive is ${Array.isArray(seat) ? 'a list - the deep dive is one seat with one job' : 'not set'}.`,
+        fix: `Set "seats.deep_dive" to exactly one seat in ${filePath}, or set deep_dive.enabled to false.`,
+      });
+    } else if (seat.provider !== 'mock' && seat.provider !== 'external' && !priceOf(seat.provider, seat.model)) {
+      findings.push({
+        kind: 'deep-dive-unpriced',
+        message: `seats.deep_dive (${seat.provider}/${seat.model}) has no price in src/pricing.json, so neither its own cap nor the run's cap can see what it spends - and it is the seat built to spend the most tokens.`,
+        fix: `Add "${seat.provider}/${seat.model}" to src/pricing.json, or seat a priced model in ${filePath}.`,
+      });
+    }
+    if (!(typeof dd.usd === 'number' && Number.isFinite(dd.usd) && dd.usd > 0)) {
+      findings.push({
+        kind: 'deep-dive-uncapped',
+        message: 'deep_dive.enabled is true but deep_dive.usd (its own dollar cap) is not set - a deep dive must have a ceiling of its own inside the run\'s.',
+        fix: `Set "deep_dive": { ..., "usd": <dollars> } in ${filePath}.`,
+      });
+    }
+  }
+  if (Array.isArray(seats.alternatives) && config?.alternatives?.enabled !== true) {
+    findings.push({
+      kind: 'alternatives-seats-unused',
+      message: 'seats.alternatives is set but alternatives.enabled is not true, so those seats never write an architecture.',
+      fix: `Set "alternatives": { "enabled": true } in ${filePath}, or remove seats.alternatives.`,
+    });
+  }
+  if (seats.alternatives !== undefined && !(Array.isArray(seats.alternatives) && seats.alternatives.length >= 2)) {
+    findings.push({
+      kind: 'alternatives-seats-too-few',
+      message: 'seats.alternatives must list at least two seats: with one author there is nothing to debate and the stage runs no debate.',
+      fix: `List two or more seats (distinct labs) under "seats.alternatives" in ${filePath}, or remove it to fall back to seats.proposers.`,
+    });
+  }
+  if (config?.alternatives?.debaters === 'all' && !Array.isArray(seats.proposers)) {
+    findings.push({
+      kind: 'alternatives-debaters-unused',
+      message: 'alternatives.debaters is "all" but there is no seats.proposers list, so no extra seat joins the architecture debate.',
+      fix: `Add the mass seats under "seats.proposers" in ${filePath}, or remove alternatives.debaters.`,
+    });
+  }
+  if (config?.majority_guard?.enabled === true) {
+    const debates = (config.proposals && config.debate) || config.alternatives?.enabled === true;
+    if (!debates) {
+      findings.push({
+        kind: 'majority-guard-without-debate',
+        message: 'majority_guard.enabled is true but this chain runs no reply round (neither proposals + debate nor alternatives), so the guard does nothing.',
+        fix: `Enable "proposals" and "debate", or "alternatives", in ${filePath}, or remove majority_guard.`,
+      });
+    }
+  }
+
+  // The tiers' structural rule (verification of thc-research PR #13, finding 2): the mass tier
+  // (seats.proposers) argues; the anchor tier (seats.critics, the voting panel, and
+  // seats.alternatives, who write the architectures the mass seats post on) decides. It holds
+  // whether or not majority_guard is on - the guard only changes prompts - so it is checked for
+  // every TIERED chain: one that names seats.alternatives, sets alternatives.debaters "all", turns
+  // on the deep dive or the guard. A classic chain where the same labs propose and review is not
+  // tiered and is not touched. A lab label is free text, so the rule also fires when a mass seat
+  // runs an anchor's MODEL under another lab id (modelIdentity: the same model, whatever it is
+  // called). Different models from one vendor (DeepSeek V4.1 Flash argues, DeepSeek V4 Pro votes)
+  // are different labs here, as everywhere in this harness's independence accounting.
+  const tiered = Array.isArray(seats.alternatives) || config?.alternatives?.debaters === 'all'
+    || config?.deep_dive?.enabled === true || config?.majority_guard?.enabled === true;
+  const tierOf = list => {
+    const ss = Array.isArray(list) ? list.filter(s => s && typeof s === 'object') : [];
+    const labs = new Set(ss.map(labOf));
+    const models = new Set(ss.map(modelIdentity).filter(Boolean));
+    return seat => (labs.has(labOf(seat)) ? `lab "${labOf(seat)}"` : models.has(modelIdentity(seat)) ? `model "${seat.model}" (under another lab id)` : null);
+  };
+  const inAnchorTier = tierOf([...(Array.isArray(seats.critics) ? seats.critics : []), ...(Array.isArray(seats.alternatives) ? seats.alternatives : [])]);
+  const votes = tierOf(seats.critics);
+  if (tiered && Array.isArray(seats.proposers)) {
+    const both = [...new Set(seats.proposers.filter(s => s && typeof s === 'object').map(inAnchorTier).filter(Boolean))];
+    if (both.length) {
+      findings.push({
+        kind: 'mass-seat-votes',
+        message: `This is a tiered chain, but ${both.join(', ')} sits in both the mass tier (seats.proposers, who argue) and the anchor tier (seats.critics, who vote, or seats.alternatives), so one lab argues for a position and then decides on it.`,
+        fix: `Seat a different lab in one of the two tiers in ${filePath}. A different "lab" id on the same model does not make it independent.`,
+      });
+    }
+  }
+  // The deep-dive seat does not vote either: its findings go to the reviser before the panel's first
+  // review. Seated on a lab (or model) that also votes, one lab both sets the reviser's first agenda
+  // and judges the result.
+  if (config?.deep_dive?.enabled === true && seats.deep_dive && !Array.isArray(seats.deep_dive) && typeof seats.deep_dive === 'object') {
+    const as = votes(seats.deep_dive);
+    if (as) {
+      findings.push({
+        kind: 'deep-dive-votes',
+        message: `seats.deep_dive is ${as}, which also sits on the voting panel (seats.critics): that lab would set the reviser's first agenda and then judge the draft that answers it.`,
+        fix: `Seat a lab in seats.deep_dive that is not in seats.critics in ${filePath} (a mass seat's model is fine: the mass seats do not vote).`,
+      });
+    }
   }
 
   // denied-model (2026-09-23, Muad: "Drop grok drop Kimi k3", "No grok, ever!!!"): a hard error,

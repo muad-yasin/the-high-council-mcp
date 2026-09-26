@@ -7,8 +7,8 @@ You choose the number of debate rounds, the seats and labs (any lab except xAI),
 limit for each model's replies.
 
 We recommend our own chains: `cheap-7-v2`, `plan-premium-7` and `plan-highest-7` (the top
-models, GPT-6 Astra and Claude Fable 5.1, only review and vote; cheaper seats write the
-proposals and the debate). You can also edit a chain to suit yourself, or run every seat on
+models, GPT-6 Astra and Claude Fable 5.1, write the alternative architectures and are the only
+seats that vote; cheaper seats write the proposals and the debate). You can also edit a chain to suit yourself, or run every seat on
 your own machine with `local-ollama`.
 
 See it work right now - no keys, no setup, no cost:
@@ -521,7 +521,7 @@ for anyone with a subscription, since the project's cost story depends on it.
 
 ## Chains
 
-50 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
+51 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
 which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be
 copied and edited.
 

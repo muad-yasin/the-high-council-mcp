@@ -743,10 +743,10 @@ if (rematchArg) {
   const rematchConfig = reshuffleSeats(originalConfig, seed);
   refuseSideRun('--rematch', originalConfig, originalRunMeta);
 
-  const missing = checkSeats([
-    rematchConfig.seats?.criteria, rematchConfig.seats?.builder, rematchConfig.seats?.reviser,
-    rematchConfig.seats?.finalist, ...(rematchConfig.seats?.critics || []), ...(rematchConfig.seats?.proposers || []),
-  ].filter(Boolean));
+  // Every seat the rematch can call, the same list the main run checks (everySeatOf): it used to name
+  // eight slots by hand and missed seats.alternatives, seats.deep_dive and every later seat kind, so a
+  // rematch of a tiered chain started without the key those seats need (PR #13 verification, #4).
+  const missing = checkSeats(everySeatOf(rematchConfig));
   if (missing.length) {
     console.error(`\nMissing API keys for: ${missing.join(', ')}`);
     process.exit(1);
@@ -1810,8 +1810,15 @@ for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE
 // classification/parsing logic itself is in src/run-state.js (pure, unit-tested with no CLI or
 // process running); this block is the thin stateful wrapper: it owns the seat-status Map,
 // installs chain.js's progressHook, and does the file I/O.
+// Every seat that works in the debate or review: the tiered-council seats (seats.alternatives, the
+// anchors who write the architectures; seats.deep_dive) are on the board too (PR #13 verification,
+// #4). A lab in several lists is one row.
 const seatState = new Map(
-  [...(config.seats.proposers || []), ...(config.seats.critics || [])].map(s => [s.lab || s.provider, 'waiting']),
+  [
+    ...(config.seats.proposers || []), ...(config.seats.critics || []),
+    ...(Array.isArray(config.seats.alternatives) ? config.seats.alternatives : []),
+    ...(config.deep_dive?.enabled === true && config.seats.deep_dive && !Array.isArray(config.seats.deep_dive) ? [config.seats.deep_dive] : []),
+  ].filter(Boolean).map(s => [s.lab || s.provider, 'waiting']),
 );
 let currentStage = null;
 let currentRound = 1;

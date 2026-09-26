@@ -24,7 +24,10 @@ import { createHash } from 'node:crypto';
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sha256 = s => createHash('sha256').update(s).digest('hex');
 
-const ROLES_SHA256 = '97f8c508a0cf1052d9f56ebffc1bfe74475699f8b081229705db690bd76d5953';
+// Re-recorded 2026-09-26 on the owner's go ("Yes and Yes"): tiered councils (thc-research brief 13)
+// ADD prompt builders to src/roles.js (deep dive, majority guard). The prompts the mock chains below
+// send are unchanged - that check was not re-recorded.
+const ROLES_SHA256 = '57a61e939faaa00cae9cbcbd393b2f7668317df4d8ab92a15eeef6e728e96d35';
 // Recorded at 0d87668. `status` is the CLI's exit code (mock-security-review's mock reviewer blocks: 7).
 // mock-relay is left out: its panel order comes from Math.random (bug audit 2026-09-26 #2) and a relay
 // reviewer sees the reviews before it, so its prompts differ from run to run.

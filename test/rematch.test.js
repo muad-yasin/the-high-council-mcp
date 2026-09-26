@@ -52,11 +52,12 @@ test('5. lab fields are re-anonymized to fresh sequential labels, independent of
   assert.deepEqual(out.seats.critics.map(s => s.lab), ['lab-1', 'lab-2']);
 });
 
-test('6. a critics array of length 0 or 1 is returned unchanged - no non-trivial permutation exists', () => {
+test('6. a critics array of length 0 or 1 keeps its models - no non-trivial permutation exists - but a lone seat still loses its lab name', () => {
   const zero = { seats: { critics: [] } };
   const one = { seats: { critics: critics(1) } };
   assert.deepEqual(reshuffleSeats(zero, 3).seats.critics, []);
-  assert.deepEqual(reshuffleSeats(one, 3).seats.critics, one.seats.critics);
+  // Since 0.7.8 (PR #13 verification, finding 4) every seat's lab comes from one config-wide map.
+  assert.deepEqual(reshuffleSeats(one, 3).seats.critics, [{ ...one.seats.critics[0], lab: 'lab-1' }]);
 });
 
 test('7. proposers array is reshuffled independently of critics, when both are present', () => {
@@ -98,4 +99,28 @@ test('10. an extra field (e.g. thinking config) travels with its provider/model 
   assert.equal(out.seats.critics[0].extra, undefined);
   assert.equal(out.seats.critics[1].model, 'm1');
   assert.deepEqual(out.seats.critics[1].extra, { thinking: { type: 'enabled' } });
+});
+
+test('11. a tiered config: one lab keeps one label in every list, two labs never share one, and alternatives + deep_dive are renamed too', () => {
+  const m = (model, lab) => ({ provider: 'openrouter', model, lab });
+  const anchors = [m('a/astra', 'astra'), m('b/fable', 'fable'), m('c/pro', 'pro')];
+  const config = { seats: {
+    proposers: [m('x/luna', 'luna'), m('y/flash', 'flash'), m('z/qwen', 'qwen'), m('w/mini', 'mini')],
+    critics: anchors,
+    alternatives: [...anchors].reverse(),
+    deep_dive: m('y/flash', 'flash'),
+  } };
+  for (const seed of [0, 1, 2, 7]) {
+    const out = reshuffleSeats(config, seed);
+    const all = [...out.seats.proposers, ...out.seats.critics, ...out.seats.alternatives, out.seats.deep_dive];
+    const labOfModel = new Map();
+    const modelOfLab = new Map();
+    for (const s of all) {
+      assert.match(s.lab, /^lab-\d+$/, `seed ${seed}: ${s.model} kept a real name`);
+      if (labOfModel.has(s.model)) assert.equal(labOfModel.get(s.model), s.lab, `seed ${seed}: ${s.model} has two labels`);
+      if (modelOfLab.has(s.lab)) assert.equal(modelOfLab.get(s.lab), s.model, `seed ${seed}: ${s.lab} names two models`);
+      labOfModel.set(s.model, s.lab); modelOfLab.set(s.lab, s.model);
+    }
+    assert.equal(out.seats.deep_dive.model, 'y/flash', 'the deep-dive seat keeps its model');
+  }
 });

@@ -166,7 +166,12 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
   if (config.alternatives?.enabled === true && !fromRun) {
     // Output per alternative is the cap runChain actually uses: the seat's own maxTokens unless
     // the chain sets alternatives.maxTokens (pre-release audit 2026-09-23, Alternatives #1).
-    const seats = config.seats.proposers || config.seats.critics || [];
+    // Tiered councils: seats.alternatives (the anchors) write the architectures when set; with
+    // alternatives.debaters "all", the proposers (the mass seats) also post on them. Same fallbacks
+    // as chain.js.
+    const seats = config.seats.alternatives || config.seats.proposers || config.seats.critics || [];
+    const posters = [...seats];
+    if (config.alternatives.debaters === 'all') for (const s of config.seats.proposers || []) if (!posters.some(p => (p.lab || p.provider) === (s.lab || s.provider))) posters.push(s);
     const capOf = seat => { const own = seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS; return config.alternatives.maxTokens ? Math.min(own, config.alternatives.maxTokens) : own; };
     for (const seat of seats) push(`alternative-${seat.lab || seat.provider}`, seat, a.promptTokens + 400, capOf(seat));
     // What the NEXT stages read is the board, not the seat's whole output budget (which includes
@@ -175,10 +180,8 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
     const ALT_BOARD_TOKENS = 2000;
     alternativeTokens = seats.reduce((n, seat) => n + Math.min(capOf(seat), ALT_BOARD_TOKENS), 0);
     if (seats.length > 1) {
-      for (const seat of seats) {
-        push(`alt-debate-${seat.lab || seat.provider}`, seat, a.promptTokens + 1600 + alternativeTokens, 1500);
-        push(`alt-reply-${seat.lab || seat.provider}`, seat, a.promptTokens + 3000, 800);
-      }
+      for (const seat of posters) push(`alt-debate-${seat.lab || seat.provider}`, seat, a.promptTokens + 1600 + alternativeTokens, 1500);
+      for (const seat of seats) push(`alt-reply-${seat.lab || seat.provider}`, seat, a.promptTokens + 3000, 800);
       alternativeTokens += alternativeTokens; // the board roughly doubles what the next stages read
     }
   }
@@ -201,6 +204,29 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
     proposalTokens += proposalTokens; // the board roughly doubles what the builder reads
   }
   if (!fromRun) push('build', config.seats.builder, a.promptTokens + 400 + proposalTokens + alternativeTokens, a.draftTokens);
+  // Tiered councils: the deep-dive seat. Each call reads the criteria, the draft and one chunk of
+  // the source, and may write its whole maxTokens. The rows stop where the seat's own dollar cap
+  // would stop the stage (the last row carries what is left of it), because runChain stops there
+  // too; then one reviser pass over the findings. The source size is the chain's promptTokens
+  // assumption (four characters a token), which --task raises for a large task.
+  if (config.deep_dive?.enabled === true && config.seats.deep_dive && !fromRun) {
+    const seat = config.seats.deep_dive;
+    const dd = { job: 'sources', maxCalls: 24, chunkChars: 60000, ...config.deep_dive };
+    const focus = Array.isArray(dd.focus) && dd.focus.length ? dd.focus.length : 1;
+    const chunks = Math.max(1, Math.ceil((a.promptTokens * 4) / dd.chunkChars));
+    const calls = Math.min(dd.maxCalls, focus * chunks);
+    const out = seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS;
+    const inTok = Math.min(a.promptTokens, Math.ceil(dd.chunkChars / 4)) + a.draftTokens + 1000;
+    const p = seat.provider === 'external' ? { in: 0, out: 0 } : priceOf(seat.provider, seat.model);
+    let left = Number.isFinite(dd.usd) ? dd.usd : Infinity;
+    for (let n = 1; n <= calls; n++) {
+      const usd = p ? (inTok / 1e6) * p.in + (out / 1e6) * p.out : 0;
+      if (p && usd > left) break;
+      rows.push({ label: `deep-dive-${seat.lab || seat.provider}-${n}`, seat: `${seat.provider}/${seat.model}`, input: inTok, output: out, usd, priced: !!p });
+      left -= usd;
+    }
+    push('deep-dive-revise', config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens + a.critiqueTokens, a.draftTokens);
+  }
   const unanimous = config.signoff === 'unanimous';
   for (let r = 1; r <= config.maxRounds; r++) {
     if (unanimous) {
@@ -287,6 +313,21 @@ export function worstCaseOf(provider, model, { promptChars = 0, maxTokens = 8000
   const input = Math.ceil(promptChars / CHARS_PER_TOKEN);
   const usd = ((input / 1e6) * p.in + (maxTokens / 1e6) * p.out) * retries;
   return { usd, priced: true };
+}
+
+/**
+ * The worst case of one call, exactly as invoke() projects it before sending: the whole prompt as
+ * input, the seat's whole maxTokens as output, doubled for an Anthropic seat (the thinking-disabled
+ * retry). Shared so a stage with its own ceiling inside the run's (the deep-dive seat) projects
+ * the same number the run cap does.
+ */
+export function projectStage(seat, { system = '', user = '' } = {}) {
+  const isAnthropicSeat = (seat.originalProvider ?? seat.provider) === 'anthropic';
+  return worstCaseOf(seat.provider, seat.model, {
+    promptChars: (system || '').length + (user || '').length,
+    maxTokens: seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS,
+    retries: isAnthropicSeat ? 2 : 1,
+  }).usd;
 }
 
 /**

@@ -219,10 +219,30 @@ async function callMock({ model, system, messages, maxTokens }) {
   if (system.startsWith('You are one lab on a planning panel, answering')) {
     await new Promise(r => setTimeout(r, 10));
     const ids = [...user.matchAll(/^## ([A-Z]-\d+) \(by/gm)].map(m => m[1]);
+    // Tiered councils (the majority guard): `mock-yield-unargued` withdraws everything without
+    // naming the argument it concedes to, `mock-yield-argued` withdraws quoting the first objection
+    // it was shown - so a guarded mock run records one withdrawal the guard keeps and one it honours.
+    if (model === 'mock-yield-unargued' || model === 'mock-yield-argued') {
+      const objection = (user.match(/^- (?:Lab [A-Z] - )?object: (.+)$/m) || [])[1] || '';
+      const replies = ids.map(id => ({ id, action: 'withdraw', text: 'The objection is right.', ...(model === 'mock-yield-argued' ? { conceded_to: objection.slice(0, 40) } : {}) }));
+      return { text: JSON.stringify({ replies }), usage: { input: 30, output: 20 }, provider: 'mock', model };
+    }
     const replies = ids.map((id, i) => i === 0 ? { id, action: 'amend', text: 'Fair.', how: 'mock.js (amended)' } : { id, action: 'keep', text: 'The file is created by the plan.' });
     if (model === 'mock-proposer-garbled') return { text: 'I stand by everything, but not in JSON.', usage: { input: 30, output: 10 }, provider: 'mock', model };
     if (model === 'mock-proposer-sloppy') replies.push({ id: 'Z-99', action: 'keep', text: 'No such proposal.' }, ...(ids.length ? [{ id: ids[0], action: 'shrug', text: 'Not an action.' }] : []));
     return { text: JSON.stringify({ replies }), usage: { input: 30, output: 20 }, provider: 'mock', model };
+  }
+  // Tiered councils: the deep-dive seat. One finding per call, quoting the plan's first line
+  // exactly (so the quote check marks it verified) and naming the excerpt it read, so a mock run
+  // shows one finding per chunk and focus. Usage scales with the prompt, so a priced mock seat
+  // (mock-priced) reaches its own dollar cap offline.
+  if (system.startsWith('You are the deep-dive reviewer')) {
+    await new Promise(r => setTimeout(r, 10));
+    const plan = (user.split('# The plan\n\n')[1] || '').split('\n').find(l => l.trim()) || '';
+    const excerpt = (user.match(/# Source excerpt (\d+) of (\d+)/) || []).slice(1).join(' of ');
+    const focus = ((user.split('# Focus\n\n')[1] || '').split('\n')[0] || '').slice(0, 60);
+    const text = JSON.stringify({ findings: [{ criterion: `source excerpt ${excerpt}`, quote: plan.trim().slice(0, 30), source_quote: '', problem: `mock: excerpt ${excerpt} is not reflected in the plan (focus: ${focus}).`, fix: 'mock: add one line for it.' }] });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
   }
   // v4 item 2: the preflight stage's mock seats. `mock-preflight-object` always objects (one
   // fixed objection); every other model on this prompt passes with no objections - so a test

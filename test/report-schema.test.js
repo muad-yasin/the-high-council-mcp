@@ -52,7 +52,7 @@ test('report schema: REPORT_SCHEMA_VERSION is the version the schema pins', () =
 // Every shipped mock chain that finishes in one sitting (mock-external and mock-questions-wait
 // pause for a human; mock-budget stops at the cap and so writes no report.json by design).
 const ONE_SITTING = ['mock', 'mock-criteria-kinds', 'mock-unanimous', 'mock-debate', 'mock-dispute', 'mock-open', 'mock-partitioned',
-  'mock-patch', 'mock-patch-fallback', 'mock-proposals', 'mock-questions', 'mock-relay', 'mock-security-review'];
+  'mock-patch', 'mock-patch-fallback', 'mock-proposals', 'mock-questions', 'mock-relay', 'mock-security-review', 'mock-tiered'];
 
 test('report schema: the list above still names every mock chain that finishes in one sitting', () => {
   const shipped = readdirSync(join(root, 'chains')).filter(f => /^mock.*\.json$/.test(f)).map(f => f.slice(0, -5));

@@ -5,6 +5,7 @@
 // 25 contract fields, and wrote no BOARD.md at all - a replay folder was a different, thinner
 // artifact than the run it was compared against. Every writer (a normal run, `council init`,
 // --rematch, --replay) now builds from these functions.
+import { renderDeepDiveBoard } from './deep-dive.js';
 import { computeOutcome } from './outcome.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { deriveDisagreementGroups } from './disagreement-groups.js';
@@ -144,6 +145,9 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     // against the task and chain, not the exact prompt. Absent when there were none.
     ...(Array.isArray(result.unverifiedReplays) && result.unverifiedReplays.length ? { unverifiedReplays: result.unverifiedReplays } : {}),
     ...(result.alternatives ? { alternatives: (({ board, ...rest }) => rest)(result.alternatives) } : {}),
+    // Tiered councils: the deep-dive seat's record (src/deep-dive.js). Additive, present only when
+    // the chain enabled the stage.
+    ...(result.deep_dive ? { deep_dive: result.deep_dive } : {}),
     // "How this plan was argued" (src/argued.js): additive, present only when the chain enabled it.
     // The text itself is ARGUED.md; the JSON carries where it is, the fact-pack counts and the
     // reference check (unknown_refs / unknown_labs are ids and labs it named that the run never had).
@@ -194,8 +198,9 @@ export function renderBoardMd({ runId, result }) {
   // Criterion kinds: the count goes at the top of the board, where a person sees how much of the
   // definition of done a command can settle and how much rests on reviewers' judgement.
   const kindsSection = result.criteriaSummary ? `${summaryLine(result.criteriaSummary)}\n\n` : '';
-  if (!(result.board || disputesSection || alternativesSection || kindsSection)) return '';
-  return `# Debate board - run ${runId}\n\n${kindsSection}${alternativesSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${renderDroppedBoard(result.debate?.dropped)}${disputesSection}`;
+  const deepDiveSection = renderDeepDiveBoard(result.deep_dive);
+  if (!(result.board || disputesSection || alternativesSection || kindsSection || deepDiveSection)) return '';
+  return `# Debate board - run ${runId}\n\n${kindsSection}${alternativesSection}${deepDiveSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${renderDroppedBoard(result.debate?.dropped)}${disputesSection}`;
 }
 
 // 0.7.8: what the debate stage's filters rejected (report.json debate.dropped). Only in BOARD.md,

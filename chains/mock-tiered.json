@@ -1,0 +1,43 @@
+{
+  "name": "mock-tiered",
+  "description": "Offline. A tiered council at $0 (tiered councils, 2026-09-26): mass seats (seats.proposers) propose parts, debate them and post on the architectures; anchor seats (seats.alternatives) write the whole architectures and reply; the anchor panel (seats.critics) alone votes. The majority guard is on: authors see arguments without lab letters or counts, and a withdrawal that quotes no argument (mock-yield-unargued, mock-alt-withdraw) stays for the builder while one that does (mock-yield-argued) is honoured. A deep-dive seat reads the task in 1000-character chunks, once per focus entry, under its own cap and maxCalls, and the reviser answers its findings before the panel's first review.",
+  "maxRounds": 2,
+  "signoff": "unanimous",
+  "dispute": { "enabled": true, "stall_rounds": 2 },
+  "proposals": { "parts": 2, "maxTokens": 400 },
+  "debate": true,
+  "decisions": { "enabled": true },
+  "alternatives": { "enabled": true, "debaters": "all" },
+  "majority_guard": { "enabled": true },
+  "canary": { "enabled": true, "sampleRate": 1 },
+  "deep_dive": {
+    "enabled": true,
+    "job": "sources",
+    "focus": ["Every requirement in the excerpt.", "Every number in the excerpt."],
+    "usd": 1,
+    "maxCalls": 5,
+    "chunkChars": 1000
+  },
+  "handoff": true,
+  "estimate": { "promptTokens": 1000, "draftTokens": 1000, "critiqueTokens": 300 },
+  "seats": {
+    "criteria": { "provider": "mock", "model": "mock-criteria" },
+    "skeleton": { "provider": "mock", "model": "mock-skeleton" },
+    "builder": { "provider": "mock", "model": "mock-builder" },
+    "reviser": { "provider": "mock", "model": "mock-builder" },
+    "proposers": [
+      { "provider": "mock", "model": "mock-yield-argued", "lab": "mass-a" },
+      { "provider": "mock", "model": "mock-yield-unargued", "lab": "mass-b" },
+      { "provider": "mock", "model": "mock-proposer-a", "lab": "mass-c" }
+    ],
+    "alternatives": [
+      { "provider": "mock", "model": "mock-alt-a", "lab": "anchor-a" },
+      { "provider": "mock", "model": "mock-alt-withdraw", "lab": "anchor-b" }
+    ],
+    "critics": [
+      { "provider": "mock", "model": "mock-critic-a", "lab": "anchor-a" },
+      { "provider": "mock", "model": "mock-critic-b", "lab": "anchor-b" }
+    ],
+    "deep_dive": { "provider": "mock", "model": "mock-deep", "lab": "deep-a", "maxTokens": 128000 }
+  }
+}
