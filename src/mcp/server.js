@@ -29,6 +29,7 @@ import { lockHolder } from '../run-lock.js';
 import { harnessVersion } from '../version.js';
 import { isDeniedPath, pathRefusal } from '../tools.js';
 import { contextFileList } from '../context-files.js';
+import { isChainName, chainNameRefusal } from '../chain-name.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Same split as the CLI: `pkg` ships with the package (chains/, the CLI
@@ -97,7 +98,7 @@ const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catc
 // user chain was invisible to list_chains and unresolvable for a paused run (pre-release audit
 // 2026-09-23, McpServer #5).
 function chainConfigFor(name, runMeta = null) {
-  if (typeof name !== 'string' || !/^[A-Za-z0-9._-]+$/.test(name)) return null;
+  if (!isChainName(name)) return null;
   const dirs = [runMeta?.cwd ? join(runMeta.cwd, 'chains') : null, join(work, 'chains'), join(pkg, 'chains')].filter(Boolean);
   const found = dirs.map(d => join(d, `${name}.json`)).find(existsSync);
   return found ? readJson(found) : null;
@@ -283,6 +284,8 @@ server.tool('list_chains', 'Chains available to run, with their description and 
 });
 
 server.tool('dry_run', 'Price a chain without calling any model.', { chain: z.string() }, async ({ chain }) => {
+  const bad = chainNameRefusal(chain);
+  if (bad) return text({ error: bad });
   const out = execFileSync(...cliCommand(['--chain', chain, '--dry-run']), { encoding: 'utf8', cwd: work, env: cliEnv });
   return text(out);
 });
@@ -322,7 +325,7 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
 }, async ({ chain, task, context, draft, from_run, rounds, max_usd, pii_gate, allow_unfenced }) => {
   // The task and draft go to every seat, so the same denylist as the seat tools applies: no
   // .env, key files or credentials by path (pre-release audit 2026-09-23, McpServer #1 addendum).
-  const refusal = startRunInputRefusal({ task, draft, context, from_run });
+  const refusal = chainNameRefusal(chain) || startRunInputRefusal({ task, draft, context, from_run });
   if (refusal) return text({ started: false, error: refusal });
   // The folder name is chosen here and handed to the CLI, not guessed afterwards from whatever
   // appeared in runs/: two start_run calls in one instant used to both report the first folder

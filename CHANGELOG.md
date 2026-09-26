@@ -113,6 +113,13 @@
   toward the cap at that call's projected worst case, with a line in the log. A stage's cost read
   back from disk on resume is checked the same way. Well-formed usage is priced exactly as before.
 
+- **A chain is chosen by name only.** MCP `dry_run` and `start_run`, the CLI's `--chain`, and the
+  chain a `--resume`, `--rematch` or `--replay` reads back from `run.json` now accept a chain name
+  (letters, digits, `.`, `_`, `-`, not starting with `.` or `-`) and refuse anything else with a
+  usage error (exit 2 on the CLI). Before, a path-shaped value could load any JSON file as a chain,
+  and a value starting with `--` was read as a flag. `council doctor --chain <file>` still takes a
+  path, as documented.
+
 ## 0.7.7 - 2026-09-25
 
 Everything since 0.7.6. The summary comes first; the detailed notes follow under "Detail". This

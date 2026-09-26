@@ -89,6 +89,7 @@ import { resetToolCallLog, renderToolsMd } from './tools.js';
 import { arguedWarnings } from './argued.js';
 import { councilCommand, unignoredEnvFile } from './invocation.js';
 import { contextFileList, readContextFile, ContextFileError } from './context-files.js';
+import { chainNameRefusal } from './chain-name.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -727,6 +728,7 @@ if (rematchArg) {
   const originalRequest = readFileSync(resolve(work, originalTaskPath), 'utf8');
 
   const chainName = originalRunMeta.chain;
+  { const bad = chainNameRefusal(chainName, `--rematch: the chain recorded in ${originalRunMetaPath}`); if (bad) { console.error(bad); process.exit(2); } }
   const chainConfigPath = [join(work, 'chains', `${chainName}.json`), join(pkg, 'chains', `${chainName}.json`)]
     .find(existsSync);
   if (!chainConfigPath) {
@@ -833,6 +835,7 @@ if (argv.includes('--replay')) {
     console.error(`--replay: ${basename(replayDirFor(runDir, date))} already exists - this run was already replayed for that date. Pass another --replay-date, or move the old folder aside first. Nothing was run.`);
     process.exit(2);
   }
+  { const bad = chainNameRefusal(runMetaForChain.chain, `--replay: the chain recorded in ${join(runDir, 'run.json')}`); if (bad) { console.error(bad); process.exit(2); } }
   const chainsDirCandidates = [join(work, 'chains'), join(pkg, 'chains')];
   const chainsDir = chainsDirCandidates.find(d => existsSync(join(d, `${runMetaForChain.chain}.json`))) || chainsDirCandidates[1];
   {
@@ -1177,6 +1180,8 @@ if (resumeRun) {
   }
 }
 const chainNameEff = resumeMeta?.chain || chainName;
+// A chain is named, never a path (src/chain-name.js): the name is joined onto chains/ below.
+{ const bad = chainNameRefusal(chainNameEff, resumeMeta ? '--resume: the chain recorded in run.json' : '--chain'); if (bad) { console.error(bad); process.exit(2); } }
 // A user's own chains/ takes precedence, so a custom chain works from an
 // npm install without editing anything inside node_modules.
 // On resume the run's own start directory comes first (CLI audit #3's class): a custom chain lives in
