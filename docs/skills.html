@@ -56,7 +56,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
   <div class="wrap">
     <div class="eyebrow">The High Council &middot; Skills</div>
     <h1>You can build anything in a weekend.<br>So can everyone else.</h1>
-    <p class="lede">What decides the outcome now is the part most people skip: deciding what is worth building, and proving it actually works. These ten skills write that part down, so your AI coding agent does it too.</p>
+    <p class="lede">What decides the outcome now is the part most people skip: deciding what is worth building, and proving it actually works. These fourteen skills write that part down, so your AI coding agent does it too.</p>
     <p class="sub">Free and MIT-licensed. They work in any Claude Code project, with or without The High Council harness. No account, no API key, nothing to install beyond copying folders.</p>
     <div class="honest"><strong>No efficacy claim.</strong> Nothing here has been measured against working without these skills, so we don't say they make results better. Every rule says what it guards against and why - most began as a real failure on a real project - so you can judge each one yourself.</div>
   </div>
@@ -193,8 +193,53 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
 <section>
   <div class="wrap">
     <div class="eyebrow">Writing</div>
-    <h2>For words about real people</h2>
+    <h2>For words people will read</h2>
+    <p>Four skills that hand off in a fixed order - facts, draft, edit, independent read - plus one register for writing warmly about someone real. They cover marketing copy, documentation, announcements, articles and in-product text alike. The legal notes in <code>fact-checking</code> are general information, not legal advice.</p>
     <div class="grid">
+      <article class="card" data-skill="fact-checking">
+        <h3><code>fact-checking</code></h3>
+        <p class="when">Before drafting from real events, and before publishing any claim about a real person or organization.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Quotes nobody said, or said less sharply</li>
+          <li>Figures and rulings never traced to the original document</li>
+          <li>False claims inherited from an earlier draft</li>
+          <li>A charge written up as a conviction</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="drafting">
+        <h3><code>drafting</code></h3>
+        <p class="when">Writing any new text, from a landing page to a button label.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Filler written to fill a length</li>
+          <li>A piece that shows how something happened but never says why it matters</li>
+          <li>Endings that explain instead of land</li>
+          <li>A headline and first sentence that say the same thing twice</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="line-editing">
+        <h3><code>line-editing</code></h3>
+        <p class="when">Revising text that reads flat, generic, or machine-written.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Polishing sentences in a piece with nothing to say</li>
+          <li>Machine-writing tells - named, with the evidence and its limits</li>
+          <li>AI detectors treated as proof about a person's work</li>
+          <li>Library-wide rewrites made before anything was graded</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="final-read">
+        <h3><code>final-read</code></h3>
+        <p class="when">After editing, before anyone else sees the work.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Claims "checked" from memory instead of searched again</li>
+          <li>A reviewer who quietly rewrites the piece</li>
+          <li>"Is this good?" answered yes by the author</li>
+          <li>Untraced quotes let through because a name was changed</li>
+        </ul>
+      </article>
       <article class="card" data-skill="good-news-writing">
         <h3><code>good-news-writing</code></h3>
         <p class="when">Warm, positive coverage of a real person or organization doing something good.</p>

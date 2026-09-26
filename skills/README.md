@@ -48,6 +48,10 @@ mode, hooks, compaction, subagents) only as examples of a general mechanism.
 
 | Skill | Use it when | What it guards against |
 |---|---|---|
+| [`drafting`](drafting/SKILL.md) | Writing any new text: copy, docs, announcements, emails, articles, in-product text | Filler written to a length; no stance; a register nobody chose; endings that explain instead of land; a headline and an opening that say the same thing twice |
+| [`fact-checking`](fact-checking/SKILL.md) | Before drafting from real events, and before publishing any claim about a real person or organization | Invented or sharpened quotes; figures and rulings never traced to the primary document; inherited claims on rewrites; indictments written as convictions; real names left in satire |
+| [`line-editing`](line-editing/SKILL.md) | Revising existing text that reads flat, generic, or machine-written; batch voice passes | Polishing prose that has no stance; the double lede; explained endings; machine-writing tells, with the evidence and its limits; sweeps that edit before grading |
+| [`final-read`](final-read/SKILL.md) | After drafting and editing, before anyone else sees the work | Claims checked against memory instead of re-searched; reviewers who rewrite; "is this good?" answered yes by the author; untraced quotes let through |
 | [`good-news-writing`](good-news-writing/SKILL.md) | Warm, positive coverage of a real person or organization doing something good | Press-release tone; invented villains; backhanded praise; untraceable quotes; overstated good deeds |
 
 ## How the skills fit together
@@ -56,6 +60,10 @@ mode, hooks, compaction, subagents) only as examples of a general mechanism.
   do it; `verification-and-critique` proves it. `research-and-sourcing` feeds any of them with facts.
 - **Design before implementation.** `ux-design` hands a flow, wireframe, and states list to
   `frontend-developer`; `visual-craft` judges the built result.
+- **Facts, draft, edit, read.** On anything drawn from real events, `fact-checking` runs before
+  `drafting`; `line-editing` revises what exists; `final-read` re-checks every claim and returns
+  verdicts without editing. `good-news-writing` is the warm register those four hand off to.
+  `research-and-sourcing` stays the owner of source grading; `fact-checking` applies it to prose.
 - **Every skill says what it is not for**, and points at the skill that is. Overlap is kept small on
   purpose: where two skills need the same rule, one owns it and the other points to it or restates
   only the one line it needs.
