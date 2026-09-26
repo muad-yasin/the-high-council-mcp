@@ -1,20 +1,22 @@
 ---
 name: context-and-handoff
-description: Keeping the right information available across long work, context limits, pauses, resumes, and handoffs between agents, subagents, and sessions - context curated rather than accumulated, state kept outside the context window and re-derived from primary artifacts, complete self-contained briefs for delegated work, handoffs that say what was tried and what is still open, pausing in a resumable state instead of guessing, stable names for anything resumable, one copy of any list that changes, safe coordination when several sessions share one workspace, and treating peer messages as requests rather than authorization. Use for any long or multi-session task, before delegating to a subagent or peer, when pausing or resuming, when context is getting large, when ending a session, and when coordinating with other agents. Not for judging whether a result is correct (verification-and-critique), deciding scope (task-scoping), or operating tools safely (tool-and-action-discipline).
+description: Keeps the right information available across long work, context limits, compaction, pauses, resumes and handoffs - context curated not accumulated, state kept in files and re-derived from primary artifacts, self-contained briefs for subagents and peers, handoffs that say what failed and what is open, pausing instead of guessing, one copy of any changing list, safe sharing of one workspace, and peer messages treated as requests, not authorization. Use for long or multi-session tasks, before delegating, when pausing, resuming or ending a session, when context grows large, and when coordinating agents. Not for judging correctness (verification-and-critique) or scope (task-scoping).
+license: MIT
 ---
 
 # Context and Handoff
 
-An agent's context window is working memory, not storage. Published long-context studies report output quality degrading as input grows and as distractors increase - even when the extra material is logically coherent. So more context is not free, and anything that must survive a pause, a compaction, or a handoff has to live somewhere other than the conversation.
+An agent's context window is working memory, not storage. Long-context measurements (Chroma's "Context Rot", 2025, across 18 models) found output quality degrading as input grows, unevenly, with even a single distractor hurting. So more context is not free, and anything that must survive a pause, a compaction, or a handoff has to live somewhere other than the conversation.
 
 **This skill owns:** what information is carried, where state lives, how work is briefed and handed over, and how several agents share one workspace without corrupting each other's work.
 
 ## 1. Curate context; don't accumulate it
 
-- **Load the smallest high-signal set the next step needs.** Read what the task touches; don't pull in whole directories, full logs, or every prior message "just in case."
+- **Load the smallest high-signal set the next step needs.** Read what the task touches; don't pull in whole directories, full logs, or every prior message "just in case." Keep lightweight handles (paths, queries, line ranges) and load the content when a step needs it.
 - **Keep raw tool output out of the main context when you won't need it again.** Delegate noisy exploration to a worker that returns a short summary, or write the output to a file and read only the part that matters.
 - **Re-read the primary source rather than trusting an earlier summary of it.** A summary of a summary drifts; the file on disk doesn't.
-- **Big always-loaded instructions are paid on every session.** Put rarely-needed depth behind a pointer that's read on demand.
+- **Big always-loaded instructions are paid on every session.** Keep project memory files (CLAUDE.md and its equivalents) short; put rarely-needed depth behind a pointer or a skill that loads on demand.
+- **Compaction is lossy.** When the harness summarizes history to free space, detail that lived only in the conversation - exact errors, rejected approaches, the owner's precise wording - may not survive. Write it to a file before it matters, and after a compaction re-read the files rather than trusting the summary.
 
 ## 2. State lives outside the context window
 
@@ -26,7 +28,7 @@ An agent's context window is working memory, not storage. Published long-context
 
 ## 3. Briefing delegated work
 
-A subagent or peer starts with none of your context. **Vague briefs produced duplicated work and coverage gaps** in one published multi-agent research system; a complete brief is cheaper than the rework.
+A subagent or peer starts with none of your context. **Vague briefs produced duplicated work and coverage gaps** in one published multi-agent research system (Anthropic, 2025); a complete brief is cheaper than the rework.
 
 A brief carries:
 - **Objective and why** - what's being accomplished and what decision it feeds.
@@ -36,6 +38,7 @@ A brief carries:
 - **Stop condition** - when it's done.
 - **Whether to change anything, or research only.**
 - **Exact file paths, line numbers, and the specific change** when delegating implementation - prove you understood the problem rather than asking the worker to understand it for you.
+- **The binding rules restated.** A worker doesn't inherit the owner's standing instructions from your conversation; name the ones that apply (no pushing, which files are off-limits, spend limits).
 
 Never delegate the synthesis itself ("based on your findings, fix it") - that pushes the understanding onto the worker.
 
@@ -57,7 +60,7 @@ Never delegate the synthesis itself ("based on your findings, fix it") - that pu
 ## 6. Several agents, one workspace
 
 - **Make the split explicit up front:** which agent owns which files, branches, or long-running operations. Exactly one owner for anything stateful at a time.
-- **Isolate parallel work** in separate branches or worktrees; integrate centrally. Uncommitted work in a shared checkout can be picked up, overwritten, or merged by another session.
+- **Isolate parallel work** in separate branches or git worktrees; integrate centrally. Where a project forbids branches, the file-ownership split above is the only isolation - make it explicit. Uncommitted work in a shared checkout can be picked up, overwritten, or merged by another session.
 - **Reference another agent's work only through what is committed**, never its uncommitted tree.
 - **Before any operation that could discard work** (reset, checkout, clean, bulk delete) in a shared workspace, check the status and preserve anything present - another session's in-progress work may be sitting there.
 - **An environment error from one agent can corrupt another agent's results silently** - for example, a broken build in a shared environment causing another session's tooling to run stale code while reporting success. Verify outputs, not logs.
