@@ -25,7 +25,7 @@
 // prose became "source", and an objection quoting that prose was shown to the reviser as a
 // verified quote. `council fence` now also writes a fence longer than any backtick run in the
 // file (src/fence.js), so its blocks always parse whole.
-// Returns [{ index (offset of the opening line), info, firstLine, body, closed }].
+// Returns [{ index (offset of the opening line), end, info, firstLine, body, closed }].
 export function parseFences(text) {
   const src = String(text || '');
   const lines = src.split('\n');
@@ -34,6 +34,7 @@ export function parseFences(text) {
   let open = null;
   for (const raw of lines) {
     const line = raw.replace(/\r$/, '');
+    const next = Math.min(offset + raw.length + 1, src.length);
     if (!open) {
       const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
       if (m && !(m[1][0] === '`' && m[2].includes('`'))) {
@@ -41,15 +42,37 @@ export function parseFences(text) {
       }
     } else {
       const c = new RegExp(`^ {0,3}(\\${open.char}{${open.len},})\\s*$`).exec(line);
-      if (c) { blocks.push(close(open, true)); open = null; } else open.lines.push(line);
+      if (c) { blocks.push(close(open, true, next)); open = null; } else open.lines.push(line);
     }
     offset += raw.length + 1;
   }
-  if (open) blocks.push(close(open, false));
+  if (open) blocks.push(close(open, false, src.length));
   return blocks;
   // `closed` (additive, 2026-09-23): false for a block that runs to the end of the text with no
   // closing fence - partial-deliverable.js uses it to spot a draft cut off inside a code block.
-  function close(b, closed) { return { index: b.index, info: b.info, firstLine: b.lines[0] ?? '', body: b.lines.join('\n'), closed }; }
+  // `end` (additive, 0.7.8): the offset just past the closing fence line (or the text's end), so
+  // outsideFences() can blank the whole block, fence lines included.
+  function close(b, closed, end) { return { index: b.index, end, info: b.info, firstLine: b.lines[0] ?? '', body: b.lines.join('\n'), closed }; }
+}
+
+// The task text with every fenced block blanked out, fence lines included. Line breaks are kept,
+// so line numbers and line starts are unchanged; everything else inside a block becomes nothing.
+// For the readers that take a line of the task's own prose as an instruction to the harness - the
+// `label:`, `target_file:` and `signoff:` fields, and `council fence`'s "is the header already
+// there" check. Hostile-fence corpus, 0.7.8 (test/hostile-fenced-corpus.test.js): each of them
+// read fenced source too, so a fenced file with a `signoff: <name>` line satisfied a policy's
+// required sign-off, a YAML file's `label:` line renamed the run, and a fenced file quoting the
+// fence header kept `council fence` from writing the real one. Fenced text is the repository's
+// words, never the operator's.
+export function outsideFences(text) {
+  const src = String(text || '');
+  let out = '';
+  let at = 0;
+  for (const b of parseFences(src)) {
+    out += src.slice(at, b.index) + src.slice(b.index, b.end).replace(/[^\n]/g, '');
+    at = b.end;
+  }
+  return out + src.slice(at);
 }
 
 // Extracted from the task text, which is the only source any seat sees.

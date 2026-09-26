@@ -26,6 +26,18 @@
   `localhost:<port>`.** Listening on 127.0.0.1 keeps other machines out, not other web pages: a page
   that points its own host name at 127.0.0.1 (DNS rebinding) could read the viewer's API, and a
   run's texts can hold fenced private source. Any other Host header now gets `403`.
+- **Fenced source can no longer set the task's `signoff:`, `target_file:` or `label:` line.**
+  These fields were read from any line of the task file, fenced blocks included. A fenced file with
+  a `signoff: <name>` line satisfied a policy's `required_signoff_paths` for a change the operator
+  never signed; a fenced line `target_file: <other path>` above the real one hid it (the first
+  occurrence wins); and a fenced YAML file's `label:` line renamed the run. The three fields are
+  now read from the task's own prose only. A change request written inside a code block is
+  therefore no longer read as one: write the fields as plain lines. Likewise `council fence` now
+  writes its "Source, fenced verbatim" header unless the real header is already there, not when a
+  fenced file merely quotes it. Found by a new hostile fenced-file corpus
+  (`fixtures/hostile-fenced/`, `test/hostile-fenced-corpus.test.js`: forged fence headers,
+  verdict and sign-off lines, fence-breaking lines, homoglyphs, bidi, base64, notes to reviewers,
+  an over-limit line). What is sent to the seats is unchanged.
 - **`src/http-server.js` (not part of the release, but in the package): a path-shaped
   `idempotencyKey` could write the task file outside its temp directory.** `POST /runs` now
   refuses any key outside `[A-Za-z0-9_-]{1,128}` and any chain name that is a path, with

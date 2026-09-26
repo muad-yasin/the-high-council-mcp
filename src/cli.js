@@ -24,6 +24,7 @@ import { withIntegrityFooter } from './integrity.js';
 import { generateResumeBrief } from './resume-brief.js';
 import { preflightCheck, checkArtifactReferences } from './preflight.js';
 import { fenceFile, scanTaskForSecrets, FENCE_HEADER, FENCE_MAX_BYTES } from './fence.js';
+import { outsideFences } from './quote-check.js';
 import { parseCriteriaFile } from './criteria-kinds.js';
 import { scanForPii, applyPiiGate } from './pii-gate.js';
 import { harnessVersion } from './version.js';
@@ -551,7 +552,9 @@ if (argv[0] === 'fence') {
   }
 
   const existing = readFileSync(taskPathAbs, 'utf8');
-  const header = existing.includes('# Source, fenced verbatim') ? '' : FENCE_HEADER;
+  // The header counts only where `council fence` writes it, outside any block: a fenced file that
+  // quotes it (src/fence.js itself, say) is not the header.
+  const header = outsideFences(existing).includes('# Source, fenced verbatim') ? '' : FENCE_HEADER;
   const next = `${existing.replace(/\s*$/, '')}\n${header}${appended}`;
 
   // Scan the RESULT, not just what was added: a credential already sitting in the task's
@@ -1445,7 +1448,8 @@ let request = readFileSync(taskFile, 'utf8');
 // since --label/the task file may have changed by the time someone resumes.
 const labelFlagRaw = flag('label', null);
 const labelFlagValue = typeof labelFlagRaw === 'string' ? labelFlagRaw : null;
-const labelFieldMatch = request.match(/^label:[ \t]*(.*?)[ \t]*$/m);
+// Read from the task's own prose only: a fenced YAML file's `label:` line is not the operator's.
+const labelFieldMatch = outsideFences(request).match(/^label:[ \t]*(.*?)[ \t]*$/m);
 const labelDefault = basename(taskPathEff).replace(/\.[^./]+$/, '');
 const labelEff = labelFlagValue || (labelFieldMatch ? labelFieldMatch[1] : null) || labelDefault;
 

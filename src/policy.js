@@ -25,6 +25,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { priceOf, estimateChainRows } from './cost.js';
 import { spendReport } from './spend.js';
+import { outsideFences } from './quote-check.js';
 
 export const POLICY_FILENAME = 'policy.json';
 
@@ -221,9 +222,13 @@ function cleanFieldValue(v) {
   if (q) out = q[2].trim();
   return out;
 }
+//
+// Hostile-fence corpus, 0.7.8: only the task's own prose counts, never a fenced block. A fenced
+// file with a `signoff: <name>` line used to satisfy required_signoff_paths, and one with an
+// earlier `target_file:` line hid the real one (first occurrence wins).
 export function parseChangeRequestFields(text) {
   const fields = {};
-  for (const line of String(text ?? '').split(/\r?\n/)) {
+  for (const line of outsideFences(String(text ?? '')).split(/\r?\n/)) {
     const m = line.match(FIELD_LINE);
     if (!m) continue;
     const key = m[1].toLowerCase();
