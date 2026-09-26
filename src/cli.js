@@ -90,6 +90,7 @@ import { arguedWarnings } from './argued.js';
 import { councilCommand, unignoredEnvFile } from './invocation.js';
 import { contextFileList, readContextFile, ContextFileError } from './context-files.js';
 import { chainNameRefusal } from './chain-name.js';
+import { terminalSafe } from './terminal-safe.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -336,7 +337,7 @@ if (argv[0] === 'demo') {
   const demoResult = await runChain({
     request: DEMO_REQUEST,
     config: demoConfig,
-    log: line => console.log(line),
+    log: line => console.log(terminalSafe(line)),
   });
   console.log(`\n${'='.repeat(72)}\nDELIVERABLE (the plan)\n${'='.repeat(72)}\n`);
   console.log(demoResult.deliverable);
@@ -444,7 +445,7 @@ if (argv[0] === 'init') {
   const initResult = await runChain({
     request: readFileSync(starterTaskPath, 'utf8'),
     config: cannedConfig,
-    log: line => console.log(`  ${line}`),
+    log: line => console.log(`  ${terminalSafe(line)}`),
   });
   writeFileSync(join(initRunDir, 'deliverable.md'), initResult.deliverable);
   writeFileSync(join(initRunDir, 'report.json'), JSON.stringify(reportJsonShape({
@@ -769,7 +770,7 @@ if (rematchArg) {
     rematchResult = await runChain({
       request: originalRequest,
       config: rematchConfig,
-      log: line => console.log(line),
+      log: line => console.log(terminalSafe(line)),
     });
   } catch (err) {
     if (err instanceof BudgetExceeded) writeSideRunBudgetStop(rematchRunDir, err, '--rematch', { // exits 4, like a normal run
@@ -850,7 +851,7 @@ if (argv.includes('--replay')) {
       chainsDir,
       workDir: work,
       date,
-      log: console.log,
+      log: (...parts) => console.log(terminalSafe(parts.join(' '))),
       allowTaskDrift: argv.includes('--allow-task-drift'),
     });
     console.log(`\nWrote ${replayDir} (report.json, deliverable.md, replay-diff.json).`);
@@ -1699,7 +1700,8 @@ countEarlierSpend(earlierSupersededUsd);
 
 const logPath = join(runDir, 'run.log');
 const log = (...parts) => {
-  const line = parts.join(' ');
+  // Model text reaches the log; control and bidi characters are dropped here (src/terminal-safe.js).
+  const line = terminalSafe(parts.join(' '));
   console.log(line);
   appendFileSync(logPath, line + '\n');
 };

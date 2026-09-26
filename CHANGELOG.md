@@ -131,6 +131,13 @@
   of a keyed provider can be allowed from the environment only, with
   `COUNCIL_ALLOW_LOOPBACK_KEY_HOST=1` (loopback addresses only). Every shipped chain lints clean.
 
+- **Model text is printed without control characters.** Log lines quote what the seats wrote
+  (verdict lines, objections, answers), and a reply holding a terminal escape sequence, a carriage
+  return or a bidi override reached the terminal and `run.log` as written. The CLI's log output now
+  drops C0 and C1 control characters (newline and tab are kept) and bidi controls, for runs,
+  resumes, `--rematch`, `--replay`, the demo and `init`. Stage files and everything sent to a seat
+  keep the text exactly as it was.
+
 ## 0.7.7 - 2026-09-25
 
 Everything since 0.7.6. The summary comes first; the detailed notes follow under "Detail". This
