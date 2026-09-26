@@ -44,7 +44,7 @@ Rules:        primary sources for figures; mark documented vs inferred;
               no verbatim third-party text; dates on anything that moves
 ```
 
-Vague research briefs produced duplicated searches and coverage gaps in one published multi-agent research system; a complete brief is cheaper than the rework.
+Vague research briefs produced duplicated searches and coverage gaps in one published multi-agent research system (Anthropic, 2025); a complete brief is cheaper than the rework.
 
 ## Recurring traps
 
