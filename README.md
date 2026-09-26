@@ -285,6 +285,12 @@ If your local runner listens somewhere else (LM Studio, a different port, a remo
 { "provider": "ollama", "model": "mistral", "baseUrl": "http://localhost:1234/v1" }
 ```
 
+Put a local or self-hosted server on an `ollama` seat, as above. A seat with a keyed provider
+(`openrouter`, `openai`, ...) sends that provider's key to its `baseUrl`, so chain lint refuses
+one whose `baseUrl` is anything but that provider's own https API address (`key-host`). For a
+local proxy in front of the provider, set `COUNCIL_ALLOW_LOOPBACK_KEY_HOST=1` in your environment:
+it allows a loopback address, nothing else.
+
 A local seat prices at $0 in every estimate and run report - `dry_run` shows it as priced, not
 "unpriced," and it can never trip the spend cap. See `chains/local-ollama.json` for a full
 example chain with every seat local. As with every other seat in this project: BYOK is really

@@ -3,7 +3,7 @@
 // file. The "every model is priced" check two labs (GLM, Kimi) flagged is
 // deliberately excluded - that's the already-logged v4 unpriced-model
 // defect, not new scope for this candidate.
-import { providerNames } from './providers.js';
+import { providerNames, keyDestinationReasons } from './providers.js';
 import { validateSeatRole } from './seat-role.js';
 import { ALLOWED_TOOLS } from './tools.js';
 import { priceOf } from './cost.js';
@@ -745,6 +745,28 @@ export function lintChain(config, filePath = '<chain>') {
         fix: `Remove the credentials from that baseUrl in ${filePath} and put the key in the provider's API-key env var.`,
       });
     }
+  }
+  // key-host (security scan 2026-09-26, THC #6): a keyed provider's key goes only to that provider's
+  // own API host (src/providers.js keyDestinationReasons). Walks the resolved roster, like
+  // denied-model below, so a seat under preflight.seats or a single-vendor rewrite is covered too.
+  {
+    let roster = config;
+    try { roster = resolveChainSeats(config || {}); } catch { /* malformed config: check the raw one */ }
+    const walk = (node, path) => {
+      if (!node || typeof node !== 'object') return;
+      if (typeof node.provider === 'string' && 'model' in node) {
+        const reasons = keyDestinationReasons(node);
+        if (reasons.length) {
+          findings.push({
+            kind: 'key-host',
+            message: `${path}: ${reasons.join('; ')}.`,
+            fix: `Remove that seat's "baseUrl" in ${filePath}, or set it to the provider's own https API address. A local or self-hosted OpenAI-compatible server belongs on an "ollama" seat, which sends no key unless OLLAMA_API_KEY is set. For a local proxy in front of the provider, set COUNCIL_ALLOW_LOOPBACK_KEY_HOST=1 in your environment to allow a loopback address.`,
+          });
+        }
+      }
+      for (const [k, v] of Object.entries(node)) if (k !== 'extra') walk(v, path ? `${path}.${k}` : k);
+    };
+    walk(roster, '');
   }
   if ('selfReview' in (config || {}) && config.selfReview !== 'allowed') {
     findings.push({

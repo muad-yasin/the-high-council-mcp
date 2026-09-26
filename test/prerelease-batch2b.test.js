@@ -29,8 +29,9 @@ test('money #4: a call that failed after it was sent is charged on disk, so --sp
         critics: [{ provider: 'mock', model: 'mock-critic-passer' }],
       },
     }));
+    // A keyed seat on a loopback stub needs the environment's opt-in since the key-host lint (0.7.8).
     const r = await new Promise(res => {
-      const c = spawn(process.execPath, [cli, '--task', 'tasks/x.md', '--chain', 'stub'], { cwd: dir, env: { PATH: process.env.PATH, OPENROUTER_API_KEY: 'test-not-a-key' } });
+      const c = spawn(process.execPath, [cli, '--task', 'tasks/x.md', '--chain', 'stub'], { cwd: dir, env: { PATH: process.env.PATH, OPENROUTER_API_KEY: 'test-not-a-key', COUNCIL_ALLOW_LOOPBACK_KEY_HOST: '1' } });
       let out = ''; c.stdout.on('data', b => { out += b; }); c.stderr.on('data', b => { out += b; });
       c.on('close', code => res({ code, out }));
     });

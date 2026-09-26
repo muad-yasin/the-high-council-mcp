@@ -120,6 +120,17 @@
   and a value starting with `--` was read as a flag. `council doctor --chain <file>` still takes a
   path, as documented.
 
+- **A provider's API key is sent only to that provider's own host.** A keyed seat (`openrouter`,
+  `openai`, `mistral`, ...) with a `baseUrl` sends that provider's key there. The existing
+  `baseUrl` check only asks whether an endpoint can be shown to avoid a denied model, so it
+  accepted a loopback address or another lab's API for any seat, and the key went along. A new
+  chain-lint rule, `key-host`, now refuses a keyed seat whose `baseUrl` is not its own provider's
+  API host over https; the CLI lints before every run and every resume, so the seat is refused
+  before any call. Local and self-hosted servers stay on `ollama` seats, which send no key unless
+  `OLLAMA_API_KEY` is set, and keep loopback and private-network addresses. A local proxy in front
+  of a keyed provider can be allowed from the environment only, with
+  `COUNCIL_ALLOW_LOOPBACK_KEY_HOST=1` (loopback addresses only). Every shipped chain lints clean.
+
 ## 0.7.7 - 2026-09-25
 
 Everything since 0.7.6. The summary comes first; the detailed notes follow under "Detail". This

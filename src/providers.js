@@ -559,6 +559,36 @@ export function knownProviderHosts() {
   return new Set([...Object.values(OPENAI_COMPAT), ANTHROPIC].map(p => new URL(p.base).hostname.toLowerCase()));
 }
 
+// Where a seat's API key may go (security scan 2026-09-26, THC #6). callOpenAICompat sends the
+// provider's key to the seat's `baseUrl` when one is set, and the denied-model check (which only
+// asks whether an endpoint can be shown to avoid a denied model) accepts a loopback host or any
+// known provider's host for every seat. So an OpenRouter key could be sent to a local listener or to
+// another lab's API. A keyed provider's baseUrl must now be that provider's own API host, over
+// https. A provider whose key is optional (ollama: local and self-hosted servers) is exempt, and so
+// is Anthropic, whose adapter never reads baseUrl. Enforced by chain-lint (`key-host`), which the
+// CLI runs before every run and every resume.
+//
+// One opt-in, from the environment only (a chain file or an MCP client cannot set it):
+// COUNCIL_ALLOW_LOOPBACK_KEY_HOST=1 also accepts a loopback address (plain http allowed) for a keyed
+// seat - a local proxy in front of the provider, and the offline tests' stub servers. Any other
+// host is still refused.
+const isLoopbackHost = h => h === 'localhost' || h.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(h) || h === '[::1]' || h === '::1';
+export function keyDestinationReasons(seat, env = process.env) {
+  if (!seat || typeof seat !== 'object' || seat.baseUrl === undefined || seat.baseUrl === null) return [];
+  const spec = OPENAI_COMPAT[seat.provider];
+  if (!spec || spec.optional) return [];
+  const own = new URL(spec.base);
+  let url;
+  try { url = new URL(String(seat.baseUrl)); } catch { return [`baseUrl "${seat.baseUrl}" is not a valid URL, so where ${spec.key} would be sent cannot be checked`]; }
+  const host = url.hostname.toLowerCase();
+  if (env?.COUNCIL_ALLOW_LOOPBACK_KEY_HOST === '1' && isLoopbackHost(host)) return [];
+  if (host !== own.hostname.toLowerCase()) {
+    return [`baseUrl host "${host}" is not ${seat.provider}'s own API host (${own.hostname}), and this seat would send it ${spec.key}`];
+  }
+  if (url.protocol !== 'https:') return [`baseUrl "${url.origin}" is not https, and this seat would send ${spec.key} over it in clear`];
+  return [];
+}
+
 export function providerNames() {
   return ['anthropic', ...Object.keys(OPENAI_COMPAT)];
 }
