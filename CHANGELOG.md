@@ -95,6 +95,12 @@
   an external pause or a spend-cap stop and fails on any stale stage, and another keeps unseeded
   randomness out of `src/chain.js` and `src/roles.js`. Reported by the 2026-09-26 bug audit (#2).
 
+- **`--rematch` and `--replay` refuse a run that was given `--criteria`.** Both re-run from the
+  task text alone. They already refused a run that used `--context`, `--draft` or `--from-run`, but
+  a run's hand-written `--criteria` were silently dropped and a criteria seat wrote new ones, so any
+  difference in the verdict could come from the criteria rather than the panel. Refused before any
+  call, exit 2. Reported by the 2026-09-26 bug audit (#3).
+
 ### Security
 
 - **MCP `start_run` checks every file it hands the CLI.** `task` and `draft` were checked against

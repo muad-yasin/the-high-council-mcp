@@ -681,17 +681,20 @@ function writeSideRunBudgetStop(dir, err, what, reportArgs = null) {
 // have no stage cache and do not catch an external pause, so on a chain with an external seat they
 // paid everything up to that seat and then died - no NEEDS file, nothing to resume, and --spend never
 // saw the cost. They also re-run from the task text alone, ignoring the original run's --context,
-// --draft and --from-run criteria, so the diff would blame the roster for a difference in inputs.
-// Both are refused up front, before anything is paid.
+// --draft, --from-run and --criteria criteria, so the diff would blame the roster for a difference in
+// inputs. Both are refused up front, before anything is paid.
 function refuseSideRun(what, config, runMeta) {
   const external = everySeatOf(config).filter(s => s.provider === 'external');
   if (external.length) {
     console.error(`${what}: chain "${config.name}" has ${external.length} external seat(s). ${what} cannot pause for an external answer, so it would pay up to that seat and stop with nothing to resume. Refused before any call.`);
     process.exit(2);
   }
-  const inputs = ['context', 'draft', 'fromRun'].filter(k => runMeta?.[k]);
+  // criteriaFile (--criteria) joined the list with the 2026-09-26 bug audit (#3): a rematch of a run
+  // given hand-written criteria asked a criteria seat for new ones.
+  const FLAG_OF = { fromRun: 'from-run', criteriaFile: 'criteria' };
+  const inputs = ['context', 'draft', 'fromRun', 'criteriaFile'].filter(k => runMeta?.[k]);
   if (inputs.length) {
-    console.error(`${what}: the original run also used ${inputs.map(k => `--${k === 'fromRun' ? 'from-run' : k}`).join(', ')}, which ${what} does not carry over, so any difference would come from the inputs, not the panel. Refused before any call.`);
+    console.error(`${what}: the original run also used ${inputs.map(k => `--${FLAG_OF[k] || k}`).join(', ')}, which ${what} does not carry over, so any difference would come from the inputs, not the panel. Refused before any call.`);
     process.exit(2);
   }
 }
