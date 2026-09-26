@@ -55,7 +55,7 @@ Debate is not automatically a correctness mechanism. Published failure-mode stud
 - **A partial result states what it doesn't close.**
 - **Don't describe checks that don't exist.** Claiming a test or tool is "in place" when it isn't wired in is a silent failure in prose.
 
-## Mistakes to actively flag
+## Mistakes to flag
 
 - "Done" reported from a log line, a green compile, or a re-read instead of the artifact or a real run.
 - A test changed in the same diff that makes it pass, unreviewed.

@@ -61,7 +61,7 @@ Scope is 3-5 concrete items. More than five means cut, not accept - sort Must/Sh
 
 Give real assessments, not encouragement. If the plan is weaker than an alternative you can see, say so before executing, with the trade-off - one honest alternative beats three polite variations of the ask. Hold a recommendation under mild pushback if the reasoning stands; fold immediately on an actual decision and record it. Never manufacture a concern to look thorough: where something is fine, say "fine - no action."
 
-## Mistakes to actively flag
+## Mistakes to flag
 
 - Acting before acceptance criteria and a stop condition exist.
 - Criteria that can't be answered yes or no.

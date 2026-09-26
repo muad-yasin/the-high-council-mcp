@@ -128,7 +128,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
         <ul>
           <li>Destructive commands aimed at a pattern instead of a confirmed list</li>
           <li>Spending checked after the call instead of before it</li>
-          <li>Retrying a wrong answer as if it were a network error</li>
+          <li>Instructions smuggled in through tool output or fetched pages</li>
           <li>Human approval gates skipped, faked, or routed around</li>
         </ul>
       </article>
@@ -149,7 +149,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
         <ul>
           <li>Errors swallowed so code looks like it works while doing nothing</li>
           <li>Events fired before the state they describe is saved</li>
-          <li>Constants with no traceable origin</li>
+          <li>Authorization left to the client; dependencies nobody checked exist</li>
           <li>"Ran successfully" with no output artifact actually checked</li>
         </ul>
       </article>
@@ -160,7 +160,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
         <ul>
           <li>Screens that only work once there is already data in them</li>
           <li>Text overflowing fixed boxes; layouts correct at one screen size only</li>
-          <li>Numbers parsed or shown in the wrong locale</li>
+          <li>Controls a keyboard or screen reader cannot use</li>
           <li>Design mockups reproduced by eye instead of by their real values</li>
         </ul>
       </article>
@@ -234,7 +234,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
       <div><h3>Evidence, graded</h3><p>Where a rule rests on published research, the finding is paraphrased with its strength stated. Practitioner reports and inference are labeled as such.</p></div>
       <div><h3>Judgment ages well</h3><p>Syntax gets automated first. Deciding what is true, what is good, and what is safe to ship is the part these skills focus on.</p></div>
       <div><h3>Delete what stops being true</h3><p>Many rules encode something models currently do badly. When that changes, the rule goes.</p></div>
-      <div><h3>One rule, one place</h3><p>Each skill says what it is not for and points to the skill that is, so a rule never lives in two copies that drift apart.</p></div>
+      <div><h3>One rule, one owner</h3><p>Each skill says what it is not for and points to the skill that is. Where two skills need the same rule, one owns it and the other points to it, so copies don't drift apart.</p></div>
     </div>
   </div>
 </section>
@@ -243,11 +243,11 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
   <div class="wrap">
     <div class="eyebrow">Install</div>
     <h2>Copy the folders you want</h2>
-    <p>Each skill is self-contained. Copy any of them into your project's <code>.claude/skills/</code> directory, or point Claude Code at the repository's <code>skills/</code> folder.</p>
+    <p>Each skill is self-contained. Copy any of them into your project's <code>.claude/skills/</code> directory, or into <code>~/.claude/skills/</code> to use them in every project. They follow the open Agent Skills format, so other agent tools that read <code>SKILL.md</code> folders can load them too.</p>
 <pre>git clone https://github.com/muad-yasin/the-high-council-mcp
 cp -r the-high-council-mcp/skills/task-scoping your-project/.claude/skills/
 cp -r the-high-council-mcp/skills/verification-and-critique your-project/.claude/skills/</pre>
-    <p>Or install all of them as a Claude Code plugin. The plugin also registers The High Council MCP server, which does nothing until one of its tools is called.</p>
+    <p>Or install all of them as a Claude Code plugin; plugin skills are namespaced, for example <code>/the-high-council:task-scoping</code>. The plugin also registers The High Council MCP server, which does nothing until one of its tools is called.</p>
 <pre>claude plugin marketplace add muad-yasin/the-high-council-mcp
 claude plugin install the-high-council@the-high-council</pre>
     <p>The catalog in <code>skills/README.md</code> lists every skill with when to use it. Changes are recorded in the repository's <code>CHANGELOG.md</code>; this page and the catalog are checked by the test suite against the real <code>skills/</code> folder, so they can't list a skill that doesn't exist or miss one that does.</p>
@@ -256,7 +256,7 @@ claude plugin install the-high-council@the-high-council</pre>
 
 <footer>
   <div class="wrap">
-    <p>The High Council skills &middot; MIT license &middot; Last updated 2026-09-14 &middot; <a href="index.html">The High Council harness</a></p>
+    <p>The High Council skills &middot; MIT license &middot; Last updated 2026-09-26 &middot; <a href="index.html">The High Council harness</a></p>
     <p>No claim is made that these skills improve results. It has not been measured.</p>
   </div>
 </footer>

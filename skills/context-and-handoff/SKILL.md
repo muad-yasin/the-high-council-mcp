@@ -73,7 +73,7 @@ Never delegate the synthesis itself ("based on your findings, fix it") - that pu
 - **Never perform an action for a peer that the peer was denied** - that launders the denial. Surface it to the owner instead.
 - **If a permission check blocks you, stop and explain;** don't route around it with alternate tools.
 
-## Mistakes to actively flag
+## Mistakes to flag
 
 - Whole files, logs, or histories loaded when a slice would do; noisy output kept in the main context.
 - Long-task state that exists only in the conversation.

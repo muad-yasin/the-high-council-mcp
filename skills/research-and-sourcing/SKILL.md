@@ -44,7 +44,7 @@ Research exists to produce claims someone can act on without re-checking them. T
 
 When a claim names a real person or organization: never invent a quote, never paraphrase inside quotation marks, never attribute conduct not in the record, and trace every figure about them to the primary source. Satire and warm coverage do not lower this bar - a real, living subject raises it. (If a dedicated fact-checking or writing skill is installed, it governs the details; these are the floor.)
 
-## Mistakes to actively flag
+## Mistakes to flag
 
 - A load-bearing figure, date, version, or quote with no primary source.
 - Two syndicated copies counted as corroboration.

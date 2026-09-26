@@ -44,7 +44,7 @@ Tools are where an agent's plan touches the world. Two things go wrong there: th
 - **Offline-testable by design.** A tool should be exercisable with fixtures and no network or credentials, so its behavior is verifiable without spending or touching real systems.
 - **Every tool call worth auditing is recorded from data the run already produces** - derived, not separately tracked.
 
-## Mistakes to actively flag
+## Mistakes to flag
 
 - A destructive command aimed at a pattern instead of a confirmed target list.
 - An irreversible or externally-visible action taken without confirmation or durable authorization.
