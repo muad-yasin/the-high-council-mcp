@@ -2,6 +2,16 @@
 
 ## 0.7.8 - unreleased
 
+### Changed
+
+- **`src/http-server.js` and `express` are out of the npm package.** The HTTP trigger service was
+  never part of the release but shipped in the tarball, with `express` as a runtime dependency that
+  nothing else in the package uses. `package.json` `files` now excludes the file and `express` is a
+  devDependency, so `npm install the-high-council` pulls one dependency fewer of its own. The file
+  stays in the repository and `npm run http-server` still works from a clone (after `npm install`).
+  `test/package.test.js` checks the tarball for the file and every shipped file for an `express`
+  import.
+
 ### Fixed
 
 - **`src/http-server.js` (not part of the release, but in the package): a path-shaped

@@ -77,7 +77,9 @@ npm run ui                                # local run browser (src/ui/)
 Any chain whose seats are all `provider: "mock"` (`chains/mock*.json`) runs the full pipeline
 offline for $0 and needs no keys. Use those to exercise plumbing changes before spending money.
 
-`npm run http-server` exists but `src/http-server.js` is **not part of this release**. Its
+`npm run http-server` exists but `src/http-server.js` is **not part of this release**: since 0.7.8
+`package.json` `files` leaves it out of the npm package and `express` is a devDependency, so it
+runs from a clone only (`test/package.test.js` pins both). Its
 `MAX_USD_PER_DAY` is a separate, daily cap and is unrelated to the per-run cap below.
 
 ## Architecture

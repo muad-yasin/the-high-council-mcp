@@ -35,6 +35,19 @@ test('the tarball ships no private or irrelevant files', () => {
   assert.deepEqual(forbidden, [], 'these must not be published');
 });
 
+test('the http server and express stay out of the tarball (0.7.8)', () => {
+  // src/http-server.js is not part of the release (CLAUDE.md) but shipped in 0.7.7 anyway, where a
+  // scanner read it as package code. It stays in the repo for a clone's `npm run http-server`; the
+  // package leaves it out, and express, which only it used, is a devDependency.
+  assert.ok(!packed.includes('src/http-server.js'), 'src/http-server.js must not be published');
+  assert.ok(!('express' in (pkg.dependencies || {})), 'express is not a runtime dependency');
+  assert.ok('express' in (pkg.devDependencies || {}), 'express stays installable in a clone');
+  assert.equal(pkg.scripts['http-server'], 'node src/http-server.js', 'npm run http-server keeps working in a clone');
+  const importsExpress = packed.filter(f => /\.(m?js|cjs)$/.test(f))
+    .filter(f => /(from\s+|import\(\s*|require\(\s*)['"]express['"]/.test(readFileSync(join(root, f), 'utf8')));
+  assert.deepEqual(importsExpress, [], 'no shipped file may import express');
+});
+
 test('the tarball ships the published report.json schema', () => {
   // Not needed at runtime: shipped so a reader can validate a run folder against the format version
   // its report.json names (docs/report-format.md), from the same package that wrote it.
