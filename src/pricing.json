@@ -252,17 +252,17 @@
   "openrouter/openai/gpt-6-luna": {
     "in": 0.1,
     "out": 0.5,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-sub-anchor-7"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-daily-7"
   },
   "openrouter/tencent/hy4-preview": {
     "in": 0.834,
     "out": 2.501,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-sub-anchor-7"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-daily-7"
   },
   "openrouter/meta/muse-spark-1.3": {
     "in": 1.25,
     "out": 4.25,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-sub-anchor-7"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-daily-7"
   },
   "openrouter/google/gemini-3.7-flash": {
     "in": 0.75,

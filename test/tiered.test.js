@@ -37,10 +37,10 @@ async function run(config, request = TASK) {
 // Existing chains are untouched.
 
 // Muad's go (2026-09-26, "Yes and Yes"): on in plan-highest-7, a new chain; off everywhere else.
-// plan-sub-anchor-7 (2026-09-27, Muad's request relayed by the C&C session): a new chain built on
+// plan-daily-7 (2026-09-27, Muad's request relayed by the C&C session): a new chain built on
 // plan-highest-7's design, guard on as there.
-const GUARDED = new Set(['mock-tiered.json', 'plan-highest-7.json', 'plan-sub-anchor-7.json']);
-test('tiered: no chain but mock-tiered, plan-highest-7 and plan-sub-anchor-7 turns the majority guard on (it changes prompts)', () => {
+const GUARDED = new Set(['mock-tiered.json', 'plan-highest-7.json', 'plan-daily-7.json']);
+test('tiered: no chain but mock-tiered, plan-highest-7 and plan-daily-7 turns the majority guard on (it changes prompts)', () => {
   for (const f of readdirSync(join(root, 'chains')).filter(x => x.endsWith('.json'))) {
     const c = JSON.parse(readFileSync(join(root, 'chains', f), 'utf8'));
     if (GUARDED.has(f)) assert.equal(c.majority_guard?.enabled, true, `${f} has the guard on`);

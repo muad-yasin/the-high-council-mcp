@@ -4,7 +4,7 @@
 
 ### Added
 
-- **`plan-sub-anchor-7`**, a lower-priced tiered council for planning one feature, on
+- **`plan-daily-7`**, a lower-priced tiered council for planning one feature, on
   `plan-highest-7`'s stages and flags (majority guard on). Anchors, who write the architectures and
   alone vote: Claude Opus 5.5 as an external seat answered on a Claude subscription
   (`subscription:opus-5.5`, lab `opus5.5-sub`), GPT-6 Luna and DeepSeek V4 Pro. Mass seats: Tencent

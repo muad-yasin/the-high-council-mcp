@@ -624,7 +624,7 @@ in the table at the top. A few more worth knowing:
   and Google keys.
 - **`plan-open-7`** - the `cheap-7-v2` panel, with a Claude Code session writing the plan instead
   of a paid seat.
-- **`plan-sub-anchor-7`** - `plan-highest-7`'s stages at a lower price, for planning one feature:
+- **`plan-daily-7`** - `plan-highest-7`'s stages at a lower price, for planning one feature:
   Claude Opus 5.5 on your Claude subscription (an external seat), GPT-6 Luna and DeepSeek V4 Pro
   write the architectures and alone vote; seven low-cost labs propose and debate. Two Claude Code
   sessions answer its external seats: Opus 5.5 every stage whose label ends in `opus5.5-sub`, Sonnet 5
@@ -660,7 +660,7 @@ Read a chain's `description` field before running it; they say what they cost yo
 - **`quorum: { "minHeard": N }`** - opt-in, unanimous chains only, set in no shipped chain. A
   round's sign-off counts only when at least N reviewers gave a verdict (signed off or objected);
   a round short of it is recorded as `notQuorate`, the run does not pass, and the loop stops.
-- **Tiered councils (experimental, used by `plan-highest-7`, `plan-sub-anchor-7` and `mock-tiered`).**
+- **Tiered councils (experimental, used by `plan-highest-7`, `plan-daily-7` and `mock-tiered`).**
   `seats.alternatives` names who writes the whole alternative architectures, separately from the
   proposers. `deep_dive` + `seats.deep_dive` add one non-voting seat with its own dollar cap
   (`usd`, required) inside the run's cap. `majority_guard.enabled` shows each author every
@@ -746,11 +746,11 @@ what each rule guards against and why. Copy the folders you want into your proje
   oldest date every entry was last checked) is printed by `council doctor` and `--dry-run`, with a
   warning once it is more than 60 days old. The spend cap and every estimate use these static
   prices. They are estimates, not invoices. Your provider's bill is the real number.
-- `plan-highest-7` and `plan-sub-anchor-7`, the tiered councils, have not been run with real
+- `plan-highest-7` and `plan-daily-7`, the tiered councils, have not been run with real
   models, and none of their mechanisms (tiers, the deep-dive seat, the majority guard) has been
   measured. Their dry-run prices are projections.
 - Seats marked `external` (the writer seats in `plan-premium-7`, `plan-highest-7`,
-  `plan-sub-anchor-7` and `plan-open-7`, and the Opus 5.5 anchor seat in `plan-sub-anchor-7`) pause the run until someone answers them, and are $0 only because a Claude Code
+  `plan-daily-7` and `plan-open-7`, and the Opus 5.5 anchor seat in `plan-daily-7`) pause the run until someone answers them, and are $0 only because a Claude Code
   session on a subscription writes them. Nothing checks who wrote the answer.
 - Chains with many labs and high round caps get expensive quickly. `plan-unanimous` at three rounds
   is fifteen critic calls; `plan-auto` runs several frontier models over multiple rounds. Price
