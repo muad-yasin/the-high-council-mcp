@@ -249,6 +249,21 @@
     "out": 12.0,
     "_source": "openrouter.ai/google/gemini-3.1-pro-preview, checked 2026-09-17"
   },
+  "openrouter/openai/gpt-6-sol": {
+    "in": 2.0,
+    "out": 10.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-sub-anchor-7"
+  },
+  "openrouter/tencent/hy4-preview": {
+    "in": 0.834,
+    "out": 2.501,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-sub-anchor-7"
+  },
+  "openrouter/meta/muse-spark-1.3": {
+    "in": 1.25,
+    "out": 4.25,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-sub-anchor-7"
+  },
   "openrouter/google/gemini-3.7-flash": {
     "in": 0.75,
     "out": 3.75,
