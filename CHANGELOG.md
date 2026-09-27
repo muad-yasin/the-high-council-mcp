@@ -7,11 +7,11 @@
 - **`plan-sub-anchor-7`**, a lower-priced tiered council for planning one feature, on
   `plan-highest-7`'s stages and flags (majority guard on). Anchors, who write the architectures and
   alone vote: Claude Opus 5.5 as an external seat answered on a Claude subscription
-  (`subscription:opus-5.5`, lab `opus5.5-sub`), GPT-6 Sol and DeepSeek V4 Pro. Mass seats: Tencent
+  (`subscription:opus-5.5`, lab `opus5.5-sub`), GPT-6 Luna and DeepSeek V4 Pro. Mass seats: Tencent
   Hy4 preview, Gemini 3.8 Flash, DeepSeek V4.1 Flash, GLM 5.2, Muse Spark 1.3, Qwen 3.8 Max
   (0902), Mistral Medium 3.5. The writer seats are a Sonnet 5 Claude Code session; the Opus seat is a
-  separate session. Deep-dive cap $0.50. Dry run $2.94 worst case. Untested with real models.
-  `src/pricing.json` gains `openai/gpt-6-sol`, `tencent/hy4-preview` and `meta/muse-spark-1.3` from
+  separate session. Deep-dive cap $0.50. Dry run $1.90 worst case. Untested with real models.
+  `src/pricing.json` gains `openai/gpt-6-luna`, `tencent/hy4-preview` and `meta/muse-spark-1.3` from
   OpenRouter's model list (2026-09-27).
 
 ### Changed

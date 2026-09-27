@@ -249,9 +249,9 @@
     "out": 12.0,
     "_source": "openrouter.ai/google/gemini-3.1-pro-preview, checked 2026-09-17"
   },
-  "openrouter/openai/gpt-6-sol": {
-    "in": 2.0,
-    "out": 10.0,
+  "openrouter/openai/gpt-6-luna": {
+    "in": 0.1,
+    "out": 0.5,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-sub-anchor-7"
   },
   "openrouter/tencent/hy4-preview": {

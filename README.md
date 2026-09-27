@@ -625,10 +625,10 @@ in the table at the top. A few more worth knowing:
 - **`plan-open-7`** - the `cheap-7-v2` panel, with a Claude Code session writing the plan instead
   of a paid seat.
 - **`plan-sub-anchor-7`** - `plan-highest-7`'s stages at a lower price, for planning one feature:
-  Claude Opus 5.5 on your Claude subscription (an external seat), GPT-6 Sol and DeepSeek V4 Pro
+  Claude Opus 5.5 on your Claude subscription (an external seat), GPT-6 Luna and DeepSeek V4 Pro
   write the architectures and alone vote; seven low-cost labs propose and debate. Two Claude Code
   sessions answer its external seats: Opus 5.5 every stage whose label ends in `opus5.5-sub`, Sonnet 5
-  the writer stages. $2.94 worst case. **Untested with real models.**
+  the writer stages. $1.90 worst case. **Untested with real models.**
 - **`cheap`** - small models throughout. For testing the harness itself, not for real work.
 - **`plan-debate`** - five labs propose blind, debate each other's proposals anonymised, then a
   blind panel grades the integrated draft.
