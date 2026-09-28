@@ -31,6 +31,13 @@
   list, 2026-09-28).
 - **`--rematch` and `--replay` run chain lint** before calling any seat, like a normal run and a
   resume. An edited chain could send a key to a foreign host on a side run.
+- **A proposal cut off at its token cap is retried with a bigger cap**, as architectures and panel
+  replies already were. The same cap was used again, so a reasoning seat that thought through all of
+  it dropped out (`plan-daily-7`'s first real run lost Hy4 preview this way).
+- **A debate post or reply round the provider ended with `error` (or a refusal or its content
+  filter) is retried once**, and if it fails again it is recorded as `provider_error` in
+  `debate.dropped`, not `unreadable`. `WARNINGS.md` names the stop instead of "not readable as JSON".
+  A 2.5-second provider error used to cost a lab its whole reply round.
 - **Stage labels with a dot can be answered over MCP.** `external_prompt` and `submit_stage` refused
   any label outside `[a-z0-9-]`, so none of `plan-daily-7`'s Opus stages (lab `opus5.5-sub`) could be
   fetched by name or submitted, while the tools themselves told the client to submit that label.

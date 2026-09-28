@@ -171,6 +171,11 @@ async function callMock({ model, system, messages, maxTokens }) {
   }
   if (system.startsWith('You are a proposer')) {
     await new Promise(r => setTimeout(r, 10));
+    // Bug audit 2026-09-28 (area 2 #1): a reasoning proposer that fills a small cap with thinking.
+    // Cut off (all output reasoning, empty text) at a cap of 2000 or less, a normal proposal above it.
+    if (model === 'mock-proposer-cut-then-fits' && (maxTokens ?? 8000) <= 2000) {
+      return { text: '', usage: { input: 20, output: maxTokens, thinking: maxTokens, stop: 'length' }, provider: 'mock', model };
+    }
     const text = model === 'mock-proposer-empty'
       ? 'I have nothing to add.'
       // v5 §1 candidate 10: a seat that returns more proposals than a
@@ -195,6 +200,16 @@ async function callMock({ model, system, messages, maxTokens }) {
     const n = (user.match(/^## \d+$/gm) || []).length;
     const kept = Array.from({ length: Math.min(cap, n) }, (_, i) => i + 1);
     return { text: JSON.stringify({ kept, merged_because: 'mock: folded to the cap' }), usage: { input: 20, output: 10 }, provider: 'mock', model };
+  }
+  // Bug audit 2026-09-28 (area 2 #2): a lab whose debate post and reply round the provider ends
+  // with stop "error". `mock-proposer-error` always; `mock-proposer-error-once` only the first time
+  // it sees a given prompt, so the one retry gets a normal reply. Proposals are ordinary.
+  if ((model === 'mock-proposer-error' || model === 'mock-proposer-error-once')
+      && (system.startsWith('You are one lab on a planning panel. Every lab proposed') || system.startsWith('You are one lab on a planning panel, answering'))
+      && (model === 'mock-proposer-error' || !MOCK_DRAFT_ERROR_SEEN.has(`${model}:${user}`))) {
+    MOCK_DRAFT_ERROR_SEEN.add(`${model}:${user}`);
+    await new Promise(r => setTimeout(r, 10));
+    return { text: '', usage: { input: 0, output: 0, stop: 'error' }, provider: 'mock', model };
   }
   if (system.startsWith('You are one lab on a planning panel. Every lab proposed')) {
     await new Promise(r => setTimeout(r, 10));

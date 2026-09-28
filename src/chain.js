@@ -1592,6 +1592,16 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   // its cap is retried once with a bigger one (cutOffRetryCap, the panel's rule), under its own
   // stable `<label>-retry` label, and if that is cut off too - or the seat is external and cannot be
   // retried - the run stops (DraftTruncated) rather than carry the fragment forward.
+  // Bug audit 2026-09-28 (area 2 #2): a debate post or reply round the provider ended with stop
+  // "error" (or content_filter / refusal) was recorded as "did not parse" and not retried, so a
+  // 2.5-second transient error cost a lab its whole reply round (plan-daily-7's first real run,
+  // gemini). One retry at the same cap, under `<label>-retry`; the caller records `provider_error`
+  // if that one is incomplete too.
+  const onceMoreIfIncomplete = async (st, seat, opts, say) => {
+    if (!draftIncomplete(st.usage)) return st;
+    say(`  ${opts.label.replace(/-retry$/, '')}: the provider ended the reply with stop "${st.usage.stop}" - retrying once.`);
+    return record(await invoke(seat, opts));
+  };
   const draftStage = async (seat, opts) => {
     const cap = seat.maxTokens ?? DEFAULT_MAX_TOKENS;
     const first = record(await invoke(seat, opts));
@@ -2072,9 +2082,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       const capped = { ...seat, maxTokens: Math.min(seat.maxTokens ?? DEFAULT_MAX_TOKENS, parts * perPart + 300) };
       const slice = (partitionSlices && partitionSlices[labOf(seat)]) || null;
       const pool = [];
-      let unreadable = 0;
+      let unreadable = 0, lastSt = null;
       for (let k = 0; k < samples; k++) {
-        const st = record(await invoke(capped, {
+        const st = lastSt = record(await invoke(capped, {
           system: R.proposerSystem(open),
           user: R.proposerUser({ request, criteria, skeleton, parts, slice }),
           log: say, label: `propose-${labOf(seat)}${samples > 1 ? `-${k + 1}` : ''}`,
@@ -2092,7 +2102,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // accepting it. The retry goes through invoke() like any other call, so
       // the spend cap still governs it.
       if (!pool.length) {
-        const st = record(await invoke(capped, {
+        // Bug audit 2026-09-28 (area 2 #1): a reply cut off at the cap was retried at the same cap,
+        // which a reasoning seat fills again (plan-daily-7's first real run: hy4-preview thought through
+        // all 12,300 tokens twice and dropped out). Same rule as the alternatives stage: a cut-off is
+        // retried with cutOffRetryCap, anything else once at the same cap.
+        const cut = !!lastSt && abstentionReasonCode(lastSt.usage || {}, capped.maxTokens) === 'REPLY_TRUNCATED';
+        const retryCap = cut ? cutOffRetryCap(capped.maxTokens) : capped.maxTokens;
+        const st = record(await invoke({ ...capped, maxTokens: retryCap }, {
           system: R.proposerSystem(open),
           user: R.proposerUser({ request, criteria, skeleton, parts, slice }),
           log: say, label: `propose-${labOf(seat)}-retry`,
@@ -2100,7 +2116,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const parsed = parseJson(st.text);
         const list2 = Array.isArray(parsed?.proposals) ? parsed.proposals.slice(0, parts) : null;
         if (list2) pool.push(...list2.filter(p => p && p.title).map(p => ({ ...p, attempt: samples + 1 })));
-        say(`  ${labOf(seat)}/${seat.model}: nothing readable; retried once - ${pool.length ? `recovered ${pool.length} proposal(s)` : 'still nothing'}.`);
+        say(`  ${labOf(seat)}/${seat.model}: ${cut ? `proposals cut off at ${capped.maxTokens} tokens; retried with a ${retryCap}-token cap` : 'nothing readable; retried once'} - ${pool.length ? `recovered ${pool.length} proposal(s)` : 'still nothing'}.`);
       }
       let list = pool;
       let judged = null;
@@ -2204,8 +2220,17 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             user: R.debateUser({ request, criteria, skeleton, proposals, lab, maps }),
             log: say, label: `debate-${lab}`,
           }));
-          const parsed = parseJson(st.text);
-          if (!parsed) { say(`  ${lab}: unreadable debate reply - no posts counted.`); dropped.push({ stage: 'debate', by: lab, reason: 'unreadable' }); }
+          const st2 = await onceMoreIfIncomplete(st, seatOf(lab), {
+            system: applySeatRole(R.DEBATE_SYSTEM, seatOf(lab)?.role, loadPersonas()),
+            user: R.debateUser({ request, criteria, skeleton, proposals, lab, maps }),
+            log: say, label: `debate-${lab}-retry`,
+          }, say);
+          const parsed = parseJson(st2.text);
+          if (!parsed) {
+            const why = draftIncomplete(st2.usage) ? 'provider_error' : 'unreadable';
+            say(why === 'provider_error' ? `  ${lab}: the provider ended the debate reply with stop "${st2.usage.stop}" (after a retry) - no posts counted.` : `  ${lab}: unreadable debate reply - no posts counted.`);
+            dropped.push({ stage: 'debate', by: lab, reason: why });
+          }
           else {
             // 0.7.8 (thc-research brief 10, W3): the same filter as before, but every post it
             // rejects is counted with its reason instead of vanishing (debate.dropped).
@@ -2265,13 +2290,21 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const mineWithPosts = proposals.filter(p => p.lab === lab && posts.some(x => x.on === p.id));
         if (!mineWithPosts.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
         try {
-          const st = record(await invoke(seatOf(lab), {
+          const st = await onceMoreIfIncomplete(record(await invoke(seatOf(lab), {
             system: R.replySystem(guard),
             user: R.replyUser({ request, proposals, posts, lab, maps, guard }),
             log: say, label: `reply-${lab}`,
-          }));
+          })), seatOf(lab), {
+            system: R.replySystem(guard),
+            user: R.replyUser({ request, proposals, posts, lab, maps, guard }),
+            log: say, label: `reply-${lab}-retry`,
+          }, say);
           const parsed = parseJson(st.text);
-          if (!parsed) { say(`  ${lab}: unreadable reply round - proposals stand as posted.`); return { lines, replies: [], dropped: [{ stage: 'replies', by: lab, reason: 'unreadable' }] }; }
+          if (!parsed) {
+            const why = draftIncomplete(st.usage) ? 'provider_error' : 'unreadable';
+            say(why === 'provider_error' ? `  ${lab}: the provider ended the reply round with stop "${st.usage.stop}" (after a retry) - proposals stand as posted.` : `  ${lab}: unreadable reply round - proposals stand as posted.`);
+            return { lines, replies: [], dropped: [{ stage: 'replies', by: lab, reason: why }] };
+          }
           const dropped = [];
           const mine = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: boardRef(r.replaced_by, maps, new Set(proposals.map(p => p.id))), action: String(r.action || '').toLowerCase() }))
             .filter(r => {

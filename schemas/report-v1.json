@@ -685,7 +685,7 @@
         },
         "dropped": {
           "type": "array",
-          "description": "Experimental (0.7.8). Debate posts and author replies the stage's filters rejected, one row per stage, lab and reason; [] when none were. Absent in runs made before 0.7.8. Reasons: for stage 'debate' unknown_target, own_proposal, bad_stance, unreadable; for stage 'replies' unknown_target, not_own_proposal, not_posted_on, bad_action, unreadable. An 'unreadable' row counts whole replies that did not parse, not posts.",
+          "description": "Experimental (0.7.8). Debate posts and author replies the stage's filters rejected, one row per stage, lab and reason; [] when none were. Absent in runs made before 0.7.8. Reasons: for stage 'debate' unknown_target, own_proposal, bad_stance, unreadable, provider_error; for stage 'replies' unknown_target, not_own_proposal, not_posted_on, bad_action, unreadable, provider_error. An 'unreadable' row counts whole replies that did not parse, not posts; 'provider_error' (0.7.9) counts whole replies the provider ended with stop error, content_filter or refusal on the first try and on its one retry.",
           "items": {
             "type": "object",
             "required": ["stage", "by", "reason", "count"],
