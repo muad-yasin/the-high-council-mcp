@@ -50,6 +50,16 @@
 - **The questions stage's `answers` are checked for staleness** like every other external answer.
   After a task amendment the old answers used to be applied, by position, to the new questions; now
   they are set aside (`superseded/`) and the operator is asked again.
+- **`--from-run` of a finished run keeps its criterion kinds** (`report.json` `criteria_kinds`),
+  so checkable criteria and the "MET with no evidence" count survive it. It used to reuse the plain
+  strings, which dropped every kind.
+- **A missing `--draft` file or `--from-run` folder** (or a corrupt earlier `report.json`) exits 2
+  with a message instead of a stack trace.
+- **The withdrawal ledger lists a proposal that withdrew in favour of one inside a withdrawal
+  cycle**; it was left out of `orphanSections`. `council doctor --run` no longer crashes on a
+  hand-edited `proposals` list, and no longer says "cycle detected: 0 cycle(s)" for a plain
+  withdrawal. The run log calls such a withdrawal a note for the builder, not a WARNING (the $0 demo
+  printed one for a withdrawal its plan then handled as asked).
 - **Stage labels with a dot can be answered over MCP.** `external_prompt` and `submit_stage` refused
   any label outside `[a-z0-9-]`, so none of `plan-daily-7`'s Opus stages (lab `opus5.5-sub`) could be
   fetched by name or submitted, while the tools themselves told the client to submit that label.

@@ -197,7 +197,8 @@ if (argv[0] === 'doctor') {
     const report = readReportOrExit(reportPath, 'council doctor --run');
     const ledger = withdrawalLedger(report.proposals || []);
     if (ledger.orphanSections.length) {
-      console.error(`withdrawal cycle detected: ${ledger.withdrawalCycles} cycle(s), ${ledger.orphanSections.length} orphaned proposal(s) with no surviving owner: ${ledger.orphanSections.join(', ')}`);
+      // Bug audit 2026-09-28 (area 4 MED-2): "cycle detected: 0 cycle(s)" for a plain withdrawal.
+      console.error(`${ledger.withdrawalCycles ? `withdrawal cycle detected (${ledger.withdrawalCycles} cycle(s)); ` : ''}${ledger.orphanSections.length} withdrawn proposal(s) with no surviving owner: ${ledger.orphanSections.join(', ')} - check the deliverable's Scope ledger says each is dropped and why`);
       process.exit(1);
     }
     console.log(`No orphaned withdrawal chains in ${runDir}.`);
@@ -1287,20 +1288,42 @@ let handedDraft = null;
 // --from-run of a crashed run regenerated its criteria on resume, changed the cache
 // fingerprint and re-paid every stage (2026-09-23 audit, MoneyPath #6).
 function criteriaOfRun(dir) {
+  // Bug audit 2026-09-28 (area 4 LOW-1): a missing or corrupt earlier run crashed with a raw stack.
+  if (!existsSync(dir)) { console.error(`--from-run: no such run folder: ${dir}`); process.exit(2); }
   const reportPath = join(dir, 'report.json');
-  if (existsSync(reportPath)) return JSON.parse(readFileSync(reportPath, 'utf8')).criteria;
+  if (existsSync(reportPath)) {
+    let report;
+    try { report = JSON.parse(readFileSync(reportPath, 'utf8')); } catch {
+      console.error(`--from-run: ${reportPath} is not valid JSON - can't reuse that run's criteria.`);
+      process.exit(2);
+    }
+    // Bug audit 2026-09-28 (area 3 #2.2): the plain strings dropped every criterion kind, so a
+    // --from-run of a finished kinds run lost its checkable criteria and "MET with no evidence".
+    // criteria_kinds is index-aligned with criteria and is a shape normaliseCriteria reads back.
+    const kinds = report.criteria_kinds;
+    return Array.isArray(kinds) && Array.isArray(report.criteria) && kinds.length === report.criteria.length ? kinds : report.criteria;
+  }
   // Resume-cache audit #2 (Review/PreRelease_Audit_ResumeCache_2026-09-23.md): an unfinished run's
   // criteria.md may be the answer a guard REJECTED - the accepted list is the last retry that ran
   // (chain.js runs the feasibility retry, then the meta retry). Taking criteria.md reused rejected
   // criteria and repeated the Zofia three-paid-rounds incident. runChain() also re-checks both
   // guards on criteria handed in this way.
   const label = ['criteria-retry', 'criteria-feasibility-retry', 'criteria'].find(l => existsSync(join(dir, `${l}.md`))) || 'criteria';
+  if (!existsSync(join(dir, `${label}.md`))) { console.error(`--from-run: ${dir} has neither report.json nor criteria.md - nothing to reuse.`); process.exit(2); }
   const raw = readFileSync(join(dir, `${label}.md`), 'utf8');
-  return JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).criteria;
+  try { return JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).criteria; } catch {
+    console.error(`--from-run: ${join(dir, `${label}.md`)} holds no readable criteria.`);
+    process.exit(2);
+  }
+}
+// The earlier run's first draft, or a clean exit 2 (area 4 LOW-1).
+function readRequired(path, what) {
+  if (!existsSync(path)) { console.error(`${what}: no such file: ${path}`); process.exit(2); }
+  return readFileSync(path, 'utf8');
 }
 if (fromRun) {
   config.criteria = criteriaOfRun(resolve(fromRun));
-  handedDraft = readFileSync(join(resolve(fromRun), 'build.md'), 'utf8');
+  handedDraft = readRequired(join(resolve(fromRun), 'build.md'), '--from-run');
 }
 // --draft <file>: review this exact text instead of building one. With
 // --from-run it replaces that run's build.md; the criteria still come from
@@ -1312,7 +1335,7 @@ const startDir = resumeMeta ? (resumeMeta.cwd || work) : work;
 const draftPathRaw = resumeMeta ? resumeMeta.draft : flag('draft', null);
 const draftPath = draftPathRaw && draftPathRaw !== true ? resolve(startDir, draftPathRaw) : draftPathRaw;
 if (draftPath === true) { console.error('--draft: needs a file path, e.g. --draft plan.md'); process.exit(2); }
-if (draftPath) handedDraft = readFileSync(draftPath, 'utf8');
+if (draftPath) handedDraft = readRequired(draftPath, '--draft');
 // The earlier run's folder, as recorded: absolute for runs started since 2026-09-23, else
 // relative to the directory the run was started in (run.json's cwd) - the same rule as the task.
 const fromRunDirOnResume = resumeMeta?.fromRun ? resolve(resumeMeta.cwd || work, resumeMeta.fromRun) : null;

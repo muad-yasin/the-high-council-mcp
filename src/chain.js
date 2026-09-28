@@ -2410,7 +2410,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // integration stage can still assign or explicitly drop it.
       const ledger = withdrawalLedger(proposals);
       if (ledger.orphanSections.length) {
-        log(`  WARNING: ${ledger.orphanSections.length} withdrawn proposal(s) have no surviving owner (${ledger.withdrawalCycles} withdrawal cycle(s)): ${ledger.orphanSections.join(', ')}`);
+        // Bug audit 2026-09-28 (area 4 MED-2): this read as an alarm in the $0 demo, whose plan then
+        // handled the withdrawal exactly as asked. It is a note the builder acts on, and says so.
+        log(`  note: ${ledger.orphanSections.length} withdrawn proposal(s) with no surviving owner${ledger.withdrawalCycles ? ` (${ledger.withdrawalCycles} withdrawal cycle(s))` : ''}: ${ledger.orphanSections.join(', ')} - the builder is told to reassign each or drop it, with a reason, in the Scope ledger.`);
         board += `\n\n# Orphaned withdrawals - no surviving owner\n\nThese proposal ids withdrew in a chain that never reaches a proposal still standing (a cycle, or a dead end): ${ledger.orphanSections.join(', ')}. For each one, either assign the section it covered to something else in the plan, or state explicitly in the Scope ledger that it is dropped and why - do not silently leave it uncovered.`;
       }
     }

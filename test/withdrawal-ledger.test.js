@@ -132,3 +132,16 @@ test('regression: the relay run that authored this candidate has a real mutual-w
   assert.ok(r.orphanSections.includes('KIMI-4'), 'candidate 3 must catch the real KIMI-4/MISTRAL-2 mutual withdrawal - KIMI-4 missing from orphanSections');
   assert.ok(r.orphanSections.includes('MISTRAL-2'), 'candidate 3 must catch the real KIMI-4/MISTRAL-2 mutual withdrawal - MISTRAL-2 missing from orphanSections');
 });
+
+// Bug audit 2026-09-28 (area 3 #2.3, #2.10): a feeder into a cycle was left unlisted, and a
+// hand-edited proposals value crashed council doctor --run.
+test('a withdrawal in favour of a proposal inside a cycle is orphaned too; non-proposals are skipped', () => {
+  const r = withdrawalLedger([
+    { id: 'A', withdrawn: true, replaced_by: 'B' },
+    { id: 'B', withdrawn: true, replaced_by: 'A' },
+    { id: 'C', withdrawn: true, replaced_by: 'A' },
+  ]);
+  assert.deepEqual(r, { orphanSections: ['A', 'B', 'C'], withdrawalCycles: 1 });
+  assert.deepEqual(withdrawalLedger([null, 3, 'x']), { orphanSections: [], withdrawalCycles: 0 });
+  assert.deepEqual(withdrawalLedger({}), { orphanSections: [], withdrawalCycles: 0 });
+});
