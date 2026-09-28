@@ -1239,7 +1239,9 @@ const chainNameEff = resumeMeta?.chain || chainName;
 const configPath = [resumeMeta?.cwd ? join(resumeMeta.cwd, 'chains', `${chainNameEff}.json`) : null, join(work, 'chains', `${chainNameEff}.json`), join(pkg, 'chains', `${chainNameEff}.json`)]
   .filter(Boolean).find(existsSync) || join(pkg, 'chains', `${chainNameEff}.json`);
 if (!existsSync(configPath)) {
-  console.error(`No such chain: ${configPath}`);
+  // Bug audit 2026-09-28 (area 4 LOW-4): name every folder searched, not just the package's.
+  const searched = [...new Set([resumeMeta?.cwd ? join(resumeMeta.cwd, 'chains') : null, join(work, 'chains'), join(pkg, 'chains')].filter(Boolean))];
+  console.error(`No such chain: "${chainNameEff}" - looked for ${chainNameEff}.json in ${searched.join(' and ')}.`);
   process.exit(1);
 }
 // v5 §1 candidate 4, COUNCIL-E003: a malformed chain file is a fatal,

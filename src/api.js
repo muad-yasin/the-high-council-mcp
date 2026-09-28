@@ -110,8 +110,12 @@ function runCli(args, { cwd, env, onOutput, signal }) {
     };
     child.stdout.on('data', take('stdout'));
     child.stderr.on('data', take('stderr'));
-    child.on('error', reject);
-    child.on('close', (code, sig) => resolvePromise({ exitCode: code, signal: sig, outputTail: tail.join('').split('\n').slice(-40).join('\n') }));
+    // Bug audit 2026-09-28 (area 4 MED-1): an abort rejected on 'error', before the child had exited,
+    // so a caller that resumed at once could meet a run still marked running. The abort now settles
+    // only on 'close'; any other spawn error rejects at once, as before.
+    let aborted = null;
+    child.on('error', err => { if (err?.name === 'AbortError') aborted = err; else reject(err); });
+    child.on('close', (code, sig) => aborted ? reject(aborted) : resolvePromise({ exitCode: code, signal: sig, outputTail: tail.join('').split('\n').slice(-40).join('\n') }));
   });
 }
 
@@ -137,8 +141,13 @@ export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, dr
     if (piiGate !== 'warn' && piiGate !== 'hard-stop') throw new RangeError(`piiGate: 'warn' or 'hard-stop', got ${JSON.stringify(piiGate)}`);
     args.push('--pii-gate', piiGate);
   }
-  const res = await runCli(args, { cwd: work, env, onOutput, signal });
   const runDir = join(work, 'runs', id);
+  // Area 4 MED-1: an aborted run's stages stay on disk and can be resumed, so the rejection says
+  // which run it was (`runId`, and `runDir` once the folder exists).
+  const res = await runCli(args, { cwd: work, env, onOutput, signal }).catch(err => {
+    if (err && typeof err === 'object') Object.assign(err, { runId: id, runDir: existsSync(runDir) ? runDir : null });
+    throw err;
+  });
   return { runId: id, runDir: existsSync(runDir) ? runDir : null, ...res, ...(existsSync(runDir) ? statusOf(runDir) : { status: 'not_started', report: null }) };
 }
 

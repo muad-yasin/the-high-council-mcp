@@ -64,6 +64,12 @@
   any case, surrounding spaces), not only an exact `MET`: one shared classifier now.
 - **A dropped first-mode critic's provider failure is no longer labelled `[COUNCIL-E005]`**, which the
   error catalog and TROUBLESHOOTING define as a policy refusal.
+- **An aborted `api.run()` names its run.** The `AbortError` carries `runId` and `runDir`, and it
+  rejects only after the run's process has exited, so `resume()` can pick the run up (the types
+  promised a resumable run the caller had no handle on).
+- **`council init`'s example run (`<id>-init`) is accepted by MCP `run_status` and the viewer**, not
+  only listed by `list_runs`.
+- **"No such chain" names every folder it looked in**, not only the one inside the package.
 - **Stage labels with a dot can be answered over MCP.** `external_prompt` and `submit_stage` refused
   any label outside `[a-z0-9-]`, so none of `plan-daily-7`'s Opus stages (lab `opus5.5-sub`) could be
   fetched by name or submitted, while the tools themselves told the client to submit that label.

@@ -92,7 +92,7 @@ export interface CommonRunOptions {
   /** Added to process.env for this run only; a key set to undefined is removed. Use it for API keys. */
   env?: Record<string, string | undefined>;
   onOutput?: (text: string, stream: 'stdout' | 'stderr') => void;
-  /** Aborting kills the run's process; stages already on disk stay there and can be resumed. */
+  /** Aborting kills the run's process; stages already on disk stay there and can be resumed. `run()` then rejects, once the process has exited, with an AbortError carrying `runId` and `runDir` (null if the folder was never made). */
   signal?: AbortSignal;
 }
 
