@@ -92,6 +92,21 @@ import { contextFileList, readContextFile, ContextFileError } from './context-fi
 import { chainNameRefusal } from './chain-name.js';
 import { terminalSafe } from './terminal-safe.js';
 
+// One lint gate for every path that calls runChain() on a chain file: the normal run and resume
+// (above), --rematch and --replay (bug audit 2026-09-27 M2: both skipped it, so an edited chain
+// could send a key to a foreign host on a rematch). Exit 1, the same messages everywhere.
+function exitOnLint(cfg, cfgPath) {
+  const lintFindings = lintChain(cfg, cfgPath);
+  if (lintFindings.length) {
+    console.error(`\nchain lint: ${cfgPath} has ${lintFindings.length} problem(s) and will not run:\n`);
+    for (const f of lintFindings) {
+      console.error(`  [${f.kind}] ${f.message}`);
+      console.error(`    fix: ${f.fix}\n`);
+    }
+    process.exit(1);
+  }
+}
+
 const here = dirname(fileURLToPath(import.meta.url));
 
 // Write under a temp name in the same directory, then rename: readers see the old file or the whole
@@ -739,7 +754,9 @@ if (rematchArg) {
     console.error(`--rematch: chain "${chainName}" (recorded in ${originalRunMetaPath}) has no chain config on disk.`);
     process.exit(2);
   }
-  const originalConfig = resolveChainSeats(JSON.parse(readFileSync(chainConfigPath, 'utf8')));
+  const rawRematchConfig = JSON.parse(readFileSync(chainConfigPath, 'utf8'));
+  exitOnLint(rawRematchConfig, chainConfigPath);
+  const originalConfig = resolveChainSeats(rawRematchConfig);
   const rematchConfig = reshuffleSeats(originalConfig, seed);
   refuseSideRun('--rematch', originalConfig, originalRunMeta);
 
@@ -843,9 +860,15 @@ if (argv.includes('--replay')) {
   const chainsDirCandidates = [join(work, 'chains'), join(pkg, 'chains')];
   const chainsDir = chainsDirCandidates.find(d => existsSync(join(d, `${runMetaForChain.chain}.json`))) || chainsDirCandidates[1];
   {
-    let replayConfig = null;
-    try { replayConfig = resolveChainSeats(JSON.parse(readFileSync(join(chainsDir, `${runMetaForChain.chain}.json`), 'utf8'))); } catch { /* council-replay reports a missing or bad chain itself */ }
-    if (replayConfig) refuseSideRun('--replay', replayConfig, runMetaForChain);
+    const replayChainPath = join(chainsDir, `${runMetaForChain.chain}.json`);
+    let rawReplayConfig = null;
+    try { rawReplayConfig = JSON.parse(readFileSync(replayChainPath, 'utf8')); } catch { /* council-replay reports a missing or bad chain itself */ }
+    if (rawReplayConfig) {
+      exitOnLint(rawReplayConfig, replayChainPath);
+      let replayConfig = null;
+      try { replayConfig = resolveChainSeats(rawReplayConfig); } catch { /* reported by council-replay */ }
+      if (replayConfig) refuseSideRun('--replay', replayConfig, runMetaForChain);
+    }
   }
   setBudget(maxUsd);
   console.log(`cap:   ${maxUsd === null ? 'none - this replay has no spend ceiling' : `${formatUsd(maxUsd)} (--max-usd)`}`);
@@ -1245,17 +1268,8 @@ try {
 // RunChainStages #5 / GuardLayer #8): it used to be skipped there on the grounds that the first
 // sitting proved the config runnable - but the chain file is re-read on resume and may have been
 // edited in between, and a resumed run pays for everything after the pause.
-{
-  const lintFindings = lintChain(config, configPath);
-  if (lintFindings.length) {
-    console.error(`\nchain lint: ${configPath} has ${lintFindings.length} problem(s) and will not run:\n`);
-    for (const f of lintFindings) {
-      console.error(`  [${f.kind}] ${f.message}`);
-      console.error(`    fix: ${f.fix}\n`);
-    }
-    process.exit(1);
-  }
-}
+exitOnLint(config, configPath);
+
 
 // --from-run: the earlier run's criteria and first draft are reused verbatim,
 // so whatever differs in the outcome is the panel, not a fresh coin toss.
