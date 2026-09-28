@@ -2803,6 +2803,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // schemas/report-v1.json; it can go only with a schemaVersion 2.
       signoff = verdicts.map(v => ({
         provider: labOf(v.seat), lab: labOf(v.seat), model: v.seat.model,
+        // 0.7.9, additive: the seat's index in config.seats.critics. A relay panel lists signoff[]
+        // in its seeded review order, so array position is not the seat (verdict-diff reads this).
+        seat_index: config.seats.critics.findIndex(c => labOf(c) === labOf(v.seat)),
         signedOff: v.abstained || v.passed ? null : v.critique.meets === true,
         objections: v.abstained || v.passed ? null : v.critique.failures,
         // v7 item 4: a pass is a stated, recorded refusal to verdict - distinct from an

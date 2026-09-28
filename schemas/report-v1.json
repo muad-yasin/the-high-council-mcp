@@ -615,7 +615,8 @@
         },
         "passed": { "type": "boolean", "description": "True if the seat stated a pass (declined to give a verdict, with a reason). Not the same as the top-level `passed`." },
         "passReason": { "type": ["string", "null"] },
-        "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] }
+        "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] },
+        "seat_index": { "type": "integer", "description": "The seat's index in the chain's seats.critics (0.7.9). A relay panel lists signoff[] in its review order, so array position is not the seat; replay and rematch diffs key on this. Absent on earlier reports." }
       }
     },
     "proposal": {
