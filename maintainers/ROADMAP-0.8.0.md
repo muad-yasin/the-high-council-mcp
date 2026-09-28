@@ -11,6 +11,9 @@ Local only (127.0.0.1), no third-party requests, keys never reach the browser, r
 criteria, watch the debate live, answer paused external seats, read/download plan, BOARD, HANDOFF.
 Starts from `src/ui/` (today a read-only viewer). Order: ux-design pass (screens, states, wireframes)
 → owner review → build. Keep the line to Sophi-A/Zofia explicit (two repos, never merged).
+Includes a **replay mode**: play any run back from `report.json` at 20-50x (proposal cards appear, objection
+arrows land, withdrawals fade, the sign-off panel fills). It is the animation for the video below, built from real
+data in the UI's own look, and every future run becomes demo footage. The design pass includes it as a screen.
 
 ## Reach beyond Claude (owner, 2026-09-29: "Claude is what I use, not what most people use")
 
@@ -63,3 +66,29 @@ xAI/Grok, any efficacy wording.
 
 Scope the bundle with one `plan-daily-7` ("daily7") run: dry-run price first (≈ $1.90 worst case),
 paid only on the owner's go; then build, docs, `npm publish` (his), GitHub release, .mcpb, Registry.
+
+## Video (after 0.8; owner 2026-09-29: "create a YouTube video to explain the High Council ... get some more dev advice")
+
+Shot only once the web UI and its replay mode exist; a terminal recording is the fallback.
+- **Beats (~6-8 min):** the problem (one model plans alone, nobody contradicts it) → the idea (labs argue on the
+  record, "together, and together with manners") → a real run in the replay (task, price before paying,
+  proposals, debate, reviews, plan + HANDOFF; the `argued` report as the story spine) → "works with your agent"
+  (DeepSeek Harness, Hermes, others; no Claude subscription needed) → one concrete question to devs.
+- **Visuals already owned:** the /MCP page's round table with the robot characters, the round chart and the
+  who-objected-to-whom graph (structure and counts only, no run text).
+- **Showcase, one screenshot + one line each, public things only:** sower-industries.de, the GP scoreboard,
+  Zofia and Sophi-A, SMO once on Play, and a short Fahrschule Drei drive-berlin teaser.
+- **His voice:** script the beats, not the lines; he talks over the replay, one take, light cuts. His own words as
+  cards. Honest bloopers are welcome (the car leaving the test pad at 250 km/h; the day the tests blocked his
+  laptop and the night queue that followed).
+- **Getting dev advice:** end on one answerable question ("which stage would you cut or add?"), a pinned GitHub
+  Discussion linked first in the description, chapters. A 60-90 s vertical cut of the replay for short-form.
+  German narration with English subtitles or two versions: his call.
+- **Rules:** no efficacy claim anywhere (script, captions, thumbnail): "watch them argue" yes, "better plans" no.
+  Costs shown are real and dated. No keys, private runs or personal-life details in frame (record on a clean
+  profile, demo task or a run he wants public). No third-party footage, copyrighted music or brand logos; CC0 or
+  his own music. Berlin data shown publicly carries the OSM/ODbL attribution in the description; check Unity's
+  branding rules for game footage. Self-filmed Berlin b-roll: Panoramafreiheit from public ground, people and
+  plates blurred.
+- **Next:** C&C drafts the beat cards and prepares a demo run on his go, after 0.8 ships.
+
