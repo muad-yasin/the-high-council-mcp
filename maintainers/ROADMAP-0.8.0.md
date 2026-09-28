@@ -39,6 +39,20 @@ M2 (`--rematch`/`--replay` skip lint), M3 (cut-off panel reply counts as sign-of
 draft passes), Fable R1 (bound re-paying an unchanged draft by re-asking only the unheard seat — a
 bound on spend, not an early stop).
 
+## Security (owner, 2026-09-28: "strong API-key-leak-protection ... quite important")
+
+0.7.9 ships the first piece: a default-on scan of every outbound prompt for key shapes (`src/secret-patterns.js`) in
+`invoke()`, hard stop with one explicit override. Candidates for 0.8, each needs the owner's go:
+- **The return path.** What a run hands back to the calling agent (Claude Code, dsh, Hermes) is model text; a hostile
+  seat could write instructions for that agent. Mark deliverable/board text as untrusted in MCP tool results and say so
+  in every agent guide of "Reach beyond Claude".
+- **owner** `security_review` on by default in the shipped plan chains (price shown first).
+- Supply chain for the published package: lockfile pinned, `npm audit` in CI, `npm publish --provenance`, few deps.
+- `SECURITY.md` + a short threat model: what the harness protects (keys, gitignored files, spend) and what it cannot
+  (a password written in prose, a leak in a provider's own logs). No claims beyond what tests show.
+- The NEEDS-file writer (external seats) through the same outbound scan, if 0.7.9 did not include it.
+- The audit round's adversarial LOWs deferred from 0.7.9 (model-supplied reply keys, canary randomness on replay).
+
 ## Debate, criteria, milestones (both reports agree; advisor corrections folded in)
 
 1. **Locked criteria** (Reddit idea): criteria hash in run.json/report.json (additive), harness-written
