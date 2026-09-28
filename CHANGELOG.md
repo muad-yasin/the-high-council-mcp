@@ -38,6 +38,11 @@
   filter) is retried once**, and if it fails again it is recorded as `provider_error` in
   `debate.dropped`, not `unreadable`. `WARNINGS.md` names the stop instead of "not readable as JSON".
   A 2.5-second provider error used to cost a lab its whole reply round.
+- **A lab that dropped out is named where people read.** `report.json`'s `dropouts` was shown nowhere
+  else, so a run whose `outcome` was "degraded" gave no visible reason. `BOARD.md` gains a "Dropped
+  out" section, `WARNINGS.md` a `dropout:` line per lab, and the CLI summary a `dropped:` line.
+- **The dry run prints external seats as `external`**, not a priced `$0.0000`, and says how many
+  stages are answered outside its total (21 of 72 in `plan-daily-7`).
 - **Stage labels with a dot can be answered over MCP.** `external_prompt` and `submit_stage` refused
   any label outside `[a-z0-9-]`, so none of `plan-daily-7`'s Opus stages (lab `opus5.5-sub`) could be
   fetched by name or submitted, while the tools themselves told the client to submit that label.

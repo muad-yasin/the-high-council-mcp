@@ -1414,10 +1414,15 @@ if (dryRun) {
   const rows = estimateChainRows(config, { fromRun });
   const w = Math.max(...rows.map(r => r.seat.length));
   for (const r of rows) {
-    console.log(`  ${r.label.padEnd(12)} ${r.seat.padEnd(w)}  ${String(r.input).padStart(7)} in  ${String(r.output).padStart(6)} out  ${r.priced ? formatUsd(r.usd) : 'unpriced'}`);
+    // Bug audit 2026-09-28 (area 2 #6): an external seat printed as a priced "$0.0000", though a
+    // person or another session does that work outside this total (plan-daily-7's Opus voter).
+    const cost = r.seat.startsWith('external/') ? 'external' : r.priced ? formatUsd(r.usd) : 'unpriced';
+    console.log(`  ${r.label.padEnd(12)} ${r.seat.padEnd(w)}  ${String(r.input).padStart(7)} in  ${String(r.output).padStart(6)} out  ${cost}`);
   }
   const t = rows.reduce((s, r) => ({ i: s.i + r.input, o: s.o + r.output, u: s.u + r.usd }), { i: 0, o: 0, u: 0 });
   console.log(`\n  TOTAL        ${''.padEnd(w)}  ${String(t.i).padStart(7)} in  ${String(t.o).padStart(6)} out  ${formatUsd(t.u)}  per run`);
+  const externalRows = rows.filter(r => r.seat.startsWith('external/')).length;
+  if (externalRows) console.log(`\n  ${externalRows} of ${rows.length} stages are answered by external seats (a person or another session, e.g. a Claude Code session on a subscription) and are not in this total.`);
   console.log(`\n  Worst case is the full round cap. A clean first critique stops early and costs less.`);
   for (const line of priceTableLines()) console.log(`  ${line}`);
   // The rows above price the chain's own assumed prompt size, not the task in hand: a 13-word task
@@ -2313,6 +2318,13 @@ if (!result.passed && result.lastCritique?.failures?.length) {
 }
 if (result.scoreboard) {
   log(`labs:     ${result.scoreboard.labs.map(l => `${l.lab} ${l.accepted}/${l.proposed}`).join('  ')}  (accepted/proposed; "built" is yours to fill after the build session)`);
+}
+// Bug audit 2026-09-28 (area 2 #4): a seated lab that dropped out was missing from the summary
+// (and from BOARD.md and WARNINGS.md), so "degraded" had no visible reason.
+if (result.dropouts?.length) {
+  log(`dropped:  ${result.dropouts.map(d => `${d.lab} (${d.stage}: ${d.reason})`).join('; ')}`);
+  if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
+  appendFileSync(join(runDir, 'WARNINGS.md'), result.dropouts.map(d => `- dropout: ${d.lab}${d.model ? ` (${d.model})` : ''} produced nothing usable at ${d.stage} - ${d.reason}; the council went on without it\n`).join(''));
 }
 log(`tokens:   ${t.input} in, ${t.output} out, ${t.total} total`);
 log(`cost:     ${formatUsd(t.usd)}${t.unpriced.length ? ` (+ unpriced: ${t.unpriced.join(', ')})` : ''}${maxUsdEff === null ? '' : ` of ${formatUsd(maxUsdEff)} ceiling`}`);
