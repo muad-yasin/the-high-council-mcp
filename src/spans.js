@@ -42,7 +42,12 @@ export function recordRoundStageAndCheckClose(label, roundPanelCounts, criticsCo
   if (!round || !ROUND_STAGE_RE.test(label || '') || !criticsCount) return null;
   const count = (roundPanelCounts.get(round) || 0) + 1;
   roundPanelCounts.set(round, count);
-  return count >= criticsCount ? round : null;
+  // Bug audit 2026-09-28 (area 2 #5): `count >= criticsCount` closed the round again on every later
+  // panel stage - each re-ask, and each stage a resume replays - so a 7-round run wrote 168 round
+  // records. A round closes once; the closed set is rebuilt from the log's round records on resume.
+  if (count < criticsCount || roundPanelCounts.get(`closed:${round}`)) return null;
+  roundPanelCounts.set(`closed:${round}`, true);
+  return round;
 }
 
 // Rebuilds roundSpanIds/roundPanelCounts from an existing stage-log.jsonl's text, the same
@@ -56,7 +61,7 @@ export function replaySpanStateFromStageLogText(text) {
     if (!line.trim()) continue;
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
-    if (entry.kind === 'round') continue; // round records themselves carry no new bookkeeping
+    if (entry.kind === 'round') { if (Number.isInteger(entry.round)) roundPanelCounts.set(`closed:${entry.round}`, true); continue; } // a round already closed is never closed again
     const round = parseRoundFromLabel(entry.stage);
     if (round && ROUND_STAGE_RE.test(entry.stage || '')) {
       roundPanelCounts.set(round, (roundPanelCounts.get(round) || 0) + 1);

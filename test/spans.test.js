@@ -108,3 +108,23 @@ test('13. sumRoundUsdFromStageLogText tolerates a truncated last line and unpars
   const text = `${JSON.stringify({ stage: 'panel-1-lab-a', usd: 0.01 })}\n{"stage":"panel-1-lab-b","usd":0.0`;
   assert.equal(sumRoundUsdFromStageLogText(text, 1), 0.01);
 });
+
+// Bug audit 2026-09-28 (area 2 #5): a round closed again on every later panel stage (re-asks,
+// stages replayed on resume); plan-daily-7's first real run wrote 168 round records for 7 rounds.
+test('recordRoundStageAndCheckClose closes a round once, including after a resume rebuilt the state', async () => {
+  const { recordRoundStageAndCheckClose: close, replaySpanStateFromStageLogText: replay } = await import('../src/spans.js');
+  const counts = new Map();
+  assert.equal(close('panel-1-a', counts, 2), null);
+  assert.equal(close('panel-1-b', counts, 2), 1);
+  assert.equal(close('panel-1-b-reask1', counts, 2), null, 'a re-ask after the round closed does not close it again');
+  const log = [
+    JSON.stringify({ stage: 'panel-1-a', parent_span_id: 'r1' }),
+    JSON.stringify({ stage: 'panel-1-b', parent_span_id: 'r1' }),
+    JSON.stringify({ kind: 'round', round: 1 }),
+  ].join('\n');
+  const { roundPanelCounts } = replay(log);
+  assert.equal(close('panel-1-a', roundPanelCounts, 2), null, 'a replayed stage of a closed round');
+  assert.equal(close('panel-1-b', roundPanelCounts, 2), null);
+  assert.equal(close('panel-2-a', roundPanelCounts, 2), null);
+  assert.equal(close('panel-2-b', roundPanelCounts, 2), 2);
+});
