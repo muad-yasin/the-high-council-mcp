@@ -12,7 +12,24 @@ criteria, watch the debate live, answer paused external seats, read/download pla
 Starts from `src/ui/` (today a read-only viewer). Order: ux-design pass (screens, states, wireframes)
 → owner review → build. Keep the line to Sophi-A/Zofia explicit (two repos, never merged).
 
-## Prerequisites (before any paid 0.8 run; owner parked fixes "Later" on 2026-09-27)
+## Reach beyond Claude (owner, 2026-09-29: "Claude is what I use, not what most people use")
+
+Researched 2026-09-29 (DeepSeek Harness dsh: web-UI-first, MCP via one `@deepseek-ai/dsh-mcp-client` plugin
+entry per server, tools only, 60 s per-call cap; Hermes Agent: `~/.hermes/config.yaml` `mcp_servers`, 120 s
+default tool timeout, first `npx -y` can hit the connect timeout, skills hub). Moved here from 0.7.9 by the owner:
+- README install section first: one universal block (`npx -y the-high-council`, `OPENROUTER_API_KEY`), verified
+  snippets for dsh and Hermes, then Cursor, VS Code, Codex, Gemini CLI, Windsurf, Cline, Zed and others;
+  `npm i -g the-high-council` to avoid first-run timeouts, each agent's timeout key named.
+- A "run a council from your agent" skill (start → poll `run_status` → answer writer seats via
+  `external_prompt`/`submit_stage`; "no Claude subscription needed, your agent is the builder"), submitted to the
+  Hermes skills hub and as a dsh plugin/skill if feasible.
+- A test that every MCP tool answers well under 60 s. THC exposes tools only (no resources/prompts): keep it so.
+- `npx the-high-council setup`: detect installed agents (dsh, Hermes, ...) and write their MCP config after asking.
+- Web UI flows: `start_run` returns the UI link; the UI works when opened from another web tool (dsh users live
+  in a browser: named test case); Hermes can relay the link and a "council done" message via its chat gateway.
+- Third-party guides were part of the research; every snippet is verified against the tools' own docs first.
+
+## Prerequisites (shipped as the small 0.7.9 bug-fix release, owner 2026-09-29)
 
 Rollup H1 (fallback-model reply charged $0), M1 (empty `model` passes the router/No-Grok check),
 M2 (`--rematch`/`--replay` skip lint), M3 (cut-off panel reply counts as sign-off), M4 (`stop:"error"`
