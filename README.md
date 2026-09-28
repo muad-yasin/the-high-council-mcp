@@ -420,7 +420,7 @@ Each outcome has its own code, so a script or CI job can branch on it:
 | 8 | Finished, but the final security review could not judge it (never a pass). |
 | 9 | Artifact gate: the task names files whose content it never includes (`BLOCKED-ARTIFACTS.md`). |
 | 10 | Preflight: a seat objected to the task description itself (`STOPPED-preflight.md`). |
-| 11 | PII gate (`--pii-gate hard-stop`): the input matches a PII shape or one of the key formats listed in `src/secret-patterns.js`. |
+| 11 | Something in the input must not be sent: a prompt matches one of the key formats listed in `src/secret-patterns.js` (checked by default; `--allow-secret-shaped` overrides), or, under `--pii-gate hard-stop`, a PII shape. |
 | 12 | `policy.json` refused the chain. |
 | 13 | Another process is already running this run folder. |
 | 14 | The task file changed since the run started and `AMENDMENTS.md` does not cover it. |
@@ -765,6 +765,8 @@ what each rule guards against and why. Copy the folders you want into your proje
   which is the default, it does not detect a full rewrite**: anyone who can edit the file can
   recompute every hash. Set `AUDIT_HMAC_KEY_FILE` to a key kept outside the run folder if the log
   has to stand up to that.
+- The outbound key scan (every prompt, before it leaves) matches **key shapes only**, the formats
+  in `src/secret-patterns.js`; a password written in prose is not detectable.
 
 ## Privacy
 

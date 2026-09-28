@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
+import { runChain, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
+import { secretShapesIn, SecretShapedPrompt } from './outbound-scan.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
@@ -71,6 +72,8 @@ const EXIT_SECURITY_NOT_JUDGED = 8;
 // them apart. Every guard that refuses a run now has its own code; the README lists them all.
 const EXIT_ARTIFACTS_BLOCKED = 9;
 const EXIT_PREFLIGHT_BLOCKED = 10;
+// 0.7.9: also the outbound key scan (src/outbound-scan.js), on by default - both are "the input
+// holds something that must not be sent".
 const EXIT_PII_BLOCKED = 11;
 const EXIT_POLICY_REFUSED = 12;
 const EXIT_RUN_LOCKED = 13;
@@ -105,6 +108,17 @@ function exitOnLint(cfg, cfgPath) {
     }
     process.exit(1);
   }
+}
+
+// The outbound key scan's refusal (src/outbound-scan.js): pattern name and line, never the value.
+function secretRefusalLines(found) {
+  return found.map(f => `  ${f.where}:${f.line}  ${f.name}`);
+}
+function exitOnSecretShaped(err, what) {
+  console.error(`\n${what}: refused - ${err.message}.`);
+  for (const l of secretRefusalLines(err.findings.map(f => ({ where: `stage ${err.label} (${f.part} prompt)`, ...f })))) console.error(l);
+  console.error(`Remove the key from the input, or rerun with --allow-secret-shaped to send it deliberately.`);
+  process.exit(EXIT_PII_BLOCKED);
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -158,6 +172,10 @@ function flag(name, fallback) {
   const next = argv[i + 1];
   return (next && !next.startsWith('--')) ? next : true;
 }
+// 0.7.9: the outbound key scan's one override. Set here so --rematch and --replay (below, before the
+// run-folder code) honour it too; a normal run adds the value saved in run.json further down.
+const allowSecretShapedFlag = argv.includes('--allow-secret-shaped');
+setOutboundScan({ allow: allowSecretShapedFlag });
 
 // reportJsonShape() and the BOARD.md text now live in src/report-shape.js, shared with --replay.
 
@@ -804,6 +822,7 @@ if (rematchArg) {
     if (err instanceof BudgetExceeded) writeSideRunBudgetStop(rematchRunDir, err, '--rematch', { // exits 4, like a normal run
       runId: rematchRunId, chain: chainName, task: originalTaskPath, taskCwd: originalRunMeta.cwd || work, taskText: originalRequest, startedAt: rematchStartedAt, config: rematchConfig,
     });
+    if (err instanceof SecretShapedPrompt) exitOnSecretShaped(err, '--rematch');
     console.error(`--rematch: the reshuffled run did not complete (${err.message}). No diff written - a rematch that never reached a verdict has nothing to diff.`);
     process.exit(1);
   }
@@ -892,6 +911,7 @@ if (argv.includes('--replay')) {
     console.log(`signoff_match: ${diff.signoff_match}  verdict_category_changed: ${diff.verdict_category_changed}`);
   } catch (err) {
     if (err instanceof BudgetExceeded) writeSideRunBudgetStop(replayDirFor(runDir, date), err, '--replay', err.partialReportArgs); // exits 4, like a normal run
+    if (err instanceof SecretShapedPrompt) exitOnSecretShaped(err, '--replay');
     console.error(`--replay: ${err.message}`);
     process.exit(1);
   }
@@ -1172,6 +1192,12 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        hard-stop refuses the run. Off entirely unless passed.
                                        --allow-pii email,iban,card,secret suppresses named
                                        pattern classes (always printed, never a silent hole).
+  council --task tasks/x.md --allow-secret-shaped
+                                       send key-shaped text anyway. Every prompt is scanned
+                                       for the key formats in src/secret-patterns.js before
+                                       it leaves, and a match stops the run (exit 11) with
+                                       the file or stage, line and format, never the value.
+                                       Key shapes only: a password in prose is not caught.
   council --task tasks/x.md --signoff alice
                                        name who signed off on this change request, for
                                        policy.json's required_signoff_paths. The task
@@ -1553,12 +1579,14 @@ const contextArg = contextArgRaw && contextArgRaw !== true
 // one - so gating them blocked every --context run at exit 9 (MCP start_run's `context` could never
 // work, since MCP cannot pass --allow-unfenced). The gate reads the task text alone.
 const requestForArtifactGate = request;
+let contextFilesForScan = [];
 if (contextArg) {
   // Which files, and each one read non-blocking with a size cap: a FIFO, a device or an oversized
   // file is refused with its name, before any call (src/context-files.js).
   let files, docs;
   try {
     files = contextFileList(contextArg);
+    contextFilesForScan = files;
     docs = files.map(f => `## ${f.split('/').pop()}\n\n${readContextFile(f)}`).join('\n\n---\n\n');
   } catch (e) {
     if (!(e instanceof ContextFileError)) throw e;
@@ -1602,6 +1630,26 @@ if (piiGateEff !== null) {
   }
   if (blocked) {
     console.error(`Fix the input, or rerun with --pii-gate warn / --allow-pii <type,...> to proceed deliberately.`);
+    process.exit(EXIT_PII_BLOCKED);
+  }
+}
+// 0.7.9: the outbound key scan, on by default (src/outbound-scan.js). invoke() checks every prompt
+// before it leaves; this checks the input files once, on every sitting, so the refusal names the file
+// and line - and a run that would be refused at its first stage costs nothing and leaves no folder.
+// `--allow-secret-shaped` is saved in run.json, so a resume keeps it.
+const allowSecretShapedEff = allowSecretShapedFlag || resumeMeta?.allowSecretShaped === true;
+const secretScanMeta = allowSecretShapedEff ? { allowSecretShaped: true } : {};
+setOutboundScan({ allow: allowSecretShapedEff });
+if (!allowSecretShapedEff) {
+  const found = [
+    ...secretShapesIn(rawTaskTextForCacheFingerprint).map(f => ({ where: taskFile, ...f })),
+    ...contextFilesForScan.flatMap(f => { try { return secretShapesIn(readContextFile(f)).map(x => ({ where: f, ...x })); } catch { return []; } }),
+    ...secretShapesIn(handedDraft || '').map(f => ({ where: 'the handed draft (--draft / --from-run)', ...f })),
+  ];
+  if (found.length) {
+    console.error(`\nOUTBOUND KEY SCAN: refusing to run - ${found.length} credential-shaped string(s) in the input, which would be sent to every seat:`);
+    for (const l of secretRefusalLines(found)) console.error(l);
+    console.error(`Nothing was sent. Remove the key from the input, or rerun with --allow-secret-shaped to send it deliberately.`);
     process.exit(EXIT_PII_BLOCKED);
   }
 }
@@ -1677,7 +1725,7 @@ if (auditEnabled) {
 const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...unfencedMeta }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...unfencedMeta, ...secretScanMeta }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
@@ -1691,7 +1739,7 @@ if (!resumeMeta) {
   // The unfenced-gate waiver is rewritten from the effective values, so a flag given on this resume
   // (a narrower list, or none at all over a saved whole-gate waiver) is what the next sitting reads.
   const { allowUnfenced: _savedAllow, unfencedAllowList: _savedList, ...resumeRest } = resumeMeta;
-  resumeMeta = { ...resumeRest, pid: process.pid, rootSpanId, ...(argv.includes('--max-usd') ? { maxUsd } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(policyChecks ? { policyChecks } : {}), ...unfencedMeta };
+  resumeMeta = { ...resumeRest, pid: process.pid, rootSpanId, ...(argv.includes('--max-usd') ? { maxUsd } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(policyChecks ? { policyChecks } : {}), ...unfencedMeta, ...secretScanMeta };
   writeFileSync(join(runDir, 'run.json'), JSON.stringify(resumeMeta, null, 2));
 }
 
@@ -1876,7 +1924,7 @@ if (!resumeMeta && maxUsdEff !== null) {
 // Bug audit 2026-09-26 #1: this ran before the artifact gate above, so a resume the gate blocked
 // (exit 9, nothing spent) had already deleted the stopped run's partial report and its marker. It
 // now runs only once the gate has passed.
-for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md']) {
+for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md', 'STOPPED-secret.md']) {
   if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
 
@@ -2258,6 +2306,28 @@ Or \`--max-usd none\` to continue with no ceiling.
     if (partialWritten) log(`  so far:  ${join(runDir, PARTIAL_REPORT_FILE)}`);
     log(`  resume:  ${councilCommand()} --resume runs/${runId} --max-usd <higher>`);
     process.exit(4);
+  }
+  if (err instanceof SecretShapedPrompt) {
+    // Model output or the chain's own prompt text, not an input file (those were scanned before the
+    // run started): the prompt of this stage holds a key shape. Nothing was sent.
+    const where = err.findings.map(f => `- ${f.part} prompt, line ${f.line}: ${f.name}`).join('\n');
+    writeFileSync(join(runDir, 'STOPPED-secret.md'), `# Run stopped: a credential-shaped string in a prompt
+
+Stage \`${err.label}\` was about to be sent with text shaped like a key (the value is not repeated here):
+
+${where}
+
+Nothing was sent for this stage. The input files were scanned before the run started, so this text came
+from an earlier stage's output or the chain itself. Completed stages are on disk and replay for free.
+Read \`${err.label}\`'s inputs, then either fix the cause and resume, or resume with
+\`--allow-secret-shaped\` to send it deliberately:
+
+    ${councilCommand()} --resume runs/${runId} --allow-secret-shaped
+`);
+    log(`\nSTOPPED: ${err.message}.`);
+    for (const f of err.findings) log(`  ${f.part} prompt, line ${f.line}: ${f.name}`);
+    log(`  detail:  ${join(runDir, 'STOPPED-secret.md')}`);
+    process.exit(EXIT_PII_BLOCKED);
   }
   // A denied model is a lint failure (exit 1), found at run time instead of by chain-lint.
   const denied = err instanceof DeniedModel;

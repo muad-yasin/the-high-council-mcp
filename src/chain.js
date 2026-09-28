@@ -18,6 +18,7 @@ import { promptHashOf, cacheVerdict } from './cache-integrity.js';
 import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
 import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine, MET_VERDICT } from './criteria-kinds.js';
 import { runDeepDive, deepDiveFailures } from './deep-dive.js';
+import { assertOutboundClean, SecretShapedPrompt } from './outbound-scan.js';
 export { DeniedModel };
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
@@ -1001,6 +1002,12 @@ export function setProgressHook(fn) { progressHook = fn || (() => {}); }
 let chargeHook = () => {};
 export function setChargeHook(fn) { chargeHook = fn || (() => {}); }
 
+// 0.7.9: the outbound key scan (src/outbound-scan.js), on unless the CLI waives it with
+// --allow-secret-shaped. Checked in invoke() after the cache - a replay from disk sends nothing -
+// and before the external pause, so a NEEDS file is scanned like a provider call.
+let outboundScan = { allow: false };
+export function setOutboundScan(opts) { outboundScan = { allow: !!opts?.allow }; }
+
 async function invoke(seat, { system, user, log, label }) {
   const started = Date.now();
   // Backstop for the check at the top of runChain: every call, including a replay from disk.
@@ -1065,6 +1072,7 @@ async function invoke(seat, { system, user, log, label }) {
     log(`  ${label}: ${hit.provider || seat.provider}/${hit.model || seat.model} - from disk (${usage.input} in, ${usage.output} out, ${formatUsd(usd)} already spent)`);
     return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage, usd, priced: true, ms: 0, text: hit.text, cached: true, promptHash };
   }
+  assertOutboundClean(label, { system, user }, outboundScan);
   if (seat.provider === 'external') throw new ExternalPause(label, system, user);
 
   // The cap is checked here, before the only line in this file that spends
@@ -1746,6 +1754,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         log('  wait: false - defaults taken for every question.');
         request += R.answersSection(questions, '');
       } else {
+        assertOutboundClean('answers', { system: answersSystem, user: answersUser }, outboundScan);
         throw new ExternalPause('answers', answersSystem, answersUser);
       }
     }
@@ -3411,7 +3420,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     log('\nStage: security review (final, read-only)');
     security_review = await runSecurityReviewStage(config, {
       request, deliverable: draft, groundTruthPost: ground_truth_post, invoke, record, parseJson,
-      abstentionReasonCode, rethrow: [ExternalPause, BudgetExceeded], log,
+      abstentionReasonCode, rethrow: [ExternalPause, BudgetExceeded, SecretShapedPrompt, DeniedModel], log,
     });
     log(`  gate: ${security_review.gate} - ${security_review.findings.length} finding(s), ${security_review.blocking_count} blocking${security_review.reason_code ? ` (${security_review.reason_code})` : ''}`);
   }

@@ -107,6 +107,9 @@ export interface RunOptions extends CommonRunOptions {
   fromRun?: string;
   context?: string;
   piiGate?: 'warn' | 'hard-stop';
+  /** Send key-shaped text anyway. Every prompt is scanned for the key formats in
+   *  src/secret-patterns.js by default, and a match stops the run (exit 11). */
+  allowSecretShaped?: boolean;
 }
 
 export interface ResumeOptions extends CommonRunOptions {

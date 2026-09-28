@@ -13,6 +13,13 @@
   empty) is refused, at lint and at run time (`external` and `mock` seats may leave it out); and
   `extra-models-unpriced`: a priced seat's `extra.models` fallback with no entry in
   `src/pricing.json`.
+- **Key-shaped text in a prompt stops the run (exit 11).** Every prompt is scanned against the key
+  formats in `src/secret-patterns.js` before it leaves: each provider call, each external seat's
+  `NEEDS-<stage>.md`, and the input files once up front. A match stops before anything is sent and
+  names the file or stage, the line and the format, never the value; a match mid-run writes
+  `STOPPED-secret.md`. The one override is `--allow-secret-shaped` (saved in `run.json`, so a resume
+  keeps it; MCP `start_run` `allow_secret_shaped: true`; JS API `run({ allowSecretShaped: true })`). Key shapes only; PII stays behind the
+  opt-in `--pii-gate`. A clean run's prompts are byte-identical.
 
 ### Fixed
 

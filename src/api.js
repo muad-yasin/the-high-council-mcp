@@ -124,7 +124,7 @@ function runCli(args, { cwd, env, onOutput, signal }) {
  * spend ceiling, or refused by a guard. Resolves in every one of those cases (read `status` and
  * `exitCode`); rejects only when the child process could not be started or was aborted.
  */
-export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, draft, fromRun, context, piiGate, env, onOutput, signal } = {}) {
+export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, draft, fromRun, context, piiGate, allowSecretShaped, env, onOutput, signal } = {}) {
   const work = resolve(cwd);
   chainPath(chain, work); // a clear error here beats a CLI usage message
   if (typeof task !== 'string' || !task) throw new TypeError('task: a path to the task file');
@@ -141,6 +141,8 @@ export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, dr
     if (piiGate !== 'warn' && piiGate !== 'hard-stop') throw new RangeError(`piiGate: 'warn' or 'hard-stop', got ${JSON.stringify(piiGate)}`);
     args.push('--pii-gate', piiGate);
   }
+  // 0.7.9 outbound key scan: the one override (saved in run.json, so a resume keeps it).
+  if (allowSecretShaped === true) args.push('--allow-secret-shaped');
   const runDir = join(work, 'runs', id);
   // Area 4 MED-1: an aborted run's stages stay on disk and can be resumed, so the rejection says
   // which run it was (`runId`, and `runDir` once the folder exists).

@@ -335,8 +335,9 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   rounds: z.number().int().min(1).max(5).optional(),
   max_usd: MAX_USD_ARG.describe('per-run spend ceiling in USD, a positive number. Defaults to MAX_USD_PER_RUN or $7. Pass "none" for no ceiling (refused if the user set COUNCIL_MAX_USD_LIMIT); 0 is refused. The run stops cleanly before any stage that could breach it, and resumes with a higher ceiling.'),
   pii_gate: z.enum(['warn', 'hard-stop']).optional().describe('scan the task for PII and the key formats in src/secret-patterns.js before any provider call: warn logs and proceeds, hard-stop refuses the run. Off unless given.'),
+  allow_secret_shaped: z.boolean().optional().describe('send key-shaped text anyway. Every prompt is scanned for the key formats in src/secret-patterns.js before it leaves, and a match refuses the run (exit 11, started:false with the file, line and format in the log, never the value). Saved with the run, so resume_run keeps it. Off unless given.'),
   allow_unfenced: z.union([z.boolean(), z.array(z.string())]).optional().describe('waive the artifact gate: true for the whole task, or a list of file names that are only locations, not content the panel needs'),
-}, async ({ chain, task, context, draft, from_run, rounds, max_usd, pii_gate, allow_unfenced }) => {
+}, async ({ chain, task, context, draft, from_run, rounds, max_usd, pii_gate, allow_secret_shaped, allow_unfenced }) => {
   // The task and draft go to every seat, so the same denylist as the seat tools applies: no
   // .env, key files or credentials by path (pre-release audit 2026-09-23, McpServer #1 addendum).
   const refusal = chainNameRefusal(chain) || startRunInputRefusal({ task, draft, context, from_run });
@@ -354,6 +355,7 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   if (ceiling.refused) return text({ started: false, error: ceiling.refused });
   args.push(...ceiling);
   if (pii_gate) args.push('--pii-gate', pii_gate);
+  if (allow_secret_shaped === true) args.push('--allow-secret-shaped');
   if (allow_unfenced === true) args.push('--allow-unfenced');
   else if (Array.isArray(allow_unfenced) && allow_unfenced.length) args.push('--allow-unfenced', allow_unfenced.join(','));
   mkdirSync(runsDir, { recursive: true });

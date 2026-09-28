@@ -36,6 +36,7 @@ import { join } from 'node:path';
 // canary.js has no imports at all, so this keeps the digest's import graph free of chain.js/roles.js.
 import { isCanary } from './canary.js';
 import { deniedReasonsOf, DeniedModel } from './denied-models.js';
+import { secretShapesIn } from './outbound-scan.js';
 
 const NO_DISSENT_TOPICS = 'nothing - every critic signed off with no objections';
 
@@ -71,6 +72,9 @@ export async function generateDigestText({ report, call, model, provider, maxTok
   // checked before the try below, so it is thrown, never degraded to the template.
   const denied = deniedReasonsOf({ provider, model });
   if (denied.length) throw new DeniedModel([{ path: 'digest', reasons: denied }]);
+  // 0.7.9 outbound key scan (src/outbound-scan.js): a key-shaped string in the summary is never
+  // sent; the local template is written instead.
+  if (secretShapesIn(JSON.stringify(summary)).length) return fallback;
   try {
     const reply = await call(provider, {
       model,
