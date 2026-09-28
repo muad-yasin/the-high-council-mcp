@@ -747,12 +747,17 @@ export class ExternalPause extends Error {
 // used to flow straight on, so a truncated final edit became the shipped deliverable with no review
 // after it. Thrown, not returned, like BudgetExceeded: the CLI stops the run with STOPPED-truncated.md
 // and never grades, reports or ships the fragment.
+//
+// Bug audit 2026-09-27 M4: also thrown for a draft the provider ended with `error`, `content_filter`
+// or `refusal` (draftIncomplete), after one retry at the same cap. `stop` then names that reason, and
+// the message says "did not complete" instead of "cut off".
 export class DraftTruncated extends Error {
-  constructor(label, detail) {
-    super(`stage "${label}" was cut off at its token cap: ${detail}`);
+  constructor(label, detail, stop = null) {
+    super(stop ? `stage "${label}" did not complete (stop: ${stop}): ${detail}` : `stage "${label}" was cut off at its token cap: ${detail}`);
     this.controlFlow = true;
     this.label = label;
     this.detail = detail;
+    this.stop = stop;
   }
 }
 
@@ -763,6 +768,14 @@ export function draftCutOff(usage, cap) {
   if (!usage) return false;
   if (usage.stop === 'length' || usage.stop === 'max_tokens') return true;
   return usage.stop == null && Number.isFinite(cap) && (usage.output || 0) >= cap;
+}
+
+// Bug audit 2026-09-27 M4: a draft the provider ended for a reason other than finishing or the cap
+// (normaliseStop passes these through). Such a reply is not a finished draft either, and a bigger
+// cap does not help a provider error, so draftStage retries it once at the same cap.
+const INCOMPLETE_STOPS = new Set(['error', 'content_filter', 'refusal']);
+export function draftIncomplete(usage) {
+  return !!usage && INCOMPLETE_STOPS.has(usage.stop);
 }
 
 export class PreflightBlocked extends Error {
@@ -1582,6 +1595,18 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   const draftStage = async (seat, opts) => {
     const cap = seat.maxTokens ?? DEFAULT_MAX_TOKENS;
     const first = record(await invoke(seat, opts));
+    if (draftIncomplete(first.usage)) {
+      if (seat.provider === 'external') {
+        throw new DraftTruncated(opts.label, `the external reply reports stop "${first.usage.stop}" - write a complete reply to ${opts.label}.md and resume`, first.usage.stop);
+      }
+      log(`  ${opts.label}: the provider ended the reply with stop "${first.usage.stop}" - retrying once at the same ${cap}-token cap.`);
+      const again = record(await invoke(seat, { ...opts, label: `${opts.label}-retry` }));
+      if (draftIncomplete(again.usage)) {
+        throw new DraftTruncated(opts.label, `stop "${first.usage.stop}", and "${again.usage.stop}" again on the retry`, again.usage.stop);
+      }
+      if (draftCutOff(again.usage, cap)) throw new DraftTruncated(opts.label, `stop "${first.usage.stop}", then cut off at ${cap} tokens on the retry`);
+      return again;
+    }
     if (!draftCutOff(first.usage, cap)) return first;
     const bigger = cutOffRetryCap(cap);
     if (seat.provider === 'external' || bigger <= cap) {
@@ -2571,6 +2596,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply states no verdict (${critique.unreadableWhy}) - counted as an abstention, not a sign-off.`);
           progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
+        }
+        if (critique.meets && draftIncomplete(cs.usage)) {
+          // M4's panel side: the provider ended the reply with error/content_filter/refusal. Whatever
+          // parsed is not a finished verdict, so a sign-off from it is not consent.
+          say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply signs off but the provider ended it with stop "${cs.usage.stop}" - counted as an abstention, not a sign-off.`);
+          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+          return { seat: criticSeat, critique: null, abstained: true, reasonCode: abstentionReasonCode(cs.usage, effectiveCap) };
         }
         if (critique.meets && providerCutOff(cs.usage)) {
           // M3, continued: still cut off (after the one bigger-cap retry, or a reasoning ceiling that

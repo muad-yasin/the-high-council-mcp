@@ -2093,9 +2093,22 @@ started.
     // labels for inspection. A resume replays them from disk and stops again until the chain gives
     // that seat a larger maxTokens (which changes the chain, so the stage is asked again) or the
     // external reply is replaced with a complete one.
-    const stopped = { stage: err.label, detail: err.detail, spentUsd: budgetState().spent };
+    const stopped = { stage: err.label, detail: err.detail, ...(err.stop ? { stop: err.stop } : {}), spentUsd: budgetState().spent };
     writeFileSync(join(runDir, 'STOPPED-truncated.json'), JSON.stringify(stopped, null, 2));
-    writeFileSync(join(runDir, 'STOPPED-truncated.md'), `# Run stopped: a draft was cut off at its token cap
+    // M4 (bug audit 2026-09-27): a draft the provider ended with error/content_filter/refusal stops
+    // here too, and the message names that stop instead of calling it cut off.
+    writeFileSync(join(runDir, 'STOPPED-truncated.md'), err.stop ? `# Run stopped: a draft did not complete
+
+Stage \`${err.label}\` came back unfinished: the provider ended it with stop "${err.stop}" (${err.detail}).
+
+An unfinished draft is never graded, reported or shipped. Nothing after this stage ran, and there is no
+\`report.json\` or \`deliverable.md\` for this run.
+
+To continue: the replies are on disk as \`${err.label}.md\` and \`${err.label}-retry.md\`, and a resume replays
+them. Move both aside to ask the seat again (or, for an external seat, replace \`${err.label}.md\` with a
+complete reply), then \`--resume\` this run. A "content_filter" or "refusal" stop usually needs a changed task
+or a different seat.
+` : `# Run stopped: a draft was cut off at its token cap
 
 Stage \`${err.label}\` produced a reply that ended at the seat's token limit: ${err.detail}.
 
@@ -2105,7 +2118,7 @@ A cut-off draft is never graded, reported or shipped. Nothing after this stage r
 To continue: raise that seat's \`maxTokens\` in the chain (or, for an external seat, replace
 \`${err.label}.md\` with a complete reply), then \`--resume\` this run.
 `);
-    log(`\nSTOPPED: stage "${err.label}" was cut off at its token cap - ${err.detail}.`);
+    log(err.stop ? `\nSTOPPED: stage "${err.label}" did not complete (stop: ${err.stop}) - ${err.detail}.` : `\nSTOPPED: stage "${err.label}" was cut off at its token cap - ${err.detail}.`);
     log(`  detail:  ${join(runDir, 'STOPPED-truncated.md')}`);
     process.exit(EXIT_DRAFT_TRUNCATED);
   }
