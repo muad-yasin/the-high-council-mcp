@@ -1082,8 +1082,18 @@ async function invoke(seat, { system, user, log, label }) {
     // Usage the cap cannot read (a NaN, a negative or non-numeric count, no usage at all) is
     // zeroed in the record and charged at one attempt's projection (cost.js readUsage).
     const readRes = r => { const { usage, unreadable } = readUsage(r.usage); return { ...r, usage, unreadable }; };
+    // Bug audit 2026-09-27 H1: the provider names the model that actually answered (an OpenRouter
+    // extra.models fallback, a dated alias), and an unpriced answering model cost $0, so the cap went
+    // blind for that call. It is charged at the seat's own model's price instead, and says so.
+    const priceAnswer = r => {
+      const own = costOf(r.provider, r.model, r.usage);
+      if (own.priced || r.model === seat.model) return own;
+      const asSeat = costOf(r.provider, seat.model, r.usage);
+      if (asSeat.priced) log(`  ${label}: answered by ${r.provider}/${r.model}, which has no price entry - charged at ${seat.model}'s price.`);
+      return asSeat.priced ? asSeat : own;
+    };
     const costOfRes = r => {
-      const measured = costOf(r.provider, r.model, r.usage);
+      const measured = priceAnswer(r);
       if (!r.unreadable) return measured;
       if (oneAttempt > 0) log(`  ${label}: ${r.provider}/${r.model} reported usage the spend cap cannot read (${r.unreadable}) - ${formatUsd(oneAttempt)} (one attempt's worst case) counted toward the cap.`);
       return { usd: oneAttempt, priced: measured.priced };
