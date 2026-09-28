@@ -64,8 +64,17 @@ export function baseUrlReasons(seat) {
   return [`baseUrl host "${host}" is not a known provider's API host${seat.provider === 'ollama' ? ' or a local/private-network address' : ' or a loopback address'}, so the seat cannot be shown to avoid a denied model`];
 }
 
+// Bug audit 2026-09-27 M1: a seat with no model (missing, null or "") skipped every id check below,
+// and what the provider then picks - possibly a router - was never shown to comply. `external` (a
+// person pastes the reply) and `mock` (offline) send nothing to an API, so they may leave it out.
+const MODEL_OPTIONAL = new Set(['external', 'mock']);
+
 function reasonsForSeat(seat) {
   const out = [];
+  if (typeof seat.provider === 'string' && !MODEL_OPTIONAL.has(seat.provider)
+      && !(typeof seat.model === 'string' && seat.model.trim())) {
+    out.push(`seat on provider "${seat.provider}" has no model, so what it would call cannot be checked; name one`);
+  }
   out.push(...baseUrlReasons(seat));
   const ids = [
     ['provider', seat.provider],
@@ -115,7 +124,7 @@ export function deniedSeatsOf(config) {
   const found = [];
   const walk = (node, path) => {
     if (!node || typeof node !== 'object') return;
-    if (typeof node.provider === 'string' && 'model' in node) {
+    if (typeof node.provider === 'string') {
       const reasons = reasonsForSeat(node);
       if (reasons.length) found.push({ path, reasons });
     }

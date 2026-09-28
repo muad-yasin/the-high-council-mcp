@@ -94,3 +94,18 @@ test('there is no xai provider at all: no adapter, no alias, no price, no exampl
   assert.ok(!/XAI_API_KEY/.test(readFileSync(join(root, '.env.example'), 'utf8')));
   assert.ok(!/x-ai\/|xai:/.test(readFileSync(join(root, 'src', 'providers.js'), 'utf8')), 'no single-vendor alias to xAI either');
 });
+
+// Bug audit 2026-09-27 M1: a missing, null or empty model skipped every id check, at lint and at run
+// time, so what the provider then picked (possibly a router) was never checked.
+test('a seat on an API provider with no, null or empty model is refused by lint and at run time', async () => {
+  for (const seat of [{ provider: 'openrouter' }, { provider: 'openrouter', model: null }, { provider: 'openrouter', model: '' }, { provider: 'anthropic', model: '  ' }]) {
+    assert.ok(deniedReasonsOf(seat).some(r => /has no model/.test(r)), JSON.stringify(seat));
+    const cfg = withCritic({ ...seat, lab: 'n' });
+    assert.ok(deniedSeatsOf(cfg).length >= 1, `lint walk finds ${JSON.stringify(seat)}`);
+    setCache(null); setBudget(null);
+    await assert.rejects(() => runChain({ request: 'Req.', config: cfg, draft: 'DRAFT', log: () => {} }), DeniedModel);
+  }
+  // external (a person pastes the reply) and mock (offline) call no API, so they may leave it out.
+  assert.deepEqual(deniedReasonsOf({ provider: 'external' }), []);
+  assert.deepEqual(deniedReasonsOf({ provider: 'mock' }), []);
+});
