@@ -458,6 +458,22 @@ async function callMock({ model, system, messages, maxTokens }) {
     await new Promise(r => setTimeout(r, 10));
     return { text: '{"meets": false, "criteria": [], "failures": [{"criterion": "It states the assum', usage: { input: 10, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model };
   }
+  // Bug audit 2026-09-27 M3: a reply the provider cut off at the cap that still PARSES - a complete
+  // verdict followed by trailing text the cap cut. `mock-critic-cut-signoff` signs off (every
+  // criterion MET), `mock-critic-cut-objection` objects; both are cut at any cap.
+  // `mock-critic-cut-signoff-then-fits` is cut only at a cap of 1000 or less, so the bigger-cap
+  // retry gets a complete sign-off.
+  if (isCritic && (model === 'mock-critic-cut-signoff' || model === 'mock-critic-cut-objection' || model === 'mock-critic-cut-signoff-then-fits')) {
+    await new Promise(r => setTimeout(r, 10));
+    const listed = (user.match(/# Acceptance criteria\n\n([\s\S]*?)\n\n#/) || [])[1] || '';
+    const names = listed.split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean);
+    const objects = model === 'mock-critic-cut-objection';
+    const rows = names.map((criterion, i) => ({ criterion, verdict: objects && i === 0 ? 'NOT MET' : 'MET', evidence: 'Section 1 states it.' }));
+    const verdict = JSON.stringify({ meets: !objects, criteria: rows, failures: objects ? [{ criterion: names[0] || 'first', problem: 'Not addressed.' }] : [], verdict_line: objects ? 'One criterion fails.' : 'All criteria met.' });
+    const cut = model !== 'mock-critic-cut-signoff-then-fits' || (maxTokens ?? 8000) <= 1000;
+    if (!cut) return { text: verdict, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(verdict.length / 4), stop: 'stop' }, provider: 'mock', model };
+    return { text: `${verdict}\n\nNotes on the remaining sections: the rollout order in sect`, usage: { input: 10, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model };
+  }
   // Criterion kinds (src/criteria-kinds.js): a critic that signs off with every criterion MET and
   // no evidence at all - the "met on trust" reply the chain must record on a checkable criterion.
   if (isCritic && model === 'mock-critic-bare-met') {

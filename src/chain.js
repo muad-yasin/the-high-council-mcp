@@ -497,6 +497,12 @@ function isReasoningExhausted(usage, cap) {
   return cut && usage.thinking > 0 && usage.output > 0 && usage.thinking >= usage.output && usage.output <= cap * REASONING_CEILING_FRACTION;
 }
 
+// The provider itself says the reply stopped at the token cap. Unlike abstentionReasonCode's
+// REPLY_TRUNCATED, no 95%-of-cap guess: a reply that finished with stop:"stop" is complete.
+export function providerCutOff(usage) {
+  return usage?.stop === 'length' || usage?.stop === 'max_tokens';
+}
+
 export function abstentionReasonCode(usage, maxTokens) {
   if (usage.stop === 'error') return 'PROVIDER_ERROR';
   const cap = maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -2486,12 +2492,18 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             return { seat: criticSeat, critique: null, abstained: true, error: String(err.message), reasonCode: 'SEAT_UNREACHABLE' };
           }
           parsed = parseJson(cs.text);
-          if (!parsed && !cutOffRetried && abstentionReasonCode(cs.usage, effectiveCap) === 'REPLY_TRUNCATED') {
+          // Bug audit 2026-09-27 M3: a reply the provider cut off at the cap can still parse (an
+          // early complete fence, a lucky brace span), and a parsed cut-off `meets:true` went
+          // straight through as a sign-off. So "cut off" is decided from the provider's stop reason
+          // whether or not the reply parsed - never the 95%-of-cap guess, which would retry a reply
+          // that finished normally near its cap. A pasted external reply carries no stop: no-op.
+          if (!cutOffRetried && (parsed ? providerCutOff(cs.usage) : true) && abstentionReasonCode(cs.usage, effectiveCap) === 'REPLY_TRUNCATED') {
             // A reply cut off at the cap is a lost vote, not a position (pilot 2026-09-17: 14 of
             // 58 lost votes, several already carrying `"meets": false`). Ask once more with a
             // bigger cap; if that fails too, the seat abstains as before and the round rule
             // below refuses to call the panel unanimous without it.
             cutOffRetried = true;
+            const firstParsed = parsed, firstCs = cs, firstCap = effectiveCap;
             const biggerCap = cutOffRetryCap(effectiveCap);
             say(`  ${labOf(criticSeat)}/${criticSeat.model}: reply cut off at ${effectiveCap} tokens - asking once more with a ${biggerCap}-token cap.`);
             try {
@@ -2502,6 +2514,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
               }));
               effectiveCap = biggerCap;
               parsed = parseJson(cs.text);
+              // M3: when the cut-off first reply did parse, an unreadable retry must not throw away
+              // what it said - back to the first reply (a cut objection still counts; a cut sign-off
+              // is turned into an abstention below).
+              if (!parsed && firstParsed) { parsed = firstParsed; cs = firstCs; effectiveCap = firstCap; }
             } catch (err) {
               rethrowControlFlow(err);
               say(`  ${labOf(criticSeat)}/${criticSeat.model}: the bigger-cap retry failed (${String(err.message).slice(0, 120)}) - keeping the first attempt's abstention.`);
@@ -2553,6 +2569,15 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           // Parsed as JSON but stated no verdict - the same abstention as an unparseable reply.
           const reasonCode = abstentionReasonCode(cs.usage, effectiveCap);
           say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply states no verdict (${critique.unreadableWhy}) - counted as an abstention, not a sign-off.`);
+          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+          return { seat: criticSeat, critique: null, abstained: true, reasonCode };
+        }
+        if (critique.meets && providerCutOff(cs.usage)) {
+          // M3, continued: still cut off (after the one bigger-cap retry, or a reasoning ceiling that
+          // gets none). A cut-off sign-off is never consent: the seat is unheard. A cut-off objection
+          // is kept - it already said no, and dropping it would lose a vote (pilot 2026-09-17).
+          const reasonCode = abstentionReasonCode(cs.usage, effectiveCap) === 'REASONING_EXHAUSTED' ? 'REASONING_EXHAUSTED' : 'REPLY_TRUNCATED';
+          say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply signs off but was cut off at the cap (stop: ${cs.usage.stop}) - counted as an abstention, not a sign-off.`);
           progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
         }
