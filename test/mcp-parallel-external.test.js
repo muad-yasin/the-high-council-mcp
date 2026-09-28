@@ -86,3 +86,34 @@ test('two external critics: both are listed, either can be answered first, and t
     assert.ok(existsSync(join(runDir, 'report.json')), 'the run finished after both answers');
   } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
+
+// Bug audit 2026-09-28 (external seats #1): stage labels with a dot (plan-daily-7's `opus5.5-sub`)
+// failed the tools' old /^[a-z0-9-]+$/ schema, so no such stage could be answered over MCP.
+test('a dotted lab (opus5.5-sub) can be fetched and answered over MCP; a ".." label is refused', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-mcp-dotted-'));
+  try {
+    mkdirSync(join(dir, 'tasks'));
+    mkdirSync(join(dir, 'chains'));
+    writeFileSync(join(dir, 'tasks', 't.md'), '# A plan\n\nPlan a small note-taking app.\n');
+    writeFileSync(join(dir, 'chains', 'dotted.json'), JSON.stringify({
+      name: 'dotted', description: 'test', maxRounds: 1, signoff: 'unanimous',
+      estimate: { promptTokens: 100, draftTokens: 100, critiqueTokens: 100 },
+      seats: {
+        criteria: { provider: 'mock', model: 'mock-criteria' },
+        builder: { provider: 'mock', model: 'mock-builder' },
+        reviser: { provider: 'mock', model: 'mock-builder' },
+        critics: [{ provider: 'external', model: 'subscription:opus-5.5', lab: 'opus5.5-sub' }],
+      },
+    }));
+    const first = spawnSync(process.execPath, [cli, '--chain', 'dotted', '--task', 'tasks/t.md'], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir }, timeout: 60_000 });
+    assert.equal(first.status, 3, first.stderr);
+    const run = readdirSync(join(dir, 'runs'))[0];
+    const p = await call(dir, 'external_prompt', { run, stage: 'panel-1-opus5.5-sub' });
+    assert.equal(p.stage, 'panel-1-opus5.5-sub', JSON.stringify(p));
+    const bad = (await mcpSession(dir, [{ name: 'submit_stage', arguments: { run, stage: '..panel', content: PASS } }])).get(2);
+    assert.ok(bad.error || bad.result?.isError, `a ".." label must be refused, got ${JSON.stringify(bad)}`);
+    const a = await call(dir, 'submit_stage', { run, stage: 'panel-1-opus5.5-sub', content: PASS });
+    assert.equal(a.written, 'panel-1-opus5.5-sub.md', JSON.stringify(a));
+    assert.equal(a.resumed, true);
+  } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+});

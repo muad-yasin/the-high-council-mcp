@@ -89,6 +89,13 @@ function ceilingArgs(maxUsd, saved) {
   return ['--max-usd', String(Math.min(usdLimit, Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 7))];
 }
 
+// A stage label as chain.js writes it: `panel-2-<lab>-reask1` and the like, where a lab id may carry
+// a version (`opus5.5-sub`, plan-daily-7's Opus seat; `glm5.2`). Bug audit 2026-09-28 (external
+// seats #1): the old /^[a-z0-9-]+$/ refused every dotted label, so no plan-daily-7 Opus stage could be
+// answered through MCP while external_prompt told the client to submit exactly that label. Never a
+// path: no "/", no "..", not starting with "." - and the tools also require a NEEDS-<label>.md.
+const STAGE_LABEL = z.string().max(200).regex(/^[A-Za-z0-9_][A-Za-z0-9._-]*$/).refine(v => !v.includes('..'), 'a stage label never contains ".."');
+
 // max_usd over MCP: a positive number of dollars, or "none" for no ceiling - the JS API's shape.
 const MAX_USD_ARG = z.union([z.number().positive(), z.literal('none')]).optional();
 
@@ -375,7 +382,7 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
 // submit_stage accepted only the first, so the others could not be answered through MCP. `waiting`
 // now lists every stage the run is waiting on, and `stage` picks which prompt to return (the first
 // by default); submit_stage accepts any of them.
-server.tool('external_prompt', 'When a run is paused at an external seat: the exact system and user prompt that stage needs answered. A run can wait on several stages at once (e.g. a panel of external critics): `waiting` lists them all; pass stage to get another one\'s prompt. Answer each with submit_stage; the run resumes once none is left.', { run: z.string(), stage: z.string().regex(/^[a-z0-9-]+$/).optional().describe('which waiting stage to return; defaults to the first in `waiting`') }, async ({ run, stage }) => {
+server.tool('external_prompt', 'When a run is paused at an external seat: the exact system and user prompt that stage needs answered. A run can wait on several stages at once (e.g. a panel of external critics): `waiting` lists them all; pass stage to get another one\'s prompt. Answer each with submit_stage; the run resumes once none is left.', { run: z.string(), stage: STAGE_LABEL.optional().describe('which waiting stage to return; defaults to the first in `waiting`') }, async ({ run, stage }) => {
   if (!safeRun(run)) return text({ error: 'no such run' });
   const dir = join(runsDir, run);
   const all = waitingStages(dir);
@@ -419,7 +426,7 @@ server.tool('prepare_stage_prompt', 'For a run paused at an external seat: write
   return text({ written: join(dir, 'stage_prompt.md'), stage: label, dispatch: 'Fork a subagent and give it only this file\'s path - not its contents inline.' });
 });
 
-server.tool('submit_stage', 'Write the answer for an external stage into the run folder, then resume the run in the background. The stage must be one external_prompt lists under `waiting`; the run resumes once all of them are answered. claimed_by is optional (v3 §1): a self-declared peer-session name, recorded as this stage\'s claim; every check here is warn-only and never blocks the write, so a caller that omits it sees exactly today\'s behavior.', { run: z.string(), stage: z.string().regex(/^[a-z0-9-]+$/), content: z.string(), claimed_by: z.string().optional().describe('self-declared peer-session name, recorded as this stage\'s claim before the answer is written') }, async ({ run, stage, content, claimed_by }) => {
+server.tool('submit_stage', 'Write the answer for an external stage into the run folder, then resume the run in the background. The stage must be one external_prompt lists under `waiting`; the run resumes once all of them are answered. claimed_by is optional (v3 §1): a self-declared peer-session name, recorded as this stage\'s claim; every check here is warn-only and never blocks the write, so a caller that omits it sees exactly today\'s behavior.', { run: z.string(), stage: STAGE_LABEL, content: z.string(), claimed_by: z.string().optional().describe('self-declared peer-session name, recorded as this stage\'s claim before the answer is written') }, async ({ run, stage, content, claimed_by }) => {
   if (!safeRun(run)) return text({ error: 'no such run' });
   const dir = join(runsDir, run);
   // A stage this run never paused for is still rejected outright - that is not one of §1's
