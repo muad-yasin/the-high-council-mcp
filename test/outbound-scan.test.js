@@ -149,3 +149,69 @@ test('scan: pattern name and line only; prose passwords and context-only shapes 
   assert.deepEqual(secretShapesIn(`We work together. Commit ${hex(64)}.`), []);
   assert.doesNotThrow(() => assertOutboundClean('x', { system: 'const apiKey = config.apiKey;', user: 'CACHE_KEY=1' }));
 });
+
+// Verify pass 2026-09-28 F1 (C&C's split by source): generic shapes (a URL password, a named or
+// env-style assignment, a Bearer header) are checked in the user's inputs before the run; prompts
+// that carry model output are checked for distinctive key formats only.
+const PLACEHOLDER = 'DATABASE_URL=postgres://postgres:postgres@localhost:5432/notes\nSESSION_SECRET=change-me-in-production';
+
+test('split: a placeholder URL in the task stops the run up front', () => {
+  const dir = workspace(`Plan a small app.\n${PLACEHOLDER}\n`);
+  const r = council(dir, ['--chain', 'mock', '--task', 'tasks/x.md']);
+  assert.equal(r.status, 11, r.stdout + r.stderr);
+  assert.match(r.stderr, /URL credentials|credential assignment/);
+});
+
+test('split: the same placeholder in model output (an external build answer) does not stop the run', () => {
+  const dir = workspace('Plan a small app.\n');
+  const first = council(dir, ['--chain', 'mock-external', '--task', 'tasks/x.md']);
+  assert.equal(first.status, 3, first.stdout + first.stderr);
+  const [id] = readdirSync(join(dir, 'runs'));
+  const pending = readdirSync(join(dir, 'runs', id)).find(f => f.startsWith('NEEDS-')).slice('NEEDS-'.length, -'.md'.length);
+  writeFileSync(join(dir, 'runs', id, `${pending}.md`), `# Plan\n\nConfig:\n\n${PLACEHOLDER}\n`);
+  const again = council(dir, ['--resume', join('runs', id)]);
+  assert.notEqual(again.status, 11, again.stdout + again.stderr);
+  assert.equal(existsSync(join(dir, 'runs', id, 'STOPPED-secret.md')), false);
+});
+
+test('split: a distinctive key in model output still stops the run, and resume can override it', () => {
+  const dir = workspace('Plan a small app.\n');
+  const first = council(dir, ['--chain', 'mock-external', '--task', 'tasks/x.md']);
+  assert.equal(first.status, 3, first.stdout + first.stderr);
+  const [id] = readdirSync(join(dir, 'runs'));
+  const run = join(dir, 'runs', id);
+  const pending = readdirSync(run).find(f => f.startsWith('NEEDS-')).slice('NEEDS-'.length, -'.md'.length);
+  writeFileSync(join(run, `${pending}.md`), `# Plan\n\nUse ${FORMATS[3][1]} here.\n`);
+  const again = council(dir, ['--resume', join('runs', id)]);
+  assert.equal(again.status, 11, again.stdout + again.stderr);
+  const stopped = readFileSync(join(run, 'STOPPED-secret.md'), 'utf8');
+  assert.match(stopped, /Anthropic/);
+  assert.equal(stopped.includes(FORMATS[3][2]), false);
+  assert.match(stopped, /allow_secret_shaped: true/);
+  const allowed = council(dir, ['--resume', join('runs', id), '--allow-secret-shaped']);
+  assert.notEqual(allowed.status, 11, allowed.stdout + allowed.stderr);
+});
+
+test('split: assertOutboundClean skips generic shapes; secretShapesIn keeps them for inputs', () => {
+  assert.doesNotThrow(() => assertOutboundClean('x', { system: '', user: PLACEHOLDER }));
+  assert.ok(secretShapesIn(PLACEHOLDER).length >= 2);
+  assert.throws(() => assertOutboundClean('x', { system: '', user: FORMATS[0][1] }), SecretShapedPrompt);
+});
+
+test('F4: a key in a --criteria file is refused up front, named by file and line, never echoed', () => {
+  const dir = workspace('Plan a small app.\n');
+  writeFileSync(join(dir, 'crit.md'), `- It names an owner.\n- It uses ${FORMATS[3][1]} nowhere.\n`);
+  const r = council(dir, ['--chain', 'mock', '--task', 'tasks/x.md', '--criteria', 'crit.md']);
+  assert.equal(r.status, 11, r.stdout + r.stderr);
+  assert.match(r.stderr, /crit\.md:2 +Anthropic/);
+  assert.equal((r.stdout + r.stderr).includes(FORMATS[3][2]), false);
+  assert.equal(existsSync(join(dir, 'runs')), false);
+});
+
+test('F1(b): MCP resume_run and api.resume can pass the override', () => {
+  const server = readFileSync(join(root, 'src/mcp/server.js'), 'utf8');
+  assert.match(server, /allow_secret_shaped: z\.boolean\(\)\.optional\(\)[^\n]*STOPPED-secret/);
+  assert.match(server, /\.\.\.\(allowSecretShaped \? \['--allow-secret-shaped'\] : \[\]\)/);
+  const api = readFileSync(join(root, 'src/api.js'), 'utf8');
+  assert.match(api, /export async function resume\(\{[^}]*allowSecretShaped/);
+});

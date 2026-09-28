@@ -462,12 +462,12 @@ server.tool('submit_stage', 'Write the answer for an external stage into the run
   return text({ written: `${stage}.md`, words: words(content), ...(warnings.length ? { warnings } : {}), ...(await resume(run)) });
 });
 
-server.tool('resume_run', 'Resume a paused run after its external stage was answered (submit_stage does this for you), or a run stopped by the spend cap (pass a higher max_usd). Completed stages replay from disk and cost nothing.', { run: z.string(), max_usd: MAX_USD_ARG.describe('raise the per-run ceiling for the rest of this run, a positive number. "none" removes it (refused if the user set COUNCIL_MAX_USD_LIMIT); 0 is refused.') }, async ({ run, max_usd }) => {
+server.tool('resume_run', 'Resume a paused run after its external stage was answered (submit_stage does this for you), or a run stopped by the spend cap (pass a higher max_usd). Completed stages replay from disk and cost nothing.', { run: z.string(), max_usd: MAX_USD_ARG.describe('raise the per-run ceiling for the rest of this run, a positive number. "none" removes it (refused if the user set COUNCIL_MAX_USD_LIMIT); 0 is refused.'), allow_secret_shaped: z.boolean().optional().describe('continue a run the outbound key scan stopped (STOPPED-secret.md) and send the key-shaped text anyway; saved with the run from then on. Off unless given.') }, async ({ run, max_usd, allow_secret_shaped }) => {
   if (!safeRun(run)) return text({ error: 'no such run' });
-  return text(await resume(run, max_usd));
+  return text(await resume(run, max_usd, { allowSecretShaped: allow_secret_shaped === true }));
 });
 
-async function resume(run, maxUsd) {
+async function resume(run, maxUsd, { allowSecretShaped = false } = {}) {
   // CLI audit #2: a --rematch/--replay folder cannot be resumed (the CLI refuses it too).
   if (/\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2})$/.test(run) || readJson(join(runsDir, run, 'run.json'))?.rematchOf) {
     return { resumed: false, run, error: 'this is a --rematch/--replay folder, which cannot be resumed; start the rematch or replay again instead' };
@@ -496,7 +496,8 @@ async function resume(run, maxUsd) {
   if (ceiling.refused) return { resumed: false, run, error: ceiling.refused };
   const logPath = join(work, `council-${Date.now()}.log`);
   const fd = openSync(logPath, 'a');
-  const resumeArgs = ['--resume', join('runs', run), ...ceiling];
+  // Verify pass 2026-09-28 F1(b): the outbound key scan's override, which a CLI resume can pass.
+  const resumeArgs = ['--resume', join('runs', run), ...ceiling, ...(allowSecretShaped ? ['--allow-secret-shaped'] : [])];
   const spawnedAt = Date.now();
   const child = spawn(...cliCommand(resumeArgs), { cwd: work, env: cliEnv, detached: true, stdio: ['ignore', fd, fd] });
   closeSync(fd);

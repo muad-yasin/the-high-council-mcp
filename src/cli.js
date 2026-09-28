@@ -1645,6 +1645,12 @@ if (!allowSecretShapedEff) {
     ...secretShapesIn(rawTaskTextForCacheFingerprint).map(f => ({ where: taskFile, ...f })),
     ...contextFilesForScan.flatMap(f => { try { return secretShapesIn(readContextFile(f)).map(x => ({ where: f, ...x })); } catch { return []; } }),
     ...secretShapesIn(handedDraft || '').map(f => ({ where: 'the handed draft (--draft / --from-run)', ...f })),
+    // Verify pass 2026-09-28 F4: the criteria reach every seat too, and are echoed to run.log. A
+    // --criteria file by its own lines; criteria reused from --from-run by criterion number.
+    ...(criteriaPath
+      ? secretShapesIn(readFileSync(criteriaPath, 'utf8')).map(f => ({ where: criteriaPath, ...f }))
+      : secretShapesIn((Array.isArray(config.criteria) ? config.criteria : []).map(c => (typeof c === 'string' ? c : JSON.stringify(c)).replace(/\n/g, ' ')).join('\n'))
+        .map(f => ({ where: 'the criteria reused from --from-run (criterion number)', ...f }))),
   ];
   if (found.length) {
     console.error(`\nOUTBOUND KEY SCAN: refusing to run - ${found.length} credential-shaped string(s) in the input, which would be sent to every seat:`);
@@ -2317,12 +2323,14 @@ Stage \`${err.label}\` was about to be sent with text shaped like a key (the val
 
 ${where}
 
-Nothing was sent for this stage. The input files were scanned before the run started, so this text came
-from an earlier stage's output or the chain itself. Completed stages are on disk and replay for free.
+Nothing was sent for this stage. The input files were scanned before the run started (for these distinctive key formats and
+the generic shapes), so this text came from an earlier stage's output or the chain itself. Completed stages are on disk and replay for free.
 Read \`${err.label}\`'s inputs, then either fix the cause and resume, or resume with
 \`--allow-secret-shaped\` to send it deliberately:
 
     ${councilCommand()} --resume runs/${runId} --allow-secret-shaped
+
+Over MCP: \`resume_run\` with \`allow_secret_shaped: true\`. JS API: \`resume({ runDir, allowSecretShaped: true })\`.
 `);
     log(`\nSTOPPED: ${err.message}.`);
     for (const f of err.findings) log(`  ${f.part} prompt, line ${f.line}: ${f.name}`);

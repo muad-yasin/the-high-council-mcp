@@ -157,11 +157,12 @@ export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, dr
  * Resume a paused run (after its external stage was answered) or one the spend ceiling stopped
  * (pass a higher maxUsd). Stages already on disk replay from disk and cost nothing again.
  */
-export async function resume({ runDir, cwd = process.cwd(), maxUsd, env, onOutput, signal } = {}) {
+export async function resume({ runDir, cwd = process.cwd(), maxUsd, allowSecretShaped, env, onOutput, signal } = {}) {
   const work = resolve(cwd);
   const dir = resolve(work, runDir ?? '');
   if (!runDir || !existsSync(join(dir, 'run.json'))) throw new Error(`runDir: not a run folder with a run.json: ${dir}`);
-  const res = await runCli(['--resume', dir, ...maxUsdArgs(maxUsd)], { cwd: work, env, onOutput, signal });
+  // Verify pass 2026-09-28 F1(b): continue a run the outbound key scan stopped.
+  const res = await runCli(['--resume', dir, ...maxUsdArgs(maxUsd), ...(allowSecretShaped === true ? ['--allow-secret-shaped'] : [])], { cwd: work, env, onOutput, signal });
   return { runId: basename(dir), runDir: dir, ...res, ...statusOf(dir) };
 }
 

@@ -13,20 +13,26 @@
   empty) is refused, at lint and at run time (`external` and `mock` seats may leave it out); and
   `extra-models-unpriced`: a priced seat's `extra.models` fallback with no entry in
   `src/pricing.json`.
-- **Key-shaped text in a prompt stops the run (exit 11).** Every prompt is scanned against the key
-  formats in `src/secret-patterns.js` before it leaves: each provider call, each external seat's
-  `NEEDS-<stage>.md`, and the input files once up front. A match stops before anything is sent and
-  names the file or stage, the line and the format, never the value; a match mid-run writes
-  `STOPPED-secret.md`. The one override is `--allow-secret-shaped` (saved in `run.json`, so a resume
-  keeps it; MCP `start_run` `allow_secret_shaped: true`; JS API `run({ allowSecretShaped: true })`). Key shapes only; PII stays behind the
-  opt-in `--pii-gate`. A clean run's prompts are byte-identical.
+- **Key-shaped text in a prompt stops the run (exit 11).** Your inputs (the task, `--context`
+  files, a handed draft, a `--criteria` file) are scanned before the run against every format in
+  `src/secret-patterns.js`, including a password inside a URL or an assignment. Every prompt that
+  leaves (each provider call, each external seat's `NEEDS-<stage>.md`) is scanned again for the
+  distinctive key formats (provider prefixes, PEM/PGP, JWT, AWS, GitHub, Slack, Stripe, ...), so a
+  model's placeholder such as `postgres://postgres:postgres@localhost` does not stop a run. A match
+  stops before anything is sent and names the file or stage, the line and the format, never the
+  value; a match mid-run writes `STOPPED-secret.md`. The one override is `--allow-secret-shaped`
+  (saved in `run.json`, so a resume keeps it; MCP `start_run` / `resume_run`
+  `allow_secret_shaped: true`; JS API `run` / `resume` `allowSecretShaped: true`). Key shapes only;
+  PII stays behind the opt-in `--pii-gate`. A clean run's prompts are byte-identical.
 
 ### Fixed
 
 - **A panel reply cut off at the token cap no longer counts as a sign-off when it happens to parse.**
   Cut-off is read from the provider's stop reason, parsed or not: one retry with a bigger cap, and a
   reply still cut off is an abstention if it signed off, or kept as an objection if it objected.
-  A pasted external reply carries no stop reason, so this does not apply there.
+  This holds for `signoff: "first"` chains too (verify, cheap and 16 more), where a cut-off or
+  provider-ended sign-off is no pass. A pasted external reply carries no stop reason, so this does
+  not apply there.
 - **A draft the provider ended with `error`, `content_filter` or `refusal` is no longer taken as
   finished.** Every draft stage retries it once at the same cap, then stops the run
   (`STOPPED-truncated.md`, exit 17) naming the stop; `STOPPED-truncated.json` gains `stop`. A panel
@@ -43,7 +49,7 @@
   it dropped out (`plan-daily-7`'s first real run lost Hy4 preview this way).
 - **A debate post or reply round the provider ended with `error` (or a refusal or its content
   filter) is retried once**, and if it fails again it is recorded as `provider_error` in
-  `debate.dropped`, not `unreadable`. `WARNINGS.md` names the stop instead of "not readable as JSON".
+  `debate.dropped`, not `unreadable` (a new value of the schema's `reason` enum). `WARNINGS.md` names the stop instead of "not readable as JSON".
   A 2.5-second provider error used to cost a lab its whole reply round.
 - **A lab that dropped out is named where people read.** `report.json`'s `dropouts` was shown nowhere
   else, so a run whose `outcome` was "degraded" gave no visible reason. `BOARD.md` gains a "Dropped

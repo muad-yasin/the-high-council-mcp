@@ -74,7 +74,7 @@ export async function generateDigestText({ report, call, model, provider, maxTok
   if (denied.length) throw new DeniedModel([{ path: 'digest', reasons: denied }]);
   // 0.7.9 outbound key scan (src/outbound-scan.js): a key-shaped string in the summary is never
   // sent; the local template is written instead.
-  if (secretShapesIn(JSON.stringify(summary)).length) return fallback;
+  if (secretShapesIn(JSON.stringify(summary), { distinctiveOnly: true }).length) return fallback;
   try {
     const reply = await call(provider, {
       model,

@@ -765,8 +765,10 @@ what each rule guards against and why. Copy the folders you want into your proje
   which is the default, it does not detect a full rewrite**: anyone who can edit the file can
   recompute every hash. Set `AUDIT_HMAC_KEY_FILE` to a key kept outside the run folder if the log
   has to stand up to that.
-- The outbound key scan (every prompt, before it leaves) matches **key shapes only**, the formats
-  in `src/secret-patterns.js`; a password written in prose is not detectable.
+- The outbound key scan matches **key shapes only**, the formats in `src/secret-patterns.js`; a
+  password written in prose is not detectable. Generic shapes (a password inside a URL or an
+  assignment) are checked in your inputs before the run; text the models write is checked only for
+  distinctive key formats.
 
 ## Privacy
 

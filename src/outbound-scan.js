@@ -14,13 +14,23 @@
 //
 // The one override is `--allow-secret-shaped` (saved in run.json, so a resume keeps it; MCP
 // start_run `allow_secret_shaped`).
+//
+// Split by source (C&C, 2026-09-28, after verify pass F1): the leak guarded against is the user's
+// own secret, and it enters through the inputs. The up-front input scan (cli.js: task, --context,
+// handed draft, criteria) checks every shape, the generic ones included (a password in a URL, a
+// named or env-style assignment, a Bearer header). The per-call scan in invoke() sees prompts that
+// carry model output, where those generic shapes are mostly placeholders
+// (`postgres://postgres:postgres@localhost`, `SESSION_SECRET=change-me`), so it checks only the
+// distinctive key formats (provider prefixes, PEM/PGP, JWT, AWS, GitHub, Slack, Stripe, ...): a
+// placeholder no longer stops a run mid-way, and a real key a model echoes is still caught.
 
 import { findSecrets } from './secret-patterns.js';
 
-// [{ line, name }] for every credential-shaped span in `text`, 1-based lines.
-export function secretShapesIn(text) {
+// [{ line, name }] for every credential-shaped span in `text`, 1-based lines. `distinctiveOnly`
+// leaves out the generic shapes (see above).
+export function secretShapesIn(text, { distinctiveOnly = false } = {}) {
   if (typeof text !== 'string' || !text) return [];
-  return findSecrets(text, { redactable: true }).map(s => ({
+  return findSecrets(text, { redactable: true, distinctiveOnly }).map(s => ({
     line: text.slice(0, s.start).split('\n').length,
     name: s.name,
   }));
@@ -37,12 +47,13 @@ export class SecretShapedPrompt extends Error {
   }
 }
 
-// Throws SecretShapedPrompt unless the prompt is clean or the scan is waived.
+// Throws SecretShapedPrompt unless the prompt is clean or the scan is waived. Distinctive key
+// formats only: this runs on prompts that carry model output (see above).
 export function assertOutboundClean(label, { system, user }, { allow = false } = {}) {
   if (allow) return;
   const findings = [
-    ...secretShapesIn(system).map(f => ({ part: 'system', ...f })),
-    ...secretShapesIn(user).map(f => ({ part: 'user', ...f })),
+    ...secretShapesIn(system, { distinctiveOnly: true }).map(f => ({ part: 'system', ...f })),
+    ...secretShapesIn(user, { distinctiveOnly: true }).map(f => ({ part: 'user', ...f })),
   ];
   if (findings.length) throw new SecretShapedPrompt(label, findings);
 }

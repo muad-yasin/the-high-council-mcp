@@ -114,6 +114,8 @@ export interface RunOptions extends CommonRunOptions {
 
 export interface ResumeOptions extends CommonRunOptions {
   runDir: string;
+  /** Continue a run the outbound key scan stopped (STOPPED-secret.md), sending the text anyway. */
+  allowSecretShaped?: boolean;
 }
 
 export declare function version(): string;

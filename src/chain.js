@@ -3040,7 +3040,31 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         break;
       }
 
-      const parsed = parseJson(cs.text);
+      let parsed = parseJson(cs.text);
+      // Verify pass 2026-09-28 F2: M3/M4 held only on the unanimous panel, so in `first` mode a
+      // cut-off or provider-ended `meets:true` still passed the run. The same rules here: one
+      // bigger-cap retry for a reply cut off at its cap (parsed or not), falling back to a parsed
+      // first reply; then a sign-off still cut off, or ended with error/content_filter/refusal, is
+      // no verdict (below). A pasted external reply carries no stop: no-op.
+      let critCap = criticSeat.maxTokens ?? DEFAULT_MAX_TOKENS;
+      if ((parsed ? providerCutOff(cs.usage) : true) && abstentionReasonCode(cs.usage, critCap) === 'REPLY_TRUNCATED') {
+        const firstParsed = parsed, firstCs = cs, firstCap = critCap;
+        const biggerCap = cutOffRetryCap(critCap);
+        log(`  critic reply cut off at ${critCap} tokens - asking once more with a ${biggerCap}-token cap.`);
+        try {
+          cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
+            system: checks ? R.criticSystem(open, { criteriaKinds: true }) : R.criticSystem(open),
+            user: R.criticUser({ request, criteria, draft, checks }),
+            log, label: `critique-${round}-retry`,
+          }));
+          critCap = biggerCap;
+          parsed = parseJson(cs.text);
+          if (!parsed && firstParsed) { parsed = firstParsed; cs = firstCs; critCap = firstCap; }
+        } catch (err) {
+          rethrowControlFlow(err);
+          log(`  the bigger-cap retry failed (${String(err.message).slice(0, 120)}) - keeping the first reply.`);
+        }
+      }
       if (!parsed) {
         // Previously logged "treating the round as a pass and stopping" while leaving `passed`
         // at its prior value and `lastCritique` untouched - the log claimed a pass that never
@@ -3050,7 +3074,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // hiding a genuine objection, and this chain's whole value is not letting that slip
         // through. `passed` keeps whatever it already was (false unless an earlier round already
         // passed); what changes is that the report now says why, instead of nothing.
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, criticSeat.maxTokens), reasked: false });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, critCap), reasked: false });
         log(`  critic reply could not be parsed as JSON even after repair attempts; stopping ` +
           `without a verdict from this critic - not a pass, not counted as an objection either.`);
         lastCritique = { meets: false, failures: [{
@@ -3069,6 +3093,20 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         lastCritique = { meets: false, failures: [{
           criterion: '(critic reply stated no verdict)',
           problem: `${criticSeat.provider}/${criticSeat.model}'s round ${round} reply parsed but stated no verdict: ${critique.unreadableWhy}.`,
+        }] };
+        break;
+      }
+      if (critique.meets && (draftIncomplete(cs.usage) || providerCutOff(cs.usage))) {
+        // F2, continued: a sign-off the provider ended early is not a pass. Handled like the
+        // unreadable reply above: no verdict from this critic, and the run stops saying why.
+        const stopped = draftIncomplete(cs.usage);
+        const reasonCode = stopped ? abstentionReasonCode(cs.usage, critCap)
+          : (abstentionReasonCode(cs.usage, critCap) === 'REASONING_EXHAUSTED' ? 'REASONING_EXHAUSTED' : 'REPLY_TRUNCATED');
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: reasonCode, reasked: false });
+        log(`  [COUNCIL-E004] critic reply signs off but ${stopped ? `the provider ended it with stop "${cs.usage.stop}"` : `was cut off at the cap (stop: ${cs.usage.stop})`}; stopping without a verdict from this critic - not a pass.`);
+        lastCritique = { meets: false, failures: [{
+          criterion: '(critic sign-off incomplete)',
+          problem: `${criticSeat.provider}/${criticSeat.model}'s round ${round} reply signed off, but ${stopped ? `the provider ended it with stop "${cs.usage.stop}"` : 'it was cut off at its token cap'}, so it is not a pass.`,
         }] };
         break;
       }

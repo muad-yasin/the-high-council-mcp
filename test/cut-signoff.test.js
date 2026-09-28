@@ -52,3 +52,41 @@ test('stop reasons: only the provider saying length/max_tokens is "cut off"; a r
   ]) assert.equal(providerCutOff(usage), cut, JSON.stringify(usage));
   assert.equal(abstentionReasonCode({ stop: 'stop', output: 990 }, 1000), 'REPLY_TRUNCATED', 'the 95% guess stays for UNPARSED replies only');
 });
+
+// Verify pass 2026-09-28 F2: the same rules in `signoff: 'first'` mode (18 shipped chains), where a
+// cut-off or provider-ended `meets:true` used to pass the run.
+async function runFirst(critic) {
+  setCache(null); setBudget(null);
+  const stages = [], lines = [];
+  const result = await runChain({ request: 'A test request.', config: { ...config([critic], 1), signoff: 'first' }, log: l => lines.push(l), onStage: s => stages.push(s.label) });
+  return { result, stages, lines };
+}
+
+test('first mode: a cut-off sign-off is retried once with a bigger cap, then is no pass', async () => {
+  const { result, stages, lines } = await runFirst(seat('mock-critic-cut-signoff', { maxTokens: 1000 }));
+  assert.ok(stages.includes('critique-1-retry'), `expected the bigger-cap retry, got ${stages.join(', ')}`);
+  assert.equal(result.passed, false);
+  const v = result.panelVerdicts.find(p => p.model === 'mock-critic-cut-signoff');
+  assert.equal(v.verdict, 'unheard');
+  assert.equal(v.reason_code, 'REPLY_TRUNCATED');
+  assert.ok(lines.some(l => /signs off but was cut off at the cap/.test(l)));
+});
+
+test('first mode: a sign-off the provider ended with stop "error" is no pass', async () => {
+  const { result } = await runFirst(seat('mock-critic-error-signoff'));
+  assert.equal(result.passed, false);
+  assert.equal(result.panelVerdicts[0].verdict, 'unheard');
+});
+
+test('first mode: a cut-off sign-off rescued by the bigger-cap retry passes', async () => {
+  const { result, stages } = await runFirst(seat('mock-critic-cut-signoff-then-fits', { maxTokens: 1000 }));
+  assert.ok(stages.includes('critique-1-retry'));
+  assert.equal(result.passed, true);
+  assert.equal(result.panelVerdicts.at(-1).verdict, 'signed_off');
+});
+
+test('first mode: a cut-off objection is kept as an objection', async () => {
+  const { result } = await runFirst(seat('mock-critic-cut-objection', { maxTokens: 1000 }));
+  assert.equal(result.passed, false);
+  assert.equal(result.panelVerdicts[0].verdict, 'objected');
+});
