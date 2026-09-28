@@ -105,6 +105,13 @@
           "default": "7"
         },
         {
+          "name": "COUNCIL_MAX_USD_LIMIT",
+          "description": "A hard per-run ceiling in US dollars that the MCP client cannot raise or remove (max_usd above it, or \"none\", is refused). Set it to the same value as MAX_USD_PER_RUN to lock the cap.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "number"
+        },
+        {
           "name": "COUNCIL_WORKDIR",
           "description": "Folder for task files and run output. Default: the directory the client starts the server in.",
           "isRequired": false,

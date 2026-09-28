@@ -83,7 +83,7 @@
     "outcome": {
       "x-stability": "stable",
       "enum": ["consensus", "no_consensus", "degraded"],
-      "description": "Verdict class, computed by src/outcome.js from the rest of this file. `degraded` wins: some seat dropped out, abstained, or no reviewer was heard, so the intended roster never reached a verdict. Otherwise `consensus` if passed, else `no_consensus`."
+      "description": "Verdict class, computed by src/outcome.js from the rest of this file. `degraded` wins: a seated lab produced nothing usable (it dropped out, see `dropouts[]`: in a tiered chain this may be a debating seat that never votes), a reviewer abstained, no reviewer was heard, or the round fell short of the quorum - so the run did not have the roster the chain intended. Otherwise `consensus` if passed, else `no_consensus`."
     },
     "lastCritique": {
       "x-stability": "stable",

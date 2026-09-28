@@ -80,6 +80,14 @@
 - **An MCP resume re-checks the run's inputs** (task, draft, context files, from-run folder) against
   the same secret/gitignore/working-folder rules `start_run` applies. A resume re-reads a context
   folder, so a secret file added to it during a pause used to reach every seat.
+- **`server.json` offers `COUNCIL_MAX_USD_LIMIT`**, so an install from the MCP Registry can set a
+  hard per-run limit the client's model cannot raise or remove, as the Claude Desktop bundle already
+  does. Without it, `max_usd: "none"` over MCP runs with no ceiling.
+- **`report.json` `outcome: "degraded"` is described as it behaves**: a seated lab that produced
+  nothing usable (in a tiered chain, possibly a debating seat that never votes), an abstention, no
+  reviewer heard, or a missed quorum. The old wording said the voting roster never reached a verdict,
+  which is not true when only a debating seat dropped out. The behaviour is unchanged (owner's call,
+  2026-09-28).
 - **Stage labels with a dot can be answered over MCP.** `external_prompt` and `submit_stage` refused
   any label outside `[a-z0-9-]`, so none of `plan-daily-7`'s Opus stages (lab `opus5.5-sub`) could be
   fetched by name or submitted, while the tools themselves told the client to submit that label.
