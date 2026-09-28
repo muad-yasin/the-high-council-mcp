@@ -15,9 +15,9 @@ Includes a **replay mode**: play any run back from `report.json` at 20-50x (prop
 arrows land, withdrawals fade, the sign-off panel fills). It is the animation for the video below, built from real
 data in the UI's own look, and every future run becomes demo footage. The design pass includes it as a screen.
 
-## Reach beyond Claude (owner, 2026-09-29: "Claude is what I use, not what most people use")
+## Reach beyond Claude (owner, 2026-09-28: "Claude is what I use, not what most people use")
 
-Researched 2026-09-29 (DeepSeek Harness dsh: web-UI-first, MCP via one `@deepseek-ai/dsh-mcp-client` plugin
+Researched 2026-09-28 (DeepSeek Harness dsh: web-UI-first, MCP via one `@deepseek-ai/dsh-mcp-client` plugin
 entry per server, tools only, 60 s per-call cap; Hermes Agent: `~/.hermes/config.yaml` `mcp_servers`, 120 s
 default tool timeout, first `npx -y` can hit the connect timeout, skills hub). Moved here from 0.7.9 by the owner:
 - README install section first: one universal block (`npx -y the-high-council`, `OPENROUTER_API_KEY`), verified
@@ -32,7 +32,7 @@ default tool timeout, first `npx -y` can hit the connect timeout, skills hub). M
   in a browser: named test case); Hermes can relay the link and a "council done" message via its chat gateway.
 - Third-party guides were part of the research; every snippet is verified against the tools' own docs first.
 
-## Prerequisites (shipped as the small 0.7.9 bug-fix release, owner 2026-09-29)
+## Prerequisites (shipped as the small 0.7.9 bug-fix release, owner 2026-09-28)
 
 Rollup H1 (fallback-model reply charged $0), M1 (empty `model` passes the router/No-Grok check),
 M2 (`--rematch`/`--replay` skip lint), M3 (cut-off panel reply counts as sign-off), M4 (`stop:"error"`
@@ -67,7 +67,7 @@ xAI/Grok, any efficacy wording.
 Scope the bundle with one `plan-daily-7` ("daily7") run: dry-run price first (≈ $1.90 worst case),
 paid only on the owner's go; then build, docs, `npm publish` (his), GitHub release, .mcpb, Registry.
 
-## Video (after 0.8; owner 2026-09-29: "create a YouTube video to explain the High Council ... get some more dev advice")
+## Video (after 0.8; owner 2026-09-28: "create a YouTube video to explain the High Council ... get some more dev advice")
 
 Shot only once the web UI and its replay mode exist; a terminal recording is the fallback.
 - **Beats (~6-8 min):** the problem (one model plans alone, nobody contradicts it) → the idea (labs argue on the
