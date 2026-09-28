@@ -58,6 +58,8 @@ bound on spend, not an early stop).
 8. **owner** Questions stage is off in every recommended chain (README lists it as stage 1): enable
    or reword the README. Enabling `blocking_questions` changes a prompt; note `ExternalPause` in runs.
 9. Records of proposals the builder cut despite support; a per-round disagreement map.
+10. Context changes during a pause need a declared amendment first, the same as a task change (owner 2026-09-28: 0.7.9 audit
+    question 2, "later"). 0.7.9 already re-checks inputs on MCP resume (a secret added during a pause).
 
 Excluded on the owner's rules: early stops, one-model-N-times modes, confidence-weighted votes,
 xAI/Grok, any efficacy wording.
