@@ -31,6 +31,14 @@
   list, 2026-09-28).
 - **`--rematch` and `--replay` run chain lint** before calling any seat, like a normal run and a
   resume. An edited chain could send a key to a foreign host on a side run.
+- **Stage labels with a dot can be answered over MCP.** `external_prompt` and `submit_stage` refused
+  any label outside `[a-z0-9-]`, so none of `plan-daily-7`'s Opus stages (lab `opus5.5-sub`) could be
+  fetched by name or submitted, while the tools themselves told the client to submit that label.
+- **`plan-daily-7`'s routing note** says "every label containing `opus5.5-sub`" and names the
+  `-retry`/`-reask` forms; "ending in" sent those to the writer session.
+- **`src/pricing.json`: `openrouter/z-ai/glm-5.3` refreshed** to OpenRouter's current $1.40 / $4.40
+  (was $0.84 / $2.64, understated; a `plan-highest-7` and `plan-premium-7` seat). Dry runs:
+  `plan-premium-7` $21.59 → $22.30, `plan-highest-7` $10.54 → $11.21 worst case.
 
 ### Added
 
@@ -40,7 +48,7 @@
   (`subscription:opus-5.5`, lab `opus5.5-sub`), GPT-6 Luna and DeepSeek V4 Pro. Mass seats: Tencent
   Hy4 preview, Gemini 3.8 Flash, DeepSeek V4.1 Flash, GLM 5.2, Muse Spark 1.3, Qwen 3.8 Max
   (0902), Mistral Medium 3.5. The writer seats are a Sonnet 5 Claude Code session; the Opus seat is a
-  separate session. Deep-dive cap $0.50. Dry run $1.90 worst case. Untested with real models.
+  separate session. Deep-dive cap $0.50. Dry run $1.90 worst case. Run once with real models (2026-09-28); nothing about it has been measured.
   `src/pricing.json` gains `openai/gpt-6-luna`, `tencent/hy4-preview` and `meta/muse-spark-1.3` from
   OpenRouter's model list (2026-09-27).
 

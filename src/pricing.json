@@ -159,9 +159,9 @@
     "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/z-ai/glm-5.3": {
-    "in": 0.84,
-    "out": 2.64,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
+    "in": 1.4,
+    "out": 4.4,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-28 (was 0.84/2.64 on 2026-09-22: understated; bug audit 2026-09-28 area 2 #7)",
     "critiqueTokens": 36000,
     "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
   },

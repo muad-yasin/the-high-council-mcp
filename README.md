@@ -41,8 +41,8 @@ Three commands from nothing to a priced run of your own idea (no key needed unti
 | Chain | Who does what | Needs | Worst case |
 |---|---|---|---|
 | `cheap-7-v2` | Claude Sonnet 5 writes the plan; low-cost models from seven other labs review it, and all seven must sign off. Up to 7 rounds. | one OpenRouter key | $5.38 |
-| `plan-premium-7` | A Claude Code session writes the plan; a seven-lab panel of larger models (GPT-6 Astra, Claude Fable 5.1, Gemini 3.8 Flash, Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, GLM-5.3) proposes, debates and reviews. | OpenRouter key + a Claude Code session | $21.59 |
-| `plan-highest-7` | Seven low-cost models propose and debate; four top models write whole architectures and are the only reviewers; one deep-dive seat checks the first draft against the task. **Untested with real models.** | OpenRouter key + a Claude Code session | $10.54 ($14.89 in the published 0.7.8) |
+| `plan-premium-7` | A Claude Code session writes the plan; a seven-lab panel of larger models (GPT-6 Astra, Claude Fable 5.1, Gemini 3.8 Flash, Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, GLM-5.3) proposes, debates and reviews. | OpenRouter key + a Claude Code session | $22.30 |
+| `plan-highest-7` | Seven low-cost models propose and debate; four top models write whole architectures and are the only reviewers; one deep-dive seat checks the first draft against the task. **Untested with real models.** | OpenRouter key + a Claude Code session | $11.21 ($14.89 in the published 0.7.8) |
 | `local-ollama` | Every seat on your own machine, through Ollama. | Ollama and the models pulled | $0 |
 
 `plan-premium-7` and `plan-highest-7` cost more than the default cap, so give them a `--max-usd` at
@@ -627,8 +627,9 @@ in the table at the top. A few more worth knowing:
 - **`plan-daily-7`** - `plan-highest-7`'s stages at a lower price, for planning one feature:
   Claude Opus 5.5 on your Claude subscription (an external seat), GPT-6 Luna and DeepSeek V4 Pro
   write the architectures and alone vote; seven low-cost labs propose and debate. Two Claude Code
-  sessions answer its external seats: Opus 5.5 every stage whose label ends in `opus5.5-sub`, Sonnet 5
-  the writer stages. $1.90 worst case. **Untested with real models.**
+  sessions answer its external seats: Opus 5.5 every stage whose label contains `opus5.5-sub`
+  (including `-retry` and `-reask1`/`-reask2` forms), Sonnet 5 the writer stages. $1.90 worst case.
+  **Run once with real models (2026-09-28); nothing about it has been measured.**
 - **`cheap`** - small models throughout. For testing the harness itself, not for real work.
 - **`plan-debate`** - five labs propose blind, debate each other's proposals anonymised, then a
   blind panel grades the integrated draft.
@@ -746,9 +747,9 @@ what each rule guards against and why. Copy the folders you want into your proje
   oldest date every entry was last checked) is printed by `council doctor` and `--dry-run`, with a
   warning once it is more than 60 days old. The spend cap and every estimate use these static
   prices. They are estimates, not invoices. Your provider's bill is the real number.
-- `plan-highest-7` and `plan-daily-7`, the tiered councils, have not been run with real
-  models, and none of their mechanisms (tiers, the deep-dive seat, the majority guard) has been
-  measured. Their dry-run prices are projections.
+- `plan-highest-7` has not been run with real models, and `plan-daily-7` has run once
+  (2026-09-28). None of the tiered councils' mechanisms (tiers, the deep-dive seat, the majority
+  guard) has been measured. Their dry-run prices are projections.
 - Seats marked `external` (the writer seats in `plan-premium-7`, `plan-highest-7`,
   `plan-daily-7` and `plan-open-7`, and the Opus 5.5 anchor seat in `plan-daily-7`) pause the run until someone answers them, and are $0 only because a Claude Code
   session on a subscription writes them. Nothing checks who wrote the answer.
