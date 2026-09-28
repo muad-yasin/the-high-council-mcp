@@ -128,3 +128,12 @@ test('recordRoundStageAndCheckClose closes a round once, including after a resum
   assert.equal(close('panel-2-a', roundPanelCounts, 2), null);
   assert.equal(close('panel-2-b', roundPanelCounts, 2), 2);
 });
+
+test('a resume in the middle of a round does not close it before its last seat posts (seats counted once)', async () => {
+  const { recordRoundStageAndCheckClose: close, replaySpanStateFromStageLogText: replay } = await import('../src/spans.js');
+  const log = [JSON.stringify({ stage: 'panel-1-a' }), JSON.stringify({ stage: 'panel-1-b' }), JSON.stringify({ stage: 'panel-1-b-retry' })].join('\n');
+  const { roundPanelCounts } = replay(log);
+  assert.equal(close('panel-1-a', roundPanelCounts, 3), null, 'replayed a: still 2 of 3 seats');
+  assert.equal(close('panel-1-b', roundPanelCounts, 3), null);
+  assert.equal(close('panel-1-c-reask1', roundPanelCounts, 3), 1, 'c posts (after a re-ask): now the round closes');
+});
