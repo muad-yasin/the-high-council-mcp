@@ -2235,19 +2235,15 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           // no role gets R.DEBATE_SYSTEM back unchanged (applySeatRole is a
           // no-op), which is what the golden-hash compatibility test in
           // test/seat-role.test.js checks.
-          const st = record(await invoke(seatOf(lab), {
-            // 2026-09-22: loadPersonas() so an operator's COUNCIL_PERSONAS_FILE (PERSONAS.md)
-            // actually reaches the prompt - it was documented but never read here, so a custom
-            // persona key went out as a bare name with no voice.
+          // 2026-09-22: loadPersonas() so an operator's COUNCIL_PERSONAS_FILE (PERSONAS.md)
+          // actually reaches the prompt - it was documented but never read here, so a custom
+          // persona key went out as a bare name with no voice.
+          const debatePrompt = {
             system: applySeatRole(R.DEBATE_SYSTEM, seatOf(lab)?.role, loadPersonas()),
             user: R.debateUser({ request, criteria, skeleton, proposals, lab, maps }),
-            log: say, label: `debate-${lab}`,
-          }));
-          const st2 = await onceMoreIfIncomplete(st, seatOf(lab), {
-            system: applySeatRole(R.DEBATE_SYSTEM, seatOf(lab)?.role, loadPersonas()),
-            user: R.debateUser({ request, criteria, skeleton, proposals, lab, maps }),
-            log: say, label: `debate-${lab}-retry`,
-          }, say);
+          };
+          const st = record(await invoke(seatOf(lab), { ...debatePrompt, log: say, label: `debate-${lab}` }));
+          const st2 = await onceMoreIfIncomplete(st, seatOf(lab), { ...debatePrompt, log: say, label: `debate-${lab}-retry` }, say);
           const parsed = parseJson(st2.text);
           if (!parsed) {
             const why = draftIncomplete(st2.usage) ? 'provider_error' : 'unreadable';
