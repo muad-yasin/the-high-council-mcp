@@ -77,6 +77,9 @@
 - **Re-asking an unheard external reviewer says why.** The re-ask prompt gains a short "your previous
   reply could not be read" note; it used to be byte-identical to the first ask. API seats' prompts
   are unchanged.
+- **An MCP resume re-checks the run's inputs** (task, draft, context files, from-run folder) against
+  the same secret/gitignore/working-folder rules `start_run` applies. A resume re-reads a context
+  folder, so a secret file added to it during a pause used to reach every seat.
 - **Stage labels with a dot can be answered over MCP.** `external_prompt` and `submit_stage` refused
   any label outside `[a-z0-9-]`, so none of `plan-daily-7`'s Opus stages (lab `opus5.5-sub`) could be
   fetched by name or submitted, while the tools themselves told the client to submit that label.

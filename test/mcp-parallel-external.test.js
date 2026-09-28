@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -115,5 +115,30 @@ test('a dotted lab (opus5.5-sub) can be fetched and answered over MCP; a ".." la
     const a = await call(dir, 'submit_stage', { run, stage: 'panel-1-opus5.5-sub', content: PASS });
     assert.equal(a.written, 'panel-1-opus5.5-sub.md', JSON.stringify(a));
     assert.equal(a.resumed, true);
+  } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+});
+
+// Bug audit 2026-09-28 (area 6 MED-1): start_run checked context files against the denylist, but a
+// resume re-read the folder unchecked, so a secret added during a pause reached every seat.
+test('an MCP resume refuses when a context folder gained a denied file during the pause', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-mcp-ctx-'));
+  try {
+    mkdirSync(join(dir, 'tasks')); mkdirSync(join(dir, 'ctx')); mkdirSync(join(dir, 'secrets'));
+    writeFileSync(join(dir, '.env'), '');
+    writeFileSync(join(dir, 'tasks', 't.md'), '# A plan\n\nPlan a small note-taking app.\n');
+    writeFileSync(join(dir, 'ctx', 'direction.md'), 'Keep it small.\n');
+    writeFileSync(join(dir, 'secrets', 'token.md'), 'SECRET-MARKER-123\n');
+    const first = spawnSync(process.execPath, [cli, '--chain', 'mock-external', '--task', 'tasks/t.md', '--context', 'ctx'], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir }, timeout: 60_000 });
+    assert.equal(first.status, 3, first.stdout + first.stderr);
+    const run = readdirSync(join(dir, 'runs'))[0];
+    const waiting = (await call(dir, 'external_prompt', { run })).stage;
+    const { symlinkSync } = await import('node:fs');
+    symlinkSync(join('..', 'secrets', 'token.md'), join(dir, 'ctx', 'zz.md'));
+    const r = await call(dir, 'submit_stage', { run, stage: waiting, content: '# Plan\n\nA small app.\n' });
+    assert.equal(r.resumed, false, JSON.stringify(r));
+    assert.match(r.error || JSON.stringify(r), /refused to resume: context: refused/);
+    for (const f of readdirSync(join(dir, 'runs', run))) {
+      if (f.startsWith('NEEDS-')) assert.doesNotMatch(readFileSync(join(dir, 'runs', run, f), 'utf8'), /SECRET-MARKER-123/, f);
+    }
   } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });

@@ -478,6 +478,18 @@ async function resume(run, maxUsd) {
   if (holder) {
     return { resumed: false, run, error: `run is already running (pid ${holder.pid} on ${holder.host}); poll run_status(run) instead of resuming it again` };
   }
+  // Bug audit 2026-09-28 (area 6 MED-1): the input checks ran only in start_run, but every sitting
+  // re-reads the run's task, draft and context from disk (the CLI lists a context folder again each
+  // time), so a secret or gitignored file added to a context folder during a pause reached every
+  // seat on resume. The same per-file refusal runs on the recorded inputs before each resume.
+  {
+    const meta = readJson(join(runsDir, run, 'run.json')) || {};
+    const at = p => (typeof p === 'string' && p ? resolve(meta.cwd || work, p) : null);
+    const context = typeof meta.context === 'string' && meta.context
+      ? meta.context.split(',').map(x => x.trim()).filter(Boolean).map(x => resolve(meta.cwd || work, x)).join(',') : null;
+    const refusal = startRunInputRefusal({ task: at(meta.task), draft: at(meta.draft), context, from_run: at(meta.fromRun) });
+    if (refusal) return { resumed: false, run, error: `refused to resume: ${refusal}` };
+  }
   const ceiling = ceilingArgs(maxUsd, readJson(join(runsDir, run, 'run.json')) ?? undefined);
   if (ceiling.refused) return { resumed: false, run, error: ceiling.refused };
   const logPath = join(work, `council-${Date.now()}.log`);
