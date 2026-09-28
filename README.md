@@ -461,7 +461,7 @@ than reporting the overspend afterwards.
 
 ```bash
 council --task tasks/x.md --max-usd 2     # this run stops at $2
-council --task tasks/x.md --max-usd none  # no ceiling
+council --task tasks/x.md --max-usd none  # no ceiling (0 is refused: it used to mean this)
 export MAX_USD_PER_RUN=20                         # change the default
 ```
 

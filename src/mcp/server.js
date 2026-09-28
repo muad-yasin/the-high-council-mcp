@@ -62,10 +62,12 @@ const cliCommand = args => process.pkg ? [process.execPath, args] : [process.exe
 const cliEnv = process.pkg ? { ...process.env, PKG_EXECPATH: '' } : process.env;
 
 // COUNCIL_MAX_USD_LIMIT: a ceiling the tool arguments cannot lift. Through MCP it is the client's
-// model, not the person, that picks start_run's and resume_run's max_usd, and max_usd 0 means no
+// model, not the person, that picks start_run's and resume_run's max_usd, and max_usd "none" means no
 // ceiling at all. A user who set a limit when installing the server (a Claude Desktop bundle asks
-// for one) keeps it: a larger max_usd or 0 is refused, and a call with none runs under the lower of
-// the limit and MAX_USD_PER_RUN. Unset, the tools behave exactly as before.
+// for one) keeps it: a larger max_usd or "none" is refused, and a call with none runs under the lower
+// of the limit and MAX_USD_PER_RUN. Unset, the tools behave exactly as before.
+// 0.7.9 (owner, 2026-09-28: "Refuse 0 everywhere"): max_usd 0 used to mean no ceiling. It is refused
+// now by the schema (positive numbers or "none"), as the CLI and the JS API refuse it.
 const usdLimit = (() => {
   const v = Number(process.env.COUNCIL_MAX_USD_LIMIT);
   return process.env.COUNCIL_MAX_USD_LIMIT && Number.isFinite(v) && v > 0 ? v : null;
@@ -75,8 +77,10 @@ const usdLimit = (() => {
 // limit here used to lift a run started at max_usd 2 to the $7 default on its next sitting. It
 // passes a ceiling only when the saved one is missing, none, or above the limit.
 function ceilingArgs(maxUsd, saved) {
-  if (usdLimit === null) return maxUsd === undefined ? [] : ['--max-usd', maxUsd === 0 ? 'none' : String(maxUsd)];
-  if (maxUsd === 0) return { refused: `max_usd 0 (no ceiling) is refused: the user set COUNCIL_MAX_USD_LIMIT to $${usdLimit}. Ask the user to raise it in the server's settings.` };
+  // The schema already refuses 0; this is the backstop for any caller that skips it.
+  if (maxUsd === 0) return { refused: 'max_usd 0 is refused: it used to mean no ceiling. Pass a positive number of dollars, or "none" for no ceiling.' };
+  if (usdLimit === null) return maxUsd === undefined ? [] : ['--max-usd', String(maxUsd)];
+  if (maxUsd === 'none') return { refused: `max_usd "none" (no ceiling) is refused: the user set COUNCIL_MAX_USD_LIMIT to $${usdLimit}. Ask the user to raise it in the server's settings.` };
   if (maxUsd !== undefined && maxUsd > usdLimit) return { refused: `max_usd ${maxUsd} is above the user's COUNCIL_MAX_USD_LIMIT of $${usdLimit}. Ask the user to raise it in the server's settings.` };
   if (maxUsd !== undefined) return ['--max-usd', String(maxUsd)];
   if (saved && typeof saved.maxUsd === 'number' && saved.maxUsd > 0 && saved.maxUsd <= usdLimit) return [];
@@ -84,6 +88,9 @@ function ceilingArgs(maxUsd, saved) {
   const envDefault = Number(process.env.MAX_USD_PER_RUN);
   return ['--max-usd', String(Math.min(usdLimit, Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 7))];
 }
+
+// max_usd over MCP: a positive number of dollars, or "none" for no ceiling - the JS API's shape.
+const MAX_USD_ARG = z.union([z.number().positive(), z.literal('none')]).optional();
 
 const text = s => ({ content: [{ type: 'text', text: typeof s === 'string' ? s : JSON.stringify(s, null, 2) }] });
 // Status audit #2 (Review/PreRelease_Audit_status_2026-09-23.md): `<id>.rematch-N` and
@@ -319,7 +326,7 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   draft: z.string().optional().describe('path to a draft to review instead of building one'),
   from_run: z.string().optional().describe('reuse this earlier run\'s criteria'),
   rounds: z.number().int().min(1).max(5).optional(),
-  max_usd: z.number().min(0).optional().describe('per-run spend ceiling in USD. Defaults to MAX_USD_PER_RUN or $7. Pass 0 for no ceiling. The run stops cleanly before any stage that could breach it, and resumes with a higher ceiling.'),
+  max_usd: MAX_USD_ARG.describe('per-run spend ceiling in USD, a positive number. Defaults to MAX_USD_PER_RUN or $7. Pass "none" for no ceiling (refused if the user set COUNCIL_MAX_USD_LIMIT); 0 is refused. The run stops cleanly before any stage that could breach it, and resumes with a higher ceiling.'),
   pii_gate: z.enum(['warn', 'hard-stop']).optional().describe('scan the task for PII and the key formats in src/secret-patterns.js before any provider call: warn logs and proceeds, hard-stop refuses the run. Off unless given.'),
   allow_unfenced: z.union([z.boolean(), z.array(z.string())]).optional().describe('waive the artifact gate: true for the whole task, or a list of file names that are only locations, not content the panel needs'),
 }, async ({ chain, task, context, draft, from_run, rounds, max_usd, pii_gate, allow_unfenced }) => {
@@ -446,7 +453,7 @@ server.tool('submit_stage', 'Write the answer for an external stage into the run
   return text({ written: `${stage}.md`, words: words(content), ...(warnings.length ? { warnings } : {}), ...(await resume(run)) });
 });
 
-server.tool('resume_run', 'Resume a paused run after its external stage was answered (submit_stage does this for you), or a run stopped by the spend cap (pass a higher max_usd). Completed stages replay from disk and cost nothing.', { run: z.string(), max_usd: z.number().min(0).optional().describe('raise the per-run ceiling for the rest of this run. 0 removes it.') }, async ({ run, max_usd }) => {
+server.tool('resume_run', 'Resume a paused run after its external stage was answered (submit_stage does this for you), or a run stopped by the spend cap (pass a higher max_usd). Completed stages replay from disk and cost nothing.', { run: z.string(), max_usd: MAX_USD_ARG.describe('raise the per-run ceiling for the rest of this run, a positive number. "none" removes it (refused if the user set COUNCIL_MAX_USD_LIMIT); 0 is refused.') }, async ({ run, max_usd }) => {
   if (!safeRun(run)) return text({ error: 'no such run' });
   return text(await resume(run, max_usd));
 });

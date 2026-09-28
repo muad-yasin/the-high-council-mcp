@@ -647,11 +647,18 @@ const SIDE_RUN_FOLDER = /\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2})$/;
 const maxUsdArg = flag('max-usd', process.env.MAX_USD_PER_RUN ?? String(DEFAULT_MAX_USD));
 let maxUsd;
 if (maxUsdArg === true) { console.error('--max-usd: needs a value, e.g. --max-usd 2 or --max-usd none'); process.exit(2); }
-else if (maxUsdArg === 'none' || maxUsdArg === 'off' || maxUsdArg === '0') maxUsd = null;
+else if (maxUsdArg === 'none' || maxUsdArg === 'off') maxUsd = null;
 else {
   maxUsd = Number(maxUsdArg);
+  // 0.7.9 (owner, 2026-09-28: "Refuse 0 everywhere"): 0 used to mean no ceiling here and over MCP,
+  // while the JS API refused it. Someone who writes 0 almost certainly means "spend nothing", so
+  // reading it as "spend without limit" was the costliest possible guess. `none` is the one way.
+  if (Number.isFinite(maxUsd) && maxUsd === 0) {
+    console.error(`--max-usd: 0 is refused${flag('max-usd', null) === null ? ' (from MAX_USD_PER_RUN)' : ''} - it used to mean no ceiling. Use --max-usd none for no ceiling, or a positive number of dollars.`);
+    process.exit(2);
+  }
   if (!Number.isFinite(maxUsd) || maxUsd < 0) {
-    console.error(`--max-usd: expected a number of dollars or "none", got "${maxUsdArg}"`);
+    console.error(`--max-usd: expected a positive number of dollars or "none", got "${maxUsdArg}"`);
     process.exit(2);
   }
 }

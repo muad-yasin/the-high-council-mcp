@@ -2,6 +2,36 @@
 
 ## 0.7.9 - unreleased
 
+### Breaking
+
+- **A spend ceiling of 0 is refused everywhere.** `--max-usd 0`, `MAX_USD_PER_RUN=0` and the MCP
+  tools' `max_usd: 0` used to mean "no ceiling"; the JS API already refused 0. Now all of them refuse
+  it (CLI exit 2, MCP schema error), because someone who writes 0 almost certainly means "spend
+  nothing". For no ceiling, say so: `--max-usd none`, `MAX_USD_PER_RUN=none`, or `max_usd: "none"`
+  over MCP (still refused when the user set `COUNCIL_MAX_USD_LIMIT`).
+- **New hard chain-lint rules:** a seat on an API provider with no `model` (missing, `null` or
+  empty) is refused, at lint and at run time (`external` and `mock` seats may leave it out); and
+  `extra-models-unpriced`: a priced seat's `extra.models` fallback with no entry in
+  `src/pricing.json`.
+
+### Fixed
+
+- **A panel reply cut off at the token cap no longer counts as a sign-off when it happens to parse.**
+  Cut-off is read from the provider's stop reason, parsed or not: one retry with a bigger cap, and a
+  reply still cut off is an abstention if it signed off, or kept as an objection if it objected.
+  A pasted external reply carries no stop reason, so this does not apply there.
+- **A draft the provider ended with `error`, `content_filter` or `refusal` is no longer taken as
+  finished.** Every draft stage retries it once at the same cap, then stops the run
+  (`STOPPED-truncated.md`, exit 17) naming the stop; `STOPPED-truncated.json` gains `stop`. A panel
+  sign-off in such a reply is an abstention.
+- **A fallback model's reply is no longer charged $0.** When the answering model (an OpenRouter
+  `extra.models` fallback) has no price entry, the stage is charged at its seat's own price, and the
+  log says so. `src/pricing.json` gains `openrouter/openai/gpt-5` and
+  `openrouter/google/gemini-3.6-flash`, the two fallbacks `coder-gate-v2` names (OpenRouter's model
+  list, 2026-09-28).
+- **`--rematch` and `--replay` run chain lint** before calling any seat, like a normal run and a
+  resume. An edited chain could send a key to a foreign host on a side run.
+
 ### Added
 
 - **`plan-daily-7`**, a lower-priced tiered council for planning one feature, on

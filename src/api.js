@@ -72,9 +72,9 @@ export function price({ chain, cwd = process.cwd(), rounds } = {}) {
 }
 
 // The ceiling is never silently off. undefined: the CLI's own default (MAX_USD_PER_RUN, else $7).
-// A positive number: that ceiling. 'none': no ceiling, said explicitly. The CLI and the MCP tool
-// read 0 as "no ceiling"; here 0 is refused, because a caller who wrote 0 almost certainly meant
-// "spend nothing", and reading it as "spend without limit" is the costliest possible guess.
+// A positive number: that ceiling. 'none': no ceiling, said explicitly. 0 is refused, because a
+// caller who wrote 0 almost certainly meant "spend nothing", and reading it as "spend without limit"
+// is the costliest possible guess. Since 0.7.9 the CLI and the MCP tools refuse it too.
 function maxUsdArgs(maxUsd) {
   if (maxUsd === undefined) return [];
   if (maxUsd === 'none') return ['--max-usd', 'none'];
