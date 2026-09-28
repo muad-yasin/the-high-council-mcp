@@ -1722,7 +1722,24 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     if (!questions.length) log('  no usable questions returned; continuing without.');
     else {
       questions.forEach((q, i) => log(`  ${i + 1}. ${q.question}\n     default: ${q.default}`));
-      const answered = cache.get('answers');
+      const answersSystem = 'Answer the planner\'s questions. Write plain text: one numbered answer per question, in the same order. An answer may be "default" to take the planner\'s own default. Anything else you want the plan to know may follow the numbered answers.';
+      const answersUser = `# The request\n\n${request}\n\n# The questions\n\n${R.renderQuestions(questions)}`;
+      let answered = cache.get('answers');
+      // Bug audit 2026-09-28 (external seats #3): the answers were replayed with no staleness check,
+      // so after a task amendment the old answers were matched, by position, to the new questions.
+      // Checked like every other external stage (invoke()): a different prompt, or a changed task or
+      // chain, sets the old answers aside and asks again.
+      if (answered) {
+        const verdict = cacheVerdict(answered, promptHashOf(answersSystem, answersUser));
+        if (verdict.status === 'stale') {
+          cache.invalidate?.('answers', verdict.why);
+          log(`  CACHE STALENESS WARNING: stage "answers" - ${verdict.why}; the old answers were set aside and the operator is asked again.`);
+          answered = null;
+        } else if (verdict.status === 'unverified') {
+          cache.warn?.('answers', verdict.why);
+          log(`  CACHE: stage "answers" replayed UNVERIFIED - ${verdict.why}. Recorded in WARNINGS.md and report.json.`);
+        }
+      }
       if (answered) {
         log(`  answers: from disk (${answered.text.split(/\s+/).length} words)`);
         request += R.answersSection(questions, answered.text);
@@ -1730,9 +1747,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         log('  wait: false - defaults taken for every question.');
         request += R.answersSection(questions, '');
       } else {
-        throw new ExternalPause('answers',
-          'Answer the planner\'s questions. Write plain text: one numbered answer per question, in the same order. An answer may be "default" to take the planner\'s own default. Anything else you want the plan to know may follow the numbered answers.',
-          `# The request\n\n${request}\n\n# The questions\n\n${R.renderQuestions(questions)}`);
+        throw new ExternalPause('answers', answersSystem, answersUser);
       }
     }
   }

@@ -43,6 +43,13 @@
   out" section, `WARNINGS.md` a `dropout:` line per lab, and the CLI summary a `dropped:` line.
 - **The dry run prints external seats as `external`**, not a priced `$0.0000`, and says how many
   stages are answered outside its total (21 of 72 in `plan-daily-7`).
+- **A pasted external answer gets the same bookkeeping as any other stage.** It is first read on a
+  resume, as a cache hit, and cache hits skipped the partial-output check (the only truncation signal
+  a stop-less pasted draft has), `stage-log.jsonl`, the audit log and `spans.jsonl`. Its first replay
+  now counts as its completion; the answer on disk is not rewritten.
+- **The questions stage's `answers` are checked for staleness** like every other external answer.
+  After a task amendment the old answers used to be applied, by position, to the new questions; now
+  they are set aside (`superseded/`) and the operator is asked again.
 - **Stage labels with a dot can be answered over MCP.** `external_prompt` and `submit_stage` refused
   any label outside `[a-z0-9-]`, so none of `plan-daily-7`'s Opus stages (lab `opus5.5-sub`) could be
   fetched by name or submitted, while the tools themselves told the client to submit that label.

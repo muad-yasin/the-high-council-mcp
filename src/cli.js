@@ -1701,6 +1701,15 @@ const cacheFingerprint = fingerprintInputs(rawTaskTextForCacheFingerprint, confi
 // superseded/ through `invalidate`, never overwritten. An external answer gets its prompt hash and
 // fingerprint from `<label>.prompt.json`, written when the run paused to ask for it, since the
 // operator (or submit_stage) writes only the answer.
+// Whether stage-log.jsonl already has a line for this stage (external seats #2, onStage below).
+function stageLogged(label) {
+  const p = join(runDir, 'stage-log.jsonl');
+  if (!existsSync(p)) return false;
+  return readFileSync(p, 'utf8').split('\n').some(line => {
+    if (!line.trim()) return false;
+    try { const e = JSON.parse(line); return !e.kind && e.stage === label; } catch { return false; }
+  });
+}
 setCache({
   get: label => {
     const t = join(runDir, `${label}.md`);
@@ -2017,7 +2026,12 @@ try {
             if (!u.promptHash) writeFileAtomic(up, JSON.stringify({ ...u, promptHash: s.promptHash, inputsFingerprint: u.inputsFingerprint ?? cacheFingerprint }));
           } catch { /* unreadable: the getter already treats it as a miss next time */ }
         }
-        return;
+        // Bug audit 2026-09-28 (external seats #2): an external answer is first consumed on a
+        // resume, as a cache hit, so it returned here in every sitting and never got the
+        // partial-output check (the only truncation signal a stop-less pasted draft has), an
+        // audit-log entry, a stage-log line or a span. Its first replay now counts as its
+        // completion; only the usage/text writes are skipped (the answer is already on disk).
+        if (!(s.provider === 'external' && !stageLogged(s.label))) return;
       }
       // v2 plan §7.1: validate against the stage contract's required_sections before
       // trusting this deliverable - same class of bug as the lab-dropout fix, just one
@@ -2035,8 +2049,10 @@ try {
       // marks a stage done, so a crash between the two leaves a stage that re-runs rather than a
       // text trusted with no record of its cost, and a crash mid-write never leaves a torn file
       // for a resume to trip over (bug audit 2026-09-23, CLI #8).
-      writeFileAtomic(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint, promptHash: s.promptHash }));
-      writeFileAtomic(join(runDir, `${s.label}.md`), s.text);
+      if (!s.cached) {
+        writeFileAtomic(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint, promptHash: s.promptHash }));
+        writeFileAtomic(join(runDir, `${s.label}.md`), s.text);
+      }
       if (auditWriter) auditWriter.recordStage(s);
       // v5 §1 candidate 14: one JSONL line per stage, alongside the existing markdown/usage
       // artifacts - structured so future tooling (candidate #9's replay, #2's independence
