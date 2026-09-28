@@ -2541,6 +2541,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // rather than growing a positional flag at three call sites. It is not a freedom; it is
       // a fact about the task that decides whether the quote rule is honest to state at all.
       const freedoms = { ...(config.freedoms || null), fencedSource: !!fencedSource, ...(checks ? { criteriaKinds: true } : {}) };
+      // Bug audit 2026-09-28 (external seats #5): an API seat's re-ask is a fresh sample, but an
+      // external seat's was a byte-identical prompt, so the person or session answering it had no
+      // hint the last reply could not be read and tended to repeat it. External re-asks only; an API
+      // seat's prompt is unchanged.
+      const externalReaskNote = (seat, tag) => seat.provider === 'external' && /^-reask\d+$/.test(tag)
+        ? `\n\n# Your previous reply could not be read\n\nThe last reply to this review (\`panel-${round}-${labOf(seat)}${tag === '-reask1' ? '' : `-reask${Number(tag.slice(6)) - 1}`}.md\`) was not a readable verdict. Answer with the JSON object the system prompt describes, and nothing else.`
+        : '';
       const reviewSeat = async (criticSeat, prior, say, tag = '') => {
         let cs, parsed, answeredQuestion = null;
         // `panelMaxTokens` (2026-09-22): an optional per-seat output cap for the panel review only.
@@ -2557,7 +2564,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
               // Patch mode shows the full draft plus the edits made since the last review, so a
               // reviewer can see what moved without re-reading the plan. Empty in full-rewrite
               // mode and on round 1, where there is no "since" to speak of.
-              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion, checks }),
+              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion, checks }) + externalReaskNote(criticSeat, tag),
               log: say, label: attempt === 0 ? `panel-${round}-${labOf(criticSeat)}${tag}` : `panel-${round}-${labOf(criticSeat)}${tag}-answered`,
             }));
           } catch (err) {

@@ -74,6 +74,9 @@
   panels.** A relay panel lists `signoff[]` in its seeded review order, which differs between the two
   runs, and the diff keyed on array position. `signoff[]` entries gain an additive `seat_index` (the
   seat's index in `seats.critics`), and the diff keys on it.
+- **Re-asking an unheard external reviewer says why.** The re-ask prompt gains a short "your previous
+  reply could not be read" note; it used to be byte-identical to the first ask. API seats' prompts
+  are unchanged.
 - **Stage labels with a dot can be answered over MCP.** `external_prompt` and `submit_stage` refused
   any label outside `[a-z0-9-]`, so none of `plan-daily-7`'s Opus stages (lab `opus5.5-sub`) could be
   fetched by name or submitted, while the tools themselves told the client to submit that label.
