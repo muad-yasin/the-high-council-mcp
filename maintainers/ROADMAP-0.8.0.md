@@ -15,6 +15,22 @@ Includes a **replay mode**: play any run back from `report.json` at 20-50x (prop
 arrows land, withdrawals fade, the sign-off panel fills). It is the animation for the video below, built from real
 data in the UI's own look, and every future run becomes demo footage. The design pass includes it as a screen.
 
+**Design pass done 2026-09-28 (WM1.5, `Review/WebUI_Design_2026-09-28/`, local).** Six screens: Setup (with the spend
+cap), Run, one "Your turn" gate panel, Live debate, Deliverables, Replay. The owner: *"very complex and hard to understand
+for me, but I love it so far"*, so a requirement: the first-open path (SC0/SC1) must be understandable by the owner without
+explanation. **owner, later:** an **"easy mode"** for less tech-savvy users (one step at a time, one button, "Look closer"
+hidden); the $0 practice run is its seed. Open questions decided (owner-delegated to C&C + advisor, 2026-09-28):
+1. Cap default = the dry run's worst case rounded up to the next $0.50. No $7 clamp (premium-7 dry-runs at $22.30, so a
+   clamp would guarantee a run that dies mid-panel); above the CLI default the field asks for a typed confirmation, and it
+   never proposes above `COUNCIL_MAX_USD_LIMIT` when set. Needs the dry run as JSON ([WM0]).
+2. At the criteria stop: approve or stop only in 0.8; editing waits for item 10 (declared amendments). Assumes a criteria
+   pause exists or lands in WM1 ([WM0] confirms).
+3. No auto-open when DeepSeek Harness or Hermes starts a run: `start_run` returns the link (or the one command to start the
+   UI) and returns fast (dsh's 60 s per-call cap).
+4. Replay shows full text by default; recording mode (hides task, run text, paths) is a sticky setting with a visible badge
+   when off. The video uses a demo task, never a private run.
+5. First open: a $0 practice run as the main button; needs one combined mock chain that stops at every gate (WM1 work).
+
 ## Reach beyond Claude (owner, 2026-09-28: "Claude is what I use, not what most people use")
 
 Researched 2026-09-28 (DeepSeek Harness dsh: web-UI-first, MCP via one `@deepseek-ai/dsh-mcp-client` plugin
@@ -50,6 +66,8 @@ bound on spend, not an early stop).
 - Supply chain for the published package: lockfile pinned, `npm audit` in CI, `npm publish --provenance`, few deps.
 - `SECURITY.md` + a short threat model: what the harness protects (keys, gitignored files, spend) and what it cannot
   (a password written in prose, a leak in a provider's own logs). No claims beyond what tests show.
+- Web UI CSP (WM3): add `frame-ancestors 'none'` to the plan's `default-src 'self'`, so no other site can frame the UI and
+  overlay clicks on the gate buttons (design pass finding).
 - The NEEDS-file writer (external seats) through the same outbound scan, if 0.7.9 did not include it.
 - The audit round's adversarial LOWs deferred from 0.7.9 (model-supplied reply keys, canary randomness on replay).
 
