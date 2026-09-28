@@ -234,7 +234,8 @@
           "model": { "type": "string" },
           "verdict": { "enum": ["signed_off", "objected", "passed", "unheard"] },
           "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] },
-          "reasked": { "type": "boolean", "description": "True if the seat was unheard once and asked again this round." }
+          "reasked": { "type": "boolean", "description": "True if the seat was unheard once and asked again this round." },
+          "carried": { "type": "boolean", "description": "Present and true when the seat was not asked this round: the draft was byte-identical to the last round's, where this seat was heard and clean, and only the unheard seat(s) were asked again (0.7.9). Absent otherwise." }
         }
       },
       "description": "Every critic's verdict in every review round, both sign-off modes. The per-round history that signoff[] (final round only) does not keep."

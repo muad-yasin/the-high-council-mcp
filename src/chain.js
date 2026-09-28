@@ -2475,6 +2475,14 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   const openByRound = [];
   let stalled = null;
 
+  // R1 (the owner's yes, 2026-09-28): a round that ended with every heard reviewer clean and a seat
+  // still unheard re-reviews an unchanged draft. The heard seats' verdicts on that exact text are
+  // carried into the next round and only the unheard seat(s) are asked again - "this bounds what the
+  // run pays to re-review a draft nobody asked to change; it is not an early stop, the debate and the
+  // round cap are untouched, and silence is still never consent." Carried only when the text the
+  // reviewers are shown is byte-identical; unanimity still needs every seat heard and clean on it.
+  let carry = null;
+
   if (config.signoff === 'unanimous') {
     for (let round = 1; round <= maxRounds; round++) {
       const relay = config.panel === 'relay';
@@ -2622,11 +2630,27 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         return { seat: criticSeat, critique };
       };
 
+      // R1: the heard seats' clean verdicts from the last round, when the draft is unchanged.
+      const shownDraft = draft + changedSince(lastPatches);
+      const carried = carry && carry.shownDraft === shownDraft ? carry.byLab : null;
+      carry = null;
+      if (carried) {
+        log(`  draft unchanged since round ${round - 1}: carrying over the verdicts of ${[...carried.keys()].join(', ')} on this same text; asking only ${config.seats.critics.filter(c => !carried.has(labOf(c))).map(c => `${labOf(c)}/${c.model}`).join(', ')}.`);
+      }
+      const carriedVerdict = criticSeat => {
+        const v = carried?.get(labOf(criticSeat));
+        if (!v) return null;
+        progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), carried: true, ...(v.passed ? { passStated: true } : { passed: true }) });
+        return { ...v, carried: true };
+      };
+
       if (relay) {
         // Relay seats run one after another, in a fresh order each round so
         // no lab is always the anchor (seeded, so a resume replays it), and
         // earlier verdicts are handed on anonymised so a seat can't defer to a name.
         for (const criticSeat of seededShuffle(config.seats.critics, `${runId ?? ''}:relay:${round}`)) {
+          const kept = carriedVerdict(criticSeat);
+          if (kept) { verdicts.push(kept); continue; }
           const prior = verdicts.filter(v => v.critique).map((v, i) => ({ lab: `Reviewer ${String.fromCharCode(65 + i)}`, verdict_line: v.critique.verdict_line, failures: v.critique.failures }));
           verdicts.push(await reviewSeat(criticSeat, prior, log));
         }
@@ -2635,6 +2659,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // time. Each seat's log lines are buffered and flushed in seat order,
         // so the run log reads exactly as it did when they ran in sequence.
         const results = await settleAll(config.seats.critics.map(async criticSeat => {
+          const kept = carriedVerdict(criticSeat);
+          if (kept) return { verdict: kept, lines: [] };
           const lines = [];
           const verdict = await reviewSeat(criticSeat, [], m => lines.push(m));
           return { verdict, lines };
@@ -2745,6 +2771,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         verdict: v.abstained ? 'unheard' : v.passed ? 'passed' : v.critique.meets === true ? 'signed_off' : 'objected',
         reason_code: v.abstained ? (v.reasonCode || null) : null,
         reasked: unheardFirst[i],
+        // R1: additive. True when this seat was not asked this round: its verdict from the round
+        // before, on the same unchanged draft, was carried over.
+        ...(v.carried ? { carried: true } : {}),
       }));
 
       history.push(`## Round ${round} panel\n${verdicts.map(v =>
@@ -2810,8 +2839,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       if (allVotersClean && unheard > 0) {
         // Nothing to revise - no heard reviewer objected - so re-ask the same panel on the same
         // draft rather than treating silence as consent or revising what nobody objected to.
-        log(`\nRound ${round}: every lab that answered signed off clean, but ${unheard} did not return a readable verdict - retrying the panel unchanged rather than declaring agreement.`);
+        log(`\nRound ${round}: every lab that answered signed off clean, but ${unheard} did not return a readable verdict - asking again on the unchanged draft rather than declaring agreement.`);
         passed = false;
+        // R1: the heard seats' clean verdicts carry into the next round, on this exact text only.
+        carry = { shownDraft, byLab: new Map(verdicts.filter(v => !v.abstained).map(v => [labOf(v.seat), v])) };
         continue;
       }
 
