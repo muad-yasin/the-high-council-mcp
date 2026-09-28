@@ -8,13 +8,13 @@
     "source": "github"
   },
   "websiteUrl": "https://sower-industries.de/MCP",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "the-high-council",
-      "version": "0.7.8",
+      "version": "0.7.9",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
