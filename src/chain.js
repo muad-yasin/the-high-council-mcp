@@ -16,7 +16,7 @@ import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './securi
 import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
 import { promptHashOf, cacheVerdict } from './cache-integrity.js';
 import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
-import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine } from './criteria-kinds.js';
+import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine, MET_VERDICT } from './criteria-kinds.js';
 import { runDeepDive, deepDiveFailures } from './deep-dive.js';
 export { DeniedModel };
 
@@ -568,7 +568,6 @@ function capField(value) {
 // unanimity; it is never consent). A non-array `failures` or a non-object reply is unreadable too,
 // rather than a throw - the reply is on disk before it is parsed, so a throw here used to crash
 // every resume on the same replayed file (#2).
-const MET_VERDICT = /^(MET|PASS|PASSED|YES)$/;
 const FAILED_VERDICT = /^(FAILED|FAIL|NOT[\s_-]*MET|UNMET|NO)$/;
 const NO_VERDICT_FAILURE_CRITERION = '(objection named no criterion)';
 
@@ -3015,7 +3014,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // exactly.
         rethrowControlFlow(err);
         if (!config.degrade_on_provider_error) throw err;
-        log(`  ${criticSeat.provider}/${criticSeat.model}: [COUNCIL-E005] provider failure (${String(err.message).slice(0, 120)}) - seat dropped, not counted as a pass or an objection.`);
+        // Bug audit 2026-09-28 (area 3 #2.6): this said [COUNCIL-E005], the catalog's "Policy refusal".
+        log(`  ${criticSeat.provider}/${criticSeat.model}: provider failure (${String(err.message).slice(0, 120)}) - seat dropped, not counted as a pass or an objection.`);
         dropouts.push({ lab: labOf(criticSeat), model: criticSeat.model, stage: `critique-${round}`, reason: `provider failure: ${String(err.message).slice(0, 200)}` });
         panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: 'SEAT_UNREACHABLE', reasked: false });
         lastCritique = { meets: false, dropped: true, failures: [{

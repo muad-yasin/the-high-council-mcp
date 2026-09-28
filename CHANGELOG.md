@@ -60,6 +60,10 @@
   hand-edited `proposals` list, and no longer says "cycle detected: 0 cycle(s)" for a plain
   withdrawal. The run log calls such a withdrawal a note for the builder, not a WARNING (the $0 demo
   printed one for a withdrawal its plan then handled as asked).
+- **"MET with no evidence" counts every form the sign-off reads as MET** (`PASS`, `PASSED`, `YES`,
+  any case, surrounding spaces), not only an exact `MET`: one shared classifier now.
+- **A dropped first-mode critic's provider failure is no longer labelled `[COUNCIL-E005]`**, which the
+  error catalog and TROUBLESHOOTING define as a policy refusal.
 - **Stage labels with a dot can be answered over MCP.** `external_prompt` and `submit_stage` refused
   any label outside `[a-z0-9-]`, so none of `plan-daily-7`'s Opus stages (lab `opus5.5-sub`) could be
   fetched by name or submitted, while the tools themselves told the client to submit that label.
