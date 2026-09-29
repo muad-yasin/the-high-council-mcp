@@ -6,6 +6,13 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 // (security scan 2026-09-26, THC #7). usd() prints a finite number or nothing.
 const usd = n => { const x = typeof n === 'number' ? n : NaN; return Number.isFinite(x) ? `$${x.toFixed(x < 1 ? 4 : 2)}` : ''; };
 const pct = (a, b) => { const x = 100 * Number(a) / Number(b); return Number.isFinite(x) ? x.toFixed(1) : '0'; };
+// The page's CSP (script-src and style-src 'self', see src/ui/guard.js) refuses inline style attributes, so a
+// computed width or indent travels as a data attribute and is set from script, which the CSP allows.
+// Non-finite values (report.json is a file, not a type system) are skipped.
+const applyDynamicStyle = root => {
+  root.querySelectorAll('[data-w]').forEach(e => { const n = Number(e.dataset.w); if (Number.isFinite(n)) e.style.width = `${n}%`; });
+  root.querySelectorAll('[data-pl]').forEach(e => { const n = Number(e.dataset.pl); if (Number.isFinite(n)) e.style.paddingLeft = `${n}px`; });
+};
 let run = null;
 
 async function main() {
@@ -46,14 +53,15 @@ function renderOutline() {
     flat.map((s, i) => `<div class="row l${esc(s.level)}" data-i="${i}">
       <span class="t" title="${esc(s.path)}">${esc(s.title)}</span>
       <span class="n">${esc(s.words)}</span>
-      <span><div class="bar"><i style="width:${pct(s.words, maxW)}%"></i></div><div class="bar vol" style="margin-top:2px"><i style="width:${pct(s.volume.score, maxV)}%"></i></div></span>
+      <span><div class="bar"><i data-w="${pct(s.words, maxW)}"></i></div><div class="bar vol"><i data-w="${pct(s.volume.score, maxV)}"></i></div></span>
     </div>`).join('');
+  applyDynamicStyle(box);
   $('#draftpick').onchange = e => { run.drafts.push(run.drafts.splice(run.drafts.findIndex(x => x.label === e.target.value), 1)[0]); renderOutline(); };
   box.querySelectorAll('.row[data-i]').forEach(r => r.onclick = () => {
     box.querySelectorAll('.row').forEach(x => x.classList.remove('sel')); r.classList.add('sel');
     const s = flat[Number(r.dataset.i)];
     const v = s.volume;
-    $('#reader').innerHTML = `<div class="small" style="white-space:normal;font-family:system-ui">${esc(s.path)} - ${esc(s.words)} words (${esc(s.ownWords)} own)
+    $('#reader').innerHTML = `<div class="small plain">${esc(s.path)} - ${esc(s.words)} words (${esc(s.ownWords)} own)
       <br>volume ${esc(v.score)}: ${esc(v.files.length)} file(s), ${esc(v.scripts.length)} script name(s), ${esc(v.codeBlocks)} code block(s), ${esc(v.tableRows)} table row(s), ${esc(v.checklistItems)} checklist item(s), ${esc(v.numbers)} unit-carrying number(s)
       ${v.files.length ? `<br>files: ${v.files.map(esc).join(', ')}` : ''}${v.scripts.length ? `<br>scripts: ${v.scripts.map(esc).join(', ')}` : ''}</div><hr>` + esc(s.text);
   });
@@ -74,7 +82,7 @@ function renderRevisions() {
       const d = cur.words - prev.words;
       return `<td class="n">${esc(cur.words)} <span class="${d > 0 ? 'up' : d < 0 ? 'down' : 'small'}">${d > 0 ? '+' : ''}${esc(d || '')}</span></td>`;
     }).join('');
-    return `<tr><td class="l${esc(c.level)}" style="padding-left:${esc(8 + (Number(c.level) - 1) * 14)}px">${esc(c.title)}</td>${cells}</tr>`;
+    return `<tr><td class="l${esc(c.level)}" data-pl="${esc(8 + (Number(c.level) - 1) * 14)}">${esc(c.title)}</td>${cells}</tr>`;
   }).join('');
   const totals = `<tr><th>whole draft</th>${run.drafts.map(d => `<th class="n">${esc(d.words)}</th>`).join('')}</tr>`;
   const rounds = Object.keys(run.panels).sort((a, b) => a - b).map(r => {
@@ -84,6 +92,7 @@ function renderRevisions() {
   }).join('');
   box.innerHTML = `<div class="legend">Words per section in each draft. Green and red are the change from the draft before. "new" and "gone" are sections that appeared or vanished. Below: which lab's objections drove each revision.</div>
     <table><thead><tr><th>section</th>${labels.map(l => `<th class="n">${esc(l)}</th>`).join('')}</tr>${totals}</thead><tbody>${rows}</tbody></table>${rounds}`;
+  applyDynamicStyle(box);
 }
 
 // ---- Proposals: per lab, with ledger status, scoreboard, and the dropped pool ----

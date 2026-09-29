@@ -10,6 +10,7 @@ import { join, dirname, resolve, extname, relative, isAbsolute, sep } from 'node
 import { fileURLToPath } from 'node:url';
 import { parseSections, compareDrafts, parseLedger, words } from './parse.js';
 import { RUN_FOLDER } from '../run-status.js';
+import { createGuard, SECURITY_HEADERS, refusalBody } from './guard.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -107,25 +108,35 @@ function runDetail(id) {
 
 // Binding to 127.0.0.1 keeps other machines out, not other web pages. A page on any site can
 // point its own hostname at 127.0.0.1 (DNS rebinding) and then read this API as same-origin -
-// and a run's texts can hold fenced private source. The browser still sends the page's own
-// hostname in Host, so only the two names this server is reached by, on its own port, are
-// answered: 127.0.0.1:<port> and localhost:<port>. (2026-09-25; the same class as opencode's
-// CVE-2026-22812, a local server any web page could reach.) It listens on 127.0.0.1 only, so
-// [::1] never reaches it and is not listed.
-const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
-const hostAllowed = host => allowedHosts.has(String(host || '').toLowerCase());
+// and a run's texts can hold fenced private source. The guard (src/ui/guard.js) answers only the two
+// names this server is reached by, on its own port (127.0.0.1:<port>, localhost:<port>), refuses a
+// foreign Origin, and refuses anything that would change state (this viewer has no such route, so no
+// token is configured and the guard fails closed). (2026-09-25; the same class as opencode's
+// CVE-2026-22812, a local server any web page could reach.) It listens on 127.0.0.1 only, so [::1]
+// never reaches it and is not listed. Every reply, refusals included, carries the security headers
+// (CSP with frame-ancestors 'none', nosniff, no-referrer, no-store) and none of them is CORS.
+const guard = createGuard({ port });
+
+// Static files by exact name, not "any file next to server.js": the page needs these three and
+// nothing else (0.8.0 B11; the old rule served server.js and parse.js to any client).
+const STATIC = { '/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css' };
 
 const server = createServer((req, res) => {
   const send = (code, body, type = 'application/json; charset=utf-8') => {
-    res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
+    res.writeHead(code, { ...SECURITY_HEADERS, 'content-type': type });
     res.end(body);
   };
-  if (!hostAllowed(req.headers.host)) return send(403, '{"error":"loopback only"}');
+  // Host, Origin and method first, before the URL is parsed: a hostile Host must not reach the parser
+  // (or get a different answer from the 403 for a bad line).
+  const early = guard.check(req);
+  if (!early.ok) return send(early.status, refusalBody);
   try {
     // Inside the try: a request line the URL parser rejects used to throw out of the handler and
     // stop the viewer (security scan 2026-09-26, THC #8). It is a 400 now.
     let url;
     try { url = new URL(req.url, `http://${req.headers.host}`); } catch { return send(400, '{"error":"bad request"}'); }
+    const verdict = guard.check(req, { api: url.pathname.startsWith('/api/') });
+    if (!verdict.ok) return send(verdict.status, refusalBody);
     if (url.pathname === '/api/runs') return send(200, JSON.stringify(listRuns()));
     const m = url.pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (m) {
@@ -134,8 +145,8 @@ const server = createServer((req, res) => {
       const d = runDetail(id);
       return d ? send(200, JSON.stringify(d)) : send(404, '{"error":"no such run"}');
     }
-    const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-    if (!/^[a-z0-9._-]+$/i.test(file)) return send(404, 'not found', 'text/plain');
+    const file = STATIC[url.pathname];
+    if (!file) return send(404, 'not found', 'text/plain');
     const p = join(here, file);
     if (!existsSync(p)) return send(404, 'not found', 'text/plain');
     return send(200, readFileSync(p), MIME[extname(file)] || 'application/octet-stream');
