@@ -37,6 +37,14 @@ Each top-level property in the schema carries `"x-stability": "stable"` or `"exp
   Also since 0.7.8, with the majority guard on, a `debate.replies[]` withdrawal that does not quote
   the argument it concedes to carries `unargued: true`, and its proposal stays for the builder.
 
+Since 0.8.0 (all experimental, all additive, none read by any verdict, prompt or stop):
+`criteria_ids` (positional, index-aligned with `criteria`: `C1`, `C2`, ...) and `missing_criteria[]`
+(sign-offs whose criteria table left criteria out, by round and lab; `[]` when none did, and a reply
+with no table at all is not listed); `cut_despite_support[]` (proposals the plan cut although another
+lab supported them in the debate, with supporters and objectors; only when the run had proposals and a
+debate); `disagreement_map[]` (one row per review round: each lab's verdict, `(carried)` when it was
+reused on an unchanged draft).
+
 Most optional stages add their field only when the chain turns that stage on. When the field is
 missing, the stage did not run. It does not mean the stage found nothing.
 

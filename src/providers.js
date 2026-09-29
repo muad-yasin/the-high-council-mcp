@@ -513,6 +513,16 @@ async function callMock({ model, system, messages, maxTokens }) {
     const text = JSON.stringify({ meets: true, criteria: rows, failures: [], verdict_line: 'All criteria met.' });
     return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
   }
+  // Criterion ids (src/criteria-ledger.js): a critic that signs off but whose criteria table skips the
+  // LAST criterion - the "short table" sign-off the chain must record, not act on.
+  if (isCritic && model === 'mock-critic-short-table') {
+    await new Promise(r => setTimeout(r, 10));
+    const listed = (user.match(/# Acceptance criteria\n\n([\s\S]*?)\n\n#/) || [])[1] || '';
+    const names = listed.split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean);
+    const rows = names.slice(0, -1).map(criterion => ({ criterion, verdict: 'MET', evidence: 'Section 1 states it.' }));
+    const text = JSON.stringify({ meets: true, criteria: rows, failures: [], verdict_line: 'All criteria met.' });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
   if (isCritic && model === 'mock-critic-passer') {
     await new Promise(r => setTimeout(r, 10));
     const text = JSON.stringify({ pass: true, pass_reason: 'Outside my domain expertise; deferring to the rest of the panel.' });

@@ -17,6 +17,7 @@ import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-mod
 import { promptHashOf, cacheVerdict } from './cache-integrity.js';
 import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
 import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine, MET_VERDICT } from './criteria-kinds.js';
+import { missingCriteriaRows } from './criteria-ledger.js';
 import { runDeepDive, deepDiveFailures } from './deep-dive.js';
 import { assertOutboundClean, SecretShapedPrompt } from './outbound-scan.js';
 export { DeniedModel };
@@ -1491,7 +1492,7 @@ export async function runDescendingChain({ request, config, log = console.log, o
     // Pre-release audit 2026-09-23 (GuardLayer #1, and PanelSignoff's backlog): these were dropped
     // here, so a descending chain's security gate never reached the CLI (no exit 7/8, no gate in
     // report.json) and the panel/dispute record was lost. Forwarded only when the final run set them.
-    ...Object.fromEntries(['security_review', 'panelVerdicts', 'dispute', 'regressions', 'noHeardReviewer', 'notQuorate']
+    ...Object.fromEntries(['security_review', 'panelVerdicts', 'missingCriteria', 'dispute', 'regressions', 'noHeardReviewer', 'notQuorate']
       .filter(k => finalResult[k] !== undefined).map(k => [k, finalResult[k]])),
     totals: summarise(stages),
   };
@@ -1592,6 +1593,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       disputes: peek(() => disputes, []),
       regressions: peek(() => regressions, []),
       panelVerdicts: peek(() => panelVerdicts, []),
+      missingCriteria: peek(() => missingCriteria, []),
       history: peek(() => history, []),
       stages,
       totals: summarise(stages),
@@ -1797,6 +1799,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     return n.texts;
   };
   const metWithoutEvidence = [];
+  // A sign-off whose criteria table left criteria out (src/criteria-ledger.js): recorded, never acted on.
+  const missingCriteria = [];
+  const noteMissingRows = (critique, round, lab) => {
+    if (critique?.meets !== true) return;
+    const m = missingCriteriaRows(critique, criteria);
+    if (m) missingCriteria.push({ round, lab, ...m });
+  };
   const noteUnevidenced = (critique, round, lab, say) => {
     for (const criterion of unevidencedCheckableMets(critique, criteria, criteriaKinds)) {
       metWithoutEvidence.push({ round, lab, criterion });
@@ -2696,6 +2705,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
         }
         say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
+        noteMissingRows(critique, round, labOf(criticSeat));
         if (checks) noteUnevidenced(critique, round, labOf(criticSeat), say);
         // v5 item 3, touch point 2: the verdict update the live view needs - `passed` (chain.js's
         // own name for "meets every criterion") is already computed here, no new parsing.
@@ -3124,6 +3134,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         break;
       }
       lastCritique = critique;
+      noteMissingRows(critique, round, labOf(criticSeat));
       if (checks) noteUnevidenced(critique, round, labOf(criticSeat), log);
       panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: critique.meets === true ? 'signed_off' : 'objected', reason_code: null, reasked: false });
       const failures = critique.failures;
@@ -3537,6 +3548,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     ...(alternatives !== null ? { alternatives } : {}),
     // Additive: absent on any chain without the deep-dive seat (tiered councils).
     ...(deepDive !== undefined ? { deep_dive: deepDive } : {}),
+    // Additive (0.8.0): the sign-offs whose criteria table skipped criteria; [] when there were none.
+    missingCriteria,
     // Additive: absent unless the chain enabled criterion kinds (src/criteria-kinds.js).
     ...(kindsOn ? {
       criteriaKinds: kindsRecord(criteria, criteriaKinds),

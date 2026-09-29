@@ -11,6 +11,8 @@ import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { deriveDisagreementGroups } from './disagreement-groups.js';
 import { renderDisputeReviewBoard } from './chain.js';
 import { summaryLine } from './criteria-kinds.js';
+import { criterionIds } from './criteria-ledger.js';
+import { cutDespiteSupport, disagreementMap } from './decision-records.js';
 import { isAbsolute, relative, basename, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { harnessProducer } from './version.js';
@@ -131,6 +133,14 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     // folder could not see them (a real run's dispute stage and canary lived only in run.log).
     // Additive only; each is absent when the run produced none of it.
     ...(Array.isArray(result.panelVerdicts) ? { panelVerdicts: result.panelVerdicts } : {}),
+    // 0.8.0 (roadmap "Debate, criteria, milestones" 4 and 9), all additive and all derived or recorded
+    // without a prompt change: positional criterion ids, the sign-offs whose criteria table skipped
+    // criteria (src/criteria-ledger.js), proposals cut despite another lab's support, and the round by
+    // lab verdict map (src/decision-records.js). A key is absent where it does not apply.
+    ...(Array.isArray(result.missingCriteria) && Array.isArray(result.criteria) && result.criteria.length
+      ? { criteria_ids: criterionIds(result.criteria), missing_criteria: result.missingCriteria } : {}),
+    ...(cutDespiteSupport(result.proposals, result.debate) !== undefined ? { cut_despite_support: cutDespiteSupport(result.proposals, result.debate) } : {}),
+    ...(disagreementMap(result.panelVerdicts) !== undefined ? { disagreement_map: disagreementMap(result.panelVerdicts) } : {}),
     ...(Array.isArray(result.regressions) ? { regressions: result.regressions } : {}),
     ...(result.dispute != null ? { dispute: result.dispute } : {}),
     ...(result.canary !== undefined ? { canary: result.canary } : {}),
