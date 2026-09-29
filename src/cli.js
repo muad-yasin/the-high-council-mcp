@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { runChain, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
 import { secretShapesIn, SecretShapedPrompt } from './outbound-scan.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
-import { deriveRunStatus, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
+import { deriveRunStatus, waitingStages, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
 import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sumCostFromStageLogText } from './run-state.js';
 import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFromStageLogText, sumRoundUsdFromStageLogText } from './spans.js';
@@ -14,7 +14,7 @@ import { appendSpanRecord, buildSpanRecord } from './progress-spans.js';
 import { computeOutcome } from './outcome.js';
 import { reportJsonShape, renderBoardMd, partialReportJsonShape, renderPartialBoardMd, PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE } from './report-shape.js';
 import { summarise, formatUsd, priceOf, estimateChainRows, priceTableLines } from './cost.js';
-import { providerNames, envKeyName, keyFor, isKeyOptional, call } from './providers.js';
+import { providerNames, envKeyName, keyFor, isKeyOptional, call, isRetryable } from './providers.js';
 import { DEMO_REQUEST } from './mock-demo.js';
 import { readCompletedRun, generateDigestText, writeDigest } from './dissent-digest.js';
 import { deniedReasonsOf, DeniedModel } from './denied-models.js';
@@ -37,6 +37,7 @@ import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { schemaVersionWarning } from './schema-version.js';
 import { forecastCost } from './cost-forecast.js';
+import { dryRunReport } from './dry-run.js';
 // A static import, not a dynamic one - see the comment on runMcpServer in mcp/server.js for why.
 // mcp/server.js's own self-invocation guard means this import alone never starts a server; only
 // the explicit call below, inside the --mcp branch, does.
@@ -1170,6 +1171,9 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        (after writing runs/<r>/<label>.md); completed
                                        stages replay from disk and cost nothing
   council --chain seven --dry-run      estimate tokens and cost, call nothing
+  council --chain seven --dry-run --json
+                                       the same as one JSON document, plus which
+                                       seat lacks which API key
   council --spend [--days 7]           what every run has cost, across runs,
                                        read back off disk. Nothing is recorded
                                        and nothing leaves this machine.
@@ -1455,6 +1459,18 @@ let policyChecks = null;
       process.exit(EXIT_POLICY_REFUSED);
     }
   }
+}
+
+if (dryRun && argv.includes('--json')) {
+  // The same dry run as one JSON document on stdout (src/dry-run.js), plus which seat lacks which
+  // key. Nothing else is printed, so a caller can parse the whole output.
+  const taskFileForDry = taskPath ? resolve(work, taskPath) : null;
+  const taskChars = taskFileForDry && existsSync(taskFileForDry) ? readFileSync(taskFileForDry, 'utf8').length : null;
+  console.log(JSON.stringify(dryRunReport(config, {
+    fromRun, taskChars, defaultCapUsd: maxUsd ?? null,
+    history: forecastCost(config.name, join(work, 'runs')),
+  }), null, 2));
+  process.exit(0);
 }
 
 if (dryRun) {
@@ -1930,7 +1946,7 @@ if (!resumeMeta && maxUsdEff !== null) {
 // Bug audit 2026-09-26 #1: this ran before the artifact gate above, so a resume the gate blocked
 // (exit 9, nothing spent) had already deleted the stopped run's partial report and its marker. It
 // now runs only once the gate has passed.
-for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md', 'STOPPED-secret.md']) {
+for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-error.json', 'STOPPED-preflight.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md', 'STOPPED-secret.md']) {
   if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
 
@@ -1975,6 +1991,9 @@ function writeStateJson() {
     stage: currentStage,
     round: currentRound, maxRounds: config.maxRounds,
     seats: [...seatState.entries()].map(([lab, status]) => ({ lab, status })),
+    // The external stages the run is waiting on (empty unless it is paused): what a live view shows
+    // as "your turn" without listing the folder itself.
+    waiting: waitingStages(runDir),
     cost: { perLab: cost.perLab, spentUsd: cost.spentUsd, maxUsd: maxUsdEff },
     updatedAt: new Date().toISOString(),
   };
@@ -1982,6 +2001,10 @@ function writeStateJson() {
   writeFileSync(tmp, JSON.stringify(state, null, 2));
   renameSync(tmp, join(runDir, 'state.json'));
 }
+
+// Called once a stop marker (or NEEDS file) is on disk, so state.json at rest says what the run is
+// now (paused, budget_stopped, failed, ...) instead of the "running" its last progress event wrote.
+function finalState() { currentStage = null; try { writeStateJson(); } catch { /* the marker is the record */ } }
 
 // Rebuild seatState/round from whatever this run folder already recorded, so a --resume run's
 // first state.json write (before any new stage even starts) reflects real history rather than
@@ -2192,6 +2215,7 @@ started.
     log(`\nSTOPPED: preflight objected to the task description (${objections.length} seat(s)).`);
     log(`  detail:  ${join(runDir, 'STOPPED-preflight.md')}`);
     log(`  verdict: ${join(runDir, 'preflight-verdict.json')}`);
+    finalState();
     process.exit(EXIT_PREFLIGHT_BLOCKED);
   }
   if (err instanceof DraftTruncated) {
@@ -2227,6 +2251,7 @@ To continue: raise that seat's \`maxTokens\` in the chain (or, for an external s
 `);
     log(err.stop ? `\nSTOPPED: stage "${err.label}" did not complete (stop: ${err.stop}) - ${err.detail}.` : `\nSTOPPED: stage "${err.label}" was cut off at its token cap - ${err.detail}.`);
     log(`  detail:  ${join(runDir, 'STOPPED-truncated.md')}`);
+    finalState();
     process.exit(EXIT_DRAFT_TRUNCATED);
   }
   if (err instanceof ExternalPause) {
@@ -2250,6 +2275,7 @@ To continue: raise that seat's \`maxTokens\` in the chain (or, for an external s
       for (const p of pauses) log(`  ${p.label}:  prompt ${join(runDir, `NEEDS-${p.label}.md`)}  ->  answer ${join(runDir, `${p.label}.md`)}`);
     }
     log(`  resume:  ${councilCommand()} --resume runs/${runId}`);
+    finalState();
     process.exit(3);
   }
   if (err instanceof BudgetExceeded) {
@@ -2311,6 +2337,7 @@ Or \`--max-usd none\` to continue with no ceiling.
     log(`  detail:  ${join(runDir, 'STOPPED-budget.md')}`);
     if (partialWritten) log(`  so far:  ${join(runDir, PARTIAL_REPORT_FILE)}`);
     log(`  resume:  ${councilCommand()} --resume runs/${runId} --max-usd <higher>`);
+    finalState();
     process.exit(4);
   }
   if (err instanceof SecretShapedPrompt) {
@@ -2348,9 +2375,21 @@ stages are on disk and replay for free: fix the cause, then
 
     ${councilCommand()} --resume runs/${runId}
 `);
+  // The same stop as data (0.8.0 WM0): what failed, and whether asking the same question again could
+  // succeed (a provider that was down or rate-limiting) or will fail the same way (a guard, a lint).
+  writeFileSync(join(runDir, 'STOPPED-error.json'), JSON.stringify({
+    exitCode: denied ? 1 : EXIT_RUN_FAILED,
+    kind: denied ? 'denied_model' : 'error',
+    name: err?.name || 'Error',
+    message: String(err?.message || err).slice(0, 500),
+    ...(Number.isInteger(err?.status) ? { httpStatus: err.status } : {}),
+    transient: !denied && isRetryable(err ?? {}),
+    maybeBilled: err?.maybeBilled === true,
+  }, null, 2));
   appendFileSync(logPath, `${err?.stack || String(err)}\n`);
   log(`\nSTOPPED: ${denied ? 'a denied model' : 'the run failed'} - ${err?.message || String(err)}`);
   log(`  detail:  ${join(runDir, 'STOPPED-error.md')}`);
+  finalState();
   process.exit(denied ? 1 : EXIT_RUN_FAILED);
 }
 

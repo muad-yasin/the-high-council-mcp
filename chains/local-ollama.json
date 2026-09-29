@@ -1,6 +1,7 @@
 {
   "name": "local-ollama",
   "description": "BYO-hardware: every seat runs on a local Ollama instance. No API key, no spend - `dry_run` prices this chain at $0. Swap the model names for whatever you've pulled (`ollama pull <model>`); swap `baseUrl` if Ollama (or an LM Studio / other OpenAI-compatible local runner) listens somewhere other than the default `http://localhost:11434/v1`.",
+  "summary": "Every seat on a local Ollama model: no API key and no spend.",
   "maxRounds": 2,
   "stopOnPass": true,
   "estimate": {

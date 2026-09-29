@@ -1257,14 +1257,23 @@ export function resolveChainSeats(config) {
   return { ...config, seats };
 }
 
-function allSeatsOf(config) {
+// Every seat slot a chain can fill, with the name of the slot (`role`), in one place. `allSeatsOf`
+// and `everySeatOf` below are this list with the names dropped, so a reader that wants the roles
+// (the dry run's per-seat key report, src/dry-run.js) cannot drift from the guards that read the
+// seats. The order is the one those functions always had.
+const SINGLE_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'security_reviewer', 'deep_dive'];
+const LIST_SEAT_KEYS = ['critics', 'proposers', 'ambiguity', 'alternatives'];
+export function seatSlotsOf(config) {
   const s = config.seats || {};
-  return [
-    s.criteria, s.builder, s.reviser, s.finalist, s.skeleton, s.handoff, s.questions, s.judge,
-    s.challenger, s.coldRead, s.claims, s.security_reviewer, s.deep_dive,
-    ...(s.critics || []), ...(s.proposers || []), ...(s.ambiguity || []), ...(s.alternatives || []),
-    ...Object.values(s.descending || {}),
-  ].filter(Boolean);
+  const out = [];
+  for (const key of SINGLE_SEAT_KEYS) if (s[key]) out.push({ role: key, seat: s[key] });
+  for (const key of LIST_SEAT_KEYS) (s[key] || []).forEach((seat, i) => { if (seat) out.push({ role: `${key}[${i}]`, seat }); });
+  for (const [stage, seat] of Object.entries(s.descending || {})) if (seat) out.push({ role: `descending.${stage}`, seat });
+  return out;
+}
+
+function allSeatsOf(config) {
+  return seatSlotsOf(config).map(x => x.seat);
 }
 
 // Every seat a run can call, for the guards (policy.json, the missing-key check). Bug-audit fix,
@@ -1273,10 +1282,14 @@ function allSeatsOf(config) {
 // ambiguity, descending, preflight or the default security reviewer - a Grok challenger passed an
 // EU/Mistral-only policy. This adds the two seats allSeatsOf cannot see (preflight.seats and the
 // security reviewer a run falls back to) and is the one list the CLI's guards read.
+export function everySeatSlotsOf(config) {
+  const slots = seatSlotsOf(config);
+  if (Array.isArray(config?.preflight?.seats)) config.preflight.seats.forEach((seat, i) => { if (seat) slots.push({ role: `preflight.seats[${i}]`, seat }); });
+  if (config?.security_review?.enabled === true && !config.seats?.security_reviewer) slots.push({ role: 'security_reviewer (default)', seat: DEFAULT_SECURITY_REVIEWER_SEAT });
+  return slots;
+}
 export function everySeatOf(config) {
-  const seats = [...allSeatsOf(config), ...(Array.isArray(config?.preflight?.seats) ? config.preflight.seats : [])];
-  if (config?.security_review?.enabled === true && !config.seats?.security_reviewer) seats.push(DEFAULT_SECURITY_REVIEWER_SEAT);
-  return seats.filter(Boolean);
+  return everySeatSlotsOf(config).map(x => x.seat);
 }
 
 export function checkSeats(seats) {

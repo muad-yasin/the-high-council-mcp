@@ -2,7 +2,7 @@
 // kill can't leave a stale value on disk - every reader recomputes it from what's actually on
 // disk right now. One module so src/cli.js (item 3's state.json writer) and src/mcp/server.js
 // (list_runs, run_status) can't drift on what "running" means.
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
@@ -88,4 +88,38 @@ export function finishedRunState(report) {
     return `done: security gate ${gate} - not a pass${report.passed ? ' (the panel signed off, the security review did not)' : ''}`;
   }
   return report?.passed ? 'done: every lab signed off' : 'done: open objections';
+}
+
+// Can this run be continued, and what does that take? 0.8.0 WM0 item 4. Derived from the marker files
+// the CLI leaves, like deriveRunStatus above (nothing is stored), so it is right for a run of any
+// age and for a run whose process is gone. `status` is deriveRunStatus's word; `reason` is finer
+// (a truncated draft and an unreachable seat are both 'stopped'/'failed' there); `needs` is what
+// has to happen before --resume can get further:
+//   nothing            resume as is (a process that died)
+//   answer             write the answer file for each stage in `waiting`, then resume
+//   higher_cap         resume with a --max-usd above what was spent (it is a total, not extra)
+//   fix_cause          the run stopped at an error; a transient one may pass on its own next time
+//   raise_max_tokens   a draft was cut off; raise that seat's maxTokens in the chain, then resume
+//   fix_task           the task itself was refused (fence it, or --allow-unfenced); the task is frozen
+//                      once a run starts, so a preflight objection needs a new run
+// `resumable` is false only where a resume cannot help: a finished run, and one already running.
+const readJsonSafe = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
+export function runResumability(dir, runMeta) {
+  const status = deriveRunStatus(dir, runMeta);
+  const out = (resumable, reason, needs, extra = {}) => ({ status, resumable, reason, needs, ...extra });
+  if (status === 'done') return out(false, 'finished', null);
+  if (status === 'running') return out(false, 'running', null);
+  if (status === 'budget_stopped') return out(true, 'budget', 'higher_cap', { stoppedAt: readJsonSafe(join(dir, 'STOPPED-budget.json')) });
+  if (status === 'paused') return out(true, 'external_pause', 'answer', { waiting: waitingStages(dir) });
+  if (status === 'blocked') return out(true, 'artifacts_blocked', 'fix_task');
+  if (status === 'failed') {
+    const e = readJsonSafe(join(dir, 'STOPPED-error.json'));
+    // A run stopped before this file existed carries only STOPPED-error.md: resumable, cause unknown.
+    return out(true, e ? (e.transient ? 'error_transient' : 'error') : 'error', 'fix_cause', e ? { error: e } : {});
+  }
+  if (existsSync(join(dir, 'STOPPED-truncated.json'))) return out(true, 'draft_truncated', 'raise_max_tokens', { stoppedAt: readJsonSafe(join(dir, 'STOPPED-truncated.json')) });
+  if (existsSync(join(dir, 'STOPPED-preflight.md'))) return out(false, 'preflight_blocked', 'fix_task');
+  // No marker and no live process: the run was killed, crashed or lost its machine. Every finished
+  // stage is on disk, so a resume replays them and carries on.
+  return out(true, 'process_gone', 'nothing');
 }

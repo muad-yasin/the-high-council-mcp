@@ -21,6 +21,13 @@
     "description": {
       "type": "string"
     },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^[^\\n\\r]*$",
+      "description": "One line for a chain card in a list or a UI: what the council is, in at most 120 characters. Display only: no stage reads it, no prompt carries it, and it is left out of the stage cache's fingerprint, so editing it never makes a resumed run pay again. State what the chain is and how it is seated; never how well it works."
+    },
     "schemaVersion": {
       "type": "integer",
       "minimum": 1,
