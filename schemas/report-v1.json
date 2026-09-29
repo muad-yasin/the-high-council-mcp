@@ -508,6 +508,20 @@
       "pattern": "^[0-9a-f]{64}$",
       "description": "sha256 over the criteria list, each criterion collapsed to one line, order counted (0.8.0). The same fingerprint the HANDOFF.md lock block carries; `council check-lock` compares them."
     },
+    "criteria_lints": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "Word-level lints over the acceptance criteria, run before any paid review round (0.8.0). Heuristics: they miss a rephrasing and can flag a good criterion. Recorded only: never a stop. [] when clean.",
+      "items": {
+        "type": "object",
+        "required": ["id", "message"],
+        "properties": {
+          "id": { "enum": ["no-consistency", "presence-heavy", "vague-word"] },
+          "message": { "type": "string" },
+          "criterion_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
     "criteria_ids": {
       "x-stability": "experimental",
       "type": "array",

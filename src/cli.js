@@ -27,6 +27,7 @@ import { preflightCheck, checkArtifactReferences } from './preflight.js';
 import { fenceFile, scanTaskForSecrets, FENCE_HEADER, FENCE_MAX_BYTES } from './fence.js';
 import { outsideFences } from './quote-check.js';
 import { parseCriteriaFile } from './criteria-kinds.js';
+import { lintCriteria } from './criteria-lints.js';
 import { scanForPii, applyPiiGate } from './pii-gate.js';
 import { harnessVersion } from './version.js';
 import { stageKindOf } from './stage-contract.js';
@@ -558,6 +559,34 @@ if (argv[0] === 'check-lock' || argv[0] === 'verify-handoff') {
   if (!verdict.found) { console.error(`${fileArg}: ${verdict.problems[0]}`); process.exit(2); }
   if (verdict.ok) { console.log(`${fileArg}: criteria lock holds (${verdict.sha256.slice(0, 12)}${verdict.run ? `, run ${verdict.run}` : ''})`); process.exit(0); }
   for (const p of verdict.problems) console.error(`${fileArg}: ${p}`);
+  process.exit(1);
+}
+
+// `council lint-criteria --criteria <file> | --run <folder>` (0.8.0): the $0 word-level lints over an
+// acceptance-criteria list (src/criteria-lints.js) - the same ones every run logs before its first paid
+// round - so a hand-written list can be looked at before a run exists. Exit 0 clean, 1 with findings
+// (one per line), 2 no list to read. Heuristics: a finding is a question for a person, not a verdict.
+if (argv[0] === 'lint-criteria') {
+  const critArg = flag('criteria', null);
+  const runArg = flag('run', null);
+  if ((!critArg || critArg === true) === (!runArg || runArg === true)) {
+    console.error('lint-criteria: give exactly one of --criteria <file> or --run <folder>');
+    console.error('usage: council lint-criteria --criteria criteria.md   |   council lint-criteria --run runs/<id>');
+    process.exit(2);
+  }
+  let list;
+  if (critArg && critArg !== true) {
+    try { list = parseCriteriaFile(readFileSync(resolve(work, critArg), 'utf8'), critArg); } catch (e) { console.error(`lint-criteria: ${e.message}`); process.exit(2); }
+  } else {
+    const dir = resolve(work, runArg);
+    const file = existsSync(join(dir, 'report.json')) ? 'report.json' : existsSync(join(dir, 'report-partial.json')) ? 'report-partial.json' : null;
+    if (!file) { console.error(`lint-criteria: no report.json in ${dir}`); process.exit(2); }
+    list = readReportOrExit(join(dir, file), 'lint-criteria').criteria;
+    if (!Array.isArray(list) || !list.length) { console.error('lint-criteria: that report has no criteria'); process.exit(2); }
+  }
+  const findings = lintCriteria(list);
+  if (!findings.length) { console.log(`${list.length} criteria, no findings.`); process.exit(0); }
+  for (const f of findings) console.log(`${f.id}: ${f.message}`);
   process.exit(1);
 }
 
@@ -1250,6 +1279,9 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council --replay runs/<r>            the same task and chain again today, with a diff
   council replay --run runs/<r> [--json]
                                        a finished run as a numbered transcript
+  council lint-criteria --criteria <file> | --run runs/<r>
+                                       $0 word-level lints over acceptance criteria
+                                       (the ones every run logs before its first paid round)
   council check-lock HANDOFF.md [--run runs/<r>]
                                        does this HANDOFF still carry the criteria the
                                        run locked into it? ($0; alias verify-handoff)

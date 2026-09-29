@@ -18,6 +18,7 @@ import { promptHashOf, cacheVerdict } from './cache-integrity.js';
 import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
 import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine, MET_VERDICT } from './criteria-kinds.js';
 import { missingCriteriaRows } from './criteria-ledger.js';
+import { lintCriteria } from './criteria-lints.js';
 import { runDeepDive, deepDiveFailures } from './deep-dive.js';
 import { assertOutboundClean, SecretShapedPrompt } from './outbound-scan.js';
 export { DeniedModel };
@@ -1492,7 +1493,7 @@ export async function runDescendingChain({ request, config, log = console.log, o
     // Pre-release audit 2026-09-23 (GuardLayer #1, and PanelSignoff's backlog): these were dropped
     // here, so a descending chain's security gate never reached the CLI (no exit 7/8, no gate in
     // report.json) and the panel/dispute record was lost. Forwarded only when the final run set them.
-    ...Object.fromEntries(['security_review', 'panelVerdicts', 'missingCriteria', 'dispute', 'regressions', 'noHeardReviewer', 'notQuorate']
+    ...Object.fromEntries(['security_review', 'panelVerdicts', 'missingCriteria', 'criteriaLints', 'dispute', 'regressions', 'noHeardReviewer', 'notQuorate']
       .filter(k => finalResult[k] !== undefined).map(k => [k, finalResult[k]])),
     totals: summarise(stages),
   };
@@ -1594,6 +1595,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       regressions: peek(() => regressions, []),
       panelVerdicts: peek(() => panelVerdicts, []),
       missingCriteria: peek(() => missingCriteria, []),
+      criteriaLints: peek(() => criteriaLints, []),
       history: peek(() => history, []),
       stages,
       totals: summarise(stages),
@@ -1907,6 +1909,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     criteriaKinds.forEach((k, i) => { if (k.kind === 'checkable') log(`     ${i + 1}: checkable on ${k.on} - ${k.check}`); });
     log(`  ${summaryLine(criteriaSummary(criteria, criteriaKinds))}`);
   }
+  // $0 word-level lints over the list, before any paid review round (src/criteria-lints.js): recorded
+  // and logged, never a stop.
+  const criteriaLints = lintCriteria(criteria);
+  for (const f of criteriaLints) log(`  criteria lint (${f.id}): ${f.message}`);
   // The "How the checkable criteria are settled" block for critic and handoff prompts; '' when
   // kinds are off or nothing is checkable, which keeps those prompts byte-identical.
   const checks = kindsOn ? checksSection(criteria, criteriaKinds) : '';
@@ -3550,6 +3556,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     ...(deepDive !== undefined ? { deep_dive: deepDive } : {}),
     // Additive (0.8.0): the sign-offs whose criteria table skipped criteria; [] when there were none.
     missingCriteria,
+    criteriaLints,
     // Additive: absent unless the chain enabled criterion kinds (src/criteria-kinds.js).
     ...(kindsOn ? {
       criteriaKinds: kindsRecord(criteria, criteriaKinds),

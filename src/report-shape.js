@@ -142,6 +142,8 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
       ? { criteria_ids: criterionIds(result.criteria), missing_criteria: result.missingCriteria } : {}),
     // The fingerprint of the criteria list (src/criteria-lock.js), the same one HANDOFF.md's lock block carries.
     ...(Array.isArray(result.criteria) && result.criteria.length ? { criteria_sha256: criteriaHash(result.criteria) } : {}),
+    // $0 word-level lints over the criteria, run before any paid round (src/criteria-lints.js); [] when clean.
+    ...(Array.isArray(result.criteriaLints) ? { criteria_lints: result.criteriaLints } : {}),
     ...(cutDespiteSupport(result.proposals, result.debate) !== undefined ? { cut_despite_support: cutDespiteSupport(result.proposals, result.debate) } : {}),
     ...(disagreementMap(result.panelVerdicts) !== undefined ? { disagreement_map: disagreementMap(result.panelVerdicts) } : {}),
     ...(Array.isArray(result.regressions) ? { regressions: result.regressions } : {}),
