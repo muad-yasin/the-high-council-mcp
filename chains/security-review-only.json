@@ -1,0 +1,29 @@
+{
+  "name": "security-review-only",
+  "description": "A tiny chain whose only real content is a human-supplied artifact and the final security-review gate (515439a, docs/security-review-gate.md). The builder seat is external: the CLI pauses, an operator (a person or an orchestrator like Sophi-A) pastes the artifact under review as the paused stage's own <label>.md, and resumes. No criteria call (criteria is hardcoded so that stage never runs) and one always-passing mock critic round, present only because chain-lint requires at least one seats.critics entry - this chain's real gate is security_review, not the critic panel. Exit 0 = pass, 7 = blocked, 8 = not_judged. Swap seats.security_reviewer's model to mock-security-block for the blocking path (this file's default), or to any other name (e.g. mock-security-clean) for the passing path - see docs/security-review-gate.md. Zero engine changes: this is a config-only chain built entirely from existing seat kinds and the existing security_review flag.",
+  "maxRounds": 1,
+  "criteria": [
+    "The artifact under review is present as the resumed external stage's content.",
+    "The final security-review gate ran and recorded a gate verdict."
+  ],
+  "seats": {
+    "builder": {
+      "provider": "external"
+    },
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-critic-passer",
+        "lab": "mock-passthrough"
+      }
+    ],
+    "security_reviewer": {
+      "provider": "mock",
+      "model": "mock-security-block",
+      "lab": "mock-security"
+    }
+  },
+  "security_review": {
+    "enabled": true
+  }
+}
