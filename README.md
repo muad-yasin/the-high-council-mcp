@@ -426,7 +426,7 @@ Each outcome has its own code, so a script or CI job can branch on it:
 | 11 | Something in the input must not be sent: a prompt matches one of the key formats listed in `src/secret-patterns.js` (checked by default; `--allow-secret-shaped` overrides), or, under `--pii-gate hard-stop`, a PII shape. |
 | 12 | `policy.json` refused the chain. |
 | 13 | Another process is already running this run folder. |
-| 14 | The task file changed since the run started and `AMENDMENTS.md` does not cover it. |
+| 14 | The task file, or (since 0.8.0) a `--context` document, changed since the run started and `AMENDMENTS.md` does not cover it. The message prints the hashes to write; a context hash is written `ctx-<hash>`. |
 | 15 | `--resume` of a run that already finished (it has a `report.json`); nothing is run or spent. |
 | 16 | The run stopped at an unexpected error (a seat that could not be reached, a crash); `STOPPED-error.md` says what, and `--resume` continues from the completed stages. |
 | 17 | A draft (build, revise, dispute, final edit or handoff) was cut off at its token cap, and its one larger-cap retry was cut off too; the fragment is never graded or shipped (`STOPPED-truncated.md`). |

@@ -33,7 +33,7 @@ import { stageKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs } from './cache-integrity.js';
 import { archiveSuperseded, supersededSpendOf, recordLostCharge } from './superseded.js';
-import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
+import { taskHashOf, checkFrozenScope, contextHashOf, checkFrozenContext } from './scope-freeze.js';
 import { lockBlock, checkLock } from './criteria-lock.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { schemaVersionWarning } from './schema-version.js';
@@ -1626,6 +1626,7 @@ const contextArg = contextArgRaw && contextArgRaw !== true
 // work, since MCP cannot pass --allow-unfenced). The gate reads the task text alone.
 const requestForArtifactGate = request;
 let contextFilesForScan = [];
+let contextHash = null; // 0.8.0: the standing-context bundle's hash, so a resume can tell it changed
 if (contextArg) {
   // Which files, and each one read non-blocking with a size cap: a FIFO, a device or an oversized
   // file is refused with its name, before any call (src/context-files.js).
@@ -1634,6 +1635,7 @@ if (contextArg) {
     files = contextFileList(contextArg);
     contextFilesForScan = files;
     docs = files.map(f => `## ${f.split('/').pop()}\n\n${readContextFile(f)}`).join('\n\n---\n\n');
+    contextHash = contextHashOf(docs);
   } catch (e) {
     if (!(e instanceof ContextFileError)) throw e;
     console.error(`${e.message}. Refused before any call.`);
@@ -1777,7 +1779,7 @@ if (auditEnabled) {
 const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...unfencedMeta, ...secretScanMeta }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, contextHash, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...unfencedMeta, ...secretScanMeta }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
@@ -1812,6 +1814,18 @@ if (resumeMeta) {
     // The new hash becomes this run's baseline going forward.
     writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...resumeMeta, taskHash }, null, 2));
     console.log(`task hash mismatch covered by a recorded amendment in ${amendmentsPath} - proceeding.`);
+  }
+  // The same rule for the --context documents (roadmap item 10). A run from before this check has no
+  // stored hash: it is trusted, and today's becomes its baseline.
+  const ctxCheck = checkFrozenContext({ storedHash: resumeMeta.contextHash, currentHash: contextHash, amendmentsText });
+  if (!ctxCheck.ok) {
+    console.error(`\n${ctxCheck.message}\n(${amendmentsPath})`);
+    process.exit(EXIT_SCOPE_CHANGED);
+  }
+  if (ctxCheck.amended || (resumeMeta.contextHash === undefined && contextHash)) {
+    const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
+    writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, contextHash }, null, 2));
+    if (ctxCheck.amended) console.log(`context change covered by a recorded amendment in ${amendmentsPath} - proceeding.`);
   }
 }
 // Stage cache: <label>.md holds the text, <label>.usage.json what it cost.
