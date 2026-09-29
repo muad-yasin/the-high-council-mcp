@@ -38,7 +38,8 @@ Each top-level property in the schema carries `"x-stability": "stable"` or `"exp
   the argument it concedes to carries `unargued: true`, and its proposal stays for the builder.
 
 Since 0.8.0 (all experimental, all additive, none read by any verdict, prompt or stop):
-`criteria_ids` (positional, index-aligned with `criteria`: `C1`, `C2`, ...) and `missing_criteria[]`
+`criteria_sha256` (a fingerprint of the criteria list, the same one the lock block at the end of
+`HANDOFF.md` carries; `council check-lock HANDOFF.md --run runs/<id>` compares them), `criteria_ids` (positional, index-aligned with `criteria`: `C1`, `C2`, ...) and `missing_criteria[]`
 (sign-offs whose criteria table left criteria out, by round and lab; `[]` when none did, and a reply
 with no table at all is not listed); `cut_despite_support[]` (proposals the plan cut although another
 lab supported them in the debate, with supporters and objectors; only when the run had proposals and a

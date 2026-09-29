@@ -148,7 +148,10 @@ A run moves through fixed stages. Which stages fire depends on the chain you pic
 7. **Panel review** - every critic independently grades the draft against the acceptance criteria,
    blind. Not unanimous? It revises against the union of every objection and the panel reviews
    again, up to the chain's round cap.
-8. **Handoff** - a `HANDOFF.md` written for whoever executes the result.
+8. **Handoff** - a `HANDOFF.md` written for whoever executes the result. It ends with a block the
+   harness writes, not a model: the acceptance criteria the run settled, with a fingerprint.
+   `council check-lock HANDOFF.md` ($0) says whether a copy still carries them; it catches an edit or
+   a slip, and is not a signature.
 
 Some chains add optional stages to this: whole alternative architectures written blind before
 the skeleton, a deep-dive check of the first draft, a dispute stage that records unresolved

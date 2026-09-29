@@ -34,6 +34,7 @@ import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs } from './cache-integrity.js';
 import { archiveSuperseded, supersededSpendOf, recordLostCharge } from './superseded.js';
 import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
+import { lockBlock, checkLock } from './criteria-lock.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { schemaVersionWarning } from './schema-version.js';
 import { forecastCost } from './cost-forecast.js';
@@ -532,6 +533,32 @@ if (argv[0] === 'replay') {
     console.log(renderTranscriptText(steps));
   }
   process.exit(0);
+}
+
+// `council check-lock <HANDOFF.md> [--run <folder>]` (0.8.0, alias `verify-handoff`): $0, no network. Does
+// this file (the run's copy, or the project's own) still carry the criteria the harness locked into it?
+// With --run, also: are they the criteria that run's report.json settled? Exit 0 yes, 1 no (each
+// problem on its own line), 2 no such file or no lock block to check.
+if (argv[0] === 'check-lock' || argv[0] === 'verify-handoff') {
+  const fileArg = argv[1] && !argv[1].startsWith('--') ? argv[1] : null;
+  if (!fileArg) {
+    console.error(`${argv[0]}: give the HANDOFF.md to check`);
+    console.error(`usage: council ${argv[0]} <HANDOFF.md> [--run runs/<id>]`);
+    process.exit(2);
+  }
+  let text;
+  try { text = readFileSync(resolve(work, fileArg), 'utf8'); } catch { console.error(`${argv[0]}: cannot read ${fileArg}`); process.exit(2); }
+  let expected;
+  const runArg = flag('run', null);
+  if (runArg && runArg !== true) {
+    const report = readReportOrExit(join(resolve(work, runArg), 'report.json'), argv[0]);
+    if (Array.isArray(report.criteria)) expected = report.criteria;
+  }
+  const verdict = checkLock(text, { expected });
+  if (!verdict.found) { console.error(`${fileArg}: ${verdict.problems[0]}`); process.exit(2); }
+  if (verdict.ok) { console.log(`${fileArg}: criteria lock holds (${verdict.sha256.slice(0, 12)}${verdict.run ? `, run ${verdict.run}` : ''})`); process.exit(0); }
+  for (const p of verdict.problems) console.error(`${fileArg}: ${p}`);
+  process.exit(1);
 }
 
 // `council digest --run <folder> [--provider p --model m]` (v6 item E): a short, plain-English
@@ -1223,6 +1250,9 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council --replay runs/<r>            the same task and chain again today, with a diff
   council replay --run runs/<r> [--json]
                                        a finished run as a numbered transcript
+  council check-lock HANDOFF.md [--run runs/<r>]
+                                       does this HANDOFF still carry the criteria the
+                                       run locked into it? ($0; alias verify-handoff)
   council --forecast-cost --chain <name> [--days N]
                                        a realistic cost range from this chain's own
                                        past runs on this machine
@@ -2403,7 +2433,10 @@ if (result.proposalPool?.length && result.proposalPool.length > result.proposals
 // already lists proposals and debate posts (or a standalone one, if no debate happened this run).
 const boardMd = renderBoardMd({ runId, result });
 if (boardMd) writeFileSync(join(runDir, 'BOARD.md'), boardMd);
-if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff);
+// The locked-criteria block (src/criteria-lock.js) is written by the harness after the model's text,
+// so the criteria a build session reads are the ones the run settled, and `council check-lock` can tell
+// when a copy no longer carries them.
+if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff.replace(/\s+$/, '') + '\n' + lockBlock(result.criteria, { runId }));
 // "How this plan was argued" (src/argued.js): its own file next to the deliverable, never inside it,
 // and every id or lab it names that the run never had goes to WARNINGS.md as well as report.json.
 if (result.argued) {

@@ -43,9 +43,16 @@ export function checkFrozenScope({ storedHash, currentHash, amendmentsText }) {
   return { ok: true, amended: true };
 }
 
-/** The target hash of AMENDMENTS.md's latest entry: the last 12-hex task hash in the text, or null. */
+/**
+ * The target hash of AMENDMENTS.md's latest entry: the last task hash written in the text, or null.
+ * A task hash is 12 hex characters in run.json and in the error message, but a person copying one from
+ * `sha256sum` writes all 64; both name the same hash, so any 12-to-64 hex token counts and is reduced
+ * to its first 12 (0.8.0: the old 12-only match read a full-length hash as no entry at all).
+ */
 export function latestAmendmentTarget(amendmentsText) {
   if (typeof amendmentsText !== 'string') return null;
-  const hashes = amendmentsText.match(/\b[0-9a-f]{12}\b/g);
-  return hashes ? hashes[hashes.length - 1] : null;
+  // A longer token of digits only (a compact timestamp, an id) is not a hash; a 12-character one is
+  // kept as before, since a real hash can be all digits (about 1 in 280).
+  const hashes = (amendmentsText.match(/\b[0-9a-f]{12,64}\b/g) || []).filter(h => h.length === 12 || /[a-f]/.test(h));
+  return hashes.length ? hashes[hashes.length - 1].slice(0, 12) : null;
 }

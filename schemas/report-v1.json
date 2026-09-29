@@ -502,6 +502,12 @@
       },
       "description": "Present only on chains with argued.enabled: where the 'How this plan was argued' text is, and the check of every id and lab it names against this run's record."
     },
+    "criteria_sha256": {
+      "x-stability": "experimental",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 over the criteria list, each criterion collapsed to one line, order counted (0.8.0). The same fingerprint the HANDOFF.md lock block carries; `council check-lock` compares them."
+    },
     "criteria_ids": {
       "x-stability": "experimental",
       "type": "array",

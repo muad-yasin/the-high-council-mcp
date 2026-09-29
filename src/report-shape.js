@@ -12,6 +12,7 @@ import { deriveDisagreementGroups } from './disagreement-groups.js';
 import { renderDisputeReviewBoard } from './chain.js';
 import { summaryLine } from './criteria-kinds.js';
 import { criterionIds } from './criteria-ledger.js';
+import { criteriaHash } from './criteria-lock.js';
 import { cutDespiteSupport, disagreementMap } from './decision-records.js';
 import { isAbsolute, relative, basename, sep } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -139,6 +140,8 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     // lab verdict map (src/decision-records.js). A key is absent where it does not apply.
     ...(Array.isArray(result.missingCriteria) && Array.isArray(result.criteria) && result.criteria.length
       ? { criteria_ids: criterionIds(result.criteria), missing_criteria: result.missingCriteria } : {}),
+    // The fingerprint of the criteria list (src/criteria-lock.js), the same one HANDOFF.md's lock block carries.
+    ...(Array.isArray(result.criteria) && result.criteria.length ? { criteria_sha256: criteriaHash(result.criteria) } : {}),
     ...(cutDespiteSupport(result.proposals, result.debate) !== undefined ? { cut_despite_support: cutDespiteSupport(result.proposals, result.debate) } : {}),
     ...(disagreementMap(result.panelVerdicts) !== undefined ? { disagreement_map: disagreementMap(result.panelVerdicts) } : {}),
     ...(Array.isArray(result.regressions) ? { regressions: result.regressions } : {}),
