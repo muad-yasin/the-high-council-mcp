@@ -1,5 +1,50 @@
 # Changelog
 
+## Unreleased (0.8.0 in progress; branch `wave-080`, no version bump)
+
+### Changed
+
+- **A resume refuses a `--context` document edited during the pause** (exit 14), the same rule that
+  already covered the task file. `run.json` stores `contextHash`; record the change in the run's
+  `AMENDMENTS.md` (the message prints both `ctx-<hash>` values to write) and resume again. A run from
+  before this, and a run with no `--context`, are unaffected.
+- **`HANDOFF.md` ends with a block the harness writes** (not a model): the acceptance criteria the run
+  settled, as C1..Cn, with a fingerprint. `council check-lock HANDOFF.md [--run runs/<id>]` (alias
+  `verify-handoff`, $0) says whether a copy still carries them. It catches an edit or a slip; it is
+  not a signature.
+- **The local run viewer runs behind a request guard** (`src/ui/guard.js`): exact Host allow-list, Origin
+  checks, POST + JSON only, a per-launch token that fails closed, and CSP with `frame-ancestors 'none'`
+  plus nosniff, no-referrer and no-store on every reply, refusals included. It serves `index.html`,
+  `app.js` and `style.css` by exact name only (it used to serve `server.js` and `parse.js` too). The
+  read-only viewer has no route that changes state, so it configures no token yet.
+- **Every run logs `$0` criteria lints** after the criteria stage (`criteria lint (...)` lines) and records
+  them as `criteria_lints[]`: no criterion asks the plan to be consistent, most only ask that something
+  be named, a vague word with no number. Word-level heuristics; never a stop.
+
+### Added
+
+- `council --dry-run --json` and MCP `dry_run` `json: true`: the price floor and worst case, per-seat key
+  status (never the key), `missingKeys[]`, `canRun`. The worst case is an estimate, not a bound.
+- `run_status` and `list_runs` say whether a stopped run can be continued and what that takes
+  (`resumable`), `STOPPED-error.json` says what an error stop was and whether asking again could work,
+  and `state.json` at rest names the run's final phase and the stages it waits on.
+- A top-level chain `summary` (one display line, at most 120 characters) on the five recommended chains;
+  `list_chains` returns it. It is left out of the stage-cache fingerprint.
+- `council handoff --from-run runs/<id>`: a `HANDOFF.md` for a run that stopped before it wrote one, from
+  its latest draft; one capped call, a banner when no panel signed off, never overwrites an existing
+  `HANDOFF.md`.
+- `council lint-criteria --criteria <file> | --run runs/<id>`: the criteria lints before a run exists.
+- `report.json` (all experimental, all additive): `criteria_ids`, `criteria_sha256`, `criteria_lints`,
+  `missing_criteria` (sign-offs whose criteria table skipped criteria; recorded only),
+  `cut_despite_support` and `disagreement_map`. See `docs/report-format.md`.
+- A test that every MCP tool answers within 15 s through a whole mock run (a new tool needs a step in it).
+
+### Fixed
+
+- An `AMENDMENTS.md` entry written with a full 64-character task hash (what `sha256sum` prints) named no
+  target at all, so a deliberate amendment was refused; any 12-to-64 hex token now counts, reduced to its
+  first 12. A long all-digit token (a compact timestamp) is not a hash.
+
 ## 0.7.9 - 2026-09-29
 
 ### Breaking
