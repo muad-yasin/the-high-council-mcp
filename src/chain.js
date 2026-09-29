@@ -16,8 +16,9 @@ import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './securi
 import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
 import { promptHashOf, cacheVerdict } from './cache-integrity.js';
 import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
-import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine } from './criteria-kinds.js';
+import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine, MET_VERDICT } from './criteria-kinds.js';
 import { runDeepDive, deepDiveFailures } from './deep-dive.js';
+import { assertOutboundClean, SecretShapedPrompt } from './outbound-scan.js';
 export { DeniedModel };
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
@@ -497,6 +498,12 @@ function isReasoningExhausted(usage, cap) {
   return cut && usage.thinking > 0 && usage.output > 0 && usage.thinking >= usage.output && usage.output <= cap * REASONING_CEILING_FRACTION;
 }
 
+// The provider itself says the reply stopped at the token cap. Unlike abstentionReasonCode's
+// REPLY_TRUNCATED, no 95%-of-cap guess: a reply that finished with stop:"stop" is complete.
+export function providerCutOff(usage) {
+  return usage?.stop === 'length' || usage?.stop === 'max_tokens';
+}
+
 export function abstentionReasonCode(usage, maxTokens) {
   if (usage.stop === 'error') return 'PROVIDER_ERROR';
   const cap = maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -562,7 +569,6 @@ function capField(value) {
 // unanimity; it is never consent). A non-array `failures` or a non-object reply is unreadable too,
 // rather than a throw - the reply is on disk before it is parsed, so a throw here used to crash
 // every resume on the same replayed file (#2).
-const MET_VERDICT = /^(MET|PASS|PASSED|YES)$/;
 const FAILED_VERDICT = /^(FAILED|FAIL|NOT[\s_-]*MET|UNMET|NO)$/;
 const NO_VERDICT_FAILURE_CRITERION = '(objection named no criterion)';
 
@@ -741,12 +747,17 @@ export class ExternalPause extends Error {
 // used to flow straight on, so a truncated final edit became the shipped deliverable with no review
 // after it. Thrown, not returned, like BudgetExceeded: the CLI stops the run with STOPPED-truncated.md
 // and never grades, reports or ships the fragment.
+//
+// Bug audit 2026-09-27 M4: also thrown for a draft the provider ended with `error`, `content_filter`
+// or `refusal` (draftIncomplete), after one retry at the same cap. `stop` then names that reason, and
+// the message says "did not complete" instead of "cut off".
 export class DraftTruncated extends Error {
-  constructor(label, detail) {
-    super(`stage "${label}" was cut off at its token cap: ${detail}`);
+  constructor(label, detail, stop = null) {
+    super(stop ? `stage "${label}" did not complete (stop: ${stop}): ${detail}` : `stage "${label}" was cut off at its token cap: ${detail}`);
     this.controlFlow = true;
     this.label = label;
     this.detail = detail;
+    this.stop = stop;
   }
 }
 
@@ -757,6 +768,14 @@ export function draftCutOff(usage, cap) {
   if (!usage) return false;
   if (usage.stop === 'length' || usage.stop === 'max_tokens') return true;
   return usage.stop == null && Number.isFinite(cap) && (usage.output || 0) >= cap;
+}
+
+// Bug audit 2026-09-27 M4: a draft the provider ended for a reason other than finishing or the cap
+// (normaliseStop passes these through). Such a reply is not a finished draft either, and a bigger
+// cap does not help a provider error, so draftStage retries it once at the same cap.
+const INCOMPLETE_STOPS = new Set(['error', 'content_filter', 'refusal']);
+export function draftIncomplete(usage) {
+  return !!usage && INCOMPLETE_STOPS.has(usage.stop);
 }
 
 export class PreflightBlocked extends Error {
@@ -983,6 +1002,12 @@ export function setProgressHook(fn) { progressHook = fn || (() => {}); }
 let chargeHook = () => {};
 export function setChargeHook(fn) { chargeHook = fn || (() => {}); }
 
+// 0.7.9: the outbound key scan (src/outbound-scan.js), on unless the CLI waives it with
+// --allow-secret-shaped. Checked in invoke() after the cache - a replay from disk sends nothing -
+// and before the external pause, so a NEEDS file is scanned like a provider call.
+let outboundScan = { allow: false };
+export function setOutboundScan(opts) { outboundScan = { allow: !!opts?.allow }; }
+
 async function invoke(seat, { system, user, log, label }) {
   const started = Date.now();
   // Backstop for the check at the top of runChain: every call, including a replay from disk.
@@ -1047,6 +1072,7 @@ async function invoke(seat, { system, user, log, label }) {
     log(`  ${label}: ${hit.provider || seat.provider}/${hit.model || seat.model} - from disk (${usage.input} in, ${usage.output} out, ${formatUsd(usd)} already spent)`);
     return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage, usd, priced: true, ms: 0, text: hit.text, cached: true, promptHash };
   }
+  assertOutboundClean(label, { system, user }, outboundScan);
   if (seat.provider === 'external') throw new ExternalPause(label, system, user);
 
   // The cap is checked here, before the only line in this file that spends
@@ -1082,8 +1108,18 @@ async function invoke(seat, { system, user, log, label }) {
     // Usage the cap cannot read (a NaN, a negative or non-numeric count, no usage at all) is
     // zeroed in the record and charged at one attempt's projection (cost.js readUsage).
     const readRes = r => { const { usage, unreadable } = readUsage(r.usage); return { ...r, usage, unreadable }; };
+    // Bug audit 2026-09-27 H1: the provider names the model that actually answered (an OpenRouter
+    // extra.models fallback, a dated alias), and an unpriced answering model cost $0, so the cap went
+    // blind for that call. It is charged at the seat's own model's price instead, and says so.
+    const priceAnswer = r => {
+      const own = costOf(r.provider, r.model, r.usage);
+      if (own.priced || r.model === seat.model) return own;
+      const asSeat = costOf(r.provider, seat.model, r.usage);
+      if (asSeat.priced) log(`  ${label}: answered by ${r.provider}/${r.model}, which has no price entry - charged at ${seat.model}'s price.`);
+      return asSeat.priced ? asSeat : own;
+    };
     const costOfRes = r => {
-      const measured = costOf(r.provider, r.model, r.usage);
+      const measured = priceAnswer(r);
       if (!r.unreadable) return measured;
       if (oneAttempt > 0) log(`  ${label}: ${r.provider}/${r.model} reported usage the spend cap cannot read (${r.unreadable}) - ${formatUsd(oneAttempt)} (one attempt's worst case) counted toward the cap.`);
       return { usd: oneAttempt, priced: measured.priced };
@@ -1563,9 +1599,31 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   // its cap is retried once with a bigger one (cutOffRetryCap, the panel's rule), under its own
   // stable `<label>-retry` label, and if that is cut off too - or the seat is external and cannot be
   // retried - the run stops (DraftTruncated) rather than carry the fragment forward.
+  // Bug audit 2026-09-28 (area 2 #2): a debate post or reply round the provider ended with stop
+  // "error" (or content_filter / refusal) was recorded as "did not parse" and not retried, so a
+  // 2.5-second transient error cost a lab its whole reply round (plan-daily-7's first real run,
+  // gemini). One retry at the same cap, under `<label>-retry`; the caller records `provider_error`
+  // if that one is incomplete too.
+  const onceMoreIfIncomplete = async (st, seat, opts, say) => {
+    if (!draftIncomplete(st.usage)) return st;
+    say(`  ${opts.label.replace(/-retry$/, '')}: the provider ended the reply with stop "${st.usage.stop}" - retrying once.`);
+    return record(await invoke(seat, opts));
+  };
   const draftStage = async (seat, opts) => {
     const cap = seat.maxTokens ?? DEFAULT_MAX_TOKENS;
     const first = record(await invoke(seat, opts));
+    if (draftIncomplete(first.usage)) {
+      if (seat.provider === 'external') {
+        throw new DraftTruncated(opts.label, `the external reply reports stop "${first.usage.stop}" - write a complete reply to ${opts.label}.md and resume`, first.usage.stop);
+      }
+      log(`  ${opts.label}: the provider ended the reply with stop "${first.usage.stop}" - retrying once at the same ${cap}-token cap.`);
+      const again = record(await invoke(seat, { ...opts, label: `${opts.label}-retry` }));
+      if (draftIncomplete(again.usage)) {
+        throw new DraftTruncated(opts.label, `stop "${first.usage.stop}", and "${again.usage.stop}" again on the retry`, again.usage.stop);
+      }
+      if (draftCutOff(again.usage, cap)) throw new DraftTruncated(opts.label, `stop "${first.usage.stop}", then cut off at ${cap} tokens on the retry`);
+      return again;
+    }
     if (!draftCutOff(first.usage, cap)) return first;
     const bigger = cutOffRetryCap(cap);
     if (seat.provider === 'external' || bigger <= cap) {
@@ -1671,7 +1729,24 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     if (!questions.length) log('  no usable questions returned; continuing without.');
     else {
       questions.forEach((q, i) => log(`  ${i + 1}. ${q.question}\n     default: ${q.default}`));
-      const answered = cache.get('answers');
+      const answersSystem = 'Answer the planner\'s questions. Write plain text: one numbered answer per question, in the same order. An answer may be "default" to take the planner\'s own default. Anything else you want the plan to know may follow the numbered answers.';
+      const answersUser = `# The request\n\n${request}\n\n# The questions\n\n${R.renderQuestions(questions)}`;
+      let answered = cache.get('answers');
+      // Bug audit 2026-09-28 (external seats #3): the answers were replayed with no staleness check,
+      // so after a task amendment the old answers were matched, by position, to the new questions.
+      // Checked like every other external stage (invoke()): a different prompt, or a changed task or
+      // chain, sets the old answers aside and asks again.
+      if (answered) {
+        const verdict = cacheVerdict(answered, promptHashOf(answersSystem, answersUser));
+        if (verdict.status === 'stale') {
+          cache.invalidate?.('answers', verdict.why);
+          log(`  CACHE STALENESS WARNING: stage "answers" - ${verdict.why}; the old answers were set aside and the operator is asked again.`);
+          answered = null;
+        } else if (verdict.status === 'unverified') {
+          cache.warn?.('answers', verdict.why);
+          log(`  CACHE: stage "answers" replayed UNVERIFIED - ${verdict.why}. Recorded in WARNINGS.md and report.json.`);
+        }
+      }
       if (answered) {
         log(`  answers: from disk (${answered.text.split(/\s+/).length} words)`);
         request += R.answersSection(questions, answered.text);
@@ -1679,9 +1754,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         log('  wait: false - defaults taken for every question.');
         request += R.answersSection(questions, '');
       } else {
-        throw new ExternalPause('answers',
-          'Answer the planner\'s questions. Write plain text: one numbered answer per question, in the same order. An answer may be "default" to take the planner\'s own default. Anything else you want the plan to know may follow the numbered answers.',
-          `# The request\n\n${request}\n\n# The questions\n\n${R.renderQuestions(questions)}`);
+        assertOutboundClean('answers', { system: answersSystem, user: answersUser }, outboundScan);
+        throw new ExternalPause('answers', answersSystem, answersUser);
       }
     }
   }
@@ -2031,9 +2105,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       const capped = { ...seat, maxTokens: Math.min(seat.maxTokens ?? DEFAULT_MAX_TOKENS, parts * perPart + 300) };
       const slice = (partitionSlices && partitionSlices[labOf(seat)]) || null;
       const pool = [];
-      let unreadable = 0;
+      let unreadable = 0, lastSt = null;
       for (let k = 0; k < samples; k++) {
-        const st = record(await invoke(capped, {
+        const st = lastSt = record(await invoke(capped, {
           system: R.proposerSystem(open),
           user: R.proposerUser({ request, criteria, skeleton, parts, slice }),
           log: say, label: `propose-${labOf(seat)}${samples > 1 ? `-${k + 1}` : ''}`,
@@ -2051,7 +2125,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // accepting it. The retry goes through invoke() like any other call, so
       // the spend cap still governs it.
       if (!pool.length) {
-        const st = record(await invoke(capped, {
+        // Bug audit 2026-09-28 (area 2 #1): a reply cut off at the cap was retried at the same cap,
+        // which a reasoning seat fills again (plan-daily-7's first real run: hy4-preview thought through
+        // all 12,300 tokens twice and dropped out). Same rule as the alternatives stage: a cut-off is
+        // retried with cutOffRetryCap, anything else once at the same cap.
+        const cut = !!lastSt && abstentionReasonCode(lastSt.usage || {}, capped.maxTokens) === 'REPLY_TRUNCATED';
+        const retryCap = cut ? cutOffRetryCap(capped.maxTokens) : capped.maxTokens;
+        const st = record(await invoke({ ...capped, maxTokens: retryCap }, {
           system: R.proposerSystem(open),
           user: R.proposerUser({ request, criteria, skeleton, parts, slice }),
           log: say, label: `propose-${labOf(seat)}-retry`,
@@ -2059,7 +2139,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const parsed = parseJson(st.text);
         const list2 = Array.isArray(parsed?.proposals) ? parsed.proposals.slice(0, parts) : null;
         if (list2) pool.push(...list2.filter(p => p && p.title).map(p => ({ ...p, attempt: samples + 1 })));
-        say(`  ${labOf(seat)}/${seat.model}: nothing readable; retried once - ${pool.length ? `recovered ${pool.length} proposal(s)` : 'still nothing'}.`);
+        say(`  ${labOf(seat)}/${seat.model}: ${cut ? `proposals cut off at ${capped.maxTokens} tokens; retried with a ${retryCap}-token cap` : 'nothing readable; retried once'} - ${pool.length ? `recovered ${pool.length} proposal(s)` : 'still nothing'}.`);
       }
       let list = pool;
       let judged = null;
@@ -2155,16 +2235,21 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           // no role gets R.DEBATE_SYSTEM back unchanged (applySeatRole is a
           // no-op), which is what the golden-hash compatibility test in
           // test/seat-role.test.js checks.
-          const st = record(await invoke(seatOf(lab), {
-            // 2026-09-22: loadPersonas() so an operator's COUNCIL_PERSONAS_FILE (PERSONAS.md)
-            // actually reaches the prompt - it was documented but never read here, so a custom
-            // persona key went out as a bare name with no voice.
+          // 2026-09-22: loadPersonas() so an operator's COUNCIL_PERSONAS_FILE (PERSONAS.md)
+          // actually reaches the prompt - it was documented but never read here, so a custom
+          // persona key went out as a bare name with no voice.
+          const debatePrompt = {
             system: applySeatRole(R.DEBATE_SYSTEM, seatOf(lab)?.role, loadPersonas()),
             user: R.debateUser({ request, criteria, skeleton, proposals, lab, maps }),
-            log: say, label: `debate-${lab}`,
-          }));
-          const parsed = parseJson(st.text);
-          if (!parsed) { say(`  ${lab}: unreadable debate reply - no posts counted.`); dropped.push({ stage: 'debate', by: lab, reason: 'unreadable' }); }
+          };
+          const st = record(await invoke(seatOf(lab), { ...debatePrompt, log: say, label: `debate-${lab}` }));
+          const st2 = await onceMoreIfIncomplete(st, seatOf(lab), { ...debatePrompt, log: say, label: `debate-${lab}-retry` }, say);
+          const parsed = parseJson(st2.text);
+          if (!parsed) {
+            const why = draftIncomplete(st2.usage) ? 'provider_error' : 'unreadable';
+            say(why === 'provider_error' ? `  ${lab}: the provider ended the debate reply with stop "${st2.usage.stop}" (after a retry) - no posts counted.` : `  ${lab}: unreadable debate reply - no posts counted.`);
+            dropped.push({ stage: 'debate', by: lab, reason: why });
+          }
           else {
             // 0.7.8 (thc-research brief 10, W3): the same filter as before, but every post it
             // rejects is counted with its reason instead of vanishing (debate.dropped).
@@ -2224,13 +2309,21 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const mineWithPosts = proposals.filter(p => p.lab === lab && posts.some(x => x.on === p.id));
         if (!mineWithPosts.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
         try {
-          const st = record(await invoke(seatOf(lab), {
+          const st = await onceMoreIfIncomplete(record(await invoke(seatOf(lab), {
             system: R.replySystem(guard),
             user: R.replyUser({ request, proposals, posts, lab, maps, guard }),
             log: say, label: `reply-${lab}`,
-          }));
+          })), seatOf(lab), {
+            system: R.replySystem(guard),
+            user: R.replyUser({ request, proposals, posts, lab, maps, guard }),
+            log: say, label: `reply-${lab}-retry`,
+          }, say);
           const parsed = parseJson(st.text);
-          if (!parsed) { say(`  ${lab}: unreadable reply round - proposals stand as posted.`); return { lines, replies: [], dropped: [{ stage: 'replies', by: lab, reason: 'unreadable' }] }; }
+          if (!parsed) {
+            const why = draftIncomplete(st.usage) ? 'provider_error' : 'unreadable';
+            say(why === 'provider_error' ? `  ${lab}: the provider ended the reply round with stop "${st.usage.stop}" (after a retry) - proposals stand as posted.` : `  ${lab}: unreadable reply round - proposals stand as posted.`);
+            return { lines, replies: [], dropped: [{ stage: 'replies', by: lab, reason: why }] };
+          }
           const dropped = [];
           const mine = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: boardRef(r.replaced_by, maps, new Set(proposals.map(p => p.id))), action: String(r.action || '').toLowerCase() }))
             .filter(r => {
@@ -2321,7 +2414,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // integration stage can still assign or explicitly drop it.
       const ledger = withdrawalLedger(proposals);
       if (ledger.orphanSections.length) {
-        log(`  WARNING: ${ledger.orphanSections.length} withdrawn proposal(s) have no surviving owner (${ledger.withdrawalCycles} withdrawal cycle(s)): ${ledger.orphanSections.join(', ')}`);
+        // Bug audit 2026-09-28 (area 4 MED-2): this read as an alarm in the $0 demo, whose plan then
+        // handled the withdrawal exactly as asked. It is a note the builder acts on, and says so.
+        log(`  note: ${ledger.orphanSections.length} withdrawn proposal(s) with no surviving owner${ledger.withdrawalCycles ? ` (${ledger.withdrawalCycles} withdrawal cycle(s))` : ''}: ${ledger.orphanSections.join(', ')} - the builder is told to reassign each or drop it, with a reason, in the Scope ledger.`);
         board += `\n\n# Orphaned withdrawals - no surviving owner\n\nThese proposal ids withdrew in a chain that never reaches a proposal still standing (a cycle, or a dead end): ${ledger.orphanSections.join(', ')}. For each one, either assign the section it covered to something else in the plan, or state explicitly in the Scope ledger that it is dropped and why - do not silently leave it uncovered.`;
       }
     }
@@ -2434,6 +2529,14 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   const openByRound = [];
   let stalled = null;
 
+  // R1 (the owner's yes, 2026-09-28): a round that ended with every heard reviewer clean and a seat
+  // still unheard re-reviews an unchanged draft. The heard seats' verdicts on that exact text are
+  // carried into the next round and only the unheard seat(s) are asked again - "this bounds what the
+  // run pays to re-review a draft nobody asked to change; it is not an early stop, the debate and the
+  // round cap are untouched, and silence is still never consent." Carried only when the text the
+  // reviewers are shown is byte-identical; unanimity still needs every seat heard and clean on it.
+  let carry = null;
+
   if (config.signoff === 'unanimous') {
     for (let round = 1; round <= maxRounds; round++) {
       const relay = config.panel === 'relay';
@@ -2443,6 +2546,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // rather than growing a positional flag at three call sites. It is not a freedom; it is
       // a fact about the task that decides whether the quote rule is honest to state at all.
       const freedoms = { ...(config.freedoms || null), fencedSource: !!fencedSource, ...(checks ? { criteriaKinds: true } : {}) };
+      // Bug audit 2026-09-28 (external seats #5): an API seat's re-ask is a fresh sample, but an
+      // external seat's was a byte-identical prompt, so the person or session answering it had no
+      // hint the last reply could not be read and tended to repeat it. External re-asks only; an API
+      // seat's prompt is unchanged.
+      const externalReaskNote = (seat, tag) => seat.provider === 'external' && /^-reask\d+$/.test(tag)
+        ? `\n\n# Your previous reply could not be read\n\nThe last reply to this review (\`panel-${round}-${labOf(seat)}${tag === '-reask1' ? '' : `-reask${Number(tag.slice(6)) - 1}`}.md\`) was not a readable verdict. Answer with the JSON object the system prompt describes, and nothing else.`
+        : '';
       const reviewSeat = async (criticSeat, prior, say, tag = '') => {
         let cs, parsed, answeredQuestion = null;
         // `panelMaxTokens` (2026-09-22): an optional per-seat output cap for the panel review only.
@@ -2459,7 +2569,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
               // Patch mode shows the full draft plus the edits made since the last review, so a
               // reviewer can see what moved without re-reading the plan. Empty in full-rewrite
               // mode and on round 1, where there is no "since" to speak of.
-              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion, checks }),
+              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion, checks }) + externalReaskNote(criticSeat, tag),
               log: say, label: attempt === 0 ? `panel-${round}-${labOf(criticSeat)}${tag}` : `panel-${round}-${labOf(criticSeat)}${tag}-answered`,
             }));
           } catch (err) {
@@ -2476,12 +2586,18 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             return { seat: criticSeat, critique: null, abstained: true, error: String(err.message), reasonCode: 'SEAT_UNREACHABLE' };
           }
           parsed = parseJson(cs.text);
-          if (!parsed && !cutOffRetried && abstentionReasonCode(cs.usage, effectiveCap) === 'REPLY_TRUNCATED') {
+          // Bug audit 2026-09-27 M3: a reply the provider cut off at the cap can still parse (an
+          // early complete fence, a lucky brace span), and a parsed cut-off `meets:true` went
+          // straight through as a sign-off. So "cut off" is decided from the provider's stop reason
+          // whether or not the reply parsed - never the 95%-of-cap guess, which would retry a reply
+          // that finished normally near its cap. A pasted external reply carries no stop: no-op.
+          if (!cutOffRetried && (parsed ? providerCutOff(cs.usage) : true) && abstentionReasonCode(cs.usage, effectiveCap) === 'REPLY_TRUNCATED') {
             // A reply cut off at the cap is a lost vote, not a position (pilot 2026-09-17: 14 of
             // 58 lost votes, several already carrying `"meets": false`). Ask once more with a
             // bigger cap; if that fails too, the seat abstains as before and the round rule
             // below refuses to call the panel unanimous without it.
             cutOffRetried = true;
+            const firstParsed = parsed, firstCs = cs, firstCap = effectiveCap;
             const biggerCap = cutOffRetryCap(effectiveCap);
             say(`  ${labOf(criticSeat)}/${criticSeat.model}: reply cut off at ${effectiveCap} tokens - asking once more with a ${biggerCap}-token cap.`);
             try {
@@ -2492,6 +2608,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
               }));
               effectiveCap = biggerCap;
               parsed = parseJson(cs.text);
+              // M3: when the cut-off first reply did parse, an unreadable retry must not throw away
+              // what it said - back to the first reply (a cut objection still counts; a cut sign-off
+              // is turned into an abstention below).
+              if (!parsed && firstParsed) { parsed = firstParsed; cs = firstCs; effectiveCap = firstCap; }
             } catch (err) {
               rethrowControlFlow(err);
               say(`  ${labOf(criticSeat)}/${criticSeat.model}: the bigger-cap retry failed (${String(err.message).slice(0, 120)}) - keeping the first attempt's abstention.`);
@@ -2546,6 +2666,22 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
         }
+        if (critique.meets && draftIncomplete(cs.usage)) {
+          // M4's panel side: the provider ended the reply with error/content_filter/refusal. Whatever
+          // parsed is not a finished verdict, so a sign-off from it is not consent.
+          say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply signs off but the provider ended it with stop "${cs.usage.stop}" - counted as an abstention, not a sign-off.`);
+          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+          return { seat: criticSeat, critique: null, abstained: true, reasonCode: abstentionReasonCode(cs.usage, effectiveCap) };
+        }
+        if (critique.meets && providerCutOff(cs.usage)) {
+          // M3, continued: still cut off (after the one bigger-cap retry, or a reasoning ceiling that
+          // gets none). A cut-off sign-off is never consent: the seat is unheard. A cut-off objection
+          // is kept - it already said no, and dropping it would lose a vote (pilot 2026-09-17).
+          const reasonCode = abstentionReasonCode(cs.usage, effectiveCap) === 'REASONING_EXHAUSTED' ? 'REASONING_EXHAUSTED' : 'REPLY_TRUNCATED';
+          say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply signs off but was cut off at the cap (stop: ${cs.usage.stop}) - counted as an abstention, not a sign-off.`);
+          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+          return { seat: criticSeat, critique: null, abstained: true, reasonCode };
+        }
         say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
         if (checks) noteUnevidenced(critique, round, labOf(criticSeat), say);
         // v5 item 3, touch point 2: the verdict update the live view needs - `passed` (chain.js's
@@ -2555,11 +2691,27 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         return { seat: criticSeat, critique };
       };
 
+      // R1: the heard seats' clean verdicts from the last round, when the draft is unchanged.
+      const shownDraft = draft + changedSince(lastPatches);
+      const carried = carry && carry.shownDraft === shownDraft ? carry.byLab : null;
+      carry = null;
+      if (carried) {
+        log(`  draft unchanged since round ${round - 1}: carrying over the verdicts of ${[...carried.keys()].join(', ')} on this same text; asking only ${config.seats.critics.filter(c => !carried.has(labOf(c))).map(c => `${labOf(c)}/${c.model}`).join(', ')}.`);
+      }
+      const carriedVerdict = criticSeat => {
+        const v = carried?.get(labOf(criticSeat));
+        if (!v) return null;
+        progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), carried: true, ...(v.passed ? { passStated: true } : { passed: true }) });
+        return { ...v, carried: true };
+      };
+
       if (relay) {
         // Relay seats run one after another, in a fresh order each round so
         // no lab is always the anchor (seeded, so a resume replays it), and
         // earlier verdicts are handed on anonymised so a seat can't defer to a name.
         for (const criticSeat of seededShuffle(config.seats.critics, `${runId ?? ''}:relay:${round}`)) {
+          const kept = carriedVerdict(criticSeat);
+          if (kept) { verdicts.push(kept); continue; }
           const prior = verdicts.filter(v => v.critique).map((v, i) => ({ lab: `Reviewer ${String.fromCharCode(65 + i)}`, verdict_line: v.critique.verdict_line, failures: v.critique.failures }));
           verdicts.push(await reviewSeat(criticSeat, prior, log));
         }
@@ -2568,6 +2720,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // time. Each seat's log lines are buffered and flushed in seat order,
         // so the run log reads exactly as it did when they ran in sequence.
         const results = await settleAll(config.seats.critics.map(async criticSeat => {
+          const kept = carriedVerdict(criticSeat);
+          if (kept) return { verdict: kept, lines: [] };
           const lines = [];
           const verdict = await reviewSeat(criticSeat, [], m => lines.push(m));
           return { verdict, lines };
@@ -2661,6 +2815,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // schemas/report-v1.json; it can go only with a schemaVersion 2.
       signoff = verdicts.map(v => ({
         provider: labOf(v.seat), lab: labOf(v.seat), model: v.seat.model,
+        // 0.7.9, additive: the seat's index in config.seats.critics. A relay panel lists signoff[]
+        // in its seeded review order, so array position is not the seat (verdict-diff reads this).
+        seat_index: config.seats.critics.findIndex(c => labOf(c) === labOf(v.seat)),
         signedOff: v.abstained || v.passed ? null : v.critique.meets === true,
         objections: v.abstained || v.passed ? null : v.critique.failures,
         // v7 item 4: a pass is a stated, recorded refusal to verdict - distinct from an
@@ -2678,6 +2835,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         verdict: v.abstained ? 'unheard' : v.passed ? 'passed' : v.critique.meets === true ? 'signed_off' : 'objected',
         reason_code: v.abstained ? (v.reasonCode || null) : null,
         reasked: unheardFirst[i],
+        // R1: additive. True when this seat was not asked this round: its verdict from the round
+        // before, on the same unchanged draft, was carried over.
+        ...(v.carried ? { carried: true } : {}),
       }));
 
       history.push(`## Round ${round} panel\n${verdicts.map(v =>
@@ -2743,8 +2903,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       if (allVotersClean && unheard > 0) {
         // Nothing to revise - no heard reviewer objected - so re-ask the same panel on the same
         // draft rather than treating silence as consent or revising what nobody objected to.
-        log(`\nRound ${round}: every lab that answered signed off clean, but ${unheard} did not return a readable verdict - retrying the panel unchanged rather than declaring agreement.`);
+        log(`\nRound ${round}: every lab that answered signed off clean, but ${unheard} did not return a readable verdict - asking again on the unchanged draft rather than declaring agreement.`);
         passed = false;
+        // R1: the heard seats' clean verdicts carry into the next round, on this exact text only.
+        carry = { shownDraft, byLab: new Map(verdicts.filter(v => !v.abstained).map(v => [labOf(v.seat), v])) };
         continue;
       }
 
@@ -2867,7 +3029,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // exactly.
         rethrowControlFlow(err);
         if (!config.degrade_on_provider_error) throw err;
-        log(`  ${criticSeat.provider}/${criticSeat.model}: [COUNCIL-E005] provider failure (${String(err.message).slice(0, 120)}) - seat dropped, not counted as a pass or an objection.`);
+        // Bug audit 2026-09-28 (area 3 #2.6): this said [COUNCIL-E005], the catalog's "Policy refusal".
+        log(`  ${criticSeat.provider}/${criticSeat.model}: provider failure (${String(err.message).slice(0, 120)}) - seat dropped, not counted as a pass or an objection.`);
         dropouts.push({ lab: labOf(criticSeat), model: criticSeat.model, stage: `critique-${round}`, reason: `provider failure: ${String(err.message).slice(0, 200)}` });
         panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: 'SEAT_UNREACHABLE', reasked: false });
         lastCritique = { meets: false, dropped: true, failures: [{
@@ -2877,7 +3040,31 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         break;
       }
 
-      const parsed = parseJson(cs.text);
+      let parsed = parseJson(cs.text);
+      // Verify pass 2026-09-28 F2: M3/M4 held only on the unanimous panel, so in `first` mode a
+      // cut-off or provider-ended `meets:true` still passed the run. The same rules here: one
+      // bigger-cap retry for a reply cut off at its cap (parsed or not), falling back to a parsed
+      // first reply; then a sign-off still cut off, or ended with error/content_filter/refusal, is
+      // no verdict (below). A pasted external reply carries no stop: no-op.
+      let critCap = criticSeat.maxTokens ?? DEFAULT_MAX_TOKENS;
+      if ((parsed ? providerCutOff(cs.usage) : true) && abstentionReasonCode(cs.usage, critCap) === 'REPLY_TRUNCATED') {
+        const firstParsed = parsed, firstCs = cs, firstCap = critCap;
+        const biggerCap = cutOffRetryCap(critCap);
+        log(`  critic reply cut off at ${critCap} tokens - asking once more with a ${biggerCap}-token cap.`);
+        try {
+          cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
+            system: checks ? R.criticSystem(open, { criteriaKinds: true }) : R.criticSystem(open),
+            user: R.criticUser({ request, criteria, draft, checks }),
+            log, label: `critique-${round}-retry`,
+          }));
+          critCap = biggerCap;
+          parsed = parseJson(cs.text);
+          if (!parsed && firstParsed) { parsed = firstParsed; cs = firstCs; critCap = firstCap; }
+        } catch (err) {
+          rethrowControlFlow(err);
+          log(`  the bigger-cap retry failed (${String(err.message).slice(0, 120)}) - keeping the first reply.`);
+        }
+      }
       if (!parsed) {
         // Previously logged "treating the round as a pass and stopping" while leaving `passed`
         // at its prior value and `lastCritique` untouched - the log claimed a pass that never
@@ -2887,7 +3074,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // hiding a genuine objection, and this chain's whole value is not letting that slip
         // through. `passed` keeps whatever it already was (false unless an earlier round already
         // passed); what changes is that the report now says why, instead of nothing.
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, criticSeat.maxTokens), reasked: false });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, critCap), reasked: false });
         log(`  critic reply could not be parsed as JSON even after repair attempts; stopping ` +
           `without a verdict from this critic - not a pass, not counted as an objection either.`);
         lastCritique = { meets: false, failures: [{
@@ -2906,6 +3093,20 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         lastCritique = { meets: false, failures: [{
           criterion: '(critic reply stated no verdict)',
           problem: `${criticSeat.provider}/${criticSeat.model}'s round ${round} reply parsed but stated no verdict: ${critique.unreadableWhy}.`,
+        }] };
+        break;
+      }
+      if (critique.meets && (draftIncomplete(cs.usage) || providerCutOff(cs.usage))) {
+        // F2, continued: a sign-off the provider ended early is not a pass. Handled like the
+        // unreadable reply above: no verdict from this critic, and the run stops saying why.
+        const stopped = draftIncomplete(cs.usage);
+        const reasonCode = stopped ? abstentionReasonCode(cs.usage, critCap)
+          : (abstentionReasonCode(cs.usage, critCap) === 'REASONING_EXHAUSTED' ? 'REASONING_EXHAUSTED' : 'REPLY_TRUNCATED');
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: reasonCode, reasked: false });
+        log(`  [COUNCIL-E004] critic reply signs off but ${stopped ? `the provider ended it with stop "${cs.usage.stop}"` : `was cut off at the cap (stop: ${cs.usage.stop})`}; stopping without a verdict from this critic - not a pass.`);
+        lastCritique = { meets: false, failures: [{
+          criterion: '(critic sign-off incomplete)',
+          problem: `${criticSeat.provider}/${criticSeat.model}'s round ${round} reply signed off, but ${stopped ? `the provider ended it with stop "${cs.usage.stop}"` : 'it was cut off at its token cap'}, so it is not a pass.`,
         }] };
         break;
       }
@@ -3253,7 +3454,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     log('\nStage: security review (final, read-only)');
     security_review = await runSecurityReviewStage(config, {
       request, deliverable: draft, groundTruthPost: ground_truth_post, invoke, record, parseJson,
-      abstentionReasonCode, rethrow: [ExternalPause, BudgetExceeded], log,
+      abstentionReasonCode, rethrow: [ExternalPause, BudgetExceeded, SecretShapedPrompt, DeniedModel], log,
     });
     log(`  gate: ${security_review.gate} - ${security_review.findings.length} finding(s), ${security_review.blocking_count} blocking${security_review.reason_code ? ` (${security_review.reason_code})` : ''}`);
   }

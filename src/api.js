@@ -72,9 +72,9 @@ export function price({ chain, cwd = process.cwd(), rounds } = {}) {
 }
 
 // The ceiling is never silently off. undefined: the CLI's own default (MAX_USD_PER_RUN, else $7).
-// A positive number: that ceiling. 'none': no ceiling, said explicitly. The CLI and the MCP tool
-// read 0 as "no ceiling"; here 0 is refused, because a caller who wrote 0 almost certainly meant
-// "spend nothing", and reading it as "spend without limit" is the costliest possible guess.
+// A positive number: that ceiling. 'none': no ceiling, said explicitly. 0 is refused, because a
+// caller who wrote 0 almost certainly meant "spend nothing", and reading it as "spend without limit"
+// is the costliest possible guess. Since 0.7.9 the CLI and the MCP tools refuse it too.
 function maxUsdArgs(maxUsd) {
   if (maxUsd === undefined) return [];
   if (maxUsd === 'none') return ['--max-usd', 'none'];
@@ -110,8 +110,12 @@ function runCli(args, { cwd, env, onOutput, signal }) {
     };
     child.stdout.on('data', take('stdout'));
     child.stderr.on('data', take('stderr'));
-    child.on('error', reject);
-    child.on('close', (code, sig) => resolvePromise({ exitCode: code, signal: sig, outputTail: tail.join('').split('\n').slice(-40).join('\n') }));
+    // Bug audit 2026-09-28 (area 4 MED-1): an abort rejected on 'error', before the child had exited,
+    // so a caller that resumed at once could meet a run still marked running. The abort now settles
+    // only on 'close'; any other spawn error rejects at once, as before.
+    let aborted = null;
+    child.on('error', err => { if (err?.name === 'AbortError') aborted = err; else reject(err); });
+    child.on('close', (code, sig) => aborted ? reject(aborted) : resolvePromise({ exitCode: code, signal: sig, outputTail: tail.join('').split('\n').slice(-40).join('\n') }));
   });
 }
 
@@ -120,7 +124,7 @@ function runCli(args, { cwd, env, onOutput, signal }) {
  * spend ceiling, or refused by a guard. Resolves in every one of those cases (read `status` and
  * `exitCode`); rejects only when the child process could not be started or was aborted.
  */
-export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, draft, fromRun, context, piiGate, env, onOutput, signal } = {}) {
+export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, draft, fromRun, context, piiGate, allowSecretShaped, env, onOutput, signal } = {}) {
   const work = resolve(cwd);
   chainPath(chain, work); // a clear error here beats a CLI usage message
   if (typeof task !== 'string' || !task) throw new TypeError('task: a path to the task file');
@@ -137,8 +141,15 @@ export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, dr
     if (piiGate !== 'warn' && piiGate !== 'hard-stop') throw new RangeError(`piiGate: 'warn' or 'hard-stop', got ${JSON.stringify(piiGate)}`);
     args.push('--pii-gate', piiGate);
   }
-  const res = await runCli(args, { cwd: work, env, onOutput, signal });
+  // 0.7.9 outbound key scan: the one override (saved in run.json, so a resume keeps it).
+  if (allowSecretShaped === true) args.push('--allow-secret-shaped');
   const runDir = join(work, 'runs', id);
+  // Area 4 MED-1: an aborted run's stages stay on disk and can be resumed, so the rejection says
+  // which run it was (`runId`, and `runDir` once the folder exists).
+  const res = await runCli(args, { cwd: work, env, onOutput, signal }).catch(err => {
+    if (err && typeof err === 'object') Object.assign(err, { runId: id, runDir: existsSync(runDir) ? runDir : null });
+    throw err;
+  });
   return { runId: id, runDir: existsSync(runDir) ? runDir : null, ...res, ...(existsSync(runDir) ? statusOf(runDir) : { status: 'not_started', report: null }) };
 }
 
@@ -146,11 +157,12 @@ export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, dr
  * Resume a paused run (after its external stage was answered) or one the spend ceiling stopped
  * (pass a higher maxUsd). Stages already on disk replay from disk and cost nothing again.
  */
-export async function resume({ runDir, cwd = process.cwd(), maxUsd, env, onOutput, signal } = {}) {
+export async function resume({ runDir, cwd = process.cwd(), maxUsd, allowSecretShaped, env, onOutput, signal } = {}) {
   const work = resolve(cwd);
   const dir = resolve(work, runDir ?? '');
   if (!runDir || !existsSync(join(dir, 'run.json'))) throw new Error(`runDir: not a run folder with a run.json: ${dir}`);
-  const res = await runCli(['--resume', dir, ...maxUsdArgs(maxUsd)], { cwd: work, env, onOutput, signal });
+  // Verify pass 2026-09-28 F1(b): continue a run the outbound key scan stopped.
+  const res = await runCli(['--resume', dir, ...maxUsdArgs(maxUsd), ...(allowSecretShaped === true ? ['--allow-secret-shaped'] : [])], { cwd: work, env, onOutput, signal });
   return { runId: basename(dir), runDir: dir, ...res, ...statusOf(dir) };
 }
 

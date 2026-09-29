@@ -192,3 +192,27 @@ test('test_verdict_diff_missing_signoff_degrades_gracefully: malformed report ne
   assert.equal(diff.objection_overlap_ratio, 1);
   assert.equal(diff.signoff_match, true); // undefined === undefined
 });
+
+// Bug audit 2026-09-28 (area 3 #2.1): a relay panel lists signoff[] in its seeded review order,
+// which differs between two runs; the diff must key on the seat, not the array position.
+test('relay: the same per-seat verdicts in a different review order give an empty diff', async () => {
+  const { computeVerdictDiff: diffVerdicts } = await import('../src/verdict-diff.js');
+  const a = { passed: false, signoff: [
+    { lab: 'y', signedOff: true, objections: [], seat_index: 1 },
+    { lab: 'x', signedOff: false, objections: [{ problem: 'p' }], seat_index: 0 },
+    { lab: 'z', signedOff: false, objections: [{ problem: 'q' }], seat_index: 2 },
+  ] };
+  const b = { passed: false, signoff: [a.signoff[1], a.signoff[2], a.signoff[0]] };
+  const d = diffVerdicts(a, b);
+  assert.deepEqual(d.critics_objecting_added, []);
+  assert.deepEqual(d.critics_objecting_removed, []);
+});
+
+test('run time: signoff[] entries carry seat_index, the seat\'s index in seats.critics, on a relay panel', async () => {
+  const { runChain, setCache, setBudget } = await import('../src/chain.js');
+  setCache(null); setBudget(null);
+  const cfg = JSON.parse(readFileSync(resolve(dirname(new URL(import.meta.url).pathname), '../chains/mock-unanimous.json'), 'utf8'));
+  cfg.panel = 'relay';
+  const r = await runChain({ request: 'Req.', config: cfg, log: () => {}, runId: '2026-09-20T10-00-00-000Z' });
+  for (const s of r.signoff) assert.equal(s.seat_index, cfg.seats.critics.findIndex(c => (c.lab || c.provider) === s.lab), JSON.stringify(s));
+});

@@ -62,10 +62,12 @@ const cliCommand = args => process.pkg ? [process.execPath, args] : [process.exe
 const cliEnv = process.pkg ? { ...process.env, PKG_EXECPATH: '' } : process.env;
 
 // COUNCIL_MAX_USD_LIMIT: a ceiling the tool arguments cannot lift. Through MCP it is the client's
-// model, not the person, that picks start_run's and resume_run's max_usd, and max_usd 0 means no
+// model, not the person, that picks start_run's and resume_run's max_usd, and max_usd "none" means no
 // ceiling at all. A user who set a limit when installing the server (a Claude Desktop bundle asks
-// for one) keeps it: a larger max_usd or 0 is refused, and a call with none runs under the lower of
-// the limit and MAX_USD_PER_RUN. Unset, the tools behave exactly as before.
+// for one) keeps it: a larger max_usd or "none" is refused, and a call with none runs under the lower
+// of the limit and MAX_USD_PER_RUN. Unset, the tools behave exactly as before.
+// 0.7.9 (owner, 2026-09-28: "Refuse 0 everywhere"): max_usd 0 used to mean no ceiling. It is refused
+// now by the schema (positive numbers or "none"), as the CLI and the JS API refuse it.
 const usdLimit = (() => {
   const v = Number(process.env.COUNCIL_MAX_USD_LIMIT);
   return process.env.COUNCIL_MAX_USD_LIMIT && Number.isFinite(v) && v > 0 ? v : null;
@@ -75,8 +77,10 @@ const usdLimit = (() => {
 // limit here used to lift a run started at max_usd 2 to the $7 default on its next sitting. It
 // passes a ceiling only when the saved one is missing, none, or above the limit.
 function ceilingArgs(maxUsd, saved) {
-  if (usdLimit === null) return maxUsd === undefined ? [] : ['--max-usd', maxUsd === 0 ? 'none' : String(maxUsd)];
-  if (maxUsd === 0) return { refused: `max_usd 0 (no ceiling) is refused: the user set COUNCIL_MAX_USD_LIMIT to $${usdLimit}. Ask the user to raise it in the server's settings.` };
+  // The schema already refuses 0; this is the backstop for any caller that skips it.
+  if (maxUsd === 0) return { refused: 'max_usd 0 is refused: it used to mean no ceiling. Pass a positive number of dollars, or "none" for no ceiling.' };
+  if (usdLimit === null) return maxUsd === undefined ? [] : ['--max-usd', String(maxUsd)];
+  if (maxUsd === 'none') return { refused: `max_usd "none" (no ceiling) is refused: the user set COUNCIL_MAX_USD_LIMIT to $${usdLimit}. Ask the user to raise it in the server's settings.` };
   if (maxUsd !== undefined && maxUsd > usdLimit) return { refused: `max_usd ${maxUsd} is above the user's COUNCIL_MAX_USD_LIMIT of $${usdLimit}. Ask the user to raise it in the server's settings.` };
   if (maxUsd !== undefined) return ['--max-usd', String(maxUsd)];
   if (saved && typeof saved.maxUsd === 'number' && saved.maxUsd > 0 && saved.maxUsd <= usdLimit) return [];
@@ -84,6 +88,16 @@ function ceilingArgs(maxUsd, saved) {
   const envDefault = Number(process.env.MAX_USD_PER_RUN);
   return ['--max-usd', String(Math.min(usdLimit, Number.isFinite(envDefault) && envDefault > 0 ? envDefault : 7))];
 }
+
+// A stage label as chain.js writes it: `panel-2-<lab>-reask1` and the like, where a lab id may carry
+// a version (`opus5.5-sub`, plan-daily-7's Opus seat; `glm5.2`). Bug audit 2026-09-28 (external
+// seats #1): the old /^[a-z0-9-]+$/ refused every dotted label, so no plan-daily-7 Opus stage could be
+// answered through MCP while external_prompt told the client to submit exactly that label. Never a
+// path: no "/", no "..", not starting with "." - and the tools also require a NEEDS-<label>.md.
+const STAGE_LABEL = z.string().max(200).regex(/^[A-Za-z0-9_][A-Za-z0-9._-]*$/).refine(v => !v.includes('..'), 'a stage label never contains ".."');
+
+// max_usd over MCP: a positive number of dollars, or "none" for no ceiling - the JS API's shape.
+const MAX_USD_ARG = z.union([z.number().positive(), z.literal('none')]).optional();
 
 const text = s => ({ content: [{ type: 'text', text: typeof s === 'string' ? s : JSON.stringify(s, null, 2) }] });
 // Status audit #2 (Review/PreRelease_Audit_status_2026-09-23.md): `<id>.rematch-N` and
@@ -319,10 +333,11 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   draft: z.string().optional().describe('path to a draft to review instead of building one'),
   from_run: z.string().optional().describe('reuse this earlier run\'s criteria'),
   rounds: z.number().int().min(1).max(5).optional(),
-  max_usd: z.number().min(0).optional().describe('per-run spend ceiling in USD. Defaults to MAX_USD_PER_RUN or $7. Pass 0 for no ceiling. The run stops cleanly before any stage that could breach it, and resumes with a higher ceiling.'),
+  max_usd: MAX_USD_ARG.describe('per-run spend ceiling in USD, a positive number. Defaults to MAX_USD_PER_RUN or $7. Pass "none" for no ceiling (refused if the user set COUNCIL_MAX_USD_LIMIT); 0 is refused. The run stops cleanly before any stage that could breach it, and resumes with a higher ceiling.'),
   pii_gate: z.enum(['warn', 'hard-stop']).optional().describe('scan the task for PII and the key formats in src/secret-patterns.js before any provider call: warn logs and proceeds, hard-stop refuses the run. Off unless given.'),
+  allow_secret_shaped: z.boolean().optional().describe('send key-shaped text anyway. Every prompt is scanned for the key formats in src/secret-patterns.js before it leaves, and a match refuses the run (exit 11, started:false with the file, line and format in the log, never the value). Saved with the run, so resume_run keeps it. Off unless given.'),
   allow_unfenced: z.union([z.boolean(), z.array(z.string())]).optional().describe('waive the artifact gate: true for the whole task, or a list of file names that are only locations, not content the panel needs'),
-}, async ({ chain, task, context, draft, from_run, rounds, max_usd, pii_gate, allow_unfenced }) => {
+}, async ({ chain, task, context, draft, from_run, rounds, max_usd, pii_gate, allow_secret_shaped, allow_unfenced }) => {
   // The task and draft go to every seat, so the same denylist as the seat tools applies: no
   // .env, key files or credentials by path (pre-release audit 2026-09-23, McpServer #1 addendum).
   const refusal = chainNameRefusal(chain) || startRunInputRefusal({ task, draft, context, from_run });
@@ -340,6 +355,7 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   if (ceiling.refused) return text({ started: false, error: ceiling.refused });
   args.push(...ceiling);
   if (pii_gate) args.push('--pii-gate', pii_gate);
+  if (allow_secret_shaped === true) args.push('--allow-secret-shaped');
   if (allow_unfenced === true) args.push('--allow-unfenced');
   else if (Array.isArray(allow_unfenced) && allow_unfenced.length) args.push('--allow-unfenced', allow_unfenced.join(','));
   mkdirSync(runsDir, { recursive: true });
@@ -368,7 +384,7 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
 // submit_stage accepted only the first, so the others could not be answered through MCP. `waiting`
 // now lists every stage the run is waiting on, and `stage` picks which prompt to return (the first
 // by default); submit_stage accepts any of them.
-server.tool('external_prompt', 'When a run is paused at an external seat: the exact system and user prompt that stage needs answered. A run can wait on several stages at once (e.g. a panel of external critics): `waiting` lists them all; pass stage to get another one\'s prompt. Answer each with submit_stage; the run resumes once none is left.', { run: z.string(), stage: z.string().regex(/^[a-z0-9-]+$/).optional().describe('which waiting stage to return; defaults to the first in `waiting`') }, async ({ run, stage }) => {
+server.tool('external_prompt', 'When a run is paused at an external seat: the exact system and user prompt that stage needs answered. A run can wait on several stages at once (e.g. a panel of external critics): `waiting` lists them all; pass stage to get another one\'s prompt. Answer each with submit_stage; the run resumes once none is left.', { run: z.string(), stage: STAGE_LABEL.optional().describe('which waiting stage to return; defaults to the first in `waiting`') }, async ({ run, stage }) => {
   if (!safeRun(run)) return text({ error: 'no such run' });
   const dir = join(runsDir, run);
   const all = waitingStages(dir);
@@ -412,7 +428,7 @@ server.tool('prepare_stage_prompt', 'For a run paused at an external seat: write
   return text({ written: join(dir, 'stage_prompt.md'), stage: label, dispatch: 'Fork a subagent and give it only this file\'s path - not its contents inline.' });
 });
 
-server.tool('submit_stage', 'Write the answer for an external stage into the run folder, then resume the run in the background. The stage must be one external_prompt lists under `waiting`; the run resumes once all of them are answered. claimed_by is optional (v3 §1): a self-declared peer-session name, recorded as this stage\'s claim; every check here is warn-only and never blocks the write, so a caller that omits it sees exactly today\'s behavior.', { run: z.string(), stage: z.string().regex(/^[a-z0-9-]+$/), content: z.string(), claimed_by: z.string().optional().describe('self-declared peer-session name, recorded as this stage\'s claim before the answer is written') }, async ({ run, stage, content, claimed_by }) => {
+server.tool('submit_stage', 'Write the answer for an external stage into the run folder, then resume the run in the background. The stage must be one external_prompt lists under `waiting`; the run resumes once all of them are answered. claimed_by is optional (v3 §1): a self-declared peer-session name, recorded as this stage\'s claim; every check here is warn-only and never blocks the write, so a caller that omits it sees exactly today\'s behavior.', { run: z.string(), stage: STAGE_LABEL, content: z.string(), claimed_by: z.string().optional().describe('self-declared peer-session name, recorded as this stage\'s claim before the answer is written') }, async ({ run, stage, content, claimed_by }) => {
   if (!safeRun(run)) return text({ error: 'no such run' });
   const dir = join(runsDir, run);
   // A stage this run never paused for is still rejected outright - that is not one of §1's
@@ -446,12 +462,12 @@ server.tool('submit_stage', 'Write the answer for an external stage into the run
   return text({ written: `${stage}.md`, words: words(content), ...(warnings.length ? { warnings } : {}), ...(await resume(run)) });
 });
 
-server.tool('resume_run', 'Resume a paused run after its external stage was answered (submit_stage does this for you), or a run stopped by the spend cap (pass a higher max_usd). Completed stages replay from disk and cost nothing.', { run: z.string(), max_usd: z.number().min(0).optional().describe('raise the per-run ceiling for the rest of this run. 0 removes it.') }, async ({ run, max_usd }) => {
+server.tool('resume_run', 'Resume a paused run after its external stage was answered (submit_stage does this for you), or a run stopped by the spend cap (pass a higher max_usd). Completed stages replay from disk and cost nothing.', { run: z.string(), max_usd: MAX_USD_ARG.describe('raise the per-run ceiling for the rest of this run, a positive number. "none" removes it (refused if the user set COUNCIL_MAX_USD_LIMIT); 0 is refused.'), allow_secret_shaped: z.boolean().optional().describe('continue a run the outbound key scan stopped (STOPPED-secret.md) and send the key-shaped text anyway; saved with the run from then on. Off unless given.') }, async ({ run, max_usd, allow_secret_shaped }) => {
   if (!safeRun(run)) return text({ error: 'no such run' });
-  return text(await resume(run, max_usd));
+  return text(await resume(run, max_usd, { allowSecretShaped: allow_secret_shaped === true }));
 });
 
-async function resume(run, maxUsd) {
+async function resume(run, maxUsd, { allowSecretShaped = false } = {}) {
   // CLI audit #2: a --rematch/--replay folder cannot be resumed (the CLI refuses it too).
   if (/\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2})$/.test(run) || readJson(join(runsDir, run, 'run.json'))?.rematchOf) {
     return { resumed: false, run, error: 'this is a --rematch/--replay folder, which cannot be resumed; start the rematch or replay again instead' };
@@ -464,11 +480,24 @@ async function resume(run, maxUsd) {
   if (holder) {
     return { resumed: false, run, error: `run is already running (pid ${holder.pid} on ${holder.host}); poll run_status(run) instead of resuming it again` };
   }
+  // Bug audit 2026-09-28 (area 6 MED-1): the input checks ran only in start_run, but every sitting
+  // re-reads the run's task, draft and context from disk (the CLI lists a context folder again each
+  // time), so a secret or gitignored file added to a context folder during a pause reached every
+  // seat on resume. The same per-file refusal runs on the recorded inputs before each resume.
+  {
+    const meta = readJson(join(runsDir, run, 'run.json')) || {};
+    const at = p => (typeof p === 'string' && p ? resolve(meta.cwd || work, p) : null);
+    const context = typeof meta.context === 'string' && meta.context
+      ? meta.context.split(',').map(x => x.trim()).filter(Boolean).map(x => resolve(meta.cwd || work, x)).join(',') : null;
+    const refusal = startRunInputRefusal({ task: at(meta.task), draft: at(meta.draft), context, from_run: at(meta.fromRun) });
+    if (refusal) return { resumed: false, run, error: `refused to resume: ${refusal}` };
+  }
   const ceiling = ceilingArgs(maxUsd, readJson(join(runsDir, run, 'run.json')) ?? undefined);
   if (ceiling.refused) return { resumed: false, run, error: ceiling.refused };
   const logPath = join(work, `council-${Date.now()}.log`);
   const fd = openSync(logPath, 'a');
-  const resumeArgs = ['--resume', join('runs', run), ...ceiling];
+  // Verify pass 2026-09-28 F1(b): the outbound key scan's override, which a CLI resume can pass.
+  const resumeArgs = ['--resume', join('runs', run), ...ceiling, ...(allowSecretShaped ? ['--allow-secret-shaped'] : [])];
   const spawnedAt = Date.now();
   const child = spawn(...cliCommand(resumeArgs), { cwd: work, env: cliEnv, detached: true, stdio: ['ignore', fd, fd] });
   closeSync(fd);

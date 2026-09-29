@@ -40,9 +40,27 @@ export function resolveParentSpanId(label, runRootSpanId, roundSpanIds, generate
 export function recordRoundStageAndCheckClose(label, roundPanelCounts, criticsCount) {
   const round = parseRoundFromLabel(label);
   if (!round || !ROUND_STAGE_RE.test(label || '') || !criticsCount) return null;
-  const count = (roundPanelCounts.get(round) || 0) + 1;
-  roundPanelCounts.set(round, count);
-  return count >= criticsCount ? round : null;
+  // Bug audit 2026-09-28 (area 2 #5, area 3): `count >= criticsCount` over every panel stage closed
+  // the round again on each later stage (a re-ask, a stage a resume replays): a 7-round run wrote 168
+  // round records. And a resume counted a seat twice (its stage-log line, then its replayed event), so
+  // a round could close before its last seat posted. Now: distinct seats per round (a seat's -retry,
+  // -reaskN, -answered and -question stages are the same seat), and a round closes once.
+  const seats = seatSetFor(roundPanelCounts, round);
+  seats.add(baseSeatLabel(label));
+  roundPanelCounts.set(round, seats.size);
+  if (seats.size < criticsCount || roundPanelCounts.get(`closed:${round}`)) return null;
+  roundPanelCounts.set(`closed:${round}`, true);
+  return round;
+}
+
+// panel-2-opus5.5-sub-reask1-retry -> panel-2-opus5.5-sub: the seat, whatever attempt this was.
+function baseSeatLabel(label) {
+  return String(label).replace(/(-(retry|answered|question|reask\d+))+$/, '');
+}
+function seatSetFor(roundPanelCounts, round) {
+  const key = `seats:${round}`;
+  if (!roundPanelCounts.has(key)) roundPanelCounts.set(key, new Set());
+  return roundPanelCounts.get(key);
 }
 
 // Rebuilds roundSpanIds/roundPanelCounts from an existing stage-log.jsonl's text, the same
@@ -56,10 +74,12 @@ export function replaySpanStateFromStageLogText(text) {
     if (!line.trim()) continue;
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
-    if (entry.kind === 'round') continue; // round records themselves carry no new bookkeeping
+    if (entry.kind === 'round') { if (Number.isInteger(entry.round)) roundPanelCounts.set(`closed:${entry.round}`, true); continue; } // a round already closed is never closed again
     const round = parseRoundFromLabel(entry.stage);
     if (round && ROUND_STAGE_RE.test(entry.stage || '')) {
-      roundPanelCounts.set(round, (roundPanelCounts.get(round) || 0) + 1);
+      const seats = seatSetFor(roundPanelCounts, round);
+      seats.add(baseSeatLabel(entry.stage));
+      roundPanelCounts.set(round, seats.size);
       if (entry.parent_span_id && !roundSpanIds.has(round)) roundSpanIds.set(round, entry.parent_span_id);
     }
   }

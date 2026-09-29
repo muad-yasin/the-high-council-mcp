@@ -9,9 +9,14 @@
 // identity is not a stable axis to diff two reports against - seat position (`critic-0`,
 // `critic-1`, ...) is the only one that means the same thing in both reports being compared.
 
+// Bug audit 2026-09-28 (area 3 #2.1): a relay panel records signoff[] in its seeded review order,
+// which differs between the original run and its replay or rematch, so array position named
+// different seats on the two sides and the diff reported changes no seat made. `seat_index` (0.7.9,
+// the seat's index in config.seats.critics) is the stable axis; array position stays the fallback
+// for reports written before it existed.
 function objectingSeatRoles(report) {
   return (report.signoff || [])
-    .map((s, i) => ({ role: `critic-${i}`, objecting: s.signedOff === false }))
+    .map((s, i) => ({ role: `critic-${Number.isInteger(s?.seat_index) ? s.seat_index : i}`, objecting: s.signedOff === false }))
     .filter(s => s.objecting)
     .map(s => s.role);
 }

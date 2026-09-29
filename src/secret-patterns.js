@@ -14,7 +14,11 @@
 // user or the host around it stays readable), and optionally `contextRe` (a shape too generic to
 // flag on its own - a 32/64-char hex string is also an MD5/SHA-256 - counts only when the text or
 // file names the provider) and `scanOnly` (context-dependent shapes the scanner reports but the
-// redactor leaves alone, since redaction has no filename to check the context against).
+// redactor leaves alone, since redaction has no filename to check the context against), and
+// `generic` (a shape defined by its surroundings - a Bearer header, a URL password, a named
+// assignment - rather than by a provider's own key format; models write these as placeholders,
+// `postgres://postgres:postgres@localhost`, so the outbound scan checks them in the user's inputs
+// only, and `distinctiveOnly` leaves them out for prompts that carry model output).
 //
 // Deliberately conservative: a missed key is a false negative the user still owns; a filter that
 // fires on every hash and every `apiKey: config.apiKey` gets turned off.
@@ -48,18 +52,18 @@ export const SECRET_PATTERNS = [
   // left the secret half in clear.
   { name: 'Z.ai (<hex>.<secret>)', re: /\b[a-f0-9]{32}\.[A-Za-z0-9]{16,}/g },
   // A token after "Bearer": only the token goes.
-  { name: 'Bearer token', re: /\bBearer\s+(?<secret>[A-Za-z0-9._~+/=-]{16,})/dg },
+  { name: 'Bearer token', generic: true, re: /\bBearer\s+(?<secret>[A-Za-z0-9._~+/=-]{16,})/dg },
   // A password inside a URL, including an empty user (`redis://:pw@host`). Only the password goes;
   // rebuilt from the capture group, so a password that also appears in the user name cannot make
   // the replacement hit the wrong occurrence.
-  { name: 'URL credentials (scheme://user:pass@)', re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@]*:(?<secret>[^\s/@]+)@/dgi },
+  { name: 'URL credentials (scheme://user:pass@)', generic: true, re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@]*:(?<secret>[^\s/@]+)@/dgi },
   // A named assignment whose value looks like a credential: snake, kebab AND camelCase names
   // (`AccessToken`, `openAiApiKey`, `x-api-key`, `"password":`). Needs the name AND a long opaque
   // value, so `apiKey: config.apiKey` stays.
-  { name: 'named credential assignment', re: /(?<![A-Za-z0-9])[A-Za-z0-9_.-]*?(?:api[_-]?key|secret|token|password|passwd|access[_-]?key|auth)[A-Za-z0-9_]*['"]?\s*[:=]\s*['"]?(?<secret>[A-Za-z0-9/+_.=-]{20,})/dgi },
+  { name: 'named credential assignment', generic: true, re: /(?<![A-Za-z0-9])[A-Za-z0-9_.-]*?(?:api[_-]?key|secret|token|password|passwd|access[_-]?key|auth)[A-Za-z0-9_]*['"]?\s*[:=]\s*['"]?(?<secret>[A-Za-z0-9/+_.=-]{20,})/dgi },
   // Env-style upper-case name ending in KEY/TOKEN/SECRET/PASSWORD with an opaque value
   // (`GOOGLE_PLAY_PUBKEY=...`, `export DEPLOY_TOKEN="..."`). `CACHE_KEY=1` stays.
-  { name: 'env-style credential assignment', re: /\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD)\s*=\s*['"]?(?<secret>[A-Za-z0-9/+_.-]{16,})/dg },
+  { name: 'env-style credential assignment', generic: true, re: /\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD)\s*=\s*['"]?(?<secret>[A-Za-z0-9/+_.-]{16,})/dg },
   // Too generic alone (an MD5 / a SHA-256): flagged by the scanner only in the provider's context.
   { name: 'Mistral (32 chars, mistral context only)', re: /\b[A-Za-z0-9]{32}\b/g, contextRe: /mistral/i, scanOnly: true },
   { name: 'Together (64 hex, together context only)', re: /\b[a-f0-9]{64}\b/g, contextRe: /together/i, scanOnly: true },
@@ -77,10 +81,11 @@ export const isKnownSafe = s => KNOWN_SAFE.some(re => re.test(s));
 // Where each credential is: [{ start, end, name }] over the whole text, overlapping hits merged
 // (the widest wins, so a Bearer + generic-assignment double hit counts once). `filename` feeds the
 // context rules. Values are never returned.
-export function findSecrets(text, { filename = '', redactable = false } = {}) {
+export function findSecrets(text, { filename = '', redactable = false, distinctiveOnly = false } = {}) {
   const spans = [];
   for (const p of SECRET_PATTERNS) {
     if (redactable && p.scanOnly) continue;
+    if (distinctiveOnly && p.generic) continue;
     if (p.contextRe && !p.contextRe.test(filename) && !p.contextRe.test(text)) continue;
     p.re.lastIndex = 0;
     for (const m of text.matchAll(p.re)) {

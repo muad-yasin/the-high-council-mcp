@@ -204,3 +204,14 @@ test('CLI --criteria with --from-run is refused before any call', () => {
   assert.match(String(err.stderr), /--criteria: cannot be combined with --from-run/);
   assert.equal(readdirSync(dir).includes('runs'), false, 'no run folder was started');
 });
+
+// Bug audit 2026-09-28 (area 3 #2.4): every verdict form the sign-off reads as MET is counted here too.
+test('unevidencedCheckableMets counts every MET form the sign-off accepts', async () => {
+  const { unevidencedCheckableMets } = await import('../src/criteria-kinds.js');
+  const texts = ['npm test passes'];
+  const kinds = [{ kind: 'checkable', check: 'npm test', on: 'build' }];
+  for (const verdict of ['MET', 'met', ' MET', 'PASS', 'PASSED', 'YES', 'pass ']) {
+    assert.deepEqual(unevidencedCheckableMets({ criteria: [{ criterion: 'npm test passes', verdict, evidence: '' }] }, texts, kinds), ['npm test passes'], verdict);
+  }
+  assert.deepEqual(unevidencedCheckableMets({ criteria: [{ criterion: 'npm test passes', verdict: 'FAILED', evidence: '' }] }, texts, kinds), []);
+});

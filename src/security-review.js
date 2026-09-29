@@ -190,7 +190,7 @@ export async function runSecurityReviewStage(config, { request, deliverable, gro
     }));
     review = parseSecurityReview(stage.text, { usage: stage.usage, maxTokens: seat.maxTokens, parseJson, abstentionReasonCode });
   } catch (err) {
-    if (rethrow.some(E => err instanceof E)) throw err;
+    if (err?.controlFlow || rethrow.some(E => err instanceof E)) throw err;
     // An unreachable reviewer is not evidence the build is safe: recorded as a non-verdict, which
     // the gate never counts as a pass.
     review = { seat_verdict: null, reason_code: SEAT_UNREACHABLE, reason: cap(String(err?.message || err)), findings: [], dropped_findings: 0 };

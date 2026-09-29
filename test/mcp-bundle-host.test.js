@@ -85,11 +85,16 @@ test('COUNCIL_MAX_USD_LIMIT is a ceiling the tool arguments cannot lift or remov
       env: { COUNCIL_MAX_USD_LIMIT: '1', MAX_USD_PER_RUN: '50' },
       calls: [
         { name: 'write_task', arguments: { name: 'demo', content: '# Task\n\nPlan a small todo app.\n' } },
-        { name: 'start_run', arguments: { chain: 'mock-budget', task: 'tasks/demo.md', max_usd: 0 } },
+        { name: 'start_run', arguments: { chain: 'mock-budget', task: 'tasks/demo.md', max_usd: 'none' } },
         { name: 'start_run', arguments: { chain: 'mock-budget', task: 'tasks/demo.md', max_usd: 5 } },
         { name: 'start_run', arguments: { chain: 'mock-budget', task: 'tasks/demo.md' } },
+        { name: 'start_run', arguments: { chain: 'mock-budget', task: 'tasks/demo.md', max_usd: 0 } },
       ],
     });
+    // 0.7.9 ("Refuse 0 everywhere"): max_usd 0 no longer means no ceiling; the schema refuses it.
+    const zero = res.get(6);
+    assert.ok(zero?.error || zero?.result?.isError, `max_usd 0 must be refused, got ${JSON.stringify(zero)}`);
+    assert.ok(!existsSync(join(work, 'runs')) || readdirSync(join(work, 'runs')).length <= 1, 'max_usd 0 started no run');
     for (const id of [3, 4]) {
       const r = payload(res.get(id));
       assert.equal(r?.started, false, JSON.stringify(r));
@@ -156,7 +161,7 @@ test('COUNCIL_MAX_USD_LIMIT: a resume without max_usd keeps the run\'s own lower
     const low = await startPaused(limited, 0.5);
     assert.equal(await submitAndSettle(limited, low), 0.5, 'the run\'s own $0.5 cap survives the resume');
 
-    const uncapped = await startPaused({}, 0);
+    const uncapped = await startPaused({}, 'none');
     assert.equal(JSON.parse(readFileSync(join(uncapped.dir, 'run.json'), 'utf8')).maxUsd, null);
     assert.equal(await submitAndSettle(limited, uncapped), 1, 'a run with no ceiling resumes under the limit');
   } finally {

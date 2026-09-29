@@ -28,6 +28,11 @@ export function validateDeliverable(stageKind, text, usage = null) {
   if (usage && (usage.stop === 'length' || usage.stop === 'max_tokens')) {
     return { ok: false, missing: required, reason: `cut off at the token cap (stop: ${usage.stop})` };
   }
+  // Bug audit 2026-09-28 (area 2 #2): a reply the provider ended with an error, a refusal or its
+  // content filter was reported as "not readable as JSON", which named the wrong cause.
+  if (usage && (usage.stop === 'error' || usage.stop === 'content_filter' || usage.stop === 'refusal')) {
+    return { ok: false, missing: required, reason: `the provider ended the reply (stop: ${usage.stop})` };
+  }
   if (!isStructuredStage(stageKind)) {
     if (!(typeof text === 'string' && text.trim().length > 0)) return { ok: false, missing: required, reason: 'empty or missing deliverable text' };
     const mid = endsMidStructure(text);

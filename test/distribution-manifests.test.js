@@ -39,6 +39,16 @@ test('server.json: every provider key is listed, optional and secret; no key is 
   }
 });
 
+// 0.7.9 (owner, 2026-09-28): a Registry install could set only the default cap, which the client's
+// model can lift with max_usd "none"; COUNCIL_MAX_USD_LIMIT is the hard limit the .mcpb already sets.
+test('server.json offers COUNCIL_MAX_USD_LIMIT, optional, not secret, with no default', () => {
+  const v = serverJson.packages[0].environmentVariables.find(e => e.name === 'COUNCIL_MAX_USD_LIMIT');
+  assert.ok(v, 'COUNCIL_MAX_USD_LIMIT is listed');
+  assert.equal(v.isRequired, false);
+  assert.equal(v.isSecret, false);
+  assert.ok(!('default' in v), 'no default: unset means no hard limit, as before');
+});
+
 test('mcpb manifest: version, entry point and tool list match the package', () => {
   assert.equal(manifest.version, pkg.version, 'bump mcpb/manifest.json with package.json');
   assert.equal(manifest.name, pkg.name);

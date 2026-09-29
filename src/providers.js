@@ -98,6 +98,9 @@ export function resolveVendorSeat(seat, transport) {
 // An offline provider used to test the chain's plumbing without spending
 // anything. It fakes a builder and a critic well enough to exercise every
 // branch, including the early stop.
+// mock-draft-error-once: prompts it has already failed once (M4 tests).
+const MOCK_DRAFT_ERROR_SEEN = new Set();
+
 async function callMock({ model, system, messages, maxTokens }) {
   const user = messages.map(m => m.content).join('\n');
   // `council demo`'s scripted scenario (src/mock-demo.js): realistic text for every stage the
@@ -168,6 +171,11 @@ async function callMock({ model, system, messages, maxTokens }) {
   }
   if (system.startsWith('You are a proposer')) {
     await new Promise(r => setTimeout(r, 10));
+    // Bug audit 2026-09-28 (area 2 #1): a reasoning proposer that fills a small cap with thinking.
+    // Cut off (all output reasoning, empty text) at a cap of 2000 or less, a normal proposal above it.
+    if (model === 'mock-proposer-cut-then-fits' && (maxTokens ?? 8000) <= 2000) {
+      return { text: '', usage: { input: 20, output: maxTokens, thinking: maxTokens, stop: 'length' }, provider: 'mock', model };
+    }
     const text = model === 'mock-proposer-empty'
       ? 'I have nothing to add.'
       // v5 §1 candidate 10: a seat that returns more proposals than a
@@ -192,6 +200,16 @@ async function callMock({ model, system, messages, maxTokens }) {
     const n = (user.match(/^## \d+$/gm) || []).length;
     const kept = Array.from({ length: Math.min(cap, n) }, (_, i) => i + 1);
     return { text: JSON.stringify({ kept, merged_because: 'mock: folded to the cap' }), usage: { input: 20, output: 10 }, provider: 'mock', model };
+  }
+  // Bug audit 2026-09-28 (area 2 #2): a lab whose debate post and reply round the provider ends
+  // with stop "error". `mock-proposer-error` always; `mock-proposer-error-once` only the first time
+  // it sees a given prompt, so the one retry gets a normal reply. Proposals are ordinary.
+  if ((model === 'mock-proposer-error' || model === 'mock-proposer-error-once')
+      && (system.startsWith('You are one lab on a planning panel. Every lab proposed') || system.startsWith('You are one lab on a planning panel, answering'))
+      && (model === 'mock-proposer-error' || !MOCK_DRAFT_ERROR_SEEN.has(`${model}:${user}`))) {
+    MOCK_DRAFT_ERROR_SEEN.add(`${model}:${user}`);
+    await new Promise(r => setTimeout(r, 10));
+    return { text: '', usage: { input: 0, output: 0, stop: 'error' }, provider: 'mock', model };
   }
   if (system.startsWith('You are one lab on a planning panel. Every lab proposed')) {
     await new Promise(r => setTimeout(r, 10));
@@ -423,6 +441,15 @@ async function callMock({ model, system, messages, maxTokens }) {
       : JSON.stringify({ amend: null });
     return { text, usage: { input: 20, output: 10 }, provider: 'mock', model };
   }
+  // Bug audit 2026-09-27 M4: a draft-producing seat whose provider ends the reply with a stop that
+  // is neither finished nor the cap. `mock-draft-error` does it every time; `mock-draft-error-once`
+  // only the first time it sees a given prompt, so draftStage's same-cap retry gets a normal draft.
+  if ((model === 'mock-draft-error' || (model === 'mock-draft-error-once' && !MOCK_DRAFT_ERROR_SEEN.has(user)))
+      && !system.startsWith('You are an independent critic') && !system.includes('turn a request into acceptance criteria')) {
+    if (model === 'mock-draft-error-once') MOCK_DRAFT_ERROR_SEEN.add(user);
+    await new Promise(r => setTimeout(r, 10));
+    return { text: '# Plan\n\n## Decisions\n\nWe chose', usage: { input: 10, output: 12, stop: 'error' }, provider: 'mock', model };
+  }
   // A draft-producing seat (builder, reviser, finalist, handoff) cut off at its token cap - the
   // pre-release audit's truncated-deliverable case. `mock-draft-cut` is cut off at any cap;
   // `mock-draft-cut-then-fits` only at a cap of 1000 or less, so the chain's one bigger-cap retry
@@ -457,6 +484,24 @@ async function callMock({ model, system, messages, maxTokens }) {
   if (isCritic && (model === 'mock-critic-cut' || (model === 'mock-critic-cut-then-fits' && maxTokens <= 1000))) {
     await new Promise(r => setTimeout(r, 10));
     return { text: '{"meets": false, "criteria": [], "failures": [{"criterion": "It states the assum', usage: { input: 10, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model };
+  }
+  // Bug audit 2026-09-27 M3: a reply the provider cut off at the cap that still PARSES - a complete
+  // verdict followed by trailing text the cap cut. `mock-critic-cut-signoff` signs off (every
+  // criterion MET), `mock-critic-cut-objection` objects; both are cut at any cap.
+  // `mock-critic-cut-signoff-then-fits` is cut only at a cap of 1000 or less, so the bigger-cap
+  // retry gets a complete sign-off.
+  // `mock-critic-error-signoff` signs off in a reply the provider ended with stop "error" (M4's panel side).
+  if (isCritic && (model === 'mock-critic-cut-signoff' || model === 'mock-critic-cut-objection' || model === 'mock-critic-cut-signoff-then-fits' || model === 'mock-critic-error-signoff')) {
+    await new Promise(r => setTimeout(r, 10));
+    const listed = (user.match(/# Acceptance criteria\n\n([\s\S]*?)\n\n#/) || [])[1] || '';
+    const names = listed.split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean);
+    const objects = model === 'mock-critic-cut-objection';
+    const rows = names.map((criterion, i) => ({ criterion, verdict: objects && i === 0 ? 'NOT MET' : 'MET', evidence: 'Section 1 states it.' }));
+    const verdict = JSON.stringify({ meets: !objects, criteria: rows, failures: objects ? [{ criterion: names[0] || 'first', problem: 'Not addressed.' }] : [], verdict_line: objects ? 'One criterion fails.' : 'All criteria met.' });
+    const cut = model !== 'mock-critic-cut-signoff-then-fits' || (maxTokens ?? 8000) <= 1000;
+    if (model === 'mock-critic-error-signoff') return { text: verdict, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(verdict.length / 4), stop: 'error' }, provider: 'mock', model };
+    if (!cut) return { text: verdict, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(verdict.length / 4), stop: 'stop' }, provider: 'mock', model };
+    return { text: `${verdict}\n\nNotes on the remaining sections: the rollout order in sect`, usage: { input: 10, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model };
   }
   // Criterion kinds (src/criteria-kinds.js): a critic that signs off with every criterion MET and
   // no evidence at all - the "met on trust" reply the chain must record on a checkable criterion.

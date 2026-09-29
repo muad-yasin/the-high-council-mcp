@@ -83,7 +83,7 @@
     "outcome": {
       "x-stability": "stable",
       "enum": ["consensus", "no_consensus", "degraded"],
-      "description": "Verdict class, computed by src/outcome.js from the rest of this file. `degraded` wins: some seat dropped out, abstained, or no reviewer was heard, so the intended roster never reached a verdict. Otherwise `consensus` if passed, else `no_consensus`."
+      "description": "Verdict class, computed by src/outcome.js from the rest of this file. `degraded` wins: a seated lab produced nothing usable (it dropped out, see `dropouts[]`: in a tiered chain this may be a debating seat that never votes), a reviewer abstained, no reviewer was heard, or the round fell short of the quorum - so the run did not have the roster the chain intended. Otherwise `consensus` if passed, else `no_consensus`."
     },
     "lastCritique": {
       "x-stability": "stable",
@@ -234,7 +234,8 @@
           "model": { "type": "string" },
           "verdict": { "enum": ["signed_off", "objected", "passed", "unheard"] },
           "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] },
-          "reasked": { "type": "boolean", "description": "True if the seat was unheard once and asked again this round." }
+          "reasked": { "type": "boolean", "description": "True if the seat was unheard once and asked again this round." },
+          "carried": { "type": "boolean", "description": "Present and true when the seat was not asked this round: the draft was byte-identical to the last round's, where this seat was heard and clean, and only the unheard seat(s) were asked again (0.7.9). Absent otherwise." }
         }
       },
       "description": "Every critic's verdict in every review round, both sign-off modes. The per-round history that signoff[] (final round only) does not keep."
@@ -614,7 +615,8 @@
         },
         "passed": { "type": "boolean", "description": "True if the seat stated a pass (declined to give a verdict, with a reason). Not the same as the top-level `passed`." },
         "passReason": { "type": ["string", "null"] },
-        "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] }
+        "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] },
+        "seat_index": { "type": "integer", "description": "The seat's index in the chain's seats.critics (0.7.9). A relay panel lists signoff[] in its review order, so array position is not the seat; replay and rematch diffs key on this. Absent on earlier reports." }
       }
     },
     "proposal": {
@@ -684,14 +686,14 @@
         },
         "dropped": {
           "type": "array",
-          "description": "Experimental (0.7.8). Debate posts and author replies the stage's filters rejected, one row per stage, lab and reason; [] when none were. Absent in runs made before 0.7.8. Reasons: for stage 'debate' unknown_target, own_proposal, bad_stance, unreadable; for stage 'replies' unknown_target, not_own_proposal, not_posted_on, bad_action, unreadable. An 'unreadable' row counts whole replies that did not parse, not posts.",
+          "description": "Experimental (0.7.8). Debate posts and author replies the stage's filters rejected, one row per stage, lab and reason; [] when none were. Absent in runs made before 0.7.8. Reasons: for stage 'debate' unknown_target, own_proposal, bad_stance, unreadable, provider_error; for stage 'replies' unknown_target, not_own_proposal, not_posted_on, bad_action, unreadable, provider_error. An 'unreadable' row counts whole replies that did not parse, not posts; 'provider_error' (0.7.9) counts whole replies the provider ended with stop error, content_filter or refusal on the first try and on its one retry.",
           "items": {
             "type": "object",
             "required": ["stage", "by", "reason", "count"],
             "properties": {
               "stage": { "enum": ["debate", "replies"] },
               "by": { "type": "string", "description": "The lab whose post or reply was dropped." },
-              "reason": { "enum": ["unknown_target", "own_proposal", "bad_stance", "not_own_proposal", "not_posted_on", "bad_action", "unreadable"] },
+              "reason": { "enum": ["unknown_target", "own_proposal", "bad_stance", "not_own_proposal", "not_posted_on", "bad_action", "unreadable", "provider_error"] },
               "count": { "type": "integer", "minimum": 1 }
             }
           }

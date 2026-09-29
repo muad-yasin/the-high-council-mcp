@@ -199,8 +199,18 @@ export function renderBoardMd({ runId, result }) {
   // definition of done a command can settle and how much rests on reviewers' judgement.
   const kindsSection = result.criteriaSummary ? `${summaryLine(result.criteriaSummary)}\n\n` : '';
   const deepDiveSection = renderDeepDiveBoard(result.deep_dive);
-  if (!(result.board || disputesSection || alternativesSection || kindsSection || deepDiveSection)) return '';
-  return `# Debate board - run ${runId}\n\n${kindsSection}${alternativesSection}${deepDiveSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${renderDroppedBoard(result.debate?.dropped)}${disputesSection}`;
+  const dropoutsSection = renderDropoutsBoard(result.dropouts);
+  if (!(result.board || disputesSection || alternativesSection || kindsSection || deepDiveSection || dropoutsSection)) return '';
+  return `# Debate board - run ${runId}\n\n${kindsSection}${dropoutsSection}${alternativesSection}${deepDiveSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${renderDroppedBoard(result.debate?.dropped)}${disputesSection}`;
+}
+
+// Bug audit 2026-09-28 (area 2 #4): report.json's `dropouts` (a seated lab that produced nothing
+// usable) was in no file a person reads, so a run whose `outcome` is "degraded" gave no reason
+// anywhere but report.json and run.log. Near the top of BOARD.md, since it changes who argued.
+export function renderDropoutsBoard(dropouts) {
+  if (!Array.isArray(dropouts) || !dropouts.length) return '';
+  const rows = dropouts.map(d => `- ${d.lab}${d.model ? ` (${d.model})` : ''}, at ${d.stage || 'an unknown stage'}: ${d.reason || 'no reason recorded'}`);
+  return `## Dropped out\n\nSeated labs that produced nothing usable, so the council ran without them from that point (report.json \`dropouts\`; this is why a run's outcome can read "degraded").\n\n${rows.join('\n')}\n\n`;
 }
 
 // 0.7.8: what the debate stage's filters rejected (report.json debate.dropped). Only in BOARD.md,
@@ -213,13 +223,15 @@ const DROP_REASON_TEXT = {
   not_posted_on: 'answered one of its proposals nobody posted on',
   bad_action: 'had an action other than keep, amend or withdraw',
   unreadable: 'reply did not parse at all',
+  provider_error: 'the provider ended the reply with an error, a refusal or its content filter, twice (retried once)',
 };
 export function renderDroppedBoard(dropped) {
   if (!Array.isArray(dropped) || !dropped.length) return '';
   const rows = dropped.map(d => {
     const what = d.stage === 'replies' ? 'author reply' : 'debate post';
-    const n = d.reason === 'unreadable' ? `the whole ${d.stage === 'replies' ? 'reply round' : 'debate reply'}` : `${d.count} ${what}${d.count === 1 ? '' : 's'}`;
-    return `- ${d.by}: ${n} - ${DROP_REASON_TEXT[d.reason] || d.reason}${d.reason === 'unreadable' && d.count > 1 ? ` (${d.count} times)` : ''}`;
+    const whole = d.reason === 'unreadable' || d.reason === 'provider_error';
+    const n = whole ? `the whole ${d.stage === 'replies' ? 'reply round' : 'debate reply'}` : `${d.count} ${what}${d.count === 1 ? '' : 's'}`;
+    return `- ${d.by}: ${n} - ${DROP_REASON_TEXT[d.reason] || d.reason}${whole && d.count > 1 ? ` (${d.count} times)` : ''}`;
   });
   return `\n\n## Dropped from the debate\n\nPosts and replies the harness could not place on this board, so they are not above. The raw replies are in this run folder (\`debate-<lab>.md\`, \`reply-<lab>.md\`).\n\n${rows.join('\n')}`;
 }

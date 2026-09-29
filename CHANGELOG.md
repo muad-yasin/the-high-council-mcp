@@ -1,6 +1,114 @@
 # Changelog
 
-## 0.7.9 - unreleased
+## 0.7.9 - 2026-09-29
+
+### Breaking
+
+- **A spend ceiling of 0 is refused everywhere.** `--max-usd 0`, `MAX_USD_PER_RUN=0` and the MCP
+  tools' `max_usd: 0` used to mean "no ceiling"; the JS API already refused 0. Now all of them refuse
+  it (CLI exit 2, MCP schema error), because someone who writes 0 almost certainly means "spend
+  nothing". For no ceiling, say so: `--max-usd none`, `MAX_USD_PER_RUN=none`, or `max_usd: "none"`
+  over MCP (still refused when the user set `COUNCIL_MAX_USD_LIMIT`).
+- **New hard chain-lint rules:** a seat on an API provider with no `model` (missing, `null` or
+  empty) is refused, at lint and at run time (`external` and `mock` seats may leave it out); and
+  `extra-models-unpriced`: a priced seat's `extra.models` fallback with no entry in
+  `src/pricing.json`.
+- **Key-shaped text in a prompt stops the run (exit 11).** Your inputs (the task, `--context`
+  files, a handed draft, a `--criteria` file) are scanned before the run against every format in
+  `src/secret-patterns.js`, including a password inside a URL or an assignment. Every prompt that
+  leaves (each provider call, each external seat's `NEEDS-<stage>.md`) is scanned again for the
+  distinctive key formats (provider prefixes, PEM/PGP, JWT, AWS, GitHub, Slack, Stripe, ...), so a
+  model's placeholder such as `postgres://postgres:postgres@localhost` does not stop a run. A match
+  stops before anything is sent and names the file or stage, the line and the format, never the
+  value; a match mid-run writes `STOPPED-secret.md`. The one override is `--allow-secret-shaped`
+  (saved in `run.json`, so a resume keeps it; MCP `start_run` / `resume_run`
+  `allow_secret_shaped: true`; JS API `run` / `resume` `allowSecretShaped: true`). Key shapes only;
+  PII stays behind the opt-in `--pii-gate`. A clean run's prompts are byte-identical.
+
+### Fixed
+
+- **A panel reply cut off at the token cap no longer counts as a sign-off when it happens to parse.**
+  Cut-off is read from the provider's stop reason, parsed or not: one retry with a bigger cap, and a
+  reply still cut off is an abstention if it signed off, or kept as an objection if it objected.
+  This holds for `signoff: "first"` chains too (verify, cheap and 16 more), where a cut-off or
+  provider-ended sign-off is no pass. A pasted external reply carries no stop reason, so this does
+  not apply there.
+- **A draft the provider ended with `error`, `content_filter` or `refusal` is no longer taken as
+  finished.** Every draft stage retries it once at the same cap, then stops the run
+  (`STOPPED-truncated.md`, exit 17) naming the stop; `STOPPED-truncated.json` gains `stop`. A panel
+  sign-off in such a reply is an abstention.
+- **A fallback model's reply is no longer charged $0.** When the answering model (an OpenRouter
+  `extra.models` fallback) has no price entry, the stage is charged at its seat's own price, and the
+  log says so. `src/pricing.json` gains `openrouter/openai/gpt-5` and
+  `openrouter/google/gemini-3.6-flash`, the two fallbacks `coder-gate-v2` names (OpenRouter's model
+  list, 2026-09-28).
+- **`--rematch` and `--replay` run chain lint** before calling any seat, like a normal run and a
+  resume. An edited chain could send a key to a foreign host on a side run.
+- **A proposal cut off at its token cap is retried with a bigger cap**, as architectures and panel
+  replies already were. The same cap was used again, so a reasoning seat that thought through all of
+  it dropped out (`plan-daily-7`'s first real run lost Hy4 preview this way).
+- **A debate post or reply round the provider ended with `error` (or a refusal or its content
+  filter) is retried once**, and if it fails again it is recorded as `provider_error` in
+  `debate.dropped`, not `unreadable` (a new value of the schema's `reason` enum). `WARNINGS.md` names the stop instead of "not readable as JSON".
+  A 2.5-second provider error used to cost a lab its whole reply round.
+- **A lab that dropped out is named where people read.** `report.json`'s `dropouts` was shown nowhere
+  else, so a run whose `outcome` was "degraded" gave no visible reason. `BOARD.md` gains a "Dropped
+  out" section, `WARNINGS.md` a `dropout:` line per lab, and the CLI summary a `dropped:` line.
+- **The dry run prints external seats as `external`**, not a priced `$0.0000`, and says how many
+  stages are answered outside its total (21 of 72 in `plan-daily-7`).
+- **A pasted external answer gets the same bookkeeping as any other stage.** It is first read on a
+  resume, as a cache hit, and cache hits skipped the partial-output check (the only truncation signal
+  a stop-less pasted draft has), `stage-log.jsonl`, the audit log and `spans.jsonl`. Its first replay
+  now counts as its completion; the answer on disk is not rewritten.
+- **The questions stage's `answers` are checked for staleness** like every other external answer.
+  After a task amendment the old answers used to be applied, by position, to the new questions; now
+  they are set aside (`superseded/`) and the operator is asked again.
+- **`--from-run` of a finished run keeps its criterion kinds** (`report.json` `criteria_kinds`),
+  so checkable criteria and the "MET with no evidence" count survive it. It used to reuse the plain
+  strings, which dropped every kind.
+- **A missing `--draft` file or `--from-run` folder** (or a corrupt earlier `report.json`) exits 2
+  with a message instead of a stack trace.
+- **The withdrawal ledger lists a proposal that withdrew in favour of one inside a withdrawal
+  cycle**; it was left out of `orphanSections`. `council doctor --run` no longer crashes on a
+  hand-edited `proposals` list, and no longer says "cycle detected: 0 cycle(s)" for a plain
+  withdrawal. The run log calls such a withdrawal a note for the builder, not a WARNING (the $0 demo
+  printed one for a withdrawal its plan then handled as asked).
+- **"MET with no evidence" counts every form the sign-off reads as MET** (`PASS`, `PASSED`, `YES`,
+  any case, surrounding spaces), not only an exact `MET`: one shared classifier now.
+- **A dropped first-mode critic's provider failure is no longer labelled `[COUNCIL-E005]`**, which the
+  error catalog and TROUBLESHOOTING define as a policy refusal.
+- **An aborted `api.run()` names its run.** The `AbortError` carries `runId` and `runDir`, and it
+  rejects only after the run's process has exited, so `resume()` can pick the run up (the types
+  promised a resumable run the caller had no handle on).
+- **`council init`'s example run (`<id>-init`) is accepted by MCP `run_status` and the viewer**, not
+  only listed by `list_runs`.
+- **"No such chain" names every folder it looked in**, not only the one inside the package.
+- **`replay-diff.json` / `rematch-diff.json` no longer report invented verdict changes on relay
+  panels.** A relay panel lists `signoff[]` in its seeded review order, which differs between the two
+  runs, and the diff keyed on array position. `signoff[]` entries gain an additive `seat_index` (the
+  seat's index in `seats.critics`), and the diff keys on it.
+- **Re-asking an unheard external reviewer says why.** The re-ask prompt gains a short "your previous
+  reply could not be read" note; it used to be byte-identical to the first ask. API seats' prompts
+  are unchanged.
+- **An MCP resume re-checks the run's inputs** (task, draft, context files, from-run folder) against
+  the same secret/gitignore/working-folder rules `start_run` applies. A resume re-reads a context
+  folder, so a secret file added to it during a pause used to reach every seat.
+- **`server.json` offers `COUNCIL_MAX_USD_LIMIT`**, so an install from the MCP Registry can set a
+  hard per-run limit the client's model cannot raise or remove, as the Claude Desktop bundle already
+  does. Without it, `max_usd: "none"` over MCP runs with no ceiling.
+- **`report.json` `outcome: "degraded"` is described as it behaves**: a seated lab that produced
+  nothing usable (in a tiered chain, possibly a debating seat that never votes), an abstention, no
+  reviewer heard, or a missed quorum. The old wording said the voting roster never reached a verdict,
+  which is not true when only a debating seat dropped out. The behaviour is unchanged (owner's call,
+  2026-09-28).
+- **Stage labels with a dot can be answered over MCP.** `external_prompt` and `submit_stage` refused
+  any label outside `[a-z0-9-]`, so none of `plan-daily-7`'s Opus stages (lab `opus5.5-sub`) could be
+  fetched by name or submitted, while the tools themselves told the client to submit that label.
+- **`plan-daily-7`'s routing note** says "every label containing `opus5.5-sub`" and names the
+  `-retry`/`-reask` forms; "ending in" sent those to the writer session.
+- **`src/pricing.json`: `openrouter/z-ai/glm-5.3` refreshed** to OpenRouter's current $1.40 / $4.40
+  (was $0.84 / $2.64, understated; a `plan-highest-7` and `plan-premium-7` seat). Dry runs:
+  `plan-premium-7` $21.59 → $22.30, `plan-highest-7` $10.54 → $11.21 worst case.
 
 ### Added
 
@@ -10,7 +118,7 @@
   (`subscription:opus-5.5`, lab `opus5.5-sub`), GPT-6 Luna and DeepSeek V4 Pro. Mass seats: Tencent
   Hy4 preview, Gemini 3.8 Flash, DeepSeek V4.1 Flash, GLM 5.2, Muse Spark 1.3, Qwen 3.8 Max
   (0902), Mistral Medium 3.5. The writer seats are a Sonnet 5 Claude Code session; the Opus seat is a
-  separate session. Deep-dive cap $0.50. Dry run $1.90 worst case. Untested with real models.
+  separate session. Deep-dive cap $0.50. Dry run $1.90 worst case. Run once with real models (2026-09-28); nothing about it has been measured.
   `src/pricing.json` gains `openai/gpt-6-luna`, `tencent/hy4-preview` and `meta/muse-spark-1.3` from
   OpenRouter's model list (2026-09-27).
 

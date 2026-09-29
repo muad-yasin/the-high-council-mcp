@@ -8,13 +8,13 @@
     "source": "github"
   },
   "websiteUrl": "https://sower-industries.de/MCP",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "the-high-council",
-      "version": "0.7.8",
+      "version": "0.7.9",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -103,6 +103,13 @@
           "isSecret": false,
           "format": "number",
           "default": "7"
+        },
+        {
+          "name": "COUNCIL_MAX_USD_LIMIT",
+          "description": "A hard per-run ceiling in US dollars that the MCP client cannot raise or remove (max_usd above it, or \"none\", is refused). Set it to the same value as MAX_USD_PER_RUN to lock the cap.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "number"
         },
         {
           "name": "COUNCIL_WORKDIR",

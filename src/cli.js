@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
+import { runChain, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
+import { secretShapesIn, SecretShapedPrompt } from './outbound-scan.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
@@ -71,6 +72,8 @@ const EXIT_SECURITY_NOT_JUDGED = 8;
 // them apart. Every guard that refuses a run now has its own code; the README lists them all.
 const EXIT_ARTIFACTS_BLOCKED = 9;
 const EXIT_PREFLIGHT_BLOCKED = 10;
+// 0.7.9: also the outbound key scan (src/outbound-scan.js), on by default - both are "the input
+// holds something that must not be sent".
 const EXIT_PII_BLOCKED = 11;
 const EXIT_POLICY_REFUSED = 12;
 const EXIT_RUN_LOCKED = 13;
@@ -91,6 +94,32 @@ import { councilCommand, unignoredEnvFile } from './invocation.js';
 import { contextFileList, readContextFile, ContextFileError } from './context-files.js';
 import { chainNameRefusal } from './chain-name.js';
 import { terminalSafe } from './terminal-safe.js';
+
+// One lint gate for every path that calls runChain() on a chain file: the normal run and resume
+// (above), --rematch and --replay (bug audit 2026-09-27 M2: both skipped it, so an edited chain
+// could send a key to a foreign host on a rematch). Exit 1, the same messages everywhere.
+function exitOnLint(cfg, cfgPath) {
+  const lintFindings = lintChain(cfg, cfgPath);
+  if (lintFindings.length) {
+    console.error(`\nchain lint: ${cfgPath} has ${lintFindings.length} problem(s) and will not run:\n`);
+    for (const f of lintFindings) {
+      console.error(`  [${f.kind}] ${f.message}`);
+      console.error(`    fix: ${f.fix}\n`);
+    }
+    process.exit(1);
+  }
+}
+
+// The outbound key scan's refusal (src/outbound-scan.js): pattern name and line, never the value.
+function secretRefusalLines(found) {
+  return found.map(f => `  ${f.where}:${f.line}  ${f.name}`);
+}
+function exitOnSecretShaped(err, what) {
+  console.error(`\n${what}: refused - ${err.message}.`);
+  for (const l of secretRefusalLines(err.findings.map(f => ({ where: `stage ${err.label} (${f.part} prompt)`, ...f })))) console.error(l);
+  console.error(`Remove the key from the input, or rerun with --allow-secret-shaped to send it deliberately.`);
+  process.exit(EXIT_PII_BLOCKED);
+}
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -143,6 +172,10 @@ function flag(name, fallback) {
   const next = argv[i + 1];
   return (next && !next.startsWith('--')) ? next : true;
 }
+// 0.7.9: the outbound key scan's one override. Set here so --rematch and --replay (below, before the
+// run-folder code) honour it too; a normal run adds the value saved in run.json further down.
+const allowSecretShapedFlag = argv.includes('--allow-secret-shaped');
+setOutboundScan({ allow: allowSecretShapedFlag });
 
 // reportJsonShape() and the BOARD.md text now live in src/report-shape.js, shared with --replay.
 
@@ -182,7 +215,8 @@ if (argv[0] === 'doctor') {
     const report = readReportOrExit(reportPath, 'council doctor --run');
     const ledger = withdrawalLedger(report.proposals || []);
     if (ledger.orphanSections.length) {
-      console.error(`withdrawal cycle detected: ${ledger.withdrawalCycles} cycle(s), ${ledger.orphanSections.length} orphaned proposal(s) with no surviving owner: ${ledger.orphanSections.join(', ')}`);
+      // Bug audit 2026-09-28 (area 4 MED-2): "cycle detected: 0 cycle(s)" for a plain withdrawal.
+      console.error(`${ledger.withdrawalCycles ? `withdrawal cycle detected (${ledger.withdrawalCycles} cycle(s)); ` : ''}${ledger.orphanSections.length} withdrawn proposal(s) with no surviving owner: ${ledger.orphanSections.join(', ')} - check the deliverable's Scope ledger says each is dropped and why`);
       process.exit(1);
     }
     console.log(`No orphaned withdrawal chains in ${runDir}.`);
@@ -632,11 +666,18 @@ const SIDE_RUN_FOLDER = /\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2})$/;
 const maxUsdArg = flag('max-usd', process.env.MAX_USD_PER_RUN ?? String(DEFAULT_MAX_USD));
 let maxUsd;
 if (maxUsdArg === true) { console.error('--max-usd: needs a value, e.g. --max-usd 2 or --max-usd none'); process.exit(2); }
-else if (maxUsdArg === 'none' || maxUsdArg === 'off' || maxUsdArg === '0') maxUsd = null;
+else if (maxUsdArg === 'none' || maxUsdArg === 'off') maxUsd = null;
 else {
   maxUsd = Number(maxUsdArg);
+  // 0.7.9 (owner, 2026-09-28: "Refuse 0 everywhere"): 0 used to mean no ceiling here and over MCP,
+  // while the JS API refused it. Someone who writes 0 almost certainly means "spend nothing", so
+  // reading it as "spend without limit" was the costliest possible guess. `none` is the one way.
+  if (Number.isFinite(maxUsd) && maxUsd === 0) {
+    console.error(`--max-usd: 0 is refused${flag('max-usd', null) === null ? ' (from MAX_USD_PER_RUN)' : ''} - it used to mean no ceiling. Use --max-usd none for no ceiling, or a positive number of dollars.`);
+    process.exit(2);
+  }
   if (!Number.isFinite(maxUsd) || maxUsd < 0) {
-    console.error(`--max-usd: expected a number of dollars or "none", got "${maxUsdArg}"`);
+    console.error(`--max-usd: expected a positive number of dollars or "none", got "${maxUsdArg}"`);
     process.exit(2);
   }
 }
@@ -739,7 +780,9 @@ if (rematchArg) {
     console.error(`--rematch: chain "${chainName}" (recorded in ${originalRunMetaPath}) has no chain config on disk.`);
     process.exit(2);
   }
-  const originalConfig = resolveChainSeats(JSON.parse(readFileSync(chainConfigPath, 'utf8')));
+  const rawRematchConfig = JSON.parse(readFileSync(chainConfigPath, 'utf8'));
+  exitOnLint(rawRematchConfig, chainConfigPath);
+  const originalConfig = resolveChainSeats(rawRematchConfig);
   const rematchConfig = reshuffleSeats(originalConfig, seed);
   refuseSideRun('--rematch', originalConfig, originalRunMeta);
 
@@ -779,6 +822,7 @@ if (rematchArg) {
     if (err instanceof BudgetExceeded) writeSideRunBudgetStop(rematchRunDir, err, '--rematch', { // exits 4, like a normal run
       runId: rematchRunId, chain: chainName, task: originalTaskPath, taskCwd: originalRunMeta.cwd || work, taskText: originalRequest, startedAt: rematchStartedAt, config: rematchConfig,
     });
+    if (err instanceof SecretShapedPrompt) exitOnSecretShaped(err, '--rematch');
     console.error(`--rematch: the reshuffled run did not complete (${err.message}). No diff written - a rematch that never reached a verdict has nothing to diff.`);
     process.exit(1);
   }
@@ -843,9 +887,15 @@ if (argv.includes('--replay')) {
   const chainsDirCandidates = [join(work, 'chains'), join(pkg, 'chains')];
   const chainsDir = chainsDirCandidates.find(d => existsSync(join(d, `${runMetaForChain.chain}.json`))) || chainsDirCandidates[1];
   {
-    let replayConfig = null;
-    try { replayConfig = resolveChainSeats(JSON.parse(readFileSync(join(chainsDir, `${runMetaForChain.chain}.json`), 'utf8'))); } catch { /* council-replay reports a missing or bad chain itself */ }
-    if (replayConfig) refuseSideRun('--replay', replayConfig, runMetaForChain);
+    const replayChainPath = join(chainsDir, `${runMetaForChain.chain}.json`);
+    let rawReplayConfig = null;
+    try { rawReplayConfig = JSON.parse(readFileSync(replayChainPath, 'utf8')); } catch { /* council-replay reports a missing or bad chain itself */ }
+    if (rawReplayConfig) {
+      exitOnLint(rawReplayConfig, replayChainPath);
+      let replayConfig = null;
+      try { replayConfig = resolveChainSeats(rawReplayConfig); } catch { /* reported by council-replay */ }
+      if (replayConfig) refuseSideRun('--replay', replayConfig, runMetaForChain);
+    }
   }
   setBudget(maxUsd);
   console.log(`cap:   ${maxUsd === null ? 'none - this replay has no spend ceiling' : `${formatUsd(maxUsd)} (--max-usd)`}`);
@@ -861,6 +911,7 @@ if (argv.includes('--replay')) {
     console.log(`signoff_match: ${diff.signoff_match}  verdict_category_changed: ${diff.verdict_category_changed}`);
   } catch (err) {
     if (err instanceof BudgetExceeded) writeSideRunBudgetStop(replayDirFor(runDir, date), err, '--replay', err.partialReportArgs); // exits 4, like a normal run
+    if (err instanceof SecretShapedPrompt) exitOnSecretShaped(err, '--replay');
     console.error(`--replay: ${err.message}`);
     process.exit(1);
   }
@@ -1141,6 +1192,12 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        hard-stop refuses the run. Off entirely unless passed.
                                        --allow-pii email,iban,card,secret suppresses named
                                        pattern classes (always printed, never a silent hole).
+  council --task tasks/x.md --allow-secret-shaped
+                                       send key-shaped text anyway. Every prompt is scanned
+                                       for the key formats in src/secret-patterns.js before
+                                       it leaves, and a match stops the run (exit 11) with
+                                       the file or stage, line and format, never the value.
+                                       Key shapes only: a password in prose is not caught.
   council --task tasks/x.md --signoff alice
                                        name who signed off on this change request, for
                                        policy.json's required_signoff_paths. The task
@@ -1208,7 +1265,9 @@ const chainNameEff = resumeMeta?.chain || chainName;
 const configPath = [resumeMeta?.cwd ? join(resumeMeta.cwd, 'chains', `${chainNameEff}.json`) : null, join(work, 'chains', `${chainNameEff}.json`), join(pkg, 'chains', `${chainNameEff}.json`)]
   .filter(Boolean).find(existsSync) || join(pkg, 'chains', `${chainNameEff}.json`);
 if (!existsSync(configPath)) {
-  console.error(`No such chain: ${configPath}`);
+  // Bug audit 2026-09-28 (area 4 LOW-4): name every folder searched, not just the package's.
+  const searched = [...new Set([resumeMeta?.cwd ? join(resumeMeta.cwd, 'chains') : null, join(work, 'chains'), join(pkg, 'chains')].filter(Boolean))];
+  console.error(`No such chain: "${chainNameEff}" - looked for ${chainNameEff}.json in ${searched.join(' and ')}.`);
   process.exit(1);
 }
 // v5 §1 candidate 4, COUNCIL-E003: a malformed chain file is a fatal,
@@ -1245,17 +1304,8 @@ try {
 // RunChainStages #5 / GuardLayer #8): it used to be skipped there on the grounds that the first
 // sitting proved the config runnable - but the chain file is re-read on resume and may have been
 // edited in between, and a resumed run pays for everything after the pause.
-{
-  const lintFindings = lintChain(config, configPath);
-  if (lintFindings.length) {
-    console.error(`\nchain lint: ${configPath} has ${lintFindings.length} problem(s) and will not run:\n`);
-    for (const f of lintFindings) {
-      console.error(`  [${f.kind}] ${f.message}`);
-      console.error(`    fix: ${f.fix}\n`);
-    }
-    process.exit(1);
-  }
-}
+exitOnLint(config, configPath);
+
 
 // --from-run: the earlier run's criteria and first draft are reused verbatim,
 // so whatever differs in the outcome is the panel, not a fresh coin toss.
@@ -1266,20 +1316,42 @@ let handedDraft = null;
 // --from-run of a crashed run regenerated its criteria on resume, changed the cache
 // fingerprint and re-paid every stage (2026-09-23 audit, MoneyPath #6).
 function criteriaOfRun(dir) {
+  // Bug audit 2026-09-28 (area 4 LOW-1): a missing or corrupt earlier run crashed with a raw stack.
+  if (!existsSync(dir)) { console.error(`--from-run: no such run folder: ${dir}`); process.exit(2); }
   const reportPath = join(dir, 'report.json');
-  if (existsSync(reportPath)) return JSON.parse(readFileSync(reportPath, 'utf8')).criteria;
+  if (existsSync(reportPath)) {
+    let report;
+    try { report = JSON.parse(readFileSync(reportPath, 'utf8')); } catch {
+      console.error(`--from-run: ${reportPath} is not valid JSON - can't reuse that run's criteria.`);
+      process.exit(2);
+    }
+    // Bug audit 2026-09-28 (area 3 #2.2): the plain strings dropped every criterion kind, so a
+    // --from-run of a finished kinds run lost its checkable criteria and "MET with no evidence".
+    // criteria_kinds is index-aligned with criteria and is a shape normaliseCriteria reads back.
+    const kinds = report.criteria_kinds;
+    return Array.isArray(kinds) && Array.isArray(report.criteria) && kinds.length === report.criteria.length ? kinds : report.criteria;
+  }
   // Resume-cache audit #2 (Review/PreRelease_Audit_ResumeCache_2026-09-23.md): an unfinished run's
   // criteria.md may be the answer a guard REJECTED - the accepted list is the last retry that ran
   // (chain.js runs the feasibility retry, then the meta retry). Taking criteria.md reused rejected
   // criteria and repeated the Zofia three-paid-rounds incident. runChain() also re-checks both
   // guards on criteria handed in this way.
   const label = ['criteria-retry', 'criteria-feasibility-retry', 'criteria'].find(l => existsSync(join(dir, `${l}.md`))) || 'criteria';
+  if (!existsSync(join(dir, `${label}.md`))) { console.error(`--from-run: ${dir} has neither report.json nor criteria.md - nothing to reuse.`); process.exit(2); }
   const raw = readFileSync(join(dir, `${label}.md`), 'utf8');
-  return JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).criteria;
+  try { return JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).criteria; } catch {
+    console.error(`--from-run: ${join(dir, `${label}.md`)} holds no readable criteria.`);
+    process.exit(2);
+  }
+}
+// The earlier run's first draft, or a clean exit 2 (area 4 LOW-1).
+function readRequired(path, what) {
+  if (!existsSync(path)) { console.error(`${what}: no such file: ${path}`); process.exit(2); }
+  return readFileSync(path, 'utf8');
 }
 if (fromRun) {
   config.criteria = criteriaOfRun(resolve(fromRun));
-  handedDraft = readFileSync(join(resolve(fromRun), 'build.md'), 'utf8');
+  handedDraft = readRequired(join(resolve(fromRun), 'build.md'), '--from-run');
 }
 // --draft <file>: review this exact text instead of building one. With
 // --from-run it replaces that run's build.md; the criteria still come from
@@ -1291,7 +1363,7 @@ const startDir = resumeMeta ? (resumeMeta.cwd || work) : work;
 const draftPathRaw = resumeMeta ? resumeMeta.draft : flag('draft', null);
 const draftPath = draftPathRaw && draftPathRaw !== true ? resolve(startDir, draftPathRaw) : draftPathRaw;
 if (draftPath === true) { console.error('--draft: needs a file path, e.g. --draft plan.md'); process.exit(2); }
-if (draftPath) handedDraft = readFileSync(draftPath, 'utf8');
+if (draftPath) handedDraft = readRequired(draftPath, '--draft');
 // The earlier run's folder, as recorded: absolute for runs started since 2026-09-23, else
 // relative to the directory the run was started in (run.json's cwd) - the same rule as the task.
 const fromRunDirOnResume = resumeMeta?.fromRun ? resolve(resumeMeta.cwd || work, resumeMeta.fromRun) : null;
@@ -1393,10 +1465,15 @@ if (dryRun) {
   const rows = estimateChainRows(config, { fromRun });
   const w = Math.max(...rows.map(r => r.seat.length));
   for (const r of rows) {
-    console.log(`  ${r.label.padEnd(12)} ${r.seat.padEnd(w)}  ${String(r.input).padStart(7)} in  ${String(r.output).padStart(6)} out  ${r.priced ? formatUsd(r.usd) : 'unpriced'}`);
+    // Bug audit 2026-09-28 (area 2 #6): an external seat printed as a priced "$0.0000", though a
+    // person or another session does that work outside this total (plan-daily-7's Opus voter).
+    const cost = r.seat.startsWith('external/') ? 'external' : r.priced ? formatUsd(r.usd) : 'unpriced';
+    console.log(`  ${r.label.padEnd(12)} ${r.seat.padEnd(w)}  ${String(r.input).padStart(7)} in  ${String(r.output).padStart(6)} out  ${cost}`);
   }
   const t = rows.reduce((s, r) => ({ i: s.i + r.input, o: s.o + r.output, u: s.u + r.usd }), { i: 0, o: 0, u: 0 });
   console.log(`\n  TOTAL        ${''.padEnd(w)}  ${String(t.i).padStart(7)} in  ${String(t.o).padStart(6)} out  ${formatUsd(t.u)}  per run`);
+  const externalRows = rows.filter(r => r.seat.startsWith('external/')).length;
+  if (externalRows) console.log(`\n  ${externalRows} of ${rows.length} stages are answered by external seats (a person or another session, e.g. a Claude Code session on a subscription) and are not in this total.`);
   console.log(`\n  Worst case is the full round cap. A clean first critique stops early and costs less.`);
   for (const line of priceTableLines()) console.log(`  ${line}`);
   // The rows above price the chain's own assumed prompt size, not the task in hand: a 13-word task
@@ -1502,12 +1579,14 @@ const contextArg = contextArgRaw && contextArgRaw !== true
 // one - so gating them blocked every --context run at exit 9 (MCP start_run's `context` could never
 // work, since MCP cannot pass --allow-unfenced). The gate reads the task text alone.
 const requestForArtifactGate = request;
+let contextFilesForScan = [];
 if (contextArg) {
   // Which files, and each one read non-blocking with a size cap: a FIFO, a device or an oversized
   // file is refused with its name, before any call (src/context-files.js).
   let files, docs;
   try {
     files = contextFileList(contextArg);
+    contextFilesForScan = files;
     docs = files.map(f => `## ${f.split('/').pop()}\n\n${readContextFile(f)}`).join('\n\n---\n\n');
   } catch (e) {
     if (!(e instanceof ContextFileError)) throw e;
@@ -1551,6 +1630,32 @@ if (piiGateEff !== null) {
   }
   if (blocked) {
     console.error(`Fix the input, or rerun with --pii-gate warn / --allow-pii <type,...> to proceed deliberately.`);
+    process.exit(EXIT_PII_BLOCKED);
+  }
+}
+// 0.7.9: the outbound key scan, on by default (src/outbound-scan.js). invoke() checks every prompt
+// before it leaves; this checks the input files once, on every sitting, so the refusal names the file
+// and line - and a run that would be refused at its first stage costs nothing and leaves no folder.
+// `--allow-secret-shaped` is saved in run.json, so a resume keeps it.
+const allowSecretShapedEff = allowSecretShapedFlag || resumeMeta?.allowSecretShaped === true;
+const secretScanMeta = allowSecretShapedEff ? { allowSecretShaped: true } : {};
+setOutboundScan({ allow: allowSecretShapedEff });
+if (!allowSecretShapedEff) {
+  const found = [
+    ...secretShapesIn(rawTaskTextForCacheFingerprint).map(f => ({ where: taskFile, ...f })),
+    ...contextFilesForScan.flatMap(f => { try { return secretShapesIn(readContextFile(f)).map(x => ({ where: f, ...x })); } catch { return []; } }),
+    ...secretShapesIn(handedDraft || '').map(f => ({ where: 'the handed draft (--draft / --from-run)', ...f })),
+    // Verify pass 2026-09-28 F4: the criteria reach every seat too, and are echoed to run.log. A
+    // --criteria file by its own lines; criteria reused from --from-run by criterion number.
+    ...(criteriaPath
+      ? secretShapesIn(readFileSync(criteriaPath, 'utf8')).map(f => ({ where: criteriaPath, ...f }))
+      : secretShapesIn((Array.isArray(config.criteria) ? config.criteria : []).map(c => (typeof c === 'string' ? c : JSON.stringify(c)).replace(/\n/g, ' ')).join('\n'))
+        .map(f => ({ where: 'the criteria reused from --from-run (criterion number)', ...f }))),
+  ];
+  if (found.length) {
+    console.error(`\nOUTBOUND KEY SCAN: refusing to run - ${found.length} credential-shaped string(s) in the input, which would be sent to every seat:`);
+    for (const l of secretRefusalLines(found)) console.error(l);
+    console.error(`Nothing was sent. Remove the key from the input, or rerun with --allow-secret-shaped to send it deliberately.`);
     process.exit(EXIT_PII_BLOCKED);
   }
 }
@@ -1626,7 +1731,7 @@ if (auditEnabled) {
 const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...unfencedMeta }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...unfencedMeta, ...secretScanMeta }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
@@ -1640,7 +1745,7 @@ if (!resumeMeta) {
   // The unfenced-gate waiver is rewritten from the effective values, so a flag given on this resume
   // (a narrower list, or none at all over a saved whole-gate waiver) is what the next sitting reads.
   const { allowUnfenced: _savedAllow, unfencedAllowList: _savedList, ...resumeRest } = resumeMeta;
-  resumeMeta = { ...resumeRest, pid: process.pid, rootSpanId, ...(argv.includes('--max-usd') ? { maxUsd } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(policyChecks ? { policyChecks } : {}), ...unfencedMeta };
+  resumeMeta = { ...resumeRest, pid: process.pid, rootSpanId, ...(argv.includes('--max-usd') ? { maxUsd } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(policyChecks ? { policyChecks } : {}), ...unfencedMeta, ...secretScanMeta };
   writeFileSync(join(runDir, 'run.json'), JSON.stringify(resumeMeta, null, 2));
 }
 
@@ -1675,6 +1780,15 @@ const cacheFingerprint = fingerprintInputs(rawTaskTextForCacheFingerprint, confi
 // superseded/ through `invalidate`, never overwritten. An external answer gets its prompt hash and
 // fingerprint from `<label>.prompt.json`, written when the run paused to ask for it, since the
 // operator (or submit_stage) writes only the answer.
+// Whether stage-log.jsonl already has a line for this stage (external seats #2, onStage below).
+function stageLogged(label) {
+  const p = join(runDir, 'stage-log.jsonl');
+  if (!existsSync(p)) return false;
+  return readFileSync(p, 'utf8').split('\n').some(line => {
+    if (!line.trim()) return false;
+    try { const e = JSON.parse(line); return !e.kind && e.stage === label; } catch { return false; }
+  });
+}
 setCache({
   get: label => {
     const t = join(runDir, `${label}.md`);
@@ -1816,7 +1930,7 @@ if (!resumeMeta && maxUsdEff !== null) {
 // Bug audit 2026-09-26 #1: this ran before the artifact gate above, so a resume the gate blocked
 // (exit 9, nothing spent) had already deleted the stopped run's partial report and its marker. It
 // now runs only once the gate has passed.
-for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md']) {
+for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md', 'STOPPED-secret.md']) {
   if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
 
@@ -1991,7 +2105,12 @@ try {
             if (!u.promptHash) writeFileAtomic(up, JSON.stringify({ ...u, promptHash: s.promptHash, inputsFingerprint: u.inputsFingerprint ?? cacheFingerprint }));
           } catch { /* unreadable: the getter already treats it as a miss next time */ }
         }
-        return;
+        // Bug audit 2026-09-28 (external seats #2): an external answer is first consumed on a
+        // resume, as a cache hit, so it returned here in every sitting and never got the
+        // partial-output check (the only truncation signal a stop-less pasted draft has), an
+        // audit-log entry, a stage-log line or a span. Its first replay now counts as its
+        // completion; only the usage/text writes are skipped (the answer is already on disk).
+        if (!(s.provider === 'external' && !stageLogged(s.label))) return;
       }
       // v2 plan §7.1: validate against the stage contract's required_sections before
       // trusting this deliverable - same class of bug as the lab-dropout fix, just one
@@ -2009,8 +2128,10 @@ try {
       // marks a stage done, so a crash between the two leaves a stage that re-runs rather than a
       // text trusted with no record of its cost, and a crash mid-write never leaves a torn file
       // for a resume to trip over (bug audit 2026-09-23, CLI #8).
-      writeFileAtomic(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint, promptHash: s.promptHash }));
-      writeFileAtomic(join(runDir, `${s.label}.md`), s.text);
+      if (!s.cached) {
+        writeFileAtomic(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint, promptHash: s.promptHash }));
+        writeFileAtomic(join(runDir, `${s.label}.md`), s.text);
+      }
       if (auditWriter) auditWriter.recordStage(s);
       // v5 §1 candidate 14: one JSONL line per stage, alongside the existing markdown/usage
       // artifacts - structured so future tooling (candidate #9's replay, #2's independence
@@ -2079,9 +2200,22 @@ started.
     // labels for inspection. A resume replays them from disk and stops again until the chain gives
     // that seat a larger maxTokens (which changes the chain, so the stage is asked again) or the
     // external reply is replaced with a complete one.
-    const stopped = { stage: err.label, detail: err.detail, spentUsd: budgetState().spent };
+    const stopped = { stage: err.label, detail: err.detail, ...(err.stop ? { stop: err.stop } : {}), spentUsd: budgetState().spent };
     writeFileSync(join(runDir, 'STOPPED-truncated.json'), JSON.stringify(stopped, null, 2));
-    writeFileSync(join(runDir, 'STOPPED-truncated.md'), `# Run stopped: a draft was cut off at its token cap
+    // M4 (bug audit 2026-09-27): a draft the provider ended with error/content_filter/refusal stops
+    // here too, and the message names that stop instead of calling it cut off.
+    writeFileSync(join(runDir, 'STOPPED-truncated.md'), err.stop ? `# Run stopped: a draft did not complete
+
+Stage \`${err.label}\` came back unfinished: the provider ended it with stop "${err.stop}" (${err.detail}).
+
+An unfinished draft is never graded, reported or shipped. Nothing after this stage ran, and there is no
+\`report.json\` or \`deliverable.md\` for this run.
+
+To continue: the replies are on disk as \`${err.label}.md\` and \`${err.label}-retry.md\`, and a resume replays
+them. Move both aside to ask the seat again (or, for an external seat, replace \`${err.label}.md\` with a
+complete reply), then \`--resume\` this run. A "content_filter" or "refusal" stop usually needs a changed task
+or a different seat.
+` : `# Run stopped: a draft was cut off at its token cap
 
 Stage \`${err.label}\` produced a reply that ended at the seat's token limit: ${err.detail}.
 
@@ -2091,7 +2225,7 @@ A cut-off draft is never graded, reported or shipped. Nothing after this stage r
 To continue: raise that seat's \`maxTokens\` in the chain (or, for an external seat, replace
 \`${err.label}.md\` with a complete reply), then \`--resume\` this run.
 `);
-    log(`\nSTOPPED: stage "${err.label}" was cut off at its token cap - ${err.detail}.`);
+    log(err.stop ? `\nSTOPPED: stage "${err.label}" did not complete (stop: ${err.stop}) - ${err.detail}.` : `\nSTOPPED: stage "${err.label}" was cut off at its token cap - ${err.detail}.`);
     log(`  detail:  ${join(runDir, 'STOPPED-truncated.md')}`);
     process.exit(EXIT_DRAFT_TRUNCATED);
   }
@@ -2178,6 +2312,30 @@ Or \`--max-usd none\` to continue with no ceiling.
     if (partialWritten) log(`  so far:  ${join(runDir, PARTIAL_REPORT_FILE)}`);
     log(`  resume:  ${councilCommand()} --resume runs/${runId} --max-usd <higher>`);
     process.exit(4);
+  }
+  if (err instanceof SecretShapedPrompt) {
+    // Model output or the chain's own prompt text, not an input file (those were scanned before the
+    // run started): the prompt of this stage holds a key shape. Nothing was sent.
+    const where = err.findings.map(f => `- ${f.part} prompt, line ${f.line}: ${f.name}`).join('\n');
+    writeFileSync(join(runDir, 'STOPPED-secret.md'), `# Run stopped: a credential-shaped string in a prompt
+
+Stage \`${err.label}\` was about to be sent with text shaped like a key (the value is not repeated here):
+
+${where}
+
+Nothing was sent for this stage. The input files were scanned before the run started (for these distinctive key formats and
+the generic shapes), so this text came from an earlier stage's output or the chain itself. Completed stages are on disk and replay for free.
+Read \`${err.label}\`'s inputs, then either fix the cause and resume, or resume with
+\`--allow-secret-shaped\` to send it deliberately:
+
+    ${councilCommand()} --resume runs/${runId} --allow-secret-shaped
+
+Over MCP: \`resume_run\` with \`allow_secret_shaped: true\`. JS API: \`resume({ runDir, allowSecretShaped: true })\`.
+`);
+    log(`\nSTOPPED: ${err.message}.`);
+    for (const f of err.findings) log(`  ${f.part} prompt, line ${f.line}: ${f.name}`);
+    log(`  detail:  ${join(runDir, 'STOPPED-secret.md')}`);
+    process.exit(EXIT_PII_BLOCKED);
   }
   // A denied model is a lint failure (exit 1), found at run time instead of by chain-lint.
   const denied = err instanceof DeniedModel;
@@ -2279,6 +2437,13 @@ if (!result.passed && result.lastCritique?.failures?.length) {
 }
 if (result.scoreboard) {
   log(`labs:     ${result.scoreboard.labs.map(l => `${l.lab} ${l.accepted}/${l.proposed}`).join('  ')}  (accepted/proposed; "built" is yours to fill after the build session)`);
+}
+// Bug audit 2026-09-28 (area 2 #4): a seated lab that dropped out was missing from the summary
+// (and from BOARD.md and WARNINGS.md), so "degraded" had no visible reason.
+if (result.dropouts?.length) {
+  log(`dropped:  ${result.dropouts.map(d => `${d.lab} (${d.stage}: ${d.reason})`).join('; ')}`);
+  if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
+  appendFileSync(join(runDir, 'WARNINGS.md'), result.dropouts.map(d => `- dropout: ${d.lab}${d.model ? ` (${d.model})` : ''} produced nothing usable at ${d.stage} - ${d.reason}; the council went on without it\n`).join(''));
 }
 log(`tokens:   ${t.input} in, ${t.output} out, ${t.total} total`);
 log(`cost:     ${formatUsd(t.usd)}${t.unpriced.length ? ` (+ unpriced: ${t.unpriced.join(', ')})` : ''}${maxUsdEff === null ? '' : ` of ${formatUsd(maxUsdEff)} ceiling`}`);

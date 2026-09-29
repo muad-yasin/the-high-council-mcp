@@ -7,12 +7,15 @@
 // MISTRAL-2 mutually withdrew in each other's favour) and it went
 // undetected. Pure function over `report.proposals` - no ledger file, no
 // state beyond what a run already records.
-export function withdrawalLedger(proposals) {
-  const byId = new Map((proposals || []).map(p => [p.id, p]));
+export function withdrawalLedger(proposalsIn) {
+  // Bug audit 2026-09-28 (area 3 #2.10): a hand-edited report.json (`[null]`, `{}`) crashed
+  // `council doctor --run` with a stack trace. Anything that is not a proposal object is skipped.
+  const proposals = Array.isArray(proposalsIn) ? proposalsIn.filter(p => p && typeof p === 'object') : [];
+  const byId = new Map(proposals.map(p => [p.id, p]));
   const orphanSections = new Set();
   const cycleSignatures = new Set();
 
-  for (const p of proposals || []) {
+  for (const p of proposals) {
     if (!p.withdrawn) continue;
     const path = [];
     let cur = p.id;
@@ -20,8 +23,10 @@ export function withdrawalLedger(proposals) {
     while (true) {
       const idx = path.indexOf(cur);
       if (idx !== -1) {
+        // Bug audit 2026-09-28 (area 3 #2.3): the whole path, not only the cycle - C withdrawing in
+        // favour of A, where A and B withdraw in each other's favour, has no surviving owner either.
         const cycle = path.slice(idx);
-        cycle.forEach(id => orphanSections.add(id));
+        path.forEach(id => orphanSections.add(id));
         cycleSignatures.add([...cycle].sort().join(','));
         break;
       }

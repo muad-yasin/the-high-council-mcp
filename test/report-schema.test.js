@@ -264,3 +264,13 @@ test('report schema: fromRun is written relative to where the run started, fresh
   assert.ok(!JSON.stringify(resumed).includes(dir), 'no absolute path under the run\'s own directory anywhere in report.json');
   assertValid(resumed, 'resumed from-run');
 });
+
+// Verify pass 2026-09-28 F3: `debate.dropped[].reason` gained 'provider_error' in 0.7.9, and the
+// enum did not - a real report from a proposer the provider keeps failing was rejected.
+test('report schema: a run with a provider_error debate drop validates', async () => {
+  const base = chain('mock-debate');
+  const config = { ...base, seats: { ...base.seats, proposers: ['mock-proposer-error', 'mock-proposer-b'].map((model, i) => ({ provider: 'mock', model, lab: `mock-${'ab'[i]}` })) } };
+  const result = await runChain({ request: 'Do the thing.', config, log: () => {} });
+  assert.ok((result.debate?.dropped || []).some(d => d.reason === 'provider_error'), 'precondition: a provider_error drop');
+  assertValid(reportJsonShape({ runId: 'x', chain: 'mock-debate', task: 't', result }), 'provider_error drop');
+});

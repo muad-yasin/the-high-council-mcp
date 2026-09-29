@@ -124,12 +124,18 @@ export function checksSection(texts, kinds, heading = '# How the checkable crite
  * FAILED: rewriting a verdict mechanically would turn a formatting slip into a paid revise round
  * and put the harness's words in a lab's mouth. The count goes on the board so a person sees it.
  */
+// One reading of "this row is MET", shared with chain.js's sign-off (normaliseCritique). Bug audit
+// 2026-09-28 (area 3 #2.4): this counter matched only an exact "MET", so a PASS / PASSED / YES / " MET"
+// row with no evidence signed off without ever being counted as met on trust.
+export const MET_VERDICT = /^(MET|PASS|PASSED|YES)$/;
+export const isMetVerdict = v => MET_VERDICT.test(String(v || '').trim().toUpperCase());
+
 export function unevidencedCheckableMets(critique, texts, kinds) {
   if (!kinds || !critique || !Array.isArray(critique.criteria)) return [];
   const checkable = new Set(texts.filter((_, i) => kinds[i]?.kind === 'checkable').map(t => t.trim()));
   if (!checkable.size) return [];
   return critique.criteria
-    .filter(r => r && typeof r === 'object' && String(r.verdict || '').toUpperCase() === 'MET')
+    .filter(r => r && typeof r === 'object' && isMetVerdict(r.verdict))
     .filter(r => checkable.has(String(r.criterion || '').trim()))
     .filter(r => String(r.evidence || '').trim().length < 8)
     .map(r => String(r.criterion).trim());

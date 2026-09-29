@@ -763,7 +763,7 @@ export function lintChain(config, filePath = '<chain>') {
     try { roster = resolveChainSeats(config || {}); } catch { /* malformed config: check the raw one */ }
     const walk = (node, path) => {
       if (!node || typeof node !== 'object') return;
-      if (typeof node.provider === 'string' && 'model' in node) {
+      if (typeof node.provider === 'string') {
         const reasons = keyDestinationReasons(node);
         if (reasons.length) {
           findings.push({
@@ -804,6 +804,29 @@ export function lintChain(config, filePath = '<chain>') {
       message: `seats.${slot} has more than one seat in lab ${labs.map(l => `"${l}"`).join(', ')} - they would share one stage label, so one seat's reply would stand in for the other's.`,
       fix: `Give each of those seats its own "lab" in ${filePath} (e.g. "${labs[0]}-a", "${labs[0]}-b").`,
     });
+  }
+
+  // extra-models-unpriced (bug audit 2026-09-27 H1): a priced seat's OpenRouter fallbacks
+  // (extra.models) may answer instead of its model. invoke() charges an unpriced answer at the seat's
+  // own price, which understates a dearer fallback; a price entry for each fallback keeps the cap honest.
+  {
+    const walk = (node, path) => {
+      if (!node || typeof node !== 'object') return;
+      if (typeof node.provider === 'string' && typeof node.model === 'string' && Array.isArray(node.extra?.models)
+          && node.provider !== 'mock' && node.provider !== 'external' && priceOf(node.provider, node.model)) {
+        for (const m of node.extra.models) {
+          if (typeof m === 'string' && !priceOf(node.provider, m)) {
+            findings.push({
+              kind: 'extra-models-unpriced',
+              message: `${path}: fallback model "${m}" in extra.models has no price in src/pricing.json, so when it answers the spend cap would charge it at ${node.model}'s price.`,
+              fix: `Add "${node.provider}/${m}" to src/pricing.json, or remove it from extra.models in ${filePath}.`,
+            });
+          }
+        }
+      }
+      for (const [k, v] of Object.entries(node)) if (k !== 'extra') walk(v, path ? `${path}.${k}` : k);
+    };
+    walk(seats, 'seats');
   }
 
   // Tiered councils (2026-09-26): anchor seats, mass seats, a deep-dive seat. Each rule names a
