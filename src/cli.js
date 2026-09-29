@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
+import { runChain, runSingleStage, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
 import { secretShapesIn, SecretShapedPrompt } from './outbound-scan.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus, waitingStages, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
@@ -28,6 +28,8 @@ import { fenceFile, scanTaskForSecrets, FENCE_HEADER, FENCE_MAX_BYTES } from './
 import { outsideFences } from './quote-check.js';
 import { parseCriteriaFile } from './criteria-kinds.js';
 import { lintCriteria } from './criteria-lints.js';
+import { pickDraft, readCriteria, stopState, partialBanner, externalPromptText } from './handoff-from-run.js';
+import * as HandoffRoles from './roles.js';
 import { scanForPii, applyPiiGate } from './pii-gate.js';
 import { harnessVersion } from './version.js';
 import { stageKindOf } from './stage-contract.js';
@@ -560,6 +562,84 @@ if (argv[0] === 'check-lock' || argv[0] === 'verify-handoff') {
   if (verdict.ok) { console.log(`${fileArg}: criteria lock holds (${verdict.sha256.slice(0, 12)}${verdict.run ? `, run ${verdict.run}` : ''})`); process.exit(0); }
   for (const p of verdict.problems) console.error(`${fileArg}: ${p}`);
   process.exit(1);
+}
+
+// `council handoff --from-run <folder> [--chain <name>] [--max-usd N|none]` (0.8.0): a HANDOFF.md for a
+// run that stopped before it wrote one (the spend cap, an abandoned pause, a crash), made from the
+// latest draft the folder holds (src/handoff-from-run.js). One call on the chain's handoff seat (its
+// builder seat when it has none), under the same spend cap and outbound key scan as any stage. A run
+// no panel signed off gets a banner saying so, written by the harness. Never overwrites HANDOFF.md:
+// it writes HANDOFF-from-run.md next to one that exists. An external handoff seat (a session you run)
+// gets a prompt file instead of a call. Exit 0 written, 2 nothing to hand off, 3 the prompt was written
+// for an external seat, 4 the cap, 11 a key-shaped string in the draft, 16 the call failed or was cut off.
+if (argv[0] === 'handoff') {
+  const fromArg = flag('from-run', null);
+  if (!fromArg || fromArg === true) {
+    console.error('handoff: --from-run <run folder> is required');
+    console.error('usage: council handoff --from-run runs/<id> [--chain <name>] [--max-usd N|none]');
+    process.exit(2);
+  }
+  const hRunDir = resolve(work, fromArg);
+  const hMeta = existsSync(join(hRunDir, 'run.json')) ? (() => { try { return JSON.parse(readFileSync(join(hRunDir, 'run.json'), 'utf8')); } catch { return null; } })() : null;
+  if (!hMeta) { console.error(`handoff: ${hRunDir} is not a run folder (no readable run.json)`); process.exit(2); }
+  const chainArg = flag('chain', null);
+  const hChain = chainArg && chainArg !== true ? chainArg : hMeta.chain;
+  { const bad = chainNameRefusal(hChain, chainArg ? '--chain' : 'the chain recorded in run.json'); if (bad) { console.error(bad); process.exit(2); } }
+  const hConfigPath = [hMeta.cwd ? join(hMeta.cwd, 'chains', `${hChain}.json`) : null, join(work, 'chains', `${hChain}.json`), join(pkg, 'chains', `${hChain}.json`)].filter(Boolean).find(existsSync);
+  if (!hConfigPath) { console.error(`handoff: no such chain "${hChain}" (looked in the run's own chains/, ./chains and the package's)`); process.exit(1); }
+  let hConfig;
+  try { hConfig = JSON.parse(readFileSync(hConfigPath, 'utf8')); } catch { console.error(`\n${formatCouncilError('COUNCIL-E003', { path: hConfigPath })}`); process.exit(EXIT_FATAL); }
+  exitOnLint(hConfig, hConfigPath);
+  try { hConfig = resolveChainSeats(hConfig); } catch { /* reported by the seat check below */ }
+  const hSeat = hConfig.seats?.handoff || hConfig.seats?.builder;
+  if (!hSeat) { console.error(`handoff: chain "${hChain}" has neither a handoff nor a builder seat`); process.exit(2); }
+  const hDraft = pickDraft(hRunDir);
+  if (!hDraft) { console.error(`handoff: nothing to hand off - ${hRunDir} holds no draft (deliverable.md, final.md, revise-N.md or build.md)`); process.exit(2); }
+  const hTaskPath = hMeta.task ? (isAbsolute(hMeta.task) ? hMeta.task : resolve(hMeta.cwd || work, hMeta.task)) : null;
+  let hRequest;
+  try { hRequest = readFileSync(hTaskPath, 'utf8'); } catch { console.error(`handoff: cannot read the run's task file (${hTaskPath || 'none recorded'})`); process.exit(2); }
+  const hCriteria = readCriteria(hRunDir);
+  const hState = stopState(hRunDir);
+  const hRunId = basename(hRunDir);
+  const hSystem = HandoffRoles.HANDOFF_SYSTEM;
+  const hUser = HandoffRoles.handoffUser({ request: hRequest, draft: hDraft.text, planFile: hConfig.handoffPlanFile || 'PLAN.md', checks: '' });
+  const hOut = existsSync(join(hRunDir, 'HANDOFF.md')) ? 'HANDOFF-from-run.md' : 'HANDOFF.md';
+  if (hSeat.provider === 'external') {
+    const promptFile = join(hRunDir, 'handoff-from-run.prompt.md');
+    writeFileSync(promptFile, externalPromptText({ system: hSystem, user: hUser, runDir: hRunDir, target: join(hRunDir, hOut) }));
+    console.log(`The handoff seat of "${hChain}" is external (a session you run). Prompt written: ${promptFile}`);
+    console.log(`Give it to that session and save its reply as ${join(hRunDir, hOut)}.`);
+    process.exit(3);
+  }
+  const hMissing = checkSeats([hSeat]);
+  if (hMissing.length) { console.error(`handoff: a key is missing for ${hMissing.join(', ')}. Set it, then run this again.`); process.exit(EXIT_DEGRADABLE); }
+  const hCapArg = flag('max-usd', process.env.MAX_USD_PER_RUN ?? '7');
+  let hCap;
+  if (hCapArg === 'none' || hCapArg === 'off') hCap = null;
+  else {
+    hCap = Number(hCapArg);
+    if (hCapArg === true || !Number.isFinite(hCap) || hCap <= 0) { console.error(`--max-usd: expected a positive number of dollars or "none", got "${hCapArg === true ? '' : hCapArg}"`); process.exit(2); }
+  }
+  setBudget(hCap);
+  console.log(`handoff: ${hDraft.name} of ${hRunId} -> ${hSeat.provider}/${hSeat.model}${hState.signedOff ? '' : ` (the run ${hState.reason}: the file will say the plan was not signed off)`}`);
+  let hRes;
+  try {
+    hRes = await runSingleStage(hSeat, { system: hSystem, user: hUser, log: m => console.log(m), label: 'handoff-from-run' });
+  } catch (err) {
+    if (err instanceof BudgetExceeded) { console.error(`handoff: stopped by the spend cap (${formatUsd(err.spent)} spent, this call could cost up to ${formatUsd(err.projected)}, ceiling ${formatUsd(err.cap)}). Raise --max-usd.`); process.exit(4); }
+    if (err instanceof SecretShapedPrompt) exitOnSecretShaped(err, 'handoff');
+    console.error(`handoff: the call failed - ${err?.message || err}`);
+    process.exit(EXIT_RUN_FAILED);
+  }
+  const hStop = hRes.usage?.stop;
+  if (['length', 'max_tokens', 'error', 'content_filter', 'refusal'].includes(hStop) || !String(hRes.text || '').trim()) {
+    console.error(`handoff: the reply did not complete (${hStop ? `stop: ${hStop}` : 'empty'}); nothing was written. Raise the seat's maxTokens and run this again. ${formatUsd(hRes.usd)} was spent.`);
+    process.exit(EXIT_RUN_FAILED);
+  }
+  const body = partialBanner({ state: hState, draftName: hDraft.name, runId: hRunId }) + String(hRes.text).replace(/\s+$/, '') + '\n' + lockBlock(hCriteria, { runId: hRunId });
+  writeFileSync(join(hRunDir, hOut), body);
+  console.log(`handoff: wrote ${join(hRunDir, hOut)} (${formatUsd(hRes.usd)})`);
+  process.exit(0);
 }
 
 // `council lint-criteria --criteria <file> | --run <folder>` (0.8.0): the $0 word-level lints over an
@@ -1279,6 +1359,9 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council --replay runs/<r>            the same task and chain again today, with a diff
   council replay --run runs/<r> [--json]
                                        a finished run as a numbered transcript
+  council handoff --from-run runs/<r> [--chain <name>] [--max-usd N]
+                                       a HANDOFF.md for a run that stopped before it wrote
+                                       one, from its latest draft (one call, capped)
   council lint-criteria --criteria <file> | --run runs/<r>
                                        $0 word-level lints over acceptance criteria
                                        (the ones every run logs before its first paid round)

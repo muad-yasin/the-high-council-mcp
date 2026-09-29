@@ -1010,6 +1010,16 @@ export function setChargeHook(fn) { chargeHook = fn || (() => {}); }
 let outboundScan = { allow: false };
 export function setOutboundScan(opts) { outboundScan = { allow: !!opts?.allow }; }
 
+/**
+ * One free-text stage on a seat, outside runChain: the same invoke() every stage goes through, so the
+ * spend cap, the denied-model backstop and the outbound key scan all apply. For a caller that needs a
+ * single call (src/handoff-from-run.js), never as a way round any of them. Set the cap first
+ * (setBudget) or it is uncapped, as for any caller.
+ */
+export async function runSingleStage(seat, { system, user, log = () => {}, label }) {
+  return invoke(seat, { system, user, log, label });
+}
+
 async function invoke(seat, { system, user, log, label }) {
   const started = Date.now();
   // Backstop for the check at the top of runChain: every call, including a replay from disk.

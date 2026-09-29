@@ -160,6 +160,11 @@ objections at the top of the plan, and a final security review.
 Every run writes a folder: the deliverable, `BOARD.md` (the full debate - every post, every
 withdrawal), `HANDOFF.md`, a per-lab scoreboard, and the real token/cost accounting.
 
+A run that stopped before it wrote its handoff (the spend cap, an abandoned pause, a crash) can get one from
+its latest draft: `council handoff --from-run runs/<id>`. It is one call on the chain's handoff seat, under the
+same spend cap and key scan as any stage, and a run no panel signed off gets a note at the top, written by the
+harness, saying so. It never overwrites an existing `HANDOFF.md`.
+
 ### Reading a run with a program
 
 `BOARD.md` is for people. **`report.json` is the same board, structured** - if you are building
