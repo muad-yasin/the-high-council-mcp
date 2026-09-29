@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { criterionIds, missingCriteriaRows } from '../src/criteria-ledger.js';
 import { cutDespiteSupport, disagreementMap } from '../src/decision-records.js';
+import { runChain } from '../src/chain.js';
+import { reportJsonShape } from '../src/report-shape.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CRITERIA = ['The plan names a data store.', 'The plan lists the API routes with their methods.', 'The plan says how a user signs in.'];
@@ -145,3 +147,21 @@ for (const signoff of ['unanimous', 'first']) {
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 }
+
+test('cut_despite_support fires on a real run\'s data: the ledger status is read from scoreboard.rows, and a support post names the supporter', async () => {
+  const cfg = JSON.parse(readFileSync(join(root, 'chains', 'mock-debate.json'), 'utf8'));
+  const result = await runChain({ request: 'Write a short fixture deliverable.', config: cfg, log: () => {} });
+  const cut = result.scoreboard.rows.find(r => r.status === 'cut');
+  assert.ok(cut, 'the mock debate cuts one proposal');
+  assert.equal(Object.hasOwn(result.proposals[0], 'status'), false, 'proposals[] carries no status: that is why the ledger rows are the source');
+  const before = reportJsonShape({ runId: 'r', chain: 'mock-debate', task: 't', result });
+  assert.deepEqual(before.cut_despite_support, [], 'the mock lab objected but nobody supported the cut proposal');
+  const supporter = result.scoreboard.rows.find(r => r.lab !== cut.lab).lab;
+  assert.ok(result.debate.posts.every(p => result.scoreboard.rows.some(r => r.lab === p.by)), 'debate posts name the same lab identity as the proposals');
+  result.debate.posts.push({ on: cut.id, by: supporter, stance: 'support' });
+  const after = reportJsonShape({ runId: 'r', chain: 'mock-debate', task: 't', result });
+  assert.equal(after.cut_despite_support.length, 1);
+  assert.equal(after.cut_despite_support[0].id, cut.id);
+  assert.deepEqual(after.cut_despite_support[0].supporters, [supporter]);
+  assert.equal(after.cut_despite_support[0].author_lab, cut.lab);
+});

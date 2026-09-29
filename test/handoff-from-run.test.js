@@ -7,6 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spendReport } from '../src/spend.js';
 import { pickDraft, readCriteria, stopState, partialBanner, externalPromptText } from '../src/handoff-from-run.js';
 import { parseLock, checkLock } from '../src/criteria-lock.js';
 
@@ -162,5 +163,60 @@ test('a key-shaped string in the draft is refused before the call, and never pri
     assert.equal(r.status, 11, r.stdout + r.stderr);
     assert.ok(!(r.stdout + r.stderr).includes(key), 'the value is never printed');
     assert.equal(existsSync(join(dir, 'runs', RUN, 'HANDOFF.md')), false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the spend is on record: a usage file, counted by spendReport and by the next cap check', () => {
+  const dir = workspace({ chain: 'mock-budget', files: { 'build.md': BUILD, 'criteria.md': CRIT_FILE } });
+  try {
+    writeFileSync(join(dir, 'chains', 'mock-budget.json'), readFileSync(join(root, 'chains', 'mock-budget.json'), 'utf8'));
+    const rd = join(dir, 'runs', RUN);
+    const r = run(dir, ['--from-run', join('runs', RUN), '--max-usd', '100']);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const usage = JSON.parse(readFileSync(join(rd, 'handoff-from-run.usage.json'), 'utf8'));
+    assert.ok(usage.usd > 0, 'the priced mock seat cost something');
+    assert.ok(existsSync(join(rd, 'handoff-from-run.md')));
+    const report = spendReport(join(dir, 'runs'), { days: 3650 });
+    assert.ok(report.totalUsd >= usage.usd, JSON.stringify(report).slice(0, 300));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the run\'s own cap applies, with what it already spent counted: a run stopped at $1 does not get a fresh $7', () => {
+  const dir = workspace({ chain: 'mock-budget', files: { 'build.md': BUILD, 'criteria.md': CRIT_FILE, 'criteria.usage.json': JSON.stringify({ provider: 'mock', model: 'mock-priced', usd: 0.9999, usage: { input: 1, output: 1 } }) } });
+  try {
+    writeFileSync(join(dir, 'chains', 'mock-budget.json'), readFileSync(join(root, 'chains', 'mock-budget.json'), 'utf8'));
+    const meta = JSON.parse(readFileSync(join(dir, 'runs', RUN, 'run.json'), 'utf8'));
+    writeFileSync(join(dir, 'runs', RUN, 'run.json'), JSON.stringify({ ...meta, maxUsd: 1 }));
+    const r = run(dir, ['--from-run', join('runs', RUN)]);
+    assert.equal(r.status, 4, r.stdout + r.stderr);
+    assert.match(r.stdout, /cap \$1/);
+    assert.equal(existsSync(join(dir, 'runs', RUN, 'HANDOFF.md')), false);
+    // --max-usd is a total for the run: raising it above what it has spent plus the call lets it through.
+    const ok = run(dir, ['--from-run', join('runs', RUN), '--max-usd', '10']);
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a password in a URL in the task is refused up front (the generic shapes run on inputs), and --allow-secret-shaped is the override', () => {
+  const dir = workspace({ files: { 'build.md': BUILD } });
+  try {
+    writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a small app. The database is postgres://admin:hunter2secret@db.example.com/app\n');
+    const r = run(dir, ['--from-run', join('runs', RUN)]);
+    assert.equal(r.status, 11, r.stdout + r.stderr);
+    assert.ok(!(r.stdout + r.stderr).includes('hunter2secret'), 'the value is never printed');
+    assert.equal(existsSync(join(dir, 'runs', RUN, 'HANDOFF.md')), false);
+    const ok = run(dir, ['--from-run', join('runs', RUN), '--allow-secret-shaped']);
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the policy gate applies: a policy the chain does not meet stops the handoff before any call', () => {
+  const dir = workspace({ files: { 'build.md': BUILD } });
+  try {
+    writeFileSync(join(dir, 'policy.json'), JSON.stringify({ required_chain_tags: ['approved'] }));
+    const r = run(dir, ['--from-run', join('runs', RUN)]);
+    assert.equal(r.status, 12, r.stdout + r.stderr); // the policy refusal, as for a run
+    assert.equal(existsSync(join(dir, 'runs', RUN, 'HANDOFF.md')), false);
+    assert.equal(existsSync(join(dir, 'runs', RUN, 'handoff-from-run.usage.json')), false);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

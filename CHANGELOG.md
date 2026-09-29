@@ -2,12 +2,15 @@
 
 ## Unreleased (0.8.0 in progress; branch `wave-080`, no version bump)
 
+### Breaking
+
+- **A resume refuses a `--context` document edited during the pause** (exit 14; it used to go through),
+  the same rule that already covered the task file. `run.json` stores `contextHash`; record the change in
+  the run's `AMENDMENTS.md` (the message prints both `ctx-<hash>` values to write) and resume again. A run
+  from before this, and a run with no `--context`, are unaffected.
+
 ### Changed
 
-- **A resume refuses a `--context` document edited during the pause** (exit 14), the same rule that
-  already covered the task file. `run.json` stores `contextHash`; record the change in the run's
-  `AMENDMENTS.md` (the message prints both `ctx-<hash>` values to write) and resume again. A run from
-  before this, and a run with no `--context`, are unaffected.
 - **`HANDOFF.md` ends with a block the harness writes** (not a model): the acceptance criteria the run
   settled, as C1..Cn, with a fingerprint. `council check-lock HANDOFF.md [--run runs/<id>]` (alias
   `verify-handoff`, $0) says whether a copy still carries them. It catches an edit or a slip; it is
@@ -31,8 +34,10 @@
 - A top-level chain `summary` (one display line, at most 120 characters) on the five recommended chains;
   `list_chains` returns it. It is left out of the stage-cache fingerprint.
 - `council handoff --from-run runs/<id>`: a `HANDOFF.md` for a run that stopped before it wrote one, from
-  its latest draft; one capped call, a banner when no panel signed off, never overwrites an existing
-  `HANDOFF.md`.
+  its latest draft; one call under the run's own cap with what the folder already cost counted toward it
+  (`--max-usd N` is a total for the run, as on `--resume`), the same policy gate and key scan as a run, the
+  spend recorded in `handoff-from-run.usage.json` (so `council --spend` sees it), a banner when no panel
+  signed off, and it never overwrites an existing `HANDOFF.md`.
 - `council lint-criteria --criteria <file> | --run runs/<id>`: the criteria lints before a run exists.
 - `report.json` (all experimental, all additive): `criteria_ids`, `criteria_sha256`, `criteria_lints`,
   `missing_criteria` (sign-offs whose criteria table skipped criteria; recorded only),

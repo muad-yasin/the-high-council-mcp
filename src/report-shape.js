@@ -144,7 +144,9 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     ...(Array.isArray(result.criteria) && result.criteria.length ? { criteria_sha256: criteriaHash(result.criteria) } : {}),
     // $0 word-level lints over the criteria, run before any paid round (src/criteria-lints.js); [] when clean.
     ...(Array.isArray(result.criteriaLints) ? { criteria_lints: result.criteriaLints } : {}),
-    ...(cutDespiteSupport(result.proposals, result.debate) !== undefined ? { cut_despite_support: cutDespiteSupport(result.proposals, result.debate) } : {}),
+    // The ledger status (accepted / cut / withdrawn) is on scoreboard.rows, not on proposals[] (0.8.0: the
+    // first version read proposals[] and could never fire).
+    ...(cutDespiteSupport(result.scoreboard?.rows, result.debate) !== undefined ? { cut_despite_support: cutDespiteSupport(result.scoreboard?.rows, result.debate) } : {}),
     ...(disagreementMap(result.panelVerdicts) !== undefined ? { disagreement_map: disagreementMap(result.panelVerdicts) } : {}),
     ...(Array.isArray(result.regressions) ? { regressions: result.regressions } : {}),
     ...(result.dispute != null ? { dispute: result.dispute } : {}),

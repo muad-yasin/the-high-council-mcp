@@ -162,8 +162,9 @@ withdrawal), `HANDOFF.md`, a per-lab scoreboard, and the real token/cost account
 
 A run that stopped before it wrote its handoff (the spend cap, an abandoned pause, a crash) can get one from
 its latest draft: `council handoff --from-run runs/<id>`. It is one call on the chain's handoff seat, under the
-same spend cap and key scan as any stage, and a run no panel signed off gets a note at the top, written by the
-harness, saying so. It never overwrites an existing `HANDOFF.md`.
+run's own spend cap (what the folder already cost counts toward it; `--max-usd N` is a total, as on `--resume`),
+the same policy check and key scan as a run, and a run no panel signed off gets a note at the top, written by
+the harness, saying so. It never overwrites an existing `HANDOFF.md`.
 
 ### Reading a run with a program
 

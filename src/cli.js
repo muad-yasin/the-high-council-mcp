@@ -38,6 +38,7 @@ import { fingerprintInputs } from './cache-integrity.js';
 import { archiveSuperseded, supersededSpendOf, recordLostCharge } from './superseded.js';
 import { taskHashOf, checkFrozenScope, contextHashOf, checkFrozenContext } from './scope-freeze.js';
 import { lockBlock, checkLock } from './criteria-lock.js';
+import { runSpentUsd } from './spend.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { schemaVersionWarning } from './schema-version.js';
 import { forecastCost } from './cost-forecast.js';
@@ -613,15 +614,45 @@ if (argv[0] === 'handoff') {
   }
   const hMissing = checkSeats([hSeat]);
   if (hMissing.length) { console.error(`handoff: a key is missing for ${hMissing.join(', ')}. Set it, then run this again.`); process.exit(EXIT_DEGRADABLE); }
-  const hCapArg = flag('max-usd', process.env.MAX_USD_PER_RUN ?? '7');
+  // The same policy gate the run itself passes (GuardLayer #4's class: a seat the policy forbids must not
+  // be called because a different command reached it).
+  {
+    const { policy, error: policyParseError } = loadPolicy(hMeta.cwd || work);
+    if (policyParseError) { console.error(`\n${formatCouncilError('COUNCIL-E005', { path: POLICY_PATH(work), parseError: policyParseError })}`); process.exit(EXIT_FATAL); }
+    if (policy) {
+      const ctx = buildPolicyContext(hConfig, everySeatOf(hConfig), join(work, 'runs'));
+      const { ok, reasons } = evaluatePolicy(policy, ctx);
+      if (!ok) { console.error(`\n${formatCouncilError('COUNCIL-E005', { path: POLICY_PATH(work), chain: hConfig.name, reasons })}`); process.exit(EXIT_POLICY_REFUSED); }
+    }
+  }
+  // The outbound key scan, as for a run: the task is a user input, so every shape (a password in a URL
+  // included) is checked once up front, naming the line and never the value; the per-call scan inside the
+  // call covers the draft (model text). --allow-secret-shaped is the one override.
+  const hAllowSecret = argv.includes('--allow-secret-shaped');
+  setOutboundScan({ allow: hAllowSecret });
+  if (!hAllowSecret) {
+    const found = secretShapesIn(hRequest).map(f => ({ where: hTaskPath, ...f }));
+    if (found.length) {
+      console.error(`\nhandoff: refused - the task file contains ${found.length} credential-shaped string(s).`);
+      for (const l of secretRefusalLines(found)) console.error(l);
+      console.error('Remove the key from the task, or rerun with --allow-secret-shaped to send it deliberately.');
+      process.exit(EXIT_PII_BLOCKED);
+    }
+  }
+  // The cap: the run's own, with what the folder has already cost counted toward it - a run stopped at a
+  // $1 cap does not get a fresh $7. --max-usd N is a total for the run, as on --resume; `none` lifts it.
+  const hSpent = runSpentUsd(hRunDir);
+  const hCapArg = flag('max-usd', null);
   let hCap;
   if (hCapArg === 'none' || hCapArg === 'off') hCap = null;
-  else {
+  else if (hCapArg !== null) {
     hCap = Number(hCapArg);
     if (hCapArg === true || !Number.isFinite(hCap) || hCap <= 0) { console.error(`--max-usd: expected a positive number of dollars or "none", got "${hCapArg === true ? '' : hCapArg}"`); process.exit(2); }
-  }
+  } else if ('maxUsd' in hMeta) hCap = hMeta.maxUsd;
+  else hCap = Number(process.env.MAX_USD_PER_RUN) > 0 ? Number(process.env.MAX_USD_PER_RUN) : 7;
   setBudget(hCap);
-  console.log(`handoff: ${hDraft.name} of ${hRunId} -> ${hSeat.provider}/${hSeat.model}${hState.signedOff ? '' : ` (the run ${hState.reason}: the file will say the plan was not signed off)`}`);
+  countEarlierSpend(hSpent);
+  console.log(`handoff: ${hDraft.name} of ${hRunId} -> ${hSeat.provider}/${hSeat.model}${hState.signedOff ? '' : ` (the run ${hState.reason}: the file will say the plan was not signed off)`}; cap ${hCap === null ? 'none' : formatUsd(hCap)}, ${formatUsd(hSpent)} already spent`);
   let hRes;
   try {
     hRes = await runSingleStage(hSeat, { system: hSystem, user: hUser, log: m => console.log(m), label: 'handoff-from-run' });
@@ -631,11 +662,16 @@ if (argv[0] === 'handoff') {
     console.error(`handoff: the call failed - ${err?.message || err}`);
     process.exit(EXIT_RUN_FAILED);
   }
+  // The money is on record before anything else can fail, a cut-off reply included.
+  writeFileSync(join(hRunDir, 'handoff-from-run.usage.json'), JSON.stringify({ provider: hRes.provider, model: hRes.model, usage: hRes.usage, usd: hRes.usd, ms: hRes.ms, promptHash: hRes.promptHash }));
   const hStop = hRes.usage?.stop;
   if (['length', 'max_tokens', 'error', 'content_filter', 'refusal'].includes(hStop) || !String(hRes.text || '').trim()) {
     console.error(`handoff: the reply did not complete (${hStop ? `stop: ${hStop}` : 'empty'}); nothing was written. Raise the seat's maxTokens and run this again. ${formatUsd(hRes.usd)} was spent.`);
     process.exit(EXIT_RUN_FAILED);
   }
+  // The reply itself, as every stage keeps its own (<label>.md); the usage file above is what `council --spend`
+  // and the next cap check read.
+  writeFileSync(join(hRunDir, 'handoff-from-run.md'), String(hRes.text));
   const body = partialBanner({ state: hState, draftName: hDraft.name, runId: hRunId }) + String(hRes.text).replace(/\s+$/, '') + '\n' + lockBlock(hCriteria, { runId: hRunId });
   writeFileSync(join(hRunDir, hOut), body);
   console.log(`handoff: wrote ${join(hRunDir, hOut)} (${formatUsd(hRes.usd)})`);
@@ -1361,7 +1397,8 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        a finished run as a numbered transcript
   council handoff --from-run runs/<r> [--chain <name>] [--max-usd N]
                                        a HANDOFF.md for a run that stopped before it wrote
-                                       one, from its latest draft (one call, capped)
+                                       one, from its latest draft (one call, under the
+                                       run's own cap; --max-usd is a total)
   council lint-criteria --criteria <file> | --run runs/<r>
                                        $0 word-level lints over acceptance criteria
                                        (the ones every run logs before its first paid round)

@@ -63,10 +63,14 @@ export function spendDateOf(runsDir, id) {
 // A finished run's cost is in report.json. A run that is still going, or that
 // the cap stopped, has no report - but every stage it paid for left a
 // <label>.usage.json behind, so the spend is still on disk.
+// `council handoff --from-run` (0.8.0) pays for one call after the run is over; its usage file is the
+// record, and a finished run's report.json cannot know about it, so it is added here.
+const handoffFromRunUsd = dir => readJson(join(dir, 'handoff-from-run.usage.json'))?.usd ?? 0;
+
 function costOfRun(dir) {
   const report = readJson(join(dir, 'report.json'));
   if (report?.totals?.usd !== undefined && report?.totals?.usd !== null) {
-    return { usd: report.totals.usd, chain: report.chain ?? null, complete: true };
+    return { usd: report.totals.usd + handoffFromRunUsd(dir), chain: report.chain ?? null, complete: true };
   }
   let usd = 0;
   let stages = 0;
@@ -83,6 +87,9 @@ function costOfRun(dir) {
   return { usd, chain: readJson(join(dir, 'run.json'))?.chain ?? null, complete: false, stages };
 }
 
+/** What one run folder has cost so far, in USD (report.json's total, else its usage files), handoff-from-run included. */
+export const runSpentUsd = dir => costOfRun(dir).usd;
+
 // v2 plan §8 (~/Projects/relay/runs/2026-09-11T12-19-34-184Z/deliverable.md), narrowed per
 // decision in maintainers/DECISIONS.md: §8 proposed a new ledger file to get per-call cost granularity
 // and a calendar-day "cost-today" view. Both are already derivable from what's on disk -
@@ -93,7 +100,9 @@ function costOfRun(dir) {
 function stagesOfRun(dir) {
   const report = readJson(join(dir, 'report.json'));
   if (Array.isArray(report?.stages)) {
-    return [...report.stages.map(s => ({ label: s.label, provider: s.provider ?? null, model: s.model ?? null, usd: s.usd ?? 0 })), ...supersededStagesOf(dir)];
+    const extra = readJson(join(dir, 'handoff-from-run.usage.json'));
+    return [...report.stages.map(s => ({ label: s.label, provider: s.provider ?? null, model: s.model ?? null, usd: s.usd ?? 0 })),
+      ...(extra ? [{ label: 'handoff-from-run', provider: extra.provider ?? null, model: extra.model ?? null, usd: extra.usd ?? 0 }] : []), ...supersededStagesOf(dir)];
   }
   const stages = [];
   for (const f of readdirSync(dir)) {
