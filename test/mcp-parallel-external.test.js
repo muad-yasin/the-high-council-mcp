@@ -115,6 +115,11 @@ test('a dotted lab (opus5.5-sub) can be fetched and answered over MCP; a ".." la
     const a = await call(dir, 'submit_stage', { run, stage: 'panel-1-opus5.5-sub', content: PASS });
     assert.equal(a.written, 'panel-1-opus5.5-sub.md', JSON.stringify(a));
     assert.equal(a.resumed, true);
+    // The answer resumes the run in a detached child. Wait for it to finish before the cleanup below,
+    // or rmSync races its writes (CI 2026-09-29, v0.7.9 tag build: ENOTEMPTY on runs/<id>).
+    const runDir = join(dir, 'runs', run);
+    for (let i = 0; i < 120 && !existsSync(join(runDir, 'report.json')); i++) await new Promise(r => setTimeout(r, 250));
+    assert.ok(existsSync(join(runDir, 'report.json')), 'the run finished after the answer');
   } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
