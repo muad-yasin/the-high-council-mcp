@@ -276,8 +276,8 @@ ones. Put only the keys your chosen chain needs in that `.env`, one `NAME=value`
 `DEEPSEEK_API_KEY` · `GROQ_API_KEY` · `TOGETHER_API_KEY` · `COHERE_API_KEY` ·
 `OPENROUTER_API_KEY` · `ZAI_API_KEY`
 
-xAI/Grok is never seated, and neither is a router id (`openrouter/auto`, the Pareto Code router)
-that could route to it: chain-lint refuses such a chain and the run itself refuses such a seat,
+xAI/Grok is never seated, and neither is a router id (`openrouter/auto`, the Pareto Code router,
+any other `openrouter/<name>` id) that could route to it: chain-lint refuses such a chain and the run itself refuses such a seat,
 with no override. There is no `xai` provider. Kimi/Moonshot models are not in any chain this
 package ships, but you may seat one in a chain of your own.
 

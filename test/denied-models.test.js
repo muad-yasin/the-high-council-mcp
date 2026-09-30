@@ -56,6 +56,7 @@ test('lint: router ids are errors, not warnings (they can route to a denied mode
     { provider: 'openrouter', model: 'openrouter/bodybuilder' },
     { provider: 'openrouter', model: 'openrouter/some-stealth-alpha' },
     { provider: 'openrouter', model: 'OpenRouter/Fusion:nitro' },
+    { provider: 'openrouter', model: 'openrouter/fusion/' },
     { provider: 'openrouter', model: 'openai/gpt-6.1-sol', extra: { models: ['openrouter/free'] } },
   ]) {
     assert.equal(denied(withCritic(seat)).length, 1, JSON.stringify(seat));
