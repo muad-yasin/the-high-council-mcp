@@ -11,7 +11,7 @@ Owner: Muad. Items marked **owner** need his go (prompt changes, chain defaults)
   built. Exit 14 for an edited `--context` is marked **Breaking** in the CHANGELOG.
 - **The web UI (headline below, with replay) moves to 0.8.1**, not 0.9.
 - **The council advisor add-on** (`council_quote` + `council_advise`, research in thc-research briefs 23-31)
-  comes after 0.8.0. Its patches need a rework step before they merge (five silent breaks on top of
+  ships in **0.8.2**, on its own. Its patches need a rework step before they merge (five silent breaks on top of
   wave-080, and one naming pass so that `report.json` stays additive). Stop rule: exit 18 means "stopped before
   finishing" (by a person, a client cancel or a wall clock). It always writes a partial report and extends
   the existing `stoppedBy` (`user`, `wall_clock`, `client_cancel`). Whether a run resumes belongs to the chain;
