@@ -4,6 +4,21 @@
 checked by the other model as advisor; local `Review/Research_0.8.0_Debate_*_2026-09-27.md`, gitignored).
 Owner: Muad. Items marked **owner** need his go (prompt changes, chain defaults).*
 
+**Scope decided 2026-10-01 (Muad), after the wave-5 research and two reviews of it:**
+- **0.8.0 is an engine release:** branch `wave-080` (UI request guard, WM0 engine additions, per-tool timing
+  test, locked criteria, $0 criteria lints, `handoff --from-run`, criterion ids and disagreement records,
+  resume refusing an unrecorded context change) merged with master. Its five open calls are accepted as
+  built. Exit 14 for an edited `--context` is marked **Breaking** in the CHANGELOG.
+- **The web UI (headline below, with replay) moves to 0.8.1**, not 0.9.
+- **The council advisor add-on** (`council_quote` + `council_advise`, research in thc-research briefs 23-31)
+  comes after 0.8.0. Its patches need a rework step before they merge (five silent breaks on top of
+  wave-080, and one naming pass so that `report.json` stays additive). Stop rule: exit 18 means "stopped before
+  finishing" (by a person, a client cancel or a wall clock). It always writes a partial report and extends
+  the existing `stoppedBy` (`user`, `wall_clock`, `client_cancel`). Whether a run resumes belongs to the chain;
+  advice chains do not resume. The default single seat is GPT-6.1 Sol, **or GPT-6 Astra if a subscription route
+  works** (research open). The default council is Sol + GLM-5.3 + Gemini 3.8 Flash, users may set their own
+  chains, and there is a premium-7-style option.
+
 ## Headline: a local web interface for one council run (owner: "sounds great")
 
 Local only (127.0.0.1), no third-party requests, keys never reach the browser, run folder and
