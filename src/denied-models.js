@@ -23,7 +23,15 @@ export const DENIED_MODEL = /grok|x-ai|\bxai\b/i;
 // Pre-release audit 2026-09-23 (GuardLayer #5): the `$` anchor let `openrouter/auto:nitro`,
 // `:online`, `:floor` and `openrouter/auto/` through, and `@preset/<name>` (a server-side preset
 // that picks the model) was not covered at all.
-export const ROUTER_MODEL = /(^|\/)(auto|pareto-code)(?=$|[:/])|(^|[/:_-])router([/:_-]|$)|^@preset\//i;
+// 2026-10-01 (research brief 31, OpenRouter's model list of 2026-09-30): four live ids in OpenRouter's
+// own namespace slipped through - `openrouter/auto-beta`, `openrouter/fusion` (a hosted multi-model
+// panel), `openrouter/free` (picks free models at random) and `openrouter/bodybuilder`. Every id in
+// that namespace is a router, a tool, or an anonymous "stealth" model whose lab is not disclosed, so
+// none can be shown to avoid a denied model: the whole namespace is denied, not the four names.
+// Only a single segment after `openrouter/` matches, so a provider-prefixed id such as
+// `openrouter/openai/gpt-6.1-sol` (a pricing key) is not caught, and a `:free` variant of an ordinary
+// model (`deepseek/deepseek-v4.1-flash:free`) is not either.
+export const ROUTER_MODEL = /(^|\/)(auto|pareto-code)(?=$|[:/])|(^|[/:_-])router([/:_-]|$)|^@preset\/|^openrouter\/[^/]+$/i;
 
 // The request-body keys through which `extra` can choose or route the model. Pre-release audit
 // 2026-09-23 (GuardLayer #2, HIGH): only extra.models and extra.plugins were checked, and the

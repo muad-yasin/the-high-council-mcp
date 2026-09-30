@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased - No-Grok rule: every id in OpenRouter's own namespace is denied
+
+`ROUTER_MODEL` (`src/denied-models.js`) now denies any single-segment `openrouter/<name>` id, not
+only `openrouter/auto` and `pareto-code`. Research on OpenRouter's model list (2026-09-30) found four
+live ids that got past the name list: `openrouter/auto-beta`, `openrouter/fusion` (a hosted
+multi-model panel), `openrouter/free` (picks free models at random) and `openrouter/bodybuilder`.
+Each picks or hides the model at request time, so none can be shown to avoid a denied model; the
+namespace also carries anonymous "stealth" models whose lab is undisclosed. Ordinary ids
+(`openai/gpt-6.1-sol`), `:free` variants of them and provider-prefixed pricing keys
+(`openrouter/openai/...`) are unaffected. Tests in `test/denied-models.test.js`.
+
 ## Unreleased - F9: security-review-only chain, for Sophi-A's security gate call
 
 From Sophi-A's Seat Families plan (`relay/Docs/SophiA-Seat-Families-Plan.md` §2.9, §5, item F9 -

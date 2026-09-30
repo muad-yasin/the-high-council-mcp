@@ -49,8 +49,26 @@ test('lint: router ids are errors, not warnings (they can route to a denied mode
     { provider: 'openrouter', model: 'openrouter/pareto-code' },
     { provider: 'openrouter', model: 'openai/gpt-5', extra: { plugins: [{ id: 'pareto-router' }] } },
     { provider: 'openrouter', model: 'some/auto-router' },
+    // 2026-10-01: live ids in OpenRouter's own namespace that the name list missed (brief 31).
+    { provider: 'openrouter', model: 'openrouter/auto-beta' },
+    { provider: 'openrouter', model: 'openrouter/fusion' },
+    { provider: 'openrouter', model: 'openrouter/free' },
+    { provider: 'openrouter', model: 'openrouter/bodybuilder' },
+    { provider: 'openrouter', model: 'openrouter/some-stealth-alpha' },
+    { provider: 'openrouter', model: 'OpenRouter/Fusion:nitro' },
+    { provider: 'openrouter', model: 'openai/gpt-6.1-sol', extra: { models: ['openrouter/free'] } },
   ]) {
     assert.equal(denied(withCritic(seat)).length, 1, JSON.stringify(seat));
+  }
+});
+
+test('the OpenRouter-namespace rule does not catch provider-prefixed ids or :free variants', () => {
+  for (const seat of [
+    { provider: 'openrouter', model: 'openrouter/openai/gpt-6.1-sol' },
+    { provider: 'openrouter', model: 'deepseek/deepseek-v4.1-flash:free' },
+    { provider: 'openrouter', model: 'z-ai/glm-5.3' },
+  ]) {
+    assert.deepEqual(deniedReasonsOf(seat), [], JSON.stringify(seat));
   }
 });
 
