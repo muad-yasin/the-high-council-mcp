@@ -148,7 +148,10 @@ A run moves through fixed stages. Which stages fire depends on the chain you pic
 7. **Panel review** - every critic independently grades the draft against the acceptance criteria,
    blind. Not unanimous? It revises against the union of every objection and the panel reviews
    again, up to the chain's round cap.
-8. **Handoff** - a `HANDOFF.md` written for whoever executes the result.
+8. **Handoff** - a `HANDOFF.md` written for whoever executes the result. It ends with a block the
+   harness writes, not a model: the acceptance criteria the run settled, with a fingerprint.
+   `council check-lock HANDOFF.md` ($0) says whether a copy still carries them; it catches an edit or
+   a slip, and is not a signature.
 
 Some chains add optional stages to this: whole alternative architectures written blind before
 the skeleton, a deep-dive check of the first draft, a dispute stage that records unresolved
@@ -156,6 +159,12 @@ objections at the top of the plan, and a final security review.
 
 Every run writes a folder: the deliverable, `BOARD.md` (the full debate - every post, every
 withdrawal), `HANDOFF.md`, a per-lab scoreboard, and the real token/cost accounting.
+
+A run that stopped before it wrote its handoff (the spend cap, an abandoned pause, a crash) can get one from
+its latest draft: `council handoff --from-run runs/<id>`. It is one call on the chain's handoff seat, under the
+run's own spend cap (what the folder already cost counts toward it; `--max-usd N` is a total, as on `--resume`),
+the same policy check and key scan as a run, and a run no panel signed off gets a note at the top, written by
+the harness, saying so. It never overwrites an existing `HANDOFF.md`.
 
 ### Reading a run with a program
 
@@ -423,7 +432,7 @@ Each outcome has its own code, so a script or CI job can branch on it:
 | 11 | Something in the input must not be sent: a prompt matches one of the key formats listed in `src/secret-patterns.js` (checked by default; `--allow-secret-shaped` overrides), or, under `--pii-gate hard-stop`, a PII shape. |
 | 12 | `policy.json` refused the chain. |
 | 13 | Another process is already running this run folder. |
-| 14 | The task file changed since the run started and `AMENDMENTS.md` does not cover it. |
+| 14 | The task file, or (since 0.8.0) a `--context` document, changed since the run started and `AMENDMENTS.md` does not cover it. The message prints the hashes to write; a context hash is written `ctx-<hash>`. |
 | 15 | `--resume` of a run that already finished (it has a `report.json`); nothing is run or spent. |
 | 16 | The run stopped at an unexpected error (a seat that could not be reached, a crash); `STOPPED-error.md` says what, and `--resume` continues from the completed stages. |
 | 17 | A draft (build, revise, dispute, final edit or handoff) was cut off at its token cap, and its one larger-cap retry was cut off too; the fragment is never graded or shipped (`STOPPED-truncated.md`). |

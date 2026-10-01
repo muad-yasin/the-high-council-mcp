@@ -502,6 +502,141 @@
       },
       "description": "Present only on chains with argued.enabled: where the 'How this plan was argued' text is, and the check of every id and lab it names against this run's record."
     },
+    "criteria_sha256": {
+      "x-stability": "experimental",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 over the criteria list, each criterion collapsed to one line, order counted (0.8.0). The same fingerprint the HANDOFF.md lock block carries; `council check-lock` compares them."
+    },
+    "criteria_lints": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "Word-level lints over the acceptance criteria, run before any paid review round (0.8.0). Heuristics: they miss a rephrasing and can flag a good criterion. Recorded only: never a stop. [] when clean.",
+      "items": {
+        "type": "object",
+        "required": ["id", "message"],
+        "properties": {
+          "id": { "enum": ["no-consistency", "presence-heavy", "vague-word"] },
+          "message": { "type": "string" },
+          "criterion_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "criteria_ids": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Positional ids for `criteria`, index-aligned: C1, C2, ... (0.8.0)."
+    },
+    "missing_criteria": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "Sign-offs whose criteria table left criteria out (0.8.0). Recorded only: no verdict, prompt or stop reads it. [] when there were none. A reply with no table at all is not listed.",
+      "items": {
+        "type": "object",
+        "required": [
+          "round",
+          "lab",
+          "criterion_ids"
+        ],
+        "properties": {
+          "round": {
+            "type": "integer"
+          },
+          "lab": {
+            "type": "string"
+          },
+          "criterion_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "table_rows": {
+            "type": "integer"
+          },
+          "criteria_total": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "cut_despite_support": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "Proposals the plan cut although another lab supported them in the debate (0.8.0). Derived from proposals[] and debate.posts[]; present only when the run had both.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "supporters"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {},
+          "author_lab": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "supporters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "objectors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "disagreement_map": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "One row per review round: each lab's verdict and the counts (0.8.0). Derived from panelVerdicts[]. A verdict marked `(carried)` was reused on an unchanged draft.",
+      "items": {
+        "type": "object",
+        "required": [
+          "round",
+          "labs"
+        ],
+        "properties": {
+          "round": {
+            "type": "integer"
+          },
+          "labs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "signed_off": {
+            "type": "integer"
+          },
+          "objected": {
+            "type": "integer"
+          },
+          "unheard": {
+            "type": "integer"
+          },
+          "passed": {
+            "type": "integer"
+          }
+        }
+      }
+    },
     "criteria_kinds": {
       "x-stability": "experimental",
       "type": "array",

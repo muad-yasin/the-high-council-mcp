@@ -15,7 +15,11 @@ import { createHash } from 'node:crypto';
 
 /** A short fingerprint of the inputs a cached stage's validity depends on. */
 export function fingerprintInputs(taskText, config) {
-  return createHash('sha256').update(JSON.stringify({ taskText, config })).digest('hex').slice(0, 12);
+  // `summary` is a chain card's display line: no stage reads it, so editing it must not make a
+  // resumed run read every finished stage as stale. A config without one hashes exactly as before.
+  let forHash = config;
+  if (config && typeof config === 'object' && 'summary' in config) { const { summary: _display, ...rest } = config; forHash = rest; }
+  return createHash('sha256').update(JSON.stringify({ taskText, config: forHash })).digest('hex').slice(0, 12);
 }
 
 /**

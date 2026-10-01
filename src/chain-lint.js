@@ -162,6 +162,16 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
+  // 5a. `summary` (0.8.0 WM0): a chain card's one-line display text. Nothing reads it but a UI, so a
+  // wrong type or a paragraph would only show up there; refuse it here.
+  if (config && 'summary' in config && !(typeof config.summary === 'string' && config.summary.length >= 1 && config.summary.length <= 120 && !/[\r\n]/.test(config.summary))) {
+    findings.push({
+      kind: 'invalid-summary',
+      message: `summary must be one line of 1 to 120 characters (got ${typeof config.summary === 'string' ? `${config.summary.length} characters` : JSON.stringify(config.summary)}).`,
+      fix: `Shorten "summary" in ${filePath}, or move the detail into "description".`,
+    });
+  }
+
   // 5b. Opt-in flag blocks with a closed key set (pre-release audit 2026-09-23, lint #2). Each of
   // these is read in chain.js as `config.<block>?.enabled` plus the named keys below, and nothing
   // else - so a typo'd key ("alternatives": { "enable": true }) used to validate, lint clean, and

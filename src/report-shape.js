@@ -11,6 +11,9 @@ import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { deriveDisagreementGroups } from './disagreement-groups.js';
 import { renderDisputeReviewBoard } from './chain.js';
 import { summaryLine } from './criteria-kinds.js';
+import { criterionIds } from './criteria-ledger.js';
+import { criteriaHash } from './criteria-lock.js';
+import { cutDespiteSupport, disagreementMap } from './decision-records.js';
 import { isAbsolute, relative, basename, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { harnessProducer } from './version.js';
@@ -131,6 +134,20 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     // folder could not see them (a real run's dispute stage and canary lived only in run.log).
     // Additive only; each is absent when the run produced none of it.
     ...(Array.isArray(result.panelVerdicts) ? { panelVerdicts: result.panelVerdicts } : {}),
+    // 0.8.0 (roadmap "Debate, criteria, milestones" 4 and 9), all additive and all derived or recorded
+    // without a prompt change: positional criterion ids, the sign-offs whose criteria table skipped
+    // criteria (src/criteria-ledger.js), proposals cut despite another lab's support, and the round by
+    // lab verdict map (src/decision-records.js). A key is absent where it does not apply.
+    ...(Array.isArray(result.missingCriteria) && Array.isArray(result.criteria) && result.criteria.length
+      ? { criteria_ids: criterionIds(result.criteria), missing_criteria: result.missingCriteria } : {}),
+    // The fingerprint of the criteria list (src/criteria-lock.js), the same one HANDOFF.md's lock block carries.
+    ...(Array.isArray(result.criteria) && result.criteria.length ? { criteria_sha256: criteriaHash(result.criteria) } : {}),
+    // $0 word-level lints over the criteria, run before any paid round (src/criteria-lints.js); [] when clean.
+    ...(Array.isArray(result.criteriaLints) ? { criteria_lints: result.criteriaLints } : {}),
+    // The ledger status (accepted / cut / withdrawn) is on scoreboard.rows, not on proposals[] (0.8.0: the
+    // first version read proposals[] and could never fire).
+    ...(cutDespiteSupport(result.scoreboard?.rows, result.debate) !== undefined ? { cut_despite_support: cutDespiteSupport(result.scoreboard?.rows, result.debate) } : {}),
+    ...(disagreementMap(result.panelVerdicts) !== undefined ? { disagreement_map: disagreementMap(result.panelVerdicts) } : {}),
     ...(Array.isArray(result.regressions) ? { regressions: result.regressions } : {}),
     ...(result.dispute != null ? { dispute: result.dispute } : {}),
     ...(result.canary !== undefined ? { canary: result.canary } : {}),

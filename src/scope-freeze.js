@@ -43,9 +43,52 @@ export function checkFrozenScope({ storedHash, currentHash, amendmentsText }) {
   return { ok: true, amended: true };
 }
 
-/** The target hash of AMENDMENTS.md's latest entry: the last 12-hex task hash in the text, or null. */
+/**
+ * The target hash of AMENDMENTS.md's latest entry: the last task hash written in the text, or null.
+ * A task hash is 12 hex characters in run.json and in the error message, but a person copying one from
+ * `sha256sum` writes all 64; both name the same hash, so any 12-to-64 hex token counts and is reduced
+ * to its first 12 (0.8.0: the old 12-only match read a full-length hash as no entry at all).
+ */
 export function latestAmendmentTarget(amendmentsText) {
   if (typeof amendmentsText !== 'string') return null;
-  const hashes = amendmentsText.match(/\b[0-9a-f]{12}\b/g);
-  return hashes ? hashes[hashes.length - 1] : null;
+  // A longer token of digits only (a compact timestamp, an id) is not a hash; a 12-character one is
+  // kept as before, since a real hash can be all digits (about 1 in 280).
+  const hashes = (amendmentsText.match(/(?<!ctx-)\b[0-9a-f]{12,64}\b/g) || []).filter(h => h.length === 12 || /[a-f]/.test(h));
+  return hashes.length ? hashes[hashes.length - 1].slice(0, 12) : null;
+}
+
+// ---- The --context documents (0.8.0, roadmap "Debate, criteria, milestones" item 10) ----
+// The standing-context bundle is read again on every resume, so a document edited during a pause went
+// to every seat without a word on the record, while an edited TASK was refused without an amendment.
+// It is the same rule now. A context hash is written `ctx-<12 hex>` in AMENDMENTS.md, so the two
+// subjects never read each other's entries: latestAmendmentTarget above ignores `ctx-` tokens, and the
+// one below reads nothing else.
+
+/** 12 hex of the standing-context bundle text (`## name` heading and content per file, as the seats see it). */
+export function contextHashOf(bundleText) {
+  return taskHashOf(bundleText);
+}
+
+/** The target of AMENDMENTS.md's latest context entry: the last `ctx-<hex>` token (12 to 64 hex, reduced to 12), or null. */
+export function latestContextAmendmentTarget(amendmentsText) {
+  if (typeof amendmentsText !== 'string') return null;
+  const hashes = amendmentsText.match(/\bctx-[0-9a-f]{12,64}\b/g);
+  return hashes ? hashes[hashes.length - 1].slice(4, 16) : null;
+}
+
+/**
+ * Whether a --resume may proceed past a change to the --context documents. Same shape and posture as
+ * checkFrozenScope: no stored hash (a run from before 0.8.0) is trusted; only the LATEST context entry
+ * of AMENDMENTS.md counts. Returns { ok: true, amended } or { ok: false, message }.
+ */
+export function checkFrozenContext({ storedHash, currentHash, amendmentsText }) {
+  if (!storedHash || storedHash === currentHash) return { ok: true, amended: false };
+  const latest = latestContextAmendmentTarget(amendmentsText);
+  if (latest !== currentHash) {
+    return {
+      ok: false,
+      message: `context changed: the --context documents have changed since this run started (recorded ctx-${storedHash}, now ctx-${currentHash}). If this change is deliberate, append it to this run's AMENDMENTS.md first, one entry per change: old ctx-<hash>, new ctx-<hash> (write them as printed here), one-line reason, timestamp. Then --resume again. If it wasn't deliberate, restore the documents to what this run started with.`,
+    };
+  }
+  return { ok: true, amended: true };
 }

@@ -24,7 +24,7 @@ import { verdictStats } from '../verdict-stats.js';
 import { metricsReport } from '../metrics.js';
 import { checkClaimStaleness } from '../peer-claim.js';
 import { submitStageAnswer } from '../stage-submission.js';
-import { deriveRunStatus, waitingStage, waitingStages, isAlivePid, isAliveByGrep, finishedRunState, artifactsBlocked, ARTIFACTS_BLOCKED_FILE, RUN_FOLDER } from '../run-status.js';
+import { deriveRunStatus, runResumability, waitingStage, waitingStages, isAlivePid, isAliveByGrep, finishedRunState, artifactsBlocked, ARTIFACTS_BLOCKED_FILE, RUN_FOLDER } from '../run-status.js';
 import { lockHolder } from '../run-lock.js';
 import { harnessVersion } from '../version.js';
 import { isDeniedPath, pathRefusal } from '../tools.js';
@@ -269,6 +269,8 @@ function runSummary(id) {
     // Status audit #5: the same reader as deriveRunStatus/submit_stage (run-status.js), which leaves
     // out the legacy artifact-gate marker - it is not an external stage.
     waitingFor: waitingStages(dir),
+    // 0.8.0 WM0: can it be continued, and what does that take (src/run-status.js runResumability).
+    resumable: runResumability(dir, runMeta),
     files: existsSync(dir) ? readdirSync(dir).filter(f => !f.endsWith('.usage.json')).sort() : [],
     lastLogLines: last,
   };
@@ -292,15 +294,17 @@ server.tool('list_chains', 'Chains available to run, with their description and 
     const c = chainConfigFor(name);
     if (!c) return null;
     const user = existsSync(join(work, 'chains', `${name}.json`));
-    return { name: c.name, description: c.description, maxRounds: c.maxRounds, signoff: c.signoff || 'first', proposals: !!c.proposals, debate: !!c.debate, handoff: !!c.handoff, ...(user ? { source: 'user' } : {}) };
+    return { name: c.name, description: c.description, ...(typeof c.summary === 'string' ? { summary: c.summary } : {}), maxRounds: c.maxRounds, signoff: c.signoff || 'first', proposals: !!c.proposals, debate: !!c.debate, handoff: !!c.handoff, ...(user ? { source: 'user' } : {}) };
   }).filter(Boolean);
   return text(chains);
 });
 
-server.tool('dry_run', 'Price a chain without calling any model. chain is a chain name as list_chains shows it, never a path.', { chain: z.string() }, async ({ chain }) => {
+server.tool('dry_run', 'Price a chain without calling any model. chain is a chain name as list_chains shows it, never a path. json: true returns one JSON document instead of text: the floor and worst-case price, every row, and which seat lacks which API key.', { chain: z.string(), json: z.boolean().optional() }, async ({ chain, json }) => {
   const bad = chainNameRefusal(chain);
   if (bad) return text({ error: bad });
-  const out = execFileSync(...cliCommand(['--chain', chain, '--dry-run']), { encoding: 'utf8', cwd: work, env: cliEnv });
+  const args = ['--chain', chain, '--dry-run'];
+  if (json) args.push('--json');
+  const out = execFileSync(...cliCommand(args), { encoding: 'utf8', cwd: work, env: cliEnv });
   return text(out);
 });
 

@@ -3,10 +3,10 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
+import { runChain, runSingleStage, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
 import { secretShapesIn, SecretShapedPrompt } from './outbound-scan.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
-import { deriveRunStatus, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
+import { deriveRunStatus, waitingStages, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
 import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sumCostFromStageLogText } from './run-state.js';
 import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFromStageLogText, sumRoundUsdFromStageLogText } from './spans.js';
@@ -14,7 +14,7 @@ import { appendSpanRecord, buildSpanRecord } from './progress-spans.js';
 import { computeOutcome } from './outcome.js';
 import { reportJsonShape, renderBoardMd, partialReportJsonShape, renderPartialBoardMd, PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE } from './report-shape.js';
 import { summarise, formatUsd, priceOf, estimateChainRows, priceTableLines } from './cost.js';
-import { providerNames, envKeyName, keyFor, isKeyOptional, call } from './providers.js';
+import { providerNames, envKeyName, keyFor, isKeyOptional, call, isRetryable } from './providers.js';
 import { DEMO_REQUEST } from './mock-demo.js';
 import { readCompletedRun, generateDigestText, writeDigest } from './dissent-digest.js';
 import { deniedReasonsOf, DeniedModel } from './denied-models.js';
@@ -27,16 +27,22 @@ import { preflightCheck, checkArtifactReferences } from './preflight.js';
 import { fenceFile, scanTaskForSecrets, FENCE_HEADER, FENCE_MAX_BYTES } from './fence.js';
 import { outsideFences } from './quote-check.js';
 import { parseCriteriaFile } from './criteria-kinds.js';
+import { lintCriteria } from './criteria-lints.js';
+import { pickDraft, readCriteria, stopState, partialBanner, externalPromptText } from './handoff-from-run.js';
+import * as HandoffRoles from './roles.js';
 import { scanForPii, applyPiiGate } from './pii-gate.js';
 import { harnessVersion } from './version.js';
 import { stageKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs } from './cache-integrity.js';
 import { archiveSuperseded, supersededSpendOf, recordLostCharge } from './superseded.js';
-import { taskHashOf, checkFrozenScope } from './scope-freeze.js';
+import { taskHashOf, checkFrozenScope, contextHashOf, checkFrozenContext } from './scope-freeze.js';
+import { lockBlock, checkLock } from './criteria-lock.js';
+import { runSpentUsd } from './spend.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { schemaVersionWarning } from './schema-version.js';
 import { forecastCost } from './cost-forecast.js';
+import { dryRunReport } from './dry-run.js';
 // A static import, not a dynamic one - see the comment on runMcpServer in mcp/server.js for why.
 // mcp/server.js's own self-invocation guard means this import alone never starts a server; only
 // the explicit call below, inside the --mcp branch, does.
@@ -531,6 +537,173 @@ if (argv[0] === 'replay') {
     console.log(renderTranscriptText(steps));
   }
   process.exit(0);
+}
+
+// `council check-lock <HANDOFF.md> [--run <folder>]` (0.8.0, alias `verify-handoff`): $0, no network. Does
+// this file (the run's copy, or the project's own) still carry the criteria the harness locked into it?
+// With --run, also: are they the criteria that run's report.json settled? Exit 0 yes, 1 no (each
+// problem on its own line), 2 no such file or no lock block to check.
+if (argv[0] === 'check-lock' || argv[0] === 'verify-handoff') {
+  const fileArg = argv[1] && !argv[1].startsWith('--') ? argv[1] : null;
+  if (!fileArg) {
+    console.error(`${argv[0]}: give the HANDOFF.md to check`);
+    console.error(`usage: council ${argv[0]} <HANDOFF.md> [--run runs/<id>]`);
+    process.exit(2);
+  }
+  let text;
+  try { text = readFileSync(resolve(work, fileArg), 'utf8'); } catch { console.error(`${argv[0]}: cannot read ${fileArg}`); process.exit(2); }
+  let expected;
+  const runArg = flag('run', null);
+  if (runArg && runArg !== true) {
+    const report = readReportOrExit(join(resolve(work, runArg), 'report.json'), argv[0]);
+    if (Array.isArray(report.criteria)) expected = report.criteria;
+  }
+  const verdict = checkLock(text, { expected });
+  if (!verdict.found) { console.error(`${fileArg}: ${verdict.problems[0]}`); process.exit(2); }
+  if (verdict.ok) { console.log(`${fileArg}: criteria lock holds (${verdict.sha256.slice(0, 12)}${verdict.run ? `, run ${verdict.run}` : ''})`); process.exit(0); }
+  for (const p of verdict.problems) console.error(`${fileArg}: ${p}`);
+  process.exit(1);
+}
+
+// `council handoff --from-run <folder> [--chain <name>] [--max-usd N|none]` (0.8.0): a HANDOFF.md for a
+// run that stopped before it wrote one (the spend cap, an abandoned pause, a crash), made from the
+// latest draft the folder holds (src/handoff-from-run.js). One call on the chain's handoff seat (its
+// builder seat when it has none), under the same spend cap and outbound key scan as any stage. A run
+// no panel signed off gets a banner saying so, written by the harness. Never overwrites HANDOFF.md:
+// it writes HANDOFF-from-run.md next to one that exists. An external handoff seat (a session you run)
+// gets a prompt file instead of a call. Exit 0 written, 2 nothing to hand off, 3 the prompt was written
+// for an external seat, 4 the cap, 11 a key-shaped string in the draft, 16 the call failed or was cut off.
+if (argv[0] === 'handoff') {
+  const fromArg = flag('from-run', null);
+  if (!fromArg || fromArg === true) {
+    console.error('handoff: --from-run <run folder> is required');
+    console.error('usage: council handoff --from-run runs/<id> [--chain <name>] [--max-usd N|none]');
+    process.exit(2);
+  }
+  const hRunDir = resolve(work, fromArg);
+  const hMeta = existsSync(join(hRunDir, 'run.json')) ? (() => { try { return JSON.parse(readFileSync(join(hRunDir, 'run.json'), 'utf8')); } catch { return null; } })() : null;
+  if (!hMeta) { console.error(`handoff: ${hRunDir} is not a run folder (no readable run.json)`); process.exit(2); }
+  const chainArg = flag('chain', null);
+  const hChain = chainArg && chainArg !== true ? chainArg : hMeta.chain;
+  { const bad = chainNameRefusal(hChain, chainArg ? '--chain' : 'the chain recorded in run.json'); if (bad) { console.error(bad); process.exit(2); } }
+  const hConfigPath = [hMeta.cwd ? join(hMeta.cwd, 'chains', `${hChain}.json`) : null, join(work, 'chains', `${hChain}.json`), join(pkg, 'chains', `${hChain}.json`)].filter(Boolean).find(existsSync);
+  if (!hConfigPath) { console.error(`handoff: no such chain "${hChain}" (looked in the run's own chains/, ./chains and the package's)`); process.exit(1); }
+  let hConfig;
+  try { hConfig = JSON.parse(readFileSync(hConfigPath, 'utf8')); } catch { console.error(`\n${formatCouncilError('COUNCIL-E003', { path: hConfigPath })}`); process.exit(EXIT_FATAL); }
+  exitOnLint(hConfig, hConfigPath);
+  try { hConfig = resolveChainSeats(hConfig); } catch { /* reported by the seat check below */ }
+  const hSeat = hConfig.seats?.handoff || hConfig.seats?.builder;
+  if (!hSeat) { console.error(`handoff: chain "${hChain}" has neither a handoff nor a builder seat`); process.exit(2); }
+  const hDraft = pickDraft(hRunDir);
+  if (!hDraft) { console.error(`handoff: nothing to hand off - ${hRunDir} holds no draft (deliverable.md, final.md, revise-N.md or build.md)`); process.exit(2); }
+  const hTaskPath = hMeta.task ? (isAbsolute(hMeta.task) ? hMeta.task : resolve(hMeta.cwd || work, hMeta.task)) : null;
+  let hRequest;
+  try { hRequest = readFileSync(hTaskPath, 'utf8'); } catch { console.error(`handoff: cannot read the run's task file (${hTaskPath || 'none recorded'})`); process.exit(2); }
+  const hCriteria = readCriteria(hRunDir);
+  const hState = stopState(hRunDir);
+  const hRunId = basename(hRunDir);
+  const hSystem = HandoffRoles.HANDOFF_SYSTEM;
+  const hUser = HandoffRoles.handoffUser({ request: hRequest, draft: hDraft.text, planFile: hConfig.handoffPlanFile || 'PLAN.md', checks: '' });
+  const hOut = existsSync(join(hRunDir, 'HANDOFF.md')) ? 'HANDOFF-from-run.md' : 'HANDOFF.md';
+  if (hSeat.provider === 'external') {
+    const promptFile = join(hRunDir, 'handoff-from-run.prompt.md');
+    writeFileSync(promptFile, externalPromptText({ system: hSystem, user: hUser, runDir: hRunDir, target: join(hRunDir, hOut) }));
+    console.log(`The handoff seat of "${hChain}" is external (a session you run). Prompt written: ${promptFile}`);
+    console.log(`Give it to that session and save its reply as ${join(hRunDir, hOut)}.`);
+    process.exit(3);
+  }
+  const hMissing = checkSeats([hSeat]);
+  if (hMissing.length) { console.error(`handoff: a key is missing for ${hMissing.join(', ')}. Set it, then run this again.`); process.exit(EXIT_DEGRADABLE); }
+  // The same policy gate the run itself passes (GuardLayer #4's class: a seat the policy forbids must not
+  // be called because a different command reached it).
+  {
+    const { policy, error: policyParseError } = loadPolicy(hMeta.cwd || work);
+    if (policyParseError) { console.error(`\n${formatCouncilError('COUNCIL-E005', { path: POLICY_PATH(work), parseError: policyParseError })}`); process.exit(EXIT_FATAL); }
+    if (policy) {
+      const ctx = buildPolicyContext(hConfig, everySeatOf(hConfig), join(work, 'runs'));
+      const { ok, reasons } = evaluatePolicy(policy, ctx);
+      if (!ok) { console.error(`\n${formatCouncilError('COUNCIL-E005', { path: POLICY_PATH(work), chain: hConfig.name, reasons })}`); process.exit(EXIT_POLICY_REFUSED); }
+    }
+  }
+  // The outbound key scan, as for a run: the task is a user input, so every shape (a password in a URL
+  // included) is checked once up front, naming the line and never the value; the per-call scan inside the
+  // call covers the draft (model text). --allow-secret-shaped is the one override.
+  const hAllowSecret = argv.includes('--allow-secret-shaped');
+  setOutboundScan({ allow: hAllowSecret });
+  if (!hAllowSecret) {
+    const found = secretShapesIn(hRequest).map(f => ({ where: hTaskPath, ...f }));
+    if (found.length) {
+      console.error(`\nhandoff: refused - the task file contains ${found.length} credential-shaped string(s).`);
+      for (const l of secretRefusalLines(found)) console.error(l);
+      console.error('Remove the key from the task, or rerun with --allow-secret-shaped to send it deliberately.');
+      process.exit(EXIT_PII_BLOCKED);
+    }
+  }
+  // The cap: the run's own, with what the folder has already cost counted toward it - a run stopped at a
+  // $1 cap does not get a fresh $7. --max-usd N is a total for the run, as on --resume; `none` lifts it.
+  const hSpent = runSpentUsd(hRunDir);
+  const hCapArg = flag('max-usd', null);
+  let hCap;
+  if (hCapArg === 'none' || hCapArg === 'off') hCap = null;
+  else if (hCapArg !== null) {
+    hCap = Number(hCapArg);
+    if (hCapArg === true || !Number.isFinite(hCap) || hCap <= 0) { console.error(`--max-usd: expected a positive number of dollars or "none", got "${hCapArg === true ? '' : hCapArg}"`); process.exit(2); }
+  } else if ('maxUsd' in hMeta) hCap = hMeta.maxUsd;
+  else hCap = Number(process.env.MAX_USD_PER_RUN) > 0 ? Number(process.env.MAX_USD_PER_RUN) : 7;
+  setBudget(hCap);
+  countEarlierSpend(hSpent);
+  console.log(`handoff: ${hDraft.name} of ${hRunId} -> ${hSeat.provider}/${hSeat.model}${hState.signedOff ? '' : ` (the run ${hState.reason}: the file will say the plan was not signed off)`}; cap ${hCap === null ? 'none' : formatUsd(hCap)}, ${formatUsd(hSpent)} already spent`);
+  let hRes;
+  try {
+    hRes = await runSingleStage(hSeat, { system: hSystem, user: hUser, log: m => console.log(m), label: 'handoff-from-run' });
+  } catch (err) {
+    if (err instanceof BudgetExceeded) { console.error(`handoff: stopped by the spend cap (${formatUsd(err.spent)} spent, this call could cost up to ${formatUsd(err.projected)}, ceiling ${formatUsd(err.cap)}). Raise --max-usd.`); process.exit(4); }
+    if (err instanceof SecretShapedPrompt) exitOnSecretShaped(err, 'handoff');
+    console.error(`handoff: the call failed - ${err?.message || err}`);
+    process.exit(EXIT_RUN_FAILED);
+  }
+  // The money is on record before anything else can fail, a cut-off reply included.
+  writeFileSync(join(hRunDir, 'handoff-from-run.usage.json'), JSON.stringify({ provider: hRes.provider, model: hRes.model, usage: hRes.usage, usd: hRes.usd, ms: hRes.ms, promptHash: hRes.promptHash }));
+  const hStop = hRes.usage?.stop;
+  if (['length', 'max_tokens', 'error', 'content_filter', 'refusal'].includes(hStop) || !String(hRes.text || '').trim()) {
+    console.error(`handoff: the reply did not complete (${hStop ? `stop: ${hStop}` : 'empty'}); nothing was written. Raise the seat's maxTokens and run this again. ${formatUsd(hRes.usd)} was spent.`);
+    process.exit(EXIT_RUN_FAILED);
+  }
+  // The reply itself, as every stage keeps its own (<label>.md); the usage file above is what `council --spend`
+  // and the next cap check read.
+  writeFileSync(join(hRunDir, 'handoff-from-run.md'), String(hRes.text));
+  const body = partialBanner({ state: hState, draftName: hDraft.name, runId: hRunId }) + String(hRes.text).replace(/\s+$/, '') + '\n' + lockBlock(hCriteria, { runId: hRunId });
+  writeFileSync(join(hRunDir, hOut), body);
+  console.log(`handoff: wrote ${join(hRunDir, hOut)} (${formatUsd(hRes.usd)})`);
+  process.exit(0);
+}
+
+// `council lint-criteria --criteria <file> | --run <folder>` (0.8.0): the $0 word-level lints over an
+// acceptance-criteria list (src/criteria-lints.js) - the same ones every run logs before its first paid
+// round - so a hand-written list can be looked at before a run exists. Exit 0 clean, 1 with findings
+// (one per line), 2 no list to read. Heuristics: a finding is a question for a person, not a verdict.
+if (argv[0] === 'lint-criteria') {
+  const critArg = flag('criteria', null);
+  const runArg = flag('run', null);
+  if ((!critArg || critArg === true) === (!runArg || runArg === true)) {
+    console.error('lint-criteria: give exactly one of --criteria <file> or --run <folder>');
+    console.error('usage: council lint-criteria --criteria criteria.md   |   council lint-criteria --run runs/<id>');
+    process.exit(2);
+  }
+  let list;
+  if (critArg && critArg !== true) {
+    try { list = parseCriteriaFile(readFileSync(resolve(work, critArg), 'utf8'), critArg); } catch (e) { console.error(`lint-criteria: ${e.message}`); process.exit(2); }
+  } else {
+    const dir = resolve(work, runArg);
+    const file = existsSync(join(dir, 'report.json')) ? 'report.json' : existsSync(join(dir, 'report-partial.json')) ? 'report-partial.json' : null;
+    if (!file) { console.error(`lint-criteria: no report.json in ${dir}`); process.exit(2); }
+    list = readReportOrExit(join(dir, file), 'lint-criteria').criteria;
+    if (!Array.isArray(list) || !list.length) { console.error('lint-criteria: that report has no criteria'); process.exit(2); }
+  }
+  const findings = lintCriteria(list);
+  if (!findings.length) { console.log(`${list.length} criteria, no findings.`); process.exit(0); }
+  for (const f of findings) console.log(`${f.id}: ${f.message}`);
+  process.exit(1);
 }
 
 // `council digest --run <folder> [--provider p --model m]` (v6 item E): a short, plain-English
@@ -1170,6 +1343,9 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        (after writing runs/<r>/<label>.md); completed
                                        stages replay from disk and cost nothing
   council --chain seven --dry-run      estimate tokens and cost, call nothing
+  council --chain seven --dry-run --json
+                                       the same as one JSON document, plus which
+                                       seat lacks which API key
   council --spend [--days 7]           what every run has cost, across runs,
                                        read back off disk. Nothing is recorded
                                        and nothing leaves this machine.
@@ -1219,6 +1395,16 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council --replay runs/<r>            the same task and chain again today, with a diff
   council replay --run runs/<r> [--json]
                                        a finished run as a numbered transcript
+  council handoff --from-run runs/<r> [--chain <name>] [--max-usd N]
+                                       a HANDOFF.md for a run that stopped before it wrote
+                                       one, from its latest draft (one call, under the
+                                       run's own cap; --max-usd is a total)
+  council lint-criteria --criteria <file> | --run runs/<r>
+                                       $0 word-level lints over acceptance criteria
+                                       (the ones every run logs before its first paid round)
+  council check-lock HANDOFF.md [--run runs/<r>]
+                                       does this HANDOFF still carry the criteria the
+                                       run locked into it? ($0; alias verify-handoff)
   council --forecast-cost --chain <name> [--days N]
                                        a realistic cost range from this chain's own
                                        past runs on this machine
@@ -1457,6 +1643,18 @@ let policyChecks = null;
   }
 }
 
+if (dryRun && argv.includes('--json')) {
+  // The same dry run as one JSON document on stdout (src/dry-run.js), plus which seat lacks which
+  // key. Nothing else is printed, so a caller can parse the whole output.
+  const taskFileForDry = taskPath ? resolve(work, taskPath) : null;
+  const taskChars = taskFileForDry && existsSync(taskFileForDry) ? readFileSync(taskFileForDry, 'utf8').length : null;
+  console.log(JSON.stringify(dryRunReport(config, {
+    fromRun, taskChars, defaultCapUsd: maxUsd ?? null,
+    history: forecastCost(config.name, join(work, 'runs')),
+  }), null, 2));
+  process.exit(0);
+}
+
 if (dryRun) {
   // A dry run prices the chain from the config's own declared token
   // assumptions. It calls nothing, so it costs nothing.
@@ -1580,6 +1778,7 @@ const contextArg = contextArgRaw && contextArgRaw !== true
 // work, since MCP cannot pass --allow-unfenced). The gate reads the task text alone.
 const requestForArtifactGate = request;
 let contextFilesForScan = [];
+let contextHash = null; // 0.8.0: the standing-context bundle's hash, so a resume can tell it changed
 if (contextArg) {
   // Which files, and each one read non-blocking with a size cap: a FIFO, a device or an oversized
   // file is refused with its name, before any call (src/context-files.js).
@@ -1588,6 +1787,7 @@ if (contextArg) {
     files = contextFileList(contextArg);
     contextFilesForScan = files;
     docs = files.map(f => `## ${f.split('/').pop()}\n\n${readContextFile(f)}`).join('\n\n---\n\n');
+    contextHash = contextHashOf(docs);
   } catch (e) {
     if (!(e instanceof ContextFileError)) throw e;
     console.error(`${e.message}. Refused before any call.`);
@@ -1731,7 +1931,7 @@ if (auditEnabled) {
 const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
 
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...unfencedMeta, ...secretScanMeta }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, contextHash, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: config.maxRounds, maxUsd, taskHash, pid: process.pid, rootSpanId, ...(policyChecks ? { policyChecks } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...unfencedMeta, ...secretScanMeta }, null, 2));
 } else {
   if (resumeMeta.rounds) config.maxRounds = resumeMeta.rounds;
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
@@ -1766,6 +1966,18 @@ if (resumeMeta) {
     // The new hash becomes this run's baseline going forward.
     writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...resumeMeta, taskHash }, null, 2));
     console.log(`task hash mismatch covered by a recorded amendment in ${amendmentsPath} - proceeding.`);
+  }
+  // The same rule for the --context documents (roadmap item 10). A run from before this check has no
+  // stored hash: it is trusted, and today's becomes its baseline.
+  const ctxCheck = checkFrozenContext({ storedHash: resumeMeta.contextHash, currentHash: contextHash, amendmentsText });
+  if (!ctxCheck.ok) {
+    console.error(`\n${ctxCheck.message}\n(${amendmentsPath})`);
+    process.exit(EXIT_SCOPE_CHANGED);
+  }
+  if (ctxCheck.amended || (resumeMeta.contextHash === undefined && contextHash)) {
+    const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
+    writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, contextHash }, null, 2));
+    if (ctxCheck.amended) console.log(`context change covered by a recorded amendment in ${amendmentsPath} - proceeding.`);
   }
 }
 // Stage cache: <label>.md holds the text, <label>.usage.json what it cost.
@@ -1930,7 +2142,7 @@ if (!resumeMeta && maxUsdEff !== null) {
 // Bug audit 2026-09-26 #1: this ran before the artifact gate above, so a resume the gate blocked
 // (exit 9, nothing spent) had already deleted the stopped run's partial report and its marker. It
 // now runs only once the gate has passed.
-for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md', 'STOPPED-secret.md']) {
+for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-error.json', 'STOPPED-preflight.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md', 'STOPPED-secret.md']) {
   if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
 
@@ -1975,6 +2187,9 @@ function writeStateJson() {
     stage: currentStage,
     round: currentRound, maxRounds: config.maxRounds,
     seats: [...seatState.entries()].map(([lab, status]) => ({ lab, status })),
+    // The external stages the run is waiting on (empty unless it is paused): what a live view shows
+    // as "your turn" without listing the folder itself.
+    waiting: waitingStages(runDir),
     cost: { perLab: cost.perLab, spentUsd: cost.spentUsd, maxUsd: maxUsdEff },
     updatedAt: new Date().toISOString(),
   };
@@ -1982,6 +2197,10 @@ function writeStateJson() {
   writeFileSync(tmp, JSON.stringify(state, null, 2));
   renameSync(tmp, join(runDir, 'state.json'));
 }
+
+// Called once a stop marker (or NEEDS file) is on disk, so state.json at rest says what the run is
+// now (paused, budget_stopped, failed, ...) instead of the "running" its last progress event wrote.
+function finalState() { currentStage = null; try { writeStateJson(); } catch { /* the marker is the record */ } }
 
 // Rebuild seatState/round from whatever this run folder already recorded, so a --resume run's
 // first state.json write (before any new stage even starts) reflects real history rather than
@@ -2192,6 +2411,7 @@ started.
     log(`\nSTOPPED: preflight objected to the task description (${objections.length} seat(s)).`);
     log(`  detail:  ${join(runDir, 'STOPPED-preflight.md')}`);
     log(`  verdict: ${join(runDir, 'preflight-verdict.json')}`);
+    finalState();
     process.exit(EXIT_PREFLIGHT_BLOCKED);
   }
   if (err instanceof DraftTruncated) {
@@ -2227,6 +2447,7 @@ To continue: raise that seat's \`maxTokens\` in the chain (or, for an external s
 `);
     log(err.stop ? `\nSTOPPED: stage "${err.label}" did not complete (stop: ${err.stop}) - ${err.detail}.` : `\nSTOPPED: stage "${err.label}" was cut off at its token cap - ${err.detail}.`);
     log(`  detail:  ${join(runDir, 'STOPPED-truncated.md')}`);
+    finalState();
     process.exit(EXIT_DRAFT_TRUNCATED);
   }
   if (err instanceof ExternalPause) {
@@ -2250,6 +2471,7 @@ To continue: raise that seat's \`maxTokens\` in the chain (or, for an external s
       for (const p of pauses) log(`  ${p.label}:  prompt ${join(runDir, `NEEDS-${p.label}.md`)}  ->  answer ${join(runDir, `${p.label}.md`)}`);
     }
     log(`  resume:  ${councilCommand()} --resume runs/${runId}`);
+    finalState();
     process.exit(3);
   }
   if (err instanceof BudgetExceeded) {
@@ -2311,6 +2533,7 @@ Or \`--max-usd none\` to continue with no ceiling.
     log(`  detail:  ${join(runDir, 'STOPPED-budget.md')}`);
     if (partialWritten) log(`  so far:  ${join(runDir, PARTIAL_REPORT_FILE)}`);
     log(`  resume:  ${councilCommand()} --resume runs/${runId} --max-usd <higher>`);
+    finalState();
     process.exit(4);
   }
   if (err instanceof SecretShapedPrompt) {
@@ -2348,9 +2571,21 @@ stages are on disk and replay for free: fix the cause, then
 
     ${councilCommand()} --resume runs/${runId}
 `);
+  // The same stop as data (0.8.0 WM0): what failed, and whether asking the same question again could
+  // succeed (a provider that was down or rate-limiting) or will fail the same way (a guard, a lint).
+  writeFileSync(join(runDir, 'STOPPED-error.json'), JSON.stringify({
+    exitCode: denied ? 1 : EXIT_RUN_FAILED,
+    kind: denied ? 'denied_model' : 'error',
+    name: err?.name || 'Error',
+    message: String(err?.message || err).slice(0, 500),
+    ...(Number.isInteger(err?.status) ? { httpStatus: err.status } : {}),
+    transient: !denied && isRetryable(err ?? {}),
+    maybeBilled: err?.maybeBilled === true,
+  }, null, 2));
   appendFileSync(logPath, `${err?.stack || String(err)}\n`);
   log(`\nSTOPPED: ${denied ? 'a denied model' : 'the run failed'} - ${err?.message || String(err)}`);
   log(`  detail:  ${join(runDir, 'STOPPED-error.md')}`);
+  finalState();
   process.exit(denied ? 1 : EXIT_RUN_FAILED);
 }
 
@@ -2364,7 +2599,10 @@ if (result.proposalPool?.length && result.proposalPool.length > result.proposals
 // already lists proposals and debate posts (or a standalone one, if no debate happened this run).
 const boardMd = renderBoardMd({ runId, result });
 if (boardMd) writeFileSync(join(runDir, 'BOARD.md'), boardMd);
-if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff);
+// The locked-criteria block (src/criteria-lock.js) is written by the harness after the model's text,
+// so the criteria a build session reads are the ones the run settled, and `council check-lock` can tell
+// when a copy no longer carries them.
+if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff.replace(/\s+$/, '') + '\n' + lockBlock(result.criteria, { runId }));
 // "How this plan was argued" (src/argued.js): its own file next to the deliverable, never inside it,
 // and every id or lab it names that the run never had goes to WARNINGS.md as well as report.json.
 if (result.argued) {

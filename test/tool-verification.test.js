@@ -42,6 +42,9 @@ const FROZEN_V6_KEYS = [
   // 2026-09-23: 'panelVerdicts' - one row per seat per round, unheard included (bug audit
   // BugAudit_Metrics #3). Additive, same rule.
   'panelVerdicts',
+  // 2026-09-29 (0.8.0): 'missingCriteria' (sign-offs whose criteria table skipped criteria) and
+  // 'criteriaLints' ($0 word-level findings over the criteria list). Both additive, both [] when empty.
+  'missingCriteria', 'criteriaLints',
 ].sort();
 
 test('verify absent: result has no ground_truth key and matches the frozen v6 key set', async () => {

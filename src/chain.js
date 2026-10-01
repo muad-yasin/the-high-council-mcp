@@ -17,6 +17,8 @@ import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-mod
 import { promptHashOf, cacheVerdict } from './cache-integrity.js';
 import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
 import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine, MET_VERDICT } from './criteria-kinds.js';
+import { missingCriteriaRows } from './criteria-ledger.js';
+import { lintCriteria } from './criteria-lints.js';
 import { runDeepDive, deepDiveFailures } from './deep-dive.js';
 import { assertOutboundClean, SecretShapedPrompt } from './outbound-scan.js';
 export { DeniedModel };
@@ -1008,6 +1010,16 @@ export function setChargeHook(fn) { chargeHook = fn || (() => {}); }
 let outboundScan = { allow: false };
 export function setOutboundScan(opts) { outboundScan = { allow: !!opts?.allow }; }
 
+/**
+ * One free-text stage on a seat, outside runChain: the same invoke() every stage goes through, so the
+ * spend cap, the denied-model backstop and the outbound key scan all apply. For a caller that needs a
+ * single call (src/handoff-from-run.js), never as a way round any of them. Set the cap first
+ * (setBudget) or it is uncapped, as for any caller.
+ */
+export async function runSingleStage(seat, { system, user, log = () => {}, label }) {
+  return invoke(seat, { system, user, log, label });
+}
+
 async function invoke(seat, { system, user, log, label }) {
   const started = Date.now();
   // Backstop for the check at the top of runChain: every call, including a replay from disk.
@@ -1257,14 +1269,23 @@ export function resolveChainSeats(config) {
   return { ...config, seats };
 }
 
-function allSeatsOf(config) {
+// Every seat slot a chain can fill, with the name of the slot (`role`), in one place. `allSeatsOf`
+// and `everySeatOf` below are this list with the names dropped, so a reader that wants the roles
+// (the dry run's per-seat key report, src/dry-run.js) cannot drift from the guards that read the
+// seats. The order is the one those functions always had.
+const SINGLE_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'security_reviewer', 'deep_dive'];
+const LIST_SEAT_KEYS = ['critics', 'proposers', 'ambiguity', 'alternatives'];
+export function seatSlotsOf(config) {
   const s = config.seats || {};
-  return [
-    s.criteria, s.builder, s.reviser, s.finalist, s.skeleton, s.handoff, s.questions, s.judge,
-    s.challenger, s.coldRead, s.claims, s.security_reviewer, s.deep_dive,
-    ...(s.critics || []), ...(s.proposers || []), ...(s.ambiguity || []), ...(s.alternatives || []),
-    ...Object.values(s.descending || {}),
-  ].filter(Boolean);
+  const out = [];
+  for (const key of SINGLE_SEAT_KEYS) if (s[key]) out.push({ role: key, seat: s[key] });
+  for (const key of LIST_SEAT_KEYS) (s[key] || []).forEach((seat, i) => { if (seat) out.push({ role: `${key}[${i}]`, seat }); });
+  for (const [stage, seat] of Object.entries(s.descending || {})) if (seat) out.push({ role: `descending.${stage}`, seat });
+  return out;
+}
+
+function allSeatsOf(config) {
+  return seatSlotsOf(config).map(x => x.seat);
 }
 
 // Every seat a run can call, for the guards (policy.json, the missing-key check). Bug-audit fix,
@@ -1273,10 +1294,14 @@ function allSeatsOf(config) {
 // ambiguity, descending, preflight or the default security reviewer - a Grok challenger passed an
 // EU/Mistral-only policy. This adds the two seats allSeatsOf cannot see (preflight.seats and the
 // security reviewer a run falls back to) and is the one list the CLI's guards read.
+export function everySeatSlotsOf(config) {
+  const slots = seatSlotsOf(config);
+  if (Array.isArray(config?.preflight?.seats)) config.preflight.seats.forEach((seat, i) => { if (seat) slots.push({ role: `preflight.seats[${i}]`, seat }); });
+  if (config?.security_review?.enabled === true && !config.seats?.security_reviewer) slots.push({ role: 'security_reviewer (default)', seat: DEFAULT_SECURITY_REVIEWER_SEAT });
+  return slots;
+}
 export function everySeatOf(config) {
-  const seats = [...allSeatsOf(config), ...(Array.isArray(config?.preflight?.seats) ? config.preflight.seats : [])];
-  if (config?.security_review?.enabled === true && !config.seats?.security_reviewer) seats.push(DEFAULT_SECURITY_REVIEWER_SEAT);
-  return seats.filter(Boolean);
+  return everySeatSlotsOf(config).map(x => x.seat);
 }
 
 export function checkSeats(seats) {
@@ -1478,7 +1503,7 @@ export async function runDescendingChain({ request, config, log = console.log, o
     // Pre-release audit 2026-09-23 (GuardLayer #1, and PanelSignoff's backlog): these were dropped
     // here, so a descending chain's security gate never reached the CLI (no exit 7/8, no gate in
     // report.json) and the panel/dispute record was lost. Forwarded only when the final run set them.
-    ...Object.fromEntries(['security_review', 'panelVerdicts', 'dispute', 'regressions', 'noHeardReviewer', 'notQuorate']
+    ...Object.fromEntries(['security_review', 'panelVerdicts', 'missingCriteria', 'criteriaLints', 'dispute', 'regressions', 'noHeardReviewer', 'notQuorate']
       .filter(k => finalResult[k] !== undefined).map(k => [k, finalResult[k]])),
     totals: summarise(stages),
   };
@@ -1579,6 +1604,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       disputes: peek(() => disputes, []),
       regressions: peek(() => regressions, []),
       panelVerdicts: peek(() => panelVerdicts, []),
+      missingCriteria: peek(() => missingCriteria, []),
+      criteriaLints: peek(() => criteriaLints, []),
       history: peek(() => history, []),
       stages,
       totals: summarise(stages),
@@ -1784,6 +1811,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     return n.texts;
   };
   const metWithoutEvidence = [];
+  // A sign-off whose criteria table left criteria out (src/criteria-ledger.js): recorded, never acted on.
+  const missingCriteria = [];
+  const noteMissingRows = (critique, round, lab) => {
+    if (critique?.meets !== true) return;
+    const m = missingCriteriaRows(critique, criteria);
+    if (m) missingCriteria.push({ round, lab, ...m });
+  };
   const noteUnevidenced = (critique, round, lab, say) => {
     for (const criterion of unevidencedCheckableMets(critique, criteria, criteriaKinds)) {
       metWithoutEvidence.push({ round, lab, criterion });
@@ -1885,6 +1919,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     criteriaKinds.forEach((k, i) => { if (k.kind === 'checkable') log(`     ${i + 1}: checkable on ${k.on} - ${k.check}`); });
     log(`  ${summaryLine(criteriaSummary(criteria, criteriaKinds))}`);
   }
+  // $0 word-level lints over the list, before any paid review round (src/criteria-lints.js): recorded
+  // and logged, never a stop.
+  const criteriaLints = lintCriteria(criteria);
+  for (const f of criteriaLints) log(`  criteria lint (${f.id}): ${f.message}`);
   // The "How the checkable criteria are settled" block for critic and handoff prompts; '' when
   // kinds are off or nothing is checkable, which keeps those prompts byte-identical.
   const checks = kindsOn ? checksSection(criteria, criteriaKinds) : '';
@@ -2683,6 +2721,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
         }
         say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
+        noteMissingRows(critique, round, labOf(criticSeat));
         if (checks) noteUnevidenced(critique, round, labOf(criticSeat), say);
         // v5 item 3, touch point 2: the verdict update the live view needs - `passed` (chain.js's
         // own name for "meets every criterion") is already computed here, no new parsing.
@@ -3111,6 +3150,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         break;
       }
       lastCritique = critique;
+      noteMissingRows(critique, round, labOf(criticSeat));
       if (checks) noteUnevidenced(critique, round, labOf(criticSeat), log);
       panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: critique.meets === true ? 'signed_off' : 'objected', reason_code: null, reasked: false });
       const failures = critique.failures;
@@ -3524,6 +3564,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     ...(alternatives !== null ? { alternatives } : {}),
     // Additive: absent on any chain without the deep-dive seat (tiered councils).
     ...(deepDive !== undefined ? { deep_dive: deepDive } : {}),
+    // Additive (0.8.0): the sign-offs whose criteria table skipped criteria; [] when there were none.
+    missingCriteria,
+    criteriaLints,
     // Additive: absent unless the chain enabled criterion kinds (src/criteria-kinds.js).
     ...(kindsOn ? {
       criteriaKinds: kindsRecord(criteria, criteriaKinds),
