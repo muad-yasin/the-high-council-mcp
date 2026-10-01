@@ -9,7 +9,9 @@ Owner: Muad. Items marked **owner** need his go (prompt changes, chain defaults)
   test, locked criteria, $0 criteria lints, `handoff --from-run`, criterion ids and disagreement records,
   resume refusing an unrecorded context change) merged with master. Its five open calls are accepted as
   built. Exit 14 for an edited `--context` is marked **Breaking** in the CHANGELOG.
-- **The web UI (headline below, with replay) moves to 0.8.1**, not 0.9.
+- **The web UI (headline below, with replay) moves to 0.8.1**, not 0.9. Status 2026-10-01: 0.8.0 is merged on master
+  (`78fe3df`) and not yet released. The 0.8.1 build plan (a council run, then a review, a revision and a check, now at
+  revision 1.1) lives in the maintainer's local `Review/` folder, and the build starts with its M0 audit.
 - **The council advisor add-on** (`council_quote` + `council_advise`, research in thc-research briefs 23-31)
   ships in **0.8.2**, on its own. Its patches need a rework step before they merge (five silent breaks on top of
   wave-080, and one naming pass so that `report.json` stays additive). Stop rule: exit 18 means "stopped before
