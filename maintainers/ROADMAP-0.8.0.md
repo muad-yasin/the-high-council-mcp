@@ -9,11 +9,22 @@ Owner: Muad. Items marked **owner** need his go (prompt changes, chain defaults)
   test, locked criteria, $0 criteria lints, `handoff --from-run`, criterion ids and disagreement records,
   resume refusing an unrecorded context change) merged with master. Its five open calls are accepted as
   built. Exit 14 for an edited `--context` is marked **Breaking** in the CHANGELOG.
-- **The web UI (headline below, with replay) moves to 0.8.1**, not 0.9. Status 2026-10-01: 0.8.0 is merged on master
-  (`78fe3df`) and not yet released. The 0.8.1 build plan (a council run, then a review, a revision and a check, now at
-  revision 1.1) lives in the maintainer's local `Review/` folder, and the build starts with its M0 audit.
+- **Release order changed 2026-10-02 (Muad), after 0.8.0 was released that day:** 0.8.1 is the council advisor add-on,
+  0.8.2 is execution contracts, 0.8.3 is the web UI (it takes longest to build). Where the lines below say "0.8.1" for
+  the web UI or "0.8.2" for the add-on, read the new numbers.
+- **Execution contracts (0.8.2, new 2026-10-02):** per-milestone success criteria that the council debates and locks,
+  and that a separate verifier with its own context checks before the next milestone opens. This builds roadmap items
+  5 and 10 below. Research first: thc-research brief 32. The harness does not become a command runner (the person's
+  agent runs commands, the harness records and judges), and the owner declined hashing test files.
+- **The web UI (headline below, with replay) is 0.8.3**, not 0.9. Its build plan (a council run, then a review, a
+  revision and a check, revision 1.1) and its M0 audit (2026-10-02: buildable once three facts are corrected in a
+  revision 1.2) live in the maintainer's local `Review/` folder, with file names still saying "0.8.1". When 0.8.3 starts,
+  M0's entry check and baseline facts are re-run against master as it is then. Its `criteria-approval` pause should
+  reuse 0.8.2's contract lock rather than add a second gate.
 - **The council advisor add-on** (`council_quote` + `council_advise`, research in thc-research briefs 23-31)
-  ships in **0.8.2**, on its own. Its patches need a rework step before they merge (five silent breaks on top of
+  ships in **0.8.1**, on its own. It builds the stop rule (exit 18). The most detailed spec of that rule is the web UI
+  plan's M3 together with the M0 audit's list of readers (B18), so the add-on plan lifts it from there, and the web UI's
+  M3 becomes "already landed, verify". Its patches need a rework step before they merge (five silent breaks on top of
   wave-080, and one naming pass so that `report.json` stays additive). Stop rule: exit 18 means "stopped before
   finishing" (by a person, a client cancel or a wall clock). It always writes a partial report and extends
   the existing `stoppedBy` (`user`, `wall_clock`, `client_cancel`). Whether a run resumes belongs to the chain;
