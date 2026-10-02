@@ -752,6 +752,10 @@ what each rule guards against and why. Copy the folders you want into your proje
     and a key-shaped stop reads as resumable with nothing to do (resuming as it is stops again).
   - On case-insensitive file systems (macOS, Windows), `handoff.md` and `HANDOFF.md` are one file, so the run's lock
     block also lands in the cached handoff stage.
+  - The criteria fingerprint (`criteria_sha256`, the `HANDOFF.md` lock block, `council check-lock`) covers each
+    criterion's wording, not how it is checked: with criterion kinds on, a changed `check` or `on` field leaves the
+    fingerprint unchanged. Found 2026-10-02 by the execution-contracts research; the fix is an added field, not a
+    change to the existing one.
 - The dry run (`--dry-run`, MCP `dry_run`) prices the task alone and does not read `--context`
   documents, so for a run with context its estimate is too low. The spend cap is not affected: it
   checks every real prompt, context included, before each call.
