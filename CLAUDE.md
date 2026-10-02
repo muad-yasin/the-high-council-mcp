@@ -42,7 +42,9 @@ no scripts, no third-party requests.
 planned for later this year.** The landing page now lives at https://sower-industries.de/MCP (the
 npm `homepage`); the GitHub Pages workflow runs only by hand until the repo is public again. The npm
 package `the-high-council` stays public: **0.7.6 was published 2026-09-23** on Muad's go (after a
-24-audit pre-release round). No new releases unless he asks; `npm publish` is his (2FA passkey, run
+24-audit pre-release round); the latest is **0.8.0, published 2026-10-02** (npm, GitHub release with
+the `.mcpb`, MCP registry), as is, with the audit round deferred to 0.8.1 (Muad: no users besides
+him yet). No new releases unless he asks; `npm publish` is his (2FA passkey, run
 from a real terminal). The licence stays MIT. **Keep treating
 everything committed here as publishable:** the release will make it public again, so every rule
 below that says "this repo is public" still binds.
