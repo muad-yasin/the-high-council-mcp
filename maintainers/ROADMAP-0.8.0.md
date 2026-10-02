@@ -34,6 +34,20 @@ planning run:**
   verifier is designed, since the verifier is the natural user of what it finds. Source: the build's own record (the
   maintainer's local decisions and review notes). One plan is a case study, not a measurement: nothing written about
   it claims the mechanism works better (the no-efficacy rule).
+- **With it (owner's second question, 2026-10-02 night): did the debate keep the better ideas, or the better-argued
+  ones?** A proposal can lose because its author withdrew it without being shown wrong, while another lab argued its
+  own case well. Same run, same timing and the same no-efficacy rule as the analysis above. Not a ranking of which lab
+  argued best: three questions the run's JSON and the build record can answer. (1) Each withdrawal: did the reply quote
+  a specific argument, and was that argument a checkable claim (read `debate.replies[]`, including `unargued`, and
+  `cut_despite_support[]` from `report.json`, never `BOARD.md`)? One withdrawal in the plan answered a checkable point (the
+  withdrawn design assumed a stop seam that did not exist yet, so that withdrawal was earned); the question is how many
+  withdrew with no such point at all. (2) Each withdrawn proposal's own content: per the plan's Scope ledger, was
+  it built or dropped, and did a review finding or defect later land where dropped content would have been (the build's
+  log names the proposal ids per commit; the decisions file records every review finding)? (3) The sign-off: did the
+  critics' prompts carry the withdrawn proposals at all? If not, no reviewer could have compared them, which is a fact
+  about the chain's stages and points at a prompt or stage change. Criteria fixed here, before the data is read, so the
+  analysis cannot be fitted to how the build went; the written text names observable behaviour ("withdrew without a
+  checkable argument"), not a model's temperament.
 
 **Scope decided 2026-10-01 (Muad), after the wave-5 research and two reviews of it:**
 - **0.8.0 is an engine release:** branch `wave-080` (UI request guard, WM0 engine additions, per-tool timing
