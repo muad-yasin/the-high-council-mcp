@@ -38,16 +38,15 @@ drifts - same reasoning as `test/landing-page.test.js`. Add or remove a skill an
 you which document needs updating. `docs/skills.html` carries the landing page's two properties:
 no scripts, no third-party requests.
 
-**Visibility (Muad's call, 2026-09-22): this repo is going private until the open-source release
-planned for later this year.** The landing page now lives at https://sower-industries.de/MCP (the
-npm `homepage`); the GitHub Pages workflow runs only by hand until the repo is public again. The npm
-package `the-high-council` stays public: **0.7.6 was published 2026-09-23** on Muad's go (after a
-24-audit pre-release round); the latest is **0.8.0, published 2026-10-02** (npm, GitHub release with
-the `.mcpb`, MCP registry), as is, with the audit round deferred to 0.8.1 (Muad: no users besides
-him yet). No new releases unless he asks; `npm publish` is his (2FA passkey, run
-from a real terminal). The licence stays MIT. **Keep treating
-everything committed here as publishable:** the release will make it public again, so every rule
-below that says "this repo is public" still binds.
+**Visibility: this repo is public again** (it was private from 2026-09-22; Muad made it public, and
+confirmed on 2026-10-02 that this was deliberate; the GitHub description reads "Open source now").
+Everything committed here is published the moment it is pushed. The landing page lives at
+https://sower-industries.de/MCP (the npm `homepage`); the GitHub Pages workflow still runs only by
+hand. The npm package `the-high-council` is public: **0.7.6 was published 2026-09-23** on Muad's go
+(after a 24-audit pre-release round); the latest is **0.8.0, published 2026-10-02** (npm, GitHub
+release with the `.mcpb`, MCP registry), as is, without an audit round (Muad: no users besides him
+yet). No new releases unless he asks; `npm publish` is his (2FA passkey, run from a real terminal).
+The licence stays MIT.
 
 Read `maintainers/HANDOFF.md` before starting work. It carries the release order and the hard rules. Its two
 "open decisions" are now settled and should not be reopened: the `LICENSE` holder stays
