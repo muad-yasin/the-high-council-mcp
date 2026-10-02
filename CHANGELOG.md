@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.8.0 in progress; branch `wave-080`, no version bump)
+## 0.8.0 - 2026-10-02
 
 ### Breaking
 
@@ -8,6 +8,16 @@
   the same rule that already covered the task file. `run.json` stores `contextHash`; record the change in
   the run's `AMENDMENTS.md` (the message prints both `ctx-<hash>` values to write) and resume again. A run
   from before this, and a run with no `--context`, are unaffected.
+- **No-Grok rule: every id in OpenRouter's own namespace is denied.** `ROUTER_MODEL`
+  (`src/denied-models.js`) now denies any single-segment `openrouter/<name>` id, not only
+  `openrouter/auto` and `pareto-code`. Research on OpenRouter's model list (2026-09-30) found four live
+  ids that got past the name list: `openrouter/auto-beta`, `openrouter/fusion` (a hosted multi-model
+  panel), `openrouter/free` (picks free models at random) and `openrouter/bodybuilder`. Each picks or
+  hides the model at request time, so none can be shown to avoid a denied model; the namespace also
+  carries anonymous "stealth" models whose lab is undisclosed. A chain that seats one of these ids is
+  now refused by `chain-lint` and at run time. Ordinary ids (`openai/gpt-6.1-sol`), `:free` variants
+  of them and provider-prefixed pricing keys (`openrouter/openai/...`) are unaffected. Tests in
+  `test/denied-models.test.js`.
 
 ### Changed
 
@@ -43,39 +53,21 @@
   `missing_criteria` (sign-offs whose criteria table skipped criteria; recorded only),
   `cut_despite_support` and `disagreement_map`. See `docs/report-format.md`.
 - A test that every MCP tool answers within 15 s through a whole mock run (a new tool needs a step in it).
+- `chains/security-review-only.json`, a security-review-only chain for Sophi-A's security gate call
+  (F9 in Sophi-A's Seat Families plan, `relay/Docs/SophiA-Seat-Families-Plan.md` §2.9, §5; paired with
+  cnc-harness's own F6, built in that repo). Its only real content is a human- or orchestrator-supplied
+  artifact and the final security-review gate (`515439a`, `docs/security-review-gate.md`). The builder
+  seat is `external`: the CLI pauses at `build` (exit 3), the caller writes the artifact as `build.md`,
+  resumes, and reads the exit code: `0` pass, `7` blocked, `8` not_judged. One always-passing mock critic
+  seat exists only because `chain-lint` requires at least one `seats.critics` entry; it is not what this
+  chain reviews. No engine changes. `test/security-review-only.test.js` covers all three exit paths
+  offline.
 
 ### Fixed
 
 - An `AMENDMENTS.md` entry written with a full 64-character task hash (what `sha256sum` prints) named no
   target at all, so a deliberate amendment was refused; any 12-to-64 hex token now counts, reduced to its
   first 12. A long all-digit token (a compact timestamp) is not a hash.
-
-## Unreleased - No-Grok rule: every id in OpenRouter's own namespace is denied
-
-`ROUTER_MODEL` (`src/denied-models.js`) now denies any single-segment `openrouter/<name>` id, not
-only `openrouter/auto` and `pareto-code`. Research on OpenRouter's model list (2026-09-30) found four
-live ids that got past the name list: `openrouter/auto-beta`, `openrouter/fusion` (a hosted
-multi-model panel), `openrouter/free` (picks free models at random) and `openrouter/bodybuilder`.
-Each picks or hides the model at request time, so none can be shown to avoid a denied model; the
-namespace also carries anonymous "stealth" models whose lab is undisclosed. Ordinary ids
-(`openai/gpt-6.1-sol`), `:free` variants of them and provider-prefixed pricing keys
-(`openrouter/openai/...`) are unaffected. Tests in `test/denied-models.test.js`.
-
-## Unreleased - F9: security-review-only chain, for Sophi-A's security gate call
-
-From Sophi-A's Seat Families plan (`relay/Docs/SophiA-Seat-Families-Plan.md` §2.9, §5, item F9 -
-paired with cnc-harness's own F6, `src/orchestrator/securityGate.js`, built separately in that
-repo). `chains/security-review-only.json`: a tiny chain whose only real content is a human- or
-orchestrator-supplied artifact and the final security-review gate (`515439a`,
-`docs/security-review-gate.md`). The builder seat is `external` - the CLI pauses at `build`
-(exit 3), the caller writes the artifact as `build.md`, resumes, and reads the exit code:
-`0` pass, `7` blocked, `8` not_judged. One always-passing mock critic seat exists only because
-`chain-lint` requires at least one `seats.critics` entry - it is not what this chain reviews.
-Zero engine changes: built entirely from existing seat kinds and the existing `security_review`
-flag. `test/security-review-only.test.js` covers all three exit paths end to end offline (mock
-provider), plus the chain's own lint cleanliness and its external-stage/lack-of-scope-creep
-shape. The landing page's chain-config count (`docs/index.html`) is updated for the new chain;
-`test/landing-page.test.js` derives the count from disk.
 
 ## 0.7.9 - 2026-09-29
 

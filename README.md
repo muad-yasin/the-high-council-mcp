@@ -736,6 +736,9 @@ what each rule guards against and why. Copy the folders you want into your proje
   input plus the seat's entire `maxTokens` budget billed as output (doubled for Anthropic seats,
   which may retry once). Real stages almost never cost that much, so a run can stop with headroom
   left. That is the intended trade - resume it with a higher ceiling.
+- The dry run (`--dry-run`, MCP `dry_run`) prices the task alone and does not read `--context`
+  documents, so for a run with context its estimate is too low. The spend cap is not affected: it
+  checks every real prompt, context included, before each call.
 - A seat whose model has no entry in `src/pricing.json` is **unpriced, and therefore uncapped**.
   It contributes $0 to the running total no matter what it really costs. Check `dry_run` output
   for `unpriced` before trusting a ceiling. `ollama` seats are the one deliberate exception: they
