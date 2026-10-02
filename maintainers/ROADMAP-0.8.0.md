@@ -12,6 +12,20 @@ Owner: Muad. Items marked **owner** need his go (prompt changes, chain defaults)
 - **Release order changed 2026-10-02 (Muad), after 0.8.0 was released that day:** 0.8.1 is the council advisor add-on,
   0.8.2 is execution contracts, 0.8.3 is the web UI (it takes longest to build). Where the lines below say "0.8.1" for
   the web UI or "0.8.2" for the add-on, read the new numbers.
+- **Audit, 2026-10-02** (two Opus 5.5 review agents, each finding verified by the maintainer session; the detail is in
+  the maintainer's local `Review/Audit_0.8.x_Findings_2026-10-02.md`). Nothing is fixed yet; fixes wait for the owner's go.
+  - **0.8.0's new code:** eight confirmed defects plus a file-name collision on case-insensitive filesystems. None is a
+    security hole. Two are in the money record of `handoff --from-run` (a resume does not count its cost; a retry
+    overwrites its usage file), and one is the dry run's over-cap flag (false for a chain with no `estimate` and a long
+    task). The rest are smaller: `check-lock` on CRLF, an amendment that cites a full commit hash, a criteria file that
+    needed JSON repair, and stop markers missing from `state.json` and `resumable`. Each one is also a missing test.
+  - **The add-on rework (0.8.1) carries five design requirements:**
+    - the person sees the exact text before it is sent, never only a hash;
+    - every tool that returns run-folder content wraps it as untrusted (the Security section's return-path item);
+    - a model's request for more material needs a person;
+    - advice chains come from the package or an operator setting, never from the project folder, and the sensitivity
+      label is not the agent's alone;
+    - the rework lands on master together with brief 31's price rows.
 - **Execution contracts (0.8.2, new 2026-10-02):** per-milestone success criteria that the council debates and locks,
   and that a separate verifier with its own context checks before the next milestone opens. This builds roadmap items
   5 and 10 below. Research first: thc-research brief 32. The harness does not become a command runner (the person's

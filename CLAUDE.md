@@ -44,8 +44,8 @@ Everything committed here is published the moment it is pushed. The landing page
 https://sower-industries.de/MCP (the npm `homepage`); the GitHub Pages workflow still runs only by
 hand. The npm package `the-high-council` is public: **0.7.6 was published 2026-09-23** on Muad's go
 (after a 24-audit pre-release round); the latest is **0.8.0, published 2026-10-02** (npm, GitHub
-release with the `.mcpb`, MCP registry), as is, without an audit round (Muad: no users besides him
-yet). No new releases unless he asks; `npm publish` is his (2FA passkey, run from a real terminal).
+release with the `.mcpb`, MCP registry), as is (Muad: no users besides him yet); it was audited
+after release on 2026-10-02 (findings in the maintainer's local `Review/`, fixes pending Muad's go). No new releases unless he asks; `npm publish` is his (2FA passkey, run from a real terminal).
 The licence stays MIT.
 
 Read `maintainers/HANDOFF.md` before starting work. It carries the release order and the hard rules. Its two
