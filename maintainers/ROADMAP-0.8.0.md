@@ -4,6 +4,28 @@
 checked by the other model as advisor; local `Review/Research_0.8.0_Debate_*_2026-09-27.md`, gitignored).
 Owner: Muad. Items marked **owner** need his go (prompt changes, chain defaults).*
 
+**Decided 2026-10-02 evening (Muad), after the execution-contracts research (thc-research brief 32) and a council
+planning run:**
+- **0.8.1** = the council advisor add-on (reworked to the audit's five requirements), the 0.8.0 fixes plus the
+  criteria-fingerprint gap, the stop rule (exit 18), the price rows, and the **contracts floor**: one approval-gate
+  function answered only through a channel a person uses, and a hash-chained ledger. The rest of the contracts' first
+  slice rides along only if it fits. A council run (`plan-daily-7`, $2.15, all three judges signed off in round 6 of 7;
+  the plan lives in the maintainer's local run folder) produced the build plan. Owner calls inside it: the plugin stays
+  at the repo root (only the npm package's file count is checked); GPT-6 Astra through a ChatGPT plan is not built
+  (Astra stays an OpenRouter option); no waiver, so every advice send needs a person to see the exact text.
+- **Found by that run, added to 0.8.1:** the engine cuts every whole architecture, and the posts and replies about it, to
+  2,000 characters before other seats read it (a cap written for short critic fields), silently. Fix: per-kind sizes, and
+  every cut recorded loudly. Also: the proposal output limits in the shipped plan chains (1,500-4,000 tokens per part)
+  are low for reasoning models (two seats were cut and paid twice), and an external seat's half-written answer file
+  can trigger a resume.
+- **0.8.2** = the rest of the contracts (criteria challenge, verifier, evidence), plus a $0 check before each paid
+  panel round that every id the plan cites resolves, and a criterion asking whether a plan contradicts a decided rule
+  (a prompt change, **owner**).
+- **0.8.3** = the local web UI **and** a Claude Code mod (a plugin that draws panes and buttons inside Claude Code),
+  both on one engine; nothing in the web UI plan is dropped.
+- **Distribution:** after 0.8.1, a listing in Anthropic's plugin directory (API keys asked through the plugin's
+  settings dialog, marked secret; a privacy-policy link). The official marketplace needs an Anthropic contact, later.
+
 **Scope decided 2026-10-01 (Muad), after the wave-5 research and two reviews of it:**
 - **0.8.0 is an engine release:** branch `wave-080` (UI request guard, WM0 engine additions, per-tool timing
   test, locked criteria, $0 criteria lints, `handoff --from-run`, criterion ids and disagreement records,

@@ -756,6 +756,11 @@ what each rule guards against and why. Copy the folders you want into your proje
     criterion's wording, not how it is checked: with criterion kinds on, a changed `check` or `on` field leaves the
     fingerprint unchanged. Found 2026-10-02 by the execution-contracts research; the fix is an added field, not a
     change to the existing one.
+  - Every whole architecture (`alternatives`), and every debate post and author reply about one, is cut to 2,000
+    characters before other seats read it, without a warning; the cut text ends with `[truncated, N chars total]`. A
+    seat may therefore debate or build from a shortened design. Critic objections are cut at the same length (a guard
+    against a runaway reply), also without a warning. Found 2026-10-02 in a real run (a 6,704-character design reached
+    the builder as 2,000).
 - The dry run (`--dry-run`, MCP `dry_run`) prices the task alone and does not read `--context`
   documents, so for a run with context its estimate is too low. The spend cap is not affected: it
   checks every real prompt, context included, before each call.
