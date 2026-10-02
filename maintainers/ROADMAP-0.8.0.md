@@ -25,6 +25,15 @@ planning run:**
   both on one engine; nothing in the web UI plan is dropped.
 - **Distribution:** after 0.8.1, a listing in Anthropic's plugin directory (API keys asked through the plugin's
   settings dialog, marked secret; a privacy-policy link). The official marketplace needs an Anthropic contact, later.
+- **After 0.8.1 is built (owner's idea, 2026-10-02 night): an analysis of what the council's plan missed, and why.**
+  Not only the defects the build turned up, but what lay behind them, and whether the debate mechanism can be changed
+  so that council plans carry better software engineering. Two classes to keep apart: what the council could not see
+  because it planned from documents without running the code (a job for the 0.8.2 verifier), and what it could have
+  caught by checking the plan's own sections against each other (cross-references, decided rules, the persistence
+  register and the milestones), which points at the debate and critic prompts. Timing: after M10, before the 0.8.2
+  verifier is designed, since the verifier is the natural user of what it finds. Source: the build's own record (the
+  maintainer's local decisions and review notes). One plan is a case study, not a measurement: nothing written about
+  it claims the mechanism works better (the no-efficacy rule).
 
 **Scope decided 2026-10-01 (Muad), after the wave-5 research and two reviews of it:**
 - **0.8.0 is an engine release:** branch `wave-080` (UI request guard, WM0 engine additions, per-tool timing
