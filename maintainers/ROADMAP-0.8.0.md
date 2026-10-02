@@ -13,7 +13,9 @@ Owner: Muad. Items marked **owner** need his go (prompt changes, chain defaults)
   0.8.2 is execution contracts, 0.8.3 is the web UI (it takes longest to build). Where the lines below say "0.8.1" for
   the web UI or "0.8.2" for the add-on, read the new numbers.
 - **Audit, 2026-10-02** (two Opus 5.5 review agents, each finding verified by the maintainer session; the detail is in
-  the maintainer's local `Review/Audit_0.8.x_Findings_2026-10-02.md`). Nothing is fixed yet; fixes wait for the owner's go.
+  the maintainer's local `Review/Audit_0.8.x_Findings_2026-10-02.md`). **Owner's decisions (2026-10-02):** the 0.8.0
+  fixes ship together with the add-on in 0.8.1, each with a test; README "Known limits" lists them until then; the add-on
+  must always show the person the exact text before anything is sent.
   - **0.8.0's new code:** eight confirmed defects plus a file-name collision on case-insensitive filesystems. None is a
     security hole. Two are in the money record of `handoff --from-run` (a resume does not count its cost; a retry
     overwrites its usage file), and one is the dry run's over-cap flag (false for a chain with no `estimate` and a long

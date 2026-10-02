@@ -736,6 +736,22 @@ what each rule guards against and why. Copy the folders you want into your proje
   input plus the seat's entire `maxTokens` budget billed as output (doubled for Anthropic seats,
   which may retry once). Real stages almost never cost that much, so a run can stop with headroom
   left. That is the intended trade - resume it with a higher ceiling.
+- **Known defects in 0.8.0**, found by a review after release (2026-10-02) and due to be fixed in 0.8.1:
+  - `council handoff --from-run` keeps one cost record per run. Running it again (as its own message suggests after a
+    cut-off reply) overwrites the first call's cost, so `council --spend` undercounts. A later `--resume` does not count
+    the handoff's cost toward the run's cap at all.
+  - For a chain with no `estimate` block and a task longer than about 16,000 characters, `--dry-run --json` reports
+    `worstCaseWithTaskUsd: null` and `cap.worstCaseAboveDefault: false` even when the run could pass the cap. The text
+    dry run and the in-run cap are not affected.
+  - `council check-lock` reports an untouched `HANDOFF.md` as edited when the file has Windows (CRLF) line endings.
+  - An `AMENDMENTS.md` entry whose reason quotes a full-length commit hash is read as moving the task to that hash, and
+    the resume is refused. Quote a short hash (7 characters) instead.
+  - `handoff --from-run` writes a `HANDOFF.md` with no lock block, without a warning, when the run's `criteria.md`
+    needed JSON repair.
+  - After a stop for a cut-off draft, a preflight objection or a key-shaped prompt, `state.json` still says `running`,
+    and a key-shaped stop reads as resumable with nothing to do (resuming as it is stops again).
+  - On case-insensitive file systems (macOS, Windows), `handoff.md` and `HANDOFF.md` are one file, so the run's lock
+    block also lands in the cached handoff stage.
 - The dry run (`--dry-run`, MCP `dry_run`) prices the task alone and does not read `--context`
   documents, so for a run with context its estimate is too low. The spend cap is not affected: it
   checks every real prompt, context included, before each call.
