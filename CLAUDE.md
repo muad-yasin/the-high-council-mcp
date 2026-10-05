@@ -31,6 +31,14 @@ ever added, they belong to this same "generic, public, BYOK-consistent" bar, not
 content, and go through the same leftover-content grep (source project names, internal paths,
 private seat build names, third-party text) before they ship.
 
+**Game-development skills are public here, by Muad's explicit call (2026-10-05).** `proof-discipline`,
+`game-verification`, `open-world-streaming`, `engine-editor-driving` and `dcc-agent-authoring` ship in `skills/`
+although this section's earlier bar was "not game-specific": Muad confirmed in his own session that they go
+public, as neutral, dated, graded facts about game engines and Blender, not any one project's rules. The
+criteria-tier rule is owned by `verification-and-critique`; `proof-discipline` points to it. Public text may name
+engine and tool vendors (Unity, Unreal, Riot's published talks) for neutral facts only; project-specific
+decisions, paths and session names stay out and go through the same leftover-content grep.
+
 **The skill list lives in `skills/` itself.** `skills/README.md` (the catalog) and
 `docs/skills.html` (the customer-facing presentation) both enumerate it by hand, so
 `test/skills-catalog.test.js` derives the real set from the folders and fails if either document
