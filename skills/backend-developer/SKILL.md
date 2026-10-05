@@ -70,7 +70,7 @@ Not a substitute for a security review; the floor every change meets. Categories
 - **A mistake shipped twice earns a mechanical guard** (a lint rule, a source-scanning test). Enumerate the paraphrases the bug could take first - a guard with a synonym hole is confidence without coverage.
 - **Generated output is validated by invariants over golden seeds plus fresh random seeds** each run; never by eyeballing alone.
 - **A skipped check is not a pass.** A test that skips for a missing environment variable, file or key reports SKIP, and a required check that skipped fails the run - a suite once counted real-data checks as passed because they skipped silently without their environment. Name which checks are required and have the runner print the skip count.
-- **A check is evidence only if it can fail.** Run it once against a known-bad input before trusting a pass; a check whose result is guaranteed by how the thing was built (a test that a smoothed surface bends only where its grid lines are, which it must) is a tautology that reads as confirmation. The general rule is `verification-and-critique`'s (Part 1, rule 1).
+- **A check is evidence only if it can fail.** Run it once against a known-bad input before trusting a pass; a check whose result is guaranteed by how the thing was built (a test that a smoothed surface bends only where its grid lines are, which it must) is a tautology that reads as confirmation. The general rule is `verification-and-critique`'s, Part 1: "Before trusting a check, ask whether it could have come out the other way".
 
 ## Definition of done
 

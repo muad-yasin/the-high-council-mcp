@@ -36,7 +36,7 @@ Research exists to produce claims someone can act on without re-checking them. T
 
 **Step 3 - write the claim ledger.** For each load-bearing claim: the claim, the source and tier, documented or inferred, the date, and the setup any number belongs to. For a data source or asset, add the licence or terms clause for the intended use.
 
-**Step 4 - ideas, not text.** Paraphrase what you learned. Reproduce no third-party code, prompt text, or long passages; quote only what is presented as a quote, attributed. Particulars are evidence, not diction - pasted institutional phrasing reads as machine output even when true.
+**Step 4 - ideas, not text.** Paraphrase what you learned. Reproduce no third-party code, prompt text, or long passages; quote only what is presented as a quote, attributed. Particulars are evidence, not diction (the rule: `fact-checking`, references/verification.md).
 
 **Step 5 - hand off the ledger with the findings**, so a reviewer can check claims without redoing the research, and so the grades survive into whatever gets built on top.
 

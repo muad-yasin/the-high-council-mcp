@@ -56,7 +56,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
   <div class="wrap">
     <div class="eyebrow">The High Council &middot; Skills</div>
     <h1>You can build anything in a weekend.<br>So can everyone else.</h1>
-    <p class="lede">What decides the outcome now is the part most people skip: deciding what is worth building, and proving it actually works. These fourteen skills write that part down, so your AI coding agent does it too.</p>
+    <p class="lede">What decides the outcome now is the part most people skip: deciding what is worth building, and proving it actually works. These nineteen skills write that part down, so your AI coding agent does it too.</p>
     <p class="sub">Free and MIT-licensed. They work in any Claude Code project, with or without The High Council harness. No account, no API key, nothing to install beyond copying folders.</p>
     <div class="honest"><strong>No efficacy claim.</strong> Nothing here has been measured against working without these skills, so we don't say they make results better. Every rule says what it guards against and why - most began as a real failure on a real project - so you can judge each one yourself.</div>
   </div>
@@ -192,6 +192,71 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
 
 <section>
   <div class="wrap">
+    <div class="eyebrow">Game development</div>
+    <h2>For games, engines and the assets that feed them</h2>
+    <p>Five skills for work that runs inside a game engine or feeds one. They carry the same failure-class thinking as the rest, with neutral facts about the common engines and Blender, each dated and graded where it rests on documentation.</p>
+    <div class="grid">
+      <article class="card" data-skill="proof-discipline">
+        <h3><code>proof-discipline</code></h3>
+        <p class="when">Before a measured result gates a milestone, sets a baseline or decides a rebuild.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>A bar moved after the data was seen</li>
+          <li>A sample picked from what fails, then called representative</li>
+          <li>A test that could only ever say yes</li>
+          <li>The aggregate reported while a neighbouring case got worse</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="game-verification">
+        <h3><code>game-verification</code></h3>
+        <p class="when">Deciding whether a game change works, and whether a build may go to a person.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>A feature handed over that never ran in the integrated build</li>
+          <li>A skipped smoke test read as a pass</li>
+          <li>Screenshots from a run with no rendering</li>
+          <li>Timings taken on the wrong machine</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="open-world-streaming">
+        <h3><code>open-world-streaming</code></h3>
+        <p class="when">Streaming, level of detail, collision loading and hitches in large worlds on weak hardware.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Two coordinate frames compared with no conversion</li>
+          <li>A counter reading zero accepted as a clean result</li>
+          <li>Collision arriving after the vehicle</li>
+          <li>Budgets set from a faster machine than the weakest target</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="engine-editor-driving">
+        <h3><code>engine-editor-driving</code></h3>
+        <p class="when">An agent operating a game-engine editor over a bridge.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>A success reply accepted with no read-back</li>
+          <li>Object ids carried across a reload</li>
+          <li>Play-mode edits leaking into the asset</li>
+          <li>A timed-out call re-issued without checking whether it landed</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="dcc-agent-authoring">
+        <h3><code>dcc-agent-authoring</code></h3>
+        <p class="when">Driving Blender from an agent to build and export engine-ready assets.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Interactive edits nobody can repeat</li>
+          <li>Scale and unit lost between export and import</li>
+          <li>A builder that grades its own output</li>
+          <li>A bridge server pinned by command name instead of source</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
     <div class="eyebrow">Writing</div>
     <h2>For words people will read</h2>
     <p>Four skills that hand off in a fixed order - facts, draft, edit, independent read - plus one register for writing warmly about someone real. They cover marketing copy, documentation, announcements, articles and in-product text alike. The legal notes in <code>fact-checking</code> are general information, not legal advice.</p>
@@ -205,17 +270,19 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
           <li>Figures and rulings never traced to the original document</li>
           <li>False claims inherited from an earlier draft</li>
           <li>A charge written up as a conviction</li>
+          <li>AI-written text published with no disclosure where the law asks for it</li>
         </ul>
       </article>
       <article class="card" data-skill="drafting">
         <h3><code>drafting</code></h3>
-        <p class="when">Writing any new text, from a landing page to a button label.</p>
+        <p class="when">Writing any new text, from a landing page to a help page.</p>
         <div class="label">Guards against</div>
         <ul>
           <li>Filler written to fill a length</li>
           <li>A piece that shows how something happened but never says why it matters</li>
           <li>Endings that explain instead of land</li>
           <li>A headline and first sentence that say the same thing twice</li>
+          <li>A status report that says yes about a check that could only say yes</li>
         </ul>
       </article>
       <article class="card" data-skill="line-editing">
@@ -238,6 +305,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
           <li>A reviewer who quietly rewrites the piece</li>
           <li>"Is this good?" answered yes by the author</li>
           <li>Untraced quotes let through because a name was changed</li>
+          <li>A self-run read passed off as an independent one</li>
         </ul>
       </article>
       <article class="card" data-skill="good-news-writing">

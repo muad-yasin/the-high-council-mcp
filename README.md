@@ -721,7 +721,10 @@ it - usable in any project, with or without the harness, and needing no API key:
   `context-and-handoff`, `tool-and-action-discipline` - the work around the work, for any agent
   task, including setups where several models propose, critique, and hand off to each other.
 - **Building software:** `backend-developer`, `frontend-developer`, `ux-design`, `visual-craft`.
-- **Writing:** `good-news-writing`.
+- **Game development:** `proof-discipline`, `game-verification`, `open-world-streaming`,
+  `engine-editor-driving`, `dcc-agent-authoring` - verification, streaming, editor and Blender work
+  for games.
+- **Writing:** `drafting`, `fact-checking`, `line-editing`, `final-read`, `good-news-writing`.
 
 The full catalog, with when to use each and what it guards against, is
 [`skills/README.md`](skills/README.md); a shareable presentation page is `docs/skills.html`. Both

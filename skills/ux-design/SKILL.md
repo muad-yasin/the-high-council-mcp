@@ -1,6 +1,6 @@
 ---
 name: ux-design
-description: Runs the design pass before any interface is built - user flow, text wireframe, every screen state (locked, first-time, empty, loading, error), accessibility, notification intrusiveness, onboarding, dark-pattern screening, and UI copy. Use before implementing or changing any user-facing surface, including small requests like "add a button" or "show X to the user", even when the request never uses a design word. Hands a flow, wireframe and states list to frontend-developer. Not for whether the built result looks right (visual-craft).
+description: Runs the design pass before any interface is built - user flow, text wireframe, every screen state (locked, first-time, empty, loading, error), accessibility, notification intrusiveness, onboarding, dark-pattern screening, and what each control, state and error must say. Use before implementing or changing any user-facing surface, including small requests like "add a button" or "show X to the user", even when the request never uses a design word. Hands a flow, wireframe and states list to frontend-developer. Not for whether the built result looks right (visual-craft).
 license: MIT
 ---
 
@@ -36,7 +36,8 @@ Output of this skill, handed to `frontend-developer`: **a confirmed flow, a text
 - **Keep interactive content out of hardware and OS keep-out zones** (notches, status bars, gesture edges) - an authoring rule to check, not something the runtime handles for you.
 - **List every state:** locked or teaser, first-time, empty, loading, active, error. Say what each communicates.
 - **Mystery-lock or full transparency, chosen per screen.** A discovery screen may hide locked content; a planning screen shows its name, cost and requirements up front. Say which and why.
-- **A locked or empty state gets a headline, a one-line reason, a visual cue, and a next step where one exists.** "Check back later" is worse than either a plain dimmed lock or a real reason.
+- **Withhold the action, never the information.** A locked or unavailable item says what it is and what it costs; the button is what is withheld. A planning screen is not a discovery mechanic. (A deliberate exception on one project: a physical object in a game world left silently unusable so players would wonder about it. It worked because it was an object in a world, not a menu row: a screen keeps transparency, a world can keep a mystery.)
+- **A lock the user can resolve gets its reason and next step; a lock they cannot resolve gets plain dimmed chrome, not a caption.** A locked or empty state otherwise gets a headline, a one-line reason, a visual cue, and a next step where one exists. "Check back later" is worse than either a plain dimmed lock or a real reason.
 - **A newly interactive element needs a visible affordance** (icon, highlight, chevron, caption) specified in the design. Wireframes describe what an element does and routinely forget that it must *look* actionable.
 - **Say whether each visual signal invites or informs.** Inviting signals draw attention (a glow, a pulse, a badge); informative ones are legible but recede (a label, a count). The distinction (Celia Hodent's inviting and informative signs, from game UX) generalizes well and stops an informative element being animated into a nag. If a control needs a caption to explain its own verb, question the control first.
 

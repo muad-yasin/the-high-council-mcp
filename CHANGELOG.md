@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased (0.8.1)
+
+### Skills
+
+- **The 14 generic skills were rewritten and five skills were added.** The rewrite followed a review of each skill against
+  published sources and the failures it guards against; rules that two skills both carried now live in one skill and are
+  pointed to from the other. `verification-and-critique` gained rules (criteria in two tiers with a verdict that never
+  bends; a fix verified on what it could have worsened; a skipped check is not a pass), so its rule numbers moved: other skills now point to
+  rules by their text, not their number. `backend-developer` gained a rule on units and reference frames.
+- **New: `proof-discipline`, `game-verification`, `open-world-streaming`, `engine-editor-driving`, `dcc-agent-authoring`.** Neutral, dated and
+  graded facts about game engines and Blender, kept free of any one project. `dcc-agent-authoring`'s scripts have unit tests for the pure checks and
+  a mutation pass that need no Blender; the Blender-facing parts have not been run in Blender yet, and the skill says so.
+- `ux-design` now says "withhold the action, never the information" and when a lock needs a caption; its description no longer claims button and error text,
+  which `drafting` hands to it. `drafting` gained a register for status reports, and `fact-checking` a rule on disclosing AI-written text.
+- No efficacy claim: nothing in these skills has been measured against working without them.
+
 ## 0.8.0 - 2026-10-02
 
 ### Breaking

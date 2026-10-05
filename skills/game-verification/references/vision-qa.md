@@ -1,0 +1,25 @@
+# Vision-model reads of game captures: what is known, and a protocol
+
+*Read before asking any vision-capable model, including the session you are in, whether a capture "looks right". A session judging a screenshot is a vision-model judge. The general rule is `verification-and-critique`, "Vision-model reads of images are measurements, not taste"; this is the game procedure and its evidence.*
+
+## What the evidence supports, graded
+
+- **Question framing changes how much of the image the model uses - D.** Fan, Luo, Kutscher, Sigal and Gupta, "Tinted Frames: Question Framing Blinds Vision-Language Models", arXiv 2603.19203, 19 Mar 2026 (abstract read 2026-10-04): constrained framings such as multiple choice and yes/no "induce substantially lower attention to image context" and cause "cross-framing inconsistency"; attention moves off the task-relevant regions, and different phrasings of one visual question give different answers. Consequence: ask open-ended, describing questions first; do not ask "is this correct, yes or no" of a capture.
+- **Off-the-shelf models on real gameplay QA are modest - D.** "How Far Can VLMs Go for Visual Bug Detection?", arXiv 2603.22706, March 2026 (abstract read 2026-10-05): over 19,738 keyframes from 41 hours of industrial gameplay video, a single-prompt baseline reached precision 0.50 and accuracy 0.72, and a secondary judge model or metadata-augmented prompting gave "only marginal improvements over the simple baseline, while introducing additional computational cost and output variance". One study, one setup; it says a second model reading the same frame is not a reliable fix.
+- **Generation versus verification in 3D editing - D.** Gu, Huang, Je, Yang and Guibas, "BlenderGym", CVPR 2025 (arXiv 2504.01786, abstract read 2026-10-04): the verifier used to guide the scaling of generation "can itself be improved through inference scaling", and compute "can be optimized by strategically distributing it between generation and verification". The paper studies graphics editing, not QA. That a separate verify step with the capture beats another generation pass is an inference here (I).
+- **Anchoring by textual framing against the pixels - I.** A 2026 paper under the name "Perceptual Judgment Bias", attributed to Park et al., is repeated in other skill sets; we could not find it with a search on 2026-10-01, so we do not cite it. Related published work on visual sycophancy exists (for example arXiv 2408.09111, a 2024 measurement paper on a different setup). "Describe before judging" rests on the framing result above and on practice.
+- **Temporal blindness and instability across repeated asks - I.** Reported in other skill sets with benchmark citations that were not re-opened here. Treat as a prior; the protocol does not depend on them being exact.
+
+## The protocol
+
+1. **Fix the capture before you look:** camera, resolution, quality tier, time of day, vehicle and state, build id. Save the file with those in its name.
+2. **Crop to the thing under review.** Images are resized to a model-specific limit that has changed between model generations, so check the current limit for your model. Crop anyway: a defect a few pixels wide is a handful of image patches in a whole frame, and a crop of the wheel arch shows the wheel arch.
+3. **Describe, then compare, then judge.** First prompt: "Describe what is in this image: objects, positions, colours, text." Second: "Here is the reference. List the differences." Third, only if needed: a judgement against a named, checkable criterion (for example "is the horizon line within the top third", "is any text clipped", "do the wheel arches contain visible tyre geometry").
+4. **Two or three reads of the same capture are cheap triage, not confirmation.** Practice, not measured: keep what the reads agree on as a lead and drop what appears once. Agreement does not make a finding: a defect stays a lead until state data or a person confirms it, since a second read by the same kind of model shares the first one's blind spots (see 2603.22706 above).
+5. **Never use a model to count** repeated small objects or to read coordinates; measure those from data (positions, mesh stats) and use the capture only to confirm visibility.
+6. **Keep a reference set:** a few accepted captures of the same scene and a few known-bad ones. Put the candidate among them unlabeled and ask for a ranking. If the model ranks a known-bad above a known-good, it is unreliable for this question and is downgraded to drift detection only (`verification-and-critique`, lineup check).
+7. **A person judges style and feel.** The evidence covers measurable differences and image quality, not art-directional taste. A model verdict on "is this coherent with the rest of the scene" is unverified.
+
+## What to put in the report
+
+For each model-read finding: the capture file name, the crop, the prompts used (one line each), how many reads agreed, whether state data or a person has confirmed it, and what the capture cannot show. "The model said it looks fine" is never a finding.

@@ -1,7 +1,7 @@
 # The High Council skills
 
 *A small, curated set of Claude Code skills shipped alongside The High Council. MIT, free, no
-account, no keys. Last updated 2026-09-26.*
+account, no keys. Last updated 2026-10-05.*
 
 You can build almost anything in a weekend now. So can everyone else. The difference is no longer
 whether it gets built - it is whether the right thing got built, and whether it actually works.
@@ -44,14 +44,24 @@ mode, hooks, compaction, subagents) only as examples of a general mechanism.
 | [`ux-design`](ux-design/SKILL.md) | Before building any user-facing surface, even "just add a button" | Visuals before flow; missing states; WCAG 2.2 design gaps; notifications louder than they deserve; dark patterns; onboarding by lock-out tutorial |
 | [`visual-craft`](visual-craft/SKILL.md) | Once flow and implementation are right and the question is "does this look right" | Unanchored styles; generic defaults chosen by accident; color judged by eye; a single screenshot trusted as proof; vision models used as taste authorities |
 
+### Game development - work inside an engine, or feeding one
+
+| Skill | Use it when | What it guards against |
+|---|---|---|
+| [`proof-discipline`](proof-discipline/SKILL.md) | Before a measured result gates a milestone, sets a baseline, decides a rebuild or costs real compute | A bar moved after the data was seen; a sample picked from what fails; a test that could only say yes; the aggregate reported while a neighbouring case got worse |
+| [`game-verification`](game-verification/SKILL.md) | Deciding whether a game change works and whether a build may go to a person, with nobody watching | A feature handed over that never ran in the integrated build; a skipped smoke test read as a pass; screenshots from a run with no rendering; timings from the wrong machine |
+| [`open-world-streaming`](open-world-streaming/SKILL.md) | Streaming, level of detail, collision loading and loading hitches in large worlds on weak hardware | Two coordinate frames compared with no conversion; a counter reading zero accepted as clean; collision arriving after the vehicle; budgets set from a faster machine |
+| [`engine-editor-driving`](engine-editor-driving/SKILL.md) | An agent operating a game-engine editor over a bridge | A success reply accepted with no read-back; object ids carried across a reload; play-mode edits leaking into the asset; a timed-out call re-issued blind |
+| [`dcc-agent-authoring`](dcc-agent-authoring/SKILL.md) | Driving Blender from an agent to build and export engine-ready assets | Interactive edits nobody can repeat; scale lost between export and import; a builder that grades itself; a bridge pinned by command name instead of source |
+
 ### Writing
 
 | Skill | Use it when | What it guards against |
 |---|---|---|
-| [`drafting`](drafting/SKILL.md) | Writing any new text: copy, docs, announcements, emails, articles, in-product text | Filler written to a length; no stance; a register nobody chose; endings that explain instead of land; a headline and an opening that say the same thing twice |
-| [`fact-checking`](fact-checking/SKILL.md) | Before drafting from real events, and before publishing any claim about a real person or organization | Invented or sharpened quotes; figures and rulings never traced to the primary document; inherited claims on rewrites; indictments written as convictions; real names left in satire |
+| [`drafting`](drafting/SKILL.md) | Writing any new text: copy, docs, announcements, emails, articles, in-product text | Filler written to a length; no stance; a register nobody chose; endings that explain instead of land; a headline and an opening that say the same thing twice; a status report that says yes about a check that could only say yes |
+| [`fact-checking`](fact-checking/SKILL.md) | Before drafting from real events, and before publishing any claim about a real person or organization | Invented or sharpened quotes; figures and rulings never traced to the primary document; inherited claims on rewrites; indictments written as convictions; real names left in satire; AI-written text published with no disclosure where the law asks for it |
 | [`line-editing`](line-editing/SKILL.md) | Revising existing text that reads flat, generic, or machine-written; batch voice passes | Polishing prose that has no stance; the double lede; explained endings; machine-writing tells, with the evidence and its limits; sweeps that edit before grading |
-| [`final-read`](final-read/SKILL.md) | After drafting and editing, before anyone else sees the work | Claims checked against memory instead of re-searched; reviewers who rewrite; "is this good?" answered yes by the author; untraced quotes let through |
+| [`final-read`](final-read/SKILL.md) | After drafting and editing, before anyone else sees the work | Claims checked against memory instead of re-searched; reviewers who rewrite; "is this good?" answered yes by the author; untraced quotes let through; a self-run read passed off as an independent one |
 | [`good-news-writing`](good-news-writing/SKILL.md) | Warm, positive coverage of a real person or organization doing something good | Press-release tone; invented villains; backhanded praise; untraceable quotes; overstated good deeds |
 
 ## How the skills fit together
@@ -98,7 +108,7 @@ tools, and it needs your own API keys only for chains that call a paid model.
   inference, it says so.
 - **Rules get deleted when they stop being true.** Many rules encode something models currently do
   badly. When that changes, the rule goes. Cited research and standards were last re-checked
-  against their primary sources on 2026-09-26.
+  against their primary sources on 2026-09-26, and the game-development set on 2026-10-05 (each page's own date is in the file).
 
 ## Updates
 
