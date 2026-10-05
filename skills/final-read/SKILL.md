@@ -1,6 +1,6 @@
 ---
 name: final-read
-description: Runs the independent adversarial pass on finished writing before anyone else sees it - first an armed fact pass that re-searches every load-bearing claim instead of trusting memory, then a reading panel of four stances (professional reader, ordinary reader, QA reader, owner's proxy) answering checkable questions, with a lineup against real anchor pieces to resist self-flattery. Returns per-piece verdicts and never edits. Use after drafting and editing are finished and before work is shown, published or shipped, and on demand to audit already-published text. Works in the same session that wrote the piece; a fresh context is stronger. Not for producing fixes - claims go back to fact-checking, prose to line-editing.
+description: Runs the independent adversarial pass on finished writing before anyone else sees it - first an armed fact pass that re-searches every load-bearing claim instead of trusting memory, then a reading panel of four stances (professional reader, ordinary reader, QA reader, owner's proxy) answering checkable questions, with a lineup against real anchor pieces to resist self-flattery. Returns per-piece verdicts and never edits. Use after drafting and editing are finished and before work is shown, published or shipped, and on demand to audit already-published text. Works in the same session that wrote the piece, with a self-run reading panel marked as such in the verdict; a fresh context is stronger. Not for producing fixes - claims go back to fact-checking, prose to line-editing.
 license: MIT
 ---
 
@@ -19,9 +19,11 @@ The writer is the worst-placed person to check the writing. On one content proje
 
 **By default, the session that wrote the piece.** A fresh context is stronger and stays available, but requiring it made the pass expensive enough to skip - and a pass that always runs beats a better one that sometimes does.
 
+**This is a deliberate exception to `verification-and-critique`'s rule that the reviewer is not the author, and it holds for Pass 1 only.** A self-run Pass 2 is marked in the verdict block (`READER (self-run): ...`), so the person signing off knows the panel was the author.
+
 Self-running works because **Pass 1 is mechanical**: a re-searched claim is verified no matter who typed the query. The whole discipline is one line - **re-search every load-bearing claim at review time; never check it against memory.** Recall is the operation that failed.
 
-**Pass 2 is the half that degrades when self-run**, because asking yourself whether your prose is good returns yes. The countermeasure is the lineup test, actually performed. When a piece matters unusually, or Pass 2 keeps returning "publish", or findings start arriving pre-answered (a draft carrying a "keeper" sentence *because* the panel asks for one), spend the fresh context.
+**Pass 2 is the half that degrades when self-run**, because asking yourself whether your prose is good returns yes. The countermeasure is the lineup test, actually performed, and the self-run marker above. When a piece matters unusually, or Pass 2 keeps returning "publish", or findings start arriving pre-answered (a draft carrying a "keeper" sentence *because* the panel asks for one), spend the fresh context.
 
 ## The packet
 
@@ -61,7 +63,7 @@ READER: fix - decorative cold open; the argument starts at sentence two
 ```
 
 - **FACTS always rides** - a zero-flag count is a claim about work done.
-- **READER rides only when it isn't `publish`.** A line that always says the same thing stops being read.
+- **READER rides only when it isn't `publish` - with one exception: a self-run Pass 2 always rides, even on `publish` (`READER (self-run): publish`).** A self-run panel returning publish is the degraded case this skill already names, and the person signing off should see it. Otherwise a line that always says the same thing stops being read.
 - Verdicts: `publish` / `fix: <named finding>` / `kill: <reason>`. Use a named failure mode where one fits (`line-editing`); describe a new one plainly and flag it as a candidate.
 - **Never replacement prose.** Point at the sentence; don't write its successor.
 
@@ -76,7 +78,7 @@ This raises the detection rate and makes surviving failures cheap to kill; it do
 - Replacement prose in a verdict; a reviewer who edits.
 - "Is this good?" answered instead of the checkable questions; a lineup run against remembered examples.
 - A quote let through because a name was altered.
-- A READER line that always says `publish`, or a FACTS line left off because nothing was flagged.
+- A READER line that always says `publish` from an independent panel, or a FACTS line left off because nothing was flagged; a self-run READER line that does not say it was self-run.
 - The panel's own reasoning silently substituted for a stated house rule - when they disagree, the disagreement is the finding.
 
 The four stances in full: `references/reading-panel.md`. Building and maintaining anchors: `references/anchors.md`. Handing the reviewed batch to whoever signs off: `references/presentation.md`.

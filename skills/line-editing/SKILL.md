@@ -40,11 +40,11 @@ Full definitions, tests and fixes: `references/failure-modes.md`. The names, so 
 - **Report-shaped drafting** - body written most-important-fact-first; causes the double lede and a leftover ending together.
 - **Decorative cold open**, **the wall** (one block over ~70 words with no turn), and **the four ending failures**: trailing qualifier, abstract closer, unpacked closer, relieving closer.
 - **Wryness instead of anger**, **newswire voice**, **wire diction pasted intact**, **thin body on a real story**, **press-release voice on a warm piece** (`good-news-writing`).
-- **Batch fingerprint** - sameness visible only across pieces. A recurring *conclusion* is not a fingerprint; steering around a true recurring point is the worse failure.
+- **Batch fingerprint** - sameness visible only across pieces (and a recurring *conclusion* is not one: `references/failure-modes.md`).
 
 ## Machine-writing tells, short form
 
-- **A focal vocabulary** that surged in published text after chat assistants arrived (*delve, showcase, underscore, intricate, pivotal, realm, meticulous*), plus inflated verbs (*leverage, utilize, harness, streamline, empower*).
+- **A focal vocabulary** that surged in published text after chat assistants arrived (*delve, showcase, underscore, intricate, pivotal, realm, meticulous*), plus inflated verbs (*leverage, utilize, harness, streamline, empower*). **The vocabulary moves:** marker words change by model generation and fade once they are named (*delve* fell sharply after early 2024), so any word list is a dated snapshot, here as of October 2026, to re-check each release. The structural tells below have not shown the same drift (an inference, not a measurement).
 - **Negative parallelism as rhythm** ("not just X, but Y"; "It's not X. It's Y."), **reflexive triplets**, **signposting filler** ("it's important to note", "at its core"), **transition stacking**.
 - **The summary closer** - a last sentence opening "Ultimately", "In conclusion", "In the end". Treat this one as a hard rejector: it's the neutral wrap-up, bad craft whether or not a model wrote it.
 - **Metronomic rhythm** - every sentence in one length band.
@@ -69,4 +69,4 @@ Full definitions, tests and fixes: `references/failure-modes.md`. The names, so 
 - An ending rewritten because it failed the deletion test.
 - Prose sanded down to pass a tell list until it is afraid of language.
 - Scope changed silently - non-text changes applied alongside a copy edit instead of proposed.
-- A check reported without its method. One sweep under-reported by 27% because it split on sentences before paragraphs, and the number was acted on. "Checked N items by method M, found K."
+- A check reported without its method. One sweep under-reported by 27% because it split on sentences before paragraphs, and the number was acted on. "Checked N items by method M, found K." (General rule: `verification-and-critique`.)

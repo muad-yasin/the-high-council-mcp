@@ -37,3 +37,5 @@ The particulars are still captured and the one-sentence stance is still written 
 Present the batch and **wait**. Approval, edits or cuts happen before anything becomes a live page, a scheduled post or a shipped asset. This is a standing rule, not a per-batch judgment - content review belongs to the owner, not to a session's bias toward speed (`tool-and-action-discipline`: human-stop gates are never skipped or faked).
 
 **And the first thing an audience ever meets gets a human hand, however good the pipeline gets** - onboarding text, a launch announcement, the first article, a store description. Not because the pipeline is untrusted, but because those are the pieces where a miss can't be recovered.
+
+In the EU this sign-off can also carry legal weight: AI-generated text published to inform the public on matters of public interest must be labelled as such unless it went through human review or editorial control and a named person or company holds editorial responsibility (AI Act Art. 50(4), applying from 2 August 2026). **Record who signed off, and when.** The legal detail lives in `fact-checking`'s `references/legal-guardrail.md`.

@@ -1,6 +1,6 @@
 ---
 name: drafting
-description: Takes a brief to a first complete draft of new prose - repairing a brief that names a length but no purpose, writing the one sentence the piece exists to say before any prose, choosing a register on purpose, breaking paragraphs where the argument turns, building the ending from the reader's reaction, and keeping stacked layers (headline, subhead, opening) from rewording each other. Use whenever new text is being written - landing and product copy, documentation, announcements, emails, articles, in-product and UI text - and whenever a draft "has nothing to say". Not for revising existing prose (line-editing), for verifying claims or deciding what may be said about real people (fact-checking, which runs first on anything drawn from real events), or for warm coverage of a real subject (good-news-writing).
+description: Takes a brief to a first complete draft of new prose - repairing a brief that names a length but no purpose, writing the one sentence the piece exists to say before any prose, choosing a register on purpose, breaking paragraphs where the argument turns, building the ending from the reader's reaction, and keeping stacked layers (headline, subhead, opening) from rewording each other. Use whenever new text is being written - landing and product copy, documentation, announcements, emails, articles, status reports, store and help text, and prose met inside a product (dialogue, notifications, tutorial lines) - and whenever a draft "has nothing to say". Not for revising existing prose (line-editing), for verifying claims or deciding what may be said about real people (fact-checking, which runs first on anything drawn from real events), for warm coverage of a real subject (good-news-writing), or for button labels, state text and error messages (ux-design).
 license: MIT
 ---
 
@@ -30,6 +30,8 @@ A brief you can draft from answers five things. Get them before writing:
 
 **A brief with a length but no purpose produces filler at exactly that length.** Say so once, in one line, then write to purpose and let the length fall where it falls.
 
+**If the repair changes *what* was asked, not just its length, put the repaired brief to the requester as a choice before drafting.** One owner asked for one thing; the work quietly delivered a substitute, wrote the change down, and never asked - the owner found it two days later ("still not what we spoke about"). A silent reinterpretation ships the wrong piece, well written. (The general rule, that a change to what the owner asked for is a choice put to them, is `task-scoping`'s.)
+
 ## Step 1 - the sentence, before any prose
 
 One sentence, answering the register's own question:
@@ -42,10 +44,13 @@ One sentence, answering the register's own question:
 | Promotional | What can someone now do that they could not before - the thing, not its category? |
 | Memorial | What does this detail preserve? No joke anywhere near it. |
 | Routine notice | Nothing. Write it short and stop. |
+| Status report / result summary | What did the check actually establish, what does it not establish, and what decision does it bear on? |
 
 **The second clause is the one that gets dropped, and it is the one that matters.** When the critical question stopped at "what does this prove", five technically strong pieces in a row each demonstrated a mechanism and left the reader to supply the point. Demonstrating a mechanism is not naming a wrong. Put the stance in plain words in the sentence, or the piece will not contain it either.
 
 When the read is uncertain, write two or three candidate sentences and pick one before drafting - culling at the sentence is nearly free. **The sentence travels with the draft into review**, so a reviewer can veto the stance in five seconds without diagnosing prose.
+
+A status report is prose about a result, written for someone who acts on its first line, so the first line may not claim more than the check behind it. Its three failures are in `references/registers.md`.
 
 ## Step 2 - the honesty check
 
@@ -80,7 +85,9 @@ Top to bottom, where and how a real reader meets it. Does each layer add somethi
 - The mechanism proved and the wrong left unsaid - the piece would read the same if the writer were indifferent.
 - A technique installed to have used it; a list consulted mid-sentence.
 - An ending that invents a fact to land harder.
-- A brief accepted with a length and no purpose.
+- A brief accepted with a length and no purpose; a repair that changed what was asked, applied without asking.
+- A status line whose verdict word ("yes", "ready", "done") is stronger than the check behind it, or carries no date and no conditions.
+- A question answered without checking the premise it presupposes.
 - A register nobody chose - house-neutral is a choice too, usually the wrong one.
 - A headline and an opening sentence that state the same proposition.
 - Somebody's own sincere voice (an apology, a founder's letter, a condolence) drafted for them instead of edited from their words.

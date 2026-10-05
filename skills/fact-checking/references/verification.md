@@ -7,7 +7,7 @@
 3. **One verdict per claim:** `traced` / `re-verified` / `FLAGGED (searched: <terms>)`.
 4. **One flagged load-bearing claim sends the piece back** before anyone reads it for quality. There is no point admiring an ending that is about to be deleted for being false - and the ending is where the falsehood most often lives.
 
-**Open the search every time.** The confident feeling attaches equally to a claim checked an hour ago and one invented an hour ago; "yes, I checked that" is exactly the operation that fails.
+**Open the search every time**, never from the memory of having checked (`final-read` runs it at review time; the general rule is `verification-and-critique`'s, Part 1).
 
 ## Grading, applied to a piece of writing
 
@@ -34,7 +34,7 @@ Before drafting, two to four verbatim concrete items per piece:
 
 **Why this is the highest-value part of research:** recording only *what happened* leaves the writer nothing but a restatement to make, and the prose defaults to generality. The best-received lines on one content project were exactly this kind of detail - a clause located on a specific page of a long terms-of-service document, an area expressed in an absurdly small fraction of a football field - and both arrived by accident. Capturing them deliberately is the point.
 
-**Particulars are evidence, never diction.** Institutional phrasing pasted intact reads as machine output even when true - a verbatim "white recreational vehicle" lifted from real reporting drew an immediate rejection. Only a real quote presented as a quote keeps source wording.
+**Particulars are evidence, never diction.** Institutional phrasing pasted intact reads as machine output even when true - a verbatim "white recreational vehicle" lifted from real reporting drew an immediate rejection. Only a real quote presented as a quote keeps source wording. This file owns the rule for prose; `line-editing` keeps one line and points here.
 
 ## Documented vs inferred
 
@@ -42,7 +42,7 @@ Grade each claim **documented** (a filing, a ruling, or one of the four confirme
 
 - **Never wire a consequence to an inference.** A rating, a recommendation, a price or a call to action rests on documented claims only.
 - **Stating the limit of the evidence is strength, not weakness.** "Nobody can prove the timing was deliberate; what you can do is read the calendar" is more credible than asserting the link, and keeps the claim on the opinion side of the line `legal-guardrail.md` turns on.
-- **Vague attribution is a sourcing hole first.** "Experts say", "critics argue", "observers note" trace to nothing, and a claim that failed verification tends to hide there.
+- **Vague attribution is a sourcing hole first** (`research-and-sourcing`): "experts say", "critics argue", "observers note" trace to nothing, and a claim that failed verification tends to hide there.
 
 ## Where claims actually break - hunt hardest here
 
@@ -55,7 +55,7 @@ Each of these shipped, or nearly shipped, in real work.
 - **Sentence versus time served.** Two different numbers, both reported; the gap is often the story. Caught twice in four batches on unrelated stories.
 - **The timeline inversion.** Orderings fail quietly on a single source; the second source is where they surface.
 - **The synonym stated as fact.** A word attributed to the record that the record doesn't contain. The real word is usually sharper.
-- **The invented absence.** "No overhead", "no brand tie-in". Nothing in a source contradicts an absence by existing.
+- **The invented absence.** Every negation ("no fee", "no strings") is a claim; the rule is `research-and-sourcing`'s and the scar is in `good-news-writing`.
 - **The "both sides" fact.** Even-handedness about a conflict is a stance, never a claim about who a vendor sold to.
 - **The unaltered real name** in satire, anywhere in the copy, including on the good side.
 

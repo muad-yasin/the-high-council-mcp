@@ -14,6 +14,7 @@ A register is not a tone setting. It decides what the piece is *for*, which Step
 | **Promotional** | A capability that did not exist before | One concrete consequence | Claiming the feeling instead of showing the cause |
 | **Memorial** | A death, a loss, a harm to a real person | Preserve | Any humour at all; solemnity standing in for a detail |
 | **Routine notice** | Something happened; it proves nothing | None | Being written as a piece |
+| **Status report / result summary** | A decision someone must make, or an open item | The open item, or the decision asked for | A verdict word stronger than the check behind it; a question's premise answered instead of checked; a status word with no date or conditions |
 
 ## Rules that cross registers
 
@@ -24,6 +25,16 @@ A register is not a tone setting. It decides what the piece is *for*, which Step
 **Some text is somebody else's to write.** A founder's letter, an apology, a condolence, a personal statement - drafting someone's sincere voice for them is not a service; it is a forgery of their register. On one project, every line in a named character's sincere voice was written by the project owner and only formatted by the agent. Ask for the person's own words, then edit those.
 
 **Registers don't mix inside a piece.** A warm piece that turns to indict an industry for two sentences has stopped being warm without becoming critical; it has a mood swing. If the material genuinely carries both, that is two pieces.
+
+## The status report
+
+Prose about a result, for a reader who acts on the first line. The sentence it answers: **what did the check actually establish, what does it not establish, and what decision does it bear on?** It ends on the open item or the decision asked for, not on a summary of the work. Three failures, each from a real status text that a decision-maker acted on or nearly did:
+
+- **A verdict word stronger than the check behind it.** A check was first reported as "YES, lined up" when it was built so that only that answer was possible; it could not have said no. Before writing the verdict, ask whether the check could have come out the other way. If not, the line says what was run and that it does not discriminate. (Whether a check is evidence at all is `verification-and-critique`'s, and so are the general rules on reporting results, its Part 4.)
+- **A question's premise answered instead of checked.** "Where is the missing data?" presupposed that data was missing; in 12 of 16 failing cases all the data was present and the process had rejected it on its own checks. The first sentence of the answer corrects the premise, then answers the real question.
+- **A status word with no date and no conditions.** "Ready", "done" and "approved" go stale while still reading as current: documents kept saying "ready to call" after the owner's decisions had changed, and the next reader would have acted on them. Give the status word its date and the decision or condition it depends on, and when the decision changes, mark the old text superseded rather than leaving it.
+
+A claim about proof is scoped to the sample it covers ("fits these cases", never "fixes the class").
 
 ## The hard calls
 

@@ -21,8 +21,8 @@ Use it when **the piece's engine is someone's good choice and there is no wrongd
 
 ## Hard rules
 
-1. **A real quote, verbatim, traced to a primary source - or no quote.** Every quote in a warm piece is attributed to a real, living person, so every quote is evidence. No paraphrase inside quotation marks; no "they have said since" carrying an unsourced sentiment. A real failure: four untraceable quotes attributed to one person shipped in a single piece before this rule was written down.
-2. **Every negation is a claim about an absence - verify it or cut it.** "No brand tie-in" and "no overhead taken" both shipped false once, in copy that was confident and rhythmical either way. Nothing in a source contradicts an invented absence by existing, which is what makes absences the easiest claims to invent.
+1. **A real quote, verbatim, traced to a primary source - or no quote** (`fact-checking` rule 1 owns the rule; this is its warm-register scar). Every quote in a warm piece is attributed to a real, living person, so every quote is evidence. No paraphrase inside quotation marks; no "they have said since" carrying an unsourced sentiment. A real failure: four untraceable quotes attributed to one person shipped in a single piece before this rule was written down.
+2. **Every negation is a claim about an absence - verify it or cut it** (general rule: `research-and-sourcing`). "No brand tie-in" and "no overhead taken" both shipped false once, in copy that was confident and rhythmical either way. Nothing in a source contradicts an invented absence by existing, which is what makes absences the easiest claims to invent.
 3. **Humor never lands on the subject, including backhandedly** - not their manner, sincerity, size, struggle or identity. A real closer, "tells fans they're neurodivergent - and keeps working anyway," was rightly flagged as the worst line in its batch: its structure concedes the condition should have stopped them. **Test: if the subject read the line, would they laugh or flinch?**
 4. **No overstatement of a true good deed.** A bigger frame than the facts support is this register's version of inventing a figure. If the real detail isn't enough, the piece is a short item, not a bigger claim.
 5. **No moral.** The closer never names the virtue ("proof that decency still exists"). The reader draws the conclusion from the facts.
@@ -47,7 +47,7 @@ Use it when **the piece's engine is someone's good choice and there is no wrongd
 - **The forgone easy version** is where the admiration lives: the gap between what they did and the standard, more profitable version. It doubles as the honesty check.
 - **The smiling detail** is where any humor comes from. Nothing verified makes you smile? Write it warm without a joke. A warm piece with no joke is fine; a joke with no warmth is not.
 
-Worked example: *she signed away a small share of one song's royalties to a reforestation fund; the easy version was a press release and a gala; the detail is that the fund needed a formal songwriting credit before its lawyers would let the money move at all.*
+Worked example (invented): *she signed away a small share of one song's royalties to a reforestation fund; the easy version was a press release and a gala; the detail is that the fund needed a formal songwriting credit before its lawyers would let the money move at all.*
 
 The sentence travels with the draft into review, so the stance can be checked without diagnosing the prose.
 

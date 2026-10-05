@@ -33,7 +33,7 @@ What the form does:
 
 The reader has already opened it, so the header frames the piece rather than winning a click. It is roughly the Step-1 sentence in news clothes, and it is where classic headline craft lives: the break, the kicker, the precise figure, at most one quote.
 
-Defaults, not rejectors: **one sentence, with a named subject.** A two-sentence header is usually the body's opening in the wrong slot; one opening on a bare pronoun makes the reader guess who they're looking at. Both have legitimate exceptions. On the project this comes from, both were hard rejectors until a library audit found 17% of shipped headers breaching them - many written after the rule landed and approved in review. **A style rejector your own approved output keeps breaking has become a default; update the rule or enforce it, but don't pretend it holds.**
+Defaults, not rejectors: **one sentence, with a named subject.** A two-sentence header is usually the body's opening in the wrong slot; one opening on a bare pronoun makes the reader guess who they're looking at. Both have legitimate exceptions. Both were hard rejectors on the project this comes from until they were found to be broken routinely by approved output (the audit and its figure: `line-editing`'s `mechanical-checks.md`, "convention drift"). **A style rejector your own approved output keeps breaking has become a default; update the rule or enforce it, but don't pretend it holds.**
 
 **The header has no floor.** When a strong body leaves it little, the honest header is short.
 
@@ -52,7 +52,7 @@ On a one-line item - a notice, a gag - the first line and the header may be near
 
 ## Mechanics worth fixing once
 
-- **Set a hard character ceiling and check it by script, never by eye.** Two sessions on one project blew the ceiling repeatedly by eyeballing, and every late fix cost substance.
+- **Find the character ceiling before writing, and count it by script** (`line-editing`'s `mechanical-checks.md` owns the check and its scar).
 - **A length floor is usually a mistake.** It produces padding; short is a consequence of the right form. The project retired its own minimum-length target for this reason.
 - **One structural break character, used everywhere.** Mixed dashes across a library are a visible inconsistency (see `line-editing`'s notes on the em dash).
 - **A name is always the same name and spelling.** Recurring entities are always named, because recognition is the signal. A one-story person may appear as a role in the first line ("fund manager") with the name on the page - the head-then-lede structure newspapers use. That covers people, never the organization the reader is meant to act on.

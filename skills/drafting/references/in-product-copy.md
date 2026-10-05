@@ -1,6 +1,6 @@
 # Text that renders inside a product
 
-Written from shipping text inside an app - dialogue, messages, notifications, tutorial lines, list rows, buttons. **Where it stops:** nothing here covers localization, store listings, or platform review policies. Store character limits and rules change per store and per year, and a stale copy here would be worse than none - check the store's current documentation.
+Written from shipping text inside an app - dialogue, messages, notifications, tutorial lines, long list rows. **Where it stops:** what each control, state and error must say (labels, locked and empty states, error text) is `ux-design`'s, and nothing here covers localization, store listings, or platform review policies. Store character limits and rules change per store and per year, and a stale copy here would be worse than none - check the store's current documentation.
 
 ## What the medium changes
 
@@ -8,10 +8,10 @@ Written from shipping text inside an app - dialogue, messages, notifications, tu
 
 **The column is narrow.** A 130-word block on a phone reads as work before it reads as content. That's a reason to break where the piece turns, but the cheap one; the real one is that the break marks the joint in the argument.
 
-**Every string has a hard ceiling, set by geometry, not taste.** Find it before writing and check counts by script. Two traps:
+**Every string has a hard ceiling, set by geometry, not taste.** Find it before writing and count by script (`line-editing`'s `mechanical-checks.md`). Two traps:
 
 - **The ceiling that is only usually hit.** The longest real string is rarely the longest name; it's the combination of a long name, a long status word and a wide number landing together. On one project the binding case was always the state nobody measured.
-- **Auto-shrinking text doesn't fix overflow; it hides it.** It looks fine in one screenshot and ships to a device with a different screen.
+- **Shrinking the text is not the fix.** Whether the box grows or the string shortens is `frontend-developer`'s (fixed-box overflow, including auto-size text); the copy side is to find the string's real ceiling before writing.
 
 **The surrounding interface is already speaking.** If a red banner above the line says URGENT, the line doesn't also get to shout. Read each string with its chrome - label, badge, icon, the button beneath - because that assembly is the sentence the reader actually gets.
 
@@ -19,8 +19,7 @@ Written from shipping text inside an app - dialogue, messages, notifications, tu
 
 ## Rules that survived contact
 
-- **Withhold the action, never the information.** A locked or unavailable item says what it is and what it costs; the button is what's withheld. A planning screen is not a discovery mechanic. (A deliberate exception on one project: a physical object in a game world left silently unusable so players would wonder about it. It worked because it was an object in a world, not a menu row - a screen keeps transparency, a world can keep a mystery.)
-- **A caption explaining a lock the reader can't resolve is a nag.** Plain dimmed chrome reads better.
+- **What a locked, unavailable or empty item says, and whether a screen may keep a mystery, is `ux-design`'s** (its states list and its mystery-lock rule). Copy follows that decision; it does not make it.
 - **Currency, units and number formatting have one owner in code; copy follows it.** Docs and design copy that disagree with what the product renders drift forever.
 - **Don't state in prose a number that also lives in the product.** Point to where it lives; a hand-copied figure goes stale silently.
 - **Frozen text is frozen.** Someone's own sincere words, a legal string, a dictated line: edit only with per-item sign-off, never in a sweep. Writing new text beside frozen text is normal; rewriting the frozen layer is not.
@@ -29,4 +28,4 @@ Written from shipping text inside an app - dialogue, messages, notifications, tu
 
 In-product copy is written in batches - twenty rows, ten notifications, a screen of empty states - and **uniformity is invisible one item at a time.** Read the whole batch in a row before shipping any of it: the same opening move, the same shape, the same verb owning every line.
 
-**But a recurring conclusion is not a fingerprint.** If the same finding keeps arriving because the material keeps producing it, that's the thing being true. Steering around it to look varied means declining to say it. Vary how it lands, never whether it lands.
+A recurring conclusion is not a fingerprint (`line-editing`'s `failure-modes.md`, "Batch level").

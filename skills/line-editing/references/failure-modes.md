@@ -24,7 +24,7 @@ All four have one cause: the ending was derived from the argument instead of fro
 
 - **Wryness instead of anger.** A wink where an accusation belongs. **Tell: it would still be funny if the facts were harmless.**
 - **Newswire voice.** Filler that makes copy read machine-assembled: *a new report finds, amid growing concerns, sparks outrage, raises questions, in a statement, the move comes as, sources say, critics say, observers note.* The surrounding sentence is usually a stance-free summary; fix that, not just the phrase.
-- **Wire diction pasted intact.** A true detail in the source's institutional phrasing. It reads as invented even when sourced. Particulars are evidence; put them in your own words.
+- **Wire diction pasted intact.** A true detail in the source's institutional phrasing. It reads as invented even when sourced. Particulars are evidence, never diction: put them in your own words (the rule and its scar are `fact-checking`'s, `references/verification.md`).
 - **Press-release voice on a warm piece.** Praise adjectives standing in for detail; see `good-news-writing`.
 - **Retrospective-quote lede.** "X once said..." opens a profile, not news - old energy in a live feed.
 - **Thin body on a real story.** A lead fact and a consequence, with no mechanism (*how* it happened) and no quote or document beat. It reads as a caption stretched to fill a field. The fix is a real beat from real research, never padding. A genuine notice is exempt.
@@ -32,4 +32,4 @@ All four have one cause: the ending was derived from the argument instead of fro
 ## Batch level
 
 - **Batch fingerprint.** Uniformity visible only across pieces: identical opening moves, shortest-sentence lengths clustering on one number, the same shape recurring, one verb owning every headline. Checked by script across the batch (`mechanical-checks.md`), and never fixed by writing to a rhythm target - the fix is a genuinely different Step-1 sentence per piece.
-- **A recurring conclusion is not a fingerprint.** If the same finding keeps arriving because the material keeps producing it, that is the central claim accumulating. Vary how it lands; never whether it lands.
+- **A recurring conclusion is not a fingerprint.** If the same finding keeps arriving because the material keeps producing it, that is the central claim accumulating, and steering around it to look varied means declining to say it. Vary how it lands; never whether it lands. This is the one copy of the rule; `drafting`'s in-product-copy reference and this skill's `SKILL.md` point here.
