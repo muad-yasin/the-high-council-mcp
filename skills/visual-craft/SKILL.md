@@ -1,12 +1,12 @@
 ---
 name: visual-craft
-description: Judges and fixes whether a visual surface actually looks right - composition and focal hierarchy, palette, typography roles, material consistency, spatial staging, contrast and colorblind checks, and screenshot-based QA of icons, UI chrome, backdrops, 3D scenes and generated assets. Use once flow and implementation are correct and the question is "does this look right", including when something only "looks off" or "looks cheap". Not for flow, wireframes or screen states (ux-design) or implementation correctness (frontend-developer).
+description: Judges and fixes whether a visual surface actually looks right - composition and focal hierarchy, palette, typography roles, material consistency, spatial staging, contrast and colorblind checks, and screenshot-based QA of icons, UI chrome, backdrops, 3D scenes and generated assets. Use once flow and implementation are correct and the question is "does this look right", including when something only "looks off" or "looks cheap". Not for flow, wireframes or screen states (ux-design), implementation correctness (frontend-developer), or building or exporting geometry.
 license: MIT
 ---
 
 # Visual Craft
 
-You own whether something *looks* right, in any medium: UI chrome, icons, logos, backdrops, illustration, 3D scenes, generated or procedural assets. `ux-design` owns the flow, wireframe and states (the *what* and *where*); `frontend-developer` owns implementation correctness. This skill starts once both are right. Where a rule carries extra weight for 3D-scene work, it says so.
+You own whether something *looks* right, in any medium: UI chrome, icons, logos, backdrops, illustration, 3D scenes, generated or procedural assets. `ux-design` owns the flow, wireframe and states (the *what* and *where*); `frontend-developer` owns implementation correctness. This skill starts once both are right. It judges a result and never builds one: making or exporting geometry is a separate job, and this skill is that job's acceptance gate. Where a rule carries extra weight for 3D-scene work, it says so.
 
 ## 1. Anchor the visual language before touching an object
 
@@ -28,7 +28,7 @@ You own whether something *looks* right, in any medium: UI chrome, icons, logos,
 - One icon set shares stroke weight, corner radius and shadow depth; a single mismatch reads as "wrong" faster than any quality gap.
 - Judge legibility at the real render size, never at generation or preview size - crisp at 512 px can be mush at 48 px.
 - Once a shared chrome, panel or shadow system exists, a bespoke per-screen treatment is a regression.
-- **Color never carries meaning alone** - pair it with a shape, icon, sign or label. **Contrast is computed, not eyeballed:** the WCAG 2.x formula and AA thresholds (4.5:1 normal text; 3:1 large text and for UI components and meaningful graphics) are the current conformance bar. Compute from a rendered capture, not stored constants - a renderer's color space can make a stored value lie. Check color-vision deficiency with a simulator on a real capture.
+- **Contrast is computed from a rendered capture, never from stored constants** - a renderer's color space can make a stored value lie - against the thresholds in `ux-design`, which owns them. Check color-vision deficiency with a simulator on a real capture; that is how a meaning carried by color alone (`ux-design`'s rule) shows up.
 
 ## 4. Verification - check, don't just judge
 
@@ -38,7 +38,7 @@ You own whether something *looks* right, in any medium: UI chrome, icons, logos,
 - **More than one distance, angle and viewport shape.** Many defects exist at only one framing.
 - **Check a growing set together** (a contact sheet or grid), not only piece by piece - palette, scale and silhouette drift exist only in the comparison.
 - **Every real state gets a look** - empty, locked, first-time - not "later polish."
-- **A vision-model read - your own included - is a measurement, not a taste authority.** Diff against a reference, name the checkable heuristic before judging, describe the image before evaluating it, crop to the asset under review, and keep a human as the final judge of style.
+- **A vision-model read - your own included - is a measurement, not a taste authority.** Diff against a reference, name the checkable heuristic before judging, ask an open, describing question first (never a bare yes/no "does this look right?"), crop to the asset under review, and keep a human as the final judge of style. Evidence: `references/verification-and-tooling.md`.
 - **State the trade-off when a fix isn't free** (a zoom that helps the common case but risks cropping on an untested aspect ratio).
 
 Verification detail, generated-asset acceptance, and when tooling earns its cost: `references/verification-and-tooling.md`.

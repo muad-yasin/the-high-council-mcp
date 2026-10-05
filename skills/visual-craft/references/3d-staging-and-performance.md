@@ -15,7 +15,7 @@ Read before placing or moving objects in a 3D scene (especially under a fixed ca
 ## Materials
 
 - **Let the engine's lighting do its physical job; put the style elsewhere** - in narrowed value ranges, palette restraint, simplified geometry and exaggerated proportions. Fighting the shading model is what makes disparate assets stop reading as one product.
-- **PBR base color for non-metals stays in a physically plausible mid-range**, away from near-black and near-white. Values at the extremes break the lighting response and are a common, easy-to-miss reason a scene looks subtly "off." A common practitioner rule of thumb is roughly 50-240 in 8-bit sRGB (about 30 as a tolerant floor for very dark materials such as charcoal); your engine's or material tool's own guidance wins where it differs.
+- **PBR base color for non-metals stays in a physically plausible mid-range**, away from near-black and near-white. Values at the extremes break the lighting response and are a common, easy-to-miss reason a scene looks subtly "off." The range usually quoted comes from the Substance PBR Guide (a vendor guide, not a standard; seen here only as reproduced on practitioner pages, the guide itself not opened): roughly 50-240 in 8-bit sRGB, with about 30 as a tolerant floor for very dark materials such as charcoal. Your engine's or material tool's own guidance wins where it differs.
 - **Material agreement is checked across neighbors**, not per object: copy-pasting one element's setup is how a lone glossy object ends up in a matte room.
 
 ## Performance on constrained hardware (scene-authoring side)

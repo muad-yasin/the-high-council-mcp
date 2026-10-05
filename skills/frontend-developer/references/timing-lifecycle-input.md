@@ -16,7 +16,7 @@ Read before verifying any UI work live, before wiring anything lifecycle-, overl
 - **The real cost of an off-screen view is what it keeps doing, not what it contains.** A hidden-but-enabled renderer, camera, or canvas still pays its per-frame cost. Disable what's hidden, not just its content.
 - **Anything positioned over moving or scrollable content reprojects every visible frame** from the live target position. A one-time position bake desyncs silently the moment the target, camera, or layout moves.
 - **Live/runtime edits in editor or hot-reload sessions are transient.** Several verification passes on one project trusted positions that had been nudged live and silently reverted, masked because an unrelated anchor happened to still line up. Redo the accepted value as a persisted edit and re-verify from a fresh session.
-- **Build/generate tooling can silently run stale code.** A UI builder or generator run while a rebuild is pending can produce output from the previous build while logging success. Verify the produced artifact's structure, not the log.
+- **A UI builder or generator is one case of the stale-build trap** (tooling run while a rebuild is pending reports success on the previous build): verify the produced artifact's structure, not the log. The scars and the rule are `backend-developer`'s (`references/verification-and-review.md`).
 
 ## 3. Lifecycle
 

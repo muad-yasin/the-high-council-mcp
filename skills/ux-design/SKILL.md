@@ -42,17 +42,17 @@ Output of this skill, handed to `frontend-developer`: **a confirmed flow, a text
 
 ## 3. Accessibility - not skipped for a prototype
 
-Design-time items, stated against WCAG 2.2 AA, the current W3C Recommendation. Many legal baselines still cite WCAG 2.1 AA (the US ADA Title II rule, the EU harmonised standard until its 2.2-aligned revision is cited); 2.2 AA covers 2.1 AA, so design to 2.2.
+Design-time items, stated against WCAG 2.2 AA, the current W3C Recommendation. Many legal baselines still cite WCAG 2.1 AA (the US ADA Title II rule, and the EU's EN 301 549 until its WCAG 2.2-aligned V4.1.1, published September 2026, is cited in the Official Journal - expected December 2026; re-check this sentence after that); 2.2 AA covers 2.1 AA, so design to 2.2.
 
 - **Color never carries meaning alone** - pair it with a shape, icon, sign or label.
-- **Contrast** meets 4.5:1 for normal text and 3:1 for large text and for UI components and meaningful graphics. Computed, not eyeballed (`visual-craft`).
-- **Targets:** the WCAG floor is 24x24 CSS px (or equivalent spacing); platform guidance is larger (44x44 pt on Apple platforms, 48x48 dp on Android). Design to the platform number.
-- **Every function works from a keyboard**, with a visible focus indicator that sticky headers, banners or overlays never hide.
+- **Contrast** meets 4.5:1 for normal text and 3:1 for large text and for UI components and meaningful graphics (WCAG 1.4.3, 1.4.11). Computed, not eyeballed; this skill owns the thresholds for the whole set, `visual-craft` owns the measuring method.
+- **Targets:** the WCAG 2.2 floor is 24x24 CSS px (or equivalent spacing); platform guidance is larger - Apple's default control size is 44x44 pt on iPhone and iPad and 28x28 pt on Mac, and Android asks 48x48 dp for touch. Design to the platform number. This skill owns the numbers; `frontend-developer` checks them against real bounds.
+- **Every function works from a keyboard**, with a visible focus indicator that sticky headers, banners or overlays never hide (stricter than WCAG 2.4.11 AA, which only requires it not be entirely hidden).
 - **Drag has a single-pointer alternative** (buttons, tap-to-place) unless dragging is essential.
 - **Visible labels on inputs**, never placeholder-only. Don't make people re-enter what they already gave in the same flow.
 - **Sign-in needs no memory or puzzle test** - allow paste and password managers; offer an alternative to cognitive challenges.
 - **Help, if offered, sits in the same place on every screen.**
-- **Motion is an accessibility axis.** Large parallax, shake and full-viewport transitions are documented motion-sickness triggers; design the reduced-motion version alongside them. Sustained small motion should read as noticeable, not nagging.
+- **Motion is an accessibility axis.** Large parallax, shake and full-viewport transitions are documented motion-sickness triggers (W3C, Understanding SC 2.3.3); design the reduced-motion version alongside them. Sustained small motion should read as noticeable, not nagging.
 
 ## 4. Notifications, trust, and dark patterns
 
@@ -62,7 +62,7 @@ Design-time items, stated against WCAG 2.2 AA, the current W3C Recommendation. M
 
 ## 5. First session and onboarding
 
-- **Teach by doing.** The most-cited onboarding failure is a lock-out tutorial that allows one action and blocks everything else. A real, hand-authored first instance of a mechanic teaches better than an overlay describing it. One new concept per beat.
+- **Teach by doing.** A common onboarding failure is a lock-out tutorial that allows one action and blocks everything else. A real, hand-authored first instance of a mechanic teaches better than an overlay describing it. One new concept per beat.
 - **A forced linear sequence (no skip, no back) is a deliberate override,** reserved for a true first run. Every further guided sequence argues its case from scratch.
 - **Time to first value** - roughly how long a new user takes to reach the core action. A long stretch of setup before it is a design problem, not the cost of onboarding.
 

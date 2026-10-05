@@ -15,8 +15,8 @@ When a UI bug recurs in the same shape, ask first **"can this class be made unre
 ## Hard rules
 
 1. **UI is never logic.** No business rules, derived-value math or state mutation in a component; reading a flag to decide *what to show* is fine. A component is a deep module - small surface (inputs in, events out) hiding its wiring. A caller reaching into a child to make it behave means the surface is wrong.
-2. **React to events; don't poll state that has one. Unsubscribe on teardown** - a leaked subscription outliving its component is a classic bug in every framework. A sibling that may not exist yet is resolved lazily at first use, never assumed from initialization order. State that can already be true before mount (an event fired during bootstrap) needs a one-time sync right after subscribing.
-3. **Real hit targets.** Design to platform guidance (44x44 pt on Apple platforms, 48x48 dp on Android); never below the WCAG 2.2 floor of 24x24 CSS px or equivalent spacing. Art may be smaller if the *hit area* meets it - computed from real bounds, not eyeballed.
+2. **React to events; don't poll state that has one, and unsubscribe on teardown.** A sibling that may not exist yet is resolved at first use, never assumed from initialization order; state that can already be true before mount (an event fired during bootstrap) gets a one-time sync right after subscribing (the ordering rule is `backend-developer`'s rule 7).
+3. **Real hit targets.** The numbers (the WCAG 2.2 floor and the platform guidance) are `ux-design`'s. Art may be smaller if the *hit area* meets them - computed from real bounds, not eyeballed.
 4. **Follow the established pattern before inventing one.** Check how a similar screen does layout, animation, state and input before adding a library or hand-rolling something a helper already does. Settled layout choices stay settled.
 5. **Audit per-frame work:** an unthrottled read of a slow source every tick (about once a second is usually enough); slow-changing data visited at frame rate (split a fast active subset from a throttled sweep); verbose logging left in a hot path. Never drive animation through a system that marks elements dirty every frame when nothing changed.
 6. **No dynamic content in a fixed-size box unless overflow is intended.** Many text systems' default overflow does not clip - surplus text paints over its neighbors, silently. Growing content gets a growing container (remove the fixed height; a bigger constant is not the fix); a genuinely fixed box gets shorter content and explicit truncation. **Measure the longest real value against the container**, not a screenshot of a typical one. Truncation can fail vertically too, dropping a whole line with no ellipsis - it looks like a missing binding, not a sizing bug.
@@ -32,10 +32,9 @@ Every data-bound element handles **locked/unavailable, first-time/empty, loading
 ## Data binding
 
 - Display values come from the data layer's own events and read models; never guess a field name or recompute what it already exposes.
-- **Every user-facing number, date and amount goes through one shared formatter with an explicitly pinned locale** (for example `Intl.NumberFormat` / `Intl.DateTimeFormat` with a locale argument on the web). Parsing the literal "0.55" under a comma-decimal locale has returned 55. Never parse a string you could write as a literal.
-- Disable a control during its in-flight operation to prevent double submission.
+- **Every user-facing number, date and amount goes through one shared formatter with an explicitly pinned locale** (for example `Intl.NumberFormat` / `Intl.DateTimeFormat` with a locale argument on the web). Parsing the literal "0.55" under a comma-decimal locale has returned 55. Never parse a string you could write as a literal. Run each screen once under a pseudo-locale (Windows `qps-ploc`, ICU `en-XA`), which exposes unpinned formatting and parsing in one pass.
 - **Displayed value equals committed value:** a preview goes through the same call that commits it, never an inline re-derivation.
-- A displayed rate uses the product's real cadence as its time unit, and two screens showing "the same" number use the identical basis.
+- A displayed rate uses the product's real cadence as its time unit, and two screens showing "the same" number use the identical basis (the display-side case of `backend-developer`'s units-and-frames rule).
 - Write to a frequently updating display only when the value changes.
 - A non-ASCII glyph not confirmed in the loaded font renders as a blank or a box, silently.
 
@@ -47,13 +46,12 @@ Every data-bound element handles **locked/unavailable, first-time/empty, loading
 - **Everything works from the keyboard**, in a logical order, with a visible focus indicator that sticky headers, banners and overlays never cover. Dialogs move focus in, trap it, and return it on close.
 - **Every control has an accessible name** - icon-only buttons included - and every input a programmatic label.
 - **Announce async changes** that matter (errors, completed saves, loading results) through the platform's status or live-region mechanism.
-- **Color never carries meaning alone**; pair it with a shape, icon, sign or word.
+- **Color never carries meaning alone** (`ux-design` owns the rule); in code, every color-coded state also sets a shape, icon, sign or word.
 - **Respect reduced-motion settings** (`prefers-reduced-motion` on the web) for anything beyond small transitions.
-- **Content reflows at narrow widths and 200% text size** without loss or two-axis scrolling.
+- **Content reflows at a 320 CSS px wide viewport (about 400% zoom) without two-axis scrolling, and text resizes to 200% without loss** (WCAG 1.4.10 Reflow, 1.4.4 Resize Text).
 
 ## Right-sizing
 
-- Correct first; optimize only against a measured problem.
 - Don't abstract a component until a **second real use case** exists. A UI builder or generator script earns its keep by deleting drift and manual wiring, and stops once it is harder to read than what it replaced.
 - Turn off hit-testing on elements that never take input (a label inside its own button, decorative art).
 
@@ -73,7 +71,7 @@ Read `references/timing-lifecycle-input.md` before live verification, lifecycle 
 
 ## You cannot self-certify UI
 
-"It compiles," "the handler ran" and a screenshot that looks right are not evidence. Generated UI is measurably weak exactly here: a 2026 peer-reviewed study of AI UI design tools found about 29% WCAG compliance, and naming accessibility requirements in the prompt *lowered* it. So pair signals structurally, then compute the check. **Never let the same agent both write the check and certify the result**, and say plainly what was not verified.
+"It compiles," "the handler ran" and a screenshot that looks right are not evidence. Generated UI is measurably weak exactly here: a 2026 peer-reviewed study of six AI UI design generators (W4A 2026, five WCAG criteria) found 29% compliance, and naming accessibility in the prompt *lowered* it. Code-writing agents were not measured, so treat the result as a prior for them. Pair signals structurally, then compute the check. **Never let the same agent both write the check and certify the result**, and say plainly what was not verified.
 
 **A capture at one viewport shape is not evidence about the others.** Verify at a short design floor, the most common real device, the tallest or widest ceiling, and a split-screen or tablet shape.
 
