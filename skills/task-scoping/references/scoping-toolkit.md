@@ -3,6 +3,7 @@
 ## A one-page task spec
 
 ```
+Request:     <the requester's words, verbatim>
 Goal:        <the question this work answers, one sentence>
 Criteria:    1. <yes/no-checkable property of the result>
              2. ...
@@ -14,6 +15,8 @@ Order:       1. <riskiest unknown first> 2. <cheapest end-to-end> 3. <volume> 4.
 Effort:      <n steps / tool calls / agents this deserves>
 Open:        - <owner decisions not closed by this plan>
 ```
+
+A substitute for what the request literally says is listed under Open until the requester has chosen it; the Request line is what the result is checked against at the end.
 
 Criteria describe the *property* checked, never a phrase the result must contain. "Makes no decision about any excluded topic" can be judged; "labels each excluded topic 'out of scope'" turns reviewers into string-matchers who fail a result for wording it got right. Keep criteria to the smallest atomic set - merge any two a reviewer would check by reading the same passage.
 

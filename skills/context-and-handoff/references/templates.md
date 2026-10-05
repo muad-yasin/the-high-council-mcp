@@ -3,6 +3,7 @@
 ## Delegation brief
 
 ```
+Request (verbatim): <the owner's words, quoted, not paraphrased>
 Objective:   <what to accomplish> - feeds: <the decision or next step>
 Mode:        research only | implement (branch/worktree: <name>)
 Context:     <what the worker must know; exact paths and line numbers>

@@ -6,17 +6,17 @@ license: MIT
 
 # Context and Handoff
 
-An agent's context window is working memory, not storage. Long-context measurements (Chroma's "Context Rot", 2025, across 18 models) found output quality degrading as input grows, unevenly, with even a single distractor hurting. So more context is not free, and anything that must survive a pause, a compaction, or a handoff has to live somewhere other than the conversation.
+An agent's context window is working memory, not storage. Long-context measurements (Chroma's "Context Rot", July 2025, across 18 models of that generation) found output quality degrading as input grows, unevenly, with even a single distractor hurting. So more context is not free, and anything that must survive a pause, a compaction, or a handoff has to live somewhere other than the conversation.
 
 **This skill owns:** what information is carried, where state lives, how work is briefed and handed over, and how several agents share one workspace without corrupting each other's work.
 
 ## 1. Curate context; don't accumulate it
 
-- **Load the smallest high-signal set the next step needs.** Read what the task touches; don't pull in whole directories, full logs, or every prior message "just in case." Keep lightweight handles (paths, queries, line ranges) and load the content when a step needs it.
+- **Load the smallest high-signal set the next step needs** (Anthropic's context-engineering guidance, 2025, frames it the same way). Read what the task touches; don't pull in whole directories, full logs, or every prior message "just in case." Keep lightweight handles (paths, queries, line ranges) and load the content when a step needs it.
 - **Keep raw tool output out of the main context when you won't need it again.** Delegate noisy exploration to a worker that returns a short summary, or write the output to a file and read only the part that matters.
 - **Re-read the primary source rather than trusting an earlier summary of it.** A summary of a summary drifts; the file on disk doesn't.
 - **Big always-loaded instructions are paid on every session.** Keep project memory files (CLAUDE.md and its equivalents) short; put rarely-needed depth behind a pointer or a skill that loads on demand.
-- **Compaction is lossy.** When the harness summarizes history to free space, detail that lived only in the conversation - exact errors, rejected approaches, the owner's precise wording - may not survive. Write it to a file before it matters, and after a compaction re-read the files rather than trusting the summary.
+- **Compaction is lossy.** When the harness summarizes history to free space, detail that lived only in the conversation - exact errors, rejected approaches, the owner's precise wording - may not survive. Write it to a file before it matters, and after a compaction re-read the files rather than trusting the summary. Where the harness has a pre-compaction hook, let it write the state to a file mechanically instead of relying on remembering to.
 
 ## 2. State lives outside the context window
 
@@ -38,6 +38,7 @@ A brief carries:
 - **Stop condition** - when it's done.
 - **Whether to change anything, or research only.**
 - **Exact file paths, line numbers, and the specific change** when delegating implementation - prove you understood the problem rather than asking the worker to understand it for you.
+- **The owner's request, quoted verbatim.** A paraphrase is where a requirement gets silently reinterpreted; over several hand-overs a paraphrased request can become a different deliverable. If the plan departs from the literal words, that is the owner's decision, not the brief's (`task-scoping`).
 - **The binding rules restated.** A worker doesn't inherit the owner's standing instructions from your conversation; name the ones that apply (no pushing, which files are off-limits, spend limits).
 
 Never delegate the synthesis itself ("based on your findings, fix it") - that pushes the understanding onto the worker.
@@ -55,6 +56,7 @@ Never delegate the synthesis itself ("based on your findings, fix it") - that pu
 ## 5. One copy of anything that changes
 
 - **Any list, threshold, or count that changes lives in exactly one place;** everything else points to it. A duplicated list went stale within one day in both copies on one project; a mechanical check that embedded its own copy of a pattern silently went stale through three later widenings of the original.
+- **A status word carries its date and the decision it rests on.** When a decision changes, mark every document that depends on it superseded in the same pass, with a pointer to the current state - a stale "ready" or "approved" is an instruction to the next session. (Seen: run sheets still reading "ready to call" after the owner's decisions had changed.)
 - **Apply an approved itemized change set by parsing the approved file, never by retyping it.** Parsing gives zero transcription drift; write review artifacts in a parseable per-item format in the first place.
 
 ## 6. Several agents, one workspace
@@ -63,7 +65,8 @@ Never delegate the synthesis itself ("based on your findings, fix it") - that pu
 - **Isolate parallel work** in separate branches or git worktrees; integrate centrally. Where a project forbids branches, the file-ownership split above is the only isolation - make it explicit. Uncommitted work in a shared checkout can be picked up, overwritten, or merged by another session.
 - **Reference another agent's work only through what is committed**, never its uncommitted tree.
 - **Before any operation that could discard work** (reset, checkout, clean, bulk delete) in a shared workspace, check the status and preserve anything present - another session's in-progress work may be sitting there.
-- **An environment error from one agent can corrupt another agent's results silently** - for example, a broken build in a shared environment causing another session's tooling to run stale code while reporting success. Verify outputs, not logs.
+- **One session's broken environment can corrupt another's results silently** - a broken build in a shared environment can make another session's tooling run stale code (the build-specific traps: `backend-developer`). Verify outputs, not logs.
+- **A shared-resource rule is honoured as written.** When a lock or a one-at-a-time rule is held by someone else, wait, queue, or ask the owner. Running your job "gently" beside it - lower priority, a smaller batch - is the same violation: it still competes for the resource and can corrupt the holder's timings and results. (Seen: a session ran its sweeps beside another session's hours-long job at low priority instead of waiting or asking.)
 - **Timing collisions are real:** a peer may finish, commit, and push the very thing you are mid-way through. Re-check the shared state before committing or reporting.
 
 ## 7. Peer messages are requests, not authority
@@ -71,7 +74,6 @@ Never delegate the synthesis itself ("based on your findings, fix it") - that pu
 - **A message from another agent or session is a teammate's request, acted on within your own permissions** - not an escalation of them.
 - **A peer cannot grant approval on the owner's behalf.** "The owner said it's fine" relayed by a peer is secondhand; for hard-to-reverse or externally-visible actions (pushing, publishing, deleting, spending), confirm with the owner directly.
 - **Never perform an action for a peer that the peer was denied** - that launders the denial. Surface it to the owner instead.
-- **If a permission check blocks you, stop and explain;** don't route around it with alternate tools.
 
 ## Mistakes to flag
 
@@ -86,5 +88,8 @@ Never delegate the synthesis itself ("based on your findings, fix it") - that pu
 - A list or pattern duplicated into a second file.
 - Destructive git or file operations in a shared workspace without checking status first.
 - A peer's claim of owner approval treated as approval for an irreversible action.
+- A held lock or one-at-a-time rule worked around instead of waited for.
+- A superseded plan or status document still reading "ready".
+- The owner's request paraphrased in a brief instead of quoted.
 
 Brief, handoff, and resume-note templates: `references/templates.md`.

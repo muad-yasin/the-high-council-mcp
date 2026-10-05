@@ -8,7 +8,8 @@
 - [ ] Shared workspace? Status checked; anything uncommitted preserved first
 - [ ] Spend? Worst case projected and under the ceiling, through the one enforcement point
 - [ ] External or visible to others? Content reviewed for secrets and sensitive data
-- [ ] Private data + untrusted input + an outbound channel all present? Remove one leg first
+- [ ] Private data + untrusted input + an outbound channel or state change all present? Remove one leg first, or get a human to approve the step
+- [ ] A shared resource with a lock or a one-at-a-time rule? Wait or ask the owner - no softened run beside it
 - [ ] A human gate applies? It is actually satisfied by a human, not asserted
 - [ ] If this fails halfway, is there a route back?
 

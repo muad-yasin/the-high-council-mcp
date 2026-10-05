@@ -24,9 +24,9 @@ Grade per section or per claim, and carry the grade through every summary built 
 ## Claim ledger format
 
 ```
-| # | Claim (paraphrased) | Source (URL) | Tier | Doc/Inf | Read on | Setup for any number |
-|---|---------------------|--------------|------|---------|---------|----------------------|
-| 1 | ...                 | ...          | Primary | Doc  | 2026-..  | benchmark X, models Y, date Z |
+| # | Claim (paraphrased) | Source (URL) | Tier | Doc/Inf | Read on | Setup for any number | Terms/licence (data sources only) |
+|---|---------------------|--------------|------|---------|---------|----------------------|-----------------------------------|
+| 1 | ...                 | ...          | Primary | Doc  | 2026-..  | benchmark X, models Y, date Z | clause for the intended use, with date |
 ```
 
 Keep one ledger per research output. Anything that later cites a finding cites the ledger row, not a paraphrase of a paraphrase.
@@ -51,4 +51,5 @@ Vague research briefs produced duplicated searches and coverage gaps in one publ
 - **The confident absolute.** An invented summary tends to say "every," "never," "the only." Treat absolutes as a prompt to open the primary document.
 - **The quota trap.** "Two sources per claim" is satisfiable without being met in spirit - two copies of one press release pass the count and fail the property. A count is a floor beneath judgment, never the test.
 - **Dated requirements.** Platform and regulatory numbers (store requirements, API limits, compliance deadlines) are revised regularly. Record when each was checked and re-verify by fresh search before acting on an old note.
+- **The useful source that forbids the use.** A dataset, tile service or generated asset can answer the question and still bar the use you have in mind (analysis, extraction, redistribution, offline copies). Read the terms before building on it, record the clause and its date, and look first at what is already held and cleared - the legal equivalent is sometimes already in the inventory, unused.
 - **Research that answers "whether."** Research can establish how something works; whether to build, buy, or pursue it stays the owner's decision. Present findings, not a decision disguised as one.
