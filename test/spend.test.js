@@ -206,3 +206,23 @@ test('costToday follows the calendar day across DST changes (Europe/Berlin)', as
   const out = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, TZ: 'Europe/Berlin' }, encoding: 'utf8' }));
   assert.deepEqual(out, { oct25: 1, oct26: 0, mar29: 0, mar30: 1 });
 });
+
+test('an advice call\'s folder before its start (0.8.1 DR-15) reads as not started, with its chain and $0, not as a run that died', async () => {
+  const { requestGate } = await import('../src/gate.js');
+  const { runs, add } = fixture();
+  add(ID(2), { 'advice-brief.md': '# A brief\n', 'advice.meta.json': { schema: 'advice-meta/1', chain: 'advise-single', gate: 'g1' } });
+  const g = requestGate(join(runs, ID(2)), { kind: 'advice', textPath: 'advice-brief.md', price: { ceiling_usd: 0.3 }, seats: [], sensitivity: null, expiresAt: Date.now() + 600_000 });
+  assert.ok(g.ok, g.message);
+  const r = spendReport(runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
+  assert.equal(r.runs.length, 1);
+  assert.deepEqual({ chain: r.runs[0].chain, usd: r.runs[0].usd, state: r.runs[0].state }, { chain: 'advise-single', usd: 0, state: 'advice call not started: awaiting approval (nothing sent or spent)' });
+  assert.equal(r.totalUsd, 0);
+});
+
+test('an advice run stopped at exit 18 (0.8.1 M6) is named by its cause, and what it paid for still counts', () => {
+  const { runs, add } = fixture();
+  add(ID(3), { 'run.json': { chain: 'advise-standard' }, 'STOPPED-wall_clock.json': { schema: 'stopped/1', stoppedBy: 'wall_clock' }, 'advise-a.usage.json': { usd: 0.05 }, 'advise-b.usage.json': { usd: 0.07 } });
+  const r = spendReport(runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
+  assert.equal(r.runs[0].state, 'stopped: at its wall clock');
+  assert.equal(Math.round(r.totalUsd * 100) / 100, 0.12);
+});

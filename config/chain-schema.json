@@ -21,6 +21,10 @@
     "description": {
       "type": "string"
     },
+    "resumeAfterStop": {
+      "type": "boolean",
+      "description": "Whether a run of this chain that was stopped before finishing (exit 18: a person, a client cancel or a wall clock) may be continued with --resume or resume_run. Optional; absent reads as true for planning chains. Every advice chain sets false: an advice call is never resumed, it is asked again (0.8.1 decided rule 6, P17)."
+    },
     "summary": {
       "type": "string",
       "minLength": 1,
@@ -233,6 +237,20 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" }
+      }
+    },
+    "advise": {
+      "type": "object",
+      "description": "Experimental (the council advisor, src/advise.js). With enabled true the chain answers one question with one leaning and the recorded dissent: the seats in seats.critics answer the brief blind, optionally read each other once (anonymised, no head-count) and keep or change their answer, and the harness rolls the answers up. It returns before every planning stage. usd is the call's own ceiling inside the run's cap and is required when enabled; the blind opinions are refused, with nothing called, when their worst case is above it.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "usd": { "type": "number", "exclusiveMinimum": 0 },
+        "rounds": { "type": "integer", "minimum": 0, "maximum": 2, "description": "Debate rounds after the blind opinions. Default 0. A round that moves no answer stops the debate." },
+        "skipDebateWhenUnanimous": { "type": "boolean", "description": "Default true: no debate when every blind answer agrees." },
+        "synthesis": { "enum": ["none", "seat"], "description": "\"none\" (default): the harness rolls the answers up, no call. \"seat\": seats.builder, which must not be on the panel, writes the text of the leaning; the dissent is still the harness's." },
+        "samples": { "type": "integer", "minimum": 1, "maximum": 5, "description": "Default 1. Each seat is asked this many times, independently (a one-model-asked-k-times control arm). Not with rounds above 0." },
+        "max_wall_ms": { "type": "integer", "minimum": 1000, "description": "Optional wall-clock ceiling for the whole call, in milliseconds (brief 29). Every request gets it as its own deadline, and once it has passed no further call is started and the run ends at exit 18 with report-partial.json (stoppedBy wall_clock; 0.8.1). A call still running at the deadline is cut off and recorded as not answering. Required for an advice chain since 0.8.1 (P17). Unset: no ceiling beyond the per-request default of 45 minutes." }
       }
     },
     "deep_dive": {

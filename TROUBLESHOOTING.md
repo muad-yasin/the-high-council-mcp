@@ -98,8 +98,8 @@ local chains as runnable because they need no key, not because the server is up.
 The next stage's worst case would have crossed the cap. Nothing past the cap was spent, and no
 plan was written yet; what the run got through is in `report-partial.json` and `BOARD-partial.md`.
 `council --resume runs/<id> --max-usd <higher>` continues from where it stopped. The run tells you
-at the start when a chain's worst case is above your cap. `plan-premium-7` and `plan-highest-7`
-are above the default $7 cap before they start: price them with `--dry-run` and pass a
+at the start when a chain's worst case is above your cap. `cheap-7-v2` (the first-run chain, $11.22 at the
+prices of 2026-10-06), `plan-premium-7` and `plan-highest-7` are above the default $7 cap before they start: price them with `--dry-run` and pass a
 `--max-usd` at or above that.
 
 ### `BLOCKED: ... file(s) named but never fenced` (exit 9)

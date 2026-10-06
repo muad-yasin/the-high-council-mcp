@@ -145,3 +145,18 @@ test('decision records: the reviser keeps records true and may not delete one to
   assert.ok(patchReviserSystem(false, false, { decisions: true }).includes(DECISIONS_RULE_REVISER),
     'patch mode is a reviser too');
 });
+
+// The council advisor (2026-09-30, src/advise.js). The advisor's stance and its fixed verdict field are
+// deliberate instructions; test/advise.test.js pins the rest of the family and the engine around it.
+test('the advisor is told to answer the question asked, use a fixed verdict, quote the brief and never invent', async () => {
+  const { ADVISOR_SYSTEM, ADVISOR_DEBATE_SYSTEM, ADVISE_SYNTHESIS_SYSTEM } = await import('../src/roles.js');
+  assert.match(ADVISOR_SYSTEM, /answer the question that was asked/i);
+  assert.match(ADVISOR_SYSTEM, /Do not redesign the project/);
+  assert.match(ADVISOR_SYSTEM, /proceed[\s\S]*change[\s\S]*stop[\s\S]*need_information/);
+  assert.match(ADVISOR_SYSTEM, /copied character for character/, 'a risk quote is exact, or it is checked and marked');
+  assert.match(ADVISOR_SYSTEM, /Never invent a tool, file, function, command, flag, number or fact that is not in the brief/);
+  assert.match(ADVISOR_SYSTEM, /at most 120 words/);
+  assert.match(ADVISOR_DEBATE_SYSTEM, /is not evidence/);
+  assert.match(ADVISOR_DEBATE_SYSTEM, /not recorded as a change/);
+  assert.match(ADVISE_SYNTHESIS_SYSTEM, /claim agreement that is not there/);
+});

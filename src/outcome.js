@@ -13,6 +13,11 @@
 // verdict, an infra failure with no dropouts entry).
 export function computeOutcome(result) {
   const hasDropout = Array.isArray(result?.dropouts) && result.dropouts.length > 0;
+  // An advice run (src/advise.js) has no sign-off: `consensus` means every seat that answered gave the
+  // same final verdict, `no_consensus` that they did not, and a seat that dropped out is `degraded`.
+  // Agreement is a process signal, never a finding that the advice is right, and it is vacuous for one
+  // seat or several samples of one model (advise.seats_asked and the tally say which).
+  if (result?.advise?.status === 'answered') return hasDropout ? 'degraded' : result.advise.agreement === 'unanimous' ? 'consensus' : 'no_consensus';
   // Status audit #2 (Review/PreRelease_Audit_status_2026-09-23.md): a seat that stated a pass
   // (freedoms.pass: signedOff null, passed true) gave no verdict either, and used to be left out, so
   // a panel with one silent seat read `consensus`. Any null verdict is an abstention now, and a run

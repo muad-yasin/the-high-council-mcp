@@ -242,3 +242,11 @@ test('CLI: --pii-gate hard-stop also refuses PII that arrives via --context or -
     assert.equal(readdirSync(dir).includes('runs'), false, `${flagName}: refused before any run folder exists`);
   }
 });
+
+test('scanForPii: an IBAN in its printed, space-grouped form is flagged once; a checksum-invalid grouped one is not', () => {
+  const ok = scanForPii('pay to DE89 3704 0044 0532 0130 00 today').findings.filter(f => f.type === 'iban');
+  assert.equal(ok.length, 1);
+  assert.equal(scanForPii('pay to DE89 3704 0044 0532 0130 01 today').findings.filter(f => f.type === 'iban').length, 0);
+  // the compact form is still reported once, not twice
+  assert.equal(scanForPii('DE89370400440532013000').findings.filter(f => f.type === 'iban').length, 1);
+});

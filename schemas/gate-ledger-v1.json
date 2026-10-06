@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://the-high-council.dev/schema/gate-ledger-v1.json",
+  "title": "gate-ledger.jsonl - one line of a run's gate ledger",
+  "description": "runs/<id>/gate-ledger.jsonl, appended by src/gate-ledger.js: one JSON object per line, each written whole with one write and fsynced. 'prev' is the sha256 of the previous line's bytes without its trailing newline (null on the first line), so a changed or deleted line before the last one breaks the chain and the run fails closed. Tamper-evident, not tamper-proof: anything that can write the run folder can edit or append the last line, cut the tail or rewrite the whole file, and the chain does not detect it (src/gate.js compares each gate's file with its lines, which catches an edit of one of the two, not of both). A last line with no newline is a torn write: ignored on read, cut away before the next append. This schema describes one line.",
+  "type": "object",
+  "required": ["schema", "seq", "prev", "ts", "event"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "gate-ledger/1" },
+    "seq": { "type": "integer", "minimum": 1, "description": "1 on the first line, then one more per line." },
+    "prev": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "ts": { "type": "string", "format": "date-time" },
+    "event": { "enum": ["gate_requested", "gate_answered", "sent", "stopped", "more_material_requested"] },
+    "gate": { "type": "string", "pattern": "^g[1-9][0-9]{0,5}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "meta_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the canonical JSON (keys sorted at every depth) of the gate's price, seats, sensitivity and masks: what the person is told about the send." }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "event": { "const": "gate_requested" } } },
+      "then": {
+        "required": ["gate", "kind", "text", "sha256", "bytes", "meta_sha256", "expires_at"],
+        "properties": { "kind": { "type": "string" }, "text": { "type": "string" }, "bytes": { "type": "integer", "minimum": 0 }, "expires_at": { "type": "string", "format": "date-time" } }
+      }
+    },
+    {
+      "if": { "properties": { "event": { "const": "gate_answered" } } },
+      "then": {
+        "required": ["gate", "decision", "sha256", "meta_sha256", "channel", "actor", "reason", "tty"],
+        "properties": {
+          "decision": { "enum": ["approved", "declined"] },
+          "channel": { "enum": ["cli", "elicitation"], "description": "Only a channel a person uses; answerGate refuses any other before anything is written." },
+          "actor": { "type": ["string", "null"] },
+          "reason": { "type": ["string", "null"] },
+          "tty": { "type": ["boolean", "null"] }
+        }
+      }
+    }
+  ]
+}

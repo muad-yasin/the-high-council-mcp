@@ -6,13 +6,14 @@
 // artifact than the run it was compared against. Every writer (a normal run, `council init`,
 // --rematch, --replay) now builds from these functions.
 import { renderDeepDiveBoard } from './deep-dive.js';
+import { renderAdviseBoard } from './advise.js';
 import { computeOutcome } from './outcome.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { deriveDisagreementGroups } from './disagreement-groups.js';
 import { renderDisputeReviewBoard } from './chain.js';
 import { summaryLine } from './criteria-kinds.js';
 import { criterionIds } from './criteria-ledger.js';
-import { criteriaHash } from './criteria-lock.js';
+import { criteriaHash, checksHash, checksOf } from './criteria-lock.js';
 import { cutDespiteSupport, disagreementMap } from './decision-records.js';
 import { isAbsolute, relative, basename, sep } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -55,7 +56,7 @@ export function reportTaskPath(task, cwd) {
 // run.json's `taskHash`).
 // `startedAt` is when the run's first sitting began (ISO 8601), when the writer knows it; the
 // report is stamped `finished_at` as it is built.
-export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText = null, startedAt = null, result, fromRun = null, fromRunCwd = taskCwd, maxUsd = null, config = null, policyChecks = null }) {
+export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText = null, startedAt = null, result, fromRun = null, fromRunCwd = taskCwd, maxUsd = null, config = null, policyChecks = null, adviseExtra = null }) {
   // v6 §7: failure-mode diagnostics, computed from this run's own real
   // debate output - never from the phase 4 measurement harness, which
   // is a deterministic heuristic probe and cannot speak to real debate
@@ -111,7 +112,9 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     withdrawalCycles: result.withdrawalCycles ?? 0,
     totals: result.totals,
     maxUsd,
-    stages: result.stages.map(({ text, ...rest }) => rest),
+    // 0.8.1 DR-13 (N4): the exact prompt's full sha256, its size, the serving endpoint and the scan result go to
+    // audit.jsonl only (src/audit.js); stages[] keeps the 16-hex promptHash it always had.
+    stages: result.stages.map(({ text, promptSha256, promptBytes, endpoint, scan, ...rest }) => rest),
     // v7 item 1: additive-only, same pattern as debate's diagnostics above -
     // present only when the run actually did verification (config.verify.
     // enabled), absent otherwise so v6 report.json shape is unchanged.
@@ -142,6 +145,9 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
       ? { criteria_ids: criterionIds(result.criteria), missing_criteria: result.missingCriteria } : {}),
     // The fingerprint of the criteria list (src/criteria-lock.js), the same one HANDOFF.md's lock block carries.
     ...(Array.isArray(result.criteria) && result.criteria.length ? { criteria_sha256: criteriaHash(result.criteria) } : {}),
+    // 0.8.1 FX-10 (DR-11): how each criterion is checked (criteria_kinds' check and on), fingerprinted apart from the
+    // wording. This file is the sole writer; the HANDOFF.md lock block carries the same hash in its second marker.
+    ...(Array.isArray(result.criteria) && result.criteria.length ? { checks_sha256: checksHash(checksOf(result.criteria, result.criteriaKinds)) } : {}),
     // $0 word-level lints over the criteria, run before any paid round (src/criteria-lints.js); [] when clean.
     ...(Array.isArray(result.criteriaLints) ? { criteria_lints: result.criteriaLints } : {}),
     // The ledger status (accepted / cut / withdrawn) is on scoreboard.rows, not on proposals[] (0.8.0: the
@@ -161,10 +167,17 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     // Pre-release cache audit #1: stages replayed from a cache entry that could only be checked
     // against the task and chain, not the exact prompt. Absent when there were none.
     ...(Array.isArray(result.unverifiedReplays) && result.unverifiedReplays.length ? { unverifiedReplays: result.unverifiedReplays } : {}),
+    // 0.8.1 FX-11: every model-written field the harness cut before the next stage read it. Absent when none was.
+    ...(Array.isArray(result.fieldCuts) && result.fieldCuts.length ? { field_cuts: result.fieldCuts } : {}),
     ...(result.alternatives ? { alternatives: (({ board, ...rest }) => rest)(result.alternatives) } : {}),
     // Tiered councils: the deep-dive seat's record (src/deep-dive.js). Additive, present only when
     // the chain enabled the stage.
     ...(result.deep_dive ? { deep_dive: result.deep_dive } : {}),
+    // The council advisor (src/advise.js): additive, present only when the chain enabled it. Every
+    // seat's blind answer and final position, the debate, the verdict, the dissent and what it cost.
+    // Brief 29 (experimental), nested by the 0.8.1 naming pass (DR-13): where the brief went (advise.sent_to) and
+    // the dispositions the caller recorded before the call (advise.dispositions). The brief's hash is task_sha256.
+    ...(result.advise ? { advise: { ...result.advise, ...(adviseExtra || {}) } } : {}),
     // "How this plan was argued" (src/argued.js): additive, present only when the chain enabled it.
     // The text itself is ARGUED.md; the JSON carries where it is, the fact-pack counts and the
     // reference check (unknown_refs / unknown_labs are ids and labs it named that the run never had).
@@ -198,16 +211,31 @@ export function partialReportJsonShape({ stoppedBy, stoppedAtStage = null, ...ar
 }
 
 /** BOARD-partial.md's text: the same board, headed as a stopped run's, or '' when there is none. */
-export function renderPartialBoardMd({ runId, result, stoppedAtStage = null }) {
+// What stopped the run, in the board's first line (0.8.1 M6, P20). `budget` keeps its words from 0.7.7.
+const STOP_CAUSE_WORDS = Object.freeze({
+  user: 'a person asked it to stop. Calls already in flight were finished and are recorded',
+  client_cancel: 'the client that started it cancelled the call or went away. Calls already in flight were finished and are recorded',
+  // A wall clock is a deadline every request gets (setRequestDeadlineAt): a call still running at that moment is cut off.
+  wall_clock: 'its wall-clock ceiling passed. A call still running at that moment was cut off and is recorded as not answering',
+});
+export function renderPartialBoardMd({ runId, result, stoppedAtStage = null, cause = 'budget' }) {
+  // Only an advice call is stopped by a person, a client or a wall clock (0.8.1): with no answer paid for it has no board, never the
+  // planning board's dropout list (M6 review fix).
+  if (cause !== 'budget' && !(result.advise?.opinions || []).length) return '';
   const board = renderBoardMd({ runId, result });
   if (!board) return '';
-  return `> **Partial board.** This run stopped at its spend cap${stoppedAtStage ? ` before stage \`${stoppedAtStage}\`` : ''} and did not finish. The same record as data: \`${PARTIAL_REPORT_FILE}\`.\n\n${board}`;
+  if (cause === 'budget') return `> **Partial board.** This run stopped at its spend cap${stoppedAtStage ? ` before stage \`${stoppedAtStage}\`` : ''} and did not finish. The same record as data: \`${PARTIAL_REPORT_FILE}\`.\n\n${board}`;
+  return `> **Partial board.** This run did not finish: ${STOP_CAUSE_WORDS[cause] ?? cause}; nothing new was started. The same record as data: \`${PARTIAL_REPORT_FILE}\`.\n\n${board}`;
 }
 
 /** BOARD.md's text for a finished run, or '' when there is no board to write. */
 export function renderBoardMd({ runId, result }) {
+  // An advice run has no proposal board: its board is the advice, every seat's answer and the debate.
+  // A run stopped before it answered has nothing to show.
+  // A stopped call (0.8.1 M6) shows what was paid for, when anything was.
+  if (result.advise) return result.advise.status === 'answered' || (result.advise.status === 'stopped' && (result.advise.opinions || []).length) ? `# Advice board - run ${runId}\n\n${renderAdviseBoard(result.advise, result.adviseRecord)}` : '';
   const disputesSection = (result.disputes?.length
-    ? `\n\n## Disputed objections (declined by the reviser, kept out of the deliverable)\n\n${result.disputes.map(d => `- Round ${d.round}: ${d.reason}`).join('\n')}`
+    ? `\n\n## Disputed objections (declined by the builder or the reviser, kept out of the deliverable)\n\n${result.disputes.map(d => `- ${d.round === 'build' ? 'Build' : `Round ${d.round}`}: ${d.reason}`).join('\n')}`
     : '') + renderDisputeReviewBoard(result.dispute);
   const alternativesSection = result.alternatives?.board
     ? `## Alternative architectures\n\nEvery whole architecture a lab proposed before the plan existed, what the other labs posted on it, and the author's reply. The plan's "Decisions" section records which was chosen and why the others lost.\n\n${result.alternatives.board}\n\n`

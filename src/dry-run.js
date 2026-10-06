@@ -6,7 +6,7 @@
 // Pure: it reads the environment only through providers.keyFor (presence, never the value) and
 // prices with cost.js's estimateChainRows, the function the human printout and `council doctor`
 // already use. No network call, no file written, nothing spent.
-import { estimateChainRows, priceTableAge } from './cost.js';
+import { estimateChainRows, priceTableAge, expiredPriceRows, DEFAULT_ESTIMATE } from './cost.js';
 import { everySeatSlotsOf, labOf } from './chain.js';
 import { keyFor, envKeyName, isKeyOptional } from './providers.js';
 
@@ -28,17 +28,23 @@ const sum = rows => rows.reduce((t, r) => ({ input: t.input + r.input, output: t
  * `taskChars` is the task file's length, or null when no --task was given. `history` is
  * forecastCost()'s answer for this chain on this machine, or null.
  */
-export function dryRunReport(config, { fromRun = false, taskChars = null, history = null, defaultCapUsd = null } = {}) {
+export function dryRunReport(config, { fromRun = false, taskChars = null, history = null, defaultCapUsd = null, now = Date.now() } = {}) {
   const rows = estimateChainRows(config, { fromRun });
   const worst = sum(rows);
-  // The cheapest way a run can end: the first review round finishes it. Everything before the
+  // An advice chain (config.advise, src/advise.js) has no review rounds: maxRounds is unused, and its
+  // cheapest end is a panel whose blind answers agree, so no debate round runs (0.8.1 M1 S5; pricing it
+  // as maxRounds: 1 gave floor == worst case for every advice chain).
+  const advising = config.advise?.enabled === true;
+  // The cheapest way a planning run can end: the first review round finishes it. Everything before the
   // rounds (criteria, alternatives, proposals, debate, build) is paid either way.
-  const floor = sum(estimateChainRows({ ...config, maxRounds: 1 }, { fromRun }));
+  const floor = sum(estimateChainRows(advising ? { ...config, advise: { ...config.advise, rounds: 0 } } : { ...config, maxRounds: 1 }, { fromRun }));
 
-  const assumedPromptTokens = config.estimate?.promptTokens ?? 4000;
+  const assumedPromptTokens = config.estimate?.promptTokens ?? DEFAULT_ESTIMATE.promptTokens;
   const taskTokens = taskChars === null ? null : Math.ceil(taskChars / 4);
+  // An advice chain's whole prompt is the brief, so the task replaces the assumed prompt instead of
+  // being added to it (the same rule as the printed dry run in src/cli.js).
   const withTask = taskTokens !== null && taskTokens > assumedPromptTokens
-    ? sum(estimateChainRows({ ...config, estimate: { ...(config.estimate || {}), promptTokens: assumedPromptTokens + taskTokens } }, { fromRun })).usd
+    ? sum(estimateChainRows({ ...config, estimate: { ...(config.estimate || DEFAULT_ESTIMATE), promptTokens: advising ? taskTokens : assumedPromptTokens + taskTokens } }, { fromRun })).usd
     : null;
 
   const seats = everySeatSlotsOf(config).map(({ role, seat }) => ({
@@ -74,13 +80,17 @@ export function dryRunReport(config, { fromRun = false, taskChars = null, histor
       outputTokens: worst.output,
       history: history && history.runsUsed ? { runs: history.runsUsed, days: history.days, lowUsd: history.low, highUsd: history.high, meanUsd: history.mean, ...(history.partial ? { partial: true } : {}) } : null,
     },
+    // Additive (0.8.1 M1 S5): an advice call's own ceiling inside the run's cap, and its debate rounds at most.
+    ...(advising ? { advise: { usd: config.advise.usd ?? null, rounds: config.advise.rounds ?? 0, seats: (config.seats.critics || []).length } } : {}),
     task: taskTokens === null ? null : { tokens: taskTokens, assumedPromptTokens, largerThanAssumed: taskTokens > assumedPromptTokens },
-    cap: { defaultUsd: defaultCapUsd, worstCaseAboveDefault: defaultCapUsd !== null && (withTask ?? worst.usd) > defaultCapUsd },
+    // Finite numbers only (FX-3): a NaN or null worst case must never read as "under the cap".
+    cap: { defaultUsd: defaultCapUsd, worstCaseAboveDefault: defaultCapUsd !== null && (Number.isFinite(withTask) ? withTask : worst.usd) > defaultCapUsd },
     rows: rows.map(r => ({ label: r.label, seat: r.seat, inputTokens: r.input, outputTokens: r.output, usd: r.usd, priced: r.priced })),
     seats,
     missingKeys,
     canRun: missingKeys.length === 0,
     unpriced,
-    priceTable: { asOf: table.asOf, ageDays: table.days, stale: table.stale },
+    // expired (0.8.1 M7, additive): price rows past their `expires` date or with an unreadable one; the text dry run warns on each.
+    priceTable: { asOf: table.asOf, ageDays: table.days, stale: table.stale, expired: expiredPriceRows(now) },
   };
 }

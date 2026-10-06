@@ -1,0 +1,52 @@
+{
+  "name": "mock-advise-deep",
+  "description": "Offline. Five advisors, up to two debate rounds and a synthesis seat off the panel. One seat yields with a quoted argument (round 1), one offers to yield without a quote (its first answer stands), and round 2 moves nothing, so the stall rule stops the debate. Exercises the deep tier's flow at $0.",
+  "resumeAfterStop": false,
+  "maxRounds": 1,
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "advise": {
+    "enabled": true,
+    "usd": 1,
+    "rounds": 2,
+    "synthesis": "seat",
+    "max_wall_ms": 120000
+  },
+  "seats": {
+    "builder": {
+      "provider": "mock",
+      "model": "mock-advise-synth",
+      "lab": "synth"
+    },
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-advisor-proceed",
+        "lab": "adv-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-advisor-yield-argued",
+        "lab": "adv-b"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-advisor-yield-unargued",
+        "lab": "adv-c"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-advisor-stop",
+        "lab": "adv-d"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-advisor-need-info",
+        "lab": "adv-e"
+      }
+    ]
+  }
+}

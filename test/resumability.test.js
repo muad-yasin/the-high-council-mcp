@@ -115,3 +115,29 @@ test('a run stopped by a stale marker does not keep it: resuming clears STOPPED-
   assert.ok(!existsSync(join(rd(dir), 'STOPPED-error.json')));
   assert.equal(readJson(dir, 'state.json').phase, 'done');
 });
+
+test('0.8.1 M6: a stopped run resumes only if its chain said resumeAfterStop: true, as recorded in its marker; an unreadable marker does not', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-resumable-stop-'));
+  writeFileSync(join(dir, 'run.json'), JSON.stringify({ chain: 'x', pid: 999999 }));
+  writeFileSync(join(dir, 'STOPPED-wall_clock.json'), JSON.stringify({ schema: 'stopped/1', stoppedBy: 'wall_clock', beforeFirstCall: false, resumeAfterStop: false }));
+  let s = runResumability(dir, { chain: 'x', pid: 999999 });
+  assert.deepEqual([s.status, s.resumable, s.reason, s.stoppedBy], ['wall_clock_stopped', false, 'wall_clock_stopped', 'wall_clock']);
+  writeFileSync(join(dir, 'STOPPED-wall_clock.json'), JSON.stringify({ schema: 'stopped/1', stoppedBy: 'wall_clock', resumeAfterStop: true }));
+  s = runResumability(dir, { chain: 'x', pid: 999999 });
+  assert.deepEqual([s.resumable, s.needs], [true, 'nothing'], 'a chain that allows it (a planning chain in a later release)');
+  writeFileSync(join(dir, 'STOPPED-wall_clock.json'), '{ torn');
+  s = runResumability(dir, { chain: 'x', pid: 999999 });
+  assert.equal(s.resumable, false);
+  assert.notEqual(s.reason, 'process_gone');
+});
+
+test('0.8.1 decided rule 6 (M6 review D3): an advice call is never offered a resume, whatever ended it: an error, its cap, a crash', () => {
+  for (const marker of ['STOPPED-error.json', 'STOPPED-budget.json', null]) {
+    const dir = mkdtempSync(join(tmpdir(), 'thc-resumable-advice-'));
+    writeFileSync(join(dir, 'run.json'), JSON.stringify({ chain: 'advise-single', pid: 999999 }));
+    writeFileSync(join(dir, 'advise-log.json'), JSON.stringify({ schema: 'advise-log/1' }));
+    if (marker) { writeFileSync(join(dir, marker), '{}'); if (marker === 'STOPPED-error.json') writeFileSync(join(dir, 'STOPPED-error.md'), '# x\n'); }
+    const s = runResumability(dir, { chain: 'advise-single', pid: 999999 });
+    assert.deepEqual([s.resumable, s.reason], [false, 'advice_call'], String(marker));
+  }
+});

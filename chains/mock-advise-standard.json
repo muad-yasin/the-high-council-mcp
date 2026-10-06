@@ -1,0 +1,47 @@
+{
+  "name": "mock-advise-standard",
+  "description": "Offline. Four advisors (three proceed, one stop; one of the proceed seats yields to the stop argument by quoting it), one anonymised debate round, and a synthesis by a mock seat that is not on the panel. Exercises the standard tier's flow at $0: blind opinions, the debate, the quote rule, the synthesis and the engine-built dissent.",
+  "resumeAfterStop": false,
+  "maxRounds": 1,
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "advise": {
+    "enabled": true,
+    "usd": 1,
+    "rounds": 1,
+    "synthesis": "seat",
+    "max_wall_ms": 120000
+  },
+  "seats": {
+    "builder": {
+      "provider": "mock",
+      "model": "mock-advise-synth",
+      "lab": "synth"
+    },
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-advisor-proceed",
+        "lab": "adv-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-advisor-yield-argued",
+        "lab": "adv-b"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-advisor-proceed",
+        "lab": "adv-c"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-advisor-stop",
+        "lab": "adv-d"
+      }
+    ]
+  }
+}

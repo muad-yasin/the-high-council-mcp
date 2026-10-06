@@ -6,7 +6,11 @@
 import { providerNames, keyDestinationReasons } from './providers.js';
 import { validateSeatRole } from './seat-role.js';
 import { ALLOWED_TOOLS } from './tools.js';
-import { priceOf } from './cost.js';
+import { priceOf, SEAT_DEFAULT_MAX_TOKENS } from './cost.js';
+import { reasoningProblems } from './reasoning.js';
+import { dirname, join, resolve } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots, everySeatOf, SIGNOFF_MODES } from './chain.js';
 import { deniedSeatsOf } from './denied-models.js';
 
@@ -14,6 +18,15 @@ import { deniedSeatsOf } from './denied-models.js';
 // chains). Used only to enforce an EU-region compliance claim against the
 // seats that would violate it - not a general allow/deny list.
 const NON_EU_PROVIDERS = ['deepseek', 'zai'];
+
+// The package's own chains/ folder: the rule `reasoning-not-high` binds these and nothing else (owner via C&C, 5 Oct 2026: "always high"
+// binds only our shipped chains; a user's own explicit setting passes through, as a user's own Kimi seat does).
+const PKG_CHAINS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'chains');
+const realOr = p => { try { return realpathSync(p); } catch { return resolve(p); } };
+export function isShippedChainPath(filePath) {
+  if (typeof filePath !== 'string' || filePath.startsWith('<')) return false;
+  return realOr(dirname(resolve(filePath))) === realOr(PKG_CHAINS_DIR);
+}
 
 // `claims` and `descending` added 2026-09-23 (bug audit GuardLayer #7): chain.js reads both, so a
 // valid seat there was falsely refused as a typo.
@@ -185,6 +198,8 @@ export function lintChain(config, filePath = '<chain>') {
     alternatives: { enabled: 'boolean', maxTokens: 'positive-integer', debaters: 'debaters' },
     // Tiered councils (2026-09-26). Both experimental, both off in every chain written before them.
     majority_guard: { enabled: 'boolean' },
+    // The council advisor (thc-research brief 27, src/advise.js). Experimental; off in every chain written before it.
+    advise: { enabled: 'boolean', usd: 'positive-number', rounds: 'advise-rounds', skipDebateWhenUnanimous: 'boolean', synthesis: 'advise-synthesis', samples: 'advise-samples', max_wall_ms: 'advise-wall' },
     deep_dive: { enabled: 'boolean', job: 'job', focus: 'string-array', usd: 'positive-number', maxCalls: 'positive-integer', chunkChars: 'chunk' },
     lints: { enabled: 'boolean', forks: 'array' },
     canary: { enabled: 'boolean', sampleRate: 'rate' },
@@ -200,8 +215,12 @@ export function lintChain(config, filePath = '<chain>') {
     : want === 'string-array' ? Array.isArray(v) && v.every(x => typeof x === 'string' && x.trim())
     : want === 'positive-number' ? typeof v === 'number' && Number.isFinite(v) && v > 0
     : want === 'chunk' ? Number.isInteger(v) && v >= 1000
+    : want === 'advise-rounds' ? Number.isInteger(v) && v >= 0 && v <= 2
+    : want === 'advise-synthesis' ? v === 'none' || v === 'seat'
+    : want === 'advise-samples' ? Number.isInteger(v) && v >= 1 && v <= 5
+    : want === 'advise-wall' ? Number.isInteger(v) && v >= 1000
     : true;
-  const typeText = { boolean: 'true or false', 'positive-integer': 'a whole number of at least 1', array: 'an array', rate: 'a number from 0 to 1', debaters: '"authors" or "all"', job: '"sources" or "subsystem"', 'string-array': 'a list of non-empty strings', 'positive-number': 'a dollar amount above 0', chunk: 'a whole number of at least 1000' };
+  const typeText = { boolean: 'true or false', 'positive-integer': 'a whole number of at least 1', array: 'an array', rate: 'a number from 0 to 1', debaters: '"authors" or "all"', job: '"sources" or "subsystem"', 'string-array': 'a list of non-empty strings', 'positive-number': 'a dollar amount above 0', chunk: 'a whole number of at least 1000', 'advise-rounds': 'a whole number from 0 to 2', 'advise-synthesis': '"none" or "seat"', 'advise-samples': 'a whole number from 1 to 5', 'advise-wall': 'a whole number of milliseconds, at least 1000' };
   for (const [block, keys] of Object.entries(FLAG_BLOCKS)) {
     const value = config?.[block];
     if (value === undefined) continue;
@@ -221,6 +240,16 @@ export function lintChain(config, filePath = '<chain>') {
         findings.push({ kind, message: `${block}.${key} must be ${typeText[keys[key]]}.`, fix: `Set "${block}.${key}" to ${typeText[keys[key]]} in ${filePath}.` });
       }
     }
+  }
+
+  // 5b2. 0.8.1 P17 (plan M6 Work 3, decided rule 6): an advice chain is a tool chain: it carries its own wall clock, and a stopped
+  // advice call is never resumed (it is asked again), so `resumeAfterStop` must say false. A planning chain may leave it out (true).
+  if (config?.resumeAfterStop !== undefined && typeof config.resumeAfterStop !== 'boolean') {
+    findings.push({ kind: 'invalid-resume-after-stop', message: 'resumeAfterStop must be true or false.', fix: `Set "resumeAfterStop" to true or false in ${filePath}.` });
+  }
+  if (config?.advise?.enabled === true) {
+    if (config.resumeAfterStop !== false) findings.push({ kind: 'advice-resume-after-stop', message: 'an advice chain must set "resumeAfterStop": false: a stopped advice call is asked again, never continued.', fix: `Add "resumeAfterStop": false to ${filePath}.` });
+    if (!Number.isInteger(config.advise.max_wall_ms)) findings.push({ kind: 'advice-no-wall-clock', message: 'an advice chain must set advise.max_wall_ms: a call with no wall-clock ceiling is refused at admission.', fix: `Add "max_wall_ms" (milliseconds, at least 1000) to the advise block of ${filePath}.` });
   }
 
   // 5c. "How this plan was argued" with descending mode (src/argued.js). The section needs the
@@ -941,6 +970,79 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
+  // The council advisor (config.advise, src/advise.js). It returns before every planning stage, so a
+  // stage or seat kind set beside it would silently do nothing; its own ceiling is required, every
+  // seat must be priced for that ceiling to see it, and the synthesis seat must sit off the panel.
+  const adv = config?.advise;
+  if (adv && typeof adv === 'object' && !Array.isArray(adv) && adv.enabled === true) {
+    if (!(typeof adv.usd === 'number' && Number.isFinite(adv.usd) && adv.usd > 0)) {
+      findings.push({
+        kind: 'advise-uncapped',
+        message: 'advise.enabled is true but advise.usd (the call\'s own dollar ceiling) is not set - an advice call must have a ceiling of its own inside the run\'s.',
+        fix: `Set "advise": { ..., "usd": <dollars> } in ${filePath}.`,
+      });
+    }
+    const ignoredKeys = ['proposals', 'debate', 'alternatives', 'deep_dive', 'dispute', 'questions', 'handoff', 'argued', 'security_review', 'descending', 'challenge', 'coldRead', 'claims', 'canary', 'lints', 'majority_guard', 'decisions', 'ambiguity_union', 'preflight', 'verify', 'signoff', 'panel', 'revise']
+      .filter(k => config[k] !== undefined && config[k] !== false && config[k]?.enabled !== false);
+    const ignoredSeats = ['criteria', 'skeleton', 'reviser', 'finalist', 'handoff', 'proposers', 'alternatives', 'deep_dive', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'ambiguity', 'descending', 'security_reviewer'].filter(k => seats[k] !== undefined);
+    if (ignoredKeys.length || ignoredSeats.length) {
+      findings.push({
+        kind: 'advise-ignores-planning-stages',
+        message: `advise.enabled is true, and an advise chain returns before every planning stage, so ${[...ignoredKeys.map(k => `"${k}"`), ...ignoredSeats.map(k => `seats.${k}`)].join(', ')} would silently do nothing.`,
+        fix: `Remove ${ignoredKeys.length ? 'those top-level keys' : ''}${ignoredKeys.length && ignoredSeats.length ? ' and ' : ''}${ignoredSeats.length ? 'those seats' : ''} from ${filePath}. An advise chain reads only seats.critics (the advisors) and, when advise.synthesis is "seat", seats.builder.`,
+      });
+    }
+    if (adv.synthesis !== 'seat' && seats.builder !== undefined) {
+      findings.push({
+        kind: 'advise-builder-unused',
+        message: 'seats.builder is set but advise.synthesis is not "seat", so that seat is never called.',
+        fix: `Set "advise.synthesis" to "seat" in ${filePath}, or remove seats.builder.`,
+      });
+    }
+    if (adv.synthesis === 'seat') {
+      const synth = seats.builder;
+      if (!synth || Array.isArray(synth) || typeof synth !== 'object') {
+        findings.push({
+          kind: 'unreachable-stage',
+          message: 'advise.synthesis is "seat" but seats.builder (the synthesis seat) is not set.',
+          fix: `Set "seats.builder" to one seat that is not on the panel in ${filePath}, or set advise.synthesis to "none".`,
+        });
+      } else {
+        const onPanel = tierOf(seats.critics)(synth);
+        if (onPanel) {
+          findings.push({
+            kind: 'advise-synthesis-on-panel',
+            message: `seats.builder (the synthesis seat) is ${onPanel}, which also holds a seat on the advisor panel (seats.critics): that lab would write the verdict on its own answer.`,
+            fix: `Seat a model in seats.builder that is not on the panel in ${filePath}.`,
+          });
+        }
+      }
+    }
+    if (Number.isInteger(adv.rounds) && adv.rounds > 0 && Array.isArray(seats.critics) && seats.critics.filter(Boolean).length < 2) {
+      findings.push({
+        kind: 'advise-debate-one-seat',
+        message: 'advise.rounds is above 0 but seats.critics holds fewer than two seats: with one advisor there is nobody to read, so the debate never runs.',
+        fix: `Add a second advisor from another lab to "seats.critics" in ${filePath}, or set "advise.rounds" to 0.`,
+      });
+    }
+    if (Number.isInteger(adv.samples) && adv.samples > 1 && Number.isInteger(adv.rounds) && adv.rounds > 0) {
+      findings.push({
+        kind: 'advise-samples-with-debate',
+        message: 'advise.samples is above 1 and advise.rounds is above 0: the samples of one seat are one model, so a debate between them is one model arguing with itself.',
+        fix: `Set "advise.rounds" to 0 in ${filePath} for a several-samples control, or "advise.samples" to 1 for a debating panel.`,
+      });
+    }
+    for (const [where, seat] of [...(Array.isArray(seats.critics) ? seats.critics.map((s, i) => [`seats.critics[${i}]`, s]) : []), ...(adv.synthesis === 'seat' && seats.builder && !Array.isArray(seats.builder) ? [['seats.builder', seats.builder]] : [])]) {
+      if (seat && typeof seat === 'object' && seat.provider !== 'mock' && seat.provider !== 'external' && !priceOf(seat.provider, seat.model)) {
+        findings.push({
+          kind: 'advise-unpriced',
+          message: `${where} (${seat.provider}/${seat.model}) has no price in src/pricing.json, so neither the advise ceiling nor the run's cap can see what it spends.`,
+          fix: `Add "${seat.provider}/${seat.model}" to src/pricing.json, or seat a priced model in ${filePath}.`,
+        });
+      }
+    }
+  }
+
   // denied-model (2026-09-23, Muad: "No grok, ever!!!"; Kimi allowed in user chains since 2026-09-26): a hard error,
   // no opt-out. Checked on the roster AFTER resolveChainSeats, so a single-vendor rewrite cannot
   // hide one. Router ids are errors too - they can route to a denied model. See src/denied-models.js.
@@ -952,6 +1054,26 @@ export function lintChain(config, filePath = '<chain>') {
       message: `${path}: ${reasons.join('; ')}.`,
       fix: `Remove that seat from ${filePath}. xAI/Grok is never seated, and a router id cannot prove it avoids it. There is no override.`,
     });
+  }
+
+  // reasoning-not-high (0.8.1 milestone R, owner 4-5 Oct 2026: "I want reasoning to always be 'High' for the 'High' Council"; "NO LOWER
+  // EFFORT"): a SHIPPED chain whose seat, as it will be sent (after transport rerouting and the harness default), reasons below high is a
+  // hard error with no opt-out. A chain whose seats are all `mock` is excepted, by its seats (not by its file name). The table and the
+  // list of lowering settings are src/reasoning.js's; a model it has no field for, or whose own default is above high, has nothing to be missing.
+  if (isShippedChainPath(filePath)) {
+    const real = (everySeatOf(resolved) || []).filter(s => s && s.provider !== 'mock' && s.provider !== 'external');
+    const anyReal = (everySeatOf(resolved) || []).some(s => s && s.provider !== 'mock');
+    if (anyReal) {
+      for (const seat of real) {
+        for (const p of reasoningProblems(seat, seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS)) {
+          findings.push({
+            kind: 'reasoning-not-high',
+            message: `${seat.provider}/${seat.model}: ${p.why} (${p.path}${p.value === null ? '' : ` = ${JSON.stringify(p.value)}`}). Reasoning is always high for a shipped chain.`,
+            fix: `Remove that setting from the seat in ${filePath} (src/reasoning-table.json says which field makes ${seat.provider}/${seat.model} reason at high). There is no override.`,
+          });
+        }
+      }
+    }
   }
 
   return findings;

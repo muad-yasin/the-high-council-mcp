@@ -222,3 +222,21 @@ test('report-partial: capped --rematch and --replay folders get one too', () => 
     assert.equal(partial.task, 'tasks/x.md');
   }
 });
+
+test('report-partial (0.8.1 M6): the stoppedBy values of an advice stop validate, an unknown one does not, and the board names each cause', () => {
+  const config = { ...chain('mock-budget'), name: 'mock-budget-zero' };
+  setBudget(0.001);
+  return runChain({ config, request: 'x', log: () => {} }).then(() => assert.fail('no stop'), e => {
+    setBudget(null);
+    const base = JSON.parse(JSON.stringify(partialReportJsonShape({ stoppedBy: 'budget', runId: 'r', chain: config.name, task: 'x.md', result: e.partial })));
+    checkCauses(base);
+  });
+});
+
+function checkCauses(base) {
+  for (const stoppedBy of ['budget', 'user', 'client_cancel', 'wall_clock']) assert.equal(validate({ ...base, stoppedBy }), true, `${stoppedBy}: ${JSON.stringify(validate.errors)}`);
+  assert.equal(validate({ ...base, stoppedBy: 'gremlins' }), false);
+  const advise = { ...JSON.parse(readFileSync(join(root, 'test', 'fixtures', 'report-advice-single.json'), 'utf8')).advise, status: 'stopped' };
+  assert.match(renderPartialBoardMd({ runId: 'r', result: { advise }, cause: 'wall_clock' }), /^> \*\*Partial board\.\*\* This run did not finish: its wall-clock ceiling passed\./);
+  assert.equal(renderPartialBoardMd({ runId: 'r', result: { advise: { ...advise, opinions: [] } }, cause: 'user' }), '', 'nothing paid for: no board');
+}

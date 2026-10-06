@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://the-high-council.dev/schema/gate-v1.json",
+  "title": "gates/<gate_id>.json - one send that waits for a person",
+  "description": "runs/<id>/gates/<gate_id>.json, written by src/gate.js (requestGate, answerGate) with a temp file, fsync and rename. It is a view: the record is runs/<id>/gate-ledger.jsonl (schemas/gate-ledger-v1.json). A gate is approved only when a ledger that verifies holds a gate_answered line from a person's channel for this gate's sha256, and the text file still hashes to it; a gate file that says 'approved' on its own approves nothing. 'expired' is derived from expires_at when the gate is read and never written here; an approval is usable for a send only until expires_at and only once.",
+  "type": "object",
+  "required": ["schema", "id", "kind", "status", "text", "sha256", "bytes", "price", "seats", "sensitivity", "masks", "meta_sha256", "requested_at", "expires_at", "answer", "seq"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "gate/1", "description": "The format version." },
+    "id": { "type": "string", "pattern": "^g[1-9][0-9]{0,5}$", "description": "g<n>: the n-th gate this run requested, counted in the ledger." },
+    "kind": { "type": "string", "pattern": "^[a-z][a-z_]{0,31}$", "description": "What the gate approves, chosen by the server (an advice send is 'advice'); never a tool argument." },
+    "status": { "enum": ["pending", "approved", "declined"], "description": "As last written. When the ledger holds an answer and this file still says pending with no answer (a crash between the two writes), the ledger wins; any other disagreement makes the gate read invalid." },
+    "text": { "type": "string", "description": "The text file the person approves, relative to the run folder, '/'-separated. requestGate refuses a path outside the run folder or a link that leads out of it, and every read of the text checks the same again, so a forged path reads as unreadable." },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the text file's raw bytes when the gate was requested." },
+    "bytes": { "type": "integer", "minimum": 0, "description": "The text file's size in bytes when the gate was requested." },
+    "price": { "description": "What the send could cost, as the caller priced it (an advice gate: ceiling_usd and expected_usd). null when not given.", "type": ["object", "null"] },
+    "seats": { "type": "array", "description": "Who the text would go to, as the caller described them (an advice gate: lab, model, retention wording)." },
+    "sensitivity": { "description": "The effective sensitivity label and who set it, as the caller gave them. null when not given.", "type": ["object", "string", "null"] },
+    "follow_up": { "type": "string", "maxLength": 300, "description": "Present only when the send follows an advisor's request for more material (0.8.1 DR-8): the line the person is shown about it. Bound by meta_sha256 when present; absent, the hash is as before." },
+    "masks": { "type": "object", "description": "How many values of each kind were masked in the text before the gate was requested.", "additionalProperties": { "type": "integer", "minimum": 0 } },
+    "meta_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the canonical JSON (keys sorted at every depth) of price, seats, sensitivity, masks and follow_up (when present), also on the gate_requested ledger line: an edit of any of them in this file makes the gate read invalid." },
+    "requested_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time", "description": "After this the gate reads 'expired' and cannot be answered. Default ten minutes after the request, the life of a council_quote." },
+    "seq": { "type": "integer", "minimum": 1, "description": "The ledger line that requested this gate." },
+    "answer": {
+      "description": "null while pending; the answer as the ledger records it once answered.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["decision", "channel", "actor", "reason", "tty", "at", "seq"],
+          "properties": {
+            "decision": { "enum": ["approved", "declined"] },
+            "channel": { "enum": ["cli", "elicitation"], "description": "A channel a person uses (PERSON_CHANNELS in src/gate.js)." },
+            "actor": { "type": ["string", "null"], "description": "Who answered, as the channel knows it (the CLI: the OS user name)." },
+            "reason": { "type": ["string", "null"] },
+            "tty": { "type": ["boolean", "null"], "description": "true when the CLI saw a terminal on stdin and stdout. Friction, not proof of a person: a pseudo-terminal passes." },
+            "at": { "type": "string", "format": "date-time" },
+            "seq": { "type": "integer", "minimum": 1, "description": "The ledger line that holds this answer." }
+          }
+        }
+      ]
+    }
+  }
+}

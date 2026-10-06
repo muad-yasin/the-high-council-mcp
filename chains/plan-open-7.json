@@ -9,7 +9,7 @@
   },
   "proposals": {
     "parts": 3,
-    "maxTokens": 4000
+    "maxTokens": 12000
   },
   "debate": true,
   "decisions": { "enabled": true },
@@ -25,7 +25,7 @@
     "criteria": {
       "provider": "openrouter",
       "model": "meta-llama/llama-4-maverick",
-      "maxTokens": 36000,
+      "maxTokens": 16384,
       "lab": "llama4-maverick"
     },
     "skeleton": {
@@ -49,19 +49,34 @@
         "provider": "openrouter",
         "model": "openai/gpt-5.6-luna",
         "maxTokens": 36000,
-        "lab": "gpt5.6-luna"
+        "lab": "gpt5.6-luna",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
       },
       {
         "provider": "openrouter",
         "model": "google/gemini-3.8-flash",
         "maxTokens": 36000,
-        "lab": "gemini3.8-flash"
+        "lab": "gemini3.8-flash",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
       },
       {
         "provider": "openrouter",
         "model": "deepseek/deepseek-v4.1-flash",
-        "maxTokens": 36000,
-        "lab": "deepseek-v4.1-flash"
+        "maxTokens": 360000,
+        "lab": "deepseek-v4.1-flash",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
       },
       {
         "provider": "openrouter",
@@ -74,19 +89,34 @@
         "provider": "openrouter",
         "model": "qwen/qwen3.7-plus",
         "maxTokens": 36000,
-        "lab": "qwen3.7-plus"
+        "lab": "qwen3.7-plus",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
       },
       {
         "provider": "openrouter",
         "model": "minimax/minimax-m3",
         "maxTokens": 36000,
-        "lab": "minimax-m3"
+        "lab": "minimax-m3",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
       },
       {
         "provider": "openrouter",
         "model": "mistralai/mistral-medium-3-5",
         "maxTokens": 36000,
-        "lab": "mistral-medium3.5"
+        "lab": "mistral-medium3.5",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
       }
     ]
   }

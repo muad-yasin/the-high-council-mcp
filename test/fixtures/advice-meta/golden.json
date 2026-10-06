@@ -1,0 +1,16 @@
+{
+  "schema": "advice-meta/1",
+  "quote_id": "q_0123456789abcdef01234567",
+  "chain": "advise-single",
+  "gate": "g1",
+  "brief_sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+  "mode": "single",
+  "advisor": "sol",
+  "effective_sensitivity": "internal",
+  "question_hash": "0123456789abcdef",
+  "question_words": ["0a1b2c3d", "4e5f6a7b"],
+  "has_new_evidence": false,
+  "quoted": { "worst_usd": 0.21, "expected_usd": 0.08, "ceiling_usd": 0.3 },
+  "previous_run": null,
+  "dispositions": []
+}

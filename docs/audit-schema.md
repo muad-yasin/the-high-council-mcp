@@ -43,6 +43,12 @@ uid. `region` is currently always `null` - no seat in this repo declares one yet
 so a future seat-level `region` (e.g. for the policy file's `allowed_regions` check) has somewhere to
 land in the audit trail without a schema version bump.
 
+**Advice calls (experimental).** A run of an advice chain (`council_advise`, or `council --chain advise-...`) always writes this
+file, and its data lines may carry four more fields: `promptSha256` (the full sha256 of the exact prompt that went out),
+`promptBytes` (its size), `endpoint` (the host the provider says served the call: OpenRouter names one, most providers do not, so it is
+often `null`) and `scan` (`clean` when the outbound key scan was on for that call, `waived` when it was not). They say **which text went to
+which host, without a second copy of the text.** They are hashed too, but only on a line that carries them, so every line written before this verifies exactly as it did: on such a line the four values follow `prevHash` in the hashed list, in the order `promptSha256`, `promptBytes`, `endpoint`, `scan`.
+
 `hash` is `sha256` over the line's own fields (`seq`, `ts`, `run`, `chain`, `user`, `stage`,
 `provider`, `model`, `lab`, `region`, `tokensIn`, `tokensOut`, `usd`, `prevHash`, in that exact
 order) - `hash` and `signature` are never included in their own hash input. `prevHash` is the

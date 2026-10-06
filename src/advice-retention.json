@@ -1,0 +1,207 @@
+{
+  "_note": "Retention class per advisor seat, for the send preview (thc-research brief 29, seeded from brief 31's retention-classes-2026-09-30.json, which used fetched/brief-25/01, 02, 04, 08). A DATED SNAPSHOT of OpenRouter's public endpoint list and each lab's own terms: it goes stale. Re-check the ZDR tags (openrouter.ai/api/v1/endpoints/zdr) and the lab pages before relying on a row, and move `asOf` only when every row was re-checked. A ZDR tag is OpenRouter's statement about its own account with the host; for Azure and Vertex it is not a property of the cloud. Nothing here claims data is protected, and no live request has ever been made to see what OpenRouter does with provider.zdr.",
+  "asOf": "2026-09-30",
+  "classes": {
+    "A": "zero-retention-tagged endpoint by OpenRouter, at least one tagged EU",
+    "B": "zero-retention-tagged endpoint by OpenRouter, none tagged EU",
+    "C": "no zero-retention-tagged endpoint: only the lab's own host, under the lab's own terms",
+    "D": "Anthropic Covered Model: kept at least 30 days by default on every surface; a limited-time zero-retention option exists for eligible customers Anthropic or their cloud provider contacts, or who request consideration, and OpenRouter tags no such endpoint"
+  },
+  "seats": {
+    "openrouter/openai/gpt-6.1-sol": {
+      "lab": "openai",
+      "class": "A",
+      "zdrTags": [
+        "azure",
+        "azure/eu",
+        "azure/us"
+      ],
+      "euZdrTags": [
+        "azure/eu"
+      ],
+      "labRetention": "abuse-monitoring logs up to 30 days; Responses API application state 30 days by default",
+      "labTraining": "not used to train by default",
+      "wording": "GPT-6.1 Sol via OpenRouter, routed only to endpoints OpenRouter tags zero-data-retention (Azure, one of them EU). That is OpenRouter's record. Microsoft's default stores flagged prompts for abuse review unless modified abuse monitoring is approved; whether OpenRouter's Azure account has that approval is not stated."
+    },
+    "openrouter/openai/gpt-6-astra": {
+      "lab": "openai",
+      "class": "B",
+      "zdrTags": [
+        "azure",
+        "azure/us"
+      ],
+      "euZdrTags": [],
+      "labRetention": "abuse-monitoring logs up to 30 days; Responses API application state 30 days by default",
+      "labTraining": "not used to train by default",
+      "wording": "GPT-6 Astra via OpenRouter, routed only to endpoints OpenRouter tags zero-data-retention (Azure, US or unsuffixed; none is tagged EU). That is OpenRouter's record. Microsoft's default stores flagged prompts for abuse review unless modified abuse monitoring is approved; whether OpenRouter's Azure account has that approval is not stated."
+    },
+    "openrouter/google/gemini-3.8-flash": {
+      "lab": "google",
+      "class": "B",
+      "zdrTags": [
+        "google-vertex/global/flex",
+        "google-vertex/global",
+        "google-vertex/global/priority"
+      ],
+      "euZdrTags": [],
+      "labRetention": "55 days of logging for the Gemini API (AI Studio) per Google's abuse-monitoring page; that page gives no period for the Vertex route used here",
+      "labTraining": "paid tier: not used to improve Google products; free tier: used, human review possible",
+      "wording": "Gemini 3.8 Flash via OpenRouter, routed to Vertex endpoints OpenRouter tags zero-data-retention (global region, no EU tag). Google's zero retention depends on the account's exception; its default keeps prompts for abuse monitoring (55 days on the Gemini API page; no period stated for Vertex)."
+    },
+    "openrouter/meta/muse-spark-1.3": {
+      "lab": "meta",
+      "class": "C",
+      "zdrTags": [],
+      "euZdrTags": [],
+      "labRetention": null,
+      "labTraining": "Standard tier not used for training; the -contributor model ids ARE trained on",
+      "wording": "Muse Spark 1.3 via OpenRouter, sent to Meta's own API (no zero-data-retention endpoint exists). Meta's docs say Standard-tier data is not used for training; they state no retention period or region."
+    },
+    "openrouter/qwen/qwen3.8-max-0902": {
+      "lab": "alibaba",
+      "class": "C",
+      "zdrTags": [],
+      "euZdrTags": [],
+      "labRetention": "prompts and responses up to 30 days by default",
+      "labTraining": "privacy notice: never used for model training",
+      "wording": "Qwen3.8 Max via OpenRouter, sent to Alibaba Cloud Model Studio (no zero-data-retention endpoint). Alibaba's page: prompts and responses kept up to 30 days by default, not used for model training; region set by Alibaba's endpoint."
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+      "lab": "deepseek",
+      "class": "B",
+      "zdrTags": [
+        "open-inference/fp4",
+        "relace",
+        "inference-net",
+        "wafer",
+        "morph/fp8",
+        "sail-research/fp4",
+        "io-net/fp8",
+        "ionstream",
+        "dekallm",
+        "deepinfra/fp8",
+        "coreweave/fp8",
+        "nextbit/fp8",
+        "phala",
+        "fireworks",
+        "krea/fp8",
+        "baseten/fp8",
+        "makora/fp8",
+        "digitalocean",
+        "together",
+        "siliconflow/fp8",
+        "modal",
+        "baseten/fp8",
+        "parasail/fp8",
+        "novita/fp8",
+        "venice/fp8",
+        "fireworks/us",
+        "baseten/fast"
+      ],
+      "euZdrTags": [],
+      "labRetention": null,
+      "labTraining": "no training promise for API data found; DeepSeek's privacy policy (2026-02-10) names training as a purpose for its own services",
+      "wording": "DeepSeek V4.1 Flash via OpenRouter, routed to third-party hosts OpenRouter tags zero-data-retention; those hosts' own terms were not read. DeepSeek's own API is not used on this route; its privacy policy lists training as a purpose and gives no training promise for API data."
+    },
+    "openrouter/z-ai/glm-5.3": {
+      "lab": "zai",
+      "class": "B",
+      "zdrTags": [
+        "relace",
+        "morph/fp8",
+        "wafer/us",
+        "wafer",
+        "sail-research/us",
+        "sail-research/fp8",
+        "inference-net",
+        "reka",
+        "deepinfra/fp4",
+        "inceptron/fp4",
+        "siliconflow/fp8",
+        "novita/fp8",
+        "phala",
+        "makora/fp4",
+        "digitalocean",
+        "akashml/fp8",
+        "decart/fp4",
+        "mistral/zdr",
+        "baseten/fp4",
+        "mistral/nvfp4",
+        "crusoe/fp4",
+        "primeintellect",
+        "venice",
+        "together",
+        "parasail/fp8",
+        "modal",
+        "baseten/fp4",
+        "fireworks",
+        "z-ai/fp8",
+        "mistral/nvfp4",
+        "baseten/fast",
+        "baseten/fast"
+      ],
+      "euZdrTags": [],
+      "labRetention": "DPA: content processed in real time and not stored; other customer data stored temporarily; no day count",
+      "labTraining": "not used to develop services unless the customer agrees",
+      "wording": "GLM-5.3 via OpenRouter, routed to third-party hosts OpenRouter tags zero-data-retention (no EU tag); those hosts' terms were not read. Z.ai's own API terms state no training without consent and generally serve from Singapore."
+    },
+    "openrouter/anthropic/claude-opus-5.5": {
+      "lab": "anthropic",
+      "class": "B",
+      "zdrTags": [
+        "amazon-bedrock",
+        "google-vertex/global",
+        "amazon-bedrock/eu-west-1",
+        "amazon-bedrock/us-east-1",
+        "google-vertex/us",
+        "google-vertex/europe"
+      ],
+      "euZdrTags": [
+        "amazon-bedrock/eu-west-1",
+        "google-vertex/europe"
+      ],
+      "labRetention": "inputs and outputs deleted within 30 days; up to 2 years if flagged for a Usage Policy violation",
+      "labTraining": "not used to train by default",
+      "wording": "Claude Opus 5.5 via OpenRouter, routed to Bedrock or Vertex endpoints OpenRouter tags zero-data-retention, at list price (the EU-tagged endpoints cost 10% more than this seat's max_price allows, so this route does not reach them). Anthropic's own API, not used here, deletes within 30 days by default."
+    },
+    "openrouter/anthropic/claude-sonnet-5.5": {
+      "lab": "anthropic",
+      "class": "B",
+      "zdrTags": [
+        "google-vertex/global",
+        "amazon-bedrock",
+        "google-vertex/us",
+        "google-vertex/europe"
+      ],
+      "euZdrTags": [
+        "google-vertex/europe"
+      ],
+      "labRetention": "inputs and outputs deleted within 30 days; up to 2 years if flagged for a Usage Policy violation",
+      "labTraining": "not used to train by default",
+      "wording": "Claude Sonnet 5.5 via OpenRouter, routed to Bedrock or Vertex endpoints OpenRouter tags zero-data-retention, at list price (the EU-tagged endpoint costs 10% more than this seat's max_price allows, so this route does not reach it). Anthropic's own API, not used here, deletes within 30 days by default."
+    },
+    "openrouter/anthropic/claude-fable-5.1": {
+      "lab": "anthropic",
+      "class": "D",
+      "zdrTags": [],
+      "euZdrTags": [],
+      "labRetention": "inputs and outputs deleted within 30 days; up to 2 years if flagged for a Usage Policy violation",
+      "labTraining": "not used to train by default",
+      "wording": "Claude Fable 5.1: Anthropic keeps prompts and completions at least 30 days by default on every surface. A limited-time zero-retention option exists for eligible customers Anthropic or their cloud provider contacts, or who request consideration; OpenRouter tags no zero-data-retention endpoint for it."
+    },
+    "openrouter/mistralai/mistral-medium-3-5": {
+      "lab": "mistral",
+      "class": "A",
+      "zdrTags": [
+        "mistral/zdr",
+        "mistral/eu"
+      ],
+      "euZdrTags": [
+        "mistral/eu"
+      ],
+      "labRetention": "inputs and outputs 30 rolling days for abuse monitoring unless ZDR is approved",
+      "labTraining": "paid use has an opt-out, default not stated; free mode and Labs models may be trained on",
+      "wording": "Mistral Medium 3.5 via OpenRouter, routed to Mistral endpoints OpenRouter tags zero-data-retention (one EU). Mistral's own terms: 30 rolling days of abuse monitoring unless ZDR is approved; EU-hosted by default."
+    }
+  }
+}

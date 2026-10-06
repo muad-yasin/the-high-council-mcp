@@ -5,7 +5,7 @@
   "signoff": "unanimous",
   "proposals": {
     "parts": 1,
-    "maxTokens": 4000
+    "maxTokens": 12000
   },
   "estimate": {
     "promptTokens": 3000,
@@ -16,12 +16,22 @@
     "criteria": {
       "provider": "anthropic",
       "model": "claude-sonnet-5",
-      "maxTokens": 2000
+      "maxTokens": 2000,
+      "extra": {
+        "output_config": {
+          "effort": "high"
+        }
+      }
     },
     "skeleton": {
       "provider": "anthropic",
       "model": "claude-sonnet-5",
-      "maxTokens": 1000
+      "maxTokens": 1000,
+      "extra": {
+        "output_config": {
+          "effort": "high"
+        }
+      }
     },
     "proposers": [
       {
@@ -38,12 +48,20 @@
       {
         "provider": "anthropic",
         "model": "claude-sonnet-5",
-        "maxTokens": 8000
+        "maxTokens": 8000,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        }
       },
       {
         "provider": "openai",
         "model": "gpt-5",
-        "maxTokens": 8000
+        "maxTokens": 8000,
+        "extra": {
+          "reasoning_effort": "high"
+        }
       }
     ]
   },

@@ -1,6 +1,9 @@
 import { call, keyFor, resolveVendorSeat } from './providers.js';
+import { extraWithHighDefault, retryCapFor, retryCeilingOf } from './reasoning.js';
+import { parseDisputes } from './draft-disputes.js';
+export { parseDisputes };
 import * as R from './roles.js';
-import { costOf, summarise, formatUsd, wouldBreach, projectStage, SEAT_DEFAULT_MAX_TOKENS, readUsage, readUsd } from './cost.js';
+import { costOf, summarise, formatUsd, wouldBreach, projectStage, projectAttempts, isAnthropicSeat, SEAT_DEFAULT_MAX_TOKENS, readUsage, readUsd } from './cost.js';
 import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { applySeatRole } from './seat-role.js';
@@ -14,12 +17,14 @@ import { parsePatches, applyPatches, changedSince } from './patch-revise.js';
 import { injectCanary, shouldSampleCanary, runIdUnit, pickCanaryTarget, CANARY_NOTE } from './canary.js';
 import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
 import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
-import { promptHashOf, cacheVerdict } from './cache-integrity.js';
+import { promptHashOf, promptSha256Of, cacheVerdict } from './cache-integrity.js';
+import { stripLockBlock } from './criteria-lock.js';
 import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
 import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine, MET_VERDICT } from './criteria-kinds.js';
 import { missingCriteriaRows } from './criteria-ledger.js';
 import { lintCriteria } from './criteria-lints.js';
 import { runDeepDive, deepDiveFailures } from './deep-dive.js';
+import { runAdvise, AdviceStopped } from './advise.js';
 import { assertOutboundClean, SecretShapedPrompt } from './outbound-scan.js';
 export { DeniedModel };
 
@@ -225,67 +230,6 @@ function repairStrayQuotesAndControlChars(text) {
   return out;
 }
 
-// §5 (v3 plan, MISTRAL-3 accepted): a reviser that judges an objection to not
-// be a real defect ends its reply with one or more trailing "DECLINED: <reason>"
-// lines (src/roles.js's reviser system prompt). Those lines are never part of
-// the deliverable a critic grades - they're stripped here and returned
-// separately so the caller can carry them into report.json's `disputes`
-// field instead. Only lines strictly at the end of the reply count: a
-// "DECLINED:"-shaped line does not get pulled out of the middle of the
-// deliverable's own body text.
-export function parseDisputes(text) {
-  let lines = text.split('\n');
-  const declined = [];
-  // Strip trailing DECLINED lines and a trailing Disputed block, in any order, until neither is
-  // left at the end. Blank lines inside the trailer are skipped, not treated as its end. Bug-audit
-  // fix, 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #3): a reply ending in "\n" - every
-  // external-seat reviser file does - left an empty last line, the loop stopped there, every
-  // DECLINED line was lost from report.json's `disputes` AND shipped inside the deliverable text.
-  //
-  // The Disputed block: pre-release audit 2026-09-23 (RolesPrompts #1, HIGH). REVISER_SYSTEM used
-  // to ALSO tell the reviser to add a "Disputed" line at the end, contradicting the DECLINED rule
-  // below it, and only DECLINED was stripped. In a real premium run the reviser ended its draft
-  // with a multi-line "DISPUTED: ... This plan's position, unchanged: ..." paragraph: it stayed in
-  // the graded draft, `disputes` was empty, and panel seats then marked "records dissent honestly"
-  // as met BECAUSE of it. The prompt rule is gone (DECLINED is the only channel); this strip is the
-  // defence in depth for a model that writes one anyway. Only a TRAILING block counts - one that
-  // starts at a "Disputed" heading or a "DISPUTED:" line with nothing but its own paragraph after it
-  // - so a plan that merely discusses disputes in its body is never cut.
-  const DISPUTED_START = /^(#{1,6}\s*)?(\*\*)?disputed\b(\*\*)?\s*:?/i;
-  for (let changed = true; changed;) {
-    changed = false;
-    let i = lines.length - 1;
-    while (i >= 0 && lines[i].trim() === '') i--;
-    while (i >= 0) {
-      const line = lines[i].trim();
-      if (line === '') { i--; continue; }
-      if (!/^DECLINED:\s*.+/.test(line)) break;
-      declined.unshift(line.replace(/^DECLINED:\s*/, ''));
-      i--; changed = true;
-    }
-    lines = lines.slice(0, i + 1);
-    // A trailing Disputed block: walk back over its paragraph(s) to the line that opens it.
-    let j = lines.length - 1;
-    while (j >= 0 && lines[j].trim() === '') j--;
-    let k = j;
-    while (k >= 0 && !DISPUTED_START.test(lines[k].trim()) && lines[k].trim() !== '' && !/^#{1,6}\s/.test(lines[k].trim())) k--;
-    // A heading-style block ("## Disputed") may be followed by a blank line and then its lines.
-    if (k >= 0 && lines[k].trim() === '' && k > 0) {
-      let h = k - 1;
-      while (h >= 0 && lines[h].trim() === '') h--;
-      if (h >= 0 && /^#{1,6}\s*(\*\*)?disputed\b/i.test(lines[h].trim())) k = h;
-    }
-    if (k >= 0 && k <= j && DISPUTED_START.test(lines[k].trim())) {
-      const block = lines.slice(k, j + 1).map(l => l.trim()).filter(Boolean);
-      const body = [block[0].replace(DISPUTED_START, '').trim(), ...block.slice(1)].filter(Boolean).join(' ');
-      if (body) declined.push(body);
-      lines = lines.slice(0, k);
-      changed = true;
-    }
-  }
-  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
-  return { draft: lines.join('\n'), disputes: declined };
-}
 
 // A seat with no `maxTokens` of its own gets this. Was 8000 until 2026-09-20, when the pilot showed
 // reasoning seats spending the whole budget on thinking and losing their verdict (see the
@@ -294,7 +238,8 @@ export function parseDisputes(text) {
 export const DEFAULT_MAX_TOKENS = SEAT_DEFAULT_MAX_TOKENS; // 36000, single source in cost.js
 // One bigger-cap retry for a critic whose reply was cut off, never more than this.
 export const CUT_OFF_RETRY_MAX_TOKENS = 64000;
-// The retry cap for a reply cut off at `cap`: double it, bounded by CUT_OFF_RETRY_MAX_TOKENS, but
+// The retry cap for a reply cut off at `cap`: double it, bounded by `ceiling` (default CUT_OFF_RETRY_MAX_TOKENS; since 0.8.1 a call
+// site passes the seat's own ceiling, retryCeilingOf in src/reasoning.js: the model's maximum, bounded by its transport), but
 // never BELOW the seat's own cap. 2026-09-22: a seat given a 360k cap (above the 64k bound) would
 // otherwise have been "retried with a bigger cap" of 64k - a smaller one, certain to cut off again.
 // Criteria that describe the criteria list (its JSON shape, what each criterion must be) rather
@@ -358,7 +303,7 @@ export function guardWithdrawals(replies, posts, log = () => {}) {
     const quote = norm(r.conceded_to);
     const on = posts.filter(x => x.on === r.id && x.stance !== 'support');
     const hit = quote.length >= 8 && on.some(x => norm(x.text).includes(quote) || norm(R.boardText(x.text)).includes(quote));
-    r.conceded_to = typeof r.conceded_to === 'string' ? capField(r.conceded_to) : undefined;
+    r.conceded_to = typeof r.conceded_to === 'string' ? capField(r.conceded_to, { field: 'conceded_to' }) : undefined;
     if (!hit) {
       r.unargued = true;
       log(`  majority guard: ${r.id} - its author withdrew it without quoting the argument it concedes to; it stays for the builder to judge.`);
@@ -419,8 +364,12 @@ function describeDropped(items) {
   return `${rows.reduce((a, r) => a + r.count, 0)} dropped (${rows.map(r => `${r.count} ${r.reason}`).join(', ')})`;
 }
 
-export function cutOffRetryCap(cap) {
-  return Math.max(cap, Math.min(cap * 2, CUT_OFF_RETRY_MAX_TOKENS));
+// Audit A1-4 (0.8.1): the cap a reply in hand was really asked at. An Anthropic seat's invoke() may have retried at a bigger cap (`stage.cappedAt`); every
+// judgement of that reply (cut off? all reasoning? truncated?) must use THAT cap, not the one the call site started from, or a normal long reply reads as
+// truncated and gets a third paid call. Never below the cap the caller started from (a corrupt record cannot shrink it).
+export const askedCapOf = (stage, fallback) => (Number.isFinite(stage?.cappedAt) && stage.cappedAt >= fallback ? stage.cappedAt : fallback);
+export function cutOffRetryCap(cap, ceiling = CUT_OFF_RETRY_MAX_TOKENS) {
+  return retryCapFor(cap, ceiling);
 }
 
 export function parseJson(text) {
@@ -506,6 +455,13 @@ export function providerCutOff(usage) {
   return usage?.stop === 'length' || usage?.stop === 'max_tokens';
 }
 
+// 0.8.1 milestone R (owner: "NO LOWER EFFORT!!!!"): a reply cut off at its cap that spent tokens on thinking and returned no text. The seat
+// has no answer; it is recorded, never read as a pass. The wording is the one the board uses.
+export const NO_ANSWER_THINKING = 'no answer: thinking used the whole cap';
+export function isNoAnswerReply(res) {
+  return providerCutOff(res?.usage) && res.usage.thinking > 0 && !String(res.text ?? '').trim();
+}
+
 export function abstentionReasonCode(usage, maxTokens) {
   if (usage.stop === 'error') return 'PROVIDER_ERROR';
   const cap = maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -550,12 +506,31 @@ function seededShuffle(list, seed) {
 // from cnc-harness's own security review of what a plan-N seat actually runs). A 20 000-token
 // critic reply could otherwise become a 20 000-token "failure" in the next prompt; cap each
 // field here, at parse time, once, rather than trusting every call site downstream to remember.
-const CRITIQUE_FIELD_MAX_CHARS = 2000;
-function capField(value) {
-  if (typeof value !== 'string') return value;
-  return value.length > CRITIQUE_FIELD_MAX_CHARS
-    ? `${value.slice(0, CRITIQUE_FIELD_MAX_CHARS)}… [truncated, ${value.length} chars total]`
-    : value;
+//
+// 0.8.1 FX-11 (owner's amendment, 2026-10-02): one 2,000-character limit for every kind cut a 6,704-character
+// architecture before the builder read it, silently. Each kind now has its own limit, and every cut is loud:
+// - Text other seats read as the substance of the board (a whole architecture's fields, a debate post, an author's
+//   reply): never less than what the seat was allowed to write, its maxTokens at CHARS_PER_TOKEN, and never under
+//   BOARD_TEXT_MIN_CHARS. A cut there means the reply was longer than its own token cap allowed, which only a
+//   runaway or a miscount produces.
+// - A critic field: CRITIC_FIELD_MAX_CHARS, the runaway guard above. Four fields x 8,000 characters is about 8,000
+//   tokens of one critic's objections in the reviser's prompt, under a quarter of a 36,000-token seat's own reply.
+// Each cut is recorded (fieldCutsSoFar: stage, field, original and kept length); the CLI writes it to WARNINGS.md and
+// report.json `field_cuts`.
+const CHARS_PER_TOKEN = 4; // the harness's rule everywhere it estimates tokens (estimateTokens)
+const BOARD_TEXT_MIN_CHARS = 40_000; // the amendment's floor: about 10,000 tokens, five times the old cut
+const CRITIC_FIELD_MAX_CHARS = 8_000; // the amendment's floor for critic fields (was 2,000)
+const boardTextLimit = maxTokens => Math.max(BOARD_TEXT_MIN_CHARS, (maxTokens ?? DEFAULT_MAX_TOKENS) * CHARS_PER_TOKEN);
+let fieldCuts = [];
+/** Start a new record of cut fields. The CLI calls it once per run (one run per process); a nested runChain (descending
+ * mode's sub-runs) must not, or it would wipe the outer run's record. Tests call it between runs. */
+export function resetFieldCuts() { fieldCuts = []; }
+/** Every field cut so far in this run: [{ stage, field, original, kept }]. */
+export function fieldCutsSoFar() { return fieldCuts.map(c => ({ ...c })); }
+function capField(value, { limit = CRITIC_FIELD_MAX_CHARS, stage = null, field = null } = {}) {
+  if (typeof value !== 'string' || value.length <= limit) return value;
+  fieldCuts.push({ stage, field, original: value.length, kept: limit });
+  return `${value.slice(0, limit)}… [truncated, ${value.length} chars total]`;
 }
 
 // Bug-audit fix, 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #1, #2): `meets` used to be
@@ -574,7 +549,7 @@ function capField(value) {
 const FAILED_VERDICT = /^(FAILED|FAIL|NOT[\s_-]*MET|UNMET|NO)$/;
 const NO_VERDICT_FAILURE_CRITERION = '(objection named no criterion)';
 
-export function normaliseCritique(critique, log = () => {}) {
+export function normaliseCritique(critique, log = () => {}, { stage = null } = {}) {
   const unreadable = why => {
     log(`    (no usable verdict: ${why} - counted as an abstention, not a sign-off)`);
     return { ...(critique && typeof critique === 'object' && !Array.isArray(critique) ? critique : {}), failures: [], meets: false, unreadable: true, unreadableWhy: why };
@@ -590,16 +565,16 @@ export function normaliseCritique(critique, log = () => {}) {
   const noneCriterion = f => /^(none|n\/?a|-|no failures?)\.?$/i.test(String(f.criterion).trim());
   const placeholder = f => !f || typeof f !== 'object' || (f.criterion ? noneCriterion(f) : !String(f.problem || '').trim());
   const failures = rawFailures.filter(f => !placeholder(f))
-    .map(f => ({ ...f, criterion: capField(f.criterion ? String(f.criterion) : NO_VERDICT_FAILURE_CRITERION), problem: capField(f.problem), fix: capField(f.fix) }));
+    .map(f => ({ ...f, criterion: capField(f.criterion ? String(f.criterion) : NO_VERDICT_FAILURE_CRITERION, { stage, field: 'criterion' }), problem: capField(f.problem, { stage, field: 'problem' }), fix: capField(f.fix, { stage, field: 'fix' }) }));
   const dropped = rawFailures.length - failures.length;
   if (dropped) log(`    (ignored ${dropped} placeholder failure entr${dropped === 1 ? 'y' : 'ies'} that named no criterion)`);
   for (const row of rows) {
     if (!FAILED_VERDICT.test(verdictOf(row))) continue;
     if (failures.some(f => f.criterion === row.criterion)) continue;
-    failures.push({ criterion: capField(String(row.criterion ?? '(unnamed criterion)')), problem: capField(row.evidence) || `marked ${verdictOf(row)} in the criteria table`, fix: '' });
+    failures.push({ criterion: capField(String(row.criterion ?? '(unnamed criterion)'), { stage, field: 'criterion' }), problem: capField(row.evidence, { stage, field: 'evidence' }) || `marked ${verdictOf(row)} in the criteria table`, fix: '' });
     log(`    (added a failure the critic marked ${verdictOf(row)} in its table but left out of its failures list)`);
   }
-  const verdict_line = capField(critique.verdict_line);
+  const verdict_line = capField(critique.verdict_line, { stage, field: 'verdict_line' });
   if (failures.length) return { ...critique, failures, verdict_line, meets: false };
 
   const allMet = rows.length > 0 && rows.every(r => MET_VERDICT.test(verdictOf(r)));
@@ -668,7 +643,7 @@ export function duplicateLabSlots(config) {
   // labels and fails if a new lab-keyed one is not listed here). Pre-release audit 2026-09-23:
   // the alternatives stage (Alternatives #2) and preflight.seats (GuardLayer, the class's second
   // recurrence) were missing, and descending critics label per lab too.
-  if (config?.signoff === 'unanimous' || config?.descending) check('critics', seats.critics);
+  if (config?.signoff === 'unanimous' || config?.descending || config?.advise?.enabled === true) check('critics', seats.critics);
   if (config?.proposals) check('proposers', seats.proposers || seats.critics);
   if (config?.alternatives?.enabled === true) check('alternatives', seats.alternatives || seats.proposers || seats.critics);
   if (config?.ambiguity_union?.enabled) check('ambiguity', seats.ambiguity || (seats.critics || []).slice(0, 3));
@@ -977,7 +952,12 @@ export function setCache(c) { cache = c || { get: () => null }; }
 // projection synchronously when it passes the check, and the reservation is swapped for the actual
 // cost when it settles - so the check a sibling sees already counts every call in flight.
 let budget = { cap: null, spent: 0, reserved: 0 };
-export function setBudget(cap) { budget = { cap: cap ?? null, spent: 0, reserved: 0 }; }
+// Audit A1-5 (0.8.1): a cap that is not a finite number above zero (a hand-edited run.json, a corrupt value) used to pass through and make every projection
+// "fit" (NaN comparisons are false). It fails closed now: the run does not start. null still means no ceiling (the owner's `--max-usd none`).
+export function setBudget(cap) {
+  if (cap !== null && cap !== undefined && !(typeof cap === 'number' && Number.isFinite(cap) && cap > 0)) throw new Error(`the spend cap must be a number above 0 (or none), not ${JSON.stringify(cap)}; nothing was run and nothing was spent. Fix --max-usd, or the maxUsd value in the run's run.json.`);
+  budget = { cap: cap ?? null, spent: 0, reserved: 0 };
+}
 export function budgetState() { return { ...budget, remaining: budget.cap === null ? null : Math.max(0, budget.cap - budget.spent - budget.reserved) }; }
 // Pre-release audit, money path #2 (Review/PreRelease_Audit_moneypath_2026-09-23.md): spend from an
 // earlier sitting whose cached stage is no longer replayed - it went stale and was re-run - still
@@ -1020,6 +1000,13 @@ export async function runSingleStage(seat, { system, user, log = () => {}, label
   return invoke(seat, { system, user, log, label });
 }
 
+// Brief 29: a stop asked for from outside the run (src/cli.js: a STOP file in the run folder, the chain's
+// wall-clock ceiling). Returns a reason string once a stop is wanted, else null. Read only by an advice
+// call (src/advise.js), before each paid step; calls already in flight finish and are recorded. Unset (every
+// caller other than the CLI, including every existing test) it never stops anything.
+let stopCheck = () => null;
+export function setStopCheck(fn) { stopCheck = fn || (() => null); }
+
 async function invoke(seat, { system, user, log, label }) {
   const started = Date.now();
   // Backstop for the check at the top of runChain: every call, including a replay from disk.
@@ -1049,10 +1036,14 @@ async function invoke(seat, { system, user, log, label }) {
   // cap for any Anthropic seat routed through single-vendor mode (assuming 1 attempt when the
   // retry below can still cost 2), the same failure this comment already names for a direct
   // Anthropic seat.
-  const isAnthropicSeat = (seat.originalProvider ?? seat.provider) === 'anthropic';
-  // projectStage (cost.js) is this same worst case, shared with the deep-dive seat's own cap.
-  const projected = projectStage(seat, { system, user });
-  const oneAttempt = projected / (isAnthropicSeat ? 2 : 1);
+  const anthropicSeat = isAnthropicSeat(seat);   // one predicate (src/cost.js), shared with projectAttempts and the add-on's calls_at_most
+  // projectStage (cost.js) is this same worst case, shared with the deep-dive seat's own cap. Since 0.8.1 (milestone R) an Anthropic
+  // seat's second attempt is the same-effort retry at a BIGGER cap, so the two attempts differ: the figures are kept apart, and a
+  // call that fails after it was sent is charged the worst case of the attempt that failed, not half of the total.
+  const attempts = projectAttempts(seat, { system, user });
+  const projected = attempts.first + attempts.retry;
+  const oneAttempt = attempts.first;
+  let attemptWorstCase = attempts.first; // the worst case of the attempt now in flight (set to attempts.retry for the retry)
   const recordedUsd = h => {
     const usd = readUsd(h.usd);
     if (usd !== null) return usd;
@@ -1060,6 +1051,9 @@ async function invoke(seat, { system, user, log, label }) {
     return oneAttempt;
   };
   let hit = cache.get(label);
+  // 0.8.1 FX-9: the cached `handoff` stage may be the final HANDOFF.md on a case-insensitive disk (one file); its
+  // lock block is the harness's, never the model's text, so it is cut before the text is used.
+  if (hit && label === 'handoff' && typeof hit.text === 'string') hit = { ...hit, text: stripLockBlock(hit.text) };
   if (hit) {
     // Pre-release cache audit #1: the decision is cacheVerdict() (cache-integrity.js). An entry with
     // no record of its inputs is stale now; one from between the two fixes is trusted but recorded
@@ -1082,7 +1076,9 @@ async function invoke(seat, { system, user, log, label }) {
     const usage = hit.usage ? readUsage(hit.usage).usage : { input: 0, output: 0 };
     budget.spent += usd;
     log(`  ${label}: ${hit.provider || seat.provider}/${hit.model || seat.model} - from disk (${usage.input} in, ${usage.output} out, ${formatUsd(usd)} already spent)`);
-    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage, usd, priced: true, ms: 0, text: hit.text, cached: true, promptHash };
+    // 0.8.1 R: what the original attempt decided survives the replay (the cache file is data: only a positive number and the one known mark are taken).
+    const replayed = { ...(Number.isFinite(hit.cappedAt) && hit.cappedAt >= (seat.maxTokens ?? DEFAULT_MAX_TOKENS) ? { cappedAt: hit.cappedAt } : {}), ...(hit.noAnswer === NO_ANSWER_THINKING ? { noAnswer: NO_ANSWER_THINKING } : {}) };
+    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage, usd, priced: true, ms: 0, text: hit.text, cached: true, promptHash, ...replayed };
   }
   assertOutboundClean(label, { system, user }, outboundScan);
   if (seat.provider === 'external') throw new ExternalPause(label, system, user);
@@ -1090,7 +1086,7 @@ async function invoke(seat, { system, user, log, label }) {
   // The cap is checked here, before the only line in this file that spends
   // money. Anthropic seats are projected at two attempts because invoke()
   // below may pay for the same stage twice (the thinking-disabled retry).
-  // (isAnthropicSeat and `projected` are worked out above, before the cache is read.)
+  // (anthropicSeat and `projected` are worked out above, before the cache is read.)
   const verdict = wouldBreach({ spent: budget.spent + budget.reserved, cap: budget.cap, projected });
   if (verdict.breach) {
     const inFlight = budget.reserved > 0 ? ` (plus up to ${formatUsd(budget.reserved)} reserved by calls still in flight)` : '';
@@ -1105,11 +1101,16 @@ async function invoke(seat, { system, user, log, label }) {
 
     progressHook({ label, lab: labOf(seat), startedAt: new Date().toISOString() });
 
-    const ask = extra => call(seat.provider, {
+    const firstCap = seat.maxTokens ?? DEFAULT_MAX_TOKENS;
+    // 0.8.1 milestone R (owner: "I want reasoning to always be 'High' for the 'High' Council"; "NO LOWER EFFORT"): the reasoning setting a
+    // request carries is the seat's own, plus "high" where it is unset (src/reasoning.js; a seat the table has no field for gets nothing).
+    // The retry below sends the SAME `sentExtra`: no path in this file lowers a seat's effort (test/reasoning-never-lower.test.js scans for it).
+    const sentExtra = extraWithHighDefault(seat, firstCap);
+    const ask = (extra, maxTokens = firstCap) => call(seat.provider, {
       model: seat.model,
       system,
       messages: [{ role: 'user', content: user }],
-      maxTokens: seat.maxTokens ?? DEFAULT_MAX_TOKENS,
+      maxTokens,
       temperature: seat.temperature,
       extra,
       // v7.1: a seat's own override of its provider's default base URL - e.g. LM Studio on
@@ -1133,10 +1134,11 @@ async function invoke(seat, { system, user, log, label }) {
     const costOfRes = r => {
       const measured = priceAnswer(r);
       if (!r.unreadable) return measured;
-      if (oneAttempt > 0) log(`  ${label}: ${r.provider}/${r.model} reported usage the spend cap cannot read (${r.unreadable}) - ${formatUsd(oneAttempt)} (one attempt's worst case) counted toward the cap.`);
-      return { usd: oneAttempt, priced: measured.priced };
+      if (attemptWorstCase > 0) log(`  ${label}: ${r.provider}/${r.model} reported usage the spend cap cannot read (${r.unreadable}) - ${formatUsd(attemptWorstCase)} (one attempt's worst case) counted toward the cap.`);
+      return { usd: attemptWorstCase, priced: measured.priced };
     };
-    let res = readRes(await ask(seat.extra));
+    let finalCap = firstCap; // the cap the answer in hand was asked at: the retry's when this function retried (outer cut-off retries start from it)
+    let res = readRes(await ask(sentExtra));
     let wasted = 0;
     // Claude's adaptive thinking counts against max_tokens and is not text. On
     // a hard prompt it can spend the whole budget before writing a word - the
@@ -1144,7 +1146,9 @@ async function invoke(seat, { system, user, log, label }) {
     // the panel reviewed an empty page twice. The same budget can also cut a
     // reply off mid-sentence (the v2 criteria stage, same day: 1534 thinking
     // tokens, JSON truncated), which is just as unusable. Either way: retry
-    // once with thinking off.
+    // once. Until 0.8.0 the retry switched thinking OFF; since 0.8.1 (owner: "NO LOWER EFFORT!!!!") it keeps the SAME effort and gives the
+    // call a bigger cap (retryCapFor, bounded by the model's own maximum and its transport), and a reply that is still no text is recorded
+    // as "no answer: thinking used the whole cap" (an unreadable non-pass, never a silent pass, never a downgrade).
     //
     // Bug-audit fix, 2026-09-16: also accepts `'length'`, not only the literal `'max_tokens'` -
     // an Anthropic seat routed through single-vendor mode answers via callOpenAICompat(), not
@@ -1152,16 +1156,23 @@ async function invoke(seat, { system, user, log, label }) {
     // as `finish_reason: "length"`, never the literal string `"max_tokens"` that is Anthropic's own
     // native API vocabulary. The `cut`/"[hit the cap]" log indicator a few lines below already
     // checked both spellings; this retry trigger only checked one, so it silently never fired for
-    // any single-vendor-routed Anthropic seat even after the `isAnthropicSeat` fix above.
-    if (isAnthropicSeat && res.usage.thinking > 0 && (res.usage.stop === 'max_tokens' || res.usage.stop === 'length')) {
-      wasted = costOfRes(res).usd;
-      // Counted now, not with the final stage: if the retry below throws, this attempt was still
-      // billed (bug-audit fix, 2026-09-23, BugAudit_MoneyPath #4a - it used to vanish from `spent`).
-      budget.spent += wasted;
-      unrecordedWaste = wasted;
+    // any single-vendor-routed Anthropic seat even after the `anthropicSeat` fix above.
+    if (anthropicSeat && res.usage.thinking > 0 && (res.usage.stop === 'max_tokens' || res.usage.stop === 'length')) {
+      const retryCap = retryCapFor(firstCap, retryCeilingOf(seat));
       const how = res.text.trim() ? `text cut off - ${res.usage.thinking} of ${res.usage.output} tokens went to thinking` : `empty text - all ${res.usage.output} tokens went to thinking`;
-      log(`  ${label}: ${how} (stop: max_tokens, ${formatUsd(wasted)} spent); retrying once with thinking disabled.`);
-      res = readRes(await ask({ ...(seat.extra || {}), thinking: { type: 'disabled' } }));
+      if (retryCap > firstCap) {
+        wasted = costOfRes(res).usd;
+        // Counted now, not with the final stage: if the retry below throws, this attempt was still
+        // billed (bug-audit fix, 2026-09-23, BugAudit_MoneyPath #4a - it used to vanish from `spent`).
+        budget.spent += wasted;
+        unrecordedWaste = wasted;
+        log(`  ${label}: ${how} (stop: max_tokens, ${formatUsd(wasted)} spent); retrying once at the same effort with a bigger cap (${firstCap} -> ${retryCap} tokens).`);
+        attemptWorstCase = attempts.retry;
+        finalCap = retryCap;
+        res = readRes(await ask(sentExtra, retryCap));
+      } else {
+        log(`  ${label}: ${how} (stop: max_tokens); no retry: ${firstCap} tokens is already the most this model/transport can return.`);
+      }
     }
     const cost = costOfRes(res);
     const stage = {
@@ -1175,6 +1186,19 @@ async function invoke(seat, { system, user, log, label }) {
       ms: Date.now() - started,
       text: res.text,
       promptHash,
+      // Brief 29 (25 section 6.2): what the audit line needs to show which text went where, without a second
+      // copy of the text: the exact prompt's full sha256 and size, the endpoint the provider says served the
+      // call (OpenRouter names it; null when the reply does not), and that the outbound key scan was on.
+      promptSha256: promptSha256Of(system, user),
+      promptBytes: Buffer.byteLength(system ?? '') + Buffer.byteLength(user ?? ''),
+      endpoint: typeof res.endpoint === 'string' ? res.endpoint : null,
+      scan: outboundScan.allow ? 'waived' : 'clean',
+      // 0.8.1 milestone R: a reply cut off at its cap whose tokens were all thinking and which carries no text. The seat has NO answer; callers
+      // record it as an unreadable non-pass (a panel seat is "unheard"). Additive: nothing reads this as consent.
+      ...(isNoAnswerReply(res) ? { noAnswer: NO_ANSWER_THINKING } : {}),
+      // 0.8.1 R review: the cap this answer was asked at. An Anthropic seat was already retried at the bigger cap here, so a caller's cut-off retry
+      // starts from THIS cap and is skipped when it has no room (it used to repeat the same paid call).
+      cappedAt: finalCap,
     };
     budget.spent += cost.usd; // `wasted` was already added when the first attempt was discarded
     unrecordedWaste = 0; // stage.usd carries it now
@@ -1190,7 +1214,7 @@ async function invoke(seat, { system, user, log, label }) {
     // (bug-audit fix, 2026-09-23, BugAudit_Providers #1). Conservative by construction - the
     // projection is the worst case.
     if (err?.maybeBilled) {
-      const charge = projected / (isAnthropicSeat ? 2 : 1);
+      const charge = attemptWorstCase; // the worst case of the attempt that failed (the retry's is bigger than the first's since 0.8.1)
       budget.spent += charge;
       chargeHook({ label, provider: seat.provider, model: seat.model, usd: charge, reason: 'failed after it was sent and may have been billed (one attempt\'s worst case)' });
       log(`  ${label}: the call failed after it was sent and may have been billed - ${formatUsd(charge)} (one attempt's worst case) counted toward the cap.`);
@@ -1556,6 +1580,29 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   }
   if (config.descending) return runDescendingChain({ request: requestIn, config, log, onStage, snap });
 
+  // The council advisor (config.advise, src/advise.js): one question, one verdict, the dissent on the
+  // record. It has its own short flow - blind opinions, an optional anonymised debate, a roll-up -
+  // so it returns here, before the planning stages, like descending mode does. Absent or not `true`:
+  // nothing below changes and the result carries no `advise` key. Every call goes through invoke().
+  if (config.advise?.enabled === true) {
+    if (initialDraft) throw new Error('an advise chain takes a question, not a draft: --from-run and --draft do not apply to it.');
+    const adviseStages = [];
+    const adviseRecord = s => { adviseStages.push(s); onStage(s); return s; };
+    let out;
+    try {
+      out = await runAdvise(config, {
+      // An advice opinion's fields use the critic limit (8,000 since 0.8.1 FX-11) and are recorded as the advice stage's.
+      request: requestIn, stages: adviseStages, invoke, record: adviseRecord, parseJson, rethrowControlFlow, settleAll, capField: v => capField(v, { stage: 'advise', field: 'opinion' }),
+      abstentionReasonCode, cutOffRetryCap, askedCapOf, BudgetExceeded, defaultMaxTokens: DEFAULT_MAX_TOKENS, runSpent: () => budget.spent, runRemaining: () => (budget.cap === null ? Infinity : budget.cap - budget.spent - budget.reserved), shouldStop: () => stopCheck(), log, snap, partialDefaults,
+      });
+    } catch (err) {
+      // 0.8.1 M6: a stop carries the run so far in the result's shape, as a budget stop does (err.partial), for report-partial.json.
+      if (err instanceof AdviceStopped) err.partial = { ...partialDefaults(), deliverable: err.out?.deliverable ?? null, criteria: config.criteria || [], dropouts: err.out?.dropouts ?? [], advise: err.out?.advise ?? null, stages: adviseStages, totals: summarise(adviseStages) };
+      throw err;
+    }
+    return { ...partialDefaults(), deliverable: out.deliverable, criteria: config.criteria || [], passed: true, dropouts: out.dropouts, advise: out.advise, stages: adviseStages, totals: summarise(adviseStages) };
+  }
+
   const stages = [];
   const record = s => { stages.push(s); onStage(s); return s; };
   // report-partial.json (see partialDefaults above): the run so far, read only when the spend cap
@@ -1648,20 +1695,23 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       if (draftIncomplete(again.usage)) {
         throw new DraftTruncated(opts.label, `stop "${first.usage.stop}", and "${again.usage.stop}" again on the retry`, again.usage.stop);
       }
-      if (draftCutOff(again.usage, cap)) throw new DraftTruncated(opts.label, `stop "${first.usage.stop}", then cut off at ${cap} tokens on the retry`);
+      if (draftCutOff(again.usage, askedCapOf(again, cap))) throw new DraftTruncated(opts.label, `stop "${first.usage.stop}", then cut off at ${cap} tokens on the retry`);
       return again;
     }
-    if (!draftCutOff(first.usage, cap)) return first;
-    const bigger = cutOffRetryCap(cap);
-    if (seat.provider === 'external' || bigger <= cap) {
+    // `from`: the cap the reply in hand was asked at. An Anthropic seat's invoke() may already have retried at the bigger cap (0.8.1), so the
+    // draft's own retry starts from there and is skipped when there is no room, instead of repeating the same paid call.
+    const from = first.cappedAt ?? cap;
+    if (!draftCutOff(first.usage, from)) return first;
+    const bigger = cutOffRetryCap(from, retryCeilingOf(seat));
+    if (seat.provider === 'external' || bigger <= from) {
       throw new DraftTruncated(opts.label, seat.provider === 'external'
         ? `the external reply reports stop "${first.usage?.stop}" - write a complete reply to ${opts.label}.md and resume`
-        : `it already had the largest retry cap (${cap} tokens)`);
+        : `it already had the largest retry cap (${from} tokens)`);
     }
-    log(`  ${opts.label}: cut off at ${cap} tokens - retrying once with ${bigger}.`);
+    log(`  ${opts.label}: cut off at ${from} tokens - retrying once with ${bigger}.`);
     const second = record(await invoke({ ...seat, maxTokens: bigger }, { ...opts, label: `${opts.label}-retry` }));
     if (draftCutOff(second.usage, bigger)) {
-      throw new DraftTruncated(opts.label, `cut off at ${cap} tokens, and again at ${bigger} on the retry`);
+      throw new DraftTruncated(opts.label, `cut off at ${from} tokens, and again at ${bigger} on the retry`);
     }
     return second;
   };
@@ -1959,9 +2009,11 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const j = parseJson(text);
         const one = j && !Array.isArray(j) ? j : null;
         // A model may hand back a list or an object where a string belongs; keep it, as text.
-        const str = v => typeof v === 'string' ? capField(v) : v == null ? '' : capField(JSON.stringify(v));
+        // FX-11: a whole architecture keeps what its seat was allowed to write (boardTextLimit).
+        const lim = { limit: boardTextLimit(capped.maxTokens), stage: `alternative-${lab}` };
+        const str = (v, field) => typeof v === 'string' ? capField(v, { ...lim, field }) : v == null ? '' : capField(JSON.stringify(v), { ...lim, field });
         return one && typeof one.name === 'string' && one.name.trim() && typeof one.shape === 'string' && one.shape.trim()
-          ? { name: str(one.name), shape: str(one.shape), key_tradeoffs: str(one.key_tradeoffs), bad_at: str(one.bad_at) }
+          ? { name: str(one.name, 'name'), shape: str(one.shape, 'shape'), key_tradeoffs: str(one.key_tradeoffs, 'key_tradeoffs'), bad_at: str(one.bad_at, 'bad_at') }
           : null;
       };
       const ask = (label, cap) => invoke({ ...capped, maxTokens: cap }, {
@@ -1977,14 +2029,22 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // through invoke() like any other, then the lab drops out on the record. A reply cut off
         // at the cap is retried with a bigger one (cutOffRetryCap, the panel's rule), since the
         // same cap would only cut it off again.
-        const cut = abstentionReasonCode(st.usage || {}, cap) === 'REPLY_TRUNCATED';
-        if (cut) cap = cutOffRetryCap(cap);
-        st = record(await ask(`alternative-${lab}-retry`, cap));
-        alt = readAlt(st.text);
-        say(`  ${lab}/${seat.model}: ${cut ? `alternative cut off at ${capped.maxTokens} tokens; retried with a ${cap}-token cap` : 'unreadable alternative; retried once'} - ${alt ? 'recovered' : 'still nothing'}.`);
+        // 0.8.1 R review: the retry starts from the cap the reply was really asked at (st.cappedAt: an Anthropic seat's invoke() may already have
+        // retried at the bigger cap) and is skipped when it has no room: it would repeat the same paid call.
+        const from = st.cappedAt ?? cap;
+        const cut = abstentionReasonCode(st.usage || {}, from) === 'REPLY_TRUNCATED';
+        const room = cut ? cutOffRetryCap(from, retryCeilingOf(capped)) : from;
+        if (cut && room <= from) {
+          say(`  ${lab}/${seat.model}: alternative cut off at ${from} tokens, already the largest retry cap - not retried.`);
+        } else {
+          if (cut) cap = room;
+          st = record(await ask(`alternative-${lab}-retry`, cap));
+          alt = readAlt(st.text);
+          say(`  ${lab}/${seat.model}: ${cut ? `alternative cut off at ${from} tokens; retried with a ${cap}-token cap` : 'unreadable alternative; retried once'} - ${alt ? 'recovered' : 'still nothing'}.`);
+        }
       }
       if (alt) say(`  ${lab}/${seat.model}: "${alt.name}"`);
-      const reasonCode = alt ? null : abstentionReasonCode(st.usage || {}, cap);
+      const reasonCode = alt ? null : abstentionReasonCode(st.usage || {}, askedCapOf(st, cap));
       return { seat, lab, alt, lines, reasonCode, cap };
     }));
     const items = [];
@@ -2037,7 +2097,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           }));
           const parsed = parseJson(st.text);
           if (!parsed) { say(`  ${lab}: unreadable debate reply - no posts counted.`); return { lines, posts: [] }; }
-          const mine = (parsed.posts || []).map(x => ({ by: lab, on: maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: capField(x.text) || '', merge_with: boardRef(x.merge_with, maps, new Set(items.map(a => a.id))) }))
+          const mine = (parsed.posts || []).map(x => ({ by: lab, on: maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: capField(x.text, { limit: boardTextLimit(seatOf(lab)?.maxTokens), stage: `alt-debate-${lab}`, field: 'text' }) || '', merge_with: boardRef(x.merge_with, maps, new Set(items.map(a => a.id))) }))
             .filter(x => items.some(a => a.id === x.on && a.lab !== lab) && ['support', 'object', 'merge'].includes(x.stance));
           say(`  ${lab}: ${mine.length} post(s)`);
           return { lines, posts: mine };
@@ -2062,7 +2122,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           }));
           const parsed = parseJson(st.text);
           if (!parsed) { say(`  ${lab}: unreadable reply - its alternative stands as posted.`); return { lines, replies: [] }; }
-          const got = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: boardRef(r.replaced_by, maps, new Set(items.map(a => a.id))), action: String(r.action || '').toLowerCase(), text: capField(r.text) || '' }))
+          const got = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: boardRef(r.replaced_by, maps, new Set(items.map(a => a.id))), action: String(r.action || '').toLowerCase(), text: capField(r.text, { limit: boardTextLimit(seatOf(lab)?.maxTokens), stage: `alt-reply-${lab}`, field: 'text' }) || '' }))
             .filter(r => mine.some(a => a.id === r.id) && ['keep', 'amend', 'withdraw'].includes(r.action));
           say(`  ${lab}: ${got.map(r => r.action).join(', ') || 'no usable reply'}`);
           return { lines, replies: got };
@@ -2076,7 +2136,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       if (guard) guardWithdrawals(replies, posts, log);
       for (const r of replies) {
         const a = items.find(x => x.id === r.id);
-        if (r.action === 'amend') { for (const k of ['shape', 'key_tradeoffs', 'bad_at']) if (typeof r[k] === 'string' && r[k].trim()) a[k] = capField(r[k]); a.amended = true; }
+        if (r.action === 'amend') { for (const k of ['shape', 'key_tradeoffs', 'bad_at']) if (typeof r[k] === 'string' && r[k].trim()) a[k] = capField(r[k], { limit: boardTextLimit(seatOf(a.lab)?.maxTokens), stage: `alt-reply-${a.lab}`, field: k }); a.amended = true; }
         if (r.action === 'withdraw' && r.unargued) a.withdraw_unargued = true;
         else if (r.action === 'withdraw') { a.withdrawn = true; a.replaced_by = r.replaced_by; }
       }
@@ -2105,6 +2165,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   let debate = null;
   if (config.proposals && !initialDraft) {
     const parts = config.proposals.parts ?? 3;
+    // Per-part output allowance. Shipped chains set 12,000 since 0.8.1 (FX-12: Hy4 and Qwen were cut off at 12,300 and paid
+    // twice): the call below asks min(seat cap, parts x perPart + 300), so 3 parts x 12,000 + 300 = 36,300 is clamped to
+    // the seat's own 36,000 and a proposal gets the same output room as every other call of that seat. A cut-off reply is
+    // retried once at cutOffRetryCap (64,000 at most), as a critic's is. 1,500 stays the default for a chain that sets none.
     const perPart = config.proposals.maxTokens ?? 1500;
     log('\nStage: skeleton');
     skeleton = record(await invoke(config.seats.skeleton || config.seats.builder, {
@@ -2167,17 +2231,24 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // which a reasoning seat fills again (plan-daily-7's first real run: hy4-preview thought through
         // all 12,300 tokens twice and dropped out). Same rule as the alternatives stage: a cut-off is
         // retried with cutOffRetryCap, anything else once at the same cap.
-        const cut = !!lastSt && abstentionReasonCode(lastSt.usage || {}, capped.maxTokens) === 'REPLY_TRUNCATED';
-        const retryCap = cut ? cutOffRetryCap(capped.maxTokens) : capped.maxTokens;
-        const st = record(await invoke({ ...capped, maxTokens: retryCap }, {
-          system: R.proposerSystem(open),
-          user: R.proposerUser({ request, criteria, skeleton, parts, slice }),
-          log: say, label: `propose-${labOf(seat)}-retry`,
-        }));
-        const parsed = parseJson(st.text);
-        const list2 = Array.isArray(parsed?.proposals) ? parsed.proposals.slice(0, parts) : null;
-        if (list2) pool.push(...list2.filter(p => p && p.title).map(p => ({ ...p, attempt: samples + 1 })));
-        say(`  ${labOf(seat)}/${seat.model}: ${cut ? `proposals cut off at ${capped.maxTokens} tokens; retried with a ${retryCap}-token cap` : 'nothing readable; retried once'} - ${pool.length ? `recovered ${pool.length} proposal(s)` : 'still nothing'}.`);
+        // 0.8.1 R review: start from the cap the reply was really asked at (lastSt.cappedAt: an Anthropic seat's invoke() may already have
+        // retried at the bigger cap) and skip the retry when there is no room: it would repeat the same paid call.
+        const from = lastSt?.cappedAt ?? capped.maxTokens;
+        const cut = !!lastSt && abstentionReasonCode(lastSt.usage || {}, from) === 'REPLY_TRUNCATED';
+        const retryCap = cut ? cutOffRetryCap(from, retryCeilingOf(capped)) : capped.maxTokens;
+        if (cut && retryCap <= from) {
+          say(`  ${labOf(seat)}/${seat.model}: proposals cut off at ${from} tokens, already the largest retry cap - not retried.`);
+        } else {
+          const st = record(await invoke({ ...capped, maxTokens: retryCap }, {
+            system: R.proposerSystem(open),
+            user: R.proposerUser({ request, criteria, skeleton, parts, slice }),
+            log: say, label: `propose-${labOf(seat)}-retry`,
+          }));
+          const parsed = parseJson(st.text);
+          const list2 = Array.isArray(parsed?.proposals) ? parsed.proposals.slice(0, parts) : null;
+          if (list2) pool.push(...list2.filter(p => p && p.title).map(p => ({ ...p, attempt: samples + 1 })));
+          say(`  ${labOf(seat)}/${seat.model}: ${cut ? `proposals cut off at ${from} tokens; retried with a ${retryCap}-token cap` : 'nothing readable; retried once'} - ${pool.length ? `recovered ${pool.length} proposal(s)` : 'still nothing'}.`);
+        }
       }
       let list = pool;
       let judged = null;
@@ -2464,15 +2535,23 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   //    exact draft an earlier run reviewed is the only fair way to compare
   //    panel topologies; a fresh build is a fresh coin toss.
   let draft = initialDraft;
+  let buildDisputes = []; // DECLINED lines of the build stage (FX-15), carried into `disputes` below
   if (draft) {
     log('\nRound 1: build (skipped - reviewing a draft handed in)');
   } else {
     log('\nRound 1: build');
-    draft = (await draftStage(config.seats.builder, {
+    const built = (await draftStage(config.seats.builder, {
       system: R.builderSystem(open, promptOpts),
       user: R.builderUser({ request, criteria, proposals, board, alternatives: alternativesBoard, skeleton }),
       log, label: 'build',
     })).text;
+    // 0.8.1 FX-15: a builder (an external session above all) may end its reply with DECLINED lines too. They are not part of the draft every critic
+    // grades; they go to report.json `disputes` with round 'build'. A reply that is nothing but DECLINED lines leaves no draft: stop, never grade an empty page.
+    const parsedBuild = parseDisputes(built, { disputedBlock: false });
+    if (!parsedBuild.draft.trim()) throw new DraftTruncated('build', 'its reply held nothing but DECLINED lines, so there is no draft to review', 'declined_only');
+    draft = parsedBuild.draft;
+    buildDisputes = parsedBuild.disputes;
+    buildDisputes.forEach(reason => log(`  declined (build): ${reason}`));
   }
 
   // v4 item 3: wire the diff_applied fact-check for real. v3 built runVerification's
@@ -2537,6 +2616,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   let lastCritique = null;
   let signoff = null;
   const disputes = [];
+  buildDisputes.forEach(reason => disputes.push({ round: 'build', reason }));
   // Per-round set of failed criterion strings, and the regressions found from them (2026-09-22).
   const failedByRound = [];
   const regressions = [];
@@ -2629,15 +2709,19 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           // straight through as a sign-off. So "cut off" is decided from the provider's stop reason
           // whether or not the reply parsed - never the 95%-of-cap guess, which would retry a reply
           // that finished normally near its cap. A pasted external reply carries no stop: no-op.
-          if (!cutOffRetried && (parsed ? providerCutOff(cs.usage) : true) && abstentionReasonCode(cs.usage, effectiveCap) === 'REPLY_TRUNCATED') {
+          // 0.8.1 R review: `from` is the cap the reply was really asked at (an Anthropic seat's invoke() may already have retried at the bigger
+          // cap); the retry is skipped when it has no room, instead of repeating the same paid call.
+          const fromCap = cs.cappedAt ?? effectiveCap;
+          if (!cutOffRetried && (parsed ? providerCutOff(cs.usage) : true) && abstentionReasonCode(cs.usage, askedCapOf(cs, effectiveCap)) === 'REPLY_TRUNCATED'
+            && cutOffRetryCap(fromCap, retryCeilingOf(criticSeat)) > fromCap) {
             // A reply cut off at the cap is a lost vote, not a position (pilot 2026-09-17: 14 of
             // 58 lost votes, several already carrying `"meets": false`). Ask once more with a
             // bigger cap; if that fails too, the seat abstains as before and the round rule
             // below refuses to call the panel unanimous without it.
             cutOffRetried = true;
             const firstParsed = parsed, firstCs = cs, firstCap = effectiveCap;
-            const biggerCap = cutOffRetryCap(effectiveCap);
-            say(`  ${labOf(criticSeat)}/${criticSeat.model}: reply cut off at ${effectiveCap} tokens - asking once more with a ${biggerCap}-token cap.`);
+            const biggerCap = cutOffRetryCap(fromCap, retryCeilingOf(criticSeat));
+            say(`  ${labOf(criticSeat)}/${criticSeat.model}: reply cut off at ${fromCap} tokens - asking once more with a ${biggerCap}-token cap.`);
             try {
               cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
                 system: R.criticSystem(open, freedoms),
@@ -2659,19 +2743,20 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             // An unreadable verdict is an abstention: it neither signs off nor
             // objects, and it cannot block the panel. It used to count as a
             // pass, which would have waved a truncated FAILED straight through.
-            const why = classifyUnreadable(cs.usage, effectiveCap);
-            const reasonCode = abstentionReasonCode(cs.usage, effectiveCap);
+            const why = classifyUnreadable(cs.usage, askedCapOf(cs, effectiveCap));
+            const reasonCode = abstentionReasonCode(cs.usage, askedCapOf(cs, effectiveCap));
             // v5 §1 candidate 4: the code is prepended, the diagnosis itself
             // is untouched - classifyUnreadable's three distinct reasons are
             // load-bearing (each one traces to a real incident on disk) and
             // this candidate changes what's printed, never what's diagnosed.
-            say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] unreadable reply (${cs.usage.output} tokens out; ${why}) - counted as an abstention, not a sign-off.`);
+            say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] unreadable reply (${cs.usage.output} tokens out; ${why})${cs.noAnswer ? ` - ${cs.noAnswer}` : ''} - counted as an abstention, not a sign-off.`);
             // Same live-wedge treatment as the provider-exception abstention above: a real
             // reply came back, but not a usable one - item 1's outcome logic already treats
             // this identically to a dropout (`signedOff === null && passed === false`), so the
             // live view stays consistent with what report.json will say at the end.
             progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
-            return { seat: criticSeat, critique: null, abstained: true, reasonCode };
+            // 0.8.1 milestone R: a seat whose thinking used the whole cap is recorded as such on the board (panelVerdicts[].no_answer), still an abstention.
+            return { seat: criticSeat, critique: null, abstained: true, reasonCode, ...(cs.noAnswer ? { noAnswer: cs.noAnswer } : {}) };
           }
           if (freedoms?.blocking_questions && parsed.blocking_question && attempt === 0) {
             say(`  ${labOf(criticSeat)}/${criticSeat.model}: blocking question - ${parsed.blocking_question}`);
@@ -2694,12 +2779,12 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           // as its own kind so the writer doesn't have to special-case `passed` on top of
           // `verdict`.
           progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), passStated: true });
-          return { seat: criticSeat, critique: null, passed: true, passReason: capField(parsed.pass_reason) || '' };
+          return { seat: criticSeat, critique: null, passed: true, passReason: capField(parsed.pass_reason, { stage: `panel-${round}-${labOf(criticSeat)}${tag}`, field: 'pass_reason' }) || '' };
         }
-        const critique = normaliseCritique(parsed, say);
+        const critique = normaliseCritique(parsed, say, { stage: `panel-${round}-${labOf(criticSeat)}${tag}` });
         if (critique.unreadable) {
           // Parsed as JSON but stated no verdict - the same abstention as an unparseable reply.
-          const reasonCode = abstentionReasonCode(cs.usage, effectiveCap);
+          const reasonCode = abstentionReasonCode(cs.usage, askedCapOf(cs, effectiveCap));
           say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply states no verdict (${critique.unreadableWhy}) - counted as an abstention, not a sign-off.`);
           progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
@@ -2709,13 +2794,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           // parsed is not a finished verdict, so a sign-off from it is not consent.
           say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply signs off but the provider ended it with stop "${cs.usage.stop}" - counted as an abstention, not a sign-off.`);
           progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
-          return { seat: criticSeat, critique: null, abstained: true, reasonCode: abstentionReasonCode(cs.usage, effectiveCap) };
+          return { seat: criticSeat, critique: null, abstained: true, reasonCode: abstentionReasonCode(cs.usage, askedCapOf(cs, effectiveCap)) };
         }
         if (critique.meets && providerCutOff(cs.usage)) {
           // M3, continued: still cut off (after the one bigger-cap retry, or a reasoning ceiling that
           // gets none). A cut-off sign-off is never consent: the seat is unheard. A cut-off objection
           // is kept - it already said no, and dropping it would lose a vote (pilot 2026-09-17).
-          const reasonCode = abstentionReasonCode(cs.usage, effectiveCap) === 'REASONING_EXHAUSTED' ? 'REASONING_EXHAUSTED' : 'REPLY_TRUNCATED';
+          const reasonCode = abstentionReasonCode(cs.usage, askedCapOf(cs, effectiveCap)) === 'REASONING_EXHAUSTED' ? 'REASONING_EXHAUSTED' : 'REPLY_TRUNCATED';
           say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply signs off but was cut off at the cap (stop: ${cs.usage.stop}) - counted as an abstention, not a sign-off.`);
           progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
@@ -2873,6 +2958,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         round, lab: labOf(v.seat), model: v.seat.model,
         verdict: v.abstained ? 'unheard' : v.passed ? 'passed' : v.critique.meets === true ? 'signed_off' : 'objected',
         reason_code: v.abstained ? (v.reasonCode || null) : null,
+        ...(v.abstained && v.noAnswer ? { no_answer: v.noAnswer } : {}),
         reasked: unheardFirst[i],
         // R1: additive. True when this seat was not asked this round: its verdict from the round
         // before, on the same unchanged draft, was carried over.
@@ -3086,10 +3172,14 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // first reply; then a sign-off still cut off, or ended with error/content_filter/refusal, is
       // no verdict (below). A pasted external reply carries no stop: no-op.
       let critCap = criticSeat.maxTokens ?? DEFAULT_MAX_TOKENS;
-      if ((parsed ? providerCutOff(cs.usage) : true) && abstentionReasonCode(cs.usage, critCap) === 'REPLY_TRUNCATED') {
+      // 0.8.1 R review: start from the cap the reply was really asked at (an Anthropic seat's invoke() may already have retried at the bigger
+      // cap) and skip the retry when it has no room: it would repeat the same paid call.
+      const fromCap = cs.cappedAt ?? critCap;
+      if ((parsed ? providerCutOff(cs.usage) : true) && abstentionReasonCode(cs.usage, askedCapOf(cs, critCap)) === 'REPLY_TRUNCATED'
+        && cutOffRetryCap(fromCap, retryCeilingOf(criticSeat)) > fromCap) {
         const firstParsed = parsed, firstCs = cs, firstCap = critCap;
-        const biggerCap = cutOffRetryCap(critCap);
-        log(`  critic reply cut off at ${critCap} tokens - asking once more with a ${biggerCap}-token cap.`);
+        const biggerCap = cutOffRetryCap(fromCap, retryCeilingOf(criticSeat));
+        log(`  critic reply cut off at ${fromCap} tokens - asking once more with a ${biggerCap}-token cap.`);
         try {
           cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
             system: checks ? R.criticSystem(open, { criteriaKinds: true }) : R.criticSystem(open),
@@ -3113,7 +3203,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // hiding a genuine objection, and this chain's whole value is not letting that slip
         // through. `passed` keeps whatever it already was (false unless an earlier round already
         // passed); what changes is that the report now says why, instead of nothing.
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, critCap), reasked: false });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, askedCapOf(cs, critCap)), ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
         log(`  critic reply could not be parsed as JSON even after repair attempts; stopping ` +
           `without a verdict from this critic - not a pass, not counted as an objection either.`);
         lastCritique = { meets: false, failures: [{
@@ -3123,11 +3213,11 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         }] };
         break;
       }
-      const critique = normaliseCritique(parsed, log);
+      const critique = normaliseCritique(parsed, log, { stage: `critique-${round}` });
       if (critique.unreadable) {
         // Parsed, but no verdict in it - handled exactly like the unparseable reply above: not a
         // pass, not an objection, and the run stops saying why (bug audit 2026-09-23).
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, criticSeat.maxTokens), reasked: false });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, askedCapOf(cs, criticSeat.maxTokens)), ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
         log(`  critic reply states no verdict (${critique.unreadableWhy}); stopping without a verdict from this critic - not a pass, not counted as an objection either.`);
         lastCritique = { meets: false, failures: [{
           criterion: '(critic reply stated no verdict)',
@@ -3139,9 +3229,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // F2, continued: a sign-off the provider ended early is not a pass. Handled like the
         // unreadable reply above: no verdict from this critic, and the run stops saying why.
         const stopped = draftIncomplete(cs.usage);
-        const reasonCode = stopped ? abstentionReasonCode(cs.usage, critCap)
-          : (abstentionReasonCode(cs.usage, critCap) === 'REASONING_EXHAUSTED' ? 'REASONING_EXHAUSTED' : 'REPLY_TRUNCATED');
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: reasonCode, reasked: false });
+        const reasonCode = stopped ? abstentionReasonCode(cs.usage, askedCapOf(cs, critCap))
+          : (abstentionReasonCode(cs.usage, askedCapOf(cs, critCap)) === 'REASONING_EXHAUSTED' ? 'REASONING_EXHAUSTED' : 'REPLY_TRUNCATED');
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: reasonCode, ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
         log(`  [COUNCIL-E004] critic reply signs off but ${stopped ? `the provider ended it with stop "${cs.usage.stop}"` : `was cut off at the cap (stop: ${cs.usage.stop})`}; stopping without a verdict from this critic - not a pass.`);
         lastCritique = { meets: false, failures: [{
           criterion: '(critic sign-off incomplete)',

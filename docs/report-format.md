@@ -6,7 +6,7 @@ the plan did with each proposal, and what every model call cost. `BOARD.md` is t
 people. If you build something on top of a run, read the JSON. Do not parse the markdown.
 
 The format is published as a JSON Schema (draft 2020-12): [`schemas/report-v1.json`](../schemas/report-v1.json),
-shipped in the npm package too. Every field in it has a description.
+shipped in the npm package too. Every top-level field in it has a description; a nested field has one where its meaning is not clear from its name.
 
 ## Versioning
 
@@ -41,12 +41,16 @@ Since 0.8.0 (all experimental, all additive, none read by any verdict, prompt or
 `criteria_lints[]` ($0 word-level findings over the criteria list, run before any paid round: no
 criterion asks the plan to be consistent with itself, most criteria only ask that something be named,
 a vague word with no number or check; `[]` when clean, never a stop), `criteria_sha256` (a fingerprint of the criteria list, the same one the lock block at the end of
-`HANDOFF.md` carries; `council check-lock HANDOFF.md --run runs/<id>` compares them), `criteria_ids` (positional, index-aligned with `criteria`: `C1`, `C2`, ...) and `missing_criteria[]`
+`HANDOFF.md` carries; `council check-lock HANDOFF.md --run runs/<id>` compares them), `checks_sha256` (since 0.8.1: a
+fingerprint of how each criterion is checked, its `check` and `on` from `criteria_kinds`, null for the others; the lock block
+lists each check under its criterion and carries this hash in a second marker, which `check-lock` verifies too), `criteria_ids` (positional, index-aligned with `criteria`: `C1`, `C2`, ...) and `missing_criteria[]`
 (sign-offs whose criteria table left criteria out, by round and lab; `[]` when none did, and a reply
 with no table at all is not listed); `cut_despite_support[]` (proposals the plan cut although another
 lab supported them in the debate, with supporters and objectors; only when the run had proposals and a
 debate); `disagreement_map[]` (one row per review round: each lab's verdict, `(carried)` when it was
 reused on an unchanged draft).
+
+Since 0.8.1 (optional and additive, none read by any verdict, prompt or stop): `field_cuts[]` (every place a model's text was cut before other seats read it: stage, field, original and kept length; `[]` when nothing was cut), `disputes[].round` can be `"build"` (the builder's own DECLINED lines; a reply made only of them stops the run), `panelVerdicts[].no_answer` (`"no answer: thinking used the whole cap"`: an unheard seat whose reply was cut off at its cap after spending its tokens on thinking and carried no text; never a pass), `stages[].cappedAt` (the output cap a reply was asked at: the seat's own, or the bigger one an Anthropic seat's retry used) and `stages[].noAnswer` (the same mark on the stage), and `advise` (the council advisor's roll-up, only on an advice call).
 
 Most optional stages add their field only when the chain turns that stage on. When the field is
 missing, the stage did not run. It does not mean the stage found nothing.
@@ -81,7 +85,10 @@ the same schema, built by the same function from what the run had when it stoppe
 experimental fields added:
 
 - `partial`: always `true`. It never appears in `report.json`.
-- `stoppedBy`: `"budget"`, the only stop that writes a partial report so far.
+- `stoppedBy`: `"budget"` (the per-run spend cap, exit 4), or, since 0.8.1, for an advice call stopped at exit 18: `"user"` (a
+  person, `council stop`), `"client_cancel"` (the MCP client cancelled or went away) or `"wall_clock"` (the chain's
+  `advise.max_wall_ms` passed). A stopped advice call's `advise` holds the answers that were paid for (`advise.status`
+  `"stopped"`). A reader must ignore a value it does not know.
 - `stoppedAtStage`: the label of the stage the run stopped before. That stage was never paid for.
 
 Read it knowing the run did not finish:
@@ -100,6 +107,37 @@ Read it knowing the run did not finish:
   stops it again, it writes fresh partial files. A capped `--rematch` or `--replay` folder gets
   them too.
 
+## An advice call (`advise`, `advise.sent_to`, `advise.dispositions`, `advise.stopped_by`)
+
+A run of an advice chain (the council advisor: `council_advise`, or `council --chain advise-...`) carries the experimental `advise`
+object (the headline leaning, every seat's blind and final position with quote-checked risks, the debate, the dissent in each seat's own
+words, what it cost), absent on every other run. Inside it:
+
+- `advise.sent_to[]`: one row per seat the brief went to: `lab`, `model`, `provider`, `retention` (the preview's wording: "ZDR-tagged by
+  OpenRouter", "retains, ..." quoting the lab's own page, or "unknown"), `retention_class` and `served_by` (the hosts the provider
+  named, often empty). The wording comes from a dated table (`src/advice-retention.json`); "ZDR" is OpenRouter's routing tag, not a
+  guarantee about the host.
+- `advise.dispositions[]`: the accept, reject or defer, with a reason, the caller recorded before this call for each objection of the
+  previous advice call (`id` is `<run>#<lab>`). Caller-supplied text.
+- `advise.stopped_by`: present only when the call stopped short of its plan. In `report.json` (an answered call) it is `own_cap` or
+  `run_cap`: a debate round or the synthesis was skipped for money. Since 0.8.1 a call stopped by a person, its client or its wall
+  clock ends at exit 18 and writes `report-partial.json` instead, whose `advise.stopped_by` (and top-level `stoppedBy`) is `user`,
+  `client_cancel` or `wall_clock`; the debate or synthesis that did not run is named in `advise.debate.stopped` or
+  `advise.synthesis.flag`. Before 0.8.1 `client_cancel` and `wall_clock` could appear in `report.json`.
+
+The brief is the run's task file, so its hash is the top-level `task_sha256`: the sha256 of the exact text every seat was sent (after
+masking), the text the person confirmed. It is not the text.
+
+**`passed` and `outcome` on an advice call are not a sign-off.** No draft was reviewed: `passed` is `true` whenever the call ran,
+and `outcome` says whether the advisors' answers agreed (`consensus`, `no_consensus`, or `degraded` with a dropout). `verdict_stats` and `metrics_report` skip every report that carries `advise` (and say how many they
+skipped), so advice calls never count as sign-offs there.
+
+Next to `report.json` an advice run also leaves `advise-log.json`: a date, the mode, how the person approved (`approval`: `elicitation` or
+`cli`) and which gate (`gate`, since 0.8.1), the seats, `brief_sha256`, hashed words of the
+question (so a repeat can be recognised; no brief text), the quoted and the spent price, the wall clock, the leaning, how many positions
+dissented and their ids, the dispositions, and one empty `owner_rating` (`{"rating": "useful" | "not useful" | "unclear", "note": ""}`)
+for a person to fill in later. The advice tools read this file, and only the folder, to apply their limits.
+
 ## Checking a run folder
 
 ```js
@@ -111,7 +149,7 @@ validate(reportJson) || console.error(validate.errors);
 ```
 
 `test/report-schema.test.js` does the same against real offline runs of the shipped mock chains
-that finish in one sitting (14 of the 17; the other three pause for a person or stop at their cap),
+that finish in one sitting (18 of the 21; the other three pause for a person or stop at their cap),
 a resumed `mock-external` run, a descending-mode run, and one run with every optional stage turned
 on. `test/report-partial.test.js` validates the `report-partial.json` of capped `mock-budget`,
 multi-round, descending, `--rematch` and `--replay` runs against the same schema.

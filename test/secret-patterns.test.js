@@ -86,3 +86,22 @@ test('ordinary content stays untouched by all three', () => {
     assert.deepEqual(scanText(ok, 'notes.md'), [], `scanner false positive: ${ok}`);
   }
 });
+
+// German-language keywords (research brief 25, 2026-09-30): the generic named-assignment rules knew
+// only English names, so `Passwort: <value>` and `DB_PASSWORT=<value>` passed the outbound scan. Bare
+// "Schluessel" (key) is deliberately NOT a keyword, as bare "key" is not one in English: only the
+// compounds api_schluessel and zugangsschluessel are.
+test('German credential names are caught like the English ones, and a short value stays', () => {
+  const v = fill(21);
+  for (const line of [`Passwort = "${v}"`, `Passwort: ${v}`, `Kennwort: ${v}`, `DB_PASSWORT=${v}`, `Zugangsdaten: ${v}`, `api_schluessel=${v}`, `Zugangsschluessel: ${v}`]) {
+    assert.equal(scanText(line).length, 1, line);
+    assert.ok(!redactSecrets(line).text.includes(v), line);
+  }
+  assert.equal(scanText('Passwort: geheim').length, 0);
+});
+
+test('everyday German database and IT words are not credentials', () => {
+  for (const line of ['Primärschlüssel: kunden_bestellungen_id_ref', 'Fremdschluessel = bestellung.kunden_nummer_intern', 'Schluesselwort: Datenschutz-Folgenabschaetzung']) {
+    assert.equal(scanText(line).length, 0, line);
+  }
+});

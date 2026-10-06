@@ -5,7 +5,7 @@
   "signoff": "unanimous",
   "proposals": {
     "parts": 6,
-    "maxTokens": 1500
+    "maxTokens": 12000
   },
   "debate": true,
   "handoff": true,
@@ -19,46 +19,77 @@
       "provider": "openrouter",
       "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
-      "maxTokens": 2000
+      "maxTokens": 2000,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
     },
     "criteria": {
       "provider": "openrouter",
       "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
-      "maxTokens": 8000
+      "maxTokens": 8000,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
     },
     "skeleton": {
       "provider": "openrouter",
       "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
-      "maxTokens": 8000
+      "maxTokens": 8000,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
     },
     "builder": {
       "provider": "openrouter",
       "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
-      "maxTokens": 40000
+      "maxTokens": 40000,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
     },
     "reviser": {
       "provider": "openrouter",
       "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
-      "maxTokens": 40000
+      "maxTokens": 40000,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
     },
     "handoff": {
       "provider": "openrouter",
       "model": "mistralai/mistral-medium-3-5",
       "lab": "mistral",
-      "maxTokens": 8000
+      "maxTokens": 8000,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
     },
     "critics": [
       {
         "provider": "together",
         "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
-        "maxTokens": 20000,
+        "maxTokens": 36000,
         "extra": {
           "chat_template_kwargs": {
-            "thinking": false
+            "thinking": true,
+            "reasoning_effort": "high"
           }
         },
         "lab": "deepseek"
@@ -66,10 +97,10 @@
       {
         "provider": "openrouter",
         "model": "qwen/qwen3.5-plus-20260420",
-        "maxTokens": 20000,
+        "maxTokens": 36000,
         "extra": {
           "reasoning": {
-            "enabled": false
+            "effort": "high"
           }
         },
         "lab": "qwen"
@@ -77,19 +108,18 @@
       {
         "provider": "openrouter",
         "model": "z-ai/glm-5.3-flash",
-        "maxTokens": 20000,
+        "maxTokens": 36000,
         "lab": "glm",
-        "extra": {
-          "reasoning": {
-            "effort": "low"
-          }
-        }
+        "panelMaxTokens": 360000
       },
       {
         "provider": "google",
         "model": "gemini-3.6-flash",
         "maxTokens": 20000,
-        "lab": "gemini"
+        "lab": "gemini",
+        "extra": {
+          "reasoning_effort": "high"
+        }
       }
     ]
   },

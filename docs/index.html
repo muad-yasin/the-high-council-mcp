@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The High Council - a multi-model planning harness</title>
 <meta name="description" content="A planning harness that runs one idea past several AI models from different labs, makes them argue about it on the record, and stops at a checkable result. MCP server or CLI, MIT, bring your own API keys.">
-<link rel="canonical" href="https://sower-industries.de/en/MCP/">
+<link rel="canonical" href="https://sower-industries.de/en/THC/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="The High Council">
 <meta property="og:title" content="The High Council">
 <meta property="og:description" content="A planning harness that runs one idea past several AI models from different labs, makes them argue about it on the record, and stops at a checkable result. MCP server or CLI, MIT, bring your own API keys.">
-<meta property="og:url" content="https://sower-industries.de/en/MCP/">
+<meta property="og:url" content="https://sower-industries.de/en/THC/">
 <meta property="og:image" content="https://muad-yasin.github.io/the-high-council-mcp/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -311,11 +311,11 @@
 
       <div style="margin-top:44px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:#1e1e21;border:1px solid #1e1e21;border-radius:14px;overflow:hidden;width:100%">
         <div style="background:#0f0f11;padding:20px 22px">
-          <div style="font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:600;color:#e3b23c;letter-spacing:-0.02em">53</div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:600;color:#e3b23c;letter-spacing:-0.02em">64</div>
           <div style="margin-top:4px;font-size:13px;color:#8d8a84">chain configs</div>
         </div>
         <div style="background:#0f0f11;padding:20px 22px">
-          <div style="font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:600;color:#e3b23c;letter-spacing:-0.02em">15</div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:600;color:#e3b23c;letter-spacing:-0.02em">17</div>
           <div style="margin-top:4px;font-size:13px;color:#8d8a84">MCP tools</div>
         </div>
         <div style="background:#0f0f11;padding:20px 22px">
@@ -478,8 +478,8 @@ council --help
 council --task tasks/your-idea.md --chain cheap-7-v2 --dry-run
 
 <span style="color:#5f5c57"># a real run</span>
-council --task tasks/your-idea.md --chain cheap-7-v2</pre>
-        <p style="margin:14px 0 16px;font-size:15px;line-height:1.6;color:#8d8a84"><code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c;background:#1a1a1d;padding:1px 5px;border-radius:4px">council</code> is <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">npx the-high-council</code> unless you installed it globally. <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">cheap-7-v2</code> needs one OpenRouter key; its worst case is $5.38. Name no chain and you get <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">verify</code>, which needs Anthropic, OpenAI and Google keys.</p>
+council --task tasks/your-idea.md --chain cheap-7-v2 --max-usd 11.23</pre>
+        <p style="margin:14px 0 16px;font-size:15px;line-height:1.6;color:#8d8a84"><code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c;background:#1a1a1d;padding:1px 5px;border-radius:4px">council</code> is <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">npx the-high-council</code> unless you installed it globally. <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">cheap-7-v2</code> needs one OpenRouter key; its worst case is $11.22, above the default cap. Name no chain and you get <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">verify</code>, which needs Anthropic, OpenAI and Google keys.</p>
         <p style="margin:0 0 10px;font-size:15.5px;color:#8d8a84">Or add it to Claude Code as an MCP server and let it drive:</p>
         <pre style="margin:0;padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0d0d0f;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.8;color:#c9c4ba;overflow-x:auto">claude mcp add council -- npx -y the-high-council council --mcp</pre>
         <p style="margin:14px 0 0;font-size:14.5px;line-height:1.6;color:#8d8a84;text-wrap:pretty">Claude Desktop: open the <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">.mcpb</code> file from the GitHub Releases page. MCP Registry: <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">io.github.muad-yasin/the-high-council</code>.</p>
@@ -585,28 +585,38 @@ council --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># c
             <div style="padding:13px 20px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">plan_outline</div>
             <div style="padding:13px 20px;font-size:14.5px;color:#b9b5ad">Outline pass</div>
           </div>
+
+          <div style="display:grid;grid-template-columns:minmax(140px,220px) 1fr;border-bottom:1px solid #161618" class="h20a">
+            <div style="padding:13px 20px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">council_quote</div>
+            <div style="padding:13px 20px;font-size:14.5px;color:#b9b5ad">Experimental. Preview and price a request for advice from other labs; sends and spends nothing</div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:minmax(140px,220px) 1fr;border-bottom:1px solid #161618" class="h20b">
+            <div style="padding:13px 20px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">council_advise</div>
+            <div style="padding:13px 20px;font-size:14.5px;color:#b9b5ad">Experimental. Ask other labs for advice on one decision once you approve it; a leaning and the dissent</div>
+          </div>
         
       </div>
     </section>
 
     <section style="margin-top:72px">
       <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:34px;letter-spacing:-0.02em;color:#faf8f4">Chains</h2>
-      <p style="margin:10px 0 24px;max-width:760px;font-size:16px;line-height:1.65;color:#8d8a84;text-wrap:pretty">53 chain configs live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">chains/</code>. Each one is plain JSON - the seat roster, which models fill which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be copied and edited.</p>
+      <p style="margin:10px 0 24px;max-width:760px;font-size:16px;line-height:1.65;color:#8d8a84;text-wrap:pretty">64 chain configs live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">chains/</code>. Each one is plain JSON - the seat roster, which models fill which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be copied and edited.</p>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
         
           <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
             <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">cheap-7-v2</div>
-            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Claude Sonnet 5 writes; seven other labs review and must all sign off. One OpenRouter key, $5.38 worst case.</div>
+            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Claude Sonnet 5 writes; seven other labs review and must all sign off. One OpenRouter key, $11.22 worst case, above the default cap.</div>
           </div>
         
           <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
             <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">plan-premium-7</div>
-            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">A Claude Code session writes; a seven-lab panel of larger models reviews. $22.30 worst case, above the default cap.</div>
+            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">A Claude Code session writes; a seven-lab panel of larger models reviews. $36.75 worst case, above the default cap.</div>
           </div>
         
           <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
             <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">plan-highest-7</div>
-            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Tiered: seven low-cost models propose and debate, four top models write architectures and alone vote. Untested with real models; $11.21 worst case.</div>
+            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Tiered: seven low-cost models propose and debate, four top models write architectures and alone vote. Untested with real models; $17.34 worst case, above the default cap.</div>
           </div>
         
           <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
@@ -743,7 +753,7 @@ council --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># c
         
           <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:start">
             <div style="margin-top:4px;width:7px;height:7px;border-radius:50%;background:#4a463f;box-shadow:0 0 0 4px rgba(74,70,63,0.18)"></div>
-            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">The spend cap is enforced against a worst case, not a prediction: the whole prompt billed as input plus the seat's entire maxTokens budget billed as output (doubled for Anthropic seats, which may retry once). Real stages almost never cost that much, so a run can stop with headroom left. That is the intended trade - resume it with a higher ceiling.</p>
+            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">The spend cap is enforced against a worst case, not a prediction: the whole prompt billed as input plus the seat's entire maxTokens budget billed as output (for an Anthropic seat, a possible retry at a bigger cap is projected too). Real stages almost never cost that much, so a run can stop with headroom left. That is the intended trade - resume it with a higher ceiling.</p>
           </div>
         
           <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:start">
@@ -788,7 +798,7 @@ council --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># c
           <a href="https://github.com/muad-yasin/the-high-council-mcp" style="display:inline-flex;align-items:center;padding:13px 24px;border-radius:10px;background:linear-gradient(180deg,#f0c75a,#dba52c);color:#17130a;font-weight:600;font-size:15px;font-family:'Space Grotesk',sans-serif;box-shadow:0 0 0 1px rgba(255,255,255,0.14) inset,0 12px 32px rgba(227,178,60,0.22);text-decoration:none" class="h26">github.com/muad-yasin/the-high-council-mcp</a>
         </div>
         <div style="margin-top:22px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:#5f5c57">MIT. See LICENSE.</div>
-        <div style="margin-top:10px;font-size:13.5px;color:#6f6c66">Built by <a href="https://sower-industries.de" style="color:#c9a33c">sower-industries.de</a>, which has <a href="https://sower-industries.de/en/MCP/" style="color:#c9a33c">a write-up built around one run's debate board</a>.</div>
+        <div style="margin-top:10px;font-size:13.5px;color:#6f6c66">Built by <a href="https://sower-industries.de" style="color:#c9a33c">sower-industries.de</a>, which has <a href="https://sower-industries.de/en/THC/" style="color:#c9a33c">a write-up built around one run's debate board</a>.</div>
       </div>
     </section>
   </div>

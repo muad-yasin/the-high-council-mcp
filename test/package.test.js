@@ -54,6 +54,15 @@ test('the tarball ships the published report.json schema', () => {
   assert.ok(packed.includes('schemas/report-v1.json'), 'schemas/report-v1.json is missing from the tarball');
 });
 
+test('the tarball ships the gate schemas and the gate modules (0.8.1 plan M3)', () => {
+  // The two new persisted formats (persistence register P4, P5) are published like report.json's.
+  for (const f of ['schemas/gate-v1.json', 'schemas/gate-ledger-v1.json', 'src/gate.js', 'src/gate-ledger.js', 'src/gate-cli.js']) {
+    assert.ok(packed.includes(f), `${f} is missing from the tarball`);
+  }
+  // the fixture generator is a maintainer script, not package code
+  assert.ok(!packed.includes('scripts/gate-fixtures.mjs'));
+});
+
 test('the tarball ships everything the CLI needs at runtime', () => {
   // Excluding one of these produces a package that installs and then fails on
   // first use - the packaged equivalent of the missing-tasks/ README bug.

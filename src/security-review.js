@@ -32,8 +32,8 @@ export const SECURITY_REVIEW_LABEL = 'security-review';
 
 // Default seat, per the dispatch that asked for this gate: Anthropic's Claude Fable 5.1, BYOK
 // (ANTHROPIC_API_KEY). Priced in src/pricing.json so the per-run spend cap can project it before
-// the call. maxTokens 8000 is invoke()'s own default for any seat that doesn't set one - kept
-// explicit here so the worst-case projection is visible in one place.
+// the call. maxTokens 8000 is this seat's own explicit cap (invoke()'s default for a seat that sets none is 36,000 since 0.8.1), kept
+// here so the worst-case projection is visible in one place; a reply cut off at it is retried once at a bigger cap like any other seat's.
 export const DEFAULT_SECURITY_REVIEWER_SEAT = Object.freeze({
   provider: 'anthropic',
   model: 'claude-fable-5-1',
@@ -63,8 +63,10 @@ export const CATEGORIES = Object.freeze([
 export const SEAT_COULD_NOT_JUDGE = 'SEAT_COULD_NOT_JUDGE';
 const SEAT_UNREACHABLE = 'SEAT_UNREACHABLE'; // RESERVED_ABSTENTION_REASONS[0]; test/security-review-gate.test.js pins membership
 
-// Same per-field cap chain.js applies to critic text (CRITIQUE_FIELD_MAX_CHARS): reviewer text is
-// model-controlled and lands in report.json and the CLI log.
+// A per-field cap: reviewer text is model-controlled and lands in report.json and the CLI log. chain.js cut critic
+// fields at the same 2,000 until 0.8.1, when they rose to 8,000 with every cut recorded (FX-11); this reviewer's
+// fields were not part of that change and still cut at 2,000 with the visible "[truncated]" marker only (recorded as a
+// follow-up in the 0.8.1 build notes).
 const FIELD_MAX_CHARS = 2000;
 function cap(value) {
   if (typeof value !== 'string') return null;
@@ -188,7 +190,8 @@ export async function runSecurityReviewStage(config, { request, deliverable, gro
       user: securityReviewUser({ request, deliverable, groundTruthPost }),
       log, label: SECURITY_REVIEW_LABEL,
     }));
-    review = parseSecurityReview(stage.text, { usage: stage.usage, maxTokens: seat.maxTokens, parseJson, abstentionReasonCode });
+    // the cap the reply was asked at: an Anthropic seat's own retry may have raised it (stage.cappedAt)
+    review = parseSecurityReview(stage.text, { usage: stage.usage, maxTokens: Number.isFinite(stage?.cappedAt) && stage.cappedAt >= seat.maxTokens ? stage.cappedAt : seat.maxTokens, parseJson, abstentionReasonCode });
   } catch (err) {
     if (err?.controlFlow || rethrow.some(E => err instanceof E)) throw err;
     // An unreachable reviewer is not evidence the build is safe: recorded as a non-verdict, which

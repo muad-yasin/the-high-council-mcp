@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "producer": {
+    "name": "the-high-council",
+    "version": "0.8.0"
+  },
+  "runId": "2026-10-02T18-17-13-595Z",
+  "started_at": "2026-10-02T18:17:13.595Z",
+  "finished_at": "2026-10-02T18:17:13.648Z",
+  "chain": "mock-advise-single",
+  "task": "tasks/t.md",
+  "task_sha256": "479ce17479a2397943944dffd56dd300cc8ac989dbe401673063c1257f16882a",
+  "fromRun": null,
+  "criteria": [],
+  "questions": null,
+  "passed": true,
+  "lastCritique": null,
+  "signoff": null,
+  "challenge": null,
+  "allocator": null,
+  "proposals": [],
+  "dropouts": [],
+  "outcome": "consensus",
+  "debate": null,
+  "scoreboard": null,
+  "disputes": [],
+  "orphanSections": [],
+  "withdrawalCycles": 0,
+  "totals": {
+    "input": 20,
+    "output": 79,
+    "total": 99,
+    "usd": 0,
+    "unpriced": [
+      "mock/mock-advisor-change"
+    ]
+  },
+  "maxUsd": 7,
+  "stages": [
+    {
+      "label": "advise-solo",
+      "provider": "mock",
+      "model": "mock-advisor-change",
+      "lab": "solo",
+      "usage": {
+        "input": 20,
+        "output": 79
+      },
+      "usd": 0,
+      "priced": false,
+      "ms": 17,
+      "promptHash": "467333d05b76c3cc"
+    }
+  ],
+  "panelVerdicts": [],
+  "regressions": [],
+  "advise": {
+    "status": "answered",
+    "tier": "mock-advise-single",
+    "verdict": "change",
+    "headline_source": "roll_up",
+    "agreement": "unanimous",
+    "tally": {
+      "change": 1
+    },
+    "confidence": "medium",
+    "verdict_text": "Mock answer from mock-advisor-change: change.",
+    "next_step": "",
+    "synthesis": {
+      "seat": null,
+      "flag": null
+    },
+    "seats_asked": 1,
+    "seats_answered": 1,
+    "opinions": [
+      {
+        "lab": "solo",
+        "model": "mock-advisor-change",
+        "first": {
+          "restated_question": "Should the asker go ahead?",
+          "verdict": "change",
+          "confidence": "medium",
+          "answer": "Mock answer from mock-advisor-change: change.",
+          "risks": [
+            {
+              "risk": "Mock risk from mock-advisor-change.",
+              "quote": "# Advice",
+              "quote_status": "verified"
+            }
+          ],
+          "would_change_if": "A fact that contradicts mock-advisor-change.",
+          "missing_from_brief": []
+        },
+        "final": {
+          "restated_question": "Should the asker go ahead?",
+          "verdict": "change",
+          "confidence": "medium",
+          "answer": "Mock answer from mock-advisor-change: change.",
+          "risks": [
+            {
+              "risk": "Mock risk from mock-advisor-change.",
+              "quote": "# Advice",
+              "quote_status": "verified"
+            }
+          ],
+          "would_change_if": "A fact that contradicts mock-advisor-change.",
+          "missing_from_brief": []
+        }
+      }
+    ],
+    "debate": {
+      "rounds_planned": 0,
+      "rounds_run": 0,
+      "stopped": null,
+      "rounds": []
+    },
+    "dissent": [],
+    "missing_from_brief": [],
+    "dropouts": [],
+    "usd_cap": 1,
+    "spent": 0,
+    "sent_to": [
+      {
+        "lab": "solo",
+        "model": "mock-advisor-change",
+        "provider": "mock",
+        "retention": "nowhere (mock seat, nothing is sent)",
+        "retention_class": "M",
+        "served_by": []
+      }
+    ],
+    "dispositions": []
+  }
+}

@@ -1,6 +1,9 @@
 {
-  "_note": "USD per 1,000,000 tokens. List prices change often - re-check each lab's pricing page before quoting these to anyone. Verified against public pricing pages as of 2026-09-06 (the anthropic/* entries re-checked against Anthropic's pricing page on 2026-09-15). Bug-audit fix, 2026-09-16: together/Qwen/Qwen2.5-72B-Instruct-Turbo was missing entirely (used by src/budget.js's ROSTERS.frontier and .frontier-sonnet, silently understating priceRoster()'s total by ~14% - one of seven roster seats treated as $0), added at Together AI's public Turbo-endpoint rate for this model class (same tier as the already-listed together/meta-llama/Llama-3.3-70B-Instruct-Turbo entry, slightly above it per Together's own published per-model pricing); re-verify before quoting. Refreshed 2026-09-20 against openrouter.ai/api/v1/models directly (the live API, not a secondary aggregator): four openrouter/* entries had drifted - glm-5.3-flash and glm-5.2 were both UNDERSTATED, which understates every projection the spend cap enforces against, and glm-5.2 had been taken from an aggregator rather than the source. openrouter/mistralai/mistral-large-2512 was REMOVED: OpenRouter no longer serves the non-batch variant at all, so the entry priced a model this harness could not call. Five current-generation entries added for cheap-7-v2. Non-openrouter entries were NOT re-checked in that pass and still carry their older dates. Treat every entry as an estimate, not an invoice.",
+  "_note": "USD per 1,000,000 tokens. List prices change often - re-check each lab's pricing page before quoting these to anyone. Verified against public pricing pages as of 2026-09-06 (the anthropic/* entries re-checked against Anthropic's pricing page on 2026-09-15). Bug-audit fix, 2026-09-16: together/Qwen/Qwen2.5-72B-Instruct-Turbo was missing entirely (used by src/budget.js's ROSTERS.frontier and .frontier-sonnet, silently understating priceRoster()'s total by ~14% - one of seven roster seats treated as $0), added at Together AI's public Turbo-endpoint rate for this model class (same tier as the already-listed together/meta-llama/Llama-3.3-70B-Instruct-Turbo entry, slightly above it per Together's own published per-model pricing); re-verify before quoting. Refreshed 2026-09-20 against openrouter.ai/api/v1/models directly (the live API, not a secondary aggregator): four openrouter/* entries had drifted - glm-5.3-flash and glm-5.2 were both UNDERSTATED, which understates every projection the spend cap enforces against, and glm-5.2 had been taken from an aggregator rather than the source. openrouter/mistralai/mistral-large-2512 was REMOVED: OpenRouter no longer serves the non-batch variant at all, so the entry priced a model this harness could not call. Five current-generation entries added for cheap-7-v2. Non-openrouter entries were NOT re-checked in that pass and still carry their older dates. Treat every entry as an estimate, not an invoice. 2026-09-30 (research brief 31): added gpt-6.1-sol and claude-sonnet-5.5, raised the two rows found understated against OpenRouter's model list (glm-5.2 output, kimi-k3); asOf NOT moved, because the other entries were not re-checked in that pass.",
   "asOf": "2026-09-06",
+  "_openrouterCheckedAt": "2026-10-06",
+  "_openrouterStaleDays": 45,
+  "_openrouterNote": "The date every openrouter/* row was last compared with OpenRouter's live model list (scripts/refresh-openrouter-prices.mjs, which only RAISES a row below the list). test/pricing-freshness.test.js turns red _openrouterStaleDays after it: re-run the script before then (MAN-7). Direct-provider rows (anthropic/, openai/, google/...) are NOT covered by this date: they carry their own _source dates.",
   "_asOf": "Machine-readable date for the table as a whole (0.7.8): the OLDEST date every entry was last checked against its lab's page, so it errs old. Some entries were re-checked since (see _note and their _source); none is older. `council doctor` and `--dry-run` print it and warn past 60 days. Move it forward only when every entry has been re-checked on or after the new date.",
   "_critiqueTokensNote": "critiqueTokens on an entry (0.7.8) is that model's typical output for one panel review, measured from the author's own runs (reasoning models spend most of it thinking, so it runs well past the old flat 5000). Used only by the dry-run and doctor estimate, and only to RAISE a chain's estimate.critiqueTokens for that seat, never to lower it; a seat's own estimate.critiqueTokens overrides both. The spend cap does not read it: it always projects the seat's full maxTokens.",
   "anthropic/claude-fable-5-1": {
@@ -76,8 +79,9 @@
     "out": 0.15
   },
   "openrouter/meta-llama/llama-3.3-70b-instruct": {
-    "in": 0.1,
-    "out": 0.32
+    "in": 0.22,
+    "out": 0.5,
+    "_source": "openrouter.ai/api/v1/models re-read 2026-10-06: list 0.22/0.5 per Mtok, raised from 0.1/0.32 (the cap was projecting less than the list)"
   },
   "together/deepseek-ai/DeepSeek-V3.1": {
     "in": 0.6,
@@ -135,19 +139,21 @@
     "out": 3.75,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-20",
     "critiqueTokens": 2500,
-    "_critiqueTokens": "median panel-review output over 44 panel stages in 8 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 44 panel stages in 8 real run(s), 2026-09-20..25, rounded up to 500",
+    "expires": "2027-01-01",
+    "_expires": "Google doubles Gemini 3.8 Flash to 1.50 / 7.50 on 2027-01-01 (thc-research 30 B6). Its advice seats carry max_price at 0.75 / 3.75, which would then exclude the standard route: re-price this row and those seats before that date."
   },
   "openrouter/deepseek/deepseek-v4.1-flash": {
-    "in": 0.15,
-    "out": 0.6,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20",
+    "in": 0.3,
+    "out": 1.2,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20; openrouter.ai/api/v1/models re-read 2026-10-06: list 0.3/1.2 per Mtok, raised from 0.15/0.6 (the cap was projecting less than the list)",
     "critiqueTokens": 7000,
     "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500"
   },
   "openrouter/qwen/qwen3.7-plus": {
-    "in": 0.32,
-    "out": 1.28,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20",
+    "in": 0.4,
+    "out": 1.6,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20; raised to the list 0.40 / 1.60 on 2026-10-03 (0.8.1 M7): the 0.32 / 1.28 read then was a 'limited-time 20% off' (thc-research 30 C9, B6), so the cap under-projected by 20%.",
     "critiqueTokens": 2500,
     "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500"
   },
@@ -160,8 +166,8 @@
   },
   "openrouter/z-ai/glm-5.3": {
     "in": 1.4,
-    "out": 4.4,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-28 (was 0.84/2.64 on 2026-09-22: understated; bug audit 2026-09-28 area 2 #7)",
+    "out": 7.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-28 (was 0.84/2.64 on 2026-09-22: understated; bug audit 2026-09-28 area 2 #7); openrouter.ai/api/v1/models re-read 2026-10-06: list 0.07/7 per Mtok, raised from 1.4/4.4 (the cap was projecting less than the list)",
     "critiqueTokens": 36000,
     "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
   },
@@ -175,7 +181,9 @@
   "openrouter/openai/gpt-5.6-sol": {
     "in": 2.0,
     "out": 10.0,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
+    "expires": "2026-11-21",
+    "_promotional": "OpenAI's promotional 2 / 10 'at least through November 21, 2026' (developers.openai.com pricing, read 2026-09-30, thc-research 30 C9); the list price is 4 / 20. Re-read before the date: the cap projects with 2 / 10 until this row changes."
   },
   "openrouter/anthropic/claude-opus-5.5": {
     "in": 4.0,
@@ -215,9 +223,9 @@
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
   },
   "openrouter/moonshotai/kimi-k3": {
-    "in": 1.7,
-    "out": 8.5,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+    "in": 3.0,
+    "out": 15.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-30 (was 1.7/8.5 on 2026-09-20: understated; brief 31). Kept in the table only so a user-written chain that seats it is capped correctly; in no shipped chain or proposed roster"
   },
   "openrouter/anthropic/claude-opus-5": {
     "in": 5.0,
@@ -241,8 +249,8 @@
   },
   "openrouter/z-ai/glm-5.2": {
     "in": 0.6496,
-    "out": 2.0416,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+    "out": 12.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-30 (out was 2.0416 on 2026-09-20: understated by half; model-level record now 0.432/3.99, Z.ai's own page lists 1.4/4.4; in kept at the higher old figure, never lowered; brief 31); openrouter.ai/api/v1/models re-read 2026-10-06: list 0.032/12 per Mtok, raised from 0.6496/3.99 (the cap was projecting less than the list)"
   },
   "openrouter/google/gemini-3.1-pro-preview": {
     "in": 2.0,
@@ -278,6 +286,16 @@
     "in": 0.75,
     "out": 3.75,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-28 - coder-gate-v2's extra.models fallback (bug audit 2026-09-27 H1)"
+  },
+  "openrouter/openai/gpt-6.1-sol": {
+    "in": 2.2,
+    "out": 11.0,
+    "_source": "OpenAI list price is 2/10 (developers.openai.com/api/docs/pricing and OpenRouter's openai endpoint, read 2026-09-30). Priced at 2.2/11, the dearest ZDR-tagged endpoint (azure/eu and azure/us), because the advice seat's preset routes with provider.zdr or only azure/eu and priceOf prices the model id, not the endpoint; a plain first-party route (2/10) is about 9% cheaper than this row, the row being 10% dearer (the safe direction). No critiqueTokens: no measurement yet (brief 31)"
+  },
+  "openrouter/anthropic/claude-sonnet-5.5": {
+    "in": 2.0,
+    "out": 10.0,
+    "_source": "openrouter.ai/api/v1/models and platform.claude.com/docs/en/about-claude/pricing, checked 2026-09-30. List price of the default route; the ZDR-tagged google-vertex/us and google-vertex/europe endpoints cost 2.2/11. No critiqueTokens: no measurement yet (brief 31)"
   },
   "_test_note": "mock/* entries below are test fixtures, not real prices. The mock provider calls nothing; these exist only so the per-run spend cap can be exercised offline, since an unpriced seat cannot be capped.",
   "mock/mock-priced": {

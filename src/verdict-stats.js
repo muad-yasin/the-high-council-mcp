@@ -171,6 +171,9 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
   const byLab = new Map();
   const largestPrompt = new Map(); // stage type -> { bytes, file, run }
   let runsSeen = 0;
+  // 0.8.1 DR-13 (N5): an advice call (report.json with `advise`) reviewed no draft, so its passed/outcome
+  // are not a sign-off. Such runs are skipped and counted here, so the skip is never silent.
+  let adviceRunsSkipped = 0;
   let unreadable = 0;
 
   let ids = [];
@@ -193,6 +196,7 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
 
     const runJson = readJson(join(dir, 'run.json'));
     const report = readJson(join(dir, 'report.json'));
+    if (report?.advise) { adviceRunsSkipped += 1; continue; }
     const chainName = report?.chain ?? runJson?.chain ?? 'unknown';
     runsSeen += 1;
 
@@ -324,7 +328,7 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
     .map(([type, v]) => ({ stageType: type, bytes: v.bytes, tokensApprox: Math.round(v.bytes / 4), file: v.file, run: v.run }))
     .sort((a, b) => b.bytes - a.bytes);
 
-  return { runsDir, days, since: new Date(cutoff), chains, labs, largestPrompts, runsSeen, unreadable };
+  return { runsDir, days, since: new Date(cutoff), chains, labs, largestPrompts, runsSeen, unreadable, adviceRunsSkipped };
 }
 
 const csvNum = x => (x === null ? '' : String(x));

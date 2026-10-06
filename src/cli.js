@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, runSingleStage, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
+import { runChain, runSingleStage, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, setStopCheck, resetFieldCuts, fieldCutsSoFar, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
 import { secretShapesIn, SecretShapedPrompt } from './outbound-scan.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus, waitingStages, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
@@ -13,8 +13,16 @@ import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFrom
 import { appendSpanRecord, buildSpanRecord } from './progress-spans.js';
 import { computeOutcome } from './outcome.js';
 import { reportJsonShape, renderBoardMd, partialReportJsonShape, renderPartialBoardMd, PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE } from './report-shape.js';
-import { summarise, formatUsd, priceOf, estimateChainRows, priceTableLines } from './cost.js';
-import { providerNames, envKeyName, keyFor, isKeyOptional, call, isRetryable } from './providers.js';
+import { summarise, formatUsd, priceOf, estimateChainRows, priceTableLines, DEFAULT_ESTIMATE } from './cost.js';
+import { providerNames, envKeyName, keyFor, isKeyOptional, call, isRetryable, setRequestDeadlineAt } from './providers.js';
+import { AdviceStopped } from './advise.js';
+import { adoptCheck, writeAdviceLogStart, writeAdviceLogFinish, adviceReportExtra, sha256Hex, isAdviceFolder, STOP_FILE, ADVICE_BRIEF_FILE } from './advice-run.js';
+import { recordSent, recordMoreMaterial, recordStopped } from './gate.js';
+import { readStopRequest, writeStoppedMarker, writeAtomic, stoppedFileOf, STOP_CAUSES } from './stop-files.js';
+import { admitChain, gateSeatsOf, seatsOf } from './send-path-refusals.js';
+import { adviceChainDirs, adviceChainPath, ADVICE_CHAINS_DIR_ENV, OPERATOR_ONLY_ENV } from './send-profiles.js';
+import { tierRefusal } from './advice-tier.js';
+import { decide, limitsFromEnv, readLedger as readAdviceLedger } from './advice-guards.js';
 import { DEMO_REQUEST } from './mock-demo.js';
 import { readCompletedRun, generateDigestText, writeDigest } from './dissent-digest.js';
 import { deniedReasonsOf, DeniedModel } from './denied-models.js';
@@ -28,16 +36,19 @@ import { fenceFile, scanTaskForSecrets, FENCE_HEADER, FENCE_MAX_BYTES } from './
 import { outsideFences } from './quote-check.js';
 import { parseCriteriaFile } from './criteria-kinds.js';
 import { lintCriteria } from './criteria-lints.js';
-import { pickDraft, readCriteria, stopState, partialBanner, externalPromptText } from './handoff-from-run.js';
+import { stripDeclined, readModelDraft } from './draft-disputes.js';
+import { keyEnvValue, keySource, keyProblem } from './key-env.js';
+import { applyEnvFile } from './env-file.js';
+import { pickDraft, readCriteria, readChecks, existsExactCase, stopState, partialBanner, externalPromptText } from './handoff-from-run.js';
 import * as HandoffRoles from './roles.js';
 import { scanForPii, applyPiiGate } from './pii-gate.js';
 import { harnessVersion } from './version.js';
 import { stageKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs } from './cache-integrity.js';
-import { archiveSuperseded, supersededSpendOf, recordLostCharge } from './superseded.js';
+import { archiveSuperseded, supersededSpendOf, recordLostCharge, recordCall } from './superseded.js';
 import { taskHashOf, checkFrozenScope, contextHashOf, checkFrozenContext } from './scope-freeze.js';
-import { lockBlock, checkLock } from './criteria-lock.js';
+import { lockBlock, checkLock, checksOf } from './criteria-lock.js';
 import { runSpentUsd } from './spend.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { schemaVersionWarning } from './schema-version.js';
@@ -93,6 +104,10 @@ const EXIT_RUN_FAILED = 16;
 // handoff reply was cut off at its token cap and its one bigger-cap retry was cut off too (or the
 // seat is external). The run stops rather than grade, report or ship the fragment.
 const EXIT_DRAFT_TRUNCATED = 17;
+// 0.8.1 M6 (decided rule 6): an advice call stopped before finishing, by a person (`council stop`), by the client that cancelled or
+// left, or by its wall clock, before or after paid calls. It writes report-partial.json (what was paid for), BOARD-partial.md,
+// STOPPED-<stoppedBy>.json and state.json, and is never resumed. (Brief 29 used 18 for a stop before the first call only.)
+const EXIT_STOPPED_BY_USER = 18;
 import { scanArtifacts } from './key-redaction.js';
 import { resetToolCallLog, renderToolsMd } from './tools.js';
 import { arguedWarnings } from './argued.js';
@@ -100,6 +115,9 @@ import { councilCommand, unignoredEnvFile } from './invocation.js';
 import { contextFileList, readContextFile, ContextFileError } from './context-files.js';
 import { chainNameRefusal } from './chain-name.js';
 import { terminalSafe } from './terminal-safe.js';
+import { gateCommand } from './gate-cli.js';
+import { adviseRateCommand } from './advise-rate.js';
+import { stopCommand } from './advice-stop.js';
 
 // One lint gate for every path that calls runChain() on a chain file: the normal run and resume
 // (above), --rematch and --replay (bug audit 2026-09-27 M2: both skipped it, so an edited chain
@@ -152,10 +170,7 @@ const work = process.cwd();
 // checkout behave as before.
 const envPath = [join(work, '.env'), join(pkg, '.env')].find(existsSync) || join(work, '.env');
 if (existsSync(envPath)) {
-  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (m && m[2] && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
-  }
+  applyEnvFile(readFileSync(envPath, 'utf8'), process.env, { onIgnored: name => console.error(`.env: ${name} is not read from a project .env file (it changes how the process runs, or is the operator's own setting); set it in the real environment instead.`) });
 }
 
 // `npx <local-tarball-or-package-spec> council demo` is a real invocation, not
@@ -167,7 +182,20 @@ if (existsSync(envPath)) {
 // instead of running - caught by the 2026-09-13 tarball verification pass.
 // Drop one such leading token before anything else looks at argv[0].
 const rawArgv = process.argv.slice(2);
-const argv = (rawArgv[0] === 'council' || rawArgv[0] === 'relay') ? rawArgv.slice(1) : rawArgv;
+// Audit A1-1 (0.8.1): `--max-usd=0.2` used to match no flag, so the run silently got the $7 default while the log said --max-usd. A flag that takes a value is
+// now read in both spellings (`--name value` and `--name=value`), in this one place, before anything else looks at argv.
+const VALUE_FLAGS = new Set(['advice-adopt', 'allow-pii', 'allow-unfenced', 'chain', 'context', 'criteria', 'date', 'days', 'draft', 'from-run', 'label', 'max-usd', 'model', 'out', 'pii-gate', 'provider', 'rematch', 'rematch-seed', 'replay', 'replay-date', 'repo', 'resume', 'rounds', 'run', 'run-id', 'signoff', 'task']);
+const expandEquals = args => args.flatMap(a => { const m = /^--([a-z][a-z0-9-]*)=([\s\S]*)$/.exec(a); return m && VALUE_FLAGS.has(m[1]) ? [`--${m[1]}`, m[2]] : [a]; });
+const argvExpanded = expandEquals((rawArgv[0] === 'council' || rawArgv[0] === 'relay') ? rawArgv.slice(1) : rawArgv);
+// Re-audit 2: a flag that takes no value, spelled `--flag=value` (`--dry-run=true`), used to be ignored, and the command then ran for real (a paid run under the default cap).
+// Any `--name=value` still here after the expansion is refused, never ignored.
+{
+  const stray = argvExpanded.find(a => /^--[A-Za-z][A-Za-z0-9_-]*=/.test(a));
+  if (stray) { console.error(`${stray}: this option takes no value (write it bare), or it is not an option of this command. Nothing was run and nothing was spent.`); process.exit(2); }
+}
+const argv = argvExpanded;
+// Audit A1-5: an invalid cap (a corrupt run.json value, a malformed flag) stops the command with one clear line instead of a stack trace, before any spend.
+function setBudgetOrExit(cap) { try { setBudget(cap); } catch (e) { console.error(e.message); process.exit(2); } }
 if (argv[0] === '--version' || argv[0] === '-v') {
   console.log(harnessVersion());
   process.exit(0);
@@ -282,9 +310,9 @@ if (argv[0] === 'doctor') {
   const present = new Set();
   for (const name of names) {
     const envName = envKeyName(name);
-    const has = !!process.env[envName];
+    const has = !!keyEnvValue(envName);
     if (has) present.add(name);
-    const status = has ? 'set' : isKeyOptional(name) ? 'not required (local - a dummy or missing key is fine)' : 'not set';
+    const status = has ? (keySource(envName) === 'dialog' ? 'set (plugin settings dialog)' : 'set') : keyProblem(envName) ? 'set but malformed (a line break or another control character in it: nothing is sent with it)' : isKeyOptional(name) ? 'not required (local - a dummy or missing key is fine)' : 'not set';
     console.log(`  ${name.padEnd(nw)}  ${envName.padEnd(20)}  ${status}`);
   }
 
@@ -320,7 +348,8 @@ if (argv[0] === 'doctor') {
     // Chains every seat of which runs on one paid key, with nobody to wait for (no external or
     // mock seat) and no lint finding: the shortest path from "no keys" to a real council.
     const keyNames = [...providers].map(p => (p === 'mock' || p === 'external' || isKeyOptional(p)) ? null : envKeyName(p));
-    if (keyNames.length && keyNames.every(Boolean) && new Set(keyNames).size === 1 && !lintChain(cfg, join(chainsDir, f)).length) {
+    // The add-on's advice chains (advise-*) are not planning chains: they are started by an agent through council_advise, so they are not what "Start here" points a newcomer at (audit A6-2).
+    if (!cfg.advise?.enabled && keyNames.length && keyNames.every(Boolean) && new Set(keyNames).size === 1 && !lintChain(cfg, join(chainsDir, f)).length) {
       // The labs a chain advertises are its panel's: critics only, by labOf (a seat's own `lab`
       // wins). Counting every seat by model-id prefix called cheap-7-v2 a 9-lab chain while the
       // README calls it a seven-lab panel.
@@ -415,9 +444,9 @@ if (argv[0] === 'init') {
   let anyKeySet = false;
   for (const name of names) {
     const envName = envKeyName(name);
-    const has = !!process.env[envName];
+    const has = !!keyEnvValue(envName);
     if (has) anyKeySet = true;
-    const status = has ? 'set' : isKeyOptional(name) ? 'not required (local - a dummy or missing key is fine)' : 'not set - a chain using this lab would abort (COUNCIL-E001), not degrade';
+    const status = has ? (keySource(envName) === 'dialog' ? 'set (plugin settings dialog)' : 'set') : keyProblem(envName) ? 'set but malformed (a line break or another control character in it: nothing is sent with it)' : isKeyOptional(name) ? 'not required (local - a dummy or missing key is fine)' : 'not set - a chain using this lab would abort (COUNCIL-E001), not degrade';
     console.log(`  ${name.padEnd(nw)}  ${envName.padEnd(20)}  ${status}`);
   }
 
@@ -552,13 +581,17 @@ if (argv[0] === 'check-lock' || argv[0] === 'verify-handoff') {
   }
   let text;
   try { text = readFileSync(resolve(work, fileArg), 'utf8'); } catch { console.error(`${argv[0]}: cannot read ${fileArg}`); process.exit(2); }
-  let expected;
+  let expected, expectedChecksSha256;
   const runArg = flag('run', null);
   if (runArg && runArg !== true) {
     const report = readReportOrExit(join(resolve(work, runArg), 'report.json'), argv[0]);
-    if (Array.isArray(report.criteria)) expected = report.criteria;
+    // Audit A5-5 (0.8.1): a comparison that cannot be made is not a pass.
+    if (!Array.isArray(report.criteria)) { console.error(`${argv[0]}: ${join(runArg, 'report.json')} has no criteria list, so there is nothing to compare the file's criteria with. Nothing was checked.`); process.exit(2); }
+    expected = report.criteria;
+    if (typeof report.checks_sha256 === 'string') expectedChecksSha256 = report.checks_sha256;
   }
-  const verdict = checkLock(text, { expected });
+  const verdict = checkLock(text, { expected, expectedChecksSha256 });
+  for (const n of verdict.notes || []) console.error(`${fileArg}: note: ${n}`);
   if (!verdict.found) { console.error(`${fileArg}: ${verdict.problems[0]}`); process.exit(2); }
   if (verdict.ok) { console.log(`${fileArg}: criteria lock holds (${verdict.sha256.slice(0, 12)}${verdict.run ? `, run ${verdict.run}` : ''})`); process.exit(0); }
   for (const p of verdict.problems) console.error(`${fileArg}: ${p}`);
@@ -591,6 +624,13 @@ if (argv[0] === 'handoff') {
   let hConfig;
   try { hConfig = JSON.parse(readFileSync(hConfigPath, 'utf8')); } catch { console.error(`\n${formatCouncilError('COUNCIL-E003', { path: hConfigPath })}`); process.exit(EXIT_FATAL); }
   exitOnLint(hConfig, hConfigPath);
+  // 0.8.1 FX-14 (owner, 2026-10-02): an advice call has no plan to hand off. A handoff of its answer would be a paid call
+  // whose acceptance items came from advice, read as signed off (advice reports carry passed: true, which is not a
+  // sign-off). Refused before anything is read further or spent.
+  if (hConfig.advise?.enabled === true || existsSync(join(hRunDir, 'advise-log.json'))) {
+    console.error(`handoff: ${hRunDir} is an advice call (chain "${hChain}"), not a plan: there is nothing to hand off. Read its deliverable.md (the advice) instead.`);
+    process.exit(2);
+  }
   try { hConfig = resolveChainSeats(hConfig); } catch { /* reported by the seat check below */ }
   const hSeat = hConfig.seats?.handoff || hConfig.seats?.builder;
   if (!hSeat) { console.error(`handoff: chain "${hChain}" has neither a handoff nor a builder seat`); process.exit(2); }
@@ -600,11 +640,21 @@ if (argv[0] === 'handoff') {
   let hRequest;
   try { hRequest = readFileSync(hTaskPath, 'utf8'); } catch { console.error(`handoff: cannot read the run's task file (${hTaskPath || 'none recorded'})`); process.exit(2); }
   const hCriteria = readCriteria(hRunDir);
+  // FX-6: never a silent HANDOFF.md without its lock block.
+  if (!hCriteria.length) console.error(`handoff: no criteria could be read from ${hRunDir} (report.json, report-partial.json, criteria.md): the file is written without a lock block, so council check-lock cannot check it.`);
+  // Audit A5-1 (0.8.1): one process per run folder, like --resume. A handoff used to ignore the lock, so it could run beside a resume and replace a finished run's
+  // HANDOFF.md, and two handoffs could both write the same name. Taken before the model call and held to exit (released by the exit listener).
+  try { acquireRunLock(hRunDir); } catch (err) {
+    if (!(err instanceof RunLockedError)) throw err;
+    console.error(`\n${err.message}`);
+    process.exit(EXIT_RUN_LOCKED);
+  }
   const hState = stopState(hRunDir);
   const hRunId = basename(hRunDir);
   const hSystem = HandoffRoles.HANDOFF_SYSTEM;
   const hUser = HandoffRoles.handoffUser({ request: hRequest, draft: hDraft.text, planFile: hConfig.handoffPlanFile || 'PLAN.md', checks: '' });
-  const hOut = existsSync(join(hRunDir, 'HANDOFF.md')) ? 'HANDOFF-from-run.md' : 'HANDOFF.md';
+  // Exact case (FX-9): on a case-insensitive disk existsSync would find the stage file handoff.md under this name.
+  const hOut = existsExactCase(hRunDir, 'HANDOFF.md') ? 'HANDOFF-from-run.md' : 'HANDOFF.md';
   if (hSeat.provider === 'external') {
     const promptFile = join(hRunDir, 'handoff-from-run.prompt.md');
     writeFileSync(promptFile, externalPromptText({ system: hSystem, user: hUser, runDir: hRunDir, target: join(hRunDir, hOut) }));
@@ -650,9 +700,11 @@ if (argv[0] === 'handoff') {
     if (hCapArg === true || !Number.isFinite(hCap) || hCap <= 0) { console.error(`--max-usd: expected a positive number of dollars or "none", got "${hCapArg === true ? '' : hCapArg}"`); process.exit(2); }
   } else if ('maxUsd' in hMeta) hCap = hMeta.maxUsd;
   else hCap = Number(process.env.MAX_USD_PER_RUN) > 0 ? Number(process.env.MAX_USD_PER_RUN) : 7;
-  setBudget(hCap);
+  setBudgetOrExit(hCap);
   countEarlierSpend(hSpent);
   console.log(`handoff: ${hDraft.name} of ${hRunId} -> ${hSeat.provider}/${hSeat.model}${hState.signedOff ? '' : ` (the run ${hState.reason}: the file will say the plan was not signed off)`}; cap ${hCap === null ? 'none' : formatUsd(hCap)}, ${formatUsd(hSpent)} already spent`);
+  // FX-1: a call that fails after it was sent (it may be billed) is charged on disk, as in a run.
+  setChargeHook(c => recordLostCharge(hRunDir, c.label, c));
   let hRes;
   try {
     hRes = await runSingleStage(hSeat, { system: hSystem, user: hUser, log: m => console.log(m), label: 'handoff-from-run' });
@@ -662,8 +714,9 @@ if (argv[0] === 'handoff') {
     console.error(`handoff: the call failed - ${err?.message || err}`);
     process.exit(EXIT_RUN_FAILED);
   }
-  // The money is on record before anything else can fail, a cut-off reply included.
-  writeFileSync(join(hRunDir, 'handoff-from-run.usage.json'), JSON.stringify({ provider: hRes.provider, model: hRes.model, usage: hRes.usage, usd: hRes.usd, ms: hRes.ms, promptHash: hRes.promptHash }));
+  // The money is on record before anything else can fail, a cut-off reply included. One file per call (FX-1): a second
+  // handoff used to overwrite the first's handoff-from-run.usage.json; superseded/ is what --spend and a resume's cap read.
+  recordCall(hRunDir, 'handoff-from-run', { provider: hRes.provider, model: hRes.model, usage: hRes.usage, usd: hRes.usd, ms: hRes.ms, promptHash: hRes.promptHash });
   const hStop = hRes.usage?.stop;
   if (['length', 'max_tokens', 'error', 'content_filter', 'refusal'].includes(hStop) || !String(hRes.text || '').trim()) {
     console.error(`handoff: the reply did not complete (${hStop ? `stop: ${hStop}` : 'empty'}); nothing was written. Raise the seat's maxTokens and run this again. ${formatUsd(hRes.usd)} was spent.`);
@@ -671,11 +724,38 @@ if (argv[0] === 'handoff') {
   }
   // The reply itself, as every stage keeps its own (<label>.md); the usage file above is what `council --spend`
   // and the next cap check read.
-  writeFileSync(join(hRunDir, 'handoff-from-run.md'), String(hRes.text));
-  const body = partialBanner({ state: hState, draftName: hDraft.name, runId: hRunId }) + String(hRes.text).replace(/\s+$/, '') + '\n' + lockBlock(hCriteria, { runId: hRunId });
-  writeFileSync(join(hRunDir, hOut), body);
-  console.log(`handoff: wrote ${join(hRunDir, hOut)} (${formatUsd(hRes.usd)})`);
+  // Named .reply.md (FX-9, P18): 'handoff-from-run.md' and the output 'HANDOFF-from-run.md' are one file on a
+  // case-insensitive disk. Written atomically: temp file, then rename.
+  writeFileSync(join(hRunDir, 'handoff-from-run.reply.md.tmp'), String(hRes.text));
+  renameSync(join(hRunDir, 'handoff-from-run.reply.md.tmp'), join(hRunDir, 'handoff-from-run.reply.md'));
+  const body = partialBanner({ state: hState, draftName: hDraft.name, runId: hRunId }) + String(hRes.text).replace(/\s+$/, '') + '\n' + lockBlock(hCriteria, { runId: hRunId, checks: readChecks(hRunDir, hCriteria) });
+  // Exclusive create (audit A5-1, FX-9): a file that appeared since the name was chosen (another handoff, the run's own HANDOFF.md finishing, or on a case-insensitive disk
+  // the stage file handoff.md under another spelling) is never overwritten: the next free name is used.
+  let hWritten = null;
+  for (let n = 0; n < 20 && !hWritten; n++) {
+    const name = n === 0 ? hOut : n === 1 ? 'HANDOFF-from-run.md' : `HANDOFF-from-run-${n}.md`;
+    try { writeFileSync(join(hRunDir, name), body, { flag: 'wx' }); hWritten = name; } catch (err) { if (err.code !== 'EEXIST') throw err; }
+  }
+  if (!hWritten) { console.error(`handoff: HANDOFF.md, HANDOFF-from-run.md and its numbered names all exist in ${hRunDir}; nothing was written. ${formatUsd(hRes.usd)} was spent. The reply is in handoff-from-run.reply.md.`); process.exit(EXIT_RUN_FAILED); }
+  console.log(`handoff: wrote ${join(hRunDir, hWritten)} (${formatUsd(hRes.usd)})`);
   process.exit(0);
+}
+
+// `council gate show|answer|verify <run> [gate]` (0.8.1, plan M3): the terminal channel of the gate, a thin
+// caller of src/gate-cli.js (the command, its terminal check and its exit codes live there).
+if (argv[0] === 'gate') {
+  process.exit(await gateCommand(argv.slice(1), { work }));
+}
+
+// `council advise-rate <run> useful|not-useful|unclear [note]` (0.8.1, plan M5 Work 7): the only writer of an advice run's
+// owner_rating (src/advise-rate.js), so a hand edit cannot leave a file the money guards refuse to read.
+if (argv[0] === 'advise-rate') {
+  process.exit(adviseRateCommand(argv.slice(1), { work }));
+}
+
+// `council stop <run>` (0.8.1, plan M6 Work 2): a person's STOP request for a running advice call (src/advice-stop.js).
+if (argv[0] === 'stop') {
+  process.exit(stopCommand(argv.slice(1), { work }));
 }
 
 // `council lint-criteria --criteria <file> | --run <folder>` (0.8.0): the $0 word-level lints over an
@@ -723,7 +803,7 @@ if (argv[0] === 'fence') {
   const repoArg = flag('repo', null);
   if (!taskArg || taskArg === true || !repoArg || repoArg === true) {
     console.error('fence: --task <task.md> and --repo <path> are both required');
-    console.error('usage: council fence --task task.md --repo ../SMO SaveSystem.cs run-tests.sh');
+    console.error('usage: council fence --task task.md --repo ../my-project SaveSystem.cs run-tests.sh');
     process.exit(2);
   }
   // Positional file arguments: everything that is not a flag or a flag's value.
@@ -836,7 +916,8 @@ if (argv[0] === 'digest') {
 // way to run without one, and says so in the log.
 const DEFAULT_MAX_USD = 7;
 const SIDE_RUN_FOLDER = /\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2})$/;
-const maxUsdArg = flag('max-usd', process.env.MAX_USD_PER_RUN ?? String(DEFAULT_MAX_USD));
+// An adopted advice call (--advice-adopt) is capped at the ceiling its gate approved; MAX_USD_PER_RUN is not read for it.
+const maxUsdArg = flag('max-usd', argv.includes('--advice-adopt') ? String(DEFAULT_MAX_USD) : (process.env.MAX_USD_PER_RUN ?? String(DEFAULT_MAX_USD)));
 let maxUsd;
 if (maxUsdArg === true) { console.error('--max-usd: needs a value, e.g. --max-usd 2 or --max-usd none'); process.exit(2); }
 else if (maxUsdArg === 'none' || maxUsdArg === 'off') maxUsd = null;
@@ -981,7 +1062,7 @@ if (rematchArg) {
   }, null, 2));
 
   console.log(`\nrematch of ${basename(originalRunDir)} (chain: ${chainName}, seed: ${seed})`);
-  setBudget(maxUsd);
+  setBudgetOrExit(maxUsd);
   console.log(`cap:   ${maxUsd === null ? 'none - this rematch has no spend ceiling' : `${formatUsd(maxUsd)} (--max-usd)`}`);
   let rematchResult;
   const rematchStartedAt = new Date().toISOString();
@@ -1070,7 +1151,7 @@ if (argv.includes('--replay')) {
       if (replayConfig) refuseSideRun('--replay', replayConfig, runMetaForChain);
     }
   }
-  setBudget(maxUsd);
+  setBudgetOrExit(maxUsd);
   console.log(`cap:   ${maxUsd === null ? 'none - this replay has no spend ceiling' : `${formatUsd(maxUsd)} (--max-usd)`}`);
   try {
     const { replayDir, diff } = await runCouncilReplay(runDir, {
@@ -1161,6 +1242,7 @@ if (argv.includes('--stats')) {
   }
   const r = verdictStats(join(work, 'runs'), { days });
   console.log(`\nVerdict stats across ${r.runsSeen} run(s) since ${r.since.toISOString().slice(0, 16).replace('T', ' ')}  (${join(work, 'runs')})`);
+  if (r.adviceRunsSkipped) console.log(`  (${r.adviceRunsSkipped} advice call(s) skipped: an advice call is not a sign-off)`);
   if (!r.chains.length) {
     console.log(`  no completed runs in this window.${r.note ? `  ${r.note}` : ''}`);
   } else {
@@ -1217,6 +1299,7 @@ if (argv.includes('--metrics')) {
   const r = metricsReport(join(work, 'runs'), { days });
   const pct = x => (x === null ? 'no data' : `${Math.round(x * 100)}%`);
   console.log(`\nDescriptive telemetry across ${r.runsSeen} run(s) since ${r.since.toISOString().slice(0, 16).replace('T', ' ')}  (${join(work, 'runs')})`);
+  if (r.adviceRunsSkipped) console.log(`  (${r.adviceRunsSkipped} advice call(s) skipped: an advice call is not a plan)`);
   console.log(`  NOT an evaluation, benchmark or baseline - see "council --help" and README. Counts and rates only, no comparison to anything outside this harness's own run history.\n`);
   console.log(`  amendment rate:                ${pct(r.amendmentRate)}  (${r.counts.amended}/${r.counts.proposals} proposals)`);
   console.log(`  withdrawal rate:                ${pct(r.withdrawalRate)}  (${r.counts.withdrawn}/${r.counts.proposals} proposals)`);
@@ -1261,8 +1344,50 @@ if (argv.includes('--mcp')) {
   await runMcpServer();
 } else {
 
-const chainName = flag('chain', 'verify');
-const taskPath = flag('task', null);
+// `--advice-adopt runs/<id>` (0.8.1 plan DR-15, M4): start an advice call in the run folder the MCP server created for it,
+// once a person approved its gate. The folder names the chain, the brief and the gate; nothing else may be given with it.
+// Refused (exit 2, nothing written) unless the gate is approved, unexpired and unused, the brief still hashes to what was
+// approved and quoted, and the ledger verifies (src/advice-run.js adoptCheck). It replaces 0.8.0's --advice-meta sidecar,
+// which a caller could write to claim an approval no person gave.
+if (argv.includes('--advice-meta')) {
+  console.error('--advice-meta was removed in 0.8.1: an advice call starts with --advice-adopt runs/<id> after a person approved its gate. Nothing was run and nothing was spent.');
+  process.exit(2);
+}
+const adoptArg = flag('advice-adopt', null);
+let adopt = null;
+if (adoptArg !== null) {
+  // An allowlist, not a list of clashes: anything else (--context, --criteria, a second task, ...) would add text or change
+  // the run after the person approved it (M4 review M1).
+  const ADOPT_FLAGS = new Map([['--advice-adopt', true], ['--max-usd', true], ['--chain', true], ['--allow-unfenced', false]]);
+  let stray = null;
+  for (let i = 0; i < argv.length; i++) {
+    if (!ADOPT_FLAGS.has(argv[i])) { stray = argv[i]; break; }
+    if (ADOPT_FLAGS.get(argv[i])) i++;
+  }
+  if (adoptArg === true || stray !== null) {
+    console.error(adoptArg === true ? '--advice-adopt: needs the run folder, e.g. --advice-adopt runs/<id>' : `--advice-adopt: the run folder names the brief, the chain and the run; ${stray} cannot be given with it (allowed: --max-usd to lower the approved ceiling, --chain to name the same chain, --allow-unfenced)`);
+    process.exit(2);
+  }
+  const dir = resolve(work, adoptArg);
+  if (dirname(dir) !== join(work, 'runs')) {
+    console.error(`--advice-adopt: ${adoptArg} is not a folder in ${join(work, 'runs')}. Nothing was run and nothing was spent.`);
+    process.exit(2);
+  }
+  const r = adoptCheck(dir);
+  if (r.error) { console.error(`${r.error}. Nothing was run and nothing was spent.`); process.exit(2); }
+  const chainGiven = flag('chain', null);
+  if (chainGiven !== null && chainGiven !== r.meta.chain) {
+    console.error(`--advice-adopt: the folder's call is for chain ${r.meta.chain}, not ${chainGiven}. Nothing was run and nothing was spent.`);
+    process.exit(2);
+  }
+  adopt = { dir, meta: r.meta, channel: r.channel, gate: r.gate, approvalWaitMs: r.approvalWaitMs };
+  // The run's cap is the ceiling the person approved, read from the gate (advice.meta.json is not hashed: M4 review H1). An explicit
+  // --max-usd may only lower it; MAX_USD_PER_RUN does not apply to an approved call (a stray value would refuse it after approval).
+  const ceiling = r.gate.price.ceiling_usd;
+  maxUsd = flag('max-usd', null) !== null && maxUsd !== null ? Math.min(maxUsd, ceiling) : ceiling;
+}
+const chainName = adopt ? adopt.meta.chain : flag('chain', 'verify');
+const taskPath = adopt ? join(adopt.dir, ADVICE_BRIEF_FILE) : flag('task', null);
 const fromRun = flag('from-run', null);
 const resumeRun = flag('resume', null);
 // A flag that takes a path or a name but was given none comes back from flag() as `true`, which
@@ -1405,6 +1530,15 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council check-lock HANDOFF.md [--run runs/<r>]
                                        does this HANDOFF still carry the criteria the
                                        run locked into it? ($0; alias verify-handoff)
+  council gate show runs/<r> [gate]    a run's gates, or one gate's whole text
+  council gate answer runs/<r> <gate> [--decline]
+                                       show the exact text, then approve or decline
+                                       it (needs a person at a terminal)
+  council gate verify runs/<r>         does the run's gate ledger still chain? ($0)
+  council stop runs/<r>                ask a running advice call to stop (exit 18; what
+                                       was paid for is kept in report-partial.json)
+  council advise-rate runs/<r> useful|not-useful|unclear [note]
+                                       rate an advice call (the only writer of owner_rating)
   council --forecast-cost --chain <name> [--days N]
                                        a realistic cost range from this chain's own
                                        past runs on this machine
@@ -1448,8 +1582,21 @@ const chainNameEff = resumeMeta?.chain || chainName;
 // npm install without editing anything inside node_modules.
 // On resume the run's own start directory comes first (CLI audit #3's class): a custom chain lives in
 // the chains/ of the directory the run was started in, not wherever the resume is typed.
-const configPath = [resumeMeta?.cwd ? join(resumeMeta.cwd, 'chains', `${chainNameEff}.json`) : null, join(work, 'chains', `${chainNameEff}.json`), join(pkg, 'chains', `${chainNameEff}.json`)]
-  .filter(Boolean).find(existsSync) || join(pkg, 'chains', `${chainNameEff}.json`);
+// An adopted advice call is the exception (0.8.1 decided rule 5d): its chain comes from the package or the operator's
+// COUNCIL_ADVICE_CHAINS_DIR, never <work>/chains/, the same lookup the MCP server priced and showed (src/send-profiles.js). So does a
+// resume of any advice folder (M5 review D1: a project chain of the same name would otherwise run the brief with no gate).
+const adviceLookup = !!adopt || (resumeRun && isAdviceFolder(resolve(resumeRun)));
+if (adviceLookup) {
+  const { error } = adviceChainDirs({ env: process.env, work });
+  if (error) { console.error(`${adopt ? '--advice-adopt' : '--resume'}: ${error}. Nothing was sent and nothing was spent.`); process.exit(2); }
+  if (!adviceChainPath(chainNameEff, { env: process.env, work })) {
+    console.error(`${adopt ? '--advice-adopt' : '--resume'}: no advice chain "${chainNameEff}" in the package's chains/${process.env[ADVICE_CHAINS_DIR_ENV] ? ` or ${process.env[ADVICE_CHAINS_DIR_ENV]}` : ''} (a project's chains/ is never used for an advice call). Nothing was sent and nothing was spent.`);
+    process.exit(2);
+  }
+}
+const configPath = adviceLookup ? adviceChainPath(chainNameEff, { env: process.env, work })
+  : [resumeMeta?.cwd ? join(resumeMeta.cwd, 'chains', `${chainNameEff}.json`) : null, join(work, 'chains', `${chainNameEff}.json`), join(pkg, 'chains', `${chainNameEff}.json`)]
+    .filter(Boolean).find(existsSync) || join(pkg, 'chains', `${chainNameEff}.json`);
 if (!existsSync(configPath)) {
   // Bug audit 2026-09-28 (area 4 LOW-4): name every folder searched, not just the package's.
   const searched = [...new Set([resumeMeta?.cwd ? join(resumeMeta.cwd, 'chains') : null, join(work, 'chains'), join(pkg, 'chains')].filter(Boolean))];
@@ -1467,6 +1614,12 @@ try {
 } catch {
   console.error(`\n${formatCouncilError('COUNCIL-E003', { path: configPath })}`);
   process.exit(EXIT_FATAL);
+}
+// 0.8.1 M6 (decided rule 6): whether a run resumes belongs to its chain. An advice call's chain says resumeAfterStop false (the lint
+// requires it), so its --resume is refused here as resume_run refuses it over MCP: a resume would spend with no new preview or approval.
+if (resumeMeta && adviceLookup && config.resumeAfterStop !== true) {
+  console.error(`--resume: ${basename(resolve(resumeRun))} is an advice call, which is not continued, whatever ended it (0.8.1 decided rule 6; chain ${chainNameEff} says resumeAfterStop: false). Ask again (council_quote, then council_advise). Nothing was sent and nothing was spent.`);
+  process.exit(2);
 }
 // A positive whole number or nothing. Bug-audit fix, 2026-09-23 (GuardLayer backlog): `--rounds
 // abc` became NaN, so zero review rounds ran and the run exited 0 with an unreviewed deliverable;
@@ -1537,7 +1690,7 @@ function readRequired(path, what) {
 }
 if (fromRun) {
   config.criteria = criteriaOfRun(resolve(fromRun));
-  handedDraft = readRequired(join(resolve(fromRun), 'build.md'), '--from-run');
+  handedDraft = stripDeclined(readRequired(join(resolve(fromRun), 'build.md'), '--from-run')); // FX-15: a builder's DECLINED lines are not part of the draft
 }
 // --draft <file>: review this exact text instead of building one. With
 // --from-run it replaces that run's build.md; the criteria still come from
@@ -1565,7 +1718,7 @@ if (resumeMeta?.fromRun && !fromRun) {
   // the original (non-resumed) `--from-run` branch above does, but only when no explicit
   // `--draft` is already set (never override draftPath's own value with fromRun's build.md).
   if (!draftPath) {
-    handedDraft = readFileSync(join(fromRunDirOnResume, 'build.md'), 'utf8');
+    handedDraft = readModelDraft(join(fromRunDirOnResume, 'build.md'));
   }
 }
 
@@ -1591,7 +1744,30 @@ if (criteriaPath) {
 // so a missing-key check and the resolution printout (the existing --dry-run output, which
 // already lists each seat's provider/model) both see the real vendor routing rather than the
 // direct-lab config on disk. A no-op for any chain that never sets `transport`.
+// The chain as its file says, before transport rerouting: what the MCP server priced and showed in the gate (it does not resolve).
+const configAsWritten = config;
 config = resolveChainSeats(config);
+// The gate, not the meta file, says what the person approved (M4 review H1), checked as soon as the chain is loaded and before
+// anything else about the run is looked at: the chain this process loaded must seat exactly the
+// labs, models and retention routing the gate shows, still pass admission, and still meet the gate's sensitivity label. The mode for
+// the tier rule is the chain's own (one hosted seat or several), never the meta file's word.
+if (adopt) {
+  const adviceMeta = adopt.meta;
+  const refuseAdopt = why => { console.error(`--advice-adopt: ${why}. Nothing was sent and nothing was spent.`); process.exit(2); };
+  if (JSON.stringify(gateSeatsOf(configAsWritten)) !== JSON.stringify(adopt.gate.seats)) refuseAdopt(`chain ${chainName} does not seat what gate ${adviceMeta.gate} showed the person`);
+  const gap = admitChain(chainName, configAsWritten);
+  if (gap) refuseAdopt(gap);
+  const hosted = seatsOf(configAsWritten).filter(s => s.provider !== 'mock' && s.provider !== 'external');
+  const label = adopt.gate.sensitivity && typeof adopt.gate.sensitivity === 'object' ? adopt.gate.sensitivity.label : 'confidential';
+  const tier = tierRefusal({ effective: label, mode: hosted.length > 1 ? 'council' : 'single', seats: seatsOf(configAsWritten) });
+  if (tier) refuseAdopt(tier);
+  // The money guards, read here too, so a call adopted by hand is held to the same per-call, session and day limits and the same
+  // repeat detector as one the MCP server starts. A read, not a lock: the server holds the advice lock across this process's start,
+  // so taking it here would wait on our own parent; the server's own check (under the lock) is the authoritative one.
+  const verdict = decide({ fingerprint: { hash: adviceMeta.question_hash, words: adviceMeta.question_words }, hasNewEvidence: adviceMeta.has_new_evidence === true,
+    worstUsd: adviceMeta.quoted.worst_usd, ceilingUsd: adopt.gate.price.ceiling_usd, ledger: readAdviceLedger(join(work, 'runs')), now: Date.now(), limits: limitsFromEnv(process.env) });
+  if (!verdict.allow) refuseAdopt(`${verdict.code}: ${verdict.message.replace(/ Nothing was spent\.$/, '')}`);
+}
 
 // Every seat the run can call - including judge, challenger, coldRead, claims, ambiguity,
 // descending, preflight and the default security reviewer, which a hand-kept list here missed
@@ -1659,7 +1835,7 @@ if (dryRun) {
   // A dry run prices the chain from the config's own declared token
   // assumptions. It calls nothing, so it costs nothing.
   console.log(`\nChain: ${config.name} - ${config.description}`);
-  console.log(`Rounds: ${config.maxRounds}\n`);
+  console.log(config.advise?.enabled === true ? `Advice call: ${config.seats.critics.length} seat(s), ${config.advise.rounds ?? 0} debate round(s) at most, its own ceiling ${formatUsd(config.advise.usd)}\n` : `Rounds: ${config.maxRounds}\n`);
   const rows = estimateChainRows(config, { fromRun });
   const w = Math.max(...rows.map(r => r.seat.length));
   for (const r of rows) {
@@ -1672,19 +1848,24 @@ if (dryRun) {
   console.log(`\n  TOTAL        ${''.padEnd(w)}  ${String(t.i).padStart(7)} in  ${String(t.o).padStart(6)} out  ${formatUsd(t.u)}  per run`);
   const externalRows = rows.filter(r => r.seat.startsWith('external/')).length;
   if (externalRows) console.log(`\n  ${externalRows} of ${rows.length} stages are answered by external seats (a person or another session, e.g. a Claude Code session on a subscription) and are not in this total.`);
-  console.log(`\n  Worst case is the full round cap. A clean first critique stops early and costs less.`);
+  console.log(config.advise?.enabled === true
+    ? `\n  Worst case: every seat answers up to its full token cap and every planned debate round runs. A panel whose blind answers agree skips the debate and costs less.`
+    : `\n  Worst case is the full round cap. A clean first critique stops early and costs less.`);
   for (const line of priceTableLines()) console.log(`  ${line}`);
   // The rows above price the chain's own assumed prompt size, not the task in hand: a 13-word task
   // and a 30,000-token one priced the same (walked 2026-09-25). With --task, say how the task
   // compares, and reprice with it added when it is larger. Four characters per token is a rough
   // rule, not a tokenizer; the per-run cap still checks every real prompt before it is sent.
   if (taskPath && existsSync(resolve(work, taskPath))) {
-    const assumed = config.estimate?.promptTokens ?? 4000;
+    const assumed = config.estimate?.promptTokens ?? DEFAULT_ESTIMATE.promptTokens;
     const taskTokens = Math.ceil(readFileSync(resolve(work, taskPath), 'utf8').length / 4);
     if (taskTokens > assumed) {
-      const bigger = estimateChainRows({ ...config, estimate: { ...(config.estimate || {}), promptTokens: assumed + taskTokens } }, { fromRun }).reduce((sum, r) => sum + r.usd, 0);
+      // An advise chain's whole prompt is the brief (src/advise.js adds only its own fixed prompt, which
+      // the rows already carry), so the task replaces the assumption instead of being added to it.
+      const advising = config.advise?.enabled === true;
+      const bigger = estimateChainRows({ ...config, estimate: { ...(config.estimate || DEFAULT_ESTIMATE), promptTokens: advising ? taskTokens : assumed + taskTokens } }, { fromRun }).reduce((sum, r) => sum + r.usd, 0);
       console.log(`  Your task is roughly ${taskTokens} tokens, more than the ${assumed} this estimate assumes for a whole prompt.`);
-      console.log(`  Priced again with your task added to every prompt: ${formatUsd(bigger)} per run, worst case.`);
+      console.log(advising ? `  Priced again with your task as the brief every seat reads: ${formatUsd(bigger)} per run, worst case.` : `  Priced again with your task added to every prompt: ${formatUsd(bigger)} per run, worst case.`);
     } else {
       console.log(`  Your task (roughly ${taskTokens} tokens) fits inside the ${assumed}-token prompt this estimate assumes.`);
     }
@@ -1859,6 +2040,19 @@ if (!allowSecretShapedEff) {
     process.exit(EXIT_PII_BLOCKED);
   }
 }
+// Brief 29 / 0.8.1 DR-15: an adopted advice call. The task text as this process read it must be the exact text the person
+// approved (adoptCheck compared the file's bytes; this compares what the run will send), before anything is written.
+const adviceOn = config.advise?.enabled === true;
+if (adopt && !adviceOn) {
+  console.error(`--advice-adopt: ${chainName} is not an advice chain. Nothing was run and nothing was spent.`);
+  process.exit(2);
+}
+const briefSha256 = adviceOn ? sha256Hex(rawTaskTextForCacheFingerprint) : null;
+const adviceMeta = adopt ? adopt.meta : null;
+if (adopt && adviceMeta.brief_sha256 !== briefSha256) {
+  console.error(`--advice-adopt: the brief's sha256 (${briefSha256.slice(0, 12)}...) is not the one that was approved (${adviceMeta.brief_sha256.slice(0, 12)}...). Nothing was sent and nothing was spent.`);
+  process.exit(2);
+}
 // --run-id: the MCP server picks the folder name up front, so two start_run calls in the same
 // instant can't both report the first folder that appeared (pre-release audit 2026-09-23,
 // McpServer #2). Same character set the server's run-id check accepts.
@@ -1870,7 +2064,7 @@ if (requestedRunId !== null && (resumeMeta || !/^[0-9TZ-]+$/.test(requestedRunId
 // report.json's started_at (0.7.7): saved in run.json on the first sitting, so a resumed run's
 // report still says when the run began.
 const runStartedAt = new Date().toISOString();
-const runId = resumeMeta ? basename(resolve(resumeRun)) : (requestedRunId || runStartedAt.replace(/[:.]/g, '-'));
+const runId = resumeMeta ? basename(resolve(resumeRun)) : adopt ? basename(adopt.dir) : (requestedRunId || runStartedAt.replace(/[:.]/g, '-'));
 // A resume uses the folder it was pointed at. It used to rebuild the path as
 // <cwd>/runs/<basename>, so resuming from another directory (an MCP-started run keeps an
 // absolute task path) silently started a fresh folder and paid for every stage again
@@ -1887,8 +2081,9 @@ if (resumeMeta && existsSync(join(runDir, 'report.json'))) {
   process.exit(EXIT_ALREADY_FINISHED);
 }
 // A new run never writes into an existing folder: two runs started in the same millisecond, or a
-// reused --run-id, would otherwise share one.
-if (!resumeMeta && existsSync(runDir)) {
+// reused --run-id, would otherwise share one. The one exception is the folder an adopted advice call was
+// created in (adoptCheck: it holds no run yet).
+if (!resumeMeta && !adopt && existsSync(runDir)) {
   console.error(`\nrun folder ${runDir} already exists; a new run needs a new folder. Nothing was run and nothing was spent.`);
   process.exit(2);
 }
@@ -1902,6 +2097,16 @@ try {
   console.error(`\n${err.message}`);
   process.exit(EXIT_RUN_LOCKED);
 }
+// Brief 29: the advice record is written first, before run.json and before any call, so a run that dies is still in
+// the ledger the guards read. Its `origin` says whether a tool or a person at the terminal started it.
+// An adopted call records its send first, under the run lock: the `sent` line is what makes one approval cover one send, and it
+// comes before the advice record, so every counted call has its `sent` and a crash between the two leaves a folder nothing counts.
+const adviceStartedMs = Date.now();
+if (adopt) {
+  const sent = recordSent(runDir, adviceMeta.gate, { run: runId });
+  if (!sent.ok) { console.error(`--advice-adopt: refused (${sent.code}): ${sent.message}. Nothing was sent and nothing was spent.`); process.exit(2); }
+}
+if (adviceOn && !resumeMeta) writeAdviceLogStart(runDir, { run: runId, chain: chainNameEff, config, meta: adviceMeta, briefSha256, startedMs: adviceStartedMs, approval: adopt ? adopt.channel : 'cli', approvalWaitMs: adopt ? adopt.approvalWaitMs : null });
 
 // 7.x item 5: audit export. `policy.json`'s documented, locked path is the user's own working
 // directory (`work`, same resolution root as `.env` above) - a presence check only, item 1's own
@@ -1910,7 +2115,8 @@ try {
 // everyone else. The writer is created even on resume, so a resumed run's remaining stages are
 // still audited - only the stages already replayed from disk (onStage's `s.cached` check below)
 // are skipped, same as every other per-stage artifact this callback already writes.
-const auditEnabled = shouldEnableAudit({ config, policyPath: join(work, 'policy.json') });
+// Brief 29: an advice call always writes the audit log: it is the record of which exact text went to which host.
+const auditEnabled = adviceOn || shouldEnableAudit({ config, policyPath: join(work, 'policy.json') });
 let auditWriter = null;
 if (auditEnabled) {
   let hmacKey = null;
@@ -2037,7 +2243,7 @@ setChargeHook(c => recordLostCharge(runDir, c.label, c));
 const maxUsdEff = argv.includes('--max-usd') ? maxUsd
   : (resumeMeta && 'maxUsd' in resumeMeta) ? resumeMeta.maxUsd
   : maxUsd;
-setBudget(maxUsdEff);
+setBudgetOrExit(maxUsdEff);
 // Money path #2: what earlier sittings spent on stages that were later superseded still counts.
 const earlierSupersededUsd = supersededSpendOf(runDir);
 countEarlierSpend(earlierSupersededUsd);
@@ -2051,7 +2257,7 @@ const log = (...parts) => {
 };
 
 log(`council run ${runId}${resumeMeta ? ' (resumed)' : ''}`);
-log(`chain: ${config.name} (${config.maxRounds} round cap)`);
+log(config.advise?.enabled === true ? `chain: ${config.name} (advice: ${config.seats.critics.length} seat(s), ${config.advise.rounds ?? 0} debate round(s) at most)` : `chain: ${config.name} (${config.maxRounds} round cap)`);
 if (earlierSupersededUsd > 0) log(`spent earlier on superseded stages: ${formatUsd(earlierSupersededUsd)} (counted toward the cap; see superseded/)`);
 log(`cap:   ${maxUsdEff === null ? 'none - this run has no spend ceiling' : `${formatUsd(maxUsdEff)} per run (--max-usd)`}`);
 log(`task:  ${taskPathEff}`);
@@ -2142,7 +2348,7 @@ if (!resumeMeta && maxUsdEff !== null) {
 // Bug audit 2026-09-26 #1: this ran before the artifact gate above, so a resume the gate blocked
 // (exit 9, nothing spent) had already deleted the stopped run's partial report and its marker. It
 // now runs only once the gate has passed.
-for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-error.json', 'STOPPED-preflight.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md', 'STOPPED-secret.md']) {
+for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-error.md', 'STOPPED-error.json', 'STOPPED-preflight.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md', 'STOPPED-secret.md', ...STOP_CAUSES.map(stoppedFileOf)]) {
   if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
 
@@ -2281,6 +2487,12 @@ resetToolCallLog();
 // What report.json (a finished run) and report-partial.json (a run the spend cap stopped) are built
 // from, besides the result itself: one list, so the two files cannot drift apart.
 const reportArgsFor = result => {
+  // FX-11: every field cut this sitting (stage, field, original and kept length), loud in WARNINGS.md and report.json.
+  const cuts = fieldCutsSoFar();
+  if (cuts.length) {
+    result.fieldCuts = cuts;
+    appendFileSync(join(runDir, 'WARNINGS.md'), cuts.map(c => `- field_cut: ${c.stage ? `stage "${c.stage}", ` : ''}field "${c.field}" was ${c.original} characters; the next stages read the first ${c.kept}\n`).join(''));
+  }
   // Money path #2: the report's total includes what superseded stages cost (they were paid for, in
   // this sitting or an earlier one), shown separately as totals.supersededUsd.
   const supersededUsd = supersededSpendOf(runDir);
@@ -2292,10 +2504,35 @@ const reportArgsFor = result => {
     startedAt: resumeMeta ? (resumeMeta.startedAt ?? null) : runStartedAt, result, config,
     fromRun: fromRun || resumeMeta?.fromRun || null, fromRunCwd: fromRun ? work : (resumeMeta?.cwd || work), maxUsd: maxUsdEff,
     policyChecks: policyChecks ?? resumeMeta?.policyChecks ?? null,
+    // Brief 29: an advice run's additive fields (where the brief went, the dispositions), nested under report.advise.
+    adviseExtra: adviceOn ? adviceReportExtra({ config, meta: adviceMeta, stages: result.stages }) : null,
   };
 };
 
+// Brief 29: an advice call can be stopped from outside and is bounded by its own wall clock. A STOP file in the run
+// folder (the MCP server writes one when a client cancels or leaves) or the chain's `advise.max_wall_ms` makes
+// runAdvise skip every stage it has not started; calls already in flight finish and are recorded (they are billed
+// either way). The wall clock also becomes every request's own deadline, so one hung call cannot outlive it. A STOP
+// left over from before this process started is removed, so a resume is never stopped by an old request.
+const adviceWallMs = adviceOn && Number.isFinite(config.advise.max_wall_ms) && config.advise.max_wall_ms > 0 ? config.advise.max_wall_ms : null;
+if (adviceOn) {
+  const stopFile = join(runDir, STOP_FILE);
+  try { if (resumeMeta && existsSync(stopFile)) rmSync(stopFile); } catch { /* a stop file we cannot judge is left for the run to see */ }
+  const deadline = adviceWallMs ? adviceStartedMs + adviceWallMs : null;
+  if (deadline) setRequestDeadlineAt(deadline);
+  // 0.8.1 M6: the STOP request names who asked (src/stop-files.js); an unreadable one stops as `user`, one naming another run is stale.
+  setStopCheck(() => readStopRequest(runDir, runId)?.by ?? (deadline && Date.now() >= deadline ? 'wall_clock' : null));
+}
+// Mock seats only (a test seam, like COUNCIL_MOCK_DELAY_MS): wait this long before the first call, so a stop that is asked for during the
+// start-up can be tested deterministically.
+if (adviceOn && Number(process.env.COUNCIL_MOCK_PRESTART_MS) > 0 && (config.seats?.critics || []).every(x => x.provider === 'mock')) await new Promise(r => setTimeout(r, Math.min(Number(process.env.COUNCIL_MOCK_PRESTART_MS), 60_000)));
+const finishAdviceLog = (status, advise = null, stoppedBy = null) => {
+  if (!adviceOn) return;
+  try { writeAdviceLogFinish(runDir, { status, spentUsd: budgetState().spent, wallMs: Date.now() - adviceStartedMs, advise, stoppedBy }); } catch { /* the run's own record is report.json */ }
+};
+
 let result;
+resetFieldCuts(); // FX-11: this run's record of cut fields (one run per process)
 try {
   result = await runChain({
     request,
@@ -2348,7 +2585,10 @@ try {
       // text trusted with no record of its cost, and a crash mid-write never leaves a torn file
       // for a resume to trip over (bug audit 2026-09-23, CLI #8).
       if (!s.cached) {
-        writeFileAtomic(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint, promptHash: s.promptHash }));
+        writeFileAtomic(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint, promptHash: s.promptHash,
+          // 0.8.1 milestone R (additive): what the stage's retry decided, so a resume replays it for free instead of asking again: the cap the answer was
+          // asked at, and the no-answer mark of a reply whose thinking used the whole cap.
+          ...(Number.isFinite(s.cappedAt) ? { cappedAt: s.cappedAt } : {}), ...(s.noAnswer ? { noAnswer: s.noAnswer } : {}) }));
         writeFileAtomic(join(runDir, `${s.label}.md`), s.text);
       }
       if (auditWriter) auditWriter.recordStage(s);
@@ -2390,6 +2630,34 @@ try {
     },
   });
 } catch (err) {
+  if (adviceOn && !(err instanceof ExternalPause) && !(err instanceof AdviceStopped)) finishAdviceLog(err instanceof BudgetExceeded ? 'budget_stopped' : 'failed');
+  if (err instanceof AdviceStopped) {
+    // 0.8.1 M6 (decided rule 6, DR-10): stopped by a person, a client or the wall clock, before or after paid calls. Exit 18 with
+    // report-partial.json (what was paid for, rolled up under `advise`; nothing paid: no paid results and spentUsd 0),
+    // BOARD-partial.md where there is a board, STOPPED-<stoppedBy>.json and state.json. No report.json: the run did not finish.
+    // A dedicated branch ahead of the generic error path, which would write STOPPED-error and exit 16.
+    // Order (M6 review D6): the marker first, since it is what makes the folder read stopped (never process_gone, resumable); then
+    // the partial report and board (atomic, P20), the ledger line, the advice log and state.json. A write that fails is said and the
+    // run still exits 18.
+    const stoppedBy = err.reason;
+    const spentUsd = budgetState().spent;
+    try { writeStoppedMarker(runDir, { stoppedBy, beforeFirstCall: err.beforeFirstCall, spentUsd, resumeAfterStop: config.resumeAfterStop === true, reason: stoppedBy }); }
+    catch (e) { log(`  (${stoppedFileOf(stoppedBy)} not written: ${e?.message || e})`); }
+    try {
+      if (err.partial) {
+        writeAtomic(join(runDir, PARTIAL_REPORT_FILE), JSON.stringify(partialReportJsonShape({ stoppedBy, ...reportArgsFor(err.partial) }), null, 2));
+        const partialBoard = renderPartialBoardMd({ runId, result: err.partial, cause: stoppedBy });
+        if (partialBoard) writeAtomic(join(runDir, PARTIAL_BOARD_FILE), partialBoard);
+      }
+    } catch (e) { log(`  (${PARTIAL_REPORT_FILE} not written: ${e?.message || e})`); }
+    // An adopted call records the stop in its gate ledger (the event M3 reserved), beside its `sent` line.
+    if (adopt) { const st = recordStopped(runDir, { stoppedBy, spentUsd }); if (!st.ok) log(`  (the stop could not be written to the gate ledger: ${st.code})`); }
+    finishAdviceLog('stopped', err.out?.advise ?? null, stoppedBy);
+    log(err.beforeFirstCall ? `\nSTOPPED before any call (${stoppedBy}). Nothing was spent.` : `\nSTOPPED (${stoppedBy}): calls already made were finished and recorded; nothing new was started. Spent ${formatUsd(spentUsd)}; what was paid for is in ${PARTIAL_REPORT_FILE}.`);
+    // 0.8.1 M1 S3: state.json at rest names the stop, like every other stop exit, not "running".
+    finalState();
+    process.exit(EXIT_STOPPED_BY_USER);
+  }
   if (err instanceof PreflightBlocked) {
     // Same posture as BudgetExceeded below: deliberately no report.json/deliverable.md - a
     // preflight objection means propose/build never ran, so there is no deliverable to report
@@ -2424,7 +2692,14 @@ started.
     writeFileSync(join(runDir, 'STOPPED-truncated.json'), JSON.stringify(stopped, null, 2));
     // M4 (bug audit 2026-09-27): a draft the provider ended with error/content_filter/refusal stops
     // here too, and the message names that stop instead of calling it cut off.
-    writeFileSync(join(runDir, 'STOPPED-truncated.md'), err.stop ? `# Run stopped: a draft did not complete
+    writeFileSync(join(runDir, 'STOPPED-truncated.md'), err.stop === 'declined_only' ? `# Run stopped: the reply held no draft
+
+Stage \`${err.label}\` came back with only DECLINED lines (${err.detail}): the model declined every objection and wrote no plan, so there is nothing to grade.
+
+Nothing after this stage ran, and there is no \`report.json\` or \`deliverable.md\` for this run. Raising a token limit does not help.
+
+To continue: replace \`${err.label}.md\` with a complete plan (or move it aside to ask the seat again), then \`--resume\` this run.
+` : err.stop ? `# Run stopped: a draft did not complete
 
 Stage \`${err.label}\` came back unfinished: the provider ended it with stop "${err.stop}" (${err.detail}).
 
@@ -2460,15 +2735,17 @@ To continue: raise that seat's \`maxTokens\` in the chain (or, for an external s
       const need = join(runDir, `NEEDS-${p.label}.md`);
       // The prompt this answer will be held to on resume (resume-cache audit #1/#4).
       writeFileAtomic(join(runDir, `${p.label}.prompt.json`), JSON.stringify({ provider: 'external', promptHash: p.promptHash, inputsFingerprint: cacheFingerprint }));
-      writeFileSync(need, withIntegrityFooter(`# External stage: ${p.label}\n\nWrite the reply to \`${join(runDir, `${p.label}.md`)}\` and run:\n\n    ${councilCommand()} --resume runs/${runId}\n\n## System prompt\n\n${p.system}\n\n## User prompt\n\n${p.user}`));
+      // FX-13: the run resumes as soon as <label>.md exists, so a seat that writes it in place can expose half an answer.
+      // It writes <label>.md.partial and renames it when finished (a rename is one step); nothing reads a .partial file.
+      writeFileSync(need, withIntegrityFooter(`# External stage: ${p.label}\n\nWrite the reply to \`${join(runDir, `${p.label}.md.partial`)}\`, rename it to \`${join(runDir, `${p.label}.md`)}\` when it is complete (the run resumes as soon as that name exists, so never write it in place), and run:\n\n    ${councilCommand()} --resume runs/${runId}\n\n## System prompt\n\n${p.system}\n\n## User prompt\n\n${p.user}`));
     }
     if (pauses.length === 1) {
       log(`\nPAUSED: stage "${err.label}" is an external seat.`);
       log(`  prompt:  ${join(runDir, `NEEDS-${err.label}.md`)}`);
-      log(`  answer:  write ${join(runDir, `${err.label}.md`)}`);
+      log(`  answer:  write ${join(runDir, `${err.label}.md.partial`)}, then rename it to ${err.label}.md when complete`);
     } else {
       log(`\nPAUSED: ${pauses.length} external seats are waiting (answer each, in any order):`);
-      for (const p of pauses) log(`  ${p.label}:  prompt ${join(runDir, `NEEDS-${p.label}.md`)}  ->  answer ${join(runDir, `${p.label}.md`)}`);
+      for (const p of pauses) log(`  ${p.label}:  prompt ${join(runDir, `NEEDS-${p.label}.md`)}  ->  answer ${join(runDir, `${p.label}.md.partial`)}, renamed to ${p.label}.md when complete`);
     }
     log(`  resume:  ${councilCommand()} --resume runs/${runId}`);
     finalState();
@@ -2519,20 +2796,24 @@ Stage cost is projected as the whole prompt billed as input plus the seat's enti
 budget billed as output, so the real cost would very likely have been lower. The ceiling is
 enforced against the worst case on purpose.
 
-## Continue it
+${config.advise?.enabled ? `## Ask again
+
+An advice call is never continued: its approval is used up by the start, so a stopped call is asked again with a new quote (\`council_quote\`), or with a higher \`--max-usd\` if you
+started it at the terminal. Nothing was spent by the stopped stage.
+` : `## Continue it
 
 Every completed stage is on disk and replays for free, so resuming only pays for what is left:
 
     ${councilCommand()} --resume runs/${runId} --max-usd ${(Math.ceil((err.cap + err.projected) * 100) / 100).toFixed(2)}
 
 Or \`--max-usd none\` to continue with no ceiling.
-`);
+`}`);
     log(`\nSTOPPED: per-run spend cap reached before stage "${err.label}".`);
     log(`  spent:   ${formatUsd(err.spent)} of ${formatUsd(err.cap)} ceiling`);
     log(`  stage:   ${err.seat} could cost up to ${formatUsd(err.projected)}`);
     log(`  detail:  ${join(runDir, 'STOPPED-budget.md')}`);
     if (partialWritten) log(`  so far:  ${join(runDir, PARTIAL_REPORT_FILE)}`);
-    log(`  resume:  ${councilCommand()} --resume runs/${runId} --max-usd <higher>`);
+    log(config.advise?.enabled ? '  an advice call is not resumed and its approval is used up: ask for a new quote (or start it again with a higher --max-usd).' : `  resume:  ${councilCommand()} --resume runs/${runId} --max-usd <higher>`);
     finalState();
     process.exit(4);
   }
@@ -2558,6 +2839,8 @@ Over MCP: \`resume_run\` with \`allow_secret_shaped: true\`. JS API: \`resume({ 
     log(`\nSTOPPED: ${err.message}.`);
     for (const f of err.findings) log(`  ${f.part} prompt, line ${f.line}: ${f.name}`);
     log(`  detail:  ${join(runDir, 'STOPPED-secret.md')}`);
+    // 0.8.1 FX-7: state.json at rest says the run stopped, like every other stop exit.
+    finalState();
     process.exit(EXIT_PII_BLOCKED);
   }
   // A denied model is a lint failure (exit 1), found at run time instead of by chain-lint.
@@ -2597,12 +2880,13 @@ if (result.proposalPool?.length && result.proposalPool.length > result.proposals
 // §5 (v3 plan): declined objections are a first-class record, never part of the deliverable text
 // itself, so they get their own section wherever the board already lives - the same file that
 // already lists proposals and debate posts (or a standalone one, if no debate happened this run).
+if (adviceOn) result.adviseRecord = { ...adviceReportExtra({ config, meta: adviceMeta, stages: result.stages }), brief_sha256: briefSha256 };
 const boardMd = renderBoardMd({ runId, result });
 if (boardMd) writeFileSync(join(runDir, 'BOARD.md'), boardMd);
 // The locked-criteria block (src/criteria-lock.js) is written by the harness after the model's text,
 // so the criteria a build session reads are the ones the run settled, and `council check-lock` can tell
 // when a copy no longer carries them.
-if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff.replace(/\s+$/, '') + '\n' + lockBlock(result.criteria, { runId }));
+if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff.replace(/\s+$/, '') + '\n' + lockBlock(result.criteria, { runId, checks: checksOf(result.criteria, result.criteriaKinds) }));
 // "How this plan was argued" (src/argued.js): its own file next to the deliverable, never inside it,
 // and every id or lab it names that the run never had goes to WARNINGS.md as well as report.json.
 if (result.argued) {
@@ -2644,6 +2928,14 @@ if (result.lints?.length || result.claimWarnings?.length || result.toolRequestWa
   if (toolsMd) appendFileSync(join(runDir, 'TOOLS.md'), `${toolsMd}\n`);
 }
 writeFileSync(join(runDir, 'report.json'), JSON.stringify(reportJsonShape(reportArgsFor(result)), null, 2));
+finishAdviceLog('answered', result.advise);
+// 0.8.1 DR-8: an adopted call whose answer lists what is missing from the brief records it in its own gate ledger, after report.json,
+// so the next call's approval text says it follows a request for more material. A failed append is said, not swallowed; the next
+// call also reads report.json (moreMaterialRequested), so the line is not lost with it.
+if (adopt && (result.advise?.missing_from_brief || []).length) {
+  const mm = recordMoreMaterial(runDir, { items: result.advise.missing_from_brief.length });
+  if (!mm.ok) console.error(`note: the more_material_requested event could not be written to the gate ledger (${mm.code}: ${mm.message}); the next call reads report.json instead.`);
+}
 // v5 item 3: one last write now that report.json exists on disk, so `phase` in state.json
 // reflects `done` rather than staying on whatever it said mid-run (`deriveRunStatus` checks
 // report.json first; without this call, a completed run's state.json would show "running"
@@ -2666,9 +2958,15 @@ if (result.signoff) {
   log(`panel:    ${result.signoff.map(s => `${s.provider}${s.signedOff === null ? ' ?' : s.signedOff ? ' ✓' : ' ✗'}`).join('  ')}`);
   if (result.signoff.some(s => s.signedOff === null)) log(`          ? = no usable reply (truncated, malformed, or the lab was down), abstained - neither a pass nor an objection`);
 }
-log(`verdict:  ${result.passed
-  ? (result.signoff ? 'every lab on the panel signed off' : 'a critic from another lab passed it')
-  : 'stopped with open failures (see report.json)'}`);
+if (result.advise) {
+  // An advice run: the verdict, how the seats stood, and where the dissent is recorded.
+  const av = result.advise;
+  log(`advice:   ${av.verdict.toUpperCase().replace('_', ' ')} - ${av.agreement}, ${av.seats_answered} of ${av.seats_asked} seat(s) answered${av.dissent.length ? `, ${av.dissent.length} position(s) on the record as dissent or split (deliverable.md)` : ''}`);
+} else {
+  log(`verdict:  ${result.passed
+    ? (result.signoff ? 'every lab on the panel signed off' : 'a critic from another lab passed it')
+    : 'stopped with open failures (see report.json)'}`);
+}
 if (!result.passed && result.lastCritique?.failures?.length) {
   log(`open:     ${result.lastCritique.failures.length} objection(s) for human review - the labs can be wrong, read the draft before acting on these`);
   for (const f of result.lastCritique.failures) log(`  - ${f.lab ? `${f.lab}: ` : ''}${f.problem || f.criterion}`);

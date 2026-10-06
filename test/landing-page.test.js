@@ -39,7 +39,9 @@ test('landing page: chain config count matches chains/', { skip: !page && 'no do
 
 test('landing page: MCP tool count matches the registered tools', { skip: !page && 'no docs/index.html' }, () => {
   const server = readFileSync(join(root, 'src', 'mcp', 'server.js'), 'utf8');
-  const real = (server.match(/^server\.tool\(/gm) || []).length;
+  // The add-on's two tools (brief 29) are registered in src/mcp/advice.js with registerTool, not in server.js.
+  const advice = readFileSync(join(root, 'src', 'mcp', 'advice.js'), 'utf8');
+  const real = (server.match(/^server\.tool\(/gm) || []).length + (advice.match(/^\s*server\.registerTool\(/gm) || []).length;
   assert.ok(real > 0, 'found no registered MCP tools to compare against');
   assert.equal(statFor('MCP tools'), String(real));
 });

@@ -1,0 +1,27 @@
+{
+  "name": "mock-advise-single",
+  "description": "Offline. The advice control chain at $0: one seat, no debate, no synthesis. The engine's roll-up of one opinion is that opinion. Exercises the one-seat path of the council advisor (src/advise.js) with the mock provider.",
+  "resumeAfterStop": false,
+  "maxRounds": 1,
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "advise": {
+    "enabled": true,
+    "usd": 1,
+    "rounds": 0,
+    "synthesis": "none",
+    "max_wall_ms": 120000
+  },
+  "seats": {
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-advisor-change",
+        "lab": "solo"
+      }
+    ]
+  }
+}

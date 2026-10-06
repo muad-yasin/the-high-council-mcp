@@ -28,9 +28,10 @@ import { findSecrets } from './secret-patterns.js';
 
 // [{ line, name }] for every credential-shaped span in `text`, 1-based lines. `distinctiveOnly`
 // leaves out the generic shapes (see above).
-export function secretShapesIn(text, { distinctiveOnly = false } = {}) {
+// `everyContext` (the advice brief only): also the context-only shapes, with no context word needed (see findSecrets).
+export function secretShapesIn(text, { distinctiveOnly = false, everyContext = false } = {}) {
   if (typeof text !== 'string' || !text) return [];
-  return findSecrets(text, { redactable: true, distinctiveOnly }).map(s => ({
+  return findSecrets(text, { redactable: true, distinctiveOnly, everyContext }).map(s => ({
     line: text.slice(0, s.start).split('\n').length,
     name: s.name,
   }));

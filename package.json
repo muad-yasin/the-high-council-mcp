@@ -1,6 +1,6 @@
 {
   "name": "the-high-council",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "mcpName": "io.github.muad-yasin/the-high-council",
   "description": "The High Council: a multi-model planning harness. One builder, independent critics from other labs, checkable acceptance criteria, a debate on the record, and a hard stop.",
   "type": "module",
@@ -36,6 +36,8 @@
     ],
     "assets": [
       "src/pricing.json",
+      "src/advice-retention.json",
+      "src/reasoning-table.json",
       "chains/**/*.json"
     ],
     "targets": [
@@ -68,7 +70,7 @@
     "type": "git",
     "url": "git+https://github.com/muad-yasin/the-high-council-mcp.git"
   },
-  "homepage": "https://sower-industries.de/MCP",
+  "homepage": "https://sower-industries.de/en/THC/",
   "bugs": {
     "url": "https://github.com/muad-yasin/the-high-council-mcp/issues"
   },

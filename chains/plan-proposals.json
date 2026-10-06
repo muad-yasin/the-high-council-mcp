@@ -12,20 +12,20 @@
     "criteria": {
       "provider": "anthropic",
       "model": "claude-sonnet-5",
-      "maxTokens": 8000,
+      "maxTokens": 36000,
       "extra": {
-        "thinking": {
-          "type": "disabled"
+        "output_config": {
+          "effort": "high"
         }
       }
     },
     "skeleton": {
       "provider": "anthropic",
       "model": "claude-sonnet-5",
-      "maxTokens": 6000,
+      "maxTokens": 36000,
       "extra": {
-        "thinking": {
-          "type": "disabled"
+        "output_config": {
+          "effort": "high"
         }
       }
     },
@@ -34,8 +34,8 @@
       "model": "claude-sonnet-5",
       "maxTokens": 40000,
       "extra": {
-        "thinking": {
-          "type": "disabled"
+        "output_config": {
+          "effort": "high"
         }
       }
     },
@@ -44,8 +44,8 @@
       "model": "claude-sonnet-5",
       "maxTokens": 40000,
       "extra": {
-        "thinking": {
-          "type": "disabled"
+        "output_config": {
+          "effort": "high"
         }
       }
     },
@@ -53,10 +53,10 @@
       {
         "provider": "together",
         "model": "Qwen/Qwen3.5-9B",
-        "maxTokens": 20000,
+        "maxTokens": 36000,
         "extra": {
           "chat_template_kwargs": {
-            "enable_thinking": false
+            "enable_thinking": true
           }
         },
         "lab": "qwen"
@@ -64,10 +64,10 @@
       {
         "provider": "zai",
         "model": "glm-4.7-flash",
-        "maxTokens": 20000,
+        "maxTokens": 36000,
         "extra": {
           "thinking": {
-            "type": "disabled"
+            "type": "enabled"
           }
         }
       },
@@ -79,18 +79,21 @@
       {
         "provider": "google",
         "model": "gemini-3.6-flash",
-        "maxTokens": 20000
+        "maxTokens": 20000,
+        "extra": {
+          "reasoning_effort": "high"
+        }
       },
       {
         "provider": "openrouter",
         "model": "meta-llama/llama-3.3-70b-instruct",
-        "maxTokens": 20000,
+        "maxTokens": 16384,
         "lab": "meta"
       }
     ]
   },
   "proposals": {
     "parts": 3,
-    "maxTokens": 1500
+    "maxTokens": 12000
   }
 }

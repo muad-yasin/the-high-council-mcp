@@ -60,10 +60,10 @@ export const SECRET_PATTERNS = [
   // A named assignment whose value looks like a credential: snake, kebab AND camelCase names
   // (`AccessToken`, `openAiApiKey`, `x-api-key`, `"password":`). Needs the name AND a long opaque
   // value, so `apiKey: config.apiKey` stays.
-  { name: 'named credential assignment', generic: true, re: /(?<![A-Za-z0-9])[A-Za-z0-9_.-]*?(?:api[_-]?key|secret|token|password|passwd|access[_-]?key|auth)[A-Za-z0-9_]*['"]?\s*[:=]\s*['"]?(?<secret>[A-Za-z0-9/+_.=-]{20,})/dgi },
+  { name: 'named credential assignment', generic: true, re: /(?<![A-Za-z0-9])[A-Za-z0-9_.-]*?(?:api[_-]?key|secret|token|password|passwd|access[_-]?key|auth|passwort|kennwort|zugangsdaten|(?:api|zugangs)[_-]?schl(?:ue|\u00fc)ssel)[A-Za-z0-9_]*['"]?\s*[:=]\s*['"]?(?<secret>[A-Za-z0-9/+_.=-]{20,})/dgi },
   // Env-style upper-case name ending in KEY/TOKEN/SECRET/PASSWORD with an opaque value
   // (`GOOGLE_PLAY_PUBKEY=...`, `export DEPLOY_TOKEN="..."`). `CACHE_KEY=1` stays.
-  { name: 'env-style credential assignment', generic: true, re: /\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD)\s*=\s*['"]?(?<secret>[A-Za-z0-9/+_.-]{16,})/dg },
+  { name: 'env-style credential assignment', generic: true, re: /\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWORT|PASSWD|PWD)\s*=\s*['"]?(?<secret>[A-Za-z0-9/+_.-]{16,})/dg },
   // Too generic alone (an MD5 / a SHA-256): flagged by the scanner only in the provider's context.
   { name: 'Mistral (32 chars, mistral context only)', re: /\b[A-Za-z0-9]{32}\b/g, contextRe: /mistral/i, scanOnly: true },
   { name: 'Together (64 hex, together context only)', re: /\b[a-f0-9]{64}\b/g, contextRe: /together/i, scanOnly: true },
@@ -81,12 +81,14 @@ export const isKnownSafe = s => KNOWN_SAFE.some(re => re.test(s));
 // Where each credential is: [{ start, end, name }] over the whole text, overlapping hits merged
 // (the widest wins, so a Bearer + generic-assignment double hit counts once). `filename` feeds the
 // context rules. Values are never returned.
-export function findSecrets(text, { filename = '', redactable = false, distinctiveOnly = false } = {}) {
+// `everyContext`: apply the context-only shapes everywhere, without their context word (an advice brief: the whole text is
+// outgoing, so a bare 32-character Mistral or 64-hex Together key is refused even with no provider named; 0.8.1, audit A5).
+export function findSecrets(text, { filename = '', redactable = false, distinctiveOnly = false, everyContext = false } = {}) {
   const spans = [];
   for (const p of SECRET_PATTERNS) {
-    if (redactable && p.scanOnly) continue;
+    if (redactable && p.scanOnly && !everyContext) continue;
     if (distinctiveOnly && p.generic) continue;
-    if (p.contextRe && !p.contextRe.test(filename) && !p.contextRe.test(text)) continue;
+    if (p.contextRe && !everyContext && !p.contextRe.test(filename) && !p.contextRe.test(text)) continue;
     p.re.lastIndex = 0;
     for (const m of text.matchAll(p.re)) {
       if (isKnownSafe(m[0])) continue;

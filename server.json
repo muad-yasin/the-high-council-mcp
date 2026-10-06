@@ -7,14 +7,14 @@
     "url": "https://github.com/muad-yasin/the-high-council-mcp",
     "source": "github"
   },
-  "websiteUrl": "https://sower-industries.de/MCP",
-  "version": "0.8.0",
+  "websiteUrl": "https://sower-industries.de/en/THC/",
+  "version": "0.8.1",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "the-high-council",
-      "version": "0.8.0",
+      "version": "0.8.1",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

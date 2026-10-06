@@ -74,7 +74,11 @@ const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?
 // IBAN-shape: two letters, two check digits, 11-30 alphanumerics - checksum-validated below, so a
 // shape match that fails mod-97 is not reported (this is the false-positive cut the deliverable
 // asks for, not just a format match).
-const IBAN_SHAPE_RE = /\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g;
+export const IBAN_SHAPE_RE = /\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g;
+// The printed form groups an IBAN in fours; the compact shape above never matches it. Same
+// checksum gate, so a spaced shape that fails mod-97 is not reported. Known misses: lower case, and a
+// grouped IBAN followed directly by a four-letter word (the greedy last group then fails mod-97).
+export const IBAN_SPACED_RE = /\b[A-Z]{2}\d{2}(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?\b/g;
 // Card-shaped digit runs, optionally space/dash separated, 13-19 digits once separators are
 // stripped - Luhn-validated below, same false-positive discipline as IBAN.
 const CARD_SHAPE_RE = /\b(?:\d[ -]?){12,18}\d\b/g;
@@ -111,6 +115,7 @@ export function scanForPii(text, { allow = [] } = {}) {
 
   addLineFindings(EMAIL_RE, 'email');
   addLineFindings(IBAN_SHAPE_RE, 'iban', raw => ibanChecksumValid(raw));
+  addLineFindings(IBAN_SPACED_RE, 'iban', raw => ibanChecksumValid(raw));
   addLineFindings(CARD_SHAPE_RE, 'card', raw => luhnValid(raw.replace(/[ -]/g, '')));
 
   // Secret detection reuses src/key-redaction.js's own patterns (sk-/AWS/PEM/bearer/etc, plus

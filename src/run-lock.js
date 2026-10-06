@@ -7,7 +7,7 @@
 // the owner's pid and host. A lock whose pid is dead on this host is stale (a crash, a kill -9)
 // and is replaced; a lock from another host is never judged stale from here, since its pid
 // means nothing on this machine.
-import { openSync, writeSync, closeSync, readFileSync, unlinkSync, writeFileSync, renameSync } from 'node:fs';
+import { openSync, writeSync, closeSync, readFileSync, unlinkSync, writeFileSync, renameSync, statSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 
@@ -33,12 +33,18 @@ export function isPidAlive(pid) {
 }
 
 /** The current holder of `runDir`'s lock if a live process holds it, else null. Read-only. */
-export function lockHolder(runDir) {
+//
+// `unreadableStaleMs` (0.8.1, opt-in, the gate ledger's lock only): a lock file that cannot be parsed and
+// is older than this (by mtime) is stale rather than held forever. Unset, nothing changes for the run lock.
+export function lockHolder(runDir, { file = LOCK_FILE, unreadableStaleMs } = {}) {
   let holder;
   try {
-    holder = JSON.parse(readFileSync(join(runDir, LOCK_FILE), 'utf8'));
+    holder = JSON.parse(readFileSync(join(runDir, file), 'utf8'));
   } catch (err) {
     if (err.code === 'ENOENT') return null;
+    if (unreadableStaleMs > 0) {
+      try { if (Date.now() - statSync(join(runDir, file)).mtimeMs > unreadableStaleMs) return null; } catch { return null; /* gone meanwhile */ }
+    }
     // Unreadable or half-written: treat as held rather than guess. The message names the file.
     return { pid: null, host: 'unknown', at: 'unknown', unreadable: true };
   }
@@ -65,18 +71,26 @@ const isMine = (lockPath, mine) => {
   } catch { return false; }
 };
 
-export function acquireRunLock(runDir, { pid = process.pid } = {}) {
-  const lockPath = join(runDir, LOCK_FILE);
+//
+// 0.8.1 (plan M3): `file` names a different lock in the same folder (the approvals record of plan DR-4 takes one),
+// with the same O_EXCL take and stale-pid takeover. release() also drops its exit listener, since a
+// long-lived MCP server takes the ledger lock once per append and the listeners would otherwise pile up.
+export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, unreadableStaleMs } = {}) {
+  const lockPath = join(runDir, file);
   const mine = { pid, host: hostname(), at: new Date().toISOString(), nonce: Math.random().toString(36).slice(2) };
-  const release = () => { try { if (isMine(lockPath, mine)) unlinkSync(lockPath); } catch { /* already gone */ } };
+  const release = () => {
+    process.removeListener('exit', release);
+    try { if (isMine(lockPath, mine)) unlinkSync(lockPath); } catch { /* already gone */ }
+  };
   const hold = () => { process.once('exit', release); return release; };
-  const locked = () => new RunLockedError(lockHolder(runDir) ?? { pid: '?', host: '?', at: '?' }, lockPath);
+  const holderNow = () => lockHolder(runDir, { file, unreadableStaleMs });
+  const locked = () => new RunLockedError(holderNow() ?? { pid: '?', host: '?', at: '?' }, lockPath);
   let fd;
   try {
     fd = openSync(lockPath, 'wx');
   } catch (err) {
     if (err.code !== 'EEXIST') throw err;
-    const holder = lockHolder(runDir);
+    const holder = holderNow();
     if (holder) throw new RunLockedError(holder, lockPath);
     const claimPath = `${lockPath}.claim`;
     let cfd;
@@ -91,7 +105,7 @@ export function acquireRunLock(runDir, { pid = process.pid } = {}) {
     writeSync(cfd, JSON.stringify({ pid, host: mine.host }));
     closeSync(cfd);
     try {
-      if (lockHolder(runDir)) throw locked(); // another contender finished a takeover first
+      if (holderNow()) throw locked(); // another contender finished a takeover first
       const tmp = `${lockPath}.${pid}.${mine.nonce}.tmp`;
       writeFileSync(tmp, JSON.stringify(mine));
       renameSync(tmp, lockPath);

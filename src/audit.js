@@ -15,7 +15,7 @@
 //   loadHmacKey({ runDir }) -> string | null
 //
 // Privacy posture, same as verdict-stats.js/spend.js: seat/lab/counts/cost/timing/user identity
-// only - never task content, prompt text, or the deliverable.
+// only - never task content, prompt text, or the deliverable (a prompt's sha256 and byte count are not its text).
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { createHash, createHmac } from 'node:crypto';
 import { resolve, sep } from 'node:path';
@@ -52,8 +52,14 @@ function hmacHex(key, str) {
 // report.json's own "adding fields is fine, renaming or removing one is not" contract.
 const LINE_FIELDS = ['seq', 'ts', 'run', 'chain', 'user', 'stage', 'provider', 'model', 'lab', 'region', 'tokensIn', 'tokensOut', 'usd', 'prevHash'];
 
+// Brief 29 (25 section 6.2): a call's line can also say which exact prompt went out (its full sha256 and size),
+// the host that served it when the provider names it, and that the outbound key scan was on. Hashed too, but only
+// on a line that carries them, so every line written before this verifies exactly as it did. No prompt text.
+const PROMPT_FIELDS = ['promptSha256', 'promptBytes', 'endpoint', 'scan'];
+
 function canonicalLineBody(line) {
-  return JSON.stringify(LINE_FIELDS.map(k => (line[k] === undefined ? null : line[k])));
+  const base = LINE_FIELDS.map(k => (line[k] === undefined ? null : line[k]));
+  return JSON.stringify('promptSha256' in line ? [...base, ...PROMPT_FIELDS.map(k => (line[k] === undefined ? null : line[k]))] : base);
 }
 
 // `policy.json`'s presence gate - read-only, and deliberately not the file's parsed contents.
@@ -117,6 +123,7 @@ export function createAuditWriter({ runDir, run, chain, user = userIdentity(), h
       region: stage.region ?? null,
       tokensIn: stage.usage?.input ?? 0, tokensOut: stage.usage?.output ?? 0,
       usd: stage.usd ?? 0,
+      ...(stage.promptSha256 ? { promptSha256: stage.promptSha256, promptBytes: stage.promptBytes ?? null, endpoint: stage.endpoint ?? null, scan: stage.scan ?? null } : {}),
       prevHash,
     };
     const hash = sha256Hex(canonicalLineBody(line));

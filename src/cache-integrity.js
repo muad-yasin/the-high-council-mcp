@@ -63,3 +63,7 @@ export function cacheVerdict(hit, promptHash) {
 export function promptHashOf(system, user) {
   return createHash('sha256').update(JSON.stringify([system ?? '', user ?? ''])).digest('hex').slice(0, 16);
 }
+/** The same hash, all 64 hex characters: what an audit line records for the exact prompt (brief 29). */
+export function promptSha256Of(system, user) {
+  return createHash('sha256').update(JSON.stringify([system ?? '', user ?? ''])).digest('hex');
+}

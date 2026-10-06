@@ -26,6 +26,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { supersededSpendOf, supersededStagesOf } from './superseded.js';
+import { deriveRunStatus, APPROVAL_STATUSES, stoppedShortFile, waitingStages } from './run-status.js';
+import { readStoppedMarker } from './stop-files.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 
@@ -63,14 +65,17 @@ export function spendDateOf(runsDir, id) {
 // A finished run's cost is in report.json. A run that is still going, or that
 // the cap stopped, has no report - but every stage it paid for left a
 // <label>.usage.json behind, so the spend is still on disk.
-// `council handoff --from-run` (0.8.0) pays for one call after the run is over; its usage file is the
-// record, and a finished run's report.json cannot know about it, so it is added here.
+// `council handoff --from-run` pays for a call after the run is over. Since 0.8.1 (FX-1) each call is its own file in
+// superseded/; a 0.8.0 run folder may still hold the single handoff-from-run.usage.json, read here for old folders only.
 const handoffFromRunUsd = dir => readJson(join(dir, 'handoff-from-run.usage.json'))?.usd ?? 0;
 
 function costOfRun(dir) {
   const report = readJson(join(dir, 'report.json'));
   if (report?.totals?.usd !== undefined && report?.totals?.usd !== null) {
-    return { usd: report.totals.usd + handoffFromRunUsd(dir), chain: report.chain ?? null, complete: true };
+    // report.json's total already holds the superseded spend it saw (totals.supersededUsd); what superseded/ gained after
+    // the report was written (a handoff --from-run call, FX-1) is added, so nothing is counted twice.
+    const later = Math.max(0, supersededSpendOf(dir) - (Number(report.totals.supersededUsd) || 0));
+    return { usd: report.totals.usd + handoffFromRunUsd(dir) + later, chain: report.chain ?? null, complete: true };
   }
   let usd = 0;
   let stages = 0;
@@ -137,8 +142,26 @@ function stateOf(dir) {
   if (existsSync(join(dir, 'report.json'))) return 'incomplete: report.json unreadable';
   if (existsSync(join(dir, 'STOPPED-error.md'))) return 'stopped: error';
   if (existsSync(join(dir, 'STOPPED-budget.json'))) return 'stopped: spend cap';
-  if (readdirSync(dir).some(f => f.startsWith('NEEDS-'))) return 'paused';
+  // 0.8.1 M6: an advice call a person, its client or its wall clock stopped (exit 18); what it paid for is counted like any run's.
+  const stop = readStoppedMarker(dir);
+  if (stop) return `stopped: ${({ user: 'by a person', client_cancel: 'by its client', wall_clock: 'at its wall clock' })[stop.stoppedBy]}`;
+  const short = stoppedShortFile(dir);
+  if (short) return `stopped: ${({ 'STOPPED-preflight.md': 'task refused before any stage', 'STOPPED-secret.md': 'a key-shaped string in the prompt' })[short] ?? 'a draft did not complete'}`;
+  if (waitingStages(dir).length) return 'paused';
+  // An advice call's folder before its run starts (0.8.1 DR-15): made by the server before a person answers its gate; nothing was
+  // sent or spent, so it is named for what it is rather than read as a run that died (M4 review follow-up).
+  // Only an advice folder: deriveRunStatus may look for a live process, and this report must stay a cheap read (review nit).
+  if (!existsSync(join(dir, 'run.json')) && existsSync(join(dir, 'advice.meta.json'))) {
+    const s = deriveRunStatus(dir, null);
+    if (APPROVAL_STATUSES.includes(s)) return `advice call not started: ${s.replace('_', ' ')} (nothing sent or spent)`;
+  }
   return 'incomplete';
+}
+
+// One row of either report. A folder an advice call made before its start names its chain only in advice.meta.json.
+function runRow(id, when, dir) {
+  const { usd, chain, complete } = costOfRun(dir);
+  return { id, when, chain: chain ?? readJson(join(dir, 'advice.meta.json'))?.chain ?? null, usd, state: stateOf(dir), complete };
 }
 
 /**
@@ -166,8 +189,7 @@ export function spendReport(runsDir, { days = 1, now = Date.now() } = {}) {
     const dir = join(runsDir, id);
     try {
       if (!statSync(dir).isDirectory()) continue;
-      const { usd, chain, complete } = costOfRun(dir);
-      runs.push({ id, when, chain, usd, state: stateOf(dir), complete });
+      runs.push(runRow(id, when, dir));
     } catch {
       unreadable += 1;   // a run folder we cannot read is reported, not fatal
     }
@@ -217,8 +239,7 @@ export function costToday(runsDir, { date = new Date(), now = Date.now() } = {})
     const dir = join(runsDir, id);
     try {
       if (!statSync(dir).isDirectory()) continue;
-      const { usd, chain, complete } = costOfRun(dir);
-      runs.push({ id, when, chain, usd, state: stateOf(dir), complete });
+      runs.push(runRow(id, when, dir));
       countedDirs.push(dir);
     } catch {
       unreadable += 1;

@@ -44,7 +44,7 @@ export function checkFrozenScope({ storedHash, currentHash, amendmentsText }) {
 }
 
 /**
- * The target hash of AMENDMENTS.md's latest entry: the last task hash written in the text, or null.
+ * The target hash of AMENDMENTS.md's latest entry (its last line holding a task hash): the entry's second hash, or null.
  * A task hash is 12 hex characters in run.json and in the error message, but a person copying one from
  * `sha256sum` writes all 64; both name the same hash, so any 12-to-64 hex token counts and is reduced
  * to its first 12 (0.8.0: the old 12-only match read a full-length hash as no entry at all).
@@ -53,8 +53,14 @@ export function latestAmendmentTarget(amendmentsText) {
   if (typeof amendmentsText !== 'string') return null;
   // A longer token of digits only (a compact timestamp, an id) is not a hash; a 12-character one is
   // kept as before, since a real hash can be all digits (about 1 in 280).
-  const hashes = (amendmentsText.match(/(?<!ctx-)\b[0-9a-f]{12,64}\b/g) || []).filter(h => h.length === 12 || /[a-f]/.test(h));
-  return hashes.length ? hashes[hashes.length - 1].slice(0, 12) : null;
+  const hashesIn = s => (s.match(/(?<!ctx-)\b[0-9a-f]{12,64}\b/g) || []).filter(h => h.length === 12 || /[a-f]/.test(h));
+  // 0.8.1 FX-5: an entry is one line (old hash, new hash, reason, timestamp), and its target is its SECOND hash token;
+  // tokens after it belong to the reason (a cited commit id was read as the new task hash). A line with one hash token
+  // keeps the 0.7.9 meaning: that token is the target. The latest entry is the last line that holds a task hash.
+  const entries = amendmentsText.split(/\r?\n/).map(hashesIn).filter(h => h.length);
+  if (!entries.length) return null;
+  const last = entries[entries.length - 1];
+  return (last.length >= 2 ? last[1] : last[0]).slice(0, 12);
 }
 
 // ---- The --context documents (0.8.0, roadmap "Debate, criteria, milestones" item 10) ----

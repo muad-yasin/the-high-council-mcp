@@ -1,0 +1,44 @@
+{
+  "name": "advise-single",
+  "description": "Council advisor, one seat: openai/gpt-6.1-sol through OpenRouter, routed only to endpoints OpenRouter tags zero-data-retention (a routing tag, not a guarantee), priced at this seat's row in src/pricing.json. No debate, no synthesis, one call. This is the default seat of the add-on: a non-Anthropic model, because Claude is already the caller and /advisor. The seat's reply cap is 36,000 tokens (owner order, 4 Oct 2026: a reasoning model at high effort needs the room; 12,000 cut its answers off). advise.usd is this call's own ceiling, $1.32: it covers the first call and ONE retry of a cut-off reply, because a retry is reserved at its worst case on top of what the first call cost. Dearest brief the add-on prices (48,000 characters of non-ASCII text, priced from its bytes): first call $0.503 (about 48,600 input tokens x $2.2 per million + 36,000 output tokens x $11 per million), retry at the 64,000-token retry cap $0.811 (input again + 64,000 x $11 per million), total $1.314. An ASCII brief of 12,000 characters (about 3,000 tokens): $0.404 + $0.711 = $1.115. advise.max_wall_ms its wall-clock ceiling. Expected output per reply: 5000 tokens (I: no measurement). maxRounds is unused by advise chains.",
+  "resumeAfterStop": false,
+  "maxRounds": 1,
+  "estimate": {
+    "promptTokens": 3000,
+    "draftTokens": 2000,
+    "critiqueTokens": 3000
+  },
+  "advise": {
+    "enabled": true,
+    "usd": 1.32,
+    "rounds": 0,
+    "synthesis": "none",
+    "max_wall_ms": 300000
+  },
+  "seats": {
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6.1-sol",
+        "maxTokens": 36000,
+        "lab": "gpt6.1-sol",
+        "extra": {
+          "provider": {
+            "zdr": true,
+            "data_collection": "deny",
+            "max_price": {
+              "prompt": 2.2,
+              "completion": 11
+            }
+          },
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "estimate": {
+          "critiqueTokens": 5000
+        }
+      }
+    ]
+  }
+}

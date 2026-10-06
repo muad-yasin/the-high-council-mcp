@@ -1,0 +1,41 @@
+{
+  "schema": "gate/1",
+  "id": "g2",
+  "kind": "advice",
+  "status": "approved",
+  "text": "advice-brief-2.md",
+  "sha256": "0e51c0b4180e19676b17dd25602f4417dd8256c71cb7a46dd156e391e62989b3",
+  "bytes": 41,
+  "price": {
+    "ceiling_usd": 0.75,
+    "expected_usd": 0.48
+  },
+  "seats": [
+    {
+      "lab": "openai",
+      "model": "openai/gpt-6.1-sol",
+      "retention": "ZDR-tagged by OpenRouter"
+    }
+  ],
+  "sensitivity": {
+    "label": "internal",
+    "set_by": "operator"
+  },
+  "masks": {
+    "email": 1,
+    "path": 2
+  },
+  "meta_sha256": "b7c95df46236dac466bff80047f34027356d792503e4900009ccfa3f9e398ad9",
+  "requested_at": "2026-10-02T12:00:06.000Z",
+  "expires_at": "2026-10-02T12:10:06.000Z",
+  "answer": {
+    "decision": "approved",
+    "channel": "elicitation",
+    "actor": null,
+    "reason": "not now",
+    "tty": null,
+    "at": "2026-10-02T12:00:09.000Z",
+    "seq": 5
+  },
+  "seq": 4
+}

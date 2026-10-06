@@ -49,11 +49,12 @@ no scripts, no third-party requests.
 **Visibility: this repo is public again** (it was private from 2026-09-22; Muad made it public, and
 confirmed on 2026-10-02 that this was deliberate; the GitHub description reads "Open source now").
 Everything committed here is published the moment it is pushed. The landing page lives at
-https://sower-industries.de/MCP (the npm `homepage`); the GitHub Pages workflow still runs only by
+https://sower-industries.de/en/THC/ (the npm `homepage`); the GitHub Pages workflow still runs only by
 hand. The npm package `the-high-council` is public: **0.7.6 was published 2026-09-23** on Muad's go
 (after a 24-audit pre-release round); the latest is **0.8.0, published 2026-10-02** (npm, GitHub
 release with the `.mcpb`, MCP registry), as is (Muad: no users besides him yet); it was audited
-after release on 2026-10-02 (findings in the maintainer's local `Review/`, fixes pending Muad's go). No new releases unless he asks; `npm publish` is his (2FA passkey, run from a real terminal).
+after release on 2026-10-02 (findings in the maintainer's local `Review/`). **0.8.1 is a release candidate on branch `release/0.8.1`** (versions bumped everywhere,
+CHANGELOG `## 0.8.1`; prepared 2026-10-05; nothing pushed, tagged or published; the audit round and the publish are Muad's). No new releases unless he asks; `npm publish` is his (2FA passkey, run from a real terminal).
 The licence stays MIT.
 
 Read `maintainers/HANDOFF.md` before starting work. It carries the release order and the hard rules. Its two
@@ -130,6 +131,21 @@ union of all objections and the whole panel re-reviews).
 - `src/cost.js` - `pricing.json` lookup, `costOf`/`summarise` (measurement, after the fact) and
   `worstCaseOf`/`wouldBreach` (projection, before the fact - what the spend cap enforces against).
 - `src/cli.js` - flags, `.env` loading, the run folder, the stage cache.
+- `src/reasoning.js` + `src/reasoning-table.json` - **reasoning is always high for a shipped chain** (Muad, 2026-10-05: "NO LOWER EFFORT"). The dated table
+  (written by `scripts/refresh-reasoning-table.mjs`; sources in the file; not exercised live) says per model what field means high, the model's own default and
+  its largest reply; `loweringReasons` is the one list of settings that lower it. No code path may lower a seat's effort (`test/reasoning-never-lower.test.js`
+  scans for it); chain-lint's `reasoning-not-high` refuses a shipped chain that does (a user's own chain passes through). The table turns `npm test` red on
+  2026-12-05 (60 days); with the retention table (2026-10-31) and the Sol price row and the OpenRouter price rows (both 2026-11-21) those are release-week chores, not bugs.
+- `src/key-env.js` - the one reader of provider keys: the plugin dialog's `COUNCIL_PLUGIN_<LAB>_API_KEY`, then the standard variable, then `.env`; empty, blank
+  or a `${user_config.` placeholder counts as unset, and a key with a control character in it is "malformed" (never sent; `council doctor` says so). `src/env-file.js` - the one
+  reader of a project's `.env`: it never sets `COUNCIL_PLUGIN_*`, process-level variables (`NODE_*`, `LD_*`, `PATH`, proxies), the loopback-key switch or an operator-only setting,
+  and says so once per refused name (`.env` is project-writable). `src/draft-disputes.js` - `parseDisputes` and the one function (`stripDeclined`) every reader of a builder's or
+  reviser's raw stage text must use (a test scans `src/` for readers that skip it; the build stage and those readers strip DECLINED lines only, a reviser also a trailing Disputed block).
+- The advisor add-on (0.8.1; the add-on's own audit trail is in `maintainers/` and `Review/`): `src/mcp/advice.js` (the `council_quote` / `council_advise` tools), `src/send-path.js` +
+  `send-path-refusals.js` + `send-profiles.js` (the shared quote -> approve -> start path and what refuses a send), `src/gate.js` + `gate-ledger.js` + `gate-cli.js` (the approval gate and its
+  hash-chained ledger; the terminal answer is `council gate answer`), `src/advice-brief.js` + `advice-mask.js` (the brief schema, masking, the exact text a person reads),
+  `src/advise.js` (the blind-then-debate run), `src/advice-guards.js` (limits and the cross-run ledger), `src/advice-run.js` + `advice-stop.js` + `stop-files.js` (the run folder and the stop rule),
+  `src/mcp/untrusted.js` + `return-path.js` (what comes back to the agent, marked as untrusted text).
 - `src/mcp/server.js` - the same operations as MCP tools. It **spawns `src/cli.js` detached** so a
   long run outlives the tool call; the client polls `run_status`. It does not run chains in-process.
 
@@ -167,8 +183,8 @@ thing as `external_prompt` / `submit_stage`. A paused run is not a stuck run.
 failure modes (unescaped quotes inside markdown-quoted spans, raw newlines in string values) with
 real string-state tracking rather than regex, and deliberately still fails on genuinely garbled
 output. `classifyUnreadable` separates provider errors from truncation from malformed JSON.
-`invoke()` retries once with thinking disabled when an Anthropic seat burns its whole `maxTokens`
-budget on thinking. Every one of these encodes a real incident - the comments name the run and the
+`invoke()` retries once, at the same reasoning effort and a bigger cap, when an Anthropic seat burns its whole `maxTokens`
+budget on thinking (until 0.8.0 the retry switched thinking off; owner, 5 Oct 2026: "NO LOWER EFFORT", so no code path lowers a seat's effort). Every one of these encodes a real incident - the comments name the run and the
 date. Read the comment before changing the behaviour, and keep the regression tests in
 `test/chain.test.js`, which are built from the actual broken replies.
 
@@ -208,8 +224,7 @@ date. Read the comment before changing the behaviour, and keep the regression te
 
 ## The landing page (`docs/`)
 
-`docs/` is the landing page, moving from GitHub Pages to sower-industries.de while the repo is
-private: a single standalone `index.html` plus self-hosted fonts. It is a
+`docs/` is the landing page, served from sower-industries.de (GitHub Pages is off; the repo is public): a single standalone `index.html` plus self-hosted fonts. It is a
 Claude Design treatment of the README, and it has two properties that must survive any edit:
 
 - **No scripts and no third-party requests.** The design arrived depending on Claude Design's
@@ -243,6 +258,10 @@ my live"):** Pages is off and `muad-yasin.github.io/the-high-council-mcp/` retur
 self-canonical would name a page that does not exist. `docs/index.html`'s `rel=canonical` and
 `og:url` now point to https://sower-industries.de/en/MCP/, the live page. If Pages is ever turned
 back on, revisit this.
+
+**Update 2026-10-05 (Muad; 0.8.1 [D4]):** the site moved its home to https://sower-industries.de/en/THC/
+(install page /en/THC/2/); /MCP, /en/MCP/ and /en/Council/ are 301s to it (checked by curl). Every homepage and
+link in this repo, including this page's `rel=canonical` and `og:url`, now names https://sower-industries.de/en/THC/.
 
 ## Cross-run spend (`src/spend.js`)
 

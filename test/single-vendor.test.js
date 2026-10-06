@@ -271,7 +271,7 @@ test('runChain: a chain with no transport field is untouched by single-vendor mo
 // check never accounted for even before single-vendor mode existed at this call site. Both are
 // fixed together: `originalProvider` (set by resolveVendorSeat) survives the rewrite, and the
 // retry trigger now accepts either stop-reason spelling.
-test('runChain: an Anthropic seat routed through single-vendor mode still gets the thinking-disabled retry (bug-audit finding)', async () => {
+test('runChain: an Anthropic seat routed through single-vendor mode still gets one same-effort retry at a bigger cap (bug-audit finding; 0.8.1: no lower effort)', async () => {
   const hadOpenRouter = process.env.OPENROUTER_API_KEY;
   const hadAnthropic = process.env.ANTHROPIC_API_KEY;
   process.env.OPENROUTER_API_KEY = 'sk-test-openrouter-key';
@@ -282,7 +282,7 @@ test('runChain: an Anthropic seat routed through single-vendor mode still gets t
   const restore = stubFetch(async (url, opts) => {
     callCount += 1;
     const body = JSON.parse(opts.body);
-    requests.push({ extra: body.thinking ?? null });
+    requests.push({ body });
     if (callCount === 1) {
       // First attempt: burned the whole budget on thinking, cut off mid-generation - the OpenAI-
       // compatible shape for this (finish_reason "length", not Anthropic's native "max_tokens").
@@ -294,7 +294,7 @@ test('runChain: an Anthropic seat routed through single-vendor mode still gets t
         }),
       };
     }
-    // Retry (thinking disabled): a normal, complete reply.
+    // Retry (same effort, bigger cap): a normal, complete reply.
     const text = JSON.stringify({ criteria: ['A real criterion, produced on the retry.'] });
     return {
       ok: true,
@@ -321,8 +321,16 @@ test('runChain: an Anthropic seat routed through single-vendor mode still gets t
     const result = await runChain({ request: 'A test request.', config, log: () => {} });
 
     assert.equal(callCount, 2, 'the criteria stage must be retried exactly once after the thinking-truncated first attempt');
-    assert.equal(requests[0].extra, null, 'the first attempt has no thinking override');
-    assert.deepEqual(requests[1].extra, { type: 'disabled' }, 'the retry explicitly disables thinking');
+    // 0.8.1 (owner: "NO LOWER EFFORT!!!!"): the retry no longer switches thinking off. Both bodies carry the OpenRouter wire form of "high",
+    // set after the transport rewrite, and neither carries a thinking switch; they differ only in the bigger cap on the retry.
+    for (const r of requests) {
+      assert.deepEqual(r.body.reasoning, { effort: 'high' }, 'every attempt asks for high effort');
+      assert.equal('thinking' in r.body, false, 'no attempt switches thinking off');
+    }
+    const { max_completion_tokens: first, ...rest0 } = requests[0].body;
+    const { max_completion_tokens: second, ...rest1 } = requests[1].body;
+    assert.deepEqual(rest1, rest0, 'the retry is the same request apart from its cap');
+    assert.ok(second > first, `the retry has a bigger cap (${first} -> ${second})`);
     assert.deepEqual(result.criteria, ['A real criterion, produced on the retry.'], 'the retried reply is what the run actually used, not the truncated first attempt');
   } finally {
     restore();

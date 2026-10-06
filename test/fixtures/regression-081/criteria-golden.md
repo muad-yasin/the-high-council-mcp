@@ -1,0 +1,5 @@
+- The deliverable is the artifact itself, not a plan for one.
+- It states the assumptions it was written under.
+- It adds no scope the request did not ask for.
+- Names, numbers and decisions agree across every section: the plan is consistent with itself.
+- `npm test` exits 0 on the built tool, with at least 3 tests for the rename rule.

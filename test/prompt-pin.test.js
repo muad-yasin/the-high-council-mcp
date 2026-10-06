@@ -27,7 +27,10 @@ const sha256 = s => createHash('sha256').update(s).digest('hex');
 // Re-recorded 2026-09-26 on the owner's go ("Yes and Yes"): tiered councils (thc-research brief 13)
 // ADD prompt builders to src/roles.js (deep dive, majority guard). The prompts the mock chains below
 // send are unchanged - that check was not re-recorded.
-const ROLES_SHA256 = '57a61e939faaa00cae9cbcbd393b2f7668317df4d8ab92a15eeef6e728e96d35';
+// Re-recorded 2026-10-02 on the owner's go (0.8.1 MAN-1, "go"): the council advisor (thc-research brief 27)
+// ADDS the advisor, debate and synthesis prompts to src/roles.js (154 lines added, none removed). No existing
+// prompt changed, and the mock-chain check below was not re-recorded.
+const ROLES_SHA256 = 'ff2c2c667be4f82c24ed4d5519a9a3520eeecb091a2edf9ab816789c3d22d49c';
 // Recorded at 0d87668. `status` is the CLI's exit code (mock-security-review's mock reviewer blocks: 7).
 // mock-relay is left out: its panel order comes from Math.random (bug audit 2026-09-26 #2) and a relay
 // reviewer sees the reviews before it, so its prompts differ from run to run.

@@ -31,7 +31,9 @@ export const DENIED_MODEL = /grok|x-ai|\bxai\b/i;
 // Only a single segment after `openrouter/` matches, so a provider-prefixed id such as
 // `openrouter/openai/gpt-6.1-sol` (a pricing key) is not caught, and a `:free` variant of an ordinary
 // model (`deepseek/deepseek-v4.1-flash:free`) is not either.
-export const ROUTER_MODEL = /(^|\/)(auto|pareto-code)(?=$|[:/])|(^|[/:_-])router([/:_-]|$)|^@preset\/|^openrouter\/[^/]+\/?$/i;
+// 0.8.1 M7 Work 3/5: the bare forms of OpenRouter's routers the plan names (auto-beta, fusion, free, bodybuilder) as well, which also
+// covers a doubled prefix (openrouter/openrouter/fusion). `:free` variants of ordinary models stay allowed (the `(^|/)` anchor).
+export const ROUTER_MODEL = /(^|\/)(auto|auto-beta|fusion|free|bodybuilder|pareto-code)(?=$|[:/])|(^|[/:_-])router([/:_-]|$)|^@preset\/|^openrouter\/[^/]+\/?$/i;
 
 // The request-body keys through which `extra` can choose or route the model. Pre-release audit
 // 2026-09-23 (GuardLayer #2, HIGH): only extra.models and extra.plugins were checked, and the

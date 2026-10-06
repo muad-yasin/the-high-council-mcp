@@ -1,0 +1,44 @@
+{
+  "name": "advise-single-opus",
+  "description": "Council advisor, the one-seat control on Claude Opus 5.5 (experimental; brief 24's arm A). The caller of the add-on is usually Claude already, so this is NOT the add-on's default: it exists so one Anthropic seat can be compared with the same brief, prompt and answer field. Opus 5.5 through OpenRouter, routed only to endpoints OpenRouter tags zero-data-retention. advise.usd is this call's own ceiling. maxRounds is unused by advise chains.",
+  "resumeAfterStop": false,
+  "maxRounds": 1,
+  "estimate": {
+    "promptTokens": 3000,
+    "draftTokens": 2000,
+    "critiqueTokens": 3000
+  },
+  "advise": {
+    "enabled": true,
+    "usd": 1,
+    "rounds": 0,
+    "synthesis": "none",
+    "max_wall_ms": 600000
+  },
+  "seats": {
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "anthropic/claude-opus-5.5",
+        "maxTokens": 15000,
+        "lab": "opus5.5",
+        "extra": {
+          "provider": {
+            "zdr": true,
+            "data_collection": "deny",
+            "max_price": {
+              "prompt": 4,
+              "completion": 20
+            }
+          },
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "estimate": {
+          "critiqueTokens": 10000
+        }
+      }
+    ]
+  }
+}

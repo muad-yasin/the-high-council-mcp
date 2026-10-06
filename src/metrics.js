@@ -294,6 +294,9 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
   if (!ids.length) return emptyReport(runsDir, days, cutoff);
 
   let runsSeen = 0;
+  // 0.8.1 DR-13 (N5): advice calls (report.json with `advise`) are not plans and their passed/outcome are not a
+  // sign-off; they are skipped and counted, so the skip is never silent.
+  let adviceRunsSkipped = 0;
   let unreadable = 0;
   let totalProposals = 0, totalAmended = 0, totalWithdrawn = 0;
   let totalObjected = 0, totalObjectedFollowedThrough = 0;
@@ -312,8 +315,9 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
       if (!statSync(dir).isDirectory()) continue;
     } catch { unreadable += 1; continue; }
 
-    runsSeen += 1;
     const report = readJson(join(dir, 'report.json'));
+    if (report?.advise) { adviceRunsSkipped += 1; continue; }
+    runsSeen += 1;
     if (report) {
       const pm = proposalMetricsOfRun(report);
       totalProposals += pm.proposals;
@@ -361,6 +365,7 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
     since: new Date(cutoff),
     runsSeen,
     unreadable,
+    adviceRunsSkipped,
     amendmentRate: rate(totalAmended, totalProposals),
     withdrawalRate: rate(totalWithdrawn, totalProposals),
     objectionFollowThroughRate: rate(totalObjectedFollowedThrough, totalObjected),

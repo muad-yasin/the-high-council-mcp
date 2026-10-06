@@ -40,13 +40,14 @@ Three commands from nothing to a priced run of your own idea (no key needed unti
 
 | Chain | Who does what | Needs | Worst case |
 |---|---|---|---|
-| `cheap-7-v2` | Claude Sonnet 5 writes the plan; low-cost models from seven other labs review it, and all seven must sign off. Up to 7 rounds. | one OpenRouter key | $5.38 |
-| `plan-premium-7` | A Claude Code session writes the plan; a seven-lab panel of larger models (GPT-6 Astra, Claude Fable 5.1, Gemini 3.8 Flash, Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, GLM-5.3) proposes, debates and reviews. | OpenRouter key + a Claude Code session | $22.30 |
-| `plan-highest-7` | Seven low-cost models propose and debate; four top models write whole architectures and are the only reviewers; one deep-dive seat checks the first draft against the task. **Untested with real models.** | OpenRouter key + a Claude Code session | $11.21 |
+| `cheap-7-v2` | Claude Sonnet 5 writes the plan; low-cost models from seven other labs review it, and all seven must sign off. Up to 7 rounds. | one OpenRouter key | $11.22 |
+| `plan-premium-7` | A Claude Code session writes the plan; a seven-lab panel of larger models (GPT-6 Astra, Claude Fable 5.1, Gemini 3.8 Flash, Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, GLM-5.3) proposes, debates and reviews. | OpenRouter key + a Claude Code session | $36.75 |
+| `plan-highest-7` | Seven low-cost models propose and debate; four top models write whole architectures and are the only reviewers; one deep-dive seat checks the first draft against the task. **Untested with real models.** | OpenRouter key + a Claude Code session | $17.34 |
 | `local-ollama` | Every seat on your own machine, through Ollama. | Ollama and the models pulled | $0 |
 
-`plan-premium-7` and `plan-highest-7` cost more than the default cap, so give them a `--max-usd` at
-or above their dry-run price. Their writer seats are [external](#quick-start-mcp): the run pauses
+All three cost more than the default cap at their worst case, so give them a `--max-usd` at or above
+their dry-run price (since 0.8.1 a proposal may use a seat's whole output allowance and every shipped seat reasons at
+high, which raised the worst cases; a run that signs off early costs far less). The writer seats of `plan-premium-7` and `plan-highest-7` are [external](#quick-start-mcp): the run pauses
 and a Claude Code session (or you) writes that stage, at no API cost. Nothing about any chain's
 output quality has been measured.
 
@@ -90,11 +91,12 @@ before anything is spent.
    it without:
 
        npx the-high-council --task tasks/my-first-task.md --chain cheap-7-v2 --dry-run
-       npx the-high-council --task tasks/my-first-task.md --chain cheap-7-v2
+       npx the-high-council --task tasks/my-first-task.md --chain cheap-7-v2 --max-usd 11.23
 
-   Every run stops before it would pass its spend cap ($7 unless you set `--max-usd`). A run
-   stopped by the cap keeps what it paid for but has no plan yet, so pick a cap at or above the
-   dry run's price. A panel that signs off early costs less than the worst case.
+   `cheap-7-v2`'s worst case ($11.22) is above the default cap, so the run command carries its own
+   cap, set just above that price. Every run stops before it would pass its spend cap ($7 unless
+   you set `--max-usd`). A run stopped by the cap keeps what it paid for but has no plan yet, so pick
+   a cap at or above the dry run's price. A panel that signs off early costs less than the worst case.
 
    The plan lands in `runs/<time>/deliverable.md`; the argument behind it is in `BOARD.md`.
 
@@ -128,7 +130,7 @@ Everywhere below, `council` means `npx the-high-council` unless you installed it
 - **Handoff** - `HANDOFF.md`, the build instructions a coding agent works from.
 
 **A visual write-up of all of this, built around one real run, is at
-[sower-industries.de/MCP](https://sower-industries.de/MCP).** What changed in each release:
+[sower-industries.de/en/THC/](https://sower-industries.de/en/THC/).** What changed in each release:
 [CHANGELOG.md](CHANGELOG.md).
 
 ## How it works
@@ -149,8 +151,9 @@ A run moves through fixed stages. Which stages fire depends on the chain you pic
    blind. Not unanimous? It revises against the union of every objection and the panel reviews
    again, up to the chain's round cap.
 8. **Handoff** - a `HANDOFF.md` written for whoever executes the result. It ends with a block the
-   harness writes, not a model: the acceptance criteria the run settled, with a fingerprint.
-   `council check-lock HANDOFF.md` ($0) says whether a copy still carries them; it catches an edit or
+   harness writes, not a model: the acceptance criteria the run settled, how each checkable one is
+   checked, and a fingerprint for each of the two. `council check-lock HANDOFF.md` ($0) says whether a
+   copy still carries them; it catches an edit or
    a slip, and is not a signature.
 
 Some chains add optional stages to this: whole alternative architectures written blind before
@@ -297,7 +300,8 @@ A keyed seat sends its key only to its own provider's https API. A chain that po
 seat's `baseUrl` anywhere else is refused before any call (see
 [Local models](#local-models-ollama-lm-studio-)).
 
-Other settings, all optional, read from the environment or `.env`:
+Other settings, all optional, read from the environment or `.env` (except `COUNCIL_ADVICE_SENSITIVITY_FLOOR` and
+`COUNCIL_ADVICE_CHAINS_DIR`, which only the server's own environment sets: a project's `.env` is something an agent can write):
 
 | Variable | What it does |
 |---|---|
@@ -436,9 +440,10 @@ Each outcome has its own code, so a script or CI job can branch on it:
 | 15 | `--resume` of a run that already finished (it has a `report.json`); nothing is run or spent. |
 | 16 | The run stopped at an unexpected error (a seat that could not be reached, a crash); `STOPPED-error.md` says what, and `--resume` continues from the completed stages. |
 | 17 | A draft (build, revise, dispute, final edit or handoff) was cut off at its token cap, and its one larger-cap retry was cut off too; the fragment is never graded or shipped (`STOPPED-truncated.md`). |
+| 18 | An advice call was stopped before finishing: by a person (`council stop runs/<id>`), by the MCP client that cancelled the call or went away, or by its own wall-clock ceiling (`advise.max_wall_ms`). Calls already in flight finish and are recorded (a wall-clock stop cuts a call still running at the deadline, recorded as not answering); nothing new starts. It writes `report-partial.json` (`stoppedBy`: `user`, `client_cancel` or `wall_clock`; the answers that were paid for under `advise`), `BOARD-partial.md` when anything was paid for, and `STOPPED-<stoppedBy>.json`. An advice call is not resumed: ask again. |
 
 Codes 9-17 were split out or added on 2026-09-23. Before that, several of these outcomes shared a code (2, 5,
-6 or 1).
+6 or 1). Code 18 came with the advice tools.
 
 ### Telling the council what your build session can actually use
 
@@ -516,10 +521,12 @@ council --task tasks/your-idea.md --chain mock-budget --max-usd 1
 ```
 
 If a chain pauses for your input, it writes `NEEDS-<stage>.md` into the run folder and tells you
-how to resume:
+how to resume. The run resumes as soon as the answer file exists, so write it under a `.partial`
+name and rename it when it is complete:
 
 ```bash
-# write your answer to runs/<id>/answers.md, then:
+# write your answer to runs/<id>/answers.md.partial, then:
+mv runs/<id>/answers.md.partial runs/<id>/answers.md
 council --resume runs/<id>
 ```
 
@@ -558,6 +565,12 @@ up in `claude mcp list` as `plugin:the-high-council:high-council`. Remove it wit
 local clone instead (`claude plugin marketplace add /path/to/clone`), the server runs from the
 clone itself, so run `npm install` in it first.
 
+Your provider keys can go into the plugin's settings dialog (`/plugin`, then the plugin's settings): one
+optional field per lab, marked sensitive, so Claude Code keeps it in the OS keychain. Leave a field empty and
+the key from your environment or a `.env` file in your project is used instead; a key in the dialog is used
+first. The plugin passes each dialog value under its own name (`COUNCIL_PLUGIN_<LAB>_API_KEY`), so an empty
+field never replaces a key you exported yourself.
+
 **Claude Desktop:** download `the-high-council-<version>.mcpb` from the
 [GitHub Releases](https://github.com/muad-yasin/the-high-council-mcp/releases) page (its SHA-256
 is next to it) and open it. Claude Desktop shows a settings form: a council folder for tasks and
@@ -574,9 +587,10 @@ Continue): [docs/mcp-clients.md](docs/mcp-clients.md) has the real config for ea
 
 Whichever way you add it, the server reads and writes in **your** working directory, not inside
 the package: `.env` for keys, `tasks/` for requests, `runs/` for output, and a `chains/` of your
-own takes precedence over the bundled ones. In a git project, add `.env` (and `runs/` if your
+own takes precedence over the bundled ones (not for advice chains: see
+[Asking other labs for advice](#asking-other-labs-for-advice-council_quote-council_advise-experimental)). In a git project, add `.env` (and `runs/` if your
 ideas are private) to `.gitignore` before an agent commits everything; `council doctor` warns
-when `.env` is not ignored.
+when `.env` is not ignored. An advice call also leaves `council-<id>.log` and a `.council-advice-lock/` folder in the working folder: ignore those too.
 
 The server only works inside that directory. `dry_run` and `start_run` take a chain by name.
 Every path `start_run` is given (`task`, `draft`, `context`, `from_run`, and each file inside a
@@ -610,6 +624,100 @@ Then drive it with these tools:
 | `read_run_file` | Read any file from a run folder (`report-partial.json` for a run the cap stopped) |
 | `list_runs` | Past runs |
 | `plan_outline` | Section tree of a run's deliverable (or a `.md` file in the working directory) with word counts |
+| `council_quote` | Experimental. Preview and price a request for advice from other labs: who would receive the text, its exact size and `sha256` after masking, the worst-case and expected price, a `quote_id`. Sends and spends nothing. See [Asking other labs for advice](#asking-other-labs-for-advice-council_quote-council_advise-experimental) |
+| `council_advise` | Experimental. Spends. Asks other labs for advice on one decision, once you approve it: a leaning and every dissent in the models' own words. `start_run` and `resume_run` refuse advice chains, so this is the only way in over MCP |
+
+**Text from a run comes back marked as model-written.** A deliverable, a board, a log line or an
+advisor's answer was written by AI models, and a model can be fooled into writing instructions aimed
+at the agent that reads it. So `read_run_file` (and `run_status` with `brief: true`) returns the text
+between a notice written by the server and markers whose id changes on every call, with Unicode tag
+characters, bidi controls and zero-width characters removed and counted; JSON answers that carry such text name those fields
+in `untrusted_fields`. Which tool returns what is one table in `src/mcp/untrusted.js`, and a tool
+missing from it is refused when the server starts. This is a label, not a filter: it does not make
+hostile text harmless, and the file on disk is unchanged.
+
+### Asking other labs for advice (`council_quote`, `council_advise`; experimental)
+
+Two more tools let a coding agent, when you ask it to, put **one decision** to models from other
+labs and read back a **leaning**, every dissent in the models' own words, and what each would need
+to see to change its answer. It is advice from other models, never an instruction, and it comes
+**in addition to** whatever model is already the caller: the default seat is not Anthropic's.
+Nothing has been measured that shows it improves what an agent does; it is an instrument, and each
+call leaves a small record (`advise-log.json`) you can rate later with
+`council advise-rate runs/<id> useful|not-useful|unclear [note]` (the only supported way to write the
+rating: a typo in a hand edit of that file makes every later advice call refuse).
+
+- **`council_quote`** sends nothing and spends nothing. The agent writes a short structured
+  **brief** (at most 48,000 characters, about 12,000 tokens, all together; over the limit is refused, never cut; no
+  transcript, tool output, environment or file listing). The quote scans the whole text for key
+  shapes, masks emails, IBANs, cards, IPs, internal hostnames and home paths (reversibly: the
+  mapping stays in memory), and returns a **send preview**: who receives it (lab, model, the
+  endpoint's retention wording), the exact size and `sha256` of the text, the worst-case and
+  expected price, and a `quote_id` valid for ten minutes. The text itself goes to you, not back to the agent:
+  you read all of it in the approval step.
+- **`council_advise`** spends, and only after **you** approved the exact text. It needs the quote id
+  and the hash. It writes the run folder first (`runs/<id>/advice-brief.md`, the masked text, and a
+  pending approval, a "gate"), then asks you: in your client, if it can show you a dialog (MCP
+  elicitation: the price, the hash, the seats and the whole text), or at a terminal with
+  `council gate answer runs/<id> g1`, which prints the same and asks y/N. Until you answer, the call
+  returns `awaiting_approval` with that command; the agent sends the same quote again once you have.
+  The run starts only on an approved gate, and one approval covers one send. Nothing else approves a
+  call an agent asked for: no setting, no flag, no tool argument (the 0.8.0 `COUNCIL_ADVISE_APPROVAL=host`
+  statement is gone, and a server that still has it set refuses to start). The run is held to the seats and
+  the ceiling the gate showed you, whatever else is in the folder. Running an advice chain yourself at your
+  own terminal (`council --chain advise-single --task brief.md`) is your own call and has no gate; its
+  record says so (`gate: null` in `advise-log.json`). The terminal check is friction, not proof
+  that a person answered: a program can open a pseudo-terminal. Advice calls therefore need a person
+  at the keyboard; scripted or unattended use is not supported. `mode: "single"` asks one seat (default GPT-6.1 Sol through OpenRouter; the
+  `advisor` argument picks another); `mode: "council"` asks three labs (OpenAI GPT-6.1 Sol, Z.ai GLM-5.3, Google Gemini 3.8 Flash)
+  blind, lets them read each other once, and a seat changes its answer only by quoting an argument.
+  The call holds for up to `wait_seconds` (default 25, at most 30, the same for every client), your approval included;
+  a run that outlives the hold returns its id, and `run_status(run, wait_seconds: 25, until: "settled")` (also at most
+  30) returns the answer. Use the default: a client that gives up on a call cancels it, and a cancel stops the run.
+- **Limits, meant to be set by you in the server's environment and not by the agent** (a project `.env` can still set them: see Known limits):
+  `COUNCIL_ADVISE_MAX_USD_PER_CALL` ($1.50, compared with the call's ceiling, the most it can spend), `..._PER_SESSION` ($3), `..._PER_DAY` ($10),
+  `COUNCIL_ADVISE_CALLS_PER_SESSION` (3), `..._CALLS_PER_DAY` (8), `COUNCIL_ADVISE_COOLDOWN_MS`
+  (two minutes). A question asked again needs `new_evidence` in the brief; an answer with
+  dissent needs an accept, reject or defer, with a reason, for each dissent before the next call.
+  Every refusal says that nothing was spent and what to do next.
+- **What may be sent** starts from the floor you set in the server's settings,
+  `COUNCIL_ADVICE_SENSITIVITY_FLOOR` (`public`, `internal`, `confidential`; default `internal`). A
+  project's `policy.json` may raise it with `advice_sensitivity_floor` and can never lower it, since
+  the project folder is something the agent can write. The brief's own label can only tighten it:
+  a missing or `unknown` label counts as `confidential`, `personal_data` and `secret_adjacent` are
+  never sent, a `confidential` brief goes to one seat and never to a council, and a model that has
+  no endpoint OpenRouter tags zero-data-retention is reachable only for `public` material. The label
+  is the agent's word, so the approval text tells you what the text is treated as and who set each
+  part (your floor, the project's policy, the agent's label): you are the check on it.
+- **Your own chain, or a $0 trial.** `COUNCIL_ADVISE_CHAIN_SINGLE` and `COUNCIL_ADVISE_CHAIN_COUNCIL` point a
+  mode at an advise chain by name. An advice chain is read from the package's own `chains/` or from one
+  folder you name in `COUNCIL_ADVICE_CHAINS_DIR` (an absolute path outside the project; anything else stops
+  the server), and never from the project's `chains/`: a repository's chain file would otherwise choose who
+  receives the text. Your chain must pass the same checks: priced seats, not denied, zero-retention routing
+  where the model has it, a wall clock. `COUNCIL_ADVISE_MOCK=1` runs the mock chains, so the whole exchange
+  can be tried with no key and no money.
+- **When an advisor asks for more.** An answer can list what was missing from the brief. That list is model
+  text, shown to the agent as untrusted, and the next call does not go out on the agent's say-so: its
+  approval text starts with "This call follows an advisor's request for more material", so you see that
+  the new text answers a model's request, and decide whether that material should leave your machine.
+- **Stopping.** A client that cancels the call or goes away, `council stop runs/<id>` at your
+  terminal, or the chain's own wall-clock ceiling (`advise.max_wall_ms`) stops the run before its
+  next paid step: calls already in flight finish and are billed (the wall clock cuts a call still
+  running at its deadline, which may still be billed), the run exits 18, and the answers
+  that were paid for are kept in `report-partial.json`, which `run_status` hands back. A stopped call
+  is not resumed; ask again.
+
+What this does **not** do, stated plainly: "ZDR" in the preview is OpenRouter's routing tag for an
+endpoint, not a guarantee about what that host does with your text, and the retention table
+(`src/advice-retention.json`) is a dated snapshot (read on 2026-09-30; the preview prints its date and
+says when it is more than 30 days old). No scanner catches names, addresses, phone
+numbers or passwords written as prose: read the text the server shows you. The limits above bind
+these two tools and `start_run` / `resume_run` for advice chains, which refuse them; they do not
+bind a shell that runs `council` itself, and the ledger they read is in your working folder.
+Headless use is refused by design: with no dialog and no person at a terminal the call returns
+`awaiting_approval` and nothing runs (Claude Code in `-p` or CI mode included). The
+models see only the brief: nothing is run or checked. A call takes seconds (one seat) or minutes (a
+council) and costs real money: see the price in the quote, in your own units.
 
 **External vs. API-backed seats.** `{ "provider": "external" }` pauses a run at that seat so a
 Claude Code session on a flat-rate subscription plays it - free at the point of use, since the
@@ -622,7 +730,7 @@ for anyone with a subscription, since the project's cost story depends on it.
 
 ## Chains
 
-52 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
+64 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
 which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be
 copied and edited.
 
@@ -637,7 +745,9 @@ in the table at the top. A few more worth knowing:
   Claude Opus 5.5 on your Claude subscription (an external seat), GPT-6 Luna and DeepSeek V4 Pro
   write the architectures and alone vote; seven low-cost labs propose and debate. Two Claude Code
   sessions answer its external seats: Opus 5.5 every stage whose label contains `opus5.5-sub`
-  (including `-retry` and `-reask1`/`-reask2` forms), Sonnet 5 the writer stages. $1.90 worst case.
+  (including `-retry` and `-reask1`/`-reask2` forms), Sonnet 5 the writer stages. $5.70 worst case
+  (0.8.1 dry run at the prices of 2026-10-06; $5.08 at the earlier prices, $4.88 before every seat reasoned at high, $1.90 before proposals could use a
+  seat's whole output allowance).
   **Run once with real models (2026-09-28); nothing about it has been measured.**
 - **`cheap`** - small models throughout. For testing the harness itself, not for real work.
 - **`plan-debate`** - five labs propose blind, debate each other's proposals anonymised, then a
@@ -648,6 +758,36 @@ in the table at the top. A few more worth knowing:
   here means up to fifteen critic calls, not five.
 
 Read a chain's `description` field before running it; they say what they cost you in calls.
+
+### Reasoning effort
+
+Every seat in a shipped chain is set to `high` where its model has a setting for it, and no code
+path lowers it. What "high" means depends on the model, so `src/reasoning-table.json` lists,
+per model, the request field that sets it (Anthropic `output_config.effort`, OpenRouter
+`reasoning.effort`, OpenAI and Google `reasoning_effort`, Z.ai `thinking`, Together's Qwen chat
+template), the model's own default effort and its largest reply. Each row carries the document it was
+read from and a date. `chain-lint` refuses a shipped chain whose seat is set below high (a reasoning
+setting that is off, low, medium, minimal, a smaller token budget, or hidden). That rule binds the
+chains in this package only: a chain of your own is not refused, and a setting you write in your own
+chain is sent as written. In your own chain, a seat with no reasoning setting gets the high default
+for any model the table has a field for.
+
+- **Models that default above high.** GLM-5.3, GLM-5.3 Flash and Qwen3.8 Max run at `max` or `xhigh`
+  unless told otherwise, so sending "high" would be a lower effort. They are sent nothing and run at
+  their own default.
+- **Claude Haiku 4.5** has no effort levels. Its "high" is thinking on with a token budget of half the
+  seat's output cap (at least 1,024), and the cap carries the budget on top of the room the answer had.
+- **A reply that spent its whole cap thinking** is retried once with the same request and a bigger cap
+  (double, up to the model's own maximum and what its connection can return). At that limit it is not
+  retried; the seat is recorded as `no answer: thinking used the whole cap` (the `no_answer` field of
+  that seat's entry in `panelVerdicts`) and is unheard, never a pass. Until 0.8.0 the retry turned
+  thinking off.
+- **Models the table has no field for** (for example Cohere, Groq, Mistral Large, the models on Together
+  other than Qwen3.5-9B and DeepSeek V4 Flash, local Ollama models) are sent nothing. DeepSeek V4 Flash on
+  Together is sent the chat-template switch vLLM documents for it; Together's own page for it was not found.
+- **`gp-judge-v1`** now runs its Sonnet and Qwen seats with reasoning on (it ran with it off). Scores
+  from this version on come from the high-effort judge, so earlier and later GP scores are not
+  directly comparable.
 
 ### Optional chain-config fields
 
@@ -692,9 +832,10 @@ The parts worth knowing, because they explain why the code looks the way it does
 **Almost every defensive branch here is a headstone.** `parseJson` in `chain.js` repairs two
 specific malformations — an unescaped `"` inside a markdown-quoted span, and raw newlines inside
 string values — because three consecutive real runs died on the first one and silently logged a
-pass that never happened. The comments name the run id and the date. The retry that disables
-thinking exists because an Anthropic seat burned its entire `maxTokens` budget thinking and
-returned nothing. The `ROSTER SHRANK` warning exists because a lab can return nothing and vanish
+pass that never happened. The comments name the run id and the date. The retry after a
+reply that spent its whole budget thinking exists because an Anthropic seat burned its entire
+`maxTokens` budget thinking and returned nothing; until 0.8.0 it switched thinking off, and since
+0.8.1 it keeps the same effort and raises the cap. The `ROSTER SHRANK` warning exists because a lab can return nothing and vanish
 from the scoreboard without saying so. None of these were designed in advance; each one is a day
 that went wrong.
 
@@ -736,34 +877,9 @@ what each rule guards against and why. Copy the folders you want into your proje
 ## Known limits, stated plainly
 
 - The spend cap is enforced against a **worst case**, not a prediction: the whole prompt billed as
-  input plus the seat's entire `maxTokens` budget billed as output (doubled for Anthropic seats,
-  which may retry once). Real stages almost never cost that much, so a run can stop with headroom
+  input plus the seat's entire `maxTokens` budget billed as output (for Anthropic seats, plus the
+  bigger cap of the one retry they may make). Real stages almost never cost that much, so a run can stop with headroom
   left. That is the intended trade - resume it with a higher ceiling.
-- **Known defects in 0.8.0**, found by a review after release (2026-10-02) and due to be fixed in 0.8.1:
-  - `council handoff --from-run` keeps one cost record per run. Running it again (as its own message suggests after a
-    cut-off reply) overwrites the first call's cost, so `council --spend` undercounts. A later `--resume` does not count
-    the handoff's cost toward the run's cap at all.
-  - For a chain with no `estimate` block and a task longer than about 16,000 characters, `--dry-run --json` reports
-    `worstCaseWithTaskUsd: null` and `cap.worstCaseAboveDefault: false` even when the run could pass the cap. The text
-    dry run and the in-run cap are not affected.
-  - `council check-lock` reports an untouched `HANDOFF.md` as edited when the file has Windows (CRLF) line endings.
-  - An `AMENDMENTS.md` entry whose reason quotes a full-length commit hash is read as moving the task to that hash, and
-    the resume is refused. Quote a short hash (7 characters) instead.
-  - `handoff --from-run` writes a `HANDOFF.md` with no lock block, without a warning, when the run's `criteria.md`
-    needed JSON repair.
-  - After a stop for a cut-off draft, a preflight objection or a key-shaped prompt, `state.json` still says `running`,
-    and a key-shaped stop reads as resumable with nothing to do (resuming as it is stops again).
-  - On case-insensitive file systems (macOS, Windows), `handoff.md` and `HANDOFF.md` are one file, so the run's lock
-    block also lands in the cached handoff stage.
-  - The criteria fingerprint (`criteria_sha256`, the `HANDOFF.md` lock block, `council check-lock`) covers each
-    criterion's wording, not how it is checked: with criterion kinds on, a changed `check` or `on` field leaves the
-    fingerprint unchanged. Found 2026-10-02 by the execution-contracts research; the fix is an added field, not a
-    change to the existing one.
-  - Every whole architecture (`alternatives`), and every debate post and author reply about one, is cut to 2,000
-    characters before other seats read it, without a warning; the cut text ends with `[truncated, N chars total]`. A
-    seat may therefore debate or build from a shortened design. Critic objections are cut at the same length (a guard
-    against a runaway reply), also without a warning. Found 2026-10-02 in a real run (a 6,704-character design reached
-    the builder as 2,000).
 - The dry run (`--dry-run`, MCP `dry_run`) prices the task alone and does not read `--context`
   documents, so for a run with context its estimate is too low. The spend cap is not affected: it
   checks every real prompt, context included, before each call.
@@ -775,18 +891,36 @@ what each rule guards against and why. Copy the folders you want into your proje
 - A call that fails **after** it reached the provider - the connection drops while a 200 reply is
   being read, a 200 carries a body that is not JSON, or the request times out waiting for headers -
   is not retried, because the generation was probably already billed. Its real usage cannot be
-  read, so it is counted toward the per-run cap at its worst-case projection. It leaves no
-  `<label>.usage.json`, so `council --spend` does not see it.
+  read, so it is counted toward the per-run cap at its worst-case projection, and recorded as
+  `superseded/<label>.charge-<n>.usage.json`, which `council --spend` and a resume count.
 - Some hosted reasoning models stop at a provider-side reasoning ceiling well below the seat's own
   cap, before writing any answer (seen 2026-09-23: `deepseek/deepseek-v4.1-flash` via OpenRouter, 6 of
   28 calls stopped at ~4.2k tokens, all reasoning, under a 36k cap). A bigger cap cannot fix that, so
   such a reply is recorded as `REASONING_EXHAUSTED` and is not retried: the seat abstains, which
   blocks unanimity and never counts as consent. Whether to change a chain's reasoning settings for it
   is a roster decision, not something the harness does for you.
+- **The Claude Code plugin installs from the repository root.** `claude plugin validate .` passes with one warning, and
+  `claude plugin validate --strict .` fails on it: "CLAUDE.md at the plugin root is not loaded as project context" (the
+  file is this project's own instructions and is not part of the plugin). A separate `plugin/` directory would not have it;
+  that layout was declined for 0.8.1 and comes back with the plugin directory listing. What Claude Code passes for an
+  unset optional dialog field was seen once, in a scratch plugin on Claude Code 2.1.289 (an empty string), not across
+  versions or on Claude Desktop's own client.
+- **The reasoning fields were set from the providers' documents and OpenRouter's public model list,
+  not exercised in a live call** (src/reasoning-table.json, read 2026-10-05). A provider that rejects a
+  field fails that seat's call with the provider's own error; the first real run of a changed chain is
+  the live test. The table turns stale after 60 days and a release test fails then. Seats that now
+  reason at high use their output cap faster, and a cap sized for a short answer (a questions or criteria
+  stage) can be spent on thinking: such a seat is retried once at a bigger cap and, past the limit, is
+  recorded with no answer. A direct Anthropic call is not streamed, so its retry is bounded at 64,000
+  tokens; streaming is not built.
 - Prices in `src/pricing.json` are hand-maintained list prices. Its `asOf` date (2026-09-06: the
   oldest date every entry was last checked) is printed by `council doctor` and `--dry-run`, with a
   warning once it is more than 60 days old. The spend cap and every estimate use these static
-  prices. They are estimates, not invoices. Your provider's bill is the real number.
+  prices. They are estimates, not invoices. Your provider's bill is the real number. A row whose
+  price is known to change carries an `expires` date (GPT-5.6 Sol's promotional price, at least
+  through 2026-11-21; Gemini 3.8 Flash, which doubles on 2027-01-01): past it, `council doctor` and
+  `--dry-run` warn, but the projection and the cap keep the old price, so they can project low
+  until the table is updated.
 - `plan-highest-7` has not been run with real models, and `plan-daily-7` has run once
   (2026-09-28). None of the tiered councils' mechanisms (tiers, the deep-dive seat, the majority
   guard) has been measured. Their dry-run prices are projections.
@@ -805,10 +939,69 @@ what each rule guards against and why. Copy the folders you want into your proje
   which is the default, it does not detect a full rewrite**: anyone who can edit the file can
   recompute every hash. Set `AUDIT_HMAC_KEY_FILE` to a key kept outside the run folder if the log
   has to stand up to that.
+- The advice tools (`council_quote`, `council_advise`) are experimental, and a call takes **seconds
+  (one seat) to minutes (a council), not milliseconds**, and **costs real money every time**: the quote
+  shows the worst case and the expected price, and the call cannot pass its ceiling. The brief goes to
+  outside labs: the preview says who, and its "ZDR-tagged by OpenRouter" wording is OpenRouter's routing
+  tag for an endpoint, **not a guarantee** about what that host does with your text (the table behind it,
+  `src/advice-retention.json`, is a dated snapshot). Masking catches the shapes it knows (emails, IBANs, cards, IPv4 addresses, a fixed list of internal host-name endings, home paths under
+  `/home`, `/Users` and `/srv`) and misses others (IPv6 addresses, `/var/home`, a WSL `/mnt/c/Users/...` path, `.home.arpa`, `.fritz.box`), and never names, addresses or a password written in words. The run folder of any run holds the absolute path of your working folder (`run.json`, `run.log`, `RESUME.md`): committing a run folder publishes it. The approval step covers `council_advise` only: `write_task` and `start_run` with another chain send text to the labs with no preview, only the key scan and the spend cap. The call limits bind
+  the advice tools, not a shell that runs `council` itself, and their ledger sits in your working folder.
+  Nothing has been measured that shows advice from other labs improves what an agent does.
 - The outbound key scan matches **key shapes only**, the formats in `src/secret-patterns.js`; a
   password written in prose is not detectable. Generic shapes (a password inside a URL or an
   assignment) are checked in your inputs before the run; text the models write is checked only for
   distinctive key formats.
+- **The council advisor (`council_quote`, `council_advise`) was checked only against mock providers; these were not verified against a live provider or client.**
+  None of them is a claim about quality; a live check is yours to run, with a cap.
+  - U1: `zdr`, `data_collection` and `max_price` together on a real OpenRouter request. A wrong combination fails before generation, at $0, so the risk is a
+    refused call, not an overspend.
+  - U2: whether the output cap bounds reasoning tokens on all three council routes. The quoted ceiling is a projection; the provider's own billing decides.
+  - U3: whether a billed timeout is retried and charged twice against one reservation.
+  - U4: what a real client shows for an approval prompt of a 48,000-character brief (the limit), and whether the approval wait counts toward a client's background
+    threshold. The terminal path (`council gate answer`) always exists.
+  - U5: what each provider bills for an aborted request, and a real client's cancel (the tests send `notifications/cancelled` by hand).
+  - U6: Sol's real output length and latency, and GLM-5.3's latency, as advisors.
+  - U7: cancellation semantics under the protocol revision the SDK negotiates (generic cancellation, not the newer stdio requirement).
+- **The approval gate is friction, not enforcement.** Every advice call needs a person to answer a gate through a terminal or an elicitation, so scripted or
+  unattended use is not supported: a client that cannot ask a person (headless Claude Code, a script) gets `awaiting_approval`, and nothing is sent until someone answers at a terminal. The terminal answer can be typed by anything that runs as you. The gate's ledger is
+  tamper-evident, not tamper-proof: an edit before its last line is detected; the last line, the tail and a rewrite of both the ledger and its view are not.
+- **Planning runs still cannot be stopped from outside** (`council stop` and the client's cancel stop an advice call only).
+- **`advise-premium` sends your text to labs that have no zero-retention-tagged endpoint.** It is `public`-only (the operator sets that floor), and its
+  worst case is above the add-on's default per-call limit, so an operator raises the limits to use it. GPT-6 Astra is reachable only through OpenRouter: there
+  is no subscription route. The retention table behind the send preview is a dated snapshot (`src/advice-retention.json`); the preview's wording is OpenRouter's
+  routing tag, not a guarantee.
+- **The advice brief is written into the run folder** (`runs/<id>/advice-brief.md`), so a commit of the run folder publishes it.
+- **`advise-single`'s ceiling is $1.32 (the "at most" its tool description shows).** It covers the first call and one retry of a cut-off reply; the typical
+  cost of one call is far lower. A person's own terminal run of an advice chain is not gated (`gate: null`), and the add-on's money limits and its chain choice can
+  also be set from a project `.env` (as can the audit-log key `AUDIT_HMAC_KEY` and the quote lifetime `COUNCIL_ADVISE_QUOTE_TTL_MS`): whether those should be refused is open. The council's wall clock (900 seconds) is untuned, and the single-seat swaps
+  (Astra, Gemini) keep fixed output caps.
+- **A review cut-off in the security-review seat:** `src/security-review.js` cuts reviewer fields at 2,000 characters with a visible marker and no record.
+- **Untested on case-insensitive file systems (macOS, Windows).** The fix for `handoff.md` and `HANDOFF.md` being one file (FX-9: `handoff --from-run` now also writes with an exclusive create, so it cannot replace an existing file whatever the disk's case rules) and the working-folder path checks were tested on Linux only. No pass on a Mac or a Windows machine was run for 0.8.1.
+- **The dry run does not price every cap.** A planning chain's dry run prices a critic at the chain's own estimate, not at its output cap, so the larger caps of
+  0.8.1 (360,000 tokens for DeepSeek V4.1 Flash and the panel review of GLM-5.3 Flash) appear only in the spend cap's per-stage projection, which can stop a run before
+  the dry-run total. A retry of 720,000 tokens (a 360,000-token seat at the model's maximum) cannot finish inside the 45-minute request deadline and would be a paid timeout.
+- **A failed start after approval is counted at the full ceiling.** If an advisor run cannot start after a person approved it (for example an unreadable audit-key file named in a project `.env`), the approval is used up, nothing is sent, and the call is still counted in the limits at its full ceiling (`advise-single`: $1.32). Two of these and one real call pass the $3 session limit, which then refuses advice for six hours with nothing spent.
+- **One approval can start two runs if the approved run folder is copied:** the approval is bound to the text, not to the run folder.
+- **Six shipped chains seat Gemini 2.5** (`plan-two-strong`, `seven`, `cheap`, `smo`, `us-only`, `verify` through the direct Google provider). Google has closed Gemini 2.5 to new projects, so a run on those chains by a new user will probably fail at that seat; use a chain with another seat, or change the seat's model.
+- **The retry of a direct Anthropic seat whose thinking used the whole cap may never fire.** It keys on a thinking-token count in the reply's `usage`
+  (`output_tokens_details.thinking_tokens`) that Anthropic's public Messages API reference does not list (thinking counts inside `output_tokens`); OpenRouter reports
+  `reasoning_tokens`, so it fires for an Anthropic seat sent through a single-vendor route (`"transport": "openrouter"`). Where the count is absent, a reply cut off at its cap is retried by the panel's ordinary cut-off rule (one bigger call),
+  not by this one. Not verified against the live API.
+- **Some fields an agent reads about a run are not marked as untrusted text.** `list_runs`, `run_status` and `external_prompt` return a run's label, chain name, task path and an
+  external seat's claim as ordinary fields; text from a cloned repository's run folder or chain file could carry an instruction there. Only the model-written fields named in
+  `untrusted_fields` are marked. A stage bundle for a subagent now says its referenced files are data; the field marking is planned for 0.8.2.
+- **The terminal command for approving a call was not run under the `.mcpb` route.** It names the server's own Node binary and `cli.js` with absolute paths (or the standalone binary alone). Under Claude Desktop's bundled Node, whether that binary can be run from a terminal was not checked; `council gate answer` from an installed `council` always works.
+- **A process killed in the middle of a call records nothing** (there are no signal handlers): the provider bills the call, but it is missing from `council --spend` and from a resume's
+  cap. A brief of non-ASCII text (CJK, say) is projected low in a planning chain (four characters a token); the add-on prices such a brief from its bytes.
+- **A run paused under 0.8.0 on a chain that 0.8.1 changed is not replayed when resumed:** the config fingerprint differs, so its stages are set aside and paid for again.
+  Finish such a run on 0.8.0, or start it again.
+- **`npm test` turns red on dates, by design:** 2026-10-31 (the retention table, 30 days old), 2026-11-21 (the `gpt-5.6-sol` promotional price row, and the OpenRouter
+  price rows of `src/pricing.json`, 45 days after `scripts/refresh-openrouter-prices.mjs` last compared them with OpenRouter's list) and 2026-12-05
+  (`src/reasoning-table.json`, 60 days old). Re-read the pages, re-date the file, then the suite is green again. The price rows of the direct providers
+  (Anthropic, OpenAI, Google, ...) carry their own dates in `_source` and are not covered by that test.
+- **DeepSeek V4 Flash on Together** is sent `chat_template_kwargs {thinking: true, reasoning_effort: "high"}` from vLLM's serving recipe; Together's own page for it was
+  not found, so the on-value is unconfirmed on Together.
 
 ## Privacy
 
@@ -825,6 +1018,14 @@ This tool collects nothing. Stated plainly, not as a claim about quality:
   folder on your own disk (`runs/<id>/`) and nowhere else. Deleting that folder deletes the
   record. See `src/spend.js`'s own documentation for why spend accounting is derived from those
   folders rather than kept in a separate log.
+- An advice call (`council_advise`) sends a brief an agent wrote, after masking, to the labs the preview named, through
+  OpenRouter, only after you approved its exact text (in your client's dialog or with `council gate answer`); there is no
+  allowance and no statement that skips that. Like every run, it writes the exact text to disk, in the run folder:
+  `runs/<id>/advice-brief.md`, hashed in `report.json` (`task_sha256`) and in the gate; the folder is made before you
+  answer, so a declined or unanswered request leaves one too (nothing in it was sent or spent). `advise-log.json` keeps no
+  brief text (only hashed, salted words of the question, salt kept in your home folder); `audit.jsonl` (always written
+  for advice calls) holds a hash and a size per call, never the text. If you commit a run folder, you publish its masked
+  brief.
 - If you opt in to the audit export (`"audit": true`, and on automatically whenever a `policy.json`
   exists), each run also writes `audit.jsonl` into its own folder: signed, hash-chained lines (each carries the previous line's hash) that
   `verifyAuditLog` in `src/audit.js` checks offline. Seat, cost and timing only, never task or

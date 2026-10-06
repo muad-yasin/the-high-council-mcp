@@ -19,6 +19,7 @@ import { resolveChainSeats } from './chain.js';
 import { isChainName } from './chain-name.js';
 import { estimateChainRows } from './cost.js';
 import { deriveRunStatus } from './run-status.js';
+import { readStoppedMarker } from './stop-files.js';
 import { harnessVersion } from './version.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -187,6 +188,9 @@ export function readRun(runDir, { cwd = process.cwd() } = {}) {
     meta,
     report: readJson(join(dir, 'report.json')),
     budgetStop: stopped,
+    // 0.8.1 M6 (additive): an advice call stopped by a person, its client or its wall clock: its STOPPED-<cause>.json, with the
+    // cause as `stoppedBy`. null otherwise. budgetStop keeps meaning the spend cap only.
+    stop: (() => { const m = readStoppedMarker(dir); return m ? { ...(m.data || {}), stoppedBy: m.stoppedBy } : null; })(), // the file name names the cause
     files: readdirSync(dir).filter(f => statSync(join(dir, f)).isFile()).sort(),
   };
 }

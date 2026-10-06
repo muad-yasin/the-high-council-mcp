@@ -5,7 +5,7 @@
   "maxRounds": 7,
   "signoff": "unanimous",
   "dispute": { "enabled": true, "stall_rounds": 2 },
-  "proposals": { "parts": 3, "maxTokens": 4000 },
+  "proposals": { "parts": 3, "maxTokens": 12000 },
   "debate": true,
   "decisions": { "enabled": true },
   "alternatives": { "enabled": true, "debaters": "all" },
@@ -15,32 +15,168 @@
   "handoff": true,
   "estimate": { "promptTokens": 10000, "draftTokens": 10000, "critiqueTokens": 5000 },
   "seats": {
-    "criteria": { "provider": "openrouter", "model": "meta-llama/llama-4-maverick", "maxTokens": 36000, "lab": "llama4-maverick" },
+    "criteria": { "provider": "openrouter", "model": "meta-llama/llama-4-maverick", "maxTokens": 16384, "lab": "llama4-maverick" },
     "skeleton": { "provider": "external", "model": "claude-code-session" },
     "builder": { "provider": "external", "model": "claude-code-session" },
     "reviser": { "provider": "external", "model": "claude-code-session" },
     "handoff": { "provider": "external", "model": "claude-code-session" },
     "proposers": [
-      { "provider": "openrouter", "model": "openai/gpt-5.6-luna", "maxTokens": 36000, "lab": "gpt5.6-luna" },
-      { "provider": "openrouter", "model": "google/gemini-3.8-flash", "maxTokens": 36000, "lab": "gemini3.8-flash" },
-      { "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash", "maxTokens": 36000, "lab": "deepseek-v4.1-flash" },
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-5.6-luna",
+        "maxTokens": 36000,
+        "lab": "gpt5.6-luna",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "google/gemini-3.8-flash",
+        "maxTokens": 36000,
+        "lab": "gemini3.8-flash",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4.1-flash",
+        "maxTokens": 360000,
+        "lab": "deepseek-v4.1-flash",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
       { "provider": "openrouter", "model": "z-ai/glm-5.3-flash", "maxTokens": 36000, "lab": "glm5.3-flash" },
-      { "provider": "openrouter", "model": "qwen/qwen3.7-plus", "maxTokens": 36000, "lab": "qwen3.7-plus" },
-      { "provider": "openrouter", "model": "minimax/minimax-m3", "maxTokens": 36000, "lab": "minimax-m3" },
-      { "provider": "openrouter", "model": "mistralai/mistral-medium-3-5", "maxTokens": 36000, "lab": "mistral-medium3.5" }
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.7-plus",
+        "maxTokens": 36000,
+        "lab": "qwen3.7-plus",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "minimax/minimax-m3",
+        "maxTokens": 36000,
+        "lab": "minimax-m3",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "mistralai/mistral-medium-3-5",
+        "maxTokens": 36000,
+        "lab": "mistral-medium3.5",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      }
     ],
     "alternatives": [
-      { "provider": "openrouter", "model": "openai/gpt-6-astra", "maxTokens": 36000, "lab": "gpt6-astra" },
-      { "provider": "openrouter", "model": "anthropic/claude-opus-5.5", "maxTokens": 36000, "lab": "opus5.5", "estimate": { "critiqueTokens": 10000 } },
-      { "provider": "openrouter", "model": "deepseek/deepseek-v4-pro", "maxTokens": 64000, "lab": "deepseek-v4-pro" },
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6-astra",
+        "maxTokens": 36000,
+        "lab": "gpt6-astra",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "anthropic/claude-opus-5.5",
+        "maxTokens": 36000,
+        "lab": "opus5.5",
+        "estimate": {
+          "critiqueTokens": 10000
+        },
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4-pro",
+        "maxTokens": 64000,
+        "lab": "deepseek-v4-pro",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
       { "provider": "openrouter", "model": "z-ai/glm-5.3", "maxTokens": 64000, "lab": "glm5.3" }
     ],
     "critics": [
-      { "provider": "openrouter", "model": "openai/gpt-6-astra", "maxTokens": 36000, "lab": "gpt6-astra" },
-      { "provider": "openrouter", "model": "anthropic/claude-opus-5.5", "maxTokens": 36000, "lab": "opus5.5", "estimate": { "critiqueTokens": 10000 } },
-      { "provider": "openrouter", "model": "deepseek/deepseek-v4-pro", "maxTokens": 64000, "lab": "deepseek-v4-pro" },
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6-astra",
+        "maxTokens": 36000,
+        "lab": "gpt6-astra",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "anthropic/claude-opus-5.5",
+        "maxTokens": 36000,
+        "lab": "opus5.5",
+        "estimate": {
+          "critiqueTokens": 10000
+        },
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4-pro",
+        "maxTokens": 64000,
+        "lab": "deepseek-v4-pro",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
       { "provider": "openrouter", "model": "z-ai/glm-5.3", "maxTokens": 64000, "lab": "glm5.3" }
     ],
-    "deep_dive": { "provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash", "maxTokens": 36000, "lab": "deepseek-v4.1-flash" }
+    "deep_dive": {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "maxTokens": 360000,
+      "lab": "deepseek-v4.1-flash",
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    }
   }
 }

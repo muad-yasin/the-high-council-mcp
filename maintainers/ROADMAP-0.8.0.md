@@ -13,6 +13,12 @@ planning run:**
   the plan lives in the maintainer's local run folder) produced the build plan. Owner calls inside it: the plugin stays
   at the repo root (only the npm package's file count is checked); GPT-6 Astra through a ChatGPT plan is not built
   (Astra stays an OpenRouter option); no waiver, so every advice send needs a person to see the exact text.
+- **Slice A (the rest of the contracts' first slice: the contract record and its first commands) is in 0.8.2, not 0.8.1** (dated 2026-10-05 23:45,
+  the plan's M8 fit check, DR-12). Owner, 2026-10-05 20:30 ("all as recommended"): 0.8.1 ships the contracts floor only (the approval gate and the
+  ledger). Reason: the plan's size check could not fail (it compared 0.31 wall-clock days used with limits written in planned agent-days), so the real
+  choice was a small contract record now or the whole contract system, with its verifier, designed once in 0.8.2; the reasoning-always-high work (milestone R),
+  the link move and FX-15 already enlarged 0.8.1, and the research for 0.8.2 (thc-research brief 32) would redesign that record. No contract command, tool or
+  file ships in 0.8.1 beyond the floor.
 - **Found by that run, added to 0.8.1:** the engine cuts every whole architecture, and the posts and replies about it, to
   2,000 characters before other seats read it (a cap written for short critic fields), silently. Fix: per-kind sizes, and
   every cut recorded loudly. Also: the proposal output limits in the shipped plan chains (1,500-4,000 tokens per part)

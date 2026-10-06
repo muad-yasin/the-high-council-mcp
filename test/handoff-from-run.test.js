@@ -173,9 +173,10 @@ test('the spend is on record: a usage file, counted by spendReport and by the ne
     const rd = join(dir, 'runs', RUN);
     const r = run(dir, ['--from-run', join('runs', RUN), '--max-usd', '100']);
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    const usage = JSON.parse(readFileSync(join(rd, 'handoff-from-run.usage.json'), 'utf8'));
+    // 0.8.1 FX-1: one file per call in superseded/ (was handoff-from-run.usage.json, overwritten by a second call).
+    const usage = JSON.parse(readFileSync(join(rd, 'superseded', 'handoff-from-run.call-1.usage.json'), 'utf8'));
     assert.ok(usage.usd > 0, 'the priced mock seat cost something');
-    assert.ok(existsSync(join(rd, 'handoff-from-run.md')));
+    assert.ok(existsSync(join(rd, 'handoff-from-run.reply.md')), 'the reply is kept (0.8.1 FX-9: renamed from handoff-from-run.md, which is HANDOFF-from-run.md on a case-insensitive disk)');
     const report = spendReport(join(dir, 'runs'), { days: 3650 });
     assert.ok(report.totalUsd >= usage.usd, JSON.stringify(report).slice(0, 300));
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -218,5 +219,17 @@ test('the policy gate applies: a policy the chain does not meet stops the handof
     assert.equal(r.status, 12, r.stdout + r.stderr); // the policy refusal, as for a run
     assert.equal(existsSync(join(dir, 'runs', RUN, 'HANDOFF.md')), false);
     assert.equal(existsSync(join(dir, 'runs', RUN, 'handoff-from-run.usage.json')), false);
+    assert.equal(existsSync(join(dir, 'runs', RUN, 'superseded')), false, 'no call record (0.8.1 FX-1: calls are recorded in superseded/)');
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('stopState (0.8.1 M6): an advice call stopped at exit 18 reads as stopped by its cause, never as finished or crashed', () => {
+  for (const [cause, words] of [['user', 'a person'], ['client_cancel', 'its client'], ['wall_clock', 'its wall-clock ceiling']]) {
+    const dir = mkdtempSync(join(tmpdir(), 'thc-handoff-stop-'));
+    try {
+      writeFileSync(join(dir, `STOPPED-${cause}.json`), JSON.stringify({ schema: 'stopped/1', stoppedBy: cause }));
+      writeFileSync(join(dir, 'report-partial.json'), '{}');
+      assert.deepEqual(stopState(dir), { finished: false, signedOff: false, reason: `stopped by ${words}` });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
 });

@@ -8,7 +8,7 @@
   },
   "proposals": {
     "parts": 3,
-    "maxTokens": 1500
+    "maxTokens": 12000
   },
   "debate": true,
   "handoff": true,
@@ -22,44 +22,77 @@
       "provider": "anthropic",
       "model": "claude-opus-5",
       "maxTokens": 2000,
-      "lab": "anthropic"
+      "lab": "anthropic",
+      "extra": {
+        "output_config": {
+          "effort": "high"
+        }
+      }
     },
     "skeleton": {
       "provider": "anthropic",
       "model": "claude-opus-5",
       "maxTokens": 6000,
-      "lab": "anthropic"
+      "lab": "anthropic",
+      "extra": {
+        "output_config": {
+          "effort": "high"
+        }
+      }
     },
     "builder": {
       "provider": "anthropic",
       "model": "claude-opus-5",
       "maxTokens": 40000,
-      "lab": "anthropic"
+      "lab": "anthropic",
+      "extra": {
+        "output_config": {
+          "effort": "high"
+        }
+      }
     },
     "reviser": {
       "provider": "anthropic",
       "model": "claude-opus-5",
       "maxTokens": 40000,
-      "lab": "anthropic"
+      "lab": "anthropic",
+      "extra": {
+        "output_config": {
+          "effort": "high"
+        }
+      }
     },
     "handoff": {
       "provider": "anthropic",
       "model": "claude-opus-5",
       "maxTokens": 4000,
-      "lab": "anthropic"
+      "lab": "anthropic",
+      "extra": {
+        "output_config": {
+          "effort": "high"
+        }
+      }
     },
     "proposers": [
       {
         "provider": "anthropic",
         "model": "claude-opus-5",
         "maxTokens": 20000,
-        "lab": "anthropic"
+        "lab": "anthropic",
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        }
       },
       {
         "provider": "openai",
         "model": "gpt-5",
         "maxTokens": 20000,
-        "lab": "openai"
+        "lab": "openai",
+        "extra": {
+          "reasoning_effort": "high"
+        }
       }
     ],
     "critics": [
@@ -67,7 +100,10 @@
         "provider": "google",
         "model": "gemini-2.5-pro",
         "maxTokens": 20000,
-        "lab": "google"
+        "lab": "google",
+        "extra": {
+          "reasoning_effort": "high"
+        }
       }
     ]
   }

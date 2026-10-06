@@ -108,6 +108,8 @@ export function generateResumeBrief({ runId, dir, runMeta, chainConfig }) {
   lines.push('## Next action for the driving session');
   if (deliverableDone) lines.push(`Run is complete. Deliverable at ${join(dir, 'deliverable.md')}.`);
   else if (pending) lines.push(`Call prepare_stage_prompt(${JSON.stringify(runId)}, ${JSON.stringify(pending)}), or answer it directly and call submit_stage.`);
+  // 0.8.1 decided rule 6: an advice call is never resumed; it is asked again.
+  else if (existsSync(join(dir, 'advice.meta.json')) || existsSync(join(dir, 'advise-log.json'))) lines.push(`This is an advice call, which is not resumed. Call run_status(${JSON.stringify(runId)}) for what it has; to ask again, start with council_quote.`);
   else lines.push(`Call resume_run(${JSON.stringify(runId)}) or run_status(${JSON.stringify(runId)}) to check current progress.`);
 
   return `${lines.join('\n')}\n`;

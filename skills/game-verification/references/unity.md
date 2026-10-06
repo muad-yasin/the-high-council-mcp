@@ -4,12 +4,12 @@
 
 ## Batch mode, logs and exit codes
 
-- **`-nographics`: the graphics device is not initialised** (D). It "doesn't allow you to bake GI" because Enlighten real-time GI needs a GPU for its Meta Pass; whether progressive CPU baking is also blocked is not stated (D(h), I). Output logs are turned off in this mode, so name a log file with `-logFile` (`-` writes to the console) (D). A `-batchmode` player "doesn't display anything or accept user input" (D), so an in-build smoke injects input events or replays a trace (below).
+- **`-nographics`: the graphics device is not initialised** (D). The manual says it does not allow baking GI, because Enlighten real-time GI needs a GPU for its Meta Pass; whether progressive CPU baking is also blocked is not stated (D(h), I). Output logs are turned off in this mode, so name a log file with `-logFile` (`-` writes to the console) (D). A `-batchmode` player shows nothing and accepts no user input (D), so an in-build smoke injects input events or replays a trace (below).
 - **Give every scripted run its own `-logFile`.** A run with no log and no result file cannot be read.
 - **`-quit` with `-runTests` ends the Editor before in-progress tests complete**; the Test Framework says `-quit` is not supported while tests are running (D). A CI script passing both can exit cleanly after running nothing: check the result file's test count.
-- **Exit codes are not a verdict.** An unhandled exception in batch-mode script code makes the Editor exit with code 1 (D). The Test Framework states "there is currently no common definition for exit codes reported by individual Unity components under test" (D). A test fails if Unity logs a message other than a regular log or warning (Test Framework 1.5, D). A **player** that logs an exception in a callback may keep running (I, one forum thread), and its exit code is whatever the game passes to `Application.Quit`, so a player smoke parses its log and result file.
+- **Exit codes are not a verdict.** An unhandled exception in batch-mode script code makes the Editor exit with code 1 (D). The Test Framework states that there is no common definition of the exit codes its components report (D). A test fails if Unity logs a message other than a regular log or warning (Test Framework 1.5, D). A **player** that logs an exception in a callback may keep running (I, one forum thread), and its exit code is whatever the game passes to `Application.Quit`, so a player smoke parses its log and result file.
 - **Unity CLI `unity test`** documents exit code 8 for failed tests, 6 for other failures and 7 for an unreachable service or Editor (D(h), CLI reference and beta notes). Read it against your installed CLI version.
-- **Play-mode tests on a built player:** `-testPlatform` with a build target runs "Play mode tests that run on a Player built for the specified platform" (D, 6000.6 Test Framework command line).
+- **Play-mode tests on a built player:** `-testPlatform` with a build target runs the Play mode tests on a player built for the given platform (D, 6000.6 Test Framework command line).
 - **Assert on the log:** `LogAssert.Expect` fails a test if an expected message does not appear (D, Test Framework 1.5 API).
 
 ## Input and frames
@@ -21,7 +21,7 @@
 
 ## Performance
 
-- **Performance Testing package 3.5:** a development player is always built when tests run through the Test Framework; it suggests one quality level, VSync off, and "remove camera and run in batchmode if you are not measuring rendering"; its compatibility table ends at 2023.2, so its use on 6000.6 is unverified (D, 2026-10-04). Compare development builds with development builds, never with a release build.
+- **Performance Testing package 3.5:** a development player is always built when tests run through the Test Framework; it suggests one quality level, VSync off, and to drop the camera and run in batchmode when rendering is not what you measure; its compatibility table ends at 2023.2, so its use on 6000.6 is unverified (D, 2026-10-04). Compare development builds with development builds, never with a release build.
 - **Loading settings can be inert in the editor.** `Application.backgroundLoadingPriority` is documented as having no effect in the Editor, only in a built player (D, 6000.6 `Application.backgroundLoadingPriority` page, read 2026-10-04). Time loading in a player build.
 - **API-specific render paths.** On the 6000.6 pages, the GPU Resident Drawer needs Forward+ or Deferred+, and the Batch Renderer Group manual lists Linux with Vulkan only (D(h), 2026-10-01). A run forced onto a different graphics API may not exercise those paths; say which API ran.
 

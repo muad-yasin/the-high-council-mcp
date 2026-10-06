@@ -5,7 +5,7 @@
   "signoff": "unanimous",
   "proposals": {
     "parts": 3,
-    "maxTokens": 1500
+    "maxTokens": 12000
   },
   "debate": true,
   "handoff": true,
@@ -39,10 +39,11 @@
       {
         "provider": "together",
         "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
-        "maxTokens": 20000,
+        "maxTokens": 36000,
         "extra": {
           "chat_template_kwargs": {
-            "thinking": false
+            "thinking": true,
+            "reasoning_effort": "high"
           }
         },
         "lab": "deepseek"
@@ -50,10 +51,10 @@
       {
         "provider": "openrouter",
         "model": "qwen/qwen3.5-plus-20260420",
-        "maxTokens": 20000,
+        "maxTokens": 36000,
         "extra": {
           "reasoning": {
-            "enabled": false
+            "effort": "high"
           }
         },
         "lab": "qwen"
@@ -61,25 +62,29 @@
       {
         "provider": "openrouter",
         "model": "z-ai/glm-5.3-flash",
-        "maxTokens": 20000,
+        "maxTokens": 36000,
         "lab": "glm",
-        "extra": {
-          "reasoning": {
-            "effort": "low"
-          }
-        }
+        "panelMaxTokens": 360000
       },
       {
         "provider": "openrouter",
         "model": "mistralai/mistral-medium-3-5",
         "maxTokens": 20000,
-        "lab": "mistral"
+        "lab": "mistral",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
       },
       {
         "provider": "google",
         "model": "gemini-3.6-flash",
         "maxTokens": 20000,
-        "lab": "gemini"
+        "lab": "gemini",
+        "extra": {
+          "reasoning_effort": "high"
+        }
       }
     ]
   }

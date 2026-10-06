@@ -12,28 +12,50 @@
     "criteria": {
       "provider": "anthropic",
       "model": "claude-haiku-4-5-20251001",
-      "maxTokens": 1000
+      "maxTokens": 2024,
+      "extra": {
+        "thinking": {
+          "type": "enabled",
+          "budget_tokens": 1024
+        }
+      }
     },
     "builder": {
       "provider": "anthropic",
       "model": "claude-opus-5",
-      "maxTokens": 24000
+      "maxTokens": 24000,
+      "extra": {
+        "output_config": {
+          "effort": "high"
+        }
+      }
     },
     "reviser": {
       "provider": "anthropic",
       "model": "claude-opus-5",
-      "maxTokens": 24000
+      "maxTokens": 24000,
+      "extra": {
+        "output_config": {
+          "effort": "high"
+        }
+      }
     },
     "critics": [
       {
         "provider": "openai",
         "model": "gpt-5",
-        "maxTokens": 20000
+        "maxTokens": 20000,
+        "extra": {
+          "reasoning_effort": "high"
+        }
       },
       {
         "provider": "google",
         "model": "gemini-2.5-pro",
-        "maxTokens": 20000
+        "maxTokens": 20000,
+        "extra": {
+          "reasoning_effort": "high"
+        }
       }
     ]
   },

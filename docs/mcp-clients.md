@@ -148,6 +148,30 @@ mcpServers:
       - '--mcp'
 ```
 
+## The advice tools in any client: the hold, the approval, headless use
+
+`council_quote` and `council_advise` (experimental; see the README's "Asking other labs for advice") behave the
+same in every client, with three things to know when you register the server:
+
+- **The hold.** `council_advise` and `run_status` hold a call for at most 30 seconds (default 25), the smallest
+  tool-call limit documented among the clients we know of. A client that gives up on a call sends a cancel, and a
+  cancel stops the advice run (calls already in flight finish and are billed). Keep the client's tool timeout above
+  30 seconds and let the agent use the default. A council takes several turns: the agent continues with
+  `run_status(run, wait_seconds: 25, until: "settled")`.
+- **The approval.** A person approves every send after reading the exact text. A client that supports MCP
+  elicitation shows a dialog with the whole masked text, the seats, the price and the sensitivity; a client that
+  does not gets `awaiting_approval`, and the person runs `council gate answer runs/<id> g1` in a terminal, after
+  which the agent sends the same quote again. What a given client shows for a long brief, and whether the wait
+  counts toward its own time limits, has not been verified.
+- **Headless use is refused by design.** With no dialog and no person at a terminal the call returns
+  `awaiting_approval` and nothing is sent or spent. That includes Claude Code in `-p` or CI mode. There is no
+  setting that approves on a person's behalf.
+
+The operator settings for these tools go in the server's environment in the client's own configuration, never in
+the project: `COUNCIL_ADVICE_SENSITIVITY_FLOOR` (the floor; a project's `policy.json` can only raise it) and
+`COUNCIL_ADVICE_CHAINS_DIR` (an absolute folder outside the project for your own advice chains; a project's
+`chains/` is never read for one).
+
 ## A note on local clones
 
 Every example above uses the `npx -y the-high-council` form (the npm package), which needs no clone. If you'd rather run

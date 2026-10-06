@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://the-high-council.dev/schema/report-v1.json",
   "title": "report.json - a council run, structured",
-  "description": "The machine-readable record of one finished council run: runs/<id>/report.json, built by reportJsonShape() in src/report-shape.js for every writer (a normal run, a resumed run, `council init`/`council demo`, --rematch, --replay). BOARD.md is the same record for people; nothing should parse BOARD.md. A run that stopped early (spend cap, pre-flight block, external pause, crash) writes no report.json at all - its absence means 'not finished'. A run the per-run spend cap stopped (since 0.7.7) writes runs/<id>/report-partial.json instead: this same schema, built by the same function from what the run had when it stopped, plus `partial: true`, `stoppedBy` and `stoppedAtStage`. In it a stage the run never reached has the value that means 'did not run' (null, [], false, or the field absent); `passed`, `outcome` and `signoff` describe the state at the stop, not a verdict; `finished_at` is when the run stopped. A resume removes it together with STOPPED-budget.json; a resumed run that finishes writes report.json. Versioning: `schemaVersion` is an integer that moves only on a breaking change (a field renamed, removed, or its meaning or type changed). Adding a field is not breaking and does not move it, so a reader MUST ignore fields it does not know; that is why additionalProperties is left open everywhere. Each top-level property carries an `x-stability` annotation: `stable` fields keep their name, type and meaning for the whole of schemaVersion 1; `experimental` fields may change shape in a minor release and are listed in the changelog when they do. Fields marked 'model-supplied' come from a model's own JSON reply and are passed through with little or no checking: read them defensively.",
+  "description": "The machine-readable record of one finished council run: runs/<id>/report.json, built by reportJsonShape() in src/report-shape.js for every writer (a normal run, a resumed run, `council init`/`council demo`, --rematch, --replay). BOARD.md is the same record for people; nothing should parse BOARD.md. A run that stopped early (spend cap, pre-flight block, external pause, crash) writes no report.json at all - its absence means 'not finished'. A run the per-run spend cap stopped (since 0.7.7), and since 0.8.1 an advice call stopped by a person, its client or its wall clock (exit 18), writes runs/<id>/report-partial.json instead: this same schema, built by the same function from what the run had when it stopped, plus `partial: true`, `stoppedBy` and `stoppedAtStage`. In it a stage the run never reached has the value that means 'did not run' (null, [], false, or the field absent); `passed`, `outcome` and `signoff` describe the state at the stop, not a verdict; `finished_at` is when the run stopped. A resume removes it together with STOPPED-budget.json; a resumed run that finishes writes report.json. Versioning: `schemaVersion` is an integer that moves only on a breaking change (a field renamed, removed, or its meaning or type changed). Adding a field is not breaking and does not move it, so a reader MUST ignore fields it does not know; that is why additionalProperties is left open everywhere. Each top-level property carries an `x-stability` annotation: `stable` fields keep their name, type and meaning for the whole of schemaVersion 1; `experimental` fields may change shape in a minor release and are listed in the changelog when they do. Fields marked 'model-supplied' come from a model's own JSON reply and are passed through with little or no checking: read them defensively.",
   "type": "object",
   "required": [
     "runId", "chain", "task", "fromRun", "criteria", "passed", "outcome", "lastCritique", "signoff",
@@ -56,7 +56,7 @@
       "x-stability": "experimental",
       "type": "string",
       "pattern": "^[0-9a-f]{64}$",
-      "description": "SHA-256 (hex) of the task file's UTF-8 text as the report's last sitting read it. Its first 12 characters are run.json's `taskHash`, the frozen-scope check a resume makes. Lets a reader match a report to a task file without the path. Added in 0.7.7; absent on earlier reports."
+      "description": "SHA-256 (hex) of the task file's UTF-8 text as the report's last sitting read it. Its first 12 characters are run.json's `taskHash`, the frozen-scope check a resume makes. Lets a reader match a report to a task file without the path. On an advice run the task file is the brief, so this is the hash of the exact text every seat was sent (the text the person confirmed). Added in 0.7.7; absent on earlier reports."
     },
     "fromRun": {
       "x-stability": "stable",
@@ -78,12 +78,12 @@
     "passed": {
       "x-stability": "stable",
       "type": "boolean",
-      "description": "True if the panel signed off on the final draft under the chain's sign-off rule (`first`: one critic; `unanimous`: every critic on the same draft). Read `outcome` before quoting this: a run can pass with part of its roster unheard."
+      "description": "True if the panel signed off on the final draft under the chain's sign-off rule (`first`: one critic; `unanimous`: every critic on the same draft). Read `outcome` before quoting this: a run can pass with part of its roster unheard. On a report that carries `advise` (an advice call, not a plan) this is not a sign-off: nobody reviewed a draft, it is true whenever the call ran, and verdict_stats and metrics skip such reports."
     },
     "outcome": {
       "x-stability": "stable",
       "enum": ["consensus", "no_consensus", "degraded"],
-      "description": "Verdict class, computed by src/outcome.js from the rest of this file. `degraded` wins: a seated lab produced nothing usable (it dropped out, see `dropouts[]`: in a tiered chain this may be a debating seat that never votes), a reviewer abstained, no reviewer was heard, or the round fell short of the quorum - so the run did not have the roster the chain intended. Otherwise `consensus` if passed, else `no_consensus`."
+      "description": "Verdict class, computed by src/outcome.js from the rest of this file. `degraded` wins: a seated lab produced nothing usable (it dropped out, see `dropouts[]`: in a tiered chain this may be a debating seat that never votes), a reviewer abstained, no reviewer was heard, or the round fell short of the quorum - so the run did not have the roster the chain intended. Otherwise `consensus` if passed, else `no_consensus`. On a report that carries `advise` this is not a sign-off either: it says whether the advisors' answers agreed (see `advise`), and verdict_stats and metrics skip such reports."
     },
     "lastCritique": {
       "x-stability": "stable",
@@ -139,6 +139,44 @@
       "x-stability": "stable",
       "$ref": "#/$defs/alternatives",
       "description": "Present only on chains with alternatives.enabled: one whole architecture per lab, written blind before the skeleton, and the same post/reply board the proposals get."
+    },
+    "advise": {
+      "x-stability": "experimental",
+      "type": "object",
+      "description": "Present only on advise chains (the council advisor): status, the headline leaning (field `verdict`: proceed, change, stop, need_information or split), agreement (unanimous, plurality or split) and tally, the text of the leaning (`verdict_text`), every seat's first (blind) and final position with quote-checked risks, the debate rounds and why the debate stopped, the dissent (every position that is not the headline, in the seat's own words), what the brief was missing, dropouts, the call's own ceiling and what it spent. Agreement is a process signal, not a finding that the advice is right, and it is vacuous for a single seat or for several samples of one model (`outcome` reads `consensus` for those; read `advise.seats_asked` and the tally). Seat-written fields are model-supplied. `advise.sent_to` and `advise.dispositions` (brief 29) say where the brief went and what the caller recorded before the call; the brief's own hash is the top-level `task_sha256`, because the brief is the run's task file (0.8.1 naming pass). For a report with `advise`, `passed` and `outcome` are not a sign-off (see both).",
+      "properties": {
+        "sent_to": {
+          "x-stability": "experimental",
+          "type": "array",
+          "description": "One row per seat the brief went to (the panel, then the synthesis seat when there is one): lab, model, provider, the retention wording the send preview showed (\"ZDR-tagged by OpenRouter\" is OpenRouter's routing tag, not a guarantee; \"retains, ...\" quotes the lab's own page; \"unknown\"), its class, and the hosts the provider said answered (`served_by`, empty when none named one). Read from a dated table (src/advice-retention.json). Added after 0.7.9.",
+          "items": {
+            "type": "object",
+            "required": ["lab", "model", "provider", "retention", "retention_class", "served_by"],
+            "properties": {
+              "lab": { "type": "string" },
+              "model": { "type": "string" },
+              "provider": { "type": "string" },
+              "retention": { "type": "string" },
+              "retention_class": { "type": ["string", "null"] },
+              "served_by": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "dispositions": {
+          "x-stability": "experimental",
+          "type": "array",
+          "description": "On advice runs started by the MCP tools: the accept, reject or defer (with a reason) the caller recorded, before this call, for each objection of the previous advice call (`id` is `<run>#<lab>`). Empty when there was nothing to record. Model-supplied text. Added after 0.7.9.",
+          "items": {
+            "type": "object",
+            "required": ["id", "decision", "reason"],
+            "properties": {
+              "id": { "type": "string" },
+              "decision": { "enum": ["accept", "reject", "defer"] },
+              "reason": { "type": "string" }
+            }
+          }
+        }
+      }
     },
     "deep_dive": {
       "x-stability": "experimental",
@@ -204,12 +242,12 @@
         "properties": {
           "round": {
             "type": ["integer", "string"],
-            "description": "A review round number, or one of the strings 'dispute', 'challenge', 'allocator-<n>' for revisions made outside the numbered rounds. Mixed type: see the report's fix list."
+            "description": "A review round number, or one of the strings 'build' (the builder's own DECLINED lines, since 0.8.1), 'dispute', 'challenge', 'allocator-<n>' for text written outside the numbered rounds. Mixed type: see the report's fix list."
           },
           "reason": { "type": "string", "description": "Model-supplied: why the reviser declined this objection." }
         }
       },
-      "description": "Objections the reviser declined and kept out of the deliverable (its DECLINED lines). Not the same thing as `dispute`."
+      "description": "Objections the builder or the reviser declined and kept out of the deliverable (their DECLINED lines). Not the same thing as `dispute`."
     },
     "orphanSections": {
       "x-stability": "experimental",
@@ -234,6 +272,7 @@
           "model": { "type": "string" },
           "verdict": { "enum": ["signed_off", "objected", "passed", "unheard"] },
           "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] },
+          "no_answer": { "type": "string", "description": "Present only on an unheard seat whose reply was cut off at its cap after spending its tokens on thinking and carried no text: \"no answer: thinking used the whole cap\". The seat is unheard (an unreadable non-pass), never a pass. Added in 0.8.1." },
           "reasked": { "type": "boolean", "description": "True if the seat was unheard once and asked again this round." },
           "carried": { "type": "boolean", "description": "Present and true when the seat was not asked this round: the draft was byte-identical to the last round's, where this seat was heard and clean, and only the unheard seat(s) were asked again (0.7.9). Absent otherwise." }
         }
@@ -508,6 +547,27 @@
       "pattern": "^[0-9a-f]{64}$",
       "description": "sha256 over the criteria list, each criterion collapsed to one line, order counted (0.8.0). The same fingerprint the HANDOFF.md lock block carries; `council check-lock` compares them."
     },
+    "field_cuts": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "Every model-written field the harness cut before the next stages read it (0.8.1): a whole architecture's field, a debate post or reply longer than its seat's own token cap allowed (at least 40,000 characters), or a critic field over 8,000 characters. One row per cut, also written to WARNINGS.md. Absent when nothing was cut; absent on reports written before 0.8.1, which cut at 2,000 characters without a record.",
+      "items": {
+        "type": "object",
+        "required": ["field", "original", "kept"],
+        "properties": {
+          "stage": { "type": ["string", "null"], "description": "The stage whose reply held the field, when known." },
+          "field": { "type": "string" },
+          "original": { "type": "integer", "description": "Characters the model wrote." },
+          "kept": { "type": "integer", "description": "Characters the next stages read." }
+        }
+      }
+    },
+    "checks_sha256": {
+      "x-stability": "experimental",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 over how each criterion is checked, index-aligned with `criteria`: for a checkable criterion its `check` and `on` (from `criteria_kinds`), null for every other one, order counted (0.8.1). criteria_sha256 covers the wording only, so an edited check changes this and not that. The HANDOFF.md lock block carries the same hash in its second marker (`the-high-council:criteria-checks`); `council check-lock` compares them. Absent on reports written before 0.8.1."
+    },
     "criteria_lints": {
       "x-stability": "experimental",
       "type": "array",
@@ -689,8 +749,8 @@
     },
     "stoppedBy": {
       "x-stability": "experimental",
-      "enum": ["budget"],
-      "description": "report-partial.json only: what stopped the run. `budget` is the per-run spend cap (--max-usd), the only stop that writes a partial report so far. Added in 0.7.7."
+      "enum": ["budget", "user", "client_cancel", "wall_clock"],
+      "description": "report-partial.json only: what stopped the run. `budget` is the per-run spend cap (--max-usd; exit 4). Since 0.8.1 an advice call also writes a partial report when it is stopped (exit 18): `user` (a person, `council stop`), `client_cancel` (the MCP client cancelled the call or went away) or `wall_clock` (the chain's advise.max_wall_ms passed); its `advise` holds the answers that were paid for. A reader must ignore a value it does not know. Added in 0.7.7; values added in 0.8.1."
     },
     "stoppedAtStage": {
       "x-stability": "experimental",
@@ -896,6 +956,8 @@
       "type": "object",
       "required": ["label", "provider", "model", "lab", "usage", "usd", "priced", "ms"],
       "properties": {
+        "cappedAt": { "type": "integer", "description": "Optional. The output cap this reply was asked at: the seat's own cap, or the bigger one an Anthropic seat was retried at after its thinking used the whole cap. Present on every stage that went through a call. Added in 0.8.1." },
+        "noAnswer": { "const": "no answer: thinking used the whole cap", "description": "Optional. Present when the reply was cut off at its cap after spending its tokens on thinking and carried no text: the seat has no answer (an unreadable non-pass, never a pass). Added in 0.8.1." },
         "label": { "type": "string", "description": "Stable stage label; <label>.md in the run folder holds the reply text." },
         "provider": { "type": "string" },
         "model": { "type": "string" },

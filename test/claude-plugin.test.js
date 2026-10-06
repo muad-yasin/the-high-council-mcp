@@ -29,14 +29,19 @@ test('plugin manifest tracks package.json: same version, same license', () => {
   assert.match(plugin.name, /^[a-z0-9]+(-[a-z0-9]+)*$/, 'plugin names are kebab-case and immutable once published');
 });
 
-test('the MCP server runs from the cached plugin copy, with no key, proxy or npx fetch baked in', () => {
+test('the MCP server runs from the cached plugin copy, with no literal key, proxy or npx fetch baked in (0.8.1 M9: keys only as ${user_config.*} placeholders)', () => {
   const servers = Object.values(plugin.mcpServers);
   assert.equal(servers.length, 1);
   const [server] = servers;
   assert.equal(server.command, 'node');
   assert.deepEqual(server.args, ['${CLAUDE_PLUGIN_ROOT}/src/mcp/server.js']);
   assert.ok(existsSync(join(root, 'src/mcp/server.js')));
-  assert.equal(server.env, undefined, 'BYOK only: keys come from the user\'s own .env / environment, never the manifest');
+  // 0.8.1 M9 (plan M9 Work 2): the entry may hold only exact ${user_config.NAME} placeholders - the plugin settings dialog's values - never a literal
+  // value. BYOK: a key still comes from the user's own dialog entry, environment or .env, never from this file. test/plugin-user-config.test.js checks the rest.
+  for (const [name, value] of Object.entries(server.env || {})) {
+    assert.match(value, /^\$\{user_config\.[a-z0-9_]+\}$/, `env ${name} must be a \${user_config.*} placeholder, never a literal`);
+    assert.ok((plugin.userConfig || {})[value.slice('${user_config.'.length, -1)], `env ${name} names an option the manifest does not declare`);
+  }
 });
 
 test('dependencies can be installed by Claude Code itself: package.json plus an npm lockfile at the root', () => {

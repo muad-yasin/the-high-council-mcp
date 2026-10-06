@@ -2,16 +2,90 @@
   "name": "the-high-council",
   "displayName": "The High Council",
   "description": "The High Council MCP server (multi-model planning harness, BYOK) plus the generic skills in skills/, packaged as one Claude Code plugin.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "author": { "name": "Muad Yasin" },
-  "homepage": "https://sower-industries.de/MCP",
+  "homepage": "https://sower-industries.de/en/THC/",
   "repository": "https://github.com/muad-yasin/the-high-council-mcp",
   "license": "MIT",
   "keywords": ["mcp", "planning", "multi-model", "debate", "skills"],
   "mcpServers": {
     "high-council": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/src/mcp/server.js"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/src/mcp/server.js"],
+      "env": {
+        "COUNCIL_PLUGIN_ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}",
+        "COUNCIL_PLUGIN_OPENAI_API_KEY": "${user_config.openai_api_key}",
+        "COUNCIL_PLUGIN_GOOGLE_API_KEY": "${user_config.google_api_key}",
+        "COUNCIL_PLUGIN_MISTRAL_API_KEY": "${user_config.mistral_api_key}",
+        "COUNCIL_PLUGIN_DEEPSEEK_API_KEY": "${user_config.deepseek_api_key}",
+        "COUNCIL_PLUGIN_GROQ_API_KEY": "${user_config.groq_api_key}",
+        "COUNCIL_PLUGIN_COHERE_API_KEY": "${user_config.cohere_api_key}",
+        "COUNCIL_PLUGIN_OPENROUTER_API_KEY": "${user_config.openrouter_api_key}",
+        "COUNCIL_PLUGIN_TOGETHER_API_KEY": "${user_config.together_api_key}",
+        "COUNCIL_PLUGIN_ZAI_API_KEY": "${user_config.zai_api_key}"
+      }
+    }
+  },
+  "userConfig": {
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API key",
+      "description": "Optional. Your own Anthropic key, used only for the chains that seat a Anthropic model. Leave it empty to use ANTHROPIC_API_KEY from your environment or .env instead.",
+      "sensitive": true
+    },
+    "openai_api_key": {
+      "type": "string",
+      "title": "OpenAI API key",
+      "description": "Optional. Your own OpenAI key, used only for the chains that seat a OpenAI model. Leave it empty to use OPENAI_API_KEY from your environment or .env instead.",
+      "sensitive": true
+    },
+    "google_api_key": {
+      "type": "string",
+      "title": "Google API key",
+      "description": "Optional. Your own Google key, used only for the chains that seat a Google model. Leave it empty to use GOOGLE_API_KEY from your environment or .env instead.",
+      "sensitive": true
+    },
+    "mistral_api_key": {
+      "type": "string",
+      "title": "Mistral API key",
+      "description": "Optional. Your own Mistral key, used only for the chains that seat a Mistral model. Leave it empty to use MISTRAL_API_KEY from your environment or .env instead.",
+      "sensitive": true
+    },
+    "deepseek_api_key": {
+      "type": "string",
+      "title": "DeepSeek API key",
+      "description": "Optional. Your own DeepSeek key, used only for the chains that seat a DeepSeek model. Leave it empty to use DEEPSEEK_API_KEY from your environment or .env instead.",
+      "sensitive": true
+    },
+    "groq_api_key": {
+      "type": "string",
+      "title": "Groq API key",
+      "description": "Optional. Your own Groq key, used only for the chains that seat a Groq model. Leave it empty to use GROQ_API_KEY from your environment or .env instead.",
+      "sensitive": true
+    },
+    "cohere_api_key": {
+      "type": "string",
+      "title": "Cohere API key",
+      "description": "Optional. Your own Cohere key, used only for the chains that seat a Cohere model. Leave it empty to use COHERE_API_KEY from your environment or .env instead.",
+      "sensitive": true
+    },
+    "openrouter_api_key": {
+      "type": "string",
+      "title": "OpenRouter API key",
+      "description": "Optional. Your own OpenRouter key, used only for the chains that seat a OpenRouter model. Leave it empty to use OPENROUTER_API_KEY from your environment or .env instead.",
+      "sensitive": true
+    },
+    "together_api_key": {
+      "type": "string",
+      "title": "Together API key",
+      "description": "Optional. Your own Together key, used only for the chains that seat a Together model. Leave it empty to use TOGETHER_API_KEY from your environment or .env instead.",
+      "sensitive": true
+    },
+    "zai_api_key": {
+      "type": "string",
+      "title": "Z.ai API key",
+      "description": "Optional. Your own Z.ai key, used only for the chains that seat a Z.ai model. Leave it empty to use ZAI_API_KEY from your environment or .env instead.",
+      "sensitive": true
     }
   }
 }

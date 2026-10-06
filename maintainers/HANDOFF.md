@@ -4,6 +4,8 @@
 work". Ask before deviating — some of the rules below exist for legal and privacy reasons, not
 style reasons.*
 
+**2026-10-05 note: 0.8.1 is prepared as a release candidate on `release/0.8.1`** (see `CHANGELOG.md` `## 0.8.1` and `CLAUDE.md`); the release steps stay the owner's (the audit round, `npm publish`, the tag).
+
 **2026-09-16 note (doc-hygiene pass): this is a historical day-1 snapshot, not a live status
 file.** The "open decisions" below are settled (see `CLAUDE.md`'s note on that). The spend cap,
 the npm package rename, and the public npm publish that "Order of work" and "What done looks like"

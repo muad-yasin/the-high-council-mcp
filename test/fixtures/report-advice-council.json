@@ -1,0 +1,460 @@
+{
+  "schemaVersion": 1,
+  "producer": {
+    "name": "the-high-council",
+    "version": "0.8.0"
+  },
+  "runId": "2026-10-02T18-17-14-240Z",
+  "started_at": "2026-10-02T18:17:14.240Z",
+  "finished_at": "2026-10-02T18:17:14.336Z",
+  "chain": "mock-advise-standard",
+  "task": "tasks/t.md",
+  "task_sha256": "479ce17479a2397943944dffd56dd300cc8ac989dbe401673063c1257f16882a",
+  "fromRun": null,
+  "criteria": [],
+  "questions": null,
+  "passed": true,
+  "lastCritique": null,
+  "signoff": null,
+  "challenge": null,
+  "allocator": null,
+  "proposals": [],
+  "dropouts": [],
+  "outcome": "no_consensus",
+  "debate": null,
+  "scoreboard": null,
+  "disputes": [],
+  "orphanSections": [],
+  "withdrawalCycles": 0,
+  "totals": {
+    "input": 1260,
+    "output": 553,
+    "total": 1813,
+    "usd": 0,
+    "unpriced": [
+      "mock/mock-advisor-proceed",
+      "mock/mock-advisor-yield-argued",
+      "mock/mock-advisor-stop",
+      "mock/mock-advise-synth"
+    ]
+  },
+  "maxUsd": 7,
+  "stages": [
+    {
+      "label": "advise-adv-a",
+      "provider": "mock",
+      "model": "mock-advisor-proceed",
+      "lab": "adv-a",
+      "usage": {
+        "input": 20,
+        "output": 80
+      },
+      "usd": 0,
+      "priced": false,
+      "ms": 18,
+      "promptHash": "467333d05b76c3cc"
+    },
+    {
+      "label": "advise-adv-b",
+      "provider": "mock",
+      "model": "mock-advisor-yield-argued",
+      "lab": "adv-b",
+      "usage": {
+        "input": 20,
+        "output": 84
+      },
+      "usd": 0,
+      "priced": false,
+      "ms": 20,
+      "promptHash": "467333d05b76c3cc"
+    },
+    {
+      "label": "advise-adv-c",
+      "provider": "mock",
+      "model": "mock-advisor-proceed",
+      "lab": "adv-c",
+      "usage": {
+        "input": 20,
+        "output": 80
+      },
+      "usd": 0,
+      "priced": false,
+      "ms": 20,
+      "promptHash": "467333d05b76c3cc"
+    },
+    {
+      "label": "advise-adv-d",
+      "provider": "mock",
+      "model": "mock-advisor-stop",
+      "lab": "adv-d",
+      "usage": {
+        "input": 20,
+        "output": 76
+      },
+      "usd": 0,
+      "priced": false,
+      "ms": 21,
+      "promptHash": "467333d05b76c3cc"
+    },
+    {
+      "label": "advise-debate-1-adv-a",
+      "provider": "mock",
+      "model": "mock-advisor-proceed",
+      "lab": "adv-a",
+      "usage": {
+        "input": 280,
+        "output": 53
+      },
+      "usd": 0,
+      "priced": false,
+      "ms": 12,
+      "promptHash": "16342c4d045e29e8"
+    },
+    {
+      "label": "advise-debate-1-adv-b",
+      "provider": "mock",
+      "model": "mock-advisor-yield-argued",
+      "lab": "adv-b",
+      "usage": {
+        "input": 226,
+        "output": 51
+      },
+      "usd": 0,
+      "priced": false,
+      "ms": 13,
+      "promptHash": "df1749525429c90b"
+    },
+    {
+      "label": "advise-debate-1-adv-c",
+      "provider": "mock",
+      "model": "mock-advisor-proceed",
+      "lab": "adv-c",
+      "usage": {
+        "input": 280,
+        "output": 53
+      },
+      "usd": 0,
+      "priced": false,
+      "ms": 16,
+      "promptHash": "dffa31d8caf1d6ac"
+    },
+    {
+      "label": "advise-debate-1-adv-d",
+      "provider": "mock",
+      "model": "mock-advisor-stop",
+      "lab": "adv-d",
+      "usage": {
+        "input": 220,
+        "output": 52
+      },
+      "usd": 0,
+      "priced": false,
+      "ms": 16,
+      "promptHash": "84129ac42768f979"
+    },
+    {
+      "label": "advise-synthesis",
+      "provider": "mock",
+      "model": "mock-advise-synth",
+      "lab": "synth",
+      "usage": {
+        "input": 174,
+        "output": 24
+      },
+      "usd": 0,
+      "priced": false,
+      "ms": 12,
+      "promptHash": "ae0fa1b5d0df94f3"
+    }
+  ],
+  "panelVerdicts": [],
+  "regressions": [],
+  "advise": {
+    "status": "answered",
+    "tier": "mock-advise-standard",
+    "verdict": "proceed",
+    "headline_source": "synthesis",
+    "agreement": "split",
+    "tally": {
+      "proceed": 2,
+      "stop": 2
+    },
+    "confidence": "medium",
+    "verdict_text": "Mock verdict text.",
+    "next_step": "Mock next step.",
+    "synthesis": {
+      "seat": "synth/mock-advise-synth",
+      "flag": null
+    },
+    "seats_asked": 4,
+    "seats_answered": 4,
+    "opinions": [
+      {
+        "lab": "adv-a",
+        "model": "mock-advisor-proceed",
+        "first": {
+          "restated_question": "Should the asker go ahead?",
+          "verdict": "proceed",
+          "confidence": "medium",
+          "answer": "Mock answer from mock-advisor-proceed: proceed.",
+          "risks": [
+            {
+              "risk": "Mock risk from mock-advisor-proceed.",
+              "quote": "# Advice",
+              "quote_status": "verified"
+            }
+          ],
+          "would_change_if": "A fact that contradicts mock-advisor-proceed.",
+          "missing_from_brief": []
+        },
+        "final": {
+          "verdict": "proceed",
+          "confidence": "medium",
+          "answer": "Mock: I keep proceed.",
+          "would_change_if": "mock: new evidence.",
+          "risks": [
+            {
+              "risk": "Mock risk from mock-advisor-proceed.",
+              "quote": "# Advice",
+              "quote_status": "verified"
+            }
+          ],
+          "missing_from_brief": []
+        }
+      },
+      {
+        "lab": "adv-b",
+        "model": "mock-advisor-yield-argued",
+        "first": {
+          "restated_question": "Should the asker go ahead?",
+          "verdict": "proceed",
+          "confidence": "medium",
+          "answer": "Mock answer from mock-advisor-yield-argued: proceed.",
+          "risks": [
+            {
+              "risk": "Mock risk from mock-advisor-yield-argued.",
+              "quote": "# Advice",
+              "quote_status": "verified"
+            }
+          ],
+          "would_change_if": "A fact that contradicts mock-advisor-yield-argued.",
+          "missing_from_brief": []
+        },
+        "final": {
+          "verdict": "stop",
+          "confidence": "medium",
+          "answer": "Mock: persuaded, stop.",
+          "would_change_if": "mock: new evidence.",
+          "risks": [
+            {
+              "risk": "Mock risk from mock-advisor-yield-argued.",
+              "quote": "# Advice",
+              "quote_status": "verified"
+            }
+          ],
+          "missing_from_brief": []
+        }
+      },
+      {
+        "lab": "adv-c",
+        "model": "mock-advisor-proceed",
+        "first": {
+          "restated_question": "Should the asker go ahead?",
+          "verdict": "proceed",
+          "confidence": "medium",
+          "answer": "Mock answer from mock-advisor-proceed: proceed.",
+          "risks": [
+            {
+              "risk": "Mock risk from mock-advisor-proceed.",
+              "quote": "# Advice",
+              "quote_status": "verified"
+            }
+          ],
+          "would_change_if": "A fact that contradicts mock-advisor-proceed.",
+          "missing_from_brief": []
+        },
+        "final": {
+          "verdict": "proceed",
+          "confidence": "medium",
+          "answer": "Mock: I keep proceed.",
+          "would_change_if": "mock: new evidence.",
+          "risks": [
+            {
+              "risk": "Mock risk from mock-advisor-proceed.",
+              "quote": "# Advice",
+              "quote_status": "verified"
+            }
+          ],
+          "missing_from_brief": []
+        }
+      },
+      {
+        "lab": "adv-d",
+        "model": "mock-advisor-stop",
+        "first": {
+          "restated_question": "Should the asker go ahead?",
+          "verdict": "stop",
+          "confidence": "high",
+          "answer": "Mock answer from mock-advisor-stop: stop.",
+          "risks": [
+            {
+              "risk": "Mock risk from mock-advisor-stop.",
+              "quote": "# Advice",
+              "quote_status": "verified"
+            }
+          ],
+          "would_change_if": "A fact that contradicts mock-advisor-stop.",
+          "missing_from_brief": []
+        },
+        "final": {
+          "verdict": "stop",
+          "confidence": "medium",
+          "answer": "Mock: I keep stop.",
+          "would_change_if": "mock: new evidence.",
+          "risks": [
+            {
+              "risk": "Mock risk from mock-advisor-stop.",
+              "quote": "# Advice",
+              "quote_status": "verified"
+            }
+          ],
+          "missing_from_brief": []
+        }
+      }
+    ],
+    "debate": {
+      "rounds_planned": 1,
+      "rounds_run": 1,
+      "stopped": "round_cap",
+      "rounds": [
+        {
+          "round": 1,
+          "replies": [
+            {
+              "lab": "adv-a",
+              "from": "proceed",
+              "to": "proceed",
+              "confidence": "medium",
+              "answer": "Mock: I keep proceed.",
+              "changed_because": "",
+              "still_contested": "mock: the other positions do not answer my risk.",
+              "would_change_if": "mock: new evidence.",
+              "changed": false
+            },
+            {
+              "lab": "adv-b",
+              "from": "proceed",
+              "to": "stop",
+              "confidence": "medium",
+              "answer": "Mock: persuaded, stop.",
+              "changed_because": "Mock answer from mock-advisor-stop: stop",
+              "still_contested": "",
+              "would_change_if": "mock: new evidence.",
+              "changed": true,
+              "argued": true
+            },
+            {
+              "lab": "adv-c",
+              "from": "proceed",
+              "to": "proceed",
+              "confidence": "medium",
+              "answer": "Mock: I keep proceed.",
+              "changed_because": "",
+              "still_contested": "mock: the other positions do not answer my risk.",
+              "would_change_if": "mock: new evidence.",
+              "changed": false
+            },
+            {
+              "lab": "adv-d",
+              "from": "stop",
+              "to": "stop",
+              "confidence": "medium",
+              "answer": "Mock: I keep stop.",
+              "changed_because": "",
+              "still_contested": "mock: the other positions do not answer my risk.",
+              "would_change_if": "mock: new evidence.",
+              "changed": false
+            }
+          ],
+          "changes": 1
+        }
+      ]
+    },
+    "dissent": [
+      {
+        "lab": "adv-b",
+        "model": "mock-advisor-yield-argued",
+        "verdict": "stop",
+        "confidence": "medium",
+        "answer": "Mock: persuaded, stop.",
+        "top_risk": {
+          "risk": "Mock risk from mock-advisor-yield-argued.",
+          "quote": "# Advice",
+          "quote_status": "verified"
+        },
+        "would_change_if": "mock: new evidence.",
+        "first_verdict": "proceed"
+      },
+      {
+        "lab": "adv-d",
+        "model": "mock-advisor-stop",
+        "verdict": "stop",
+        "confidence": "medium",
+        "answer": "Mock: I keep stop.",
+        "top_risk": {
+          "risk": "Mock risk from mock-advisor-stop.",
+          "quote": "# Advice",
+          "quote_status": "verified"
+        },
+        "would_change_if": "mock: new evidence."
+      }
+    ],
+    "missing_from_brief": [],
+    "dropouts": [],
+    "usd_cap": 1,
+    "spent": 0,
+    "sent_to": [
+      {
+        "lab": "adv-a",
+        "model": "mock-advisor-proceed",
+        "provider": "mock",
+        "retention": "nowhere (mock seat, nothing is sent)",
+        "retention_class": "M",
+        "served_by": []
+      },
+      {
+        "lab": "adv-b",
+        "model": "mock-advisor-yield-argued",
+        "provider": "mock",
+        "retention": "nowhere (mock seat, nothing is sent)",
+        "retention_class": "M",
+        "served_by": []
+      },
+      {
+        "lab": "adv-c",
+        "model": "mock-advisor-proceed",
+        "provider": "mock",
+        "retention": "nowhere (mock seat, nothing is sent)",
+        "retention_class": "M",
+        "served_by": []
+      },
+      {
+        "lab": "adv-d",
+        "model": "mock-advisor-stop",
+        "provider": "mock",
+        "retention": "nowhere (mock seat, nothing is sent)",
+        "retention_class": "M",
+        "served_by": []
+      },
+      {
+        "lab": "synth",
+        "model": "mock-advise-synth",
+        "provider": "mock",
+        "retention": "nowhere (mock seat, nothing is sent)",
+        "retention_class": "M",
+        "served_by": []
+      }
+    ],
+    "dispositions": []
+  }
+}

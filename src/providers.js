@@ -44,7 +44,10 @@ const ANTHROPIC = { base: 'https://api.anthropic.com/v1', key: 'ANTHROPIC_API_KE
 // disagrees with ours (z.ai's GLM ships on OpenRouter as "z-ai/...", not "zai/...", and
 // "openrouter" itself needs an identity entry since a seat already seated there has nothing to
 // translate).
-const VENDOR_MODEL_MAPS = {
+import { withoutNativeHigh, hasOwnNativeReasoning } from './reasoning.js';
+import { keyEnvValue, keySource, keyProblem, MALFORMED_KEY_HINT } from './key-env.js';
+
+export const VENDOR_MODEL_MAPS = {
   openrouter: {
     'anthropic:claude-opus-5': 'anthropic/claude-opus-5',
     'anthropic:claude-sonnet-5': 'anthropic/claude-sonnet-5',
@@ -92,7 +95,12 @@ export function resolveVendorSeat(seat, transport) {
   // applies underneath, and the same stage can still cost double what a 1-attempt projection
   // assumes. `originalProvider` is the seat's real underlying identity, independent of which
   // vendor endpoint actually serves the call.
-  return { ...seat, provider: transport, model: vendorModel, lab, originalProvider: seat.provider };
+  // 0.8.1 milestone R: a shipped chain says "high" in its seat's own provider's words (Anthropic: output_config.effort; OpenAI: reasoning_effort).
+  // Those words mean nothing on the vendor's wire, so they are dropped here and the harness default writes the vendor's own form
+  // (OpenRouter: reasoning.effort) after this rewrite, in invoke(). Only a field equal to the table's own "high" is dropped; a seat's other
+  // fields, and any setting of its own that is not that exact high (even a lower one), go through as they always did.
+  // A seat's own reasoning field that is not the table's exact high (a lower setting, or a higher one) is kept, and no vendor default is added beside it.
+  return { ...seat, provider: transport, model: vendorModel, lab, originalProvider: seat.provider, ...extraWithoutNativeHigh(seat), ...(hasOwnNativeReasoning(seat) ? { keepOwnReasoning: true } : {}) };
 }
 
 // An offline provider used to test the chain's plumbing without spending
@@ -260,6 +268,55 @@ async function callMock({ model, system, messages, maxTokens }) {
     const excerpt = (user.match(/# Source excerpt (\d+) of (\d+)/) || []).slice(1).join(' of ');
     const focus = ((user.split('# Focus\n\n')[1] || '').split('\n')[0] || '').slice(0, 60);
     const text = JSON.stringify({ findings: [{ criterion: `source excerpt ${excerpt}`, quote: plan.trim().slice(0, 30), source_quote: '', problem: `mock: excerpt ${excerpt} is not reflected in the plan (focus: ${focus}).`, fix: 'mock: add one line for it.' }] });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
+  // The council advisor (src/advise.js). Blind opinions: the model name sets the verdict
+  // (`mock-advisor-proceed|change|stop|need-info`; `mock-advisor-fakequote` is "change" with a risk
+  // quote that is not in the brief; every other model, mock-priced included, says "proceed"), and each
+  // risk quotes the brief's first line, so the quote check marks it verified. Usage scales with the
+  // prompt so a priced mock seat reaches the advise ceiling offline.
+  if (system.startsWith('You are one advisor on a council. Someone')) {
+    await new Promise(r => setTimeout(r, 10));
+    // A brief carrying TRIGGER_ADVISOR_UNREADABLE gets prose back from every model, priced ones too,
+    // so the retry and its share of the ceiling can be exercised at $0 on mock-priced.
+    if (user.includes('TRIGGER_ADVISOR_UNREADABLE')) {
+      const text = 'I would go ahead, but this is not JSON.';
+      return { text, usage: { input: Math.ceil(user.length / 4), output: 10 }, provider: 'mock', model };
+    }
+    const verdict = { 'mock-advisor-change': 'change', 'mock-advisor-fakequote': 'change', 'mock-advisor-stop': 'stop', 'mock-advisor-need-info': 'need_information' }[model] || 'proceed';
+    const first = ((user.split('# The brief\n\n')[1] || '').split('\n').find(l => l.trim()) || '').trim().slice(0, 30);
+    const text = JSON.stringify({
+      restated_question: 'Should the asker go ahead?', verdict, confidence: model === 'mock-advisor-stop' ? 'high' : 'medium',
+      answer: `Mock answer from ${model}: ${verdict}.${(user.match(/\[(?:EMAIL|IP|PATH|HOST)_\d+\]/) || [''])[0] ? ` Contact ${(user.match(/\[(?:EMAIL|IP|PATH|HOST)_\d+\]/) || [''])[0]}.` : ''}`,
+      risks: [{ risk: `Mock risk from ${model}.`, quote: model === 'mock-advisor-fakequote' ? 'words that appear nowhere in the brief' : first }],
+      would_change_if: `A fact that contradicts ${model}.`, missing_from_brief: verdict === 'need_information' ? ['mock: the deadline'] : [],
+    });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
+  // The advise debate. Every model keeps its verdict except the two yielders, which (while they still
+  // say "proceed") switch to the first position that differs from theirs: `mock-advisor-yield-argued` quotes that position's
+  // answer, `mock-advisor-yield-unargued` quotes nothing (so the quote rule keeps its first verdict).
+  if (system.startsWith('You are one advisor on a council, reading')) {
+    await new Promise(r => setTimeout(r, 10));
+    const own = (user.match(/Verdict: (\w+) \(confidence/) || [])[1] || 'proceed';
+    const positions = [...user.matchAll(/## Position: (\w+)\n\n<advisor-claim>\nAnswer: (.+)/g)].map(m => ({ verdict: m[1], answer: m[2] }));
+    const other = positions.find(p => p.verdict !== own);
+    const yields = (model === 'mock-advisor-yield-argued' || model === 'mock-advisor-yield-unargued') && own === 'proceed' && other;
+    const text = JSON.stringify({
+      final_verdict: yields ? other.verdict : own, confidence: 'medium',
+      answer: yields ? `Mock: persuaded, ${other.verdict}.` : `Mock: I keep ${own}.`,
+      changed_because: yields && model === 'mock-advisor-yield-argued' ? other.answer.slice(0, 40) : '',
+      still_contested: yields ? '' : 'mock: the other positions do not answer my risk.', would_change_if: 'mock: new evidence.',
+    });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
+  // The advise synthesis: takes the first verdict the advisors hold. `mock-advise-synth-invents`
+  // names a headline no seat holds, and `mock-advise-synth-split` calls a unanimous panel split; the
+  // harness must flag both and replace them with its own roll-up.
+  if (system.startsWith("You write the council's verdict")) {
+    await new Promise(r => setTimeout(r, 10));
+    const held = (((user.split('# Verdicts held by the advisors\n\n')[1] || '').split('\n')[0]) || 'proceed').split(', ');
+    const text = JSON.stringify({ headline_verdict: model === 'mock-advise-synth-invents' ? 'abolish' : model === 'mock-advise-synth-split' ? 'split' : held[0], verdict_text: 'Mock verdict text.', next_step: 'Mock next step.' });
     return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
   }
   // v4 item 2: the preflight stage's mock seats. `mock-preflight-object` always objects (one
@@ -624,7 +681,7 @@ export function keyFor(provider) {
   if (provider === 'mock' || provider === 'external') return provider;
   const spec = provider === 'anthropic' ? ANTHROPIC : OPENAI_COMPAT[provider];
   if (!spec) throw new Error(`Unknown provider: ${provider}`);
-  return process.env[spec.key] || (spec.optional ? NO_KEY_REQUIRED : null);
+  return keyEnvValue(spec.key) || (spec.optional ? NO_KEY_REQUIRED : null);
 }
 
 // The host of every provider's own base URL. src/denied-models.js checks a seat's `baseUrl`
@@ -730,6 +787,14 @@ function retryAfterMs(value) {
 export const REQUEST_DEADLINE_MS = 45 * 60 * 1000;
 let requestDeadlineMs = REQUEST_DEADLINE_MS;
 export function setRequestDeadline(ms) { requestDeadlineMs = ms || REQUEST_DEADLINE_MS; }
+// Brief 29 (review finding 4): an absolute deadline for a whole advice call. Every request then gets what is LEFT of it, not a fresh
+// full allowance, so a call started just before the deadline cannot run for another whole period. Unset: requests use requestDeadlineMs.
+let requestDeadlineAt = null;
+export function setRequestDeadlineAt(epochMs) { requestDeadlineAt = Number.isFinite(epochMs) ? epochMs : null; }
+/** The timeout, in ms, a request starting now gets. */
+export function requestTimeoutNow(now = Date.now()) {
+  return requestDeadlineAt === null ? requestDeadlineMs : Math.max(1, Math.min(requestDeadlineMs, requestDeadlineAt - now));
+}
 
 // Providers audit #6: Node's fetch quotes the whole URL in its errors, and withRetry prints each
 // error, so a baseUrl with user:pass@ in it went to stderr and the run log in clear.
@@ -744,8 +809,11 @@ export function accountHint(status, label) {
   const provider = String(label || '').split('/')[0];
   let envName = null;
   try { envName = envKeyName(provider); } catch { /* unknown provider: name no variable */ }
-  const key = envName ? `the key in ${envName}` : 'the API key';
-  if (status === 401) return `${provider} did not accept ${key}. Check it was copied whole, is still active, and was made on ${provider}'s own site; fix it in .env, then resume the run.`;
+  // 0.8.1 M9: a key typed into the Claude Code plugin's settings dialog is read before the standard variable, so the fix is there, not in .env.
+  const fromDialog = envName && keySource(envName) === 'dialog';
+  const key = fromDialog ? `the key in the plugin's settings dialog` : envName ? `the key in ${envName}` : 'the API key';
+  const where = fromDialog ? "in the plugin's settings dialog (`/plugin`)" : 'in .env';
+  if (status === 401) return `${provider} did not accept ${key}. Check it was copied whole, is still active, and was made on ${provider}'s own site; fix it ${where}, then resume the run.`;
   if (status === 402) return `${provider} would not bill this call: the account has no credit left or hit its own spend limit. Add credit on ${provider}'s site, then resume the run.`;
   if (status === 403) return `${provider} refused ${key} for this request: a disabled key, a model your account cannot use, or a provider-side block. Check the key and the model on ${provider}'s site.`;
   return null;
@@ -774,7 +842,7 @@ async function post(url, headers, body, label) {
   }
   return withRetry(async () => {
     let res;
-    const signal = AbortSignal.timeout(requestDeadlineMs);
+    const signal = AbortSignal.timeout(requestTimeoutNow());
     try {
       res = await fetch(url, {
         method: 'POST',
@@ -786,7 +854,9 @@ async function post(url, headers, body, label) {
       // No response. Only a failure to connect proves the request never reached the provider;
       // anything else (reset mid-request, headers timeout) may have started a billed generation.
       if (!PRE_SEND_CODES.has(err.cause?.code ?? err.code)) err.maybeBilled = true;
-      throw explainFetchFailure(err, label, parsed);
+      const explained = explainFetchFailure(err, label, parsed);
+      explained.message = scrubSecrets(explained.message, headers);   // audit A2-1: the fetch layer can echo a rejected header value, i.e. the key
+      throw explained;
     }
     if (!res.ok) {
       const detail = (await res.text().catch(() => '')).slice(0, 600);
@@ -811,6 +881,18 @@ async function post(url, headers, body, label) {
       throw err;
     }
   }, { label });
+}
+
+// Audit A2-1 (0.8.1): remove every request header value (and each whitespace-separated piece of it of 8+ characters) from an error text, so a key the fetch layer
+// echoes back ("Headers.append: \"Bearer sk-...\" is an invalid header value") never reaches run.log, report.json or an MCP result.
+function scrubSecrets(message, headers) {
+  let out = String(message);
+  // Only the headers that can carry a credential: content-type and the API version are not secrets and stay readable in an error.
+  for (const [name, v] of Object.entries(headers || {})) {
+    if (/^(content-type|anthropic-version|accept)$/i.test(name)) continue;
+    for (const piece of [String(v), ...String(v).split(/\s+/)]) if (piece.length >= 8) out = out.split(piece).join('[redacted]');
+  }
+  return out;
 }
 
 // Turns the two opaque no-response failures into something an operator can act on, and keeps
@@ -842,12 +924,12 @@ function explainFetchFailure(err, label, url = null) {
 
 async function callAnthropic({ model, system, messages, maxTokens, temperature, extra }) {
   const key = keyFor('anthropic');
-  if (!key) throw new Error('ANTHROPIC_API_KEY not set');
+  if (!key) throw new Error(keyProblem('ANTHROPIC_API_KEY') ? `ANTHROPIC_API_KEY is set but not usable: ${MALFORMED_KEY_HINT}` : 'ANTHROPIC_API_KEY not set');
   const json = await post(
     `${ANTHROPIC.base}/messages`,
     { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
     {
-      // e.g. { thinking: { type: 'disabled' } } - Claude 5's thinking is
+      // e.g. { output_config: { effort: 'high' } } - Claude 5's thinking is
       // adaptive by default, counts against max_tokens, and is not text.
       // Spread FIRST, so the fields below always win: pre-release audit 2026-09-23 (GuardLayer #2,
       // HIGH) - spread last, a seat's extra.model replaced the model the denied-model check had
@@ -884,8 +966,8 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
   // The real env var, not keyFor()'s sentinel - a provider marked `optional` (ollama) is called
   // with no Authorization header at all when no key is set, rather than sending the sentinel
   // string as a fake bearer token.
-  const realKey = process.env[spec.key] || null;
-  if (!realKey && !spec.optional) throw new Error(`${spec.key} not set`);
+  const realKey = keyEnvValue(spec.key);
+  if (!realKey && !spec.optional) throw new Error(keyProblem(spec.key) ? `${spec.key} is set but not usable: ${MALFORMED_KEY_HINT}` : `${spec.key} not set`);
   // `baseUrl` is a per-seat override (chain.js's invoke() forwards seat.baseUrl here), never part
   // of the request body - LM Studio, a remote Ollama box, or any other OpenAI-compatible local
   // runner listens on a different host/port than the provider's own default.
@@ -926,6 +1008,9 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
     // the response carries none, so a response shape lacking `model` is byte-identical to
     // today.
     model: json.model ?? model,
+    // OpenRouter names the host that served the call in the response's `provider` field (brief 29: the audit
+    // line and the run record say where a brief went). Absent on every other OpenAI-compatible API.
+    ...(typeof json.provider === 'string' && json.provider ? { endpoint: json.provider } : {}),
   };
 }
 
@@ -966,10 +1051,31 @@ export function usageOfOpenAICompat(u = {}) {
   return { input, output: completion + hidden, thinking: reported ?? hidden };
 }
 
+// COUNCIL_MOCK_DELAY_MS: extra wait before every `mock` call, so a mock chain can stand in for a real
+// one's wall-clock shape (the fixed ~10 ms inside callMock is too short to see a stage). Unset or 0
+// changes nothing. Never applies to a real provider.
+const mockDelayMs = () => { const v = Number(process.env.COUNCIL_MOCK_DELAY_MS); return Number.isFinite(v) && v > 0 ? Math.min(v, 60_000) : 0; };
+
 export async function call(provider, opts) {
-  if (provider === 'mock') return callMock(opts);
+  if (provider === 'mock') {
+    const d = mockDelayMs();
+    if (d) {
+      // The request deadline applies to a mock call as AbortSignal.timeout applies to a real one (0.8.1 M6 review): a call still
+      // waiting when an advice call's wall clock passes is cut off, not answered. A timeout may have been billed, as for a real call.
+      const left = requestTimeoutNow();
+      if (d > left) {
+        await new Promise(r => setTimeout(r, left));
+        throw Object.assign(new Error(`mock: the request deadline passed after ${left} ms (The operation was aborted due to timeout)`), { name: 'TimeoutError', maybeBilled: true });
+      }
+      await new Promise(r => setTimeout(r, d));
+    }
+    return callMock(opts);
+  }
   if (provider === 'external') throw new Error('external seats are answered by writing <label>.md into the run folder, never called');
   if (provider === 'anthropic') return callAnthropic(opts);
   if (OPENAI_COMPAT[provider]) return callOpenAICompat(provider, opts);
   throw new Error(`Unknown provider: ${provider}`);
 }
+
+// The `extra` of a seat after the native "high" field is dropped for a vendor reroute ({} when nothing changes, so the seat object keeps its keys). Leaf by leaf (src/reasoning.js).
+const extraWithoutNativeHigh = seat => withoutNativeHigh(seat);

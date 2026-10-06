@@ -1,0 +1,37 @@
+{
+  "name": "mock-advise-quick",
+  "description": "Offline. Three advisors from three mock labs answer blind (proceed, stop, change), no debate, no synthesis: the harness rolls the answers up, finds no leader, and records all three positions as a split. Exercises the quick tier's flow at $0.",
+  "resumeAfterStop": false,
+  "maxRounds": 1,
+  "estimate": {
+    "promptTokens": 1000,
+    "draftTokens": 1000,
+    "critiqueTokens": 300
+  },
+  "advise": {
+    "enabled": true,
+    "usd": 1,
+    "rounds": 0,
+    "synthesis": "none",
+    "max_wall_ms": 120000
+  },
+  "seats": {
+    "critics": [
+      {
+        "provider": "mock",
+        "model": "mock-advisor-proceed",
+        "lab": "adv-a"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-advisor-stop",
+        "lab": "adv-b"
+      },
+      {
+        "provider": "mock",
+        "model": "mock-advisor-change",
+        "lab": "adv-c"
+      }
+    ]
+  }
+}

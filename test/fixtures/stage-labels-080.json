@@ -1,0 +1,261 @@
+{
+ "source": "every non-advice mock chain run offline at 7f9af11 (0.8.0 + docs), recorded 2026-10-02; labels from report.json, report-partial.json, or the usage files of a paused run",
+ "rule": "stage labels stay stable (decided rule 11): renaming one orphans every paused run",
+ "chains": {
+  "mock-budget": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "critique-1",
+    "critique-2",
+    "revise-1"
+   ]
+  },
+  "mock-criteria-kinds": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "critique-1",
+    "critique-2",
+    "handoff",
+    "revise-1"
+   ]
+  },
+  "mock-debate": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "debate-mock-a",
+    "debate-mock-b",
+    "handoff",
+    "panel-1-mock-a",
+    "panel-1-mock-b",
+    "panel-2-mock-a",
+    "panel-2-mock-b",
+    "propose-mock-a",
+    "propose-mock-b",
+    "reply-mock-a",
+    "reply-mock-b",
+    "revise-1",
+    "skeleton"
+   ]
+  },
+  "mock-dispute": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "dispute",
+    "final",
+    "panel-1-mock-a",
+    "panel-1-mock-holdout",
+    "panel-2-mock-a",
+    "panel-2-mock-holdout",
+    "panel-3-mock-a",
+    "panel-3-mock-holdout",
+    "revise-1",
+    "revise-2"
+   ]
+  },
+  "mock-external": {
+   "exit": 3,
+   "labels": [
+    "criteria",
+    "debate-mock-a",
+    "debate-mock-b",
+    "propose-mock-a",
+    "propose-mock-b",
+    "reply-mock-a",
+    "reply-mock-b",
+    "skeleton"
+   ]
+  },
+  "mock-open": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "debate-mock-a",
+    "debate-mock-b",
+    "handoff",
+    "panel-1-mock-a",
+    "panel-1-mock-b",
+    "panel-2-mock-a",
+    "panel-2-mock-b",
+    "propose-mock-a",
+    "propose-mock-b",
+    "reply-mock-a",
+    "reply-mock-b",
+    "revise-1",
+    "skeleton"
+   ]
+  },
+  "mock-partitioned": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "critique-1",
+    "propose-mock-a",
+    "propose-mock-b",
+    "skeleton"
+   ]
+  },
+  "mock-patch-fallback": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "panel-1-mock-a",
+    "panel-1-mock-b",
+    "panel-2-mock-a",
+    "panel-2-mock-b",
+    "revise-1",
+    "revise-1-full"
+   ]
+  },
+  "mock-patch": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "panel-1-mock-a",
+    "panel-1-mock-b",
+    "panel-2-mock-a",
+    "panel-2-mock-b",
+    "revise-1"
+   ]
+  },
+  "mock-proposals": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "judge-mock-pa",
+    "panel-1-mock-a",
+    "panel-1-mock-b",
+    "panel-2-mock-a",
+    "panel-2-mock-b",
+    "propose-mock-pa-1",
+    "propose-mock-pa-2",
+    "propose-mock-pa-3",
+    "propose-mock-pe-1",
+    "propose-mock-pe-2",
+    "propose-mock-pe-3",
+    "propose-mock-pe-retry",
+    "revise-1",
+    "skeleton"
+   ]
+  },
+  "mock-questions-wait": {
+   "exit": 3,
+   "labels": [
+    "questions"
+   ]
+  },
+  "mock-questions": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "debate-mock-a",
+    "debate-mock-b",
+    "handoff",
+    "panel-1-mock-a",
+    "panel-1-mock-b",
+    "panel-2-mock-a",
+    "panel-2-mock-b",
+    "propose-mock-a",
+    "propose-mock-b",
+    "questions",
+    "reply-mock-a",
+    "reply-mock-b",
+    "revise-1",
+    "skeleton"
+   ]
+  },
+  "mock-relay": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "final",
+    "panel-1-mock-a",
+    "panel-1-mock-b",
+    "panel-2-mock-a",
+    "panel-2-mock-b",
+    "revise-1"
+   ]
+  },
+  "mock-security-review": {
+   "exit": 7,
+   "labels": [
+    "build",
+    "criteria",
+    "panel-1-mock-a",
+    "panel-1-mock-b",
+    "security-review"
+   ]
+  },
+  "mock-tiered": {
+   "exit": 0,
+   "labels": [
+    "alt-debate-anchor-a",
+    "alt-debate-anchor-b",
+    "alt-debate-mass-a",
+    "alt-debate-mass-b",
+    "alt-debate-mass-c",
+    "alt-reply-anchor-a",
+    "alt-reply-anchor-b",
+    "alternative-anchor-a",
+    "alternative-anchor-b",
+    "build",
+    "canary-reply-mass-b",
+    "criteria",
+    "debate-mass-a",
+    "debate-mass-b",
+    "debate-mass-c",
+    "deep-dive-deep-a-1",
+    "deep-dive-deep-a-2",
+    "deep-dive-revise",
+    "handoff",
+    "panel-1-anchor-a",
+    "panel-1-anchor-b",
+    "propose-mass-a",
+    "propose-mass-b",
+    "propose-mass-c",
+    "reply-mass-a",
+    "reply-mass-b",
+    "reply-mass-c",
+    "skeleton"
+   ]
+  },
+  "mock-unanimous": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "final",
+    "panel-1-mock-a",
+    "panel-1-mock-b",
+    "panel-2-mock-a",
+    "panel-2-mock-b",
+    "revise-1"
+   ]
+  },
+  "mock": {
+   "exit": 0,
+   "labels": [
+    "build",
+    "criteria",
+    "critique-1",
+    "critique-2",
+    "final",
+    "revise-1"
+   ]
+  }
+ }
+}

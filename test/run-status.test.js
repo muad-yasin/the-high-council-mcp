@@ -108,3 +108,15 @@ test('finishedRunState: a blocked or unjudged security gate is never reported as
   assert.equal(finishedRunState({ passed: true }), 'done: every lab signed off');
   assert.equal(finishedRunState({ passed: false }), 'done: open objections');
 });
+
+test('deriveRunStatus (0.8.1 M6): an advice run stopped at exit 18 reads <cause>_stopped from its STOPPED-<cause>.json, after a budget stop and an error', () => {
+  for (const [cause, status] of [['user', 'user_stopped'], ['client_cancel', 'client_cancel_stopped'], ['wall_clock', 'wall_clock_stopped']]) {
+    const dir = freshDir();
+    try {
+      writeFileSync(join(dir, `STOPPED-${cause}.json`), JSON.stringify({ schema: 'stopped/1', stoppedBy: cause }));
+      assert.equal(deriveRunStatus(dir, { pid: process.pid }), status, 'never running, even with a live pid');
+      writeFileSync(join(dir, `STOPPED-${cause}.json`), 'torn');
+      assert.equal(deriveRunStatus(dir, null), status, 'an unreadable marker still names its cause by its file name');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+});

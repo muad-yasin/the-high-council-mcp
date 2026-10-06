@@ -2,7 +2,7 @@
 
 *This file is a stub. Nothing in `game-verification` was checked on Unreal; do not treat the ladder's engine-specific advice as proven here.*
 
-What the documentation says (Unreal Engine 5.8, Gauntlet automation framework overview, read 2026-10-04): Gauntlet is "a framework to run sessions of projects in Unreal Engine that perform tests and validate results"; its test controller "is well suited to smoke tests that require several steps to execute". It is documented as launching a cooked build, driving it and parsing its logs and crashes, which is the shape of the smoke gate in `SKILL.md` section 2.
+What the documentation says (Unreal Engine 5.8, Gauntlet automation framework overview, read 2026-10-04): Gauntlet is a framework that runs sessions of an Unreal project to perform tests and validate results; the page calls its test controller well suited to smoke tests that take several steps. It is documented as launching a cooked build, driving it and parsing its logs and crashes, which is the shape of the smoke gate in `SKILL.md` section 2.
 
 Questions to answer before relying on it:
 

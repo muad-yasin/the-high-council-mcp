@@ -10,7 +10,7 @@
   },
   "proposals": {
     "parts": 3,
-    "maxTokens": 4000
+    "maxTokens": 12000
   },
   "debate": true,
   "decisions": { "enabled": true },
@@ -27,7 +27,12 @@
       "provider": "openrouter",
       "model": "mistralai/mistral-medium-3-5",
       "maxTokens": 36000,
-      "lab": "mistral-medium3.5"
+      "lab": "mistral-medium3.5",
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
     },
     "skeleton": {
       "provider": "external",
@@ -53,6 +58,11 @@
         "lab": "gpt6-astra",
         "role": {
           "persona": "moses"
+        },
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
         }
       },
       {
@@ -62,6 +72,11 @@
         "lab": "fable5.1",
         "role": {
           "persona": "noah"
+        },
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
         }
       },
       {
@@ -71,6 +86,11 @@
         "lab": "gemini3.8-flash",
         "role": {
           "persona": "matthew"
+        },
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
         }
       },
       {
@@ -80,6 +100,11 @@
         "lab": "muse-spark1.2",
         "role": {
           "persona": "van-gogh"
+        },
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
         }
       },
       {
@@ -98,6 +123,11 @@
         "lab": "deepseek-v4-pro",
         "role": {
           "persona": "hypatia"
+        },
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
         }
       },
       {

@@ -1,0 +1,145 @@
+{
+  "name": "advise-premium",
+  "description": "Council advisor, the premium option (experimental; decided rule 4: a premium-7-style setup). Selected only by the operator through COUNCIL_ADVISE_CHAIN_COUNCIL, never by a tool argument. The critics of plan-premium-7 minus its Anthropic seat (the caller is Claude), with Muse Spark 1.3 and DeepSeek V4.1 Flash for the ids the retention table classifies: GPT-6 Astra, Gemini 3.8 Flash, Muse Spark 1.3, Qwen3.8 Max, DeepSeek V4.1 Flash and GLM-5.3, each at 36,000 output tokens. They answer the brief blind, read each other once, and the harness rolls the answers up; no synthesis seat. Several of these labs have no endpoint OpenRouter tags zero-data-retention, so this chain takes public material only. Its worst case is far above the add-on's default money limits (per call COUNCIL_ADVISE_MAX_USD_PER_CALL $1.50, per session COUNCIL_ADVISE_MAX_USD_PER_SESSION $3, per day COUNCIL_ADVISE_MAX_USD_PER_DAY $10): an operator raises all three to use it. advise.usd is this call's own ceiling; advise.max_wall_ms its wall-clock ceiling. maxRounds is unused by advise chains.",
+  "resumeAfterStop": false,
+  "maxRounds": 1,
+  "estimate": {
+    "promptTokens": 3000,
+    "draftTokens": 2000,
+    "critiqueTokens": 3000
+  },
+  "advise": {
+    "enabled": true,
+    "usd": 6.5,
+    "rounds": 1,
+    "skipDebateWhenUnanimous": true,
+    "synthesis": "none",
+    "max_wall_ms": 1500000
+  },
+  "seats": {
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6-astra",
+        "maxTokens": 36000,
+        "lab": "gpt6-astra",
+        "extra": {
+          "provider": {
+            "zdr": true,
+            "data_collection": "deny",
+            "max_price": {
+              "prompt": 10,
+              "completion": 50
+            }
+          },
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "estimate": {
+          "critiqueTokens": 3500
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "google/gemini-3.8-flash",
+        "maxTokens": 36000,
+        "lab": "gemini3.8-flash",
+        "extra": {
+          "provider": {
+            "zdr": true,
+            "data_collection": "deny",
+            "max_price": {
+              "prompt": 0.75,
+              "completion": 3.75
+            }
+          },
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "estimate": {
+          "critiqueTokens": 2500
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "meta/muse-spark-1.3",
+        "maxTokens": 36000,
+        "lab": "muse-spark1.3",
+        "extra": {
+          "provider": {
+            "max_price": {
+              "prompt": 1.25,
+              "completion": 4.25
+            }
+          },
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "estimate": {
+          "critiqueTokens": 5500
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.8-max-0902",
+        "maxTokens": 36000,
+        "lab": "qwen3.8-max",
+        "estimate": {
+          "critiqueTokens": 21000
+        },
+        "extra": {
+          "provider": {
+            "max_price": {
+              "prompt": 2,
+              "completion": 6
+            }
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4.1-flash",
+        "maxTokens": 36000,
+        "lab": "deepseek-v4.1-flash",
+        "extra": {
+          "provider": {
+            "zdr": true,
+            "data_collection": "deny",
+            "max_price": {
+              "prompt": 0.15,
+              "completion": 0.6
+            }
+          },
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "estimate": {
+          "critiqueTokens": 7000
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3",
+        "maxTokens": 36000,
+        "lab": "glm5.3",
+        "extra": {
+          "provider": {
+            "zdr": true,
+            "data_collection": "deny",
+            "max_price": {
+              "prompt": 1.4,
+              "completion": 4.4
+            }
+          }
+        },
+        "estimate": {
+          "critiqueTokens": 36000
+        }
+      }
+    ]
+  }
+}

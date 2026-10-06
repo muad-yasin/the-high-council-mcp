@@ -52,6 +52,23 @@ export function recordLostCharge(runDir, label, { provider = null, model = null,
   return path;
 }
 
+/**
+ * 0.8.1 FX-1 (P1): one paid call that is not a stage of the run (`council handoff --from-run`) is recorded as its own
+ * file, `<label>.call-<n>.usage.json`, with the real usage object (recordLostCharge's sibling; that one writes zero
+ * tokens by design). Every spend reader and a resume's cap already add this folder in, so no reader is new. Written
+ * atomically (temp file, then rename); never overwrites.
+ */
+export function recordCall(runDir, label, { provider = null, model = null, usage = null, usd = 0, ms = null, promptHash = null } = {}) {
+  const dir = join(runDir, SUPERSEDED_DIR);
+  mkdirSync(dir, { recursive: true });
+  let n = 1;
+  while (existsSync(join(dir, `${label}.call-${n}.usage.json`))) n++;
+  const path = join(dir, `${label}.call-${n}.usage.json`);
+  writeFileSync(`${path}.tmp`, JSON.stringify({ provider, model, usage, usd: Number(usd) || 0, ms, promptHash }));
+  renameSync(`${path}.tmp`, path);
+  return path;
+}
+
 /** Every superseded stage's cost record: [{ label, provider, model, usd }]. Never throws. */
 export function supersededStagesOf(runDir) {
   const dir = join(runDir, SUPERSEDED_DIR);

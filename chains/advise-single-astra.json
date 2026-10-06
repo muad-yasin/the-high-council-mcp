@@ -1,0 +1,44 @@
+{
+  "name": "advise-single-astra",
+  "description": "Council advisor, one seat: openai/gpt-6-astra through OpenRouter, routed only to endpoints OpenRouter tags zero-data-retention (a routing tag, not a guarantee), priced at this seat's row in src/pricing.json. No debate, no synthesis, one call. advise.usd is this call's own ceiling; advise.max_wall_ms its wall-clock ceiling. Expected output per reply: 3500 tokens (D: pricing.json critiqueTokens). maxRounds is unused by advise chains.",
+  "resumeAfterStop": false,
+  "maxRounds": 1,
+  "estimate": {
+    "promptTokens": 3000,
+    "draftTokens": 2000,
+    "critiqueTokens": 3000
+  },
+  "advise": {
+    "enabled": true,
+    "usd": 1.5,
+    "rounds": 0,
+    "synthesis": "none",
+    "max_wall_ms": 300000
+  },
+  "seats": {
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6-astra",
+        "maxTokens": 8000,
+        "lab": "gpt6-astra",
+        "extra": {
+          "provider": {
+            "zdr": true,
+            "data_collection": "deny",
+            "max_price": {
+              "prompt": 10,
+              "completion": 50
+            }
+          },
+          "reasoning": {
+            "effort": "high"
+          }
+        },
+        "estimate": {
+          "critiqueTokens": 3500
+        }
+      }
+    ]
+  }
+}

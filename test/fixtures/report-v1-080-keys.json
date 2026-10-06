@@ -1,0 +1,468 @@
+{
+  "source": "git show 5bac70f:schemas/report-v1.json (0.8.0 plus docs), recorded 2026-10-02 before any 0.8.1 patch",
+  "rule": "every path below must still exist in schemas/report-v1.json with the same type (decided rule 11: additive only); enum values may grow",
+  "count": 321,
+  "keys": {
+    "/properties/schemaVersion": "enum",
+    "/properties/producer": "object",
+    "/properties/producer/properties/name": "string",
+    "/properties/producer/properties/version": "string",
+    "/properties/started_at": "string",
+    "/properties/finished_at": "string",
+    "/properties/runId": "string",
+    "/properties/chain": "string",
+    "/properties/task": "string",
+    "/properties/task_sha256": "string",
+    "/properties/fromRun": [
+      "string",
+      "null"
+    ],
+    "/properties/criteria": "array",
+    "/properties/questions": [
+      "array",
+      "null"
+    ],
+    "/properties/passed": "boolean",
+    "/properties/outcome": "enum",
+    "/properties/lastCritique": {
+      "anyOf": [
+        "null",
+        {
+          "$ref": "#/$defs/critique"
+        }
+      ]
+    },
+    "/properties/signoff": [
+      "array",
+      "null"
+    ],
+    "/properties/proposals": "array",
+    "/properties/dropouts": "array",
+    "/properties/debate": {
+      "anyOf": [
+        "null",
+        {
+          "$ref": "#/$defs/debate"
+        }
+      ]
+    },
+    "/properties/scoreboard": {
+      "anyOf": [
+        "null",
+        {
+          "$ref": "#/$defs/scoreboard"
+        }
+      ]
+    },
+    "/properties/totals": {
+      "$ref": "#/$defs/totals"
+    },
+    "/properties/maxUsd": [
+      "number",
+      "null"
+    ],
+    "/properties/stages": "array",
+    "/properties/alternatives": {
+      "$ref": "#/$defs/alternatives"
+    },
+    "/properties/deep_dive": "object",
+    "/properties/challenge": {
+      "anyOf": [
+        "null",
+        "object",
+        "object"
+      ]
+    },
+    "/properties/challenge/anyOf/1/properties/raised": "enum",
+    "/properties/challenge/anyOf/2/properties/raised": "enum",
+    "/properties/challenge/anyOf/2/properties/by": "string",
+    "/properties/challenge/anyOf/2/properties/decision": "any",
+    "/properties/challenge/anyOf/2/properties/evidence_needed": "any",
+    "/properties/challenge/anyOf/2/properties/reopened_rounds": "integer",
+    "/properties/allocator": {
+      "anyOf": [
+        "null",
+        "object"
+      ]
+    },
+    "/properties/allocator/anyOf/1/properties/targetedRounds": "array",
+    "/properties/allocator/anyOf/1/properties/targetedRounds/items/properties/round": "integer",
+    "/properties/allocator/anyOf/1/properties/targetedRounds/items/properties/criterion": "string",
+    "/properties/allocator/anyOf/1/properties/targetedRounds/items/properties/failedBy": "array",
+    "/properties/allocator/anyOf/1/properties/targetedRounds/items/properties/votingCount": "integer",
+    "/properties/allocator/anyOf/1/properties/targetedRounds/items/properties/tool": [
+      "string",
+      "null"
+    ],
+    "/properties/allocator/anyOf/1/properties/targetedRounds/items/properties/engaged": "boolean",
+    "/properties/allocator/anyOf/1/properties/engagedCount": "integer",
+    "/properties/allocator/anyOf/1/properties/rubberStampCount": "integer",
+    "/properties/disputes": "array",
+    "/properties/disputes/items/properties/round": [
+      "integer",
+      "string"
+    ],
+    "/properties/disputes/items/properties/reason": "string",
+    "/properties/orphanSections": "array",
+    "/properties/withdrawalCycles": "integer",
+    "/properties/panelVerdicts": "array",
+    "/properties/panelVerdicts/items/properties/round": "integer",
+    "/properties/panelVerdicts/items/properties/lab": "string",
+    "/properties/panelVerdicts/items/properties/model": "string",
+    "/properties/panelVerdicts/items/properties/verdict": "enum",
+    "/properties/panelVerdicts/items/properties/reason_code": {
+      "anyOf": [
+        "null",
+        {
+          "$ref": "#/$defs/abstentionReason"
+        }
+      ]
+    },
+    "/properties/panelVerdicts/items/properties/reasked": "boolean",
+    "/properties/panelVerdicts/items/properties/carried": "boolean",
+    "/properties/regressions": "array",
+    "/properties/regressions/items/properties/round": "integer",
+    "/properties/regressions/items/properties/criterion": "string",
+    "/properties/regressions/items/properties/labs": "array",
+    "/properties/dispute": "object",
+    "/properties/dispute/properties/ran": "boolean",
+    "/properties/dispute/properties/reason": "enum",
+    "/properties/dispute/properties/stall_rounds": [
+      "integer",
+      "null"
+    ],
+    "/properties/dispute/properties/stopped_at_round": [
+      "integer",
+      "null"
+    ],
+    "/properties/dispute/properties/open_objections": "array",
+    "/properties/dispute/properties/open_objections/items/properties/criterion": "string",
+    "/properties/dispute/properties/open_objections/items/properties/lab": [
+      "string",
+      "null"
+    ],
+    "/properties/dispute/properties/open_objections/items/properties/problem": [
+      "string",
+      "null"
+    ],
+    "/properties/dispute/properties/open_objections/items/properties/first_raised_round": [
+      "integer",
+      "null"
+    ],
+    "/properties/dispute/properties/open_objections/items/properties/unheard_in_final_round": "boolean",
+    "/properties/dispute/properties/open_objections/items/properties/last_raised_round": [
+      "integer",
+      "null"
+    ],
+    "/properties/dispute/properties/panel_rereviewed": "boolean",
+    "/properties/dispute/properties/review": "object",
+    "/properties/disagreement_groups": "array",
+    "/properties/disagreement_groups/items/properties/on": "string",
+    "/properties/disagreement_groups/items/properties/title": "any",
+    "/properties/disagreement_groups/items/properties/author_lab": [
+      "string",
+      "null"
+    ],
+    "/properties/disagreement_groups/items/properties/outcome": "enum",
+    "/properties/disagreement_groups/items/properties/posts": "array",
+    "/properties/disagreement_groups/items/properties/posts/items/properties/by": "string",
+    "/properties/disagreement_groups/items/properties/posts/items/properties/stance": "enum",
+    "/properties/disagreement_groups/items/properties/posts/items/properties/text": "string",
+    "/properties/disagreement_groups/items/properties/posts/items/properties/merge_with": "string",
+    "/properties/ground_truth": "array",
+    "/properties/ground_truth/items/properties/tool": "string",
+    "/properties/ground_truth/items/properties/args": "object",
+    "/properties/ground_truth/items/properties/result": "object",
+    "/properties/ground_truth/items/properties/result_ref": "string",
+    "/properties/lints": "array",
+    "/properties/lints/items/properties/id": "enum",
+    "/properties/lints/items/properties/message": "string",
+    "/properties/claims": "array",
+    "/properties/claims/items/properties/claim": "string",
+    "/properties/claims/items/properties/evidence": "object",
+    "/properties/claims/items/properties/evidence/properties/kind": "enum",
+    "/properties/claims/items/properties/evidence/properties/quote": "string",
+    "/properties/claims/items/properties/evidence/properties/result_ref": "string",
+    "/properties/policy": "object",
+    "/properties/policy/properties/checks": "array",
+    "/properties/policy/properties/checks/items/properties/capability": "string",
+    "/properties/policy/properties/checks/items/properties/field": "string",
+    "/properties/policy/properties/checks/items/properties/ok": "boolean",
+    "/properties/security_review": "object",
+    "/properties/security_review/properties/label": "string",
+    "/properties/security_review/properties/seat": "string",
+    "/properties/security_review/properties/lab": "string",
+    "/properties/security_review/properties/gate": "enum",
+    "/properties/security_review/properties/seat_verdict": [
+      "string",
+      "null"
+    ],
+    "/properties/security_review/properties/reason_code": [
+      "string",
+      "null"
+    ],
+    "/properties/security_review/properties/reason": [
+      "string",
+      "null"
+    ],
+    "/properties/security_review/properties/findings": "array",
+    "/properties/security_review/properties/findings/items/properties/severity": "string",
+    "/properties/security_review/properties/findings/items/properties/category": "string",
+    "/properties/security_review/properties/findings/items/properties/file": "string",
+    "/properties/security_review/properties/findings/items/properties/line": [
+      "integer",
+      "null"
+    ],
+    "/properties/security_review/properties/findings/items/properties/evidence": "string",
+    "/properties/security_review/properties/findings/items/properties/problem": "string",
+    "/properties/security_review/properties/findings/items/properties/severity_assumed": "boolean",
+    "/properties/security_review/properties/blocking_count": "integer",
+    "/properties/security_review/properties/dropped_findings": "integer",
+    "/properties/canary": "object",
+    "/properties/canary/properties/injected": "boolean",
+    "/properties/canary/properties/on": "string",
+    "/properties/canary/properties/capitulated": "boolean",
+    "/properties/canary/properties/note": "string",
+    "/properties/quoteFindings": "array",
+    "/properties/patchFallbacks": "array",
+    "/properties/patchFallbacks/items/properties/round": "integer",
+    "/properties/patchFallbacks/items/properties/reason": "string",
+    "/properties/coldRead": "object",
+    "/properties/coldRead/properties/raised": "boolean",
+    "/properties/coldRead/properties/contradictions": "array",
+    "/properties/coldRead/properties/contradictions/items/properties/sections": "array",
+    "/properties/coldRead/properties/contradictions/items/properties/note": "string",
+    "/properties/noHeardReviewer": "object",
+    "/properties/noHeardReviewer/properties/round": "integer",
+    "/properties/noHeardReviewer/properties/unheard": "integer",
+    "/properties/noHeardReviewer/properties/passedOnly": "integer",
+    "/properties/notQuorate": "object",
+    "/properties/notQuorate/properties/round": "integer",
+    "/properties/notQuorate/properties/heard": "integer",
+    "/properties/notQuorate/properties/minHeard": "integer",
+    "/properties/notQuorate/properties/passedOnly": "integer",
+    "/properties/unverifiedReplays": "array",
+    "/properties/unverifiedReplays/items/properties/stage": "string",
+    "/properties/unverifiedReplays/items/properties/why": "string",
+    "/properties/argued": "object",
+    "/properties/argued/properties/file": "string",
+    "/properties/argued/properties/facts_counts": "object",
+    "/properties/argued/properties/ok": "boolean",
+    "/properties/argued/properties/refs_cited": "integer",
+    "/properties/argued/properties/unknown_refs": "array",
+    "/properties/argued/properties/unknown_labs": "array",
+    "/properties/argued/properties/missing_labs": "array",
+    "/properties/argued/properties/missing_sections": "array",
+    "/properties/criteria_sha256": "string",
+    "/properties/criteria_lints": "array",
+    "/properties/criteria_lints/items/properties/id": "enum",
+    "/properties/criteria_lints/items/properties/message": "string",
+    "/properties/criteria_lints/items/properties/criterion_ids": "array",
+    "/properties/criteria_ids": "array",
+    "/properties/missing_criteria": "array",
+    "/properties/missing_criteria/items/properties/round": "integer",
+    "/properties/missing_criteria/items/properties/lab": "string",
+    "/properties/missing_criteria/items/properties/criterion_ids": "array",
+    "/properties/missing_criteria/items/properties/table_rows": "integer",
+    "/properties/missing_criteria/items/properties/criteria_total": "integer",
+    "/properties/cut_despite_support": "array",
+    "/properties/cut_despite_support/items/properties/id": "string",
+    "/properties/cut_despite_support/items/properties/title": "any",
+    "/properties/cut_despite_support/items/properties/author_lab": [
+      "string",
+      "null"
+    ],
+    "/properties/cut_despite_support/items/properties/supporters": "array",
+    "/properties/cut_despite_support/items/properties/objectors": "array",
+    "/properties/cut_despite_support/items/properties/note": "string",
+    "/properties/disagreement_map": "array",
+    "/properties/disagreement_map/items/properties/round": "integer",
+    "/properties/disagreement_map/items/properties/labs": "object",
+    "/properties/disagreement_map/items/properties/signed_off": "integer",
+    "/properties/disagreement_map/items/properties/objected": "integer",
+    "/properties/disagreement_map/items/properties/unheard": "integer",
+    "/properties/disagreement_map/items/properties/passed": "integer",
+    "/properties/criteria_kinds": "array",
+    "/properties/criteria_kinds/items/properties/criterion": "string",
+    "/properties/criteria_kinds/items/properties/kind": "enum",
+    "/properties/criteria_kinds/items/properties/check": "string",
+    "/properties/criteria_kinds/items/properties/on": "string",
+    "/properties/criteria_kinds/items/properties/downgraded": "string",
+    "/properties/criteria_kinds/items/properties/vague": "boolean",
+    "/properties/criteria_summary": "object",
+    "/properties/criteria_summary/properties/total": "integer",
+    "/properties/criteria_summary/properties/checkable": "integer",
+    "/properties/criteria_summary/properties/checkable_on_plan": "integer",
+    "/properties/criteria_summary/properties/checkable_on_build": "integer",
+    "/properties/criteria_summary/properties/judgement": "integer",
+    "/properties/criteria_summary/properties/unclassified": "integer",
+    "/properties/criteria_summary/properties/downgraded": "integer",
+    "/properties/criteria_summary/properties/vague": "integer",
+    "/properties/criteria_summary/properties/met_without_evidence": "integer",
+    "/properties/criteria_met_without_evidence": "array",
+    "/properties/criteria_met_without_evidence/items/properties/round": "integer",
+    "/properties/criteria_met_without_evidence/items/properties/lab": "string",
+    "/properties/criteria_met_without_evidence/items/properties/criterion": "any",
+    "/properties/partial": "enum",
+    "/properties/stoppedBy": "enum",
+    "/properties/stoppedAtStage": "string",
+    "/$defs/question/properties/question": "string",
+    "/$defs/question/properties/why": "any",
+    "/$defs/question/properties/default": "any",
+    "/$defs/objection/properties/criterion": "string",
+    "/$defs/objection/properties/problem": "string",
+    "/$defs/objection/properties/fix": "string",
+    "/$defs/objection/properties/lab": "string",
+    "/$defs/objection/properties/quote": "string",
+    "/$defs/objection/properties/quote_status": "enum",
+    "/$defs/critique/properties/meets": "boolean",
+    "/$defs/critique/properties/failures": "array",
+    "/$defs/critique/properties/verdict_line": [
+      "string",
+      "null"
+    ],
+    "/$defs/critique/properties/criteria": "array",
+    "/$defs/critique/properties/dropped": "boolean",
+    "/$defs/signoffEntry/properties/provider": "string",
+    "/$defs/signoffEntry/properties/lab": "string",
+    "/$defs/signoffEntry/properties/model": "string",
+    "/$defs/signoffEntry/properties/signedOff": [
+      "boolean",
+      "null"
+    ],
+    "/$defs/signoffEntry/properties/objections": {
+      "anyOf": [
+        "null",
+        "array"
+      ]
+    },
+    "/$defs/signoffEntry/properties/passed": "boolean",
+    "/$defs/signoffEntry/properties/passReason": [
+      "string",
+      "null"
+    ],
+    "/$defs/signoffEntry/properties/reason_code": {
+      "anyOf": [
+        "null",
+        {
+          "$ref": "#/$defs/abstentionReason"
+        }
+      ]
+    },
+    "/$defs/signoffEntry/properties/seat_index": "integer",
+    "/$defs/proposal/properties/id": "string",
+    "/$defs/proposal/properties/lab": "string",
+    "/$defs/proposal/properties/model": "string",
+    "/$defs/proposal/properties/slice": [
+      "string",
+      "null"
+    ],
+    "/$defs/proposal/properties/attempt": "integer",
+    "/$defs/proposal/properties/title": "any",
+    "/$defs/proposal/properties/serves": "any",
+    "/$defs/proposal/properties/what": "any",
+    "/$defs/proposal/properties/why": "any",
+    "/$defs/proposal/properties/how": "any",
+    "/$defs/proposal/properties/acceptance_test": "any",
+    "/$defs/proposal/properties/amended": "boolean",
+    "/$defs/proposal/properties/withdrawn": "boolean",
+    "/$defs/proposal/properties/replaced_by": "string",
+    "/$defs/proposal/properties/proposer_id": "any",
+    "/$defs/proposal/properties/proposer_lab": "any",
+    "/$defs/post/properties/by": "string",
+    "/$defs/post/properties/on": "string",
+    "/$defs/post/properties/stance": "enum",
+    "/$defs/post/properties/text": "string",
+    "/$defs/post/properties/merge_with": "string",
+    "/$defs/post/properties/canary": "boolean",
+    "/$defs/reply/properties/id": "string",
+    "/$defs/reply/properties/action": "enum",
+    "/$defs/reply/properties/text": "any",
+    "/$defs/reply/properties/replaced_by": "string",
+    "/$defs/reply/properties/how": "any",
+    "/$defs/reply/properties/acceptance_test": "any",
+    "/$defs/reply/properties/canary": "boolean",
+    "/$defs/reply/properties/capitulated": "boolean",
+    "/$defs/debate/properties/posts": "array",
+    "/$defs/debate/properties/replies": "array",
+    "/$defs/debate/properties/tie_break": "object",
+    "/$defs/debate/properties/tie_break/properties/occurred": "boolean",
+    "/$defs/debate/properties/diagnostics": "object",
+    "/$defs/debate/properties/dropped": "array",
+    "/$defs/debate/properties/dropped/items/properties/stage": "enum",
+    "/$defs/debate/properties/dropped/items/properties/by": "string",
+    "/$defs/debate/properties/dropped/items/properties/reason": "enum",
+    "/$defs/debate/properties/dropped/items/properties/count": "integer",
+    "/$defs/scoreboard/properties/rows": "array",
+    "/$defs/scoreboard/properties/rows/items/properties/status": "enum",
+    "/$defs/scoreboard/properties/rows/items/properties/note": "string",
+    "/$defs/scoreboard/properties/labs": "array",
+    "/$defs/scoreboard/properties/labs/items/properties/lab": "string",
+    "/$defs/scoreboard/properties/labs/items/properties/model": "string",
+    "/$defs/scoreboard/properties/labs/items/properties/proposed": "integer",
+    "/$defs/scoreboard/properties/labs/items/properties/accepted": "integer",
+    "/$defs/scoreboard/properties/labs/items/properties/cut": "integer",
+    "/$defs/scoreboard/properties/labs/items/properties/withdrawn": "integer",
+    "/$defs/scoreboard/properties/labs/items/properties/unaccounted": "integer",
+    "/$defs/scoreboard/properties/labs/items/properties/built": [
+      "integer",
+      "null"
+    ],
+    "/$defs/dropout/properties/lab": "string",
+    "/$defs/dropout/properties/model": "string",
+    "/$defs/dropout/properties/stage": "string",
+    "/$defs/dropout/properties/reason": "string",
+    "/$defs/dropout/properties/reason_code": {
+      "anyOf": [
+        "null",
+        {
+          "$ref": "#/$defs/abstentionReason"
+        }
+      ]
+    },
+    "/$defs/dropout/properties/reasonCode": {
+      "anyOf": [
+        "null",
+        {
+          "$ref": "#/$defs/abstentionReason"
+        }
+      ]
+    },
+    "/$defs/usage/properties/input": "integer",
+    "/$defs/usage/properties/output": "integer",
+    "/$defs/usage/properties/thinking": "integer",
+    "/$defs/usage/properties/stop": "string",
+    "/$defs/stage/properties/label": "string",
+    "/$defs/stage/properties/provider": "string",
+    "/$defs/stage/properties/model": "string",
+    "/$defs/stage/properties/lab": "string",
+    "/$defs/stage/properties/usage": {
+      "$ref": "#/$defs/usage"
+    },
+    "/$defs/stage/properties/usd": "number",
+    "/$defs/stage/properties/priced": "boolean",
+    "/$defs/stage/properties/ms": "integer",
+    "/$defs/stage/properties/promptHash": "string",
+    "/$defs/stage/properties/cached": "boolean",
+    "/$defs/totals/properties/input": "integer",
+    "/$defs/totals/properties/output": "integer",
+    "/$defs/totals/properties/total": "integer",
+    "/$defs/totals/properties/usd": "number",
+    "/$defs/totals/properties/unpriced": "array",
+    "/$defs/totals/properties/supersededUsd": "number",
+    "/$defs/alternatives/properties/items": "array",
+    "/$defs/alternatives/properties/items/items/properties/id": "string",
+    "/$defs/alternatives/properties/items/items/properties/lab": "string",
+    "/$defs/alternatives/properties/items/items/properties/model": "string",
+    "/$defs/alternatives/properties/items/items/properties/name": "string",
+    "/$defs/alternatives/properties/items/items/properties/shape": "string",
+    "/$defs/alternatives/properties/items/items/properties/key_tradeoffs": "string",
+    "/$defs/alternatives/properties/items/items/properties/bad_at": "string",
+    "/$defs/alternatives/properties/items/items/properties/amended": "boolean",
+    "/$defs/alternatives/properties/items/items/properties/withdrawn": "boolean",
+    "/$defs/alternatives/properties/items/items/properties/replaced_by": "string",
+    "/$defs/alternatives/properties/posts": "array",
+    "/$defs/alternatives/properties/replies": "array",
+    "/$defs/alternatives/properties/dropouts": "array"
+  }
+}

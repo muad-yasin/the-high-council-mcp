@@ -5,7 +5,7 @@
   "signoff": "unanimous",
   "proposals": {
     "parts": 6,
-    "maxTokens": 1500
+    "maxTokens": 12000
   },
   "debate": true,
   "handoff": true,
@@ -39,10 +39,11 @@
       {
         "provider": "together",
         "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
-        "maxTokens": 20000,
+        "maxTokens": 36000,
         "extra": {
           "chat_template_kwargs": {
-            "thinking": false
+            "thinking": true,
+            "reasoning_effort": "high"
           }
         },
         "lab": "deepseek",
@@ -54,10 +55,10 @@
       {
         "provider": "openrouter",
         "model": "qwen/qwen3.5-plus-20260420",
-        "maxTokens": 20000,
+        "maxTokens": 36000,
         "extra": {
           "reasoning": {
-            "enabled": false
+            "effort": "high"
           }
         },
         "lab": "qwen",
@@ -69,17 +70,13 @@
       {
         "provider": "openrouter",
         "model": "z-ai/glm-5.3-flash",
-        "maxTokens": 20000,
+        "maxTokens": 36000,
         "lab": "glm",
-        "extra": {
-          "reasoning": {
-            "effort": "low"
-          }
-        },
         "role": {
           "lens": "integrator",
           "persona": "matthew"
-        }
+        },
+        "panelMaxTokens": 360000
       },
       {
         "provider": "openrouter",
@@ -89,6 +86,11 @@
         "role": {
           "lens": "user-advocate",
           "persona": "van-gogh"
+        },
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
         }
       },
       {
@@ -99,6 +101,9 @@
         "role": {
           "lens": "adversary",
           "persona": "parzival"
+        },
+        "extra": {
+          "reasoning_effort": "high"
         }
       }
     ]

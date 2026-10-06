@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { isFreeProvider } from './providers.js';
+import * as R from './roles.js';
+import { retryCapFor, retryCeilingOf } from './reasoning.js';
 
 // A seat's default maxTokens when its config sets none. Defined here (not in chain.js, which
 // re-exports it as DEFAULT_MAX_TOKENS) because chain.js imports this module, so the dry-run can
@@ -34,11 +36,33 @@ export function priceTableAge(now = new Date(), table = PRICES) {
 // The lines doctor and --dry-run print: one always, a WARNING line too when the table is stale.
 export function priceTableLines(now = new Date(), table = PRICES) {
   const { asOf, days, stale } = priceTableAge(now, table);
-  if (!asOf) return ['Prices: src/pricing.json carries no as-of date.', 'WARNING: the price table has no date, so its age is unknown. Check each lab\'s pricing page before trusting this estimate or the spend cap.'];
+  // Computed first, so a table with no as-of date still warns about its expired rows (M7 review).
+  const expired = expiredPriceRows(now.getTime(), table).map(r => (r.malformed ? `WARNING: price row ${r.key} has an expiry date that cannot be read (${JSON.stringify(r.expires)}); its price is used as written. Check it.` : `WARNING: price row ${r.key} expired on ${r.expires} (a promotional or announced price change); what it bills now may be higher than this projects, and the spend cap projects with the old price. Update the-high-council.`));
+  if (!asOf) return ['Prices: src/pricing.json carries no as-of date.', 'WARNING: the price table has no date, so its age is unknown. Check each lab\'s pricing page before trusting this estimate or the spend cap.', ...expired];
   const age = days < 0 ? 'dated in the future' : days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'} ago`;
   const lines = [`Prices: src/pricing.json as of ${asOf} (${age}). List prices change; treat every figure as an estimate.`];
   if (stale) lines.push(`WARNING: the price table is ${days} days old (more than ${PRICE_TABLE_STALE_DAYS}). Estimates and the spend cap project with these prices, so they may be off. Update the-high-council, or check each lab's pricing page.`);
-  return lines;
+  return [...lines, ...expired];
+}
+
+/**
+ * Price rows past their `expires` date (0.8.1 plan M7, P13): [{ key, expires, malformed? }]. A row may carry "expires": "YYYY-MM-DD"
+ * when its price is known to change (a promotional price, an announced rise). priceOf keeps using the row's price after the date: a
+ * silent switch would change quoted prices with no release, and "at least through" a date is not an end date. The release test
+ * fails on an expired row (test/pricing-expiry.test.js) and the dry run and `council doctor` print a warning instead. An expiry that
+ * is not a date is reported as malformed, never skipped.
+ */
+export function expiredPriceRows(now = Date.now(), table = PRICES) {
+  const out = [];
+  for (const [key, row] of Object.entries(table || {})) {
+    if (!row || typeof row !== 'object' || !('expires' in row)) continue;
+    // A real calendar date: "2026-02-30" parses (rolled over to March) but is not one, so it must round-trip (M7 review).
+    const t = typeof row.expires === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.expires) ? Date.parse(`${row.expires}T00:00:00Z`) : NaN;
+    const ok = Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === row.expires;
+    if (!ok) out.push({ key, expires: row.expires, malformed: true });
+    else if (now >= Date.parse(`${row.expires}T00:00:00Z`)) out.push({ key, expires: row.expires });
+  }
+  return out;
 }
 
 export function priceOf(provider, model) {
@@ -132,8 +156,37 @@ export function critiqueTokensFor(seat, chainCritiqueTokens) {
   return Math.min(Math.max(chainCritiqueTokens, Number.isInteger(measured) ? measured : 0), cap);
 }
 
+// One advisor's opinion as another seat reads it, in tokens: "answer" at most 120 words (~160
+// tokens), at most 3 risks with a quote each (~3 x 60), "would_change_if" (~40) and the JSON
+// around them come to about 380; rounded up to 500 so the debate and synthesis rows do not sit low.
+export const ADVISE_OPINION_TOKENS = 500;
+
+// Every call an advise chain can make, at its worst case: each seat asked (times `samples`), every
+// planned debate round (skipDebateWhenUnanimous is a saving, not priced), and the synthesis. Output
+// is the seat's whole maxTokens, as the run cap projects it. Labels match src/advise.js. A paid retry
+// (a cut-off reply is retried once at twice the cap) is NOT a row: it is not certain to happen, and the
+// advise ceiling reserves it when it does; a debate needs two seats or more, as at run time.
+function adviseRows(config, a, push) {
+  const opt = { rounds: 0, samples: 1, synthesis: 'none', ...config.advise };
+  const lab = seat => seat.lab || seat.provider;
+  const entries = (config.seats.critics || []).flatMap(seat => Array.from({ length: opt.samples }, (_, k) => ({ seat, label: k === 0 ? lab(seat) : `${lab(seat)}-s${k + 1}` })));
+  const n = entries.length;
+  const cap = seat => seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS;
+  for (const e of entries) push(`advise-${e.label}`, e.seat, a.promptTokens + estimateTokens(R.ADVISOR_SYSTEM), cap(e.seat));
+  for (let r = 1; r <= (n >= 2 ? opt.rounds : 0); r++) {
+    for (const e of entries) push(`advise-debate-${r}-${e.label}`, e.seat, a.promptTokens + estimateTokens(R.ADVISOR_DEBATE_SYSTEM) + n * ADVISE_OPINION_TOKENS, cap(e.seat));
+  }
+  if (opt.synthesis === 'seat') push('advise-synthesis', config.seats.builder, a.promptTokens + estimateTokens(R.ADVISE_SYNTHESIS_SYSTEM) + n * ADVISE_OPINION_TOKENS, cap(config.seats.builder));
+}
+
+
+// The token sizes a chain with no `estimate` block is priced at. One definition: the dry run's reprice with the task reads it too
+// (0.8.1 FX-3: it spread an empty estimate instead and summed NaN).
+export const DEFAULT_ESTIMATE = Object.freeze({ promptTokens: 4000, draftTokens: 6000, critiqueTokens: 1200 });
+
 export function estimateChainRows(config, { fromRun = false } = {}) {
-  const a = config.estimate || { promptTokens: 4000, draftTokens: 6000, critiqueTokens: 1200 };
+  // A partial estimate block is filled from the defaults (M2 review: { promptTokens } alone priced NaN).
+  const a = { ...DEFAULT_ESTIMATE, ...(config.estimate || {}) };
   const reviewOut = seat => critiqueTokensFor(seat, a.critiqueTokens);
   const rows = [];
   const push = (label, seat, input, output) => {
@@ -148,6 +201,9 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
   // the run would really make those calls. `descending` chains run a different stage shape and are
   // still priced as a normal chain - a known gap, not closed here.
   const lab = seat => seat.lab || seat.provider;
+  // The council advisor (config.advise, src/advise.js) has its own short flow and returns before every
+  // planning stage, so it is priced by itself and nothing below applies to it.
+  if (config.advise?.enabled === true) { adviseRows(config, a, push); return rows; }
   if (config.ambiguity_union?.enabled && !fromRun) {
     for (const seat of config.seats.ambiguity || (config.seats.critics || []).slice(0, 3)) push(`ambiguity-${lab(seat)}`, seat, a.promptTokens, 800);
   }
@@ -174,11 +230,10 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
     if (config.alternatives.debaters === 'all') for (const s of config.seats.proposers || []) if (!posters.some(p => (p.lab || p.provider) === (s.lab || s.provider))) posters.push(s);
     const capOf = seat => { const own = seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS; return config.alternatives.maxTokens ? Math.min(own, config.alternatives.maxTokens) : own; };
     for (const seat of seats) push(`alternative-${seat.lab || seat.provider}`, seat, a.promptTokens + 400, capOf(seat));
-    // What the NEXT stages read is the board, not the seat's whole output budget (which includes
-    // thinking): runChain keeps four text fields per architecture, each capped at 2000 characters
-    // (capField), so an architecture adds at most ~2000 tokens to the board however big its cap.
-    const ALT_BOARD_TOKENS = 2000;
-    alternativeTokens = seats.reduce((n, seat) => n + Math.min(capOf(seat), ALT_BOARD_TOKENS), 0);
+    // What the NEXT stages read is the board: since 0.8.1 (FX-11) every architecture reaches it whole, up to what its
+    // seat was allowed to write, so the worst case is each seat's own output cap (it was ~2,000 tokens while the
+    // fields were cut at 2,000 characters).
+    alternativeTokens = seats.reduce((n, seat) => n + capOf(seat), 0);
     if (seats.length > 1) {
       for (const seat of posters) push(`alt-debate-${seat.lab || seat.provider}`, seat, a.promptTokens + 1600 + alternativeTokens, 1500);
       for (const seat of seats) push(`alt-reply-${seat.lab || seat.provider}`, seat, a.promptTokens + 3000, 800);
@@ -188,12 +243,17 @@ export function estimateChainRows(config, { fromRun = false } = {}) {
   let proposalTokens = 0;
   if (config.proposals && !fromRun) {
     const parts = config.proposals.parts ?? 3, per = config.proposals.maxTokens ?? 1500;
+    // What a proposal call can produce: chain.js asks min(seat cap, parts x per + 300) (0.8.1 FX-12; this priced
+    // parts x per, unclamped, and without the 300).
+    const propCap = seat => Math.min(seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS, parts * per + 300);
     push('skeleton', config.seats.skeleton || config.seats.builder, a.promptTokens + 400 + alternativeTokens, 1200);
     const samples = config.proposals.samples ?? 1, keep = config.proposals.keep ?? parts;
     for (const seat of config.seats.proposers || config.seats.critics) {
-      for (let k = 0; k < samples; k++) push(`propose-${seat.lab || seat.provider}${samples > 1 ? `-${k + 1}` : ''}`, seat, a.promptTokens + 1600, parts * per);
-      if (samples > 1) push(`judge-${seat.lab || seat.provider}`, config.seats.judge || seat, a.promptTokens + 1600 + samples * parts * per, 300);
-      proposalTokens += (samples > 1 ? keep : parts) * per;
+      for (let k = 0; k < samples; k++) push(`propose-${seat.lab || seat.provider}${samples > 1 ? `-${k + 1}` : ''}`, seat, a.promptTokens + 1600, propCap(seat));
+      if (samples > 1) push(`judge-${seat.lab || seat.provider}`, config.seats.judge || seat, a.promptTokens + 1600 + samples * propCap(seat), 300);
+      // On the board: a lab's whole proposal set (one call's output), or with samples the `keep` single proposals a judge
+      // keeps (about one part each), never more than all its attempts produced.
+      proposalTokens += samples > 1 ? Math.min(keep * per, samples * propCap(seat)) : propCap(seat);
     }
   }
   if (config.debate && !fromRun) {
@@ -304,30 +364,46 @@ export function estimateTokens(text) {
  * an unpriced model cannot be accounted for, so it cannot be capped either
  * (this is why the $0 mock chains run freely under any ceiling).
  *
- * `retries` covers the thinking-disabled retry in chain.js invoke(), which
- * can pay for the same stage twice.
+ * `retries` multiplies the whole figure (kept for callers that project N identical attempts). `retryMaxTokens` adds ONE more attempt
+ * with its own, larger output cap: the Anthropic thinking retry in chain.js invoke() (0.8.1 milestone R) retries at the SAME effort
+ * with a bigger cap, so its worst case is the first attempt plus a bigger second one, not twice the first.
  */
-export function worstCaseOf(provider, model, { promptChars = 0, maxTokens = 8000, retries = 1 } = {}) {
+export function worstCaseOf(provider, model, { promptChars = 0, maxTokens = 8000, retries = 1, retryMaxTokens = null } = {}) {
   const p = priceOf(provider, model);
   if (!p) return { usd: 0, priced: false };
   const input = Math.ceil(promptChars / CHARS_PER_TOKEN);
-  const usd = ((input / 1e6) * p.in + (maxTokens / 1e6) * p.out) * retries;
+  const attempt = out => (input / 1e6) * p.in + (out / 1e6) * p.out;
+  const usd = attempt(maxTokens) * retries + (retryMaxTokens ? attempt(retryMaxTokens) : 0);
   return { usd, priced: true };
 }
 
 /**
- * The worst case of one call, exactly as invoke() projects it before sending: the whole prompt as
- * input, the seat's whole maxTokens as output, doubled for an Anthropic seat (the thinking-disabled
- * retry). Shared so a stage with its own ceiling inside the run's (the deep-dive seat) projects
- * the same number the run cap does.
+ * The worst case of each attempt of one call, exactly as invoke() projects it before sending: the whole prompt as input and the
+ * seat's whole maxTokens as output; an Anthropic seat gets a second, bigger attempt when its cap has room to grow (the same-effort
+ * retry after thinking used the whole cap: retryCapFor, the model's ceiling). { first, retry } in dollars; retry is 0 when there is none.
  */
-export function projectStage(seat, { system = '', user = '' } = {}) {
-  const isAnthropicSeat = (seat.originalProvider ?? seat.provider) === 'anthropic';
-  return worstCaseOf(seat.provider, seat.model, {
-    promptChars: (system || '').length + (user || '').length,
-    maxTokens: seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS,
-    retries: isAnthropicSeat ? 2 : 1,
-  }).usd;
+// The one predicate for "this seat's call may be repeated once at a bigger cap" (invoke() and projectAttempts use it; so does the add-on's calls_at_most): the seat's real identity
+// is Anthropic, whichever transport carries it.
+export const isAnthropicSeat = seat => (seat?.originalProvider ?? seat?.provider) === 'anthropic';
+
+export function projectAttempts(seat, { system = '', user = '' } = {}) {
+  const anthropic = isAnthropicSeat(seat);
+  const promptChars = (system || '').length + (user || '').length;
+  const maxTokens = seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS;
+  const first = worstCaseOf(seat.provider, seat.model, { promptChars, maxTokens }).usd;
+  if (!anthropic) return { first, retry: 0 };
+  const retryCap = retryCapFor(maxTokens, retryCeilingOf(seat));
+  if (retryCap <= maxTokens) return { first, retry: 0 };
+  return { first, retry: worstCaseOf(seat.provider, seat.model, { promptChars, maxTokens: retryCap }).usd };
+}
+
+/**
+ * The worst case of one call, exactly as invoke() projects it before sending: both attempts of projectAttempts. Shared so a stage
+ * with its own ceiling inside the run's (the deep-dive seat) projects the same number the run cap does.
+ */
+export function projectStage(seat, opts = {}) {
+  const { first, retry } = projectAttempts(seat, opts);
+  return first + retry;
 }
 
 /**
@@ -338,6 +414,8 @@ export function projectStage(seat, { system = '', user = '' } = {}) {
  */
 export function wouldBreach({ spent, cap, projected }) {
   if (cap === null || cap === undefined) return { breach: false };
+  // Audit A1-5: a cap that is not a finite number above zero fails closed (comparisons with NaN are all false, which used to read as "fits").
+  if (!(typeof cap === 'number' && Number.isFinite(cap) && cap > 0)) return { breach: true, after: spent + projected, remaining: 0 };
   const after = spent + projected;
   return { breach: after > cap, after, remaining: Math.max(0, cap - spent) };
 }

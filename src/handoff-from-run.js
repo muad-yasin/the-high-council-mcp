@@ -8,6 +8,11 @@
 // off on the draft below it.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { checksOf } from './criteria-lock.js';
+import { readStoppedMarker } from './stop-files.js';
+import { waitingStages } from './run-status.js';
+import { parseJson } from './chain.js';
+import { stripDeclined, parseDisputes } from './draft-disputes.js';
 
 const read = p => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
 const readJson = p => { const t = read(p); if (t == null) return null; try { return JSON.parse(t); } catch { return null; } };
@@ -21,10 +26,21 @@ export function pickDraft(runDir) {
   const revise = names.filter(n => /^revise-\d+\.md$/.test(n)).sort((a, b) => Number(b.match(/\d+/)[0]) - Number(a.match(/\d+/)[0]));
   for (const name of ['deliverable.md', 'final.md', ...revise, 'build.md']) {
     if (!names.includes(name)) continue;
-    const text = read(join(runDir, name));
+    // FX-15: build.md and revise-N.md hold a builder's or reviser's RAW reply, DECLINED lines and all; a draft never carries them. deliverable.md and
+    // final.md are finished texts (already stripped, or a finalist's): they are returned as they are, so a plan that ends in a "Disputed points" section keeps it.
+    const raw = read(join(runDir, name));
+    const text = name === 'deliverable.md' || name === 'final.md' ? raw : /^revise-\d+\.md$/.test(name) ? parseDisputes(raw).draft : stripDeclined(raw);
     if (text && text.trim()) return { name, text };
   }
   return null;
+}
+
+/**
+ * Whether `name` exists in `dir` with exactly that case (0.8.1 FX-9). existsSync says yes for HANDOFF.md when only
+ * handoff.md (a stage's cache file) exists on a case-insensitive disk. A missing folder is false.
+ */
+export function existsExactCase(dir, name) {
+  try { return readdirSync(dir).includes(name); } catch { return false; }
 }
 
 /** The criteria the run settled: report.json, else report-partial.json, else the criteria stage's reply. [] when none. */
@@ -35,13 +51,27 @@ export function readCriteria(runDir) {
   }
   const stage = read(join(runDir, 'criteria.md'));
   if (stage) {
-    const first = stage.indexOf('{'); const last = stage.lastIndexOf('}');
-    try {
-      const j = JSON.parse(stage.slice(first, last + 1));
-      if (Array.isArray(j?.criteria)) return j.criteria.map(c => (typeof c === 'string' ? c : String(c?.criterion ?? c?.text ?? ''))).filter(Boolean);
-    } catch { /* not JSON: no criteria from here */ }
+    // The run's own repairing parser (0.8.1 FX-6): a reply the run read after repairing it (an unescaped quote, a raw
+    // newline) is read the same way here; plain JSON.parse returned no criteria for it and the lock block was dropped.
+    let j = null;
+    try { j = parseJson(stage); } catch { /* genuinely garbled: no criteria from here; the CLI says so */ }
+    if (Array.isArray(j?.criteria)) return j.criteria.map(c => (typeof c === 'string' ? c : String(c?.criterion ?? c?.text ?? ''))).filter(Boolean);
   }
   return [];
+}
+
+/**
+ * How each of `criteria` is checked (0.8.1 FX-10), index-aligned for the lock block: from report.json or
+ * report-partial.json's criteria_kinds when they list the same criteria in the same order, else none (a run without
+ * kinds, or a stage file only). An empty list means the block's checks fingerprint covers "no checks".
+ */
+export function readChecks(runDir, criteria) {
+  for (const f of ['report.json', 'report-partial.json']) {
+    const r = readJson(join(runDir, f));
+    const kinds = r?.criteria_kinds;
+    if (Array.isArray(kinds) && kinds.length === criteria.length && kinds.every((k, i) => String(k?.criterion ?? '') === criteria[i])) return checksOf(criteria, kinds);
+  }
+  return criteria.map(() => null);
 }
 
 /**
@@ -59,7 +89,11 @@ export function stopState(runDir) {
   if (has('STOPPED-truncated.json') || has('STOPPED-truncated.md')) return { finished: false, signedOff: false, reason: 'a draft was cut off at its token cap' };
   if (has('STOPPED-error.md') || has('STOPPED-error.json')) return { finished: false, signedOff: false, reason: 'stopped at an error' };
   if (has('STOPPED-preflight.md')) return { finished: false, signedOff: false, reason: 'the task was refused before any stage' };
-  if (readdirSync(runDir).some(n => n.startsWith('NEEDS-'))) return { finished: false, signedOff: false, reason: 'paused at an external seat and never answered' };
+  if (has('STOPPED-secret.md')) return { finished: false, signedOff: false, reason: 'stopped because the prompt held a key-shaped string' };
+  // 0.8.1 M6: an advice call stopped at exit 18 (handoff --from-run refuses advice runs, FX-14; the status still reads right).
+  const stop = readStoppedMarker(runDir);
+  if (stop) return { finished: false, signedOff: false, reason: `stopped by ${{ user: 'a person', client_cancel: 'its client', wall_clock: 'its wall-clock ceiling' }[stop.stoppedBy]}` };
+  if (waitingStages(runDir).length) return { finished: false, signedOff: false, reason: 'paused at an external seat and never answered' };
   return { finished: false, signedOff: false, reason: 'ended without a report (crashed or killed)' };
 }
 

@@ -21,7 +21,8 @@ const cli = join(root, 'src/cli.js');
 const BUDGET_MS = 15_000; // a quarter of the shortest client timeout we know of (60 s)
 
 function client(cwd) {
-  const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd } });
+  // COUNCIL_ADVISE_MOCK: the add-on's tools run their mock advice chains (offline, $0).
+  const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_ADVISE_MOCK: '1', COUNCIL_ADVISE_COOLDOWN_MS: '0' } });
   const waiting = new Map();
   let buf = '';
   child.stdout.on('data', d => {
@@ -29,7 +30,12 @@ function client(cwd) {
     let nl;
     while ((nl = buf.indexOf('\n')) !== -1) {
       const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
-      try { const m = JSON.parse(line); if (m.id !== undefined && waiting.has(m.id)) { waiting.get(m.id)(m); waiting.delete(m.id); } } catch { /* not JSON-RPC */ }
+      let m; try { m = JSON.parse(line); } catch { continue; /* not JSON-RPC */ }
+      // A request from the server: the only one is council_advise's elicitation, answered the way a
+      // person who read the text and pressed "send" would.
+      if (m.method && m.id !== undefined) {
+        child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result: m.method === 'elicitation/create' ? { action: 'accept', content: { send: true } } : {} }) + '\n');
+      } else if (m.id !== undefined && waiting.has(m.id)) { waiting.get(m.id)(m); waiting.delete(m.id); }
     }
   });
   let n = 0;
@@ -41,7 +47,7 @@ function client(cwd) {
   });
   return {
     async init() {
-      await send('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'latency', version: '0' } });
+      await send('initialize', { protocolVersion: '2025-06-18', capabilities: { elicitation: {} }, clientInfo: { name: 'latency', version: '0' } });
       child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
     },
     list: async () => (await send('tools/list', {})).result.tools.map(t => t.name),
@@ -50,7 +56,8 @@ function client(cwd) {
       const m = await send('tools/call', { name, arguments: args });
       const ms = performance.now() - t0;
       let body = null;
-      try { body = JSON.parse(m.result.content.find(c => c.type === 'text').text); } catch { body = m.result?.content?.[0]?.text ?? null; }
+      // The add-on's tools answer in prose plus structuredContent; every older tool answers in JSON text.
+      try { body = JSON.parse(m.result.content.find(c => c.type === 'text').text); } catch { body = m.result?.structuredContent ?? m.result?.content?.[0]?.text ?? null; }
       return { ms, body };
     },
     stop: () => { child.stdin.end(); child.kill(); },
@@ -105,6 +112,22 @@ test('every MCP tool answers within the budget through a whole mock run, and eve
     await step('spend_report', {});
     await step('verdict_stats', {});
     await step('metrics_report', {});
+
+    // The add-on (0.8.1 M1, S1): a quote, a send the person approves through the elicitation dialog, and
+    // run_status holding for a change. Each hold is 1 s, far inside the budget.
+    const brief = {
+      schema_version: 'advice-brief/1', moment: 'before_commit',
+      question: 'Should the note list keep ticked items or remove them?',
+      decision_at_stake: 'Removing them loses the history; keeping them clutters the list.',
+      options_considered: [{ name: 'Keep', summary: 'Grey them out at the bottom.' }, { name: 'Remove', summary: 'Delete on tick.' }],
+      tried: [{ what: 'Asked two users', result: 'They disagreed.' }],
+      sensitivity: 'public', not_included: ['the conversation'],
+    };
+    const quote = await step('council_quote', { brief, mode: 'single' });
+    assert.ok(quote.quote_id, JSON.stringify(quote));
+    const advised = await step('council_advise', { quote_id: quote.quote_id, confirm_sha256: quote.text.sha256, wait_seconds: 1 });
+    assert.ok(advised.run, JSON.stringify(advised));
+    await step('run_status', { run: advised.run, wait_seconds: 1 });
 
     const untested = tools.filter(t => !timings.some(x => x.name === t));
     assert.deepEqual(untested, [], `a tool with no latency fixture: add a step to this test (${untested.join(', ')})`);
