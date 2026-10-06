@@ -1,8 +1,41 @@
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/muad-yasin/the-high-council-mcp/master/docs/logo-diamond.png" alt="Sower Industries diamond logo" width="120">
+
 # The High Council
 
-A planning harness that runs one idea past several AI models from different labs and makes
-them argue about software engineering, architecture, specific features, roadmaps and
-philosophy. It stops at a checkable result, at a price estimated before you spend anything.
+Several AI models from different labs argue about your idea, then debate on Software Engineering choices.<br>
+The goal is to get everyone to work together, in harmony and with manners. Effectiveness is unproven, but it is a fun way to spend your tokens!
+
+[![npm](https://img.shields.io/npm/v/the-high-council?label=npm)](https://www.npmjs.com/package/the-high-council)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-listed-5865f2)](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.muad-yasin/the-high-council)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+[Website](https://sower-industries.de/en/THC/) · [Releases](https://github.com/muad-yasin/the-high-council-mcp/releases) · [Changelog](CHANGELOG.md) · [Known limits](#known-limits-stated-plainly)
+
+<img src="https://raw.githubusercontent.com/muad-yasin/the-high-council-mcp/master/media/council-water-collector.gif" width="480" alt="The council chamber from the project website: the debate graph of a real recorded run (a water-collector design), with the Claude seat in the middle.">
+
+</div>
+
+## Try it in 30 seconds
+
+    npx the-high-council council demo
+
+No keys, no network, $0. Add it to Claude Code as an MCP server:
+
+    claude mcp add council -- npx -y the-high-council council --mcp
+
+For Claude Desktop, download the `.mcpb` bundle (`the-high-council-<version>.mcpb`) from [Releases](https://github.com/muad-yasin/the-high-council-mcp/releases/latest).
+
+## Contents
+
+- [Your first ten minutes](#your-first-ten-minutes) · [Words used here](#words-used-here)
+- [How it works](#how-it-works) · [Reading a run with a program](#reading-a-run-with-a-program)
+- [Requirements](#requirements) · [Setup](#setup) · [Quick start (CLI)](#quick-start-cli) · [Quick start (MCP)](#quick-start-mcp)
+- [Available tools](#available-tools) · [The spend cap](#the-spend-cap) · [Chains](#chains)
+- [How this was built](#how-this-was-built) · [Skills](#skills)
+- [Known limits](#known-limits-stated-plainly) · [Privacy](#privacy) · [Accessibility](#accessibility) · [Reporting a bug](#reporting-a-bug) · [License](#license)
+
 You choose the number of debate rounds, the seats and labs (any lab except xAI), and the token
 limit for each model's replies.
 
