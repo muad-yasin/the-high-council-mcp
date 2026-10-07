@@ -59,3 +59,20 @@ test('the drafted sentences are recorded all together or not at all, and a recor
     for (const args of CALLS[name]) assert.equal(R[name](...args), H[name](...args), `${name}(${JSON.stringify(args).slice(0, 80)}): src/roles.js renders differently from test/held-prompts/held.js`);
   }
 });
+
+// The next batch (test/held-prompts/held-next.js, after 0.8.2): the same rule for its own names. A name may not be drafted in both batches.
+import * as HN from './held-prompts/held-next.js';
+const CALLS_NEXT = {
+  criticUnansweredNote: [[{ ids: ['O-aaaaaaaa'] }], [{ ids: ['O-aaaaaaaa', 'O-bbbbbbbb', 'O-cccccccc'] }], [{ ids: ['O-aaaaaaaa', 'O-bbbbbbbb'], also: true }]],
+};
+
+test('the next batch of drafted sentences: recorded all together or not at all, a recorded one renders exactly as drafted, and no name is drafted in both batches', () => {
+  const names = Object.keys(HN);
+  assert.deepEqual(Object.keys(CALLS_NEXT).sort(), names.slice().sort(), 'every drafted function has calls here: add one when you draft one');
+  assert.deepEqual(names.filter(n => n in H), [], 'a name drafted in both held.js and held-next.js');
+  const recorded = names.filter(n => n in R);
+  assert.ok(recorded.length === 0 || recorded.length === names.length, `a partial re-record: ${recorded.join(', ')} are in src/roles.js, ${names.filter(n => !(n in R)).join(', ')} are not (the missing ones would silently add nothing)`);
+  for (const name of recorded) {
+    for (const args of CALLS_NEXT[name]) assert.equal(R[name](...args), HN[name](...args), `${name}(${JSON.stringify(args).slice(0, 80)}): src/roles.js renders differently from test/held-prompts/held-next.js`);
+  }
+});

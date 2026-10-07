@@ -59,8 +59,11 @@ export const answerBackSummary = (round, byLab) => Object.entries(byLab).map(([l
  *   status "withdrawn" counts only if `evidence` holds a quoted span (any length, 8+ characters once normalised; quotes and apostrophes of either shape are one) found in the draft; otherwise the withdrawal is refused and the objection is carried;
  *   status "sustained" keeps the objection (carried when the judge did not list it again); a status that is neither word keeps it the same way (effect unreadable_answer: an unreadable answer is never a withdrawal);
  *   an answer naming an id the judge never raised is recorded and ignored;
- *   an own objection with no answer at all is recorded as unanswered and has no effect.
- * Returns { carried: [failure...], records: [{ id, status, effect }] }; `carried` entries are failures the caller adds to the judge's own, `records` go to report.json (`answer_back_replies`).
+ *   an own objection with no answer at all is recorded as unanswered and is NOT carried here: carrying it at once would let a judge that ignores the `answers` array stall the run
+ *   round after round (test/verdict-words.test.js pins that). It is returned in `unanswered` instead, in the same shape as a carried failure, and the caller decides (Astra's 0.8.2 review,
+ *   7 Oct 2026, F1: an unanswered objection under a clean sign-off used to vanish, while a withdrawal with no quote was kept; src/chain.js now re-asks that judge once and carries
+ *   whatever is still unanswered, once the re-ask sentence is recorded).
+ * Returns { carried: [failure...], unanswered: [failure...], records: [{ id, status, effect }] }; `carried` entries are failures the caller adds to the judge's own, `records` go to report.json (`answer_back_replies`).
  */
 export function applyAnswers({ lab, critique, own, shownDraft, round }) {
   const answers = Array.isArray(critique?.answers) ? critique.answers.filter(a => a && typeof a === 'object' && !Array.isArray(a)) : [];
@@ -70,7 +73,8 @@ export function applyAnswers({ lab, critique, own, shownDraft, round }) {
   const draftText = normQuote(shownDraft); // the quote check normalises quotes and apostrophes on both sides; the paragraph diff above keeps its own norm
   const records = []; const carried = [];
   const seen = new Set();
-  const carry = o => { if (!listed.has(o.id) && !carried.some(c => c.id === o.id)) carried.push({ criterion: o.criterion, problem: o.problem, fix: '', ...(o.quote ? { quote: o.quote } : {}), id: o.id, carried_from_round: round - 1 }); };
+  const asFailure = o => ({ criterion: o.criterion, problem: o.problem, fix: '', ...(o.quote ? { quote: o.quote } : {}), id: o.id, carried_from_round: round - 1 });
+  const carry = o => { if (!listed.has(o.id) && !carried.some(c => c.id === o.id)) carried.push(asFailure(o)); };
   for (const a of answers) {
     const id = typeof a.id === 'string' ? a.id : '';
     // The two words are the whole vocabulary; case, surrounding spaces and a closing full stop are not a different word ("Withdrawn." reads as withdrawn), anything else is.
@@ -85,6 +89,10 @@ export function applyAnswers({ lab, critique, own, shownDraft, round }) {
     } else if (status === 'sustained') { records.push({ id, status, effect: 'sustained' }); carry(o); }
     else { records.push({ id, status, effect: 'unreadable_answer' }); carry(o); } // 3b: a word that is neither (fixed, resolved, open, "") must not drop an objection the judge did not list again
   }
-  for (const o of own || []) if (!seen.has(o.id)) records.push({ id: o.id, status: null, effect: 'unanswered' });
-  return { carried, records };
+  const unanswered = [];
+  for (const o of own || []) if (!seen.has(o.id)) {
+    records.push({ id: o.id, status: null, effect: 'unanswered' });
+    if (!listed.has(o.id)) unanswered.push(asFailure(o)); // listed again as a failure: the judge still holds it, nothing is missing
+  }
+  return { carried, unanswered, records };
 }

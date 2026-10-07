@@ -691,7 +691,16 @@ async function callMock({ model, system, messages, maxTokens }) {
     const revised = model !== 'mock-critic-holdout' && user.includes('REVISED MOCK DELIVERABLE');
     // 0.8.2 (test/answer-back.test.js): a judge that, once the draft is revised, answers its own earlier objection in an `answers` array: `-withdraw-quoted` withdraws it quoting the
     // draft, `-withdraw-unquoted` withdraws it with no quote, `-sustain` sustains it without listing it again, `-fixed` answers with a word that is neither sustained nor withdrawn. The test seats it under lab 'la', which the objection id depends on.
-    const answersMode = /^mock-critic-answers-(withdraw-quoted|withdraw-unquoted|sustain|fixed)$/.exec(model)?.[1];
+    // `-omit` (Astra's 0.8.2 review, 7 Oct 2026, F1; test/held-door-27.test.js) signs off clean with no `answers` at all, on every ask; `-after-note` does the same until its prompt carries the
+    // re-ask sentence about unanswered objections, then withdraws quoting the draft (proves the sentence reaches the seat and the reply it asks for is accepted).
+    const answersMode = /^mock-critic-answers-(withdraw-quoted|withdraw-unquoted|sustain|fixed|omit|after-note)$/.exec(model)?.[1];
+    if (answersMode === 'after-note' && revised && user.includes('it gave no answer for your objection')) {
+      const answers = [{ id: objectionId('la', { criterion: 'It states the assumptions it was written under.' }), status: 'withdrawn', evidence: 'It now reads "REVISED MOCK DELIVERABLE" at the top.' }];
+      return { text: JSON.stringify({ meets: true, criteria: [], failures: [], answers, verdict_line: 'All criteria met.' }), usage: { input: Math.ceil(user.length / 4), output: 60 }, provider: 'mock', model };
+    }
+    if ((answersMode === 'omit' || answersMode === 'after-note') && revised) {
+      return { text: JSON.stringify({ meets: true, criteria: [], failures: [], verdict_line: 'All criteria met.' }), usage: { input: Math.ceil(user.length / 4), output: 60 }, provider: 'mock', model };
+    }
     if (answersMode && revised) {
       const answers = [{ id: objectionId('la', { criterion: 'It states the assumptions it was written under.' }), status: answersMode === 'sustain' ? 'sustained' : answersMode === 'fixed' ? 'fixed' : 'withdrawn',
         evidence: answersMode === 'withdraw-quoted' ? 'It now reads "REVISED MOCK DELIVERABLE" at the top.' : answersMode === 'sustain' ? 'Still no assumptions section.' : 'It is fixed now.' }];

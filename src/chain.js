@@ -2808,8 +2808,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // 0.8.2 wiring (2a): a seat re-asked because its sign-off table was refused is told what the table lacked, whatever its provider. The words are a held sentence (src/held-roles.js:
       // `criticReaskNote({ kind, ids })` in src/roles.js after the re-record, ids are criterion numbers as the judge's list shows them); until then an API seat's re-ask is the same prompt and an
       // external seat gets the note above.
-      const reaskNote = (seat, tag, gap) => {
-        const text = gap && /^-reask\d+$/.test(tag) ? held('criticReaskNote')?.({ kind: gap.kind, ids: gap.criterion_ids.map(id => Number(String(id).replace(/^C/, ''))) }) : null;
+      // Astra's 0.8.2 review (7 Oct 2026, F1): a seat re-asked because its clean sign-off left some of its own earlier objections without an answer is told which ids (held sentence
+      // `criticUnansweredNote({ ids, also })`, drafted in test/held-prompts/held-next.js). With a table gap as well, ONE note: the table's words, then the answers' (`also`). API and external seats alike.
+      const reaskNote = (seat, tag, gap, answersGap = null) => {
+        const isReask = /^-reask\d+$/.test(tag);
+        const table = gap && isReask ? held('criticReaskNote')?.({ kind: gap.kind, ids: gap.criterion_ids.map(id => Number(String(id).replace(/^C/, ''))) }) : null;
+        const answers = answersGap?.length && isReask ? held('criticUnansweredNote')?.({ ids: answersGap.map(o => o.id), also: !!table }) : null;
+        const text = [table, answers].filter(Boolean).join('\n\n');
         return text ? `\n\n${text}` : externalReaskNote(seat, tag);
       };
       // 0.8.2 wiring (3c, 3d): from round 2 a judge that had objections is shown them, the writer's reasons and the changed passages, and told how to answer (`answers`, parsed by applyAnswers below).
@@ -2821,7 +2826,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const text = a ? held('answerBackSection')?.({ objections: a.objections, declined: a.declined, changed: a.changed_passages }) : null;
         return text ? `\n\n${text}` : '';
       };
-      const reviewSeat = async (criticSeat, prior, say, tag = '', tableGap = null) => {
+      const reviewSeat = async (criticSeat, prior, say, tag = '', tableGap = null, answersGap = null) => {
         let cs, parsed, answeredQuestion = null;
         // `panelMaxTokens` (2026-09-22): an optional per-seat output cap for the panel review only.
         // A seat that needs room to reason (GLM-5.3 Flash cut off at 36k on the Zofia run) can get it
@@ -2837,7 +2842,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
               // Patch mode shows the full draft plus the edits made since the last review, so a
               // reviewer can see what moved without re-reading the plan. Empty in full-rewrite
               // mode and on round 1, where there is no "since" to speak of.
-              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion, checks }) + answerBackNote(criticSeat) + reaskNote(criticSeat, tag, tableGap),
+              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion, checks }) + answerBackNote(criticSeat) + reaskNote(criticSeat, tag, tableGap, answersGap),
               log: say, label: attempt === 0 ? `panel-${round}-${labOf(criticSeat)}${tag}` : `panel-${round}-${labOf(criticSeat)}${tag}-answered`,
             }));
           } catch (err) {
@@ -2875,7 +2880,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             try {
               cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
                 system: criticPromptFor(criticSeat, open, freedoms),
-                user: R.criticUser({ request, criteria, draft, prior, answeredQuestion, checks }) + answerBackNote(criticSeat) + (tableGap ? reaskNote(criticSeat, tag, tableGap) : ''),
+                user: R.criticUser({ request, criteria, draft, prior, answeredQuestion, checks }) + answerBackNote(criticSeat) + (tableGap || answersGap ? reaskNote(criticSeat, tag, tableGap, answersGap) : ''),
                 log: say, label: `panel-${round}-${labOf(criticSeat)}${tag}-retry`,
               }));
               effectiveCap = biggerCap;
@@ -2956,6 +2961,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
         }
         // 0.8.2 (owner ruling 6 Oct 2026): a judge's `answers` about its own earlier objections. A withdrawal with no quote found in the draft does not count: the objection stays open.
+        let pendingAnswers = null; // this ask's own objections left unanswered under a clean sign-off (not the `answersGap` argument, which was the previous ask's, for the note)
         if (answerBackOn && answerBackRound === round && answerBackLatest[labOf(criticSeat)]) {
           const applied = applyAnswers({ lab: labOf(criticSeat), critique, own: answerBackLatest[labOf(criticSeat)].objections, shownDraft: draft, round }); // cnc-prompts F2: the draft alone (in patch mode the "Was:" blocks and the harness's sentences are not the draft)
           // A re-ask of the same round replaces what the seat's earlier reply of the round recorded (the latest ask is the one that counts; a refused table's reply is not counted twice).
@@ -2965,7 +2971,21 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${applied.carried.length} earlier objection(s) stay open (a withdrawal needs a quote from the draft; a sustained answer, or one that says neither sustained nor withdrawn, leaves it open): ${applied.carried.map(c => c.id).join(', ')}`);
             critique = { ...critique, failures: [...critique.failures, ...applied.carried], meets: false };
           }
+          // Astra's 0.8.2 review (7 Oct 2026, F1): a CLEAN sign-off that leaves some of the judge's own objections without any answer is not counted yet. The first ask of the round
+          // turns into a re-ask (below, with the table check's one re-ask: a cost cap); on the re-ask, or when the round is not re-asked, what is still unanswered is carried as a
+          // failure, so the non-pass follows from the objection itself. Off until `criticUnansweredNote` is recorded in src/roles.js (the judge must be told why it is asked again).
+          // A verdict that already objects (its own failures, or a carried answer above) carries its unanswered ones at once with no re-ask: it is no pass either way, and an objection it
+          // skipped would otherwise be missing from the next round's answer-back and could pass unanswered there (Sonnet review of item 27, 7 Oct 2026, finding 3).
+          // A re-ask whose first ask was LOST (unreadable, cut off) is a re-ask too: the round's one re-ask is spent, so what it leaves unanswered is carried without the note (a cost cap).
+          if (applied.unanswered.length && held('criticUnansweredNote')) {
+            if (critique.meets !== true || /^-reask\d+$/.test(tag)) {
+              say(`  ${labOf(criticSeat)}/${criticSeat.model}: no answer for ${applied.unanswered.length} earlier objection(s)${critique.meets === true ? ' after the re-ask' : ''} - they stay open: ${applied.unanswered.map(c => c.id).join(', ')}`);
+              critique = { ...critique, failures: [...critique.failures, ...applied.unanswered], meets: false };
+            } else pendingAnswers = applied.unanswered;
+          }
         }
+        // What this seat's verdict becomes if it is not re-asked about its unanswered objections (or the re-ask is lost): an objection carrying them.
+        const unansweredFallback = pendingAnswers ? { seat: criticSeat, critique: { ...critique, failures: [...critique.failures, ...pendingAnswers], meets: false } } : null;
         {
           const outside = outsideCriteriaRows(critique, criteria);
           if (outside.length) outsideCriteriaRowList.push({ round, lab: labOf(criticSeat), rows: outside });
@@ -2977,8 +2997,14 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             noteMissingRows(critique, round, labOf(criticSeat));
             signoffTableGaps.push({ round, lab: labOf(criticSeat), ...(tag ? { stage: `panel-${round}-${labOf(criticSeat)}${tag}` } : {}), ...gap });
             progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
-            return { seat: criticSeat, critique: null, abstained: true, reasonCode: 'INCOMPLETE_TABLE', tableGap: gap };
+            return { seat: criticSeat, critique: null, abstained: true, reasonCode: 'INCOMPLETE_TABLE', tableGap: gap, ...(unansweredFallback ? { answersGap: pendingAnswers, unansweredFallback } : {}) };
           }
+        }
+        if (unansweredFallback) {
+          say(`  ${labOf(criticSeat)}/${criticSeat.model}: signs off without answering ${pendingAnswers.length} of its own earlier objection(s) (${pendingAnswers.map(c => c.id).join(', ')}) - not counted as a sign-off yet.`);
+          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+          // Internal only: the round turns every such verdict into a re-ask or into `unansweredFallback` before anything is recorded, so this code never reaches report.json.
+          return { seat: criticSeat, critique: null, abstained: true, reasonCode: 'UNANSWERED_OBJECTIONS', answersGap: pendingAnswers, unansweredFallback };
         }
         say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
         noteMissingRows(critique, round, labOf(criticSeat));
@@ -3043,12 +3069,25 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         for (let i = 0; i < verdicts.length; i++) {
           if (!verdicts[i].abstained) continue;
           // 0.8.2 (owner decision 1: "one re-ask, then abstention"): a seat refused for an incomplete table is re-asked once; an unreadable or lost reply keeps its two.
-          if (reask > 1 && verdicts[i].reasonCode === 'INCOMPLETE_TABLE') continue;
+          // F1 (Astra, 7 Oct 2026): a seat re-asked about unanswered objections shares that one re-ask (a cost cap), even when the re-ask itself came back unreadable.
+          if (reask > 1 && (verdicts[i].reasonCode === 'INCOMPLETE_TABLE' || verdicts[i].unansweredFallback)) continue;
           const seatToAsk = verdicts[i].seat;
           log(`  re-asking only ${labOf(seatToAsk)}/${seatToAsk.model} (${reask}/2) - it was not heard; the rest of the panel already answered this draft.`);
           const prior = relay ? verdicts.filter(v => v.critique).map((v, k) => ({ lab: `Reviewer ${String.fromCharCode(65 + k)}`, verdict_line: v.critique.verdict_line, failures: v.critique.failures })) : [];
-          verdicts[i] = await reviewSeat(seatToAsk, prior, log, `-reask${reask}`, verdicts[i].tableGap || null);
+          const before = verdicts[i];
+          verdicts[i] = await reviewSeat(seatToAsk, prior, log, `-reask${reask}`, before.tableGap || null, before.answersGap || null);
+          // A LOST re-ask (no verdict read at all) must not lose the objections it was asked about: the earlier fallback stays. A re-ask refused only for its table did read the
+          // judge's answers (an answered objection is closed, a still unanswered one was carried), so the old fallback must not come back (Sonnet review of item 27, finding 1).
+          if (verdicts[i].abstained && verdicts[i].reasonCode !== 'INCOMPLETE_TABLE' && !verdicts[i].unansweredFallback && before.unansweredFallback) verdicts[i] = { ...verdicts[i], answersGap: before.answersGap, unansweredFallback: before.unansweredFallback };
         }
+      }
+      // F1: a seat still waiting on its unanswered objections (not re-asked because another judge objected, or its re-ask was lost) is recorded as objecting with them, never as unheard.
+      for (let i = 0; i < verdicts.length; i++) {
+        if (!verdicts[i].abstained || !verdicts[i].unansweredFallback) continue;
+        const v = verdicts[i];
+        log(`  ${labOf(v.seat)}/${v.seat.model}: ${v.answersGap.length} earlier objection(s) still without an answer - they stay open: ${v.answersGap.map(c => c.id).join(', ')}`);
+        verdicts[i] = v.unansweredFallback;
+        progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(v.seat)}`, lab: labOf(v.seat), passed: false }); // the live view showed it dropped; it is an objection now
       }
 
       // Each objection carries the lab that raised it, so the human review
@@ -3212,6 +3251,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         passed = false;
         // R1: the heard seats' clean verdicts carry into the next round, on this exact text only.
         carry = { shownDraft, byLab: new Map(verdicts.filter(v => !v.abstained).map(v => [labOf(v.seat), v])) };
+        // Roadmap item 30 (found building item 27, 7 Oct 2026; Muad's yes via C&C): the answer-back data was set only at a revise, so an unheard judge asked again in the next round was
+        // no longer shown its open objections nor had its answers read, and a plain clean sign-off passed the run. The draft is unchanged and nothing was revised, so the same data
+        // still holds: it moves on to the next round, for the seats that will be asked again (report.json's answerBack says what each round showed, and to whom).
+        if (answerBackOn && answerBackRound === round) {
+          answerBackRound = round + 1;
+          answerBackRecords.push(...answerBackSummary(round + 1, Object.fromEntries(Object.entries(answerBackLatest).filter(([lab]) => !carry.byLab.has(lab)))));
+        }
         continue;
       }
 
