@@ -39,11 +39,13 @@ For Claude Desktop, download the `.mcpb` bundle (`the-high-council-<version>.mcp
 You choose the number of debate rounds, the seats and labs (any lab except xAI), and the token
 limit for each model's replies.
 
-We recommend our own chains: `cheap-7-v2`, `plan-premium-7` and `plan-highest-7` (the top
+We recommend our own chains: `plan-daily-7` (the one we use most: `plan-highest-7`'s stages at a lower price, for planning
+one feature; it needs an OpenRouter key and Claude Code sessions for its external seats), `cheap-7-v2`, `plan-premium-7` and `plan-highest-7` (the top
 models, GPT-6 Astra, Claude Opus 5.5, DeepSeek V4 Pro
 and GLM-5.3, write the alternative
 architectures and are the only seats that vote; cheaper seats write the proposals and the debate). You can also edit a chain to suit yourself, or run every seat on
-your own machine with `local-ollama`.
+your own machine with `local-ollama`. For a quick second opinion on one decision, the advisor add-on asks a single seat:
+GPT-6.1 Sol by default (`council_advise` with `mode: "single"`, see [Available tools](#available-tools)).
 
 See it work right now - no keys, no setup, no cost:
 
