@@ -31,7 +31,9 @@ const sha256 = s => createHash('sha256').update(s).digest('hex');
 // ADDS the advisor, debate and synthesis prompts to src/roles.js (154 lines added, none removed). No existing
 // prompt changed, and the mock-chain check below was not re-recorded.
 // Re-recorded 2026-10-07 on the owner's go (0.8.2): the held prompt sentences of the wiring block (P1-P13, handoff milestones, lanes, contract draft) are recorded. The mock-chain shas below changed because the judges', the criteria seat's and the final editor's prompts did.
-const ROLES_SHA256 = '72b633d345a9befbc7b97ae72829c3f444f72d08430d52745b6d0ec7d9e585a8';
+// Re-recorded 2026-10-07 on the owner's yes (via C&C; Astra's 0.8.2 review, roadmap items 27 and 28): criticUnansweredNote (the re-ask about unanswered own objections), the writer's self-review
+// opening (only for the writer's seat under "selfReview": "allowed"), the deep dive's "not a vote" wording and deepDiveVerdictLine (moved here from src/chain.js). The mock-chain shas below did not change.
+const ROLES_SHA256 = '416033c24c8dafe5f6d2e889510b833391e38dd25baec52895f5561db008d846';
 // Recorded at 0d87668. `status` is the CLI's exit code (mock-security-review's mock reviewer blocks: 7).
 // mock-relay is left out: its panel order comes from Math.random (bug audit 2026-09-26 #2) and a relay
 // reviewer sees the reviews before it, so its prompts differ from run to run.

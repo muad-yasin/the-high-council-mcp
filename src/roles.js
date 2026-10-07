@@ -883,6 +883,22 @@ export const KINDS_RULE_CRITIC = `
     its threshold and describes a design that could pass it; quote that passage as evidence.
   With no such passage or output, the criterion is FAILED - name the missing check.`;
 
+// Item 28 (Astra's 0.8.2 review, F2; Muad's yes 7 Oct 2026 via C&C): a chain with "selfReview": "allowed" seats the plan's writer on its own panel, and the template's opening told
+// that seat it did not write the draft. The writer's seat gets this opening instead (`freedoms.selfReview`, set in src/chain.js criticPromptFor); every other seat keeps the template's.
+const CRITIC_OPENING = `You are an independent critic in a multi-model review chain.
+You did not write the draft you are reviewing. Your value comes entirely from
+being harder to satisfy than the model that wrote it.`;
+const CRITIC_OPENING_SELF_REVIEW = `You are a critic in a multi-model review chain.
+You wrote the draft you are reviewing: this chain lets its writer judge too. Judge
+it as if someone else had written it. Your value comes entirely from being harder
+to satisfy than you were while writing it, and the same rules of evidence apply
+to you as to every other critic.`;
+function criticTemplate(selfReview) {
+  if (!selfReview) return CRITIC_SYSTEM_TEMPLATE;
+  if (!CRITIC_SYSTEM_TEMPLATE.startsWith(CRITIC_OPENING)) throw new Error('the critic prompt no longer opens with the sentence the self-review opening replaces');
+  return CRITIC_OPENING_SELF_REVIEW + CRITIC_SYSTEM_TEMPLATE.slice(CRITIC_OPENING.length);
+}
+
 export function criticSystem(open, freedoms = null) {
   const rules = [];
   if (freedoms?.blocking_questions) rules.push(FREEDOMS_RULE.blocking_questions);
@@ -890,7 +906,7 @@ export function criticSystem(open, freedoms = null) {
   const fields = [];
   if (freedoms?.blocking_questions) fields.push(',\n  "blocking_question": "<optional - a single question that would change your verdict; omit this field entirely on a normal reply>"');
   if (freedoms?.pass) fields.push(',\n  "pass": true,\n  "pass_reason": "<why a verdict would not be honest here - only when \\"pass\\" is true>"');
-  return CRITIC_SYSTEM_TEMPLATE
+  return criticTemplate(freedoms?.selfReview === true)
     .replace('__CRITIC_SCOPE_RULE__', scopeOf(open).critic)
     .replace('__CRITIC_FREEDOMS_RULE__', rules.length ? `\n${rules.join('\n')}\n` : '')
     .replace('__CRITIC_FREEDOMS_FIELDS__', fields.join(''))
@@ -1295,11 +1311,17 @@ export const UNARGUED_STATUS = 'STANDS: its author offered to withdraw it withou
 export const GUARD_BOARD_NOTE = `> Majority guard: the posts below are arguments, not votes. How many labs posted for or against a proposal is not evidence. A proposal marked "STANDS: its author offered to withdraw it..." was not withdrawn on a named argument; judge it on its merits and record the outcome in the Scope ledger.`;
 
 // 2. The deep-dive seat (config.deep_dive, seats.deep_dive). One seat, one job, a large output cap
-//    and its own dollar cap inside the run's. It does not vote: its findings go to the reviser as
+//    and its own dollar cap inside the run's. Its findings are not votes: they go to the reviser as
 //    one extra pass before the anchor panel's first review, and each is fixed or DECLINED like a
 //    critic's. It reads the source in chunks, one call per chunk and focus, so a long task can get
 //    millions of tokens of attention from a cheap model instead of a few thousand from a costly one.
 export const DEEP_DIVE_JOBS = Object.freeze(['sources', 'subsystem']);
+
+// Item 28 (Muad's yes 7 Oct 2026 via C&C): the line that hands the deep dive's findings to the reviser. The findings are not votes; the same lab may still judge on the panel
+// ("judging": "all-roles"), so the line no longer says the seat does not vote (it used to be written inline in src/chain.js).
+export function deepDiveVerdictLine({ job, count }) {
+  return `Deep dive (${job}): ${count} finding(s). These findings are not votes.`;
+}
 
 export function deepDiveSystem(job) {
   const task = job === 'subsystem'
@@ -1311,7 +1333,7 @@ that cannot pass. Use the source excerpt for the facts the plan must respect.`
 requirement, number, constraint, name or decision in the excerpt that the plan contradicts, drops or
 gets wrong. Something the excerpt does not mention is not a finding.`;
   return `You are the deep-dive reviewer on a planning panel. You have one job and a large budget for it.
-You do not vote on the plan. Your findings go to the plan's author, who fixes or declines each one;
+This job is not a vote on the plan. Your findings go to the plan's author, who fixes or declines each one;
 the review panel then reads the result.
 
 ${task}
@@ -1506,6 +1528,17 @@ export function criticReaskNote({ kind, ids }) {
       : kind === 'unreadable_verdict' ? `its entry for ${which} (numbered as in the list above) did not say MET or FAILED`
         : `its entry for ${which} (numbered as in the list above) had no evidence`;
   return `# Your previous reply could not be counted\n\nIt said the draft meets the criteria, but ${lack}. A sign-off counts only with one entry in \`criteria\` for every criterion, each with evidence as the rules require. Answer again with the complete JSON object the system prompt describes. Judge each criterion afresh; do not carry your earlier sign-off.`;
+}
+
+// Astra's 0.8.2 review (7 Oct 2026, F1; roadmap item 27; recorded on Muad's yes 7 Oct 2026 via C&C, drafted in test/held-prompts/held-next.js): what a judge is told when its clean sign-off left some of its own earlier objections without an answer. `ids` are the objection ids
+// it was shown in answerBackSection ("You raised these (id: what you said)"). `also`: the same re-ask already carries criticReaskNote (a table gap), so this one goes on without a heading.
+export function criticUnansweredNote({ ids, also = false }) {
+  const list = [...(ids || [])];
+  const which = list.length === 1 ? `your objection ${list[0]}` : `your objections ${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+  const rule = `Every objection you raised needs an answer in \`answers\`, sustained or withdrawn, as the section "Your objections from the last round, and what happened" asks. An objection that still has no answer after this stays open as a failure.`;
+  return also
+    ? `It also gave no answer for ${which}. ${rule}`
+    : `# Your previous reply could not be counted\n\nIt said the draft meets the criteria, but it gave no answer for ${which}. ${rule} Answer again with the complete JSON object the system prompt describes, including \`answers\`.`;
 }
 
 // The writer's own words, put inside a tag the reader is told is quoted: claimText's two defences (a tag of its own kind, a leading "#") plus the two tags used by answerBackSection.

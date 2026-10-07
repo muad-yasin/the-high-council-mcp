@@ -276,7 +276,7 @@ export function renderBoardMd({ runId, result }) {
   // Criterion kinds: the count goes at the top of the board, where a person sees how much of the
   // definition of done a command can settle and how much rests on reviewers' judgement.
   const kindsSection = result.criteriaSummary ? `${summaryLine(result.criteriaSummary)}\n\n` : '';
-  const deepDiveSection = renderDeepDiveBoard(result.deep_dive);
+  const deepDiveSection = renderDeepDiveBoard(result.deep_dive, { judges: [...new Set([...(result.signoff || []), ...(result.panelVerdicts || [])].map(v => v?.lab).filter(Boolean))] });
   const dropoutsSection = renderDropoutsBoard(result.dropouts);
   const labelsSection = renderTextLabelsBoard({ signedText: result.signedText, deliveredText: result.deliveredText, outcome: computeOutcome(result) }); // only added to a board that exists (below)
   if (!(result.board || disputesSection || alternativesSection || kindsSection || deepDiveSection || dropoutsSection)) return '';

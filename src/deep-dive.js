@@ -134,10 +134,12 @@ export function deepDiveFailures(result) {
   }));
 }
 
-/** BOARD.md section for the deep dive, or ''. */
-export function renderDeepDiveBoard(dd) {
+/** BOARD.md section for the deep dive, or ''. `judges`: the labs that judged on the panel (report.json's signoff[] and panelVerdicts[]), to say when the deep dive's lab also voted there. */
+export function renderDeepDiveBoard(dd, { judges = [] } = {}) {
   if (!dd) return '';
-  const head = `## Deep dive (${dd.lab}/${dd.model}, job: ${dd.job})\n\n${dd.calls} of ${dd.planned_calls} planned call(s), ${formatUsd(dd.spent)} of its own ${formatUsd(dd.usd_cap)} cap${dd.stopped ? `, stopped: ${dd.stopped === 'own_cap' ? 'its own cap' : 'maxCalls'}` : ''}${dd.unreadable ? `, ${dd.unreadable} unreadable` : ''}. It does not vote: each finding went to the reviser before the panel's first review.`;
+  // Item 28 (Muad's yes 7 Oct 2026 via C&C): the findings are not votes; under "judging": "all-roles" the same lab also sits on the panel, which the board used to deny.
+  const alsoJudges = judges.includes(dd.lab) ? ' The same lab also sits on the panel and votes there.' : '';
+  const head = `## Deep dive (${dd.lab}/${dd.model}, job: ${dd.job})\n\n${dd.calls} of ${dd.planned_calls} planned call(s), ${formatUsd(dd.spent)} of its own ${formatUsd(dd.usd_cap)} cap${dd.stopped ? `, stopped: ${dd.stopped === 'own_cap' ? 'its own cap' : 'maxCalls'}` : ''}${dd.unreadable ? `, ${dd.unreadable} unreadable` : ''}. Its findings are not votes: each went to the reviser before the panel's first review.${alsoJudges}`;
   const rows = dd.findings.map((f, i) => `${i + 1}. **${f.criterion}** - ${f.problem}${f.quote ? ` Quote: "${f.quote}" (${f.quote_status}).` : ''}`);
   return `${head}\n\n${rows.join('\n') || '- (no findings)'}${dd.revise ? `\n\nReviser: ${dd.revise.declined.length} declined${dd.revise.declined.length ? ` - ${dd.revise.declined.join('; ')}` : ''}.` : ''}\n\n`;
 }

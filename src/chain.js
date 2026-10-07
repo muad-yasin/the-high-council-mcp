@@ -400,8 +400,31 @@ function describeDropped(items) {
 export const askedCapOf = (stage, fallback) => (Number.isFinite(stage?.cappedAt) && stage.cappedAt >= fallback ? stage.cappedAt : fallback);
 // 0.8.2 item 7: the ONE door every critic system prompt goes through, so a lane paragraph (src/lanes.js) can never be applied at some call sites and missed at others (a source-scan test fails on a bare
 // R.criticSystem( anywhere else in this file). A seat with no lane gets R.criticSystem's text unchanged.
-function criticPromptFor(seat, open, opts) {
-  return withLane(seat, opts === undefined ? R.criticSystem(open) : R.criticSystem(open, opts));
+// Item 28 (Muad's yes 7 Oct 2026 via C&C): in a chain with "selfReview": "allowed", the critic seat that wrote the draft gets the self-review opening (R.criticSystem's `selfReview`).
+export function criticPromptFor(seat, open, opts, config) {
+  const self = config?.selfReview === 'allowed' && isWriterSeat(seat, config.seats);
+  const o = self ? { ...(opts || {}), selfReview: true } : opts;
+  return withLane(seat, o === undefined ? R.criticSystem(open) : R.criticSystem(open, o));
+}
+
+// The model a seat actually runs, provider prefix and :variant dropped, so `anthropic/claude-sonnet-5` on OpenRouter and `claude-sonnet-5` direct are one model. Mock and external seats
+// have no real model identity (mock chains reuse names on purpose), so they return null and never match. (Moved here from src/chain-lint.js, which re-exports it.)
+export function modelIdentity(seat) {
+  if (!seat?.model || seat.provider === 'mock' || seat.provider === 'external') return null;
+  return String(seat.model).toLowerCase().split('/').pop().split(':')[0];
+}
+// Who a seat is, for "is this the same agent": its model identity, or for an external seat its model string (a writer and a critic that name the same session,
+// "claude-code-session", are the same agent: audit fix cnc-chains-lint F1). One rule for chain-lint's self-review check and for the writer's critic prompt.
+export const seatIdentity = seat => modelIdentity(seat) ?? (seat?.provider === 'external' && seat.model ? `external:${String(seat.model).toLowerCase()}` : null);
+/** True when this critic seat is the plan's writer (the builder's or the reviser's lab, or the same model / session under another lab label). */
+export function isWriterSeat(seat, seats) {
+  return ['builder', 'reviser'].some(k => {
+    const w = seats?.[k];
+    if (!w || !seat) return false;
+    if (labOf(w) === labOf(seat)) return true;
+    const id = seatIdentity(w);
+    return id !== null && id === seatIdentity(seat);
+  });
 }
 export function cutOffRetryCap(cap, ceiling = CUT_OFF_RETRY_MAX_TOKENS) {
   return retryCapFor(cap, ceiling);
@@ -2734,7 +2757,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       log(`\nStage: revise (the deep dive's ${deepDive.findings.length} finding(s), before the panel's first review)`);
       const revised = (await draftStage(config.seats.reviser || config.seats.builder, {
         system: R.reviserSystem(open, !!fencedSource, promptOpts),
-        user: R.reviserUser({ request, criteria, draft, critique: { failures: deepDiveFailures(deepDive), verdict_line: `Deep dive (${deepDive.job}): ${deepDive.findings.length} finding(s). This seat does not vote.` }, proposals, board }),
+        user: R.reviserUser({ request, criteria, draft, critique: { failures: deepDiveFailures(deepDive), verdict_line: R.deepDiveVerdictLine({ job: deepDive.job, count: deepDive.findings.length }) }, proposals, board }),
         log, label: 'deep-dive-revise',
       })).text;
       const parsed = parseDisputes(revised);
@@ -2838,7 +2861,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             cs = record(await invoke(criticSeat, {
-              system: criticPromptFor(criticSeat, open, freedoms),
+              system: criticPromptFor(criticSeat, open, freedoms, config),
               // Patch mode shows the full draft plus the edits made since the last review, so a
               // reviewer can see what moved without re-reading the plan. Empty in full-rewrite
               // mode and on round 1, where there is no "since" to speak of.
@@ -2879,7 +2902,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             say(`  ${labOf(criticSeat)}/${criticSeat.model}: reply cut off at ${fromCap} tokens - asking once more with a ${biggerCap}-token cap.`);
             try {
               cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
-                system: criticPromptFor(criticSeat, open, freedoms),
+                system: criticPromptFor(criticSeat, open, freedoms, config),
                 user: R.criticUser({ request, criteria, draft, prior, answeredQuestion, checks }) + answerBackNote(criticSeat) + (tableGap || answersGap ? reaskNote(criticSeat, tag, tableGap, answersGap) : ''),
                 log: say, label: `panel-${round}-${labOf(criticSeat)}${tag}-retry`,
               }));
@@ -3379,7 +3402,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       let cs;
       try {
         cs = record(await invoke(criticSeat, {
-          system: criticPromptFor(criticSeat, open, checks ? { criteriaKinds: true } : undefined),
+          system: criticPromptFor(criticSeat, open, checks ? { criteriaKinds: true } : undefined, config),
           user: R.criticUser({ request, criteria, draft, checks }),
           log, label: `critique-${round}`,
         }));
@@ -3418,7 +3441,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         log(`  critic reply cut off at ${fromCap} tokens - asking once more with a ${biggerCap}-token cap.`);
         try {
           cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
-            system: criticPromptFor(criticSeat, open, checks ? { criteriaKinds: true } : undefined),
+            system: criticPromptFor(criticSeat, open, checks ? { criteriaKinds: true } : undefined, config),
             user: R.criticUser({ request, criteria, draft, checks }),
             log, label: `critique-${round}-retry`,
           }));

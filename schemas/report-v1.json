@@ -659,7 +659,7 @@
     "answer_back_replies": {
       "x-stability": "experimental",
       "type": "array",
-      "description": "With answer_back.enabled: what each judge said about its own earlier objections (the `answers` array of its reply) and what the harness did with it: withdrawn (a quote from the draft was given), withdrawal_refused (no quote found in the draft: the objection stays open), sustained, unknown_id, unreadable_answer (a status that is neither sustained nor withdrawn: the objection stays open), unanswered. Present only when there were answers or own objections to answer. Added in 0.8.2.",
+      "description": "With answer_back.enabled: what each judge said about its own earlier objections (the `answers` array of its reply) and what the harness did with it: withdrawn (a quote from the draft was given), withdrawal_refused (no quote found in the draft: the objection stays open), sustained, unknown_id, unreadable_answer (a status that is neither sustained nor withdrawn: the objection stays open), unanswered (no answer at all: since the release after 0.8.2 the judge is asked once more when it signed off clean, and an objection still unanswered stays open, in signoff[].objections with carried_from_round). Present only when there were answers or own objections to answer. Added in 0.8.2.",
       "items": { "type": "object", "required": ["round", "lab", "id", "effect"], "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "id": { "type": "string" }, "status": { "type": ["string", "null"] }, "quoted": { "type": "boolean" }, "effect": { "enum": ["withdrawn", "withdrawal_refused", "sustained", "unknown_id", "unreadable_answer", "unanswered"] } } }
     },
     "debate_orders": {

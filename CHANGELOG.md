@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Changes that can break a script or a client
+
+- **A judge that signs off without answering its own earlier objections no longer passes the round** (chains with `answer_back.enabled`: the seven shipped planning chains;
+  found by an outside review of 0.8.2, 7 October 2026; roadmap item 27). Until now an objection the judge simply left out of its `answers` was recorded as `unanswered` and
+  dropped, so a clean sign-off passed, while a withdrawal without a quote was kept open. Now that judge is asked once more, told the objection ids it skipped (a new
+  sentence, `criticUnansweredNote`); whatever is still unanswered after that is carried as an open failure, and the judge's verdict is an objection. A judge that
+  already objects carries its skipped objections at once, with no extra call. **Cost:** a judge that never writes `answers` costs one extra call in each round it
+  signs off clean, and it blocks a unanimous pass until the dispute stage (or the round cap) stops the run. `report.json`'s `answer_back_replies` keeps the
+  `unanswered` record; the carried objection is in `signoff[].objections` with `carried_from_round` (`test/held-door-27.test.js`).
+- **A judge that was not heard in a round keeps its open objections into the next one** (roadmap item 30, found while building item 27). When every heard judge signed off
+  and one was unheard (an unreadable or lost reply), the run went on to the next round with no revise, and that judge was no longer shown its objections nor had its
+  answers read, so a plain clean sign-off passed the run. The objections now stay with it, and `report.json`'s `answerBack` lists that round for the judges asked
+  again (`test/answer-back-unheard.test.js`).
+
+### Changed
+
+- **The writer's own seat on the panel is told it wrote the draft** (roadmap item 28). In a chain with `"selfReview": "allowed"` (`plan-daily-7`, `plan-highest-7`) the
+  critic prompt of the seat that wrote the plan used to say "You did not write the draft you are reviewing"; that seat now gets a self-review opening and the same
+  evidence rules. Every other judge's prompt is unchanged. The writer's seat is found by the same rule chain-lint's self-review check uses (`modelIdentity` and
+  `seatIdentity` now live in `src/chain.js`; `src/chain-lint.js` still exports `modelIdentity`).
+- **The deep dive's wording no longer says its seat does not vote** (item 28): under `"judging": "all-roles"` its lab also judges on the panel. Its prompt now says the
+  job is not a vote, the reviser's note says the findings are not votes, and BOARD.md adds "The same lab also sits on the panel and votes there." when it does.
+- The prompt record (`ROLES_SHA256` in `test/prompt-pin.test.js`) is re-recorded for these sentences; the prompts every mock chain sends are unchanged.
+
 ### Fixed
 
 - **A machine with no `git` on its PATH refused every task over MCP** (found by the Wine smoke test of the Windows .exe on 7 October 2026; the same applies to any machine without `git` on PATH, such as a Windows PC without Git for Windows).

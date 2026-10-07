@@ -12,7 +12,7 @@ import { dirname, join, resolve } from 'node:path';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { LANE_IDS } from './lanes.js';
-import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots, everySeatOf, SIGNOFF_MODES } from './chain.js';
+import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots, everySeatOf, SIGNOFF_MODES, modelIdentity, seatIdentity } from './chain.js';
 import { deniedSeatsOf } from './denied-models.js';
 
 // Labs the source procurement report names as not EU-based (v7.x compliance
@@ -785,7 +785,7 @@ export function lintChain(config, filePath = '<chain>') {
     // Audit fix cnc-chains-lint F1: an external seat has no real model identity (modelIdentity is null on purpose: mock chains reuse names), but an EXTERNAL writer and an external critic that name the
     // same session ("claude-code-session") are the same agent, so for this rule an external seat is identified by its model string. Without this, `selfReview: "allowed"` on plan-daily-7 and
     // plan-highest-7 was inert (the writer's own critic seat passed the rule with or without the key).
-    const identOf = seat => modelIdentity(seat) ?? (seat?.provider === 'external' && seat.model ? `external:${String(seat.model).toLowerCase()}` : null);
+    const identOf = seatIdentity;
     const criticModels = new Set(critics.map(identOf).filter(Boolean));
     for (const kind of ['builder', 'reviser']) {
       const seat = seats[kind];
@@ -1147,11 +1147,5 @@ export function lintChain(config, filePath = '<chain>') {
   return findings;
 }
 
-// The model a seat actually runs, provider prefix and :variant dropped, so
-// `anthropic/claude-sonnet-5` on OpenRouter and `claude-sonnet-5` direct are one model. Mock and
-// external seats have no real model identity (mock chains reuse names on purpose), so they
-// return null and never match.
-export function modelIdentity(seat) {
-  if (!seat?.model || seat.provider === 'mock' || seat.provider === 'external') return null;
-  return String(seat.model).toLowerCase().split('/').pop().split(':')[0];
-}
+// modelIdentity lives in src/chain.js since 7 Oct 2026 (one rule for this check and the writer's critic prompt); re-exported here for existing importers.
+export { modelIdentity };
