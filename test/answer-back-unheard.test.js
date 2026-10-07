@@ -99,6 +99,39 @@ test('30 (revise path): a judge unheard in a round that is revised because anoth
   assert.equal(prompts.get('revise-2').includes('No retry limit is specified.'), false, 'the reviser\'s list is unchanged: the unheard judge did not raise it again this round');
   assert.equal(r.passed, false, 'its sign-off without an answer is not a pass');
   assert.ok(r.answerBackReplies.some(x => x.round === 3 && x.lab === 'la' && x.effect === 'unanswered'));
+  assert.ok((r.signoff.find(s => s.lab === 'la')?.objections || []).some(o => o.id === ID && o.carried_from_round >= 1), 'the kept objection is on the record with its id');
+});
+
+test('30 (revise path): an objection withdrawn with a quote in a reply refused for its table, in a round revised because another judge objected, is not shown again', async () => {
+  const other = { criterion, problem: 'The limit has no unit.', fix: 'Say per request.' };
+  const noTable = JSON.stringify({ meets: true, criteria: [], failures: [], answers: [{ id: ID, status: 'withdrawn', evidence: '`The worker retries failed requests.`' }], verdict_line: 'Pass.' });
+  const replies = label => label === 'panel-1-la' ? verdict(false) : /^panel-2-la/.test(label) ? noTable
+    : label === 'panel-2-lb' ? JSON.stringify({ meets: false, criteria: [{ criterion, verdict: 'FAILED', evidence: 'x' }], failures: [other], verdict_line: 'No.' })
+      : /^panel-([3-9])-lb/.test(label) ? verdict(true, { answers: [{ id: objectionId('lb', other), status: 'withdrawn', evidence: '`The worker retries failed requests.`' }] }) : null;
+  const { r, prompts } = await run(replies, { extra: { signoff_table: { required: true } } });
+  assert.ok(prompts.has('revise-2') && prompts.has('panel-3-la'), [...prompts.keys()].join(', '));
+  assert.equal(prompts.get('panel-3-la').includes(SECTION), false);
+  assert.deepEqual(r.answerBackReplies.filter(x => x.lab === 'la').map(x => [x.round, x.effect]), [[2, 'withdrawn']]);
+});
+
+test('30 (revise path): a kept objection keeps the reason the writer gave for declining it', async () => {
+  const other = { criterion, problem: 'The limit has no unit.', fix: 'Say per request.' };
+  const replies = label => label === 'panel-1-la' ? verdict(false) : /^panel-2-la/.test(label) ? UNREADABLE
+    : label === 'panel-2-lb' ? JSON.stringify({ meets: false, criteria: [{ criterion, verdict: 'FAILED', evidence: 'x' }], failures: [other], verdict_line: 'No.' }) : null;
+  const hashes = new Map(); const prompts = new Map();
+  setBudget(null);
+  setPromptSpy(p => { hashes.set(p.label, promptHashOf(p.system, p.user)); prompts.set(p.label, p.user); });
+  setCache({ get(label) {
+    const text = label.startsWith('panel-') ? (replies(label) ?? verdict(true)) : label === 'revise-1' ? `${DRAFT}\n\nDECLINED: ${ID}: a retry limit belongs to the queue, not this worker.` : DRAFT;
+    return { text, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0, promptHash: hashes.get(label) };
+  } });
+  const seat = lab => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000 });
+  await runChain({ request: 'Write a worker plan with a retry limit.', runId: 'r-30-d', log: () => {}, config: {
+    name: 'fixture-30-d', criteria: [criterion], maxRounds: 3, signoff: 'unanimous', answer_back: { enabled: true },
+    seats: { builder: seat('writer'), reviser: seat('writer'), critics: [seat('la'), seat('lb')] },
+  } });
+  assert.ok(prompts.get('panel-2-la')?.includes('a retry limit belongs to the queue'), 'shown in round 2 (sanity: the reason reached the judge once)');
+  assert.ok(prompts.get('panel-3-la')?.includes('a retry limit belongs to the queue'), 'and again in round 3, after the round-2 revise it was not part of');
 });
 
 // Finding 3: an answer read from a reply that is then not counted (refused for its table) still settles what it answered: a withdrawal with a quote is not shown again.

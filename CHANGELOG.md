@@ -18,8 +18,9 @@
   data was rebuilt from the heard judges only). The still-open objections now stay with that judge (an objection it withdrew with a quote in a reply that was not
   counted stays withdrawn); they go to the judge again, not into the reviser's list. `report.json`'s `answer_back` lists each round for the judges asked again
   (`test/answer-back-unheard.test.js`).
-- **A run paused before this change and resumed after it asks the writer's panel seat again** (`panel-N-sonnet5-writer` in `plan-daily-7` and `plan-highest-7`): that
-  seat's prompt text changed (item 28 below), so its cached reply no longer matches. No stage label changed.
+- **A run paused before this change and resumed after it asks again every stage whose prompt text changed**, since a cached reply only counts for the prompt it answered:
+  in `plan-daily-7` and `plan-highest-7` the writer's panel seat (`panel-N-sonnet5-writer`), the deep dive's calls (paid, under its own cap) and `deep-dive-revise`
+  (items 28 below), and in any chain with `answer_back` a judge's panel stage whose answer-back section now differs (items 27 and 30). No stage label changed.
 
 ### Changed
 

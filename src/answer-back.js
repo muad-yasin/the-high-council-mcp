@@ -44,7 +44,9 @@ export function buildAnswerBack({ failures, declined, declinedIds = [], oldDraft
     // the problems joined: a judge answers by id, and one id must name exactly one entry (a reviewer's review of 913ce2e..c40a25d, finding 1).
     const dup = entry.objections.find(o => o.id === f.id);
     if (dup) { if (f.problem && !String(dup.problem).includes(f.problem)) dup.problem = `${dup.problem} / ${f.problem}`; continue; }
-    entry.objections.push({ id: f.id, criterion: f.criterion, problem: f.problem, ...(f.quote ? { quote: f.quote } : {}), ...(mine.length ? { declined_reason: mine.join(' / ') } : {}) });
+    // An objection kept from an earlier round for a judge that was not heard (src/chain.js, keptOpen) keeps the writer's reason from that round: this round's reviser never saw it.
+    const reason = mine.length ? mine.join(' / ') : f.declined_reason;
+    entry.objections.push({ id: f.id, criterion: f.criterion, problem: f.problem, ...(f.quote ? { quote: f.quote } : {}), ...(reason ? { declined_reason: reason } : {}) });
   }
   return out;
 }
