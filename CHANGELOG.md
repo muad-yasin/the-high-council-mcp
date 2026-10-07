@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A machine with no `git` on its PATH refused every task over MCP** (found by the Wine smoke test of the Windows .exe on 7 October 2026; the same applies to any machine without `git` on PATH, such as a Windows PC without Git for Windows).
+  `start_run` and the other tools that read a file check `.gitignore` through `git`, and a missing `git` was treated as a failed check, so `start_run` answered
+  `refused: can't check .gitignore (ENOENT)` for a task in a folder that is no repository at all. A missing `git` now counts as "not a repository" only when no `.git` entry exists in the
+  folder or above it and `GIT_DIR` / `GIT_WORK_TREE` are unset. Inside a checkout the gate stays closed, and its message now says what to do: `git is not installed or not on PATH, and this
+  folder is inside a git repository`. Every other git failure still refuses (`test/gitignore-no-git.test.js`).
+- **The binary smoke test (`scripts/smoke-binary.mjs`) prints `start_run`'s reply, the server's stderr and the started run's log**, so a failing check explains itself in the CI output.
+
 ## 0.8.2 - 2026-10-07 (BREAKING for scripts and clients that rely on the changes listed under "Changes that can break a script or a client")
 
 What changed in 0.8.2, by section; nothing in them claims the council

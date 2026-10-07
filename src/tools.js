@@ -9,7 +9,7 @@
 // shell command.
 import { spawnSync } from 'node:child_process';
 import { readFileSync, existsSync, statSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
-import { resolve, relative, isAbsolute, sep } from 'node:path';
+import { resolve, relative, isAbsolute, sep, dirname, join } from 'node:path';
 import { redactText, PRIVATE_KEY_BLOCK } from './secret-patterns.js';
 
 export const ALLOWED_TOOLS = Object.freeze(['run_tests', 'check_versions', 'grep_repo', 'read_file']);
@@ -80,12 +80,23 @@ export function capForPrompt(text, maxBytes = PROMPT_INSERT_MAX_BYTES) {
   };
 }
 
+// Is there any sign of a git checkout when git itself cannot be asked? A `.git` entry (a directory, or the file a worktree or submodule has)
+// at the root or any ancestor, or git's own location variables in the environment. An unreadable ancestor counts as "a sign" (fail closed).
+function insideGitCheckout(root, env) {
+  if (env.GIT_DIR || env.GIT_WORK_TREE) return true;
+  for (let dir = root; ; dir = dirname(dir)) {
+    try { lstatSync(join(dir, '.git')); return true; } catch (e) { if (e?.code !== 'ENOENT' && e?.code !== 'ENOTDIR') return true; }
+    if (dirname(dir) === dir) return false;
+  }
+}
+
 // `git check-ignore` in one batch rather than per file. 2026-09-23 audit: this used to fail
 // OPEN - any git error (ENOBUFS on a big candidate list, a path inside a submodule, a
 // killed git) returned "nothing is ignored", and a gitignored local-secrets file went out.
 // Now only one answer means "nothing is ignored": git saying the workspace is not a git
 // repository at all, where no .gitignore exists to honour (the denylist and the secret scan
-// still apply there). Every other failure throws, and callers refuse. `-z` on both sides so
+// still apply there); a missing git binary counts as that answer only outside any checkout
+// (insideGitCheckout, 7 Oct 2026). Every other failure throws, and callers refuse. `-z` on both sides so
 // git never C-quotes a non-ASCII name ("geheimnis-\303\244.txt") into something that no
 // longer matches the path we asked about. `root` must already be a real path: the paths
 // passed in are relative to it, and a symlinked root makes them wrong.
@@ -98,7 +109,16 @@ export function gitIgnoredSet(root, relPaths) {
   // (a German git says "Kein Git-Repository" and would fail every non-git workspace).
   const env = { ...process.env, LC_ALL: 'C' };
   const probe = spawnSync('git', ['-C', root, 'rev-parse', '--is-inside-work-tree'], { encoding: 'utf8', timeout: 20_000, shell: false, env });
-  if (probe.error) throw failed(String(probe.error.code || probe.error.message || probe.error));
+  if (probe.error) {
+    // 7 Oct 2026 (the Wine smoke of the packaged .exe): with no git binary at all, every folder used to be refused, repository or not. A missing
+    // binary now reads as "not a repository" only where nothing marks a checkout (no `.git` entry at the root or above, no GIT_DIR / GIT_WORK_TREE):
+    // there is no .gitignore to honour, the same answer git itself gives below. Any other error, and a checkout, stay closed.
+    if (probe.error.code === 'ENOENT') {
+      if (!insideGitCheckout(root, env)) return new Set();
+      throw failed('git is not installed or not on PATH, and this folder is inside a git repository');
+    }
+    throw failed(String(probe.error.code || probe.error.message || probe.error));
+  }
   if (probe.status === 128 && /not a git repository/i.test(probe.stderr || '')) return new Set();
   if (probe.status !== 0) throw failed(probe.signal ? `git killed by ${probe.signal}` : `git exit ${probe.status}`);
   const res = spawnSync('git', ['-C', root, 'check-ignore', '-z', '--stdin'], {

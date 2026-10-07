@@ -42,8 +42,9 @@ const requests = [
 writeFileSync(join(dir, 'task.md'), 'A smoke-test task.\n');
 const inFile = join(dir, 'mcp.in');
 const mcpOutFile = join(dir, 'mcp.out');
+const mcpErrFile = join(dir, 'mcp.err');
 writeFileSync(inFile, requests.map(r => JSON.stringify(r)).join('\n') + '\n');
-spawnSync('sh', ['-c', `"$0" "$@" < "${inFile}" > "${mcpOutFile}" 2>/dev/null`, ...cmd(['--mcp']).flat()], { cwd: dir, timeout: 120_000 });
+spawnSync('sh', ['-c', `"$0" "$@" < "${inFile}" > "${mcpOutFile}" 2> "${mcpErrFile}"`, ...cmd(['--mcp']).flat()], { cwd: dir, timeout: 120_000 });
 const byId = new Map(readFileSync(mcpOutFile, 'utf8').split('\n').flatMap(line => {
   try { const m = JSON.parse(line); return m.id === undefined ? [] : [[m.id, m]]; } catch { return []; } // non-JSON stdout noise is ignored
 }));
@@ -54,8 +55,13 @@ check(['list_chains', 'dry_run', 'start_run'].every(n => names.includes(n)), 'mc
 check(textOf(3).includes('"mock"'), 'mcp list_chains reads the bundled chains');
 check(!byId.get(4)?.result?.isError && /TOTAL/.test(textOf(4)), 'mcp dry_run re-invokes the binary and prices a chain');
 if (!/TOTAL/.test(textOf(4))) console.log(textOf(4).slice(0, 600));
-check(!byId.get(5)?.result?.isError && textOf(5).includes('"started": true'), 'mcp start_run spawns a detached run');
-if (byId.get(5)?.result?.isError) console.log(textOf(5).slice(0, 600));
+// start_run's reply is printed before it is asserted, with the server's stderr, and the detached child's own log (council-<id>.log
+// in the working folder) when no report.json appears: a failure here has to explain itself in CI output, where nobody can reopen the run.
+const startReply = textOf(5);
+console.log(`start_run reply: ${startReply ? startReply.slice(0, 1500) : '(none: ' + JSON.stringify(byId.get(5) ?? null).slice(0, 600) + ')'}`);
+const serverErr = existsSync(mcpErrFile) ? readFileSync(mcpErrFile, 'utf8') : '';
+if (serverErr.trim()) console.log(`mcp server stderr:\n${serverErr.slice(-1500)}`);
+check(!byId.get(5)?.result?.isError && startReply.includes('"started": true'), 'mcp start_run spawns a detached run');
 // The detached run outlives the server; the mock chain finishes in seconds and writes report.json.
 const runsDir = join(dir, 'runs');
 let report = null;
@@ -64,6 +70,7 @@ for (let i = 0; i < 90 && !report; i++) {
   if (found) report = JSON.parse(readFileSync(found, 'utf8'));
   else await new Promise(r => setTimeout(r, 1000));
 }
+if (!report) for (const f of readdirSync(dir).filter(f => /^council-.*\.log$/.test(f))) console.log(`${f} (after ${90}s without a report.json):\n${readFileSync(join(dir, f), 'utf8').slice(-1500) || '(empty)'}`);
 check(report?.chain === 'mock', 'the started mock run finishes with a report.json');
 rmSync(dir, { recursive: true, force: true });
 
