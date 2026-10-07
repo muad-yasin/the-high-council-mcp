@@ -28,6 +28,8 @@ const run = critics => runChain({
 test('RESERVED_ABSTENTION_REASONS is a small closed set', () => {
   assert.deepEqual(RESERVED_ABSTENTION_REASONS, [
     'SEAT_UNREACHABLE', 'PROVIDER_ERROR', 'REPLY_TRUNCATED', 'REPLY_UNPARSEABLE', 'REASONING_EXHAUSTED',
+    // 0.8.2 (owner decision 1, 5 Oct 2026: a sign-off without a full per-criterion table does not count): a sixth reserved reason.
+    'INCOMPLETE_TABLE',
   ]);
 });
 

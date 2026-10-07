@@ -1,0 +1,26 @@
+{
+  "schema": "gate/1",
+  "id": "g3",
+  "kind": "contract_amend",
+  "status": "declined",
+  "text": "contract/amend-r10.md",
+  "sha256": "f0dc56b812dd84068ec903400a2ba67954ad0599cc773cf12a682e7b78623616",
+  "bytes": 724,
+  "price": null,
+  "seats": [],
+  "sensitivity": null,
+  "masks": {},
+  "meta_sha256": "88836f5c9b5239016e7dbd01ae08da739c8fe2c93b290f2838c83b0996af9798",
+  "requested_at": "2026-10-07T09:00:28.000Z",
+  "expires_at": "2026-10-07T10:00:27.000Z",
+  "answer": {
+    "decision": "declined",
+    "channel": "cli",
+    "actor": "fixture",
+    "reason": null,
+    "tty": true,
+    "at": "2026-10-07T09:00:31.000Z",
+    "seq": 12
+  },
+  "seq": 11
+}

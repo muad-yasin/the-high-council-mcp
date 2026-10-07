@@ -1,30 +1,78 @@
 {
   "name": "plan-daily-7",
-  "description": "daily7 (the owner's name, 2026-09-27: cheap API seats, and the expensive Opus 5.5 seat runs on a local Claude Code session). Tiered council for planning ONE feature cheaply (Muad, 2026-09-27: \"Opus 5.5 on a local sub that does the important tasks from the highest7 setup ... all together ~1$ per council run\"). Same stages and flags as plan-highest-7 (alternatives, debate, decision records, deep dive, majority guard ON, canary, dispute, handoff); only the seats and the deep-dive cap differ. ANCHOR SEATS write the whole alternative architectures (seats.alternatives), answer the posts on them, and are the only panel that votes, unanimously (seats.critics): Claude Opus 5.5 on the owner's Claude subscription (provider external, model subscription:opus-5.5, lab opus5.5-sub: $0 API, a separate Opus 5.5 Claude Code session answers its paused stages), GPT-6 Luna and DeepSeek V4 Pro through OpenRouter. MASS SEATS (seats.proposers, seven labs from the strong and low-cost part of arena.ai's agent leaderboard, fetched 2026-09-27): Tencent Hy4 preview, Gemini 3.8 Flash, DeepSeek V4.1 Flash, GLM 5.2, Muse Spark 1.3, Qwen 3.8 Max, Mistral Medium 3.5 (kept on the owner's word) write the blind proposals and every debate post and reply, and post on the anchors' architectures (alternatives.debaters \"all\"); they argue, they never vote. DEEP-DIVE SEAT: DeepSeek V4.1 Flash, a mass-tier model (a different model from the voting V4 Pro, so chain-lint deep-dive-votes passes), under its own $0.50 cap: a feature-sized task is one 40,000-character call, and a $4 sub-cap would be most of this chain's whole worst case ($5.70 in the 0.8.1 dry run at the prices of 2026-10-06). Criteria: Llama 4 Maverick, which holds no other seat. WRITER SEATS (skeleton, build, deep-dive-revise, revise-N, dispute, handoff) are a Claude Code session running Sonnet 5, which builds and holds no panel seat. The Opus 5.5 panel seat is a DIFFERENT Anthropic model in a separate session: the owner's plan-highest-7 exception (an Anthropic model reviews a draft another Claude writes), not selfReview - no model writes and votes. ROUTING, because a NEEDS file names only its label: every label containing opus5.5-sub goes to the Opus 5.5 session (alternative-, alt-debate-, alt-reply-, panel-N-, including the suffixed forms panel-N-opus5.5-sub-retry, -reask1, -reask2 and alternative-opus5.5-sub-retry); skeleton, build, deep-dive-revise, revise-N, dispute and handoff go to the Sonnet 5 session. Nothing checks who wrote an answer. Dry run on a one-page feature task (2026-09-27, GPT-6 Luna in place of GPT-6 Sol on the owner's word: \"GPT 6 Sol is too expensive, take GPT 6 luna\"): $1.90 worst case at 7 rounds then; $5.70 in the 0.8.1 dry run at the prices of 2026-10-06 ($5.08 at the earlier ones), after proposals were given 12,000 tokens per part (a whole seat's output), whole architectures reach the board uncut ($4.88 then), and every seat reasons at high (the DeepSeek V4.1 Flash seats' cap is 360,000 tokens); under the default $7 cap. No Kimi, no xAI. Run once with real models (2026-09-28); none of its mechanisms has been measured. Price your task with `npm run dry` and get an explicit go before any paid run.",
-  "summary": "One feature: three anchors write architectures and vote, seven low-cost labs debate; Opus 5.5 via your Claude plan.",
+  "description": "daily7 (the owner's name, 2026-09-27: cheap API seats, and the expensive Opus 5.5 seat runs on a local Claude Code session), for planning ONE feature. EVERY SEAT VOTES: the owner's deliberate choice of 7 Oct 2026 (\"The judging/vote is blind, and I want to put all models that have another role, to judge and vote ... it is deliberate\"; \"everyone who is part of the chain gets to be part of the judge and vote stage too, so yes, writer judges too. Everyone!\"). It reverses the September rule that no seat both argues and votes, for this chain only: the chain-level \"judging\": \"all-roles\" switches off chain-lint's mass-seat-votes and deep-dive-votes (grep -r '\"judging\"' chains/ lists every chain that sets it; a chain without it is still checked), and \"selfReview\": \"allowed\" lets the plan's WRITER (a Claude Code session running Sonnet 5, which also writes the skeleton, the build, revise-N, the dispute stage and the handoff) sit on the panel too, so the writer judges its own draft. The judges are blind to each other and sign off unanimously (seats.critics, 13 labs). SEATS: criteria = Claude Opus 5.5 on the owner's Claude subscription (provider external, model subscription:opus-5.5, lab opus5.5-sub: $0 API, a separate Opus 5.5 Claude Code session answers its paused stages, with its Fable 5.1 advisor); ARCHITECTS (seats.alternatives, write the whole alternative architectures and answer the posts on them): GPT-6.1 Sol, Opus 5.5 (the same subscription seat) and GLM-5.3 Flash; PROPOSERS (seats.proposers, write the blind proposals and every debate post and reply, and post on the architectures): Tencent Hy4 preview, Gemini 3.8 Flash, DeepSeek V4.1 Flash, Muse Spark 1.3, Qwen 3.8 Max and MiMo V2.6 Pro; DEEP-DIVE seat: DeepSeek V4.1 Flash under its own $2.50 cap; the other judges: DeepSeek V4 Pro, GPT-6 Luna and MiniMax M3. Mistral is out. ROUTING, because a NEEDS file names only its label: every label containing opus5.5-sub goes to the Opus 5.5 session (alternative-, alt-debate-, alt-reply-, panel-N-, including the suffixed forms panel-N-opus5.5-sub-retry, -reask1, -reask2 and alternative-opus5.5-sub-retry), and so do the three criteria-stage labels, which carry no lab name (criteria, criteria-retry, criteria-feasibility-retry); every other external stage, including panel-N-sonnet5-writer, goes to the Sonnet 5 session. Nothing checks who wrote an answer. Same stages and flags as plan-highest-7 (alternatives with debaters all, decision records, deep dive, majority guard ON, canary, dispute, handoff). Output caps follow the owner's 6 Oct list (DeepSeek and GLM Flash seats up to 360,000, Hy4 64,000, MiMo V2.6 Pro 131,072, the rest 36,000); every seat reasons at high. Dry run (0.8.2, prices of 2026-10-07): $12.59 expected, $33.25 at most - above the default $7 cap, so pass --max-usd (thirteen judges review every round, up to 7 rounds). The roster before 7 Oct ran once with real models (2026-09-28); this roster has not run, and none of its mechanisms has been measured. No Kimi, no xAI. Price your task with `npm run dry` and get an explicit go before any paid run.",
+  "summary": "Every seat votes, blind: architects, proposers, deep dive and the writer too. Opus 5.5 via your Claude plan.",
   "maxRounds": 7,
   "signoff": "unanimous",
-  "dispute": { "enabled": true, "stall_rounds": 2 },
-  "proposals": { "parts": 3, "maxTokens": 12000 },
+  "signoff_table": { "required": true },
+  "answer_back": { "enabled": true },
+  "debate_hygiene": { "shuffle": true, "noQuoteMarks": true },
+  "handoff_contract": { "milestones": true },
+  "judging": "all-roles",
+  "selfReview": "allowed",
+  "dispute": {
+    "enabled": true,
+    "stall_rounds": 2
+  },
+  "proposals": {
+    "parts": 3,
+    "maxTokens": 12000
+  },
   "debate": true,
-  "decisions": { "enabled": true },
-  "alternatives": { "enabled": true, "debaters": "all" },
-  "deep_dive": { "enabled": true, "job": "sources", "usd": 0.5, "maxCalls": 24, "chunkChars": 40000 },
-  "majority_guard": { "enabled": true },
-  "canary": { "enabled": true, "sampleRate": 0.1 },
+  "decisions": {
+    "enabled": true
+  },
+  "alternatives": {
+    "enabled": true,
+    "debaters": "all"
+  },
+  "deep_dive": {
+    "enabled": true,
+    "job": "sources",
+    "usd": 2.5,
+    "maxCalls": 24,
+    "chunkChars": 40000
+  },
+  "majority_guard": {
+    "enabled": true
+  },
+  "canary": {
+    "enabled": true,
+    "sampleRate": 0.1
+  },
   "handoff": true,
-  "estimate": { "promptTokens": 10000, "draftTokens": 10000, "critiqueTokens": 5000 },
+  "estimate": {
+    "promptTokens": 28000,
+    "draftTokens": 10000,
+    "critiqueTokens": 5000
+  },
   "seats": {
-    "criteria": { "provider": "openrouter", "model": "meta-llama/llama-4-maverick", "maxTokens": 16384, "lab": "llama4-maverick" },
-    "skeleton": { "provider": "external", "model": "claude-code-session" },
-    "builder": { "provider": "external", "model": "claude-code-session" },
-    "reviser": { "provider": "external", "model": "claude-code-session" },
-    "handoff": { "provider": "external", "model": "claude-code-session" },
+    "criteria": {
+      "provider": "external",
+      "model": "subscription:opus-5.5",
+      "lab": "opus5.5-sub"
+    },
+    "skeleton": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "builder": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "reviser": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "handoff": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
     "proposers": [
       {
         "provider": "openrouter",
         "model": "tencent/hy4-preview",
-        "maxTokens": 36000,
+        "maxTokens": 64000,
         "lab": "hy4-preview",
         "extra": {
           "reasoning": {
@@ -56,9 +104,107 @@
       },
       {
         "provider": "openrouter",
-        "model": "z-ai/glm-5.2",
+        "model": "meta/muse-spark-1.3",
         "maxTokens": 36000,
-        "lab": "glm5.2",
+        "lab": "muse-spark1.3",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.8-max-0902",
+        "maxTokens": 36000,
+        "lab": "qwen3.8-max"
+      },
+      {
+        "provider": "openrouter",
+        "model": "xiaomi/mimo-v2.6-pro",
+        "maxTokens": 131072,
+        "lab": "mimo-v2.6-pro",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      }
+    ],
+    "alternatives": [
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6.1-sol",
+        "maxTokens": 36000,
+        "lab": "gpt6.1-sol",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "external",
+        "model": "subscription:opus-5.5",
+        "lab": "opus5.5-sub"
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 360000,
+        "lab": "glm5.3-flash"
+      }
+    ],
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6.1-sol",
+        "maxTokens": 36000,
+        "lab": "gpt6.1-sol",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "external",
+        "model": "subscription:opus-5.5",
+        "lab": "opus5.5-sub"
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 360000,
+        "lab": "glm5.3-flash"
+      },
+      {
+        "provider": "openrouter",
+        "model": "tencent/hy4-preview",
+        "maxTokens": 64000,
+        "lab": "hy4-preview",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "google/gemini-3.8-flash",
+        "maxTokens": 36000,
+        "lab": "gemini3.8-flash",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4.1-flash",
+        "maxTokens": 360000,
+        "lab": "deepseek-v4.1-flash",
         "extra": {
           "reasoning": {
             "effort": "high"
@@ -76,21 +222,34 @@
           }
         }
       },
-      { "provider": "openrouter", "model": "qwen/qwen3.8-max-0902", "maxTokens": 36000, "lab": "qwen3.8-max" },
       {
         "provider": "openrouter",
-        "model": "mistralai/mistral-medium-3-5",
+        "model": "qwen/qwen3.8-max-0902",
         "maxTokens": 36000,
-        "lab": "mistral-medium3.5",
+        "lab": "qwen3.8-max"
+      },
+      {
+        "provider": "openrouter",
+        "model": "xiaomi/mimo-v2.6-pro",
+        "maxTokens": 131072,
+        "lab": "mimo-v2.6-pro",
         "extra": {
           "reasoning": {
             "effort": "high"
           }
         }
-      }
-    ],
-    "alternatives": [
-      { "provider": "external", "model": "subscription:opus-5.5", "lab": "opus5.5-sub" },
+      },
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4-pro",
+        "maxTokens": 360000,
+        "lab": "deepseek-v4-pro",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
       {
         "provider": "openrouter",
         "model": "openai/gpt-6-luna",
@@ -104,23 +263,9 @@
       },
       {
         "provider": "openrouter",
-        "model": "deepseek/deepseek-v4-pro",
-        "maxTokens": 64000,
-        "lab": "deepseek-v4-pro",
-        "extra": {
-          "reasoning": {
-            "effort": "high"
-          }
-        }
-      }
-    ],
-    "critics": [
-      { "provider": "external", "model": "subscription:opus-5.5", "lab": "opus5.5-sub" },
-      {
-        "provider": "openrouter",
-        "model": "openai/gpt-6-luna",
+        "model": "minimax/minimax-m3",
         "maxTokens": 36000,
-        "lab": "gpt6-luna",
+        "lab": "minimax-m3",
         "extra": {
           "reasoning": {
             "effort": "high"
@@ -128,15 +273,9 @@
         }
       },
       {
-        "provider": "openrouter",
-        "model": "deepseek/deepseek-v4-pro",
-        "maxTokens": 64000,
-        "lab": "deepseek-v4-pro",
-        "extra": {
-          "reasoning": {
-            "effort": "high"
-          }
-        }
+        "provider": "external",
+        "model": "claude-code-session",
+        "lab": "sonnet5-writer"
       }
     ],
     "deep_dive": {

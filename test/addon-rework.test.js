@@ -91,7 +91,8 @@ test('S5: the dry-run JSON prices an advice chain from its own rounds, carries i
   const replaced = dryRunReport({ ...c, estimate: { ...c.estimate, promptTokens: assumed * 2 } }, {}).estimate.worstCaseUsd;
   assert.equal(r.estimate.worstCaseWithTaskUsd, replaced);
   // A planning chain keeps both old rules: floor = one review round, the task added to the assumption.
-  const p = chain('plan-fast');
+  // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): plan-fast moved to archive/chains/; cheap-7-v2 stands in as the planning chain.
+  const p = chain('cheap-7-v2');
   const pr = dryRunReport(p, { taskChars: 80_000 });
   assert.equal(pr.advise, undefined);
   assert.equal(pr.estimate.floorUsd, dryRunReport({ ...p, maxRounds: 1 }, {}).estimate.worstCaseUsd);
@@ -220,14 +221,15 @@ test('Work 5 (P15): a salt file that exists but holds no salt refuses council_ad
   } finally { await s.close(); }
 });
 
-test('Work 6: the shipped roster: advise-standard is Sol, GLM-5.3 and Gemini 3.8 Flash; the swaps are sol, astra, gemini, deepseek, opus; every advice chain is not resumable after a stop', async () => {
+// 0.8.2 (owner, 6 Oct 2026, "yes" to two new single seats): the swaps gain glm-flash and qwen, the shipped advice chains gain their two files.
+test('Work 6: the shipped roster: advise-standard is Sol, GLM-5.3 and Gemini 3.8 Flash; the swaps are sol, astra, gemini, deepseek, opus, glm-flash, qwen; every advice chain is not resumable after a stop', async () => {
   const std = chain('advise-standard');
   assert.deepEqual(std.seats.critics.map(s => s.model), ['openai/gpt-6.1-sol', 'z-ai/glm-5.3', 'google/gemini-3.8-flash']);
   assert.equal(std.seats.critics[1].maxTokens, 54_000, 'GLM-5.3 at its default effort (research report 31 section 7.2)');
   const { SEAT_CHAINS } = await import('../src/mcp/advice.js');
-  assert.deepEqual(Object.keys(SEAT_CHAINS).sort(), ['astra', 'deepseek', 'gemini', 'opus', 'sol']);
+  assert.deepEqual(Object.keys(SEAT_CHAINS).sort(), ['astra', 'deepseek', 'gemini', 'glm-flash', 'opus', 'qwen', 'sol']);
   const shipped = readdirSync(join(root, 'chains')).filter(f => /^advise-/.test(f)).map(f => f.slice(0, -5)).sort();
-  assert.deepEqual(shipped, ['advise-premium', 'advise-single', 'advise-single-astra', 'advise-single-deepseek', 'advise-single-gemini', 'advise-single-opus', 'advise-standard']);
+  assert.deepEqual(shipped, ['advise-premium', 'advise-single', 'advise-single-astra', 'advise-single-deepseek', 'advise-single-gemini', 'advise-single-glm-flash', 'advise-single-opus', 'advise-single-qwen', 'advise-standard']);
   for (const f of readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json'))) {
     const c = JSON.parse(readFileSync(join(root, 'chains', f), 'utf8'));
     if (c.advise?.enabled === true) assert.equal(c.resumeAfterStop, false, f);

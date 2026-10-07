@@ -11,7 +11,7 @@
     "seq": { "type": "integer", "minimum": 1, "description": "1 on the first line, then one more per line." },
     "prev": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
     "ts": { "type": "string", "format": "date-time" },
-    "event": { "enum": ["gate_requested", "gate_answered", "sent", "stopped", "more_material_requested"] },
+    "event": { "enum": ["gate_requested", "gate_answered", "sent", "stopped", "more_material_requested", "contract_locked", "amend_requested", "amend_decided"] },
     "gate": { "type": "string", "pattern": "^g[1-9][0-9]{0,5}$" },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "meta_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the canonical JSON (keys sorted at every depth) of the gate's price, seats, sensitivity and masks: what the person is told about the send." }
@@ -35,6 +35,21 @@
           "reason": { "type": ["string", "null"] },
           "tty": { "type": ["boolean", "null"] }
         }
+      }
+    },
+    {
+      "if": { "properties": { "event": { "const": "contract_locked" } } },
+      "then": { "required": ["gate", "version", "record_sha256", "sha256"], "properties": { "version": { "const": 1 }, "record_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } }
+    },
+    {
+      "if": { "properties": { "event": { "const": "amend_requested" } } },
+      "then": { "required": ["version", "obligation_id", "reason", "proposed_text"], "properties": { "version": { "type": "integer", "minimum": 1 }, "obligation_id": { "type": "string" }, "reason": { "type": "string" }, "proposed_text": { "type": "string" } } }
+    },
+    {
+      "if": { "properties": { "event": { "const": "amend_decided" } } },
+      "then": {
+        "required": ["request_seq", "decision", "gate"],
+        "properties": { "request_seq": { "type": "integer", "minimum": 1 }, "decision": { "enum": ["approved", "declined"] }, "version": { "type": "integer", "minimum": 2 }, "record_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
       }
     }
   ]

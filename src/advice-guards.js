@@ -18,6 +18,7 @@ import { homedir } from 'node:os';
 import { readdirSync, readFileSync, writeFileSync, existsSync, linkSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUN_FOLDER } from './run-status.js';
+import { readRunFile } from './run-files.js';
 import { NEW_EVIDENCE_MIN_CHARS } from './advice-brief.js';
 import { mask } from './advice-mask.js';
 
@@ -107,7 +108,7 @@ let saltCache = null;
 export function readSalt() {
   if (saltCache !== null) return saltCache;
   let raw;
-  try { raw = readFileSync(saltPath(), 'utf8'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+  try { raw = readFileSync(saltPath(), 'utf8'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } // fs-ok: the per-install salt file in the home folder, not a run-folder file
   const s = raw.trim();
   if (!SALT_RE.test(s)) throw new Error(`${saltPath()} does not hold a salt`);
   return (saltCache = s);
@@ -117,7 +118,7 @@ export function installSalt() {
   try { const s = readSalt(); if (s !== null) return s; } catch { return null; }
   const tmp = `${saltPath()}.${process.pid}.tmp`;
   try {
-    writeFileSync(tmp, randomBytes(16).toString('hex'), { mode: 0o600 });
+    writeFileSync(tmp, randomBytes(16).toString('hex'), { mode: 0o600 }); // fs-ok: the salt's temp file in the home folder, not a run-folder file
     try { linkSync(tmp, saltPath()); } catch (e) { if (e.code !== 'EEXIST') throw e; /* another process created it first: use theirs */ }
   } catch { return null; } finally { try { unlinkSync(tmp); } catch { /* never created */ } }
   try { return readSalt(); } catch { return null; }
@@ -166,20 +167,25 @@ export function readLedger(runsDir, { now = Date.now(), windowMs = ADVICE_DEFAUL
     const t = Date.parse(id.slice(0, 10) + 'T' + id.slice(11, 19).replace(/-/g, ':') + 'Z');
     return Number.isFinite(t) && now - t > windowMs ? null : { unreadable: true, run: id };
   };
-  for (const d of readdirSync(runsDir)) {
+  for (const d of readdirSync(runsDir)) { // fs-ok: names in runs/ only; every file inside is read below with readRunFile (O_NOFOLLOW, 0.8.2 item 2)
     if (!RUN_FOLDER.test(d)) continue;
     const dir = join(runsDir, d);
     const p = join(dir, ADVISE_LOG_FILE);
-    if (existsSync(p)) {
+    // 0.8.2 item 2: every read here is O_NOFOLLOW (src/run-files.js): a link where a log or run.json should be is a damaged record (fails closed), never followed.
+    const logFile = readRunFile(dir, ADVISE_LOG_FILE);
+    if (!logFile.missing) {
       try {
-        const e = JSON.parse(readFileSync(p, 'utf8'));
+        if (logFile.text === undefined) throw new Error(logFile.refusal);
+        const e = JSON.parse(logFile.text);
         if (!e || typeof e !== 'object' || !Number.isFinite(e.ts) || typeof e.quoted?.ceiling_usd !== 'number') throw new Error('not an advise-log');
         out.push({ ...e, run: d });
       } catch { { const x = damaged(d); if (x) out.push(x); } }
     } else {
       // A run folder of an advice chain whose log is gone is a damaged record, not an absent one.
       try {
-        const meta = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8'));
+        const metaFile = readRunFile(dir, 'run.json');
+        if (metaFile.text === undefined) throw new Error('no readable run.json');
+        const meta = JSON.parse(metaFile.text);
         if (typeof meta.chain === 'string' && /^(mock-)?advise-/.test(meta.chain)) { const x = damaged(d); if (x) out.push(x); }
       } catch { /* not an advice run */ }
     }

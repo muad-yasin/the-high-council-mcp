@@ -1,0 +1,34 @@
+{
+  "schema": "contract/1",
+  "version": 1,
+  "supersedes": null,
+  "run": "run-v1",
+  "locked_at": "2026-10-07T09:00:06.000Z",
+  "source": {
+    "task_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "criteria_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "signed_text_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "thin_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "obligations": [
+    {
+      "id": "O1",
+      "text": "The export command writes the file atomically: a crash never leaves a half-written file.",
+      "criterion": "C1",
+      "check": "node --test test/export.test.js",
+      "sha256": "0300ae5cb62289adfb39089b6ef3d1cdb36b15c396102c8620e7bb7e5aee5667"
+    },
+    {
+      "id": "O2",
+      "text": "Every error path prints one line naming the file and the reason.",
+      "sha256": "d4a5e20a13484bc6897f8aac0f042e08f3f4b0d6677021107adc52d9a2a41b08"
+    }
+  ],
+  "amendment": null,
+  "approval": {
+    "gate": "g1",
+    "text": "contract/proposal-4ecb2fcb828b.md",
+    "sha256": "4ecb2fcb828bda5bee7b2e52bb9d568274fcb3a702c7850e2e3ddbab8cc6070e"
+  },
+  "sha256": "7483665f7d4a54cc9747c42f68c3f2f1e1a09498ee2570744040f31550ef62e1"
+}

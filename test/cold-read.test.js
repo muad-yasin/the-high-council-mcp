@@ -9,7 +9,7 @@
 // incoherence), it does not measure or assert that output quality improves.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { runChain } from '../src/chain.js';
@@ -149,4 +149,71 @@ test('chain-lint: seats.coldRead is a recognized seat key, not flagged as unknow
   };
   const findings = lintChain(config, 'chains/fixture.json');
   assert.ok(!findings.some(f => /seats\.coldRead/.test(f.message) && /unknown|not recognized/i.test(f.message)));
+});
+
+// ---- 0.8.2 item 3 (owner decision 4a, 5 Oct 2026): after any final edit, not_judged is never a silent "clean", findings reach the deliverable and WARNINGS.md ----
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+
+const withCold = (model, extra = {}) => ({ ...unanimousConfig, coldRead: { enabled: true }, seats: { ...unanimousConfig.seats, coldRead: { provider: 'mock', model, lab: 'mock-cold-reader' } }, ...extra });
+const go = config => runChain({ request: 'Write a short fixture deliverable.', config, runId: 'r', log: () => {} });
+
+test('0.8.2: the cold read runs after the final edit, so it reads the delivered text (stage order and prompt)', async () => {
+  const config = withCold('mock-cold-read-echo', { seats: { ...unanimousConfig.seats, finalist: { provider: 'mock', model: 'mock-finalist' }, coldRead: { provider: 'mock', model: 'mock-cold-read-echo', lab: 'mock-cold-reader' } } });
+  const r = await go(config);
+  const labels = r.stages.map(s => s.label);
+  assert.ok(labels.indexOf('final') !== -1 && labels.indexOf('cold-read') > labels.indexOf('final'), labels.join(' '));
+  const received = JSON.parse(r.stages.find(s => s.label === 'cold-read').text)._receivedUser;
+  assert.match(received, /FINAL MOCK DELIVERABLE|mock-finalist/i, 'the cold reader was shown the final-edited text');
+});
+
+test('0.8.2: a cold-read reply that cannot be read is NOT JUDGED (status, reason code), never "found no contradictions"; a judged "no" stays judged', async () => {
+  const unreadable = await go(withCold('mock-cold-read-garbled')); // prose, no verdict
+  assert.equal(unreadable.coldRead.status, 'not_judged');
+  assert.match(unreadable.coldRead.reason_code, /^[A-Z_]+$/);
+  assert.match(unreadable.deliverable, /## Cold read: not done/);
+  const no = await go(withCold('mock-cold-read-no'));
+  assert.equal(no.coldRead.status, 'judged');
+  assert.equal(no.coldRead.raised, false);
+  assert.ok(!/Cold-reader findings|Cold read: not done/.test(no.deliverable), 'a clean cold read adds nothing to the deliverable');
+});
+
+test('0.8.2: a raised contradiction is written into the deliverable after the dissent block position, and the plan sub-run of a descending chain gets no cold read', async () => {
+  const r = await go(withCold('mock-cold-read-yes'));
+  assert.equal(r.coldRead.status, 'judged');
+  assert.match(r.deliverable, /^## Cold-reader findings\n\nA reader who never saw the debate read this plan and found 1 contradiction/);
+  assert.match(r.deliverable, /1\. \(A\) x/);
+  const src = readFileSync(join(root, 'src', 'chain.js'), 'utf8');
+  const at = src.indexOf('const planConfig = {');
+  assert.ok(at > 0 && src.slice(at, at + 1800).includes('coldRead: undefined'), 'the descending plan sub-run is given no cold read (the final stack gets the only one)');
+});
+
+test('0.8.2: through the CLI the cold reader\'s finding reaches WARNINGS.md and report.json, and a not-judged one reaches both too', () => {
+  const run = model => {
+    const dir = mkdtempSync(join(tmpdir(), 'thc-cold-'));
+    mkdirSync(join(dir, 'tasks')); mkdirSync(join(dir, 'chains'));
+    writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a small reading list app.\n');
+    writeFileSync(join(dir, 'chains', 'cold.json'), JSON.stringify(withCold(model, { name: 'cold' })));
+    const r = spawnSync(process.execPath, [join(root, 'src/cli.js'), '--chain', 'cold', '--task', 'tasks/t.md'], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir }, timeout: 90_000 });
+    const runs = join(dir, 'runs'); const id = readdirSync(runs)[0];
+    return { dir, r, warnings: existsSync(join(runs, id, 'WARNINGS.md')) ? readFileSync(join(runs, id, 'WARNINGS.md'), 'utf8') : '', report: JSON.parse(readFileSync(join(runs, id, 'report.json'), 'utf8')) };
+  };
+  const yes = run('mock-cold-read-yes'); const bad = run('mock-cold-read-garbled');
+  try {
+    assert.equal(yes.r.status, 0, yes.r.stdout + yes.r.stderr);
+    assert.match(yes.warnings, /- cold_read: \(A\) x/);
+    assert.equal(yes.report.coldRead.status, 'judged');
+    assert.match(bad.warnings, /- cold_read_not_judged:/);
+    assert.equal(bad.report.coldRead.status, 'not_judged');
+  } finally { rmSync(yes.dir, { recursive: true, force: true }); rmSync(bad.dir, { recursive: true, force: true }); }
+});
+
+test('0.8.2: a descending chain runs the cold read ONCE (the final stack), and the result carries it', async () => {
+  const { runDescendingChain } = await import('../src/chain.js');
+  const config = { ...withCold('mock-cold-read-yes'), descending: true, seats: { ...withCold('mock-cold-read-yes').seats, critics: [{ provider: 'mock', model: 'mock-critic-a', lab: 'ca' }] } };
+  const result = await runDescendingChain({ request: 'Plan a small offline tool.', config, log: () => {} });
+  const stages = (result.stages || []).filter(s => s.label === 'cold-read');
+  assert.equal(stages.length, 1, `the cold reader was asked ${stages.length} times: ${(result.stages || []).map(s => s.label).join(' ')}`);
+  assert.equal(result.coldRead?.status, 'judged');
 });

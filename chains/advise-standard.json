@@ -1,6 +1,6 @@
 {
   "name": "advise-standard",
-  "description": "Council advisor, the add-on's council mode (experimental). Three advisors from three non-Anthropic labs (OpenAI GPT-6.1 Sol, Z.ai GLM-5.3, Google Gemini 3.8 Flash), each routed only to endpoints OpenRouter tags zero-data-retention (a routing tag, not a guarantee), answer the brief blind, read each other once (anonymised, each distinct argument once; an answer changes only by quoting an argument for the new one), and the harness rolls the answers up and records every dissent in the seats' own words. No synthesis seat. Nine calls at most (three advisors, each asked again once if its reply is cut off or unreadable, then one debate reply each). Claude, the usual caller, is not on the panel. GLM-5.3 writes long replies (up to 54,000 tokens) and its latency is unmeasured. advise.usd is this call's own ceiling; advise.max_wall_ms its wall-clock ceiling. maxRounds is unused by advise chains.",
+  "description": "Council advisor, the add-on's council mode (experimental). Three advisors from three non-Anthropic labs (OpenAI GPT-6.1 Sol, Z.ai GLM-5.3, Google Gemini 3.8 Flash), each routed only to endpoints OpenRouter tags zero-data-retention (a routing tag, not a guarantee), answer the brief blind, read each other once (anonymised, each distinct argument once; an answer changes only by quoting an argument for the new one), and the harness rolls the answers up and records every dissent in the seats' own words. No synthesis seat. Nine calls at most (three advisors, each asked again once if its reply is cut off or unreadable, then one debate reply each). Claude, the usual caller, is not on the panel. GLM-5.3 writes long replies (up to 54,000 tokens) and its latency is unmeasured. advise.usd is this call's own ceiling. maxRounds is unused by advise chains.",
   "resumeAfterStop": false,
   "maxRounds": 1,
   "estimate": {
@@ -13,8 +13,7 @@
     "usd": 1.4,
     "rounds": 1,
     "skipDebateWhenUnanimous": true,
-    "synthesis": "none",
-    "max_wall_ms": 900000
+    "synthesis": "none"
   },
   "seats": {
     "critics": [

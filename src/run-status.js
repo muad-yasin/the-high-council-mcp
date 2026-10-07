@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { listGates, readGateAnswer } from './gate.js';
 import { readStoppedMarker, STOP_STATUS, isAdviceFolder } from './stop-files.js';
+import { changedByWords } from './text-labels.js';
 
 // A run's unanswered external-pause label, if any - the same NEEDS-<label>.md-without-a-
 // matching-<label>.md convention src/mcp/server.js's own `waiting()` already used before this
@@ -111,7 +112,11 @@ export function finishedRunState(report) {
     const a = report.advise;
     return `done: advice from ${a.seats_answered} of ${a.seats_asked} seat(s), leaning ${String(a.verdict).replace('_', ' ')}${a.stopped_by ? ` (stopped early: ${a.stopped_by})` : ''}`;
   }
-  return report?.passed ? 'done: every lab signed off' : 'done: open objections';
+  if (!report?.passed) return 'done: open objections';
+  // 0.8.2 item 4: the panel signed one draft and a later model stage changed what is delivered. ADDITIVE (C&C ruling, 6 Oct 2026): the old sentence stays the start, so a matcher on it still matches.
+  const d = report.delivered_text;
+  if (d && d.same_as_signed === false) { const by = changedByWords(d); return `done: every lab signed off, on the signed draft; the delivered text differs${by ? ` (changed by ${by})` : ''}`; }
+  return 'done: every lab signed off';
 }
 
 // Can this run be continued, and what does that take? 0.8.0 WM0 item 4. Derived from the marker files

@@ -12,8 +12,7 @@
     "enabled": true,
     "usd": 1,
     "rounds": 0,
-    "synthesis": "none",
-    "max_wall_ms": 120000
+    "synthesis": "none"
   },
   "seats": {
     "critics": [

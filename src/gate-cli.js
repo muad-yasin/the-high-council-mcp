@@ -17,12 +17,16 @@
 // bytes this command read and printed, not the one in the gate file.
 import { dashFence } from './text-fence.js';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { userInfo } from 'node:os';
 import { createInterface } from 'node:readline';
 import { answerGate, listGates, readGateAnswer, readGateText, textSha256, GATES_DIR } from './gate.js';
 import { verifyLedger, LEDGER_FILE } from './gate-ledger.js';
 import { terminalSafe } from './terminal-safe.js';
+import { loadPolicy } from './policy.js';
+import { advicePolicyVerdict } from './send-path-refusals.js';
+import { loadAdviceChain } from './send-profiles.js';
+import { readAdviceMeta, ADVICE_META_FILE } from './advice-run.js';
 
 const USAGE = [
   'usage: council gate show <run folder> [gate]',
@@ -41,7 +45,17 @@ function describe(gate) {
   return describeLines(gate, p, masks, seats).map(terminalSafe);
 }
 
+// A contract gate (0.8.2 item 6d) sends nothing to any model and spends nothing: approving records the text as the contract (or an amendment of it). Saying "price: up to unpriced" there would be false comfort.
+const isContractGate = gate => typeof gate.kind === 'string' && gate.kind.startsWith('contract_');
+
 function describeLines(gate, p, masks, seats) {
+  if (isContractGate(gate)) {
+    return [
+      `gate ${gate.id} (${gate.kind}): ${gate.text}, ${gate.bytes} bytes, sha256 ${gate.sha256}`,
+      'nothing is sent to any model and nothing is spent: approving records exactly this text as the contract (or as an amendment of it)',
+      `expires: ${gate.expires_at}`,
+    ];
+  }
   return [
     `gate ${gate.id} (${gate.kind}): ${gate.text}, ${gate.bytes} bytes, sha256 ${gate.sha256}`,
     `price: up to ${money(p.ceiling_usd)}${typeof p.expected_usd === 'number' ? ` (expected ${money(p.expected_usd)})` : ''}`,
@@ -117,7 +131,7 @@ export async function gateCommand(args, { work = process.cwd(), stdin = process.
   if (state.status === 'invalid' && !state.gate) { err(`gate ${gateArg}: ${state.reason}`); return state.reason === 'gate_not_found' ? 2 : 1; }
 
   if (sub === 'show') {
-    const usable = state.status === 'approved' ? `; ${state.used ? 'already sent' : state.usable ? `usable until ${state.usable_until}` : 'no longer usable (expired)'}` : '';
+    const usable = state.status === 'approved' ? `; ${state.used ? (isContractGate(state.gate) ? 'already used' : 'already sent') : state.usable ? `usable until ${state.usable_until}` : 'no longer usable (expired)'}` : '';
     out(`status: ${state.status}${state.reason ? ` (${state.reason})` : ''}${usable}`);
     for (const l of describe(state.gate)) out(l);
     const bytes = readGateText(runDir, state.gate.text);
@@ -126,6 +140,39 @@ export async function gateCommand(args, { work = process.cwd(), stdin = process.
   }
 
   // answer
+  return answerAtTerminal(runDir, gateArg, { decline: args.includes('--decline'), stdin, stdout, stderr, now });
+}
+
+// 0.8.2 (owner via C&C, 7 Oct 2026): an ADVICE gate answered at the terminal gets the policy re-check the quote and the start already do (src/send-path-refusals.js advicePolicyVerdict: the one rule). The policy is the
+// project's policy.json, in the folder that holds this run's `runs/` (the folder the adopted call will run in); the chain is the one the run's own advice.meta.json names, loaded the way the adopt path loads it
+// (the package's chains or the operator's folder, never the project's); the ceiling is the gate's recorded one. null = no policy.json, nothing to check (output unchanged). A policy file or chain that
+// cannot be read refuses an approval (fail closed).
+function advicePolicyAtTerminal(runDir, gate) {
+  // The project's folder is the one that holds `runs/`: a run folder copied somewhere else has no project whose policy.json can be located, so an approval is refused (a policy path fails closed); declining stays allowed.
+  if (basename(dirname(resolve(runDir))) !== 'runs') return { refused: 'this advice run is not inside a runs/ folder, so its project\'s policy.json cannot be located', warnings: [] };
+  const work = resolve(runDir, '..', '..');
+  const { policy, error } = loadPolicy(work);
+  if (error) return { refused: `policy.json cannot be read (${error})`, warnings: [] };
+  if (!policy) return null;
+  const meta = readAdviceMeta(join(runDir, ADVICE_META_FILE));
+  const config = meta.error ? null : loadAdviceChain(meta.meta.chain, { work });
+  const ceiling = gate.price && typeof gate.price === 'object' ? gate.price.ceiling_usd : undefined;
+  if (!config || !(typeof ceiling === 'number' && ceiling > 0)) return { refused: 'policy.json is set but this advice call\'s chain or price cannot be read, so the policy cannot be checked', warnings: [] };
+  const ev = advicePolicyVerdict(policy, config, ceiling, { runsDir: join(work, 'runs') });
+  return { refused: ev.ok ? null : `policy.json refuses this call: ${ev.reasons.join(' ')}`, warnings: ev.warnings };
+}
+
+/**
+ * The terminal answer to one gate: the whole text, then y/N, bound to the hash of the exact bytes printed. The one place a person's terminal answer is made (`council gate answer` calls it; so do
+ * `council contract lock` and `council contract amend --decide`, 0.8.2 item 6d, which therefore have no prompt of their own). Returns an exit code: 0 the answer was recorded, 1 refused or not confirmed
+ * (nothing written), 2 no terminal.
+ */
+export async function answerAtTerminal(runDir, gateArg, { decline = false, stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, now } = {}) {
+  const out = s => stdout.write(`${s}\n`);
+  const err = s => stderr.write(`${s}\n`);
+  const opts = now ? { now } : {};
+  const state = readGateAnswer(runDir, gateArg, opts);
+  if (state.status === 'invalid' && !state.gate) { err(`gate ${gateArg}: ${state.reason}`); return state.reason === 'gate_not_found' ? 2 : 1; }
   if (!stdin.isTTY || !stdout.isTTY) {
     err('gate answer needs a person at a terminal: stdin and stdout must both be a terminal. Nothing was written.');
     return 2;
@@ -135,9 +182,17 @@ export async function gateCommand(args, { work = process.cwd(), stdin = process.
   if (!bytes) { err(terminalSafe(`gate ${gateArg}: cannot read ${state.gate.text} inside the run folder`)); return 1; }
   const shownSha256 = textSha256(bytes);
   for (const l of describe(state.gate)) out(l);
+  const policyCheck = state.gate.kind === 'advice' ? advicePolicyAtTerminal(runDir, state.gate) : null;
+  for (const w of policyCheck?.warnings ?? []) out(terminalSafe(`Policy warning: ${w}`));
+  if (policyCheck?.refused) {
+    if (!decline) { err(terminalSafe(`${policyCheck.refused}. Nothing was written; the gate stays pending.`)); return 1; }
+    out(terminalSafe(`Note: ${policyCheck.refused}. Declining is always allowed.`));
+  }
   printText(out, bytes);
-  const decline = args.includes('--decline');
-  const reply = await ask(decline ? `Decline gate ${gateArg}: this text will not be sent. Decline? [y/N] ` : `Approve sending exactly this text? [y/N] `, { input: stdin, output: stdout });
+  const contract = isContractGate(state.gate);
+  const reply = await ask(decline
+    ? `Decline gate ${gateArg}: this text will not be ${contract ? 'recorded' : 'sent'}. Decline? [y/N] `
+    : `Approve ${contract ? 'recording' : 'sending'} exactly this text? [y/N] `, { input: stdin, output: stdout });
   if (!/^\s*y(es)?\s*$/i.test(reply)) { out('Not confirmed. Nothing was written; the gate stays pending.'); return 1; }
   let actor = null;
   try { actor = userInfo().username; } catch { /* no user name on this system; recorded as null */ }

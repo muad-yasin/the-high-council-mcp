@@ -77,7 +77,8 @@ test('seat_requests enabled: an allowed tool a debate seat requests is appended 
   // The config-time verify.tools entry ran first (index 0); the seat-requested one is appended
   // after it, same array, same { tool, args, result } shape plus result_ref.
   assert.ok(Array.isArray(result.ground_truth) && result.ground_truth.length >= 2);
-  const seatRequested = result.ground_truth.find(g => g.result_ref === 'check_versions:0' && g.result?.stdout === 'STUB_check_versions_OUTPUT');
+  // 0.8.2 item 5 (F5, plan item 5 "run-wide evidence IDs", owner-approved plan of 6 Oct 2026; C&C's go on item 5): evidence ids are run-wide now, so the seat-requested entry is check_versions:1 (the config-time entry before it is :0); it was check_versions:0 too before the fix.
+  const seatRequested = result.ground_truth.find(g => g.result_ref === 'check_versions:1' && g.result?.stdout === 'STUB_check_versions_OUTPUT');
   assert.ok(seatRequested, 'the seat-requested tool result must be appended verbatim with a result_ref');
 
   const rendered = renderGroundTruth(result.ground_truth);

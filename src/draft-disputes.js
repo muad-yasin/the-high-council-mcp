@@ -16,9 +16,10 @@ import { readFileSync } from 'node:fs';
 // deliverable's own body text.
 // `disputedBlock` (default true: the reviser stages, as in 0.8.0): also strip a trailing Disputed block. The build stage and the draft readers FX-15 added pass false: a
 // builder's plan may legitimately contain a paragraph that starts with "Disputed" (audit A5-2), so only its DECLINED lines are stripped there.
-export function parseDisputes(text, { disputedBlock = true } = {}) {
+export function parseDisputes(text, { disputedBlock = true, withIds = false } = {}) {
   let lines = text.split('\n');
   const declined = [];
+  const declinedIds = []; // 0.8.2 (owner, 7 Oct 2026, P13): in step with `declined`: the objection id a line answers ("DECLINED: O-1a2b3c4d: <reason>"), or null
   // Strip trailing DECLINED lines and a trailing Disputed block, in any order, until neither is
   // left at the end. Blank lines inside the trailer are skipped, not treated as its end. Bug-audit
   // fix, 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #3): a reply ending in "\n" - every
@@ -43,7 +44,9 @@ export function parseDisputes(text, { disputedBlock = true } = {}) {
       const line = lines[i].trim();
       if (line === '') { i--; continue; }
       if (!/^DECLINED:\s*.+/.test(line)) break;
-      declined.unshift(line.replace(/^DECLINED:\s*/, ''));
+      const rest = line.replace(/^DECLINED:\s*/, '');
+      const { ids, reason } = withIds ? splitDeclinedId(rest) : { ids: [null], reason: rest }; // `withIds`: only the stage whose prompt asks for ids (the revise of a chain with answer_back.enabled); everywhere else a line is read as it always was
+      for (const id of [...ids].reverse()) { declined.unshift(reason); declinedIds.unshift(id); } // a line naming several ids gives each its own entry with the same reason
       i--; changed = true;
     }
     lines = lines.slice(0, i + 1);
@@ -61,13 +64,22 @@ export function parseDisputes(text, { disputedBlock = true } = {}) {
     if (disputedBlock && k >= 0 && k <= j && DISPUTED_START.test(lines[k].trim())) {
       const block = lines.slice(k, j + 1).map(l => l.trim()).filter(Boolean);
       const body = [block[0].replace(DISPUTED_START, '').trim(), ...block.slice(1)].filter(Boolean).join(' ');
-      if (body) declined.push(body);
+      if (body) { declined.push(body); declinedIds.push(null); }
       lines = lines.slice(0, k);
       changed = true;
     }
   }
   while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
-  return { draft: lines.join('\n'), disputes: declined };
+  return { draft: lines.join('\n'), disputes: declined, disputeIds: declinedIds };
+}
+
+// "O-1a2b3c4d: <reason>" (also "[O-1a2b3c4d] <reason>", "O-1a2b3c4d - <reason>", "O-1a2b3c4d <reason>"; any case) names the objection a DECLINED line answers (src/objection-ids.js: "O-" and eight hex digits).
+// A line with no id, or an id and nothing after it, stays whole as a reason with no id: a line is never lost and never matched to an objection by guesswork.
+function splitDeclinedId(rest) {
+  // Audit fix cnc-prompts F5: an id may be wrapped in backticks, emphasis or angle/square brackets, and one line may name several ("`O-aaaaaaaa`, `O-bbbbbbbb` - reason").
+  const WRAP = '[`*_<\\[(]*'; const END = '[`*_>\\])]*'; const ONE = 'O-[0-9a-f]{8}(?![0-9a-f])';
+  const m = new RegExp(`^${WRAP}(${ONE}(?:${END}\\s*,\\s*${WRAP}${ONE})*)${END}\\s*(?:[:\\-\\u2013\\u2014]\\s*)?(\\S[\\s\\S]*)$`, 'i').exec(rest);
+  return m ? { ids: m[1].match(/O-[0-9a-f]{8}/gi).map(x => x.toLowerCase().replace(/^o-/, 'O-')), reason: m[2].trim() } : { ids: [null], reason: rest };
 }
 
 /** The draft in a model's stage text, with its trailing DECLINED lines removed (a Disputed paragraph is plan text here; see parseDisputes). */

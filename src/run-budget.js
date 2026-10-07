@@ -2,6 +2,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { supersededSpendOf } from './superseded.js';
+import { unsettledUsd } from './spend-reservations.js';
 import { runSpentUsd } from './spend.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
@@ -19,7 +20,9 @@ export function budgetOf(dir, report) {
       .filter(f => f.endsWith('.usage.json'))
       .reduce((sum, f) => sum + (readJson(join(dir, f))?.usd ?? 0), 0)
       // Money path #2: stages a resume re-ran keep their first payment in superseded/.
-      + (existsSync(dir) ? supersededSpendOf(dir) : 0);
+      + (existsSync(dir) ? supersededSpendOf(dir) : 0)
+      // 0.8.2 item 8b: a call in flight when the process died stays charged at its worst case, so a killed run's remaining budget is what a resume will enforce.
+      + (existsSync(dir) ? unsettledUsd(dir) : 0);
   }
   const cap = report?.maxUsd ?? stopped?.capUsd ?? readJson(join(dir, 'run.json'))?.maxUsd ?? null;
   return {

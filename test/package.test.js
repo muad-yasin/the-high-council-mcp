@@ -54,9 +54,14 @@ test('the tarball ships the published report.json schema', () => {
   assert.ok(packed.includes('schemas/report-v1.json'), 'schemas/report-v1.json is missing from the tarball');
 });
 
+test('the archived chains stay in the repository and out of the tarball (0.8.2: owner, 6 Oct 2026, archive the unused chains)', () => {
+  assert.deepEqual(packed.filter(f => f.startsWith('archive/')), [], 'archive/ must not ship');
+  assert.ok(packed.some(f => f.startsWith('chains/')), 'the check can fail: chains/ does ship');
+});
+
 test('the tarball ships the gate schemas and the gate modules (0.8.1 plan M3)', () => {
   // The two new persisted formats (persistence register P4, P5) are published like report.json's.
-  for (const f of ['schemas/gate-v1.json', 'schemas/gate-ledger-v1.json', 'src/gate.js', 'src/gate-ledger.js', 'src/gate-cli.js']) {
+  for (const f of ['schemas/gate-v1.json', 'schemas/gate-ledger-v1.json', 'schemas/contract-v1.json', 'schemas/spend-reservations-v1.json', 'src/spend-reservations.js', 'src/unpriced.js', 'src/gate.js', 'src/gate-ledger.js', 'src/gate-cli.js', 'src/contract-record.js', 'src/contract-lint.js', 'src/contract-cli.js', 'src/contract-draft.js', 'src/mcp/contract.js']) {
     assert.ok(packed.includes(f), `${f} is missing from the tarball`);
   }
   // the fixture generator is a maintainer script, not package code
@@ -72,7 +77,8 @@ test('the tarball ships everything the CLI needs at runtime', () => {
     assert.ok(packed.includes(needed), `${needed} is missing from the tarball`);
   }
   // Every chain the README names must actually ship.
-  for (const c of ['verify', 'cheap', 'plan-debate', 'plan-auto', 'plan-unanimous', 'mock-budget']) {
+  // 0.8.2 (owner, 6 Oct 2026, archive the unused chains + README promotes five): the list is now the chains the README promotes (plus verify and mock-budget).
+  for (const c of ['verify', 'cheap-7-v2', 'plan-daily-7', 'plan-premium-7', 'plan-highest-7', 'local-ollama', 'mock-budget']) {
     assert.ok(packed.includes(`chains/${c}.json`), `chains/${c}.json is missing from the tarball`);
   }
 });

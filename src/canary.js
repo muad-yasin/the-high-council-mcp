@@ -70,6 +70,16 @@ export function pickCanaryTarget(proposals) {
   return (proposals || []).find(p => !p.withdrawn) || null;
 }
 
+/**
+ * 0.8.2 (owner decision 2, `debate_hygiene.shuffle`): the canary target chosen by a seed instead of always the first roster lab. A pure function of the seed and the standing proposals, so every
+ * sitting of a run (a resume included) picks the same one. Returns null when nothing is standing.
+ */
+export function pickCanaryTargetSeeded(proposals, seed) {
+  const standing = (proposals || []).filter(p => !p.withdrawn);
+  if (!standing.length) return null;
+  return standing[Math.floor(runIdUnit(`${seed}:canary-target`) * standing.length)];
+}
+
 /** @param {{id:string}} target */
 export function buildCanaryPost(target, { by = 'canary' } = {}) {
   return { by, on: target.id, stance: 'object', text: CANARY_TEXT, canary: true };
@@ -86,8 +96,8 @@ export function buildCanaryPost(target, { by = 'canary' } = {}) {
  * @param {(target: object, post: object) => (string|Promise<string>)} decide
  * @returns {Promise<{post: object, reply: object, capitulated: boolean}|null>}
  */
-export async function injectCanary(proposals, decide, { by = 'canary' } = {}) {
-  const target = pickCanaryTarget(proposals);
+export async function injectCanary(proposals, decide, { by = 'canary', target: chosen = null } = {}) {
+  const target = chosen ?? pickCanaryTarget(proposals);
   if (!target) return null;
   const post = buildCanaryPost(target, { by });
 

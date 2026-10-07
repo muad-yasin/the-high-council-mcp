@@ -39,9 +39,11 @@ const root = resolve(here, '..');
 // service's own RELAY_CHAIN env var (start-run.js) could in principle name a different chain, in
 // which case its provider keys would also need to be Fly secrets here; this constant is a
 // documented default, not a hard runtime restriction.
-export function requiredEnvForChain(chainName, chainsDir = join(root, 'chains')) {
-  const configPath = join(chainsDir, `${chainName}.json`);
-  if (!existsSync(configPath)) return [];
+// 0.8.2 (owner, 6 Oct 2026: archive the unused chains): plan-auto moved to archive/chains/, so the default lookup tries chains/ and then archive/chains/.
+export function requiredEnvForChain(chainName, chainsDir = null) {
+  const dirs = chainsDir ? [chainsDir] : [join(root, 'chains'), join(root, 'archive', 'chains')];
+  const configPath = dirs.map(d => join(d, `${chainName}.json`)).find(existsSync);
+  if (!configPath) return [];
   const config = JSON.parse(readFileSync(configPath, 'utf8'));
   const providers = new Set();
   const seats = config.seats || {};

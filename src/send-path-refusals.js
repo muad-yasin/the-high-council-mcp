@@ -27,7 +27,7 @@ import { decide, readLedger } from './advice-guards.js';
 import { estimateChainRows, critiqueTokensFor, estimateTokens, priceOf, isAnthropicSeat } from './cost.js';
 import { lintChain } from './chain-lint.js';
 import { deniedReasonsOf } from './denied-models.js';
-import { loadPolicy, evaluatePolicy, monthToDateUsd } from './policy.js';
+import { loadPolicy, evaluatePolicy, buildPolicyContext } from './policy.js';
 import { profileFor } from './send-profiles.js';
 
 export const money = n => `$${(Math.round(n * 1e4) / 1e4).toFixed(n >= 1 ? 2 : 4)}`;
@@ -35,8 +35,7 @@ export const money = n => `$${(Math.round(n * 1e4) / 1e4).toFixed(n >= 1 ? 2 : 4
 /** Admission: the chain exists, is an advise chain, lints clean, every seat is priced, allowed and routed as its class requires. */
 export function admitChain(name, config) {
   if (!config || config.advise?.enabled !== true) return `"${name}" is not an advise chain`;
-  // Before the lint (which also requires it since 0.8.1 P17), so the refusal says it in words.
-  if (!Number.isFinite(config.advise.max_wall_ms)) return `chain ${name} has no advise.max_wall_ms: a call with no wall-clock ceiling is refused`;
+  // 0.8.2 (owner, 6 Oct 2026): no wall clock is required any more; a chain that sets advise.max_wall_ms still gets it (src/cli.js).
   const findings = lintChain(config, name);
   if (findings.length) return `chain ${name} does not lint clean: ${findings.map(f => f.kind).join(', ')}`;
   const seats = [...(config.seats?.critics || []), ...(config.advise.synthesis === 'seat' && config.seats.builder ? [config.seats.builder] : [])];
@@ -81,6 +80,16 @@ export function priceOfChain(config, briefText, { maxUsd = null } = {}) {
   const blindWorst = rows.filter(r => !r.label.startsWith('advise-debate-') && r.label !== 'advise-synthesis').reduce((n, r) => n + r.usd, 0);
   const ceiling = Math.min(config.advise.usd, maxUsd ?? Infinity);
   return { worst, expected: sum(() => true), floor: sum(r => !r.label.startsWith('advise-debate-')), blindWorst, calls: callsAtMost(rows, seatByKey), ceiling };
+}
+
+/**
+ * The ONE rule for policy.json's max_usd_per_run on an advice call (0.8.2 item 1; owner via C&C, 7 Oct 2026: "Terminal rule only, no cap change"): the quote, the start (src/send-path.js) and the terminal
+ * answer (src/gate-cli.js) all call this. It REFUSES on the chain's expected cost, the first figure --dry-run prints, which is also what the CLI's start gate in src/cli.js compares after the person approves (so
+ * an approved call is never refused there), and only WARNS when the call's ceiling is over the limit. Returns evaluatePolicy's { ok, reasons, warnings, checks }.
+ */
+export function advicePolicyVerdict(policy, config, ceilingUsd, { runsDir, now = Date.now() }) {
+  const base = buildPolicyContext(config, seatsOf(config), runsDir, now);
+  return evaluatePolicy(policy, { ...base, maximumUsd: Math.max(base.maximumUsd, ceilingUsd), figure: 'call' });
 }
 
 export const seatsOf = config => [...(config.seats.critics || []), ...(config.advise.synthesis === 'seat' && config.seats.builder ? [config.seats.builder] : [])];
@@ -131,13 +140,15 @@ export function preSendRefusals(kind, { brief, mode, advisor, max_usd }, { work,
   const price = priceOfChain(config, masked.text, { maxUsd: max_usd ?? null });
   if (price.blindWorst > price.ceiling) return refuse('over_ceiling', `the blind round alone could cost ${money(price.blindWorst)}; the ceiling for this call is ${money(price.ceiling)}${max_usd ? ' (your max_usd)' : ''}.`, 'Shorten the brief, use single mode or a cheaper seat, or raise max_usd.', { worst_usd: price.blindWorst, ceiling_usd: price.ceiling });
   if (usdLimit !== null && price.ceiling > usdLimit) return refuse('over_server_limit', `this call's ceiling ${money(price.ceiling)} is above the $${usdLimit} limit the user set in COUNCIL_MAX_USD_LIMIT.`, 'Ask the user to raise that limit in the server settings.');
+  let policyWarnings = [];
   if (policy) {
-    const ev = evaluatePolicy(policy, { config, allSeats: seatsOf(config), worstCaseUsd: price.ceiling, monthToDateUsd: monthToDateUsd(runsDir, now) });
+    const ev = advicePolicyVerdict(policy, config, price.ceiling, { runsDir, now });
     if (!ev.ok) return refuse('policy', `policy.json refuses this call: ${ev.reasons.join(' ')}`, 'Ask the user; the policy is theirs.');
+    policyWarnings = ev.warnings;
   }
   const fp = profile.fingerprint(brief);
   const ledgerNow = readLedger(runsDir);
   const verdict = decide({ fingerprint: fp, hasNewEvidence: !!brief.new_evidence, skipDispositions: true, worstUsd: price.worst, ceilingUsd: price.ceiling, ledger: ledgerNow, now, limits });
   if (!verdict.allow) return refuse(verdict.code, verdict.message.replace(/ Nothing was spent\.$/, ''), verdict.next, { ...(verdict.run ? { run: verdict.run } : {}), ...(verdict.ids ? { ids: verdict.ids } : {}) });
-  return { ok: true, limits, sens, chainName, config, masked, price, fp, ledgerNow };
+  return { ok: true, limits, sens, chainName, config, masked, price, fp, ledgerNow, policyWarnings };
 }

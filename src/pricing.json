@@ -301,5 +301,10 @@
   "mock/mock-priced": {
     "in": 1000.0,
     "out": 1000.0
+  },
+  "openrouter/xiaomi/mimo-v2.6-pro": {
+    "in": 0.435,
+    "out": 0.87,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-10-07 (public GET; matches the Xiaomi, Novita and GMICloud endpoints; DeepInfra lists 0.43)"
   }
 }

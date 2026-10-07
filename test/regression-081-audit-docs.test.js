@@ -17,7 +17,8 @@ test('A6-2: `council doctor`\'s "Start here" one-key line names planning chains,
   const line = out.split('\n').find(l => /^\s*one key:/.test(l));
   assert.ok(line, 'doctor prints a one-key line');
   assert.doesNotMatch(line, /advise-/, line);
-  assert.match(line, /OPENROUTER_API_KEY alone runs [a-z0-9-]+ \(worst case/);
+  // 0.8.2 item 8c (owner, 7 Oct 2026): the line names the expected figure and the maximum, no longer a "worst case".
+  assert.match(line, /OPENROUTER_API_KEY alone runs [a-z0-9-]+ \(expected \$[\d.]+, at most \$[\d.]+/);
 });
 
 test('A6-10: no user-visible string in src/ or a chain description names a private project or a home path', () => {
@@ -37,7 +38,8 @@ test('A6-6/A6-9: advise-single\'s description names the reasoning high and the 4
   const single = JSON.parse(read('chains/advise-single.json')).description;
   assert.doesNotMatch(single, /reasoning medium/);
   assert.doesNotMatch(single, /12,000-character limit/);
-  for (const n of ['cheap-7', 'cheap-7-v2']) assert.doesNotMatch(JSON.parse(read(`chains/${n}.json`)).description, /Every seat gets a 36000-token ceiling/);
+  // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): cheap-7 moved to archive/chains/ and is still checked there.
+  for (const n of ['archive/chains/cheap-7', 'chains/cheap-7-v2']) assert.doesNotMatch(JSON.parse(read(`${n}.json`)).description, /Every seat gets a 36000-token ceiling/);
   assert.doesNotMatch(read('CHANGELOG.md'), /reasoning medium/);
 });
 

@@ -26,6 +26,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { supersededSpendOf, supersededStagesOf } from './superseded.js';
+import { unsettledUsd } from './spend-reservations.js';
 import { deriveRunStatus, APPROVAL_STATUSES, stoppedShortFile, waitingStages } from './run-status.js';
 import { readStoppedMarker } from './stop-files.js';
 
@@ -69,7 +70,13 @@ export function spendDateOf(runsDir, id) {
 // superseded/; a 0.8.0 run folder may still hold the single handoff-from-run.usage.json, read here for old folders only.
 const handoffFromRunUsd = dir => readJson(join(dir, 'handoff-from-run.usage.json'))?.usd ?? 0;
 
+// 0.8.2 item 8b (src/spend-reservations.js): a call that was in flight when its process ended stays charged at its worst case, here and in a resume's cap. The one recorded figure in this derivation.
 function costOfRun(dir) {
+  const r = costOfRunSettled(dir);
+  return { ...r, usd: r.usd + unsettledUsd(dir) };
+}
+
+function costOfRunSettled(dir) {
   const report = readJson(join(dir, 'report.json'));
   if (report?.totals?.usd !== undefined && report?.totals?.usd !== null) {
     // report.json's total already holds the superseded spend it saw (totals.supersededUsd); what superseded/ gained after

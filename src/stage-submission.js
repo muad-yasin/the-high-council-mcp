@@ -2,8 +2,9 @@
 // before accepting it as the stage's final one, factored out of src/mcp/server.js's tool handler
 // so they're independently testable without spinning up the MCP transport (see
 // test/peer-claim.test.js). Pure file-based logic, no network, no subprocess.
-import { existsSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { writeRunFile } from './run-files.js';
+import { join, basename } from 'node:path';
 import { stageKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
 import { writeClaim, readClaimFor } from './peer-claim.js';
@@ -46,8 +47,11 @@ export function submitStageAnswer(dir, stage, content, { claimedBy, chainConfig 
   const usageFile = isDuplicate ? join(dir, `${stage}.late.usage.json`) : join(dir, `${stage}.usage.json`);
   if (isDuplicate) warnings.push({ type: 'duplicate_answer', stage, kept: [`${stage}.md`, `${stage}.late.md`] });
 
-  writeFileSync(writtenFile, content);
-  writeFileSync(usageFile, JSON.stringify({ provider: 'external', model: 'claude-code-session', usage: { input: 0, output: words(content) }, usd: 0, ms: 0 }));
+  // 0.8.2 item 2: written without following a symbolic link (src/run-files.js); a refusal stops the submission before anything is accepted.
+  const first = writeRunFile(dir, basename(writtenFile), content);
+  if (first.refusal) throw new Error(first.refusal);
+  const second = writeRunFile(dir, basename(usageFile), JSON.stringify({ provider: 'external', model: 'claude-code-session', usage: { input: 0, output: words(content) }, usd: 0, ms: 0 }));
+  if (second.refusal) throw new Error(second.refusal);
 
   return { warnings, writtenFile, isDuplicate };
 }

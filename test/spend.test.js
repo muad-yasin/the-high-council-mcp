@@ -130,6 +130,19 @@ test('the report carries cost and chain, never the task', () => {
   assert.equal(r.runs[0].chain, 'verify');
 });
 
+test('an unsettled reservation (a call in flight when the process ended) stays charged at its worst case; the report carries amounts only, never its label or seat (0.8.2 item 8b)', () => {
+  const { runs, add } = fixture();
+  const line = o => `${JSON.stringify({ schema: 'spend-reservations/1', at: '2026-09-11T10:00:00.000Z', ...o })}\n`;
+  add(ID(9), {
+    'report.json': { chain: 'verify', totals: { usd: 1 } },
+    'spend-reservations.jsonl': line({ event: 'reserved', id: 'r1', label: 'panel-1-secret-label', seat: 'vendor/secret-model', usd: 2.5 }) + line({ event: 'settled', id: 'r1', outcome: 'recorded', usd: 0.3 })
+      + line({ event: 'reserved', id: 'r2', label: 'panel-2-secret-label', seat: 'vendor/secret-model', usd: 4 }) + '{"schema":"spend-reservations/1","event":"sett',
+  });
+  const r = spendReport(runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
+  assert.equal(r.totalUsd, 5, 'report total 1 + the one reservation no settled line closed (4); the settled one and the torn last line add nothing');
+  assert.equal(JSON.stringify(r).includes('secret-label') || JSON.stringify(r).includes('secret-model'), false, 'no label or seat leaves the run folder through the spend report');
+});
+
 test('spend accounting writes nothing at all', () => {
   // The whole design rests on this: no ledger, so no write can fail and take
   // a run down with it.

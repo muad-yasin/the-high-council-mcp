@@ -1,9 +1,12 @@
 import { call, keyFor, resolveVendorSeat } from './providers.js';
+import { held } from './held-roles.js';
+import { handoffPrompt } from './handoff-prompt.js';
 import { extraWithHighDefault, retryCapFor, retryCeilingOf } from './reasoning.js';
 import { parseDisputes } from './draft-disputes.js';
 export { parseDisputes };
 import * as R from './roles.js';
-import { costOf, summarise, formatUsd, wouldBreach, projectStage, projectAttempts, isAnthropicSeat, SEAT_DEFAULT_MAX_TOKENS, readUsage, readUsd } from './cost.js';
+import { withLane } from './lanes.js';
+import { costOf, summarise, formatUsd, wouldBreach, projectStage, projectAttempts, isAnthropicSeat, needsPrice, SEAT_DEFAULT_MAX_TOKENS, readUsage, readUsd } from './cost.js';
 import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
 import { applySeatRole } from './seat-role.js';
@@ -14,14 +17,20 @@ import { runLints } from './lints.js';
 import { extractClaims, dropInvalidClaims } from './claims.js';
 import { fencedSourceOf, markFailures, quoteWarnings } from './quote-check.js';
 import { parsePatches, applyPatches, changedSince } from './patch-revise.js';
-import { injectCanary, shouldSampleCanary, runIdUnit, pickCanaryTarget, CANARY_NOTE } from './canary.js';
+import { injectCanary, shouldSampleCanary, runIdUnit, pickCanaryTarget, pickCanaryTargetSeeded, CANARY_NOTE } from './canary.js';
+import { readerView, viewRecord, translateRefs } from './debate-order.js';
+import { markPostQuote } from './post-quotes.js';
+import { buildAnswerBack, answerBackSummary, applyAnswers } from './answer-back.js';
 import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
 import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
 import { promptHashOf, promptSha256Of, cacheVerdict } from './cache-integrity.js';
 import { stripLockBlock } from './criteria-lock.js';
 import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
-import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine, MET_VERDICT } from './criteria-kinds.js';
-import { missingCriteriaRows } from './criteria-ledger.js';
+import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine, MET_VERDICT, FAILED_VERDICT, verdictWord } from './criteria-kinds.js';
+import { missingCriteriaRows, signoffTableGap, describeTableGap, outsideCriteriaRows } from './criteria-ledger.js';
+import { objectionId, objectionKey, stallSignature } from './objection-ids.js';
+import { seededShuffle } from './seeded-shuffle.js';
+import { buildTextLabels } from './text-labels.js';
 import { lintCriteria } from './criteria-lints.js';
 import { runDeepDive, deepDiveFailures } from './deep-dive.js';
 import { runAdvise, AdviceStopped } from './advise.js';
@@ -51,9 +60,9 @@ export function criteriaUserPrompt(request, config) {
 // result is both kept for the run record and rendered into a block appended
 // to `request`, which every later stage's prompt already threads through, so
 // "re-presented unedited to later seats' context" costs no new plumbing.
-export function renderGroundTruth(groundTruth) {
+export function renderGroundTruth(groundTruth, heading = 'Ground truth (tool output, verbatim)') {
   if (!groundTruth.length) return '';
-  return `\n\n# Ground truth (tool output, verbatim)\n${groundTruth.map(g =>
+  return `\n\n# ${heading}\n${groundTruth.map(g =>
     `\n## ${g.tool}${g.args && Object.keys(g.args).length ? ` ${JSON.stringify(g.args)}` : ''}\n${JSON.stringify(g.result)}`
   ).join('\n')}`;
 }
@@ -242,6 +251,27 @@ export const CUT_OFF_RETRY_MAX_TOKENS = 64000;
 // site passes the seat's own ceiling, retryCeilingOf in src/reasoning.js: the model's maximum, bounded by its transport), but
 // never BELOW the seat's own cap. 2026-09-22: a seat given a 360k cap (above the 64k bound) would
 // otherwise have been "retried with a bigger cap" of 64k - a smaller one, certain to cut off again.
+
+// The sentence a criteria retry appends to the criteria prompt, by what the gate found ('infeasible': a criterion one document can never satisfy; 'meta': criteria about the criteria list). 0.8.2 wiring (6a, ticket 24):
+// the held function `criteriaRetryNote(kind, quoted)` in src/roles.js (after the re-record) holds BOTH sentences (they leave this file) and adds, for 'meta', the sentence about a request's own list of requirements; until then these
+// two are the sentences that have always been sent, byte for byte.
+function criteriaRetryNote(kind, quoted) {
+  const recorded = held('criteriaRetryNote');
+  if (recorded) return recorded(kind, quoted);
+  return kind === 'infeasible'
+    ? `Your previous answer contained a criterion the draft can never satisfy: "${quoted}". The draft is ONE document. Any other file named in the request is produced by a later stage of this pipeline, not by the draft. Write criteria that one document can satisfy.`
+    : `Your previous answer described the format of a criteria list ("${quoted}") instead of the deliverable the request asks for. Write criteria that a reader checks against that deliverable itself.`;
+}
+
+// 0.8.2 wiring (4a-4d, decision 2 third part, owner "Yes x3" 5 Oct): in a chain with debate_hygiene.noQuoteMarks (which is what records `quoted` on a post) the author's reply prompt shows the mark "[no quote]" before the
+// colon of an objection or merge that quotes nothing, the reply prompts say what the mark means, and the debate prompts tell a poster to copy the phrase it talks about. The words are held (src/held-roles.js):
+// `replyUserMarked` / `altReplyUserMarked` (the whole reply prompt, byte-identical to R.replyUser / R.altReplyUser when no post is unquoted), `noQuoteGloss`, `debatePostQuoteRule`. Until the re-record each falls back to the
+// prompt that has always been sent.
+const noQuoteMarksOn = config => config?.debate_hygiene?.noQuoteMarks === true;
+const replyUserFor = config => (noQuoteMarksOn(config) ? (held('replyUserMarked') ?? R.replyUser) : R.replyUser);
+const altReplyUserFor = config => (noQuoteMarksOn(config) ? (held('altReplyUserMarked') ?? R.altReplyUser) : R.altReplyUser);
+const withHeldNote = (config, system, name) => { const text = noQuoteMarksOn(config) ? held(name)?.() : null; return text ? `${system}\n\n${text}` : system; };
+
 // Criteria that describe the criteria list (its JSON shape, what each criterion must be) rather
 // than the deliverable. Any one JSON-shape item flags it; otherwise a third or more of the items
 // talking about "criterion/criteria" does. Returns the offending items.
@@ -281,9 +311,9 @@ export function infeasibleCriteria(criteria, { handoff = false, debate = false }
 // poster shown under a normal anonymised lab label (R.canaryPosterLabel) instead of the raw
 // `canary` id, which rendered as "undefined". Pre-release audit 2026-09-23
 // (ProposalsDebateDispute #1); test/canary.test.js pins that no probe wording reaches it.
-export function canaryReplyPrompt({ request, proposals, post, lab, maps, guard = false }) {
+export function canaryReplyPrompt({ request, proposals, post, lab, maps, guard = false, render = R.replyUser }) {
   const shown = { ...maps, labTo: { ...maps.labTo, [post.by]: R.canaryPosterLabel(maps, lab) } };
-  return R.replyUser({ request, proposals, posts: [post], lab, maps: shown, guard });
+  return render({ request, proposals, posts: [post], lab, maps: shown, guard });
 }
 
 // Tiered councils, the majority guard (config.majority_guard.enabled): a withdrawal counts only when
@@ -296,13 +326,13 @@ export function canaryReplyPrompt({ request, proposals, post, lab, maps, guard =
 // escaped as "\#", the <critic-claim> tag defused) as well as the raw post, so an author that
 // copies an objection containing "#" verbatim from its prompt is not marked unargued (verification
 // of thc-research PR #13, finding 3).
-export function guardWithdrawals(replies, posts, log = () => {}) {
+export function guardWithdrawals(replies, posts, log = () => {}, textVariants = x => [x.text]) {
   const norm = t => String(t || '').toLowerCase().replace(/[\u2018\u2019\u201c\u201d"'`]/g, '').replace(/\s+/g, ' ').trim();
   for (const r of replies) {
     if (r.action !== 'withdraw') continue;
     const quote = norm(r.conceded_to);
     const on = posts.filter(x => x.on === r.id && x.stance !== 'support');
-    const hit = quote.length >= 8 && on.some(x => norm(x.text).includes(quote) || norm(R.boardText(x.text)).includes(quote));
+    const hit = quote.length >= 8 && on.some(x => textVariants(x).some(t => norm(t).includes(quote) || norm(R.boardText(t)).includes(quote)));
     r.conceded_to = typeof r.conceded_to === 'string' ? capField(r.conceded_to, { field: 'conceded_to' }) : undefined;
     if (!hit) {
       r.unargued = true;
@@ -368,6 +398,11 @@ function describeDropped(items) {
 // judgement of that reply (cut off? all reasoning? truncated?) must use THAT cap, not the one the call site started from, or a normal long reply reads as
 // truncated and gets a third paid call. Never below the cap the caller started from (a corrupt record cannot shrink it).
 export const askedCapOf = (stage, fallback) => (Number.isFinite(stage?.cappedAt) && stage.cappedAt >= fallback ? stage.cappedAt : fallback);
+// 0.8.2 item 7: the ONE door every critic system prompt goes through, so a lane paragraph (src/lanes.js) can never be applied at some call sites and missed at others (a source-scan test fails on a bare
+// R.criticSystem( anywhere else in this file). A seat with no lane gets R.criticSystem's text unchanged.
+function criticPromptFor(seat, open, opts) {
+  return withLane(seat, opts === undefined ? R.criticSystem(open) : R.criticSystem(open, opts));
+}
 export function cutOffRetryCap(cap, ceiling = CUT_OFF_RETRY_MAX_TOKENS) {
   return retryCapFor(cap, ceiling);
 }
@@ -440,6 +475,8 @@ export const RESERVED_ABSTENTION_REASONS = Object.freeze([
   // cap. deepseek-v4.1-flash via OpenRouter did this 6 times at 4,224-4,226 tokens against a 36k
   // cap, and all 3 bigger-cap (64k) retries stopped at the same place, so the retry is skipped.
   'REASONING_EXHAUSTED',
+  // Added 0.8.2 (owner decision 1, 5 Oct 2026): a sign-off without a full per-criterion table, on a chain with `signoff_table.required`. Never consent.
+  'INCOMPLETE_TABLE',
 ]);
 
 // "Well under the cap": a reply that ran out at half its budget or less did not hit OUR cap.
@@ -475,30 +512,6 @@ export function abstentionReasonCode(usage, maxTokens) {
 // hold something (Llama 3.3 70B did exactly this on 2026-09-07, and the
 // harness counted it as an objection). The per-criterion table is the honest
 // signal, so the summary fields are derived from it rather than trusted.
-// The relay panel's order, shuffled from a seed, not from Math.random - bug audit 2026-09-26 #2.
-// A relay reviewer is handed the verdicts before it, so the order is part of every later reviewer's
-// prompt: a fresh random order on resume changed those prompts, the stage cache read them as stale,
-// and every completed panel stage of the round was paid for again. Seeded from the run id and the
-// round, the order still differs from round to round (no lab is always the anchor) and a resumed
-// run replays the order it had. mulberry32 over an FNV-1a hash of the seed string: small, and
-// deterministic across platforms. test/resume-determinism.test.js keeps Math.random out of this file.
-function seededShuffle(list, seed) {
-  let h = 0x811c9dc5;
-  for (const ch of String(seed)) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
-  const next = () => {
-    h = (h + 0x6d2b79f5) >>> 0;
-    let t = h;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-  const out = [...list];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(next() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
 
 // A critic's own text (criterion/problem/fix/verdict_line) is entirely critic-controlled and
 // flows, undelimited until roles.js's own prompt-construction fix, straight into the reviser's
@@ -546,7 +559,6 @@ function capField(value, { limit = CRITIC_FIELD_MAX_CHARS, stage = null, field =
 // unanimity; it is never consent). A non-array `failures` or a non-object reply is unreadable too,
 // rather than a throw - the reply is on disk before it is parsed, so a throw here used to crash
 // every resume on the same replayed file (#2).
-const FAILED_VERDICT = /^(FAILED|FAIL|NOT[\s_-]*MET|UNMET|NO)$/;
 const NO_VERDICT_FAILURE_CRITERION = '(objection named no criterion)';
 
 export function normaliseCritique(critique, log = () => {}, { stage = null } = {}) {
@@ -558,7 +570,7 @@ export function normaliseCritique(critique, log = () => {}, { stage = null } = {
   if (critique.failures != null && !Array.isArray(critique.failures)) return unreadable(`"failures" is ${typeof critique.failures}, not a list`);
   const rawFailures = critique.failures || [];
   const rows = Array.isArray(critique.criteria) ? critique.criteria.filter(r => r && typeof r === 'object' && !Array.isArray(r)) : [];
-  const verdictOf = row => String(row.verdict || '').trim().toUpperCase();
+  const verdictOf = row => verdictWord(row.verdict);
 
   // A placeholder names no criterion AND says nothing - an entry with a real problem but no
   // criterion key is still an objection, just an unlabelled one.
@@ -779,6 +791,18 @@ export class BudgetExceeded extends Error {
   }
 }
 
+// 0.8.2 item 8a: a seat with no price row, called under a spend cap. The cap would project it at $0 and could not stop what the call costs, so invoke() refuses it before anything is sent (the run's start refuses
+// the same seats first, src/unpriced.js). controlFlow, like BudgetExceeded: no catch around an invoke() may turn it into an abstention.
+export class UnpricedSeat extends Error {
+  constructor({ label, seat, cap }) {
+    super(`${seat} has no price, so the spend cap of ${formatUsd(cap)} cannot hold it (before stage ${label})`);
+    this.controlFlow = true;
+    this.label = label;
+    this.seat = seat;
+    this.cap = cap;
+  }
+}
+
 // Bug-audit fix, 2026-09-23 (Review/BugAudit_MoneyPath_2026-09-23.md #2, confirmed independently by
 // BugAudit_ChainParsers #4): every catch that wraps an invoke() call and degrades a failure into an
 // abstention, a "no reply" or a default MUST call this first. BudgetExceeded and ExternalPause are
@@ -981,6 +1005,9 @@ export function setProgressHook(fn) { progressHook = fn || (() => {}); }
 // reached a usage file, --spend, report.totals or the cap on the next resume, which broke the
 // "spend is derived from the run folder" rule. invoke() now reports each one here; the CLI writes it
 // to the run folder (superseded/<label>.charge-N.usage.json). Unset, a no-op.
+// 0.8.2 item 8b (src/spend-reservations.js): where a paid call's reservation is persisted before it is sent. Null (no file) for a caller that arms none, as the mock-only tests do.
+let reservationSink = null;
+export function setReservationSink(sink) { reservationSink = sink || null; }
 let chargeHook = () => {};
 export function setChargeHook(fn) { chargeHook = fn || (() => {}); }
 
@@ -1007,7 +1034,13 @@ export async function runSingleStage(seat, { system, user, log = () => {}, label
 let stopCheck = () => null;
 export function setStopCheck(fn) { stopCheck = fn || (() => null); }
 
+// Test seam, null in production (the same kind as setStopCheck): receives { label, provider, model, system, user } for every stage prompt before it is cached, sent or paused on.
+// Door tests use it to prove a sentence reaches the seat. No code under src/ sets it (test/held-prompts.test.js scans for that).
+let promptSpy = null;
+export function setPromptSpy(fn) { promptSpy = typeof fn === 'function' ? fn : null; }
+
 async function invoke(seat, { system, user, log, label }) {
+  promptSpy?.({ label, provider: seat.provider, model: seat.model, system, user });
   const started = Date.now();
   // Backstop for the check at the top of runChain: every call, including a replay from disk.
   const denied = deniedReasonsOf(seat);
@@ -1082,6 +1115,11 @@ async function invoke(seat, { system, user, log, label }) {
   }
   assertOutboundClean(label, { system, user }, outboundScan);
   if (seat.provider === 'external') throw new ExternalPause(label, system, user);
+  // 0.8.2 item 8a: under a cap, a seat with no price is refused here, before the only line that spends (see UnpricedSeat).
+  if (budget.cap !== null && needsPrice(seat)) {
+    log(`  ${label}: REFUSED - ${seat.provider}/${seat.model} has no price, so the spend cap of ${formatUsd(budget.cap)} cannot hold it.`);
+    throw new UnpricedSeat({ label, seat: `${seat.provider}/${seat.model}`, cap: budget.cap });
+  }
 
   // The cap is checked here, before the only line in this file that spends
   // money. Anthropic seats are projected at two attempts because invoke()
@@ -1097,7 +1135,18 @@ async function invoke(seat, { system, user, log, label }) {
   // finally below whether the call succeeds or throws. See `reserved` at the top of the budget block.
   budget.reserved += projected;
   let unrecordedWaste = 0; // a discarded attempt's cost, until a stage that includes it is returned
+  let reservationId = null, settled = { outcome: 'failed', usd: 0 };
   try {
+    // 0.8.2 item 8b: the reservation is on disk BEFORE the request is sent, so a process killed in flight leaves it (charged at its worst case on resume and in --spend). A call projected at $0 writes none. If the
+    // line cannot be written the call is not sent: the finally below releases the in-memory reservation.
+    if (reservationSink && projected > 0) {
+      try { reservationId = reservationSink.reserve({ label, seat: `${seat.provider}/${seat.model}`, usd: projected }); } catch (e) {
+        // controlFlow: no catch around a call stage may turn "the reservation could not be written" into an abstention and carry on; the run stops, nothing was sent.
+        const err = new Error(`${label}: the spend reservation could not be written (${e?.code ?? e?.message}), so the call was not sent`);
+        err.controlFlow = true;
+        throw err;
+      }
+    }
 
     progressHook({ label, lab: labOf(seat), startedAt: new Date().toISOString() });
 
@@ -1205,8 +1254,10 @@ async function invoke(seat, { system, user, log, label }) {
     const think = res.usage.thinking ? ` (${res.usage.thinking} thinking)` : '';
     const cut = res.usage.stop === 'max_tokens' || res.usage.stop === 'length' ? ' [hit the cap]' : '';
     log(`  ${label}: ${res.provider}/${res.model} - ${res.usage.input} in, ${res.usage.output} out${think}${cut}, ${formatUsd(stage.usd)}, ${(stage.ms / 1000).toFixed(1)}s`);
+    settled = { outcome: 'recorded', usd: stage.usd };
     return stage;
   } catch (err) {
+    settled = { outcome: err?.maybeBilled ? 'billed_unreadable' : 'failed', usd: err?.maybeBilled ? attemptWorstCase : 0 };
     if (unrecordedWaste > 0) chargeHook({ label, provider: seat.provider, model: seat.model, usd: unrecordedWaste, reason: 'an attempt discarded because thinking used the whole budget; its retry then failed' });
     // A call that failed after the request reached the provider (providers.js marks it
     // `maybeBilled`: a dropped 200 body, a non-JSON 200, a post-send timeout) was probably paid
@@ -1222,6 +1273,7 @@ async function invoke(seat, { system, user, log, label }) {
     throw err;
   } finally {
     budget.reserved -= projected;
+    if (reservationId) reservationSink.settle(reservationId, settled);
   }
 }
 
@@ -1432,6 +1484,8 @@ export async function runDescendingChain({ request, config, log = console.log, o
         // (GuardLayer #1): both sub-runs used to run it under the same `security-review` label,
         // so the final review was replayed from the plan-stage one and never read the final stack.
         security_review: undefined,
+        // 0.8.2: the cold read runs once, over the final stack, not on the plan sub-run as well.
+        coldRead: undefined,
         // "How this plan was argued" needs the plan sub-run's debate and the final sub-run's
         // verdicts in one record, which neither sub-run has. Not supported with descending yet:
         // chain-lint refuses the pair, and neither sub-run runs the stage.
@@ -1512,6 +1566,8 @@ export async function runDescendingChain({ request, config, log = console.log, o
     dropouts: planResult?.dropouts ?? [],
     board: planResult?.board ?? null,
     debate: planResult?.debate ?? null,
+    // 0.8.2: what each debate reader saw happened in the plan sub-run (the final stack has no debate), so it is forwarded from there.
+    ...(planResult?.debateOrders?.length ? { debateOrders: planResult.debateOrders } : {}),
     handoff: finalResult.handoff,
     passed: finalResult.passed,
     lastCritique: finalResult.lastCritique,
@@ -1527,7 +1583,7 @@ export async function runDescendingChain({ request, config, log = console.log, o
     // Pre-release audit 2026-09-23 (GuardLayer #1, and PanelSignoff's backlog): these were dropped
     // here, so a descending chain's security gate never reached the CLI (no exit 7/8, no gate in
     // report.json) and the panel/dispute record was lost. Forwarded only when the final run set them.
-    ...Object.fromEntries(['security_review', 'panelVerdicts', 'missingCriteria', 'criteriaLints', 'dispute', 'regressions', 'noHeardReviewer', 'notQuorate']
+    ...Object.fromEntries(['security_review', 'panelVerdicts', 'missingCriteria', 'signoffTableGaps', 'outsideCriteriaRows', 'debateOrders', 'answerBack', 'answerBackReplies', 'coldRead', 'signedText', 'deliveredText', 'handoffText', 'criteriaLints', 'dispute', 'regressions', 'noHeardReviewer', 'notQuorate']
       .filter(k => finalResult[k] !== undefined).map(k => [k, finalResult[k]])),
     totals: summarise(stages),
   };
@@ -1652,6 +1708,11 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       regressions: peek(() => regressions, []),
       panelVerdicts: peek(() => panelVerdicts, []),
       missingCriteria: peek(() => missingCriteria, []),
+      signoffTableGaps: peek(() => signoffTableGaps, []),
+      debateOrders: peek(() => debateOrders, []),
+      answerBack: peek(() => answerBackRecords, []),
+      answerBackReplies: peek(() => answerBackReplies, []),
+      outsideCriteriaRows: peek(() => outsideCriteriaRowList, []),
       criteriaLints: peek(() => criteriaLints, []),
       history: peek(() => history, []),
       stages,
@@ -1863,6 +1924,22 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   const metWithoutEvidence = [];
   // A sign-off whose criteria table left criteria out (src/criteria-ledger.js): recorded, never acted on.
   const missingCriteria = [];
+  // 0.8.2 (owner decision 1, 5 Oct 2026): with `signoff_table.required` a sign-off without a full per-criterion table (a row for every criterion, each with evidence) is an abstention, never
+  // consent. The seat is re-asked alone (the existing re-ask loop, at most twice a round), the heard clean verdicts are carried, and the round cap still ends it. Off by default.
+  const tableRequired = config.signoff_table?.required === true;
+  const signoffTableGaps = [];
+  // 0.8.2 (owner decision 2): what each debate reader saw, when debate_hygiene.shuffle is on (src/debate-order.js); [] otherwise.
+  const debateOrders = [];
+  // 0.8.2 (owner decision 3, ticket 10): with `answer_back.enabled` the harness builds, after each revise, what each judge will be shown about its own earlier objections (src/answer-back.js).
+  // Data only until the owner's prompt list is approved: the summary is recorded in report.json and the full data is held in `answerBackLatest` (written after each revise; read by the prompt that will
+  // render it, which does not exist yet). It is built before the allocator's extra revise, so its changed passages do not include those edits.
+  const answerBackOn = config.answer_back?.enabled === true;
+  const answerBackRecords = [];
+  const answerBackReplies = [];
+  let answerBackLatest = {};
+  let answerBackRound = 0; // the round the latest answer-back data is for (set at the revise, matched by the next round's reviews)
+  // Table rows that name none of the criteria (ticket 16): recorded, never counted.
+  const outsideCriteriaRowList = [];
   const noteMissingRows = (critique, round, lab) => {
     if (critique?.meets !== true) return;
     const m = missingCriteriaRows(critique, criteria);
@@ -1932,7 +2009,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       log(`  !! ${infeasible.length} criterion/criteria demand documents this stage cannot produce - asking once more.`);
       const again = record(await invoke(resolveCriteriaSeat(config), {
         system: R.criteriaSystem(open, !!fencedSource, promptOpts),
-        user: `${criteriaUserPrompt(request, config)}\n\nYour previous answer contained a criterion the draft can never satisfy: "${infeasible[0]}". The draft is ONE document. Any other file named in the request is produced by a later stage of this pipeline, not by the draft. Write criteria that one document can satisfy.`,
+        user: `${criteriaUserPrompt(request, config)}\n\n${criteriaRetryNote('infeasible', infeasible[0])}`,
         log, label: 'criteria-feasibility-retry',
       }));
       const retried = takeCriteria(parseJson(again.text)?.criteria);
@@ -1945,7 +2022,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       log(`  !! criteria describe the criteria list itself, not the request (${metaCriteria(criteria).length} of ${criteria.length}) - asking once more.`);
       const again = record(await invoke(resolveCriteriaSeat(config), {
         system: R.criteriaSystem(open, !!fencedSource, promptOpts),
-        user: `${criteriaUserPrompt(request, config)}\n\nYour previous answer described the format of a criteria list ("${metaCriteria(criteria)[0]}") instead of the deliverable the request asks for. Write criteria that a reader checks against that deliverable itself.`,
+        user: `${criteriaUserPrompt(request, config)}\n\n${criteriaRetryNote('meta', metaCriteria(criteria)[0])}`,
         log, label: 'criteria-retry',
       }));
       const retried = takeCriteria(parseJson(again.text)?.criteria);
@@ -2070,6 +2147,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
 
     const posts = [];
     const replies = [];
+    let altPostsRealFn = () => posts; // set inside the debate block below when there is one
     if (items.length > 1) {
       const maps = R.anonymise(items);
       const labs = items.map(a => a.lab);
@@ -2082,6 +2160,22 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       }
       const posterLabs = [...labs, ...posterSeats.map(labOf).filter(l => !labs.includes(l))];
       posterLabs.forEach(l => { if (!maps.labTo[l]) maps.labTo[l] = `Lab ${String.fromCharCode(65 + Object.keys(maps.labTo).length)}`; });
+      // 0.8.2 (owner decision 2): per-reader seeded order and letters on the alternatives debate too, when debate_hygiene.shuffle is on (src/debate-order.js).
+      const altViews = new Map();
+      const altViewOf = lab => {
+        if (!(config.debate_hygiene?.shuffle === true)) return { items, maps };
+        if (!altViews.has(lab)) {
+          const v = readerView(items, lab, { runId: runId ?? '', stage: 'alternatives', anonymise: R.anonymise });
+          posterLabs.forEach(l => { if (!v.maps.labTo[l]) v.maps.labTo[l] = `Lab ${String.fromCharCode(65 + Object.keys(v.maps.labTo).length)}`; });
+          altViews.set(lab, { items: v.items, maps: v.maps, raw: v });
+          debateOrders.push(viewRecord('alternatives', lab, v));
+        }
+        return altViews.get(lab);
+      };
+      const altRefsFor = (p, toMaps) => (config.debate_hygiene?.shuffle === true && p.by !== 'canary' && !p.canary ? { ...p, text: translateRefs(p.text, altViewOf(p.by).maps, toMaps) } : p);
+      const altPostsFor = author => (config.debate_hygiene?.shuffle === true ? posts.map(p => altRefsFor(p, altViewOf(author).maps)) : posts);
+      altPostsRealFn = () => (config.debate_hygiene?.shuffle === true ? posts.map(p => altRefsFor(p, null)) : posts);
+      const altTextVariants = x => (config.debate_hygiene?.shuffle === true && x.by !== 'canary' ? [...new Set([x.text, ...[...altViews.values()].map(v => translateRefs(x.text, altViewOf(x.by).maps, v.maps))])] : [x.text]);
       const seatOf = lab => posterSeats.find(s => labOf(s) === lab);
       log(`\nStage: alternatives debate (${posterLabs.length} labs read ${posterLabs.length > labs.length ? `the ${labs.length} authors'` : "each other's"} architectures, anonymised)`);
       const postResults = await settleAll(posterLabs.map(async lab => {
@@ -2091,13 +2185,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             // No persona here: seat roles apply at exactly one call site, the proposal debate
             // (test/stage-isolation.test.js guards that boundary). Widening it to this stage is a
             // separate decision, not something to slip in with the stage.
-            system: R.ALT_DEBATE_SYSTEM,
-            user: R.altDebateUser({ request, criteria, alternatives: items, lab, maps }),
+            system: withHeldNote(config, R.ALT_DEBATE_SYSTEM, 'debatePostQuoteRule'),
+            user: R.altDebateUser({ request, criteria, alternatives: altViewOf(lab).items, lab, maps: altViewOf(lab).maps }),
             log: say, label: `alt-debate-${lab}`,
           }));
           const parsed = parseJson(st.text);
           if (!parsed) { say(`  ${lab}: unreadable debate reply - no posts counted.`); return { lines, posts: [] }; }
-          const mine = (parsed.posts || []).map(x => ({ by: lab, on: maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: capField(x.text, { limit: boardTextLimit(seatOf(lab)?.maxTokens), stage: `alt-debate-${lab}`, field: 'text' }) || '', merge_with: boardRef(x.merge_with, maps, new Set(items.map(a => a.id))) }))
+          const mine = (parsed.posts || []).map(x => ({ by: lab, on: altViewOf(lab).maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: capField(x.text, { limit: boardTextLimit(seatOf(lab)?.maxTokens), stage: `alt-debate-${lab}`, field: 'text' }) || '', merge_with: boardRef(x.merge_with, altViewOf(lab).maps, new Set(items.map(a => a.id))) }))
             .filter(x => items.some(a => a.id === x.on && a.lab !== lab) && ['support', 'object', 'merge'].includes(x.stance));
           say(`  ${lab}: ${mine.length} post(s)`);
           return { lines, posts: mine };
@@ -2108,6 +2202,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         }
       }));
       for (const r of postResults) { r.lines.forEach(m => log(m)); posts.push(...r.posts); }
+      // 0.8.2 (decision 2): the same detection as for proposals (src/post-quotes.js), against the alternative the post is about; data only here, the mark is the held reply prompt's.
+      if (noQuoteMarksOn(config)) posts.forEach((x, k) => { posts[k] = markPostQuote(x, items); });
 
       log(`\nStage: alternatives replies (each author answers the posts on its architecture)`);
       const replyResults = await settleAll(labs.map(async lab => {
@@ -2116,13 +2212,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         if (!mine.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
         try {
           const st = record(await invoke(seatOf(lab), {
-            system: R.altReplySystem(guard),
-            user: R.altReplyUser({ request, alternatives: items, posts, lab, maps, guard }),
+            system: withHeldNote(config, R.altReplySystem(guard), 'noQuoteGloss'),
+            user: altReplyUserFor(config)({ request, alternatives: altViewOf(lab).items, posts: altPostsFor(lab), lab, maps: altViewOf(lab).maps, guard }),
             log: say, label: `alt-reply-${lab}`,
           }));
           const parsed = parseJson(st.text);
           if (!parsed) { say(`  ${lab}: unreadable reply - its alternative stands as posted.`); return { lines, replies: [] }; }
-          const got = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: boardRef(r.replaced_by, maps, new Set(items.map(a => a.id))), action: String(r.action || '').toLowerCase(), text: capField(r.text, { limit: boardTextLimit(seatOf(lab)?.maxTokens), stage: `alt-reply-${lab}`, field: 'text' }) || '' }))
+          const got = (parsed.replies || []).map(r => ({ ...r, id: altViewOf(lab).maps.idFrom[r.id] || r.id, replaced_by: boardRef(r.replaced_by, altViewOf(lab).maps, new Set(items.map(a => a.id))), action: String(r.action || '').toLowerCase(), text: capField(r.text, { limit: boardTextLimit(seatOf(lab)?.maxTokens), stage: `alt-reply-${lab}`, field: 'text' }) || '' }))
             .filter(r => mine.some(a => a.id === r.id) && ['keep', 'amend', 'withdraw'].includes(r.action));
           say(`  ${lab}: ${got.map(r => r.action).join(', ') || 'no usable reply'}`);
           return { lines, replies: got };
@@ -2133,7 +2229,11 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         }
       }));
       for (const r of replyResults) { r.lines.forEach(m => log(m)); replies.push(...r.replies); }
-      if (guard) guardWithdrawals(replies, posts, log);
+      if (guard) guardWithdrawals(replies, posts, log, altTextVariants);
+      if (config.debate_hygiene?.shuffle === true) for (const r of replies) { // audit fix cnc-debate F3, alternatives stage: the stored reply is in real names like the stored posts (the guard has already read the author's own copy)
+        const own = items.find(x => x.id === r.id);
+        if (own) for (const f of ['text', 'conceded_to', 'shape', 'key_tradeoffs', 'bad_at']) if (typeof r[f] === 'string') r[f] = translateRefs(r[f], altViewOf(own.lab).maps, null);
+      }
       for (const r of replies) {
         const a = items.find(x => x.id === r.id);
         if (r.action === 'amend') { for (const k of ['shape', 'key_tradeoffs', 'bad_at']) if (typeof r[k] === 'string' && r[k].trim()) a[k] = capField(r[k], { limit: boardTextLimit(seatOf(a.lab)?.maxTokens), stage: `alt-reply-${a.lab}`, field: k }); a.amended = true; }
@@ -2142,8 +2242,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       }
     }
     if (items.length) {
-      alternativesBoard = (guard ? `${R.GUARD_BOARD_NOTE}\n\n` : '') + R.renderAlternativesBoard(items, posts, replies);
-      alternatives = { items, posts, replies, dropouts: altDropouts, board: alternativesBoard };
+      alternativesBoard = (guard ? `${R.GUARD_BOARD_NOTE}\n\n` : '') + R.renderAlternativesBoard(items, altPostsRealFn(), replies);
+      alternatives = { items, posts: altPostsRealFn(), replies, dropouts: altDropouts, board: alternativesBoard };
       log(`  alternatives: ${items.length} architecture(s), ${posts.length} post(s), ${items.filter(a => a.withdrawn).length} withdrawn, ${items.filter(a => a.amended).length} amended.`);
     } else {
       alternatives = { items, posts, replies, dropouts: altDropouts, board: null };
@@ -2331,6 +2431,19 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     // what the builder reads instead of bare proposals.
     if (config.debate && proposals.length > 1) {
       const maps = R.anonymise(proposals);
+      // 0.8.2 (owner decision 2): with debate_hygiene.shuffle every reader gets its own seeded order and letters (src/debate-order.js); without it, one shared view, byte for byte as before.
+      const shuffleOn = config.debate_hygiene?.shuffle === true;
+      const views = new Map();
+      const viewOf = lab => {
+        if (!shuffleOn) return { proposals, maps };
+        if (!views.has(lab)) { const v = readerView(proposals, lab, { runId: runId ?? '', stage: 'debate', anonymise: R.anonymise }); views.set(lab, { proposals: v.items, maps: v.maps, raw: v }); debateOrders.push(viewRecord('debate', lab, v)); }
+        return views.get(lab);
+      };
+      // Free text in a post names proposals and labs in the poster's own lettering: re-letter it for each reader (src/debate-order.js translateRefs); null = real ids for the builder's board.
+      const refsFor = (p, toMaps) => (shuffleOn && p.by !== 'canary' && !p.canary ? { ...p, text: translateRefs(p.text, viewOf(p.by).maps, toMaps) } : p);
+      const postsFor = author => (shuffleOn ? posts.map(p => refsFor(p, viewOf(author).maps)) : posts);
+      const postsReal = () => (shuffleOn ? posts.map(p => refsFor(p, null)) : posts);
+      const textVariants = x => (shuffleOn && x.by !== 'canary' ? [...new Set([x.text, ...[...views.values()].map(v => translateRefs(x.text, viewOf(x.by).maps, v.maps))])] : [x.text]);
       const labs = [...new Set(proposals.map(p => p.lab))];
       const seatOf = lab => proposers.find(s => labOf(s) === lab);
       log(`\nStage: debate (${labs.length} labs read each other's proposals, anonymised)`);
@@ -2348,8 +2461,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           // actually reaches the prompt - it was documented but never read here, so a custom
           // persona key went out as a bare name with no voice.
           const debatePrompt = {
-            system: applySeatRole(R.DEBATE_SYSTEM, seatOf(lab)?.role, loadPersonas()),
-            user: R.debateUser({ request, criteria, skeleton, proposals, lab, maps }),
+            system: withHeldNote(config, applySeatRole(R.DEBATE_SYSTEM, seatOf(lab)?.role, loadPersonas()), 'debatePostQuoteRule'),
+            user: R.debateUser({ request, criteria, skeleton, proposals: viewOf(lab).proposals, lab, maps: viewOf(lab).maps }),
           };
           const st = record(await invoke(seatOf(lab), { ...debatePrompt, log: say, label: `debate-${lab}` }));
           const st2 = await onceMoreIfIncomplete(st, seatOf(lab), { ...debatePrompt, log: say, label: `debate-${lab}-retry` }, say);
@@ -2362,13 +2475,15 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           else {
             // 0.7.8 (thc-research brief 10, W3): the same filter as before, but every post it
             // rejects is counted with its reason instead of vanishing (debate.dropped).
-            posts = (parsed.posts || []).map(x => ({ by: lab, on: maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: x.text || '', merge_with: boardRef(x.merge_with, maps, new Set(proposals.map(p => p.id))) }))
+            posts = (parsed.posts || []).map(x => ({ by: lab, on: viewOf(lab).maps.idFrom[x.on] || x.on, stance: String(x.stance || '').toLowerCase(), text: x.text || '', merge_with: boardRef(x.merge_with, viewOf(lab).maps, new Set(proposals.map(p => p.id))) }))
               .filter(x => {
                 const reason = debatePostDropReason(x, lab, proposals);
                 if (reason) dropped.push({ stage: 'debate', by: lab, reason });
                 return !reason;
               });
-            revisions = (parsed.revisions || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id })).filter(r => proposals.some(p => p.id === r.id && p.lab === lab));
+            // 0.8.2 (owner decision 2): with debate_hygiene.noQuoteMarks each objection or merge records whether it quotes the proposal it is about (src/post-quotes.js). Data only: the mark an author sees is a prompt change, held for the owner's list.
+            if (config.debate_hygiene?.noQuoteMarks === true) posts = posts.map(x => markPostQuote(x, proposals));
+            revisions = (parsed.revisions || []).map(r => ({ ...r, id: viewOf(lab).maps.idFrom[r.id] || r.id })).filter(r => proposals.some(p => p.id === r.id && p.lab === lab));
             const n = st => posts.filter(x => x.stance === st).length;
             say(`  ${lab}: ${posts.length} post(s) - ${n('support')} support, ${n('object')} object, ${n('merge')} merge${revisions.length ? `; revised ${revisions.length} of its own` : ''}${dropped.length ? `; ${describeDropped(dropped)}` : ''}`);
 
@@ -2398,6 +2513,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       }));
       const posts = [];
       const droppedItems = [];
+      const debateToolResults = [];
       for (const r of postResults) {
         r.lines.forEach(m => log(m));
         posts.push(...r.posts);
@@ -2407,9 +2523,16 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // in the same { tool, args, result } shape, plus `result_ref` - re-presented verbatim to
         // later stages the same way config-time ground truth already is (renderGroundTruth reads
         // this same array; nothing new to thread through for that part).
-        if (ground_truth && r.toolResults.length) ground_truth.push(...r.toolResults);
+        // 0.8.2 item 5 (F5): the id is given HERE, by the one place that sees every entry, as `<tool>:<position among that tool's entries in the whole array>`: the rule claims.js
+        // already reads. runSeatToolRequests numbers per call, so two seats that both asked for check_versions both came back as `check_versions:0`. Entries are added in lab order,
+        // so the ids are the same on a resume that replays the stage.
+        if (ground_truth) for (const e of r.toolResults) { const entry = { ...e, result_ref: `${e.tool}:${ground_truth.filter(g => g.tool === e.tool).length}` }; ground_truth.push(entry); debateToolResults.push(entry); }
         if (toolRequestWarnings && r.toolWarnings.length) toolRequestWarnings.push(...r.toolWarnings);
       }
+      // 0.8.2 item 5 (ChatGPT review 2, F3): the results pushed above reached the ground_truth array and nothing else: `request` was built once, before the debate, so no later prompt (the
+      // replies, the build, the critics) ever showed them. They are appended to `request` now, as one block with its own heading, and only when a seat asked for a tool: a chain
+      // without seat_requests is byte-identical (the default heading above is unchanged).
+      if (debateToolResults.length) request += renderGroundTruth(debateToolResults, R.DEBATE_GROUND_TRUTH_HEADING);
 
       log(`\nStage: replies (each author answers the posts on its proposals)`);
       const replies = [];
@@ -2419,12 +2542,12 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         if (!mineWithPosts.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
         try {
           const st = await onceMoreIfIncomplete(record(await invoke(seatOf(lab), {
-            system: R.replySystem(guard),
-            user: R.replyUser({ request, proposals, posts, lab, maps, guard }),
+            system: withHeldNote(config, R.replySystem(guard), 'noQuoteGloss'),
+            user: replyUserFor(config)({ request, proposals: viewOf(lab).proposals, posts: postsFor(lab), lab, maps: viewOf(lab).maps, guard }),
             log: say, label: `reply-${lab}`,
           })), seatOf(lab), {
-            system: R.replySystem(guard),
-            user: R.replyUser({ request, proposals, posts, lab, maps, guard }),
+            system: withHeldNote(config, R.replySystem(guard), 'noQuoteGloss'),
+            user: replyUserFor(config)({ request, proposals: viewOf(lab).proposals, posts: postsFor(lab), lab, maps: viewOf(lab).maps, guard }),
             log: say, label: `reply-${lab}-retry`,
           }, say);
           const parsed = parseJson(st.text);
@@ -2434,7 +2557,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             return { lines, replies: [], dropped: [{ stage: 'replies', by: lab, reason: why }] };
           }
           const dropped = [];
-          const mine = (parsed.replies || []).map(r => ({ ...r, id: maps.idFrom[r.id] || r.id, replaced_by: boardRef(r.replaced_by, maps, new Set(proposals.map(p => p.id))), action: String(r.action || '').toLowerCase() }))
+          const mine = (parsed.replies || []).map(r => ({ ...r, id: viewOf(lab).maps.idFrom[r.id] || r.id, replaced_by: boardRef(r.replaced_by, viewOf(lab).maps, new Set(proposals.map(p => p.id))), action: String(r.action || '').toLowerCase() }))
             .filter(r => {
               const reason = debateReplyDropReason(r, lab, proposals, mineWithPosts);
               if (reason) dropped.push({ stage: 'replies', by: lab, reason });
@@ -2456,23 +2579,29 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         }
       }));
       for (const r of replyResults) { r.lines.forEach(m => log(m)); replies.push(...r.replies); droppedItems.push(...(r.dropped || [])); }
-      if (guard) guardWithdrawals(replies, posts, log);
+      if (guard) guardWithdrawals(replies, posts, log, textVariants);
+      // Audit fix cnc-debate F3: with shuffle a reply was stored in its author's private lettering ("Lab B", "A-2") while the posts are stored in real ids and lab names, so one token meant different things in report.json and on the board.
+      // The guard above has already read the author's own copy; the stored copy (and the fields an amend copies into the proposal) is re-lettered to the real names, like postsReal.
+      if (shuffleOn) for (const r of replies) {
+        const own = proposals.find(x => x.id === r.id);
+        if (own) for (const f of ['text', 'conceded_to', 'how', 'acceptance_test']) if (typeof r[f] === 'string') r[f] = translateRefs(r[f], viewOf(own.lab).maps, null);
+      }
       for (const r of replies) {
         const p = proposals.find(x => x.id === r.id);
         if (r.action === 'amend') { if (r.how) p.how = r.how; if (r.acceptance_test) p.acceptance_test = r.acceptance_test; p.amended = true; }
         if (r.action === 'withdraw' && r.unargued) p.withdraw_unargued = true;
         else if (r.action === 'withdraw') { p.withdrawn = true; p.replaced_by = r.replaced_by; }
       }
-      board = (guard ? `${R.GUARD_BOARD_NOTE}\n\n` : '') + R.renderBoard(proposals, posts, replies);
+      board = (guard ? `${R.GUARD_BOARD_NOTE}\n\n` : '') + R.renderBoard(proposals, postsReal(), replies);
       // v6 §4: the field is always present once a debate stage has run, even
-      // when no tie ever occurred - an absent field reads as "no tie-break
-      // happened" and as "the feature isn't wired up" identically, which is
+      // when no tie ever o     // happened" and as "the feature isn't wired up" identically, which is
       // exactly the silent-drop failure class this project was burned by
       // tonight. Phase 3 delivers the arithmetic and this always-present
       // field; no call site in this stage decides pass/fail by vote yet, so
       // debate runs record the no-op result until a future phase wires one.
       // `dropped` (0.7.8, experimental): always present once the debate ran, [] when nothing was.
-      debate = { posts, replies, tie_break: NO_TIE_BREAK, dropped: tallyDropped(droppedItems) };
+      // With debate_hygiene.shuffle the stored post text is re-lettered to real ids and lab names (postsReal): report.json, BOARD.md and every later reader see one lettering, not each poster's own.
+      debate = { posts: postsReal(), replies, tie_break: NO_TIE_BREAK, dropped: tallyDropped(droppedItems) };
       const w = proposals.filter(p => p.withdrawn).length;
       log(`  board: ${posts.length} post(s), ${replies.length} repl${replies.length === 1 ? 'y' : 'ies'}, ${w} proposal(s) withdrawn, ${proposals.filter(p => p.amended).length} amended.${droppedItems.length ? ` Dropped: ${describeDropped(droppedItems)}.` : ''}`);
 
@@ -2486,7 +2615,11 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // answer, and a canary already paid for in an earlier sitting (its reply on disk in the stage
       // cache) always counts as sampled - so it replays, and its cost stays in totals and --spend.
       const canaryRng = config.canary?.rng || (runId ? () => runIdUnit(runId) : undefined);
-      const canaryTarget = config.canary?.enabled ? pickCanaryTarget(proposals) : null;
+      // 0.8.2: with debate_hygiene.shuffle the target is picked by seed. The pick is a pure function of the run id (and the standing proposals), so every sitting of a run picks the same one:
+      // no "preferred" target from the stage cache (the item 3 review showed that rule could MOVE the target when a lab had several proposals).
+      const canaryTarget = !config.canary?.enabled ? null : shuffleOn
+        ? pickCanaryTargetSeeded(proposals, runId ?? '')
+        : pickCanaryTarget(proposals);
       const canaryPaid = !!(canaryTarget && cache.get(`canary-reply-${canaryTarget.lab}`));
       if (config.canary?.enabled && (canaryPaid || shouldSampleCanary(config, canaryRng))) {
         const decide = config.canary.decide || (async (target, post) => {
@@ -2495,23 +2628,24 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           if (!seat) return 'keep';
           try {
             const cst = record(await invoke(seat, {
-              system: R.replySystem(guard),
-              user: canaryReplyPrompt({ request, proposals, post, lab, maps, guard }),
+              system: withHeldNote(config, R.replySystem(guard), 'noQuoteGloss'),
+              // 4c: the canary is shown through the same marker as every other post that quotes nothing (its text quotes nothing by design); the canary record says whether the mark was on.
+              user: canaryReplyPrompt({ request, proposals: viewOf(lab).proposals, post: noQuoteMarksOn(config) ? { ...post, quoted: false } : post, lab, maps: viewOf(lab).maps, guard, render: replyUserFor(config) }),
               log, label: `canary-reply-${lab}`,
             }));
             const parsed = parseJson(cst.text);
-            const mine = (parsed?.replies || []).find(r => (maps.idFrom[r.id] || r.id) === target.id);
+            const mine = (parsed?.replies || []).find(r => (viewOf(lab).maps.idFrom[r.id] || r.id) === target.id);
             return mine ? String(mine.action || '').toLowerCase() : 'keep';
           } catch (err) {
             rethrowControlFlow(err);
             return 'keep';
           }
         });
-        const result = await injectCanary(proposals, decide);
+        const result = await injectCanary(proposals, decide, shuffleOn ? { target: canaryTarget } : {});
         if (result) {
           debate.posts.push(result.post);
           debate.replies.push(result.reply);
-          canary = { injected: true, on: result.post.on, capitulated: result.capitulated, note: CANARY_NOTE };
+          canary = { injected: true, on: result.post.on, capitulated: result.capitulated, note: CANARY_NOTE, ...(noQuoteMarksOn(config) ? { no_quote_mark: !!held('replyUserMarked') } : {}) };
           log(`  canary: injected an evidence-free objection against ${result.post.on} - author ${result.capitulated ? 'capitulated' : 'held'}.`);
         }
       }
@@ -2671,7 +2805,23 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       const externalReaskNote = (seat, tag) => seat.provider === 'external' && /^-reask\d+$/.test(tag)
         ? `\n\n# Your previous reply could not be read\n\nThe last reply to this review (\`panel-${round}-${labOf(seat)}${tag === '-reask1' ? '' : `-reask${Number(tag.slice(6)) - 1}`}.md\`) was not a readable verdict. Answer with the JSON object the system prompt describes, and nothing else.`
         : '';
-      const reviewSeat = async (criticSeat, prior, say, tag = '') => {
+      // 0.8.2 wiring (2a): a seat re-asked because its sign-off table was refused is told what the table lacked, whatever its provider. The words are a held sentence (src/held-roles.js:
+      // `criticReaskNote({ kind, ids })` in src/roles.js after the re-record, ids are criterion numbers as the judge's list shows them); until then an API seat's re-ask is the same prompt and an
+      // external seat gets the note above.
+      const reaskNote = (seat, tag, gap) => {
+        const text = gap && /^-reask\d+$/.test(tag) ? held('criticReaskNote')?.({ kind: gap.kind, ids: gap.criterion_ids.map(id => Number(String(id).replace(/^C/, ''))) }) : null;
+        return text ? `\n\n${text}` : externalReaskNote(seat, tag);
+      };
+      // 0.8.2 wiring (3c, 3d): from round 2 a judge that had objections is shown them, the writer's reasons and the changed passages, and told how to answer (`answers`, parsed by applyAnswers below).
+      // Held sentence: `answerBackSection` in src/roles.js after the re-record; until then the prompt is untouched. It stays on a re-ask of the same round (the answers are read on the re-ask too).
+      // Order: the suffixes (this one, then the re-ask note) follow criticUser's last line. On the `-answered` attempt of a blocking question (freedoms.blocking_questions: in no shipped chain, a user's own
+      // setting) that line is "Give your verdict now ..." and the section's reply format follows it; accepted, since the section's own last words ask for the reply the judge must give.
+      const answerBackNote = seat => {
+        const a = answerBackOn && answerBackRound === round ? answerBackLatest[labOf(seat)] : null;
+        const text = a ? held('answerBackSection')?.({ objections: a.objections, declined: a.declined, changed: a.changed_passages }) : null;
+        return text ? `\n\n${text}` : '';
+      };
+      const reviewSeat = async (criticSeat, prior, say, tag = '', tableGap = null) => {
         let cs, parsed, answeredQuestion = null;
         // `panelMaxTokens` (2026-09-22): an optional per-seat output cap for the panel review only.
         // A seat that needs room to reason (GLM-5.3 Flash cut off at 36k on the Zofia run) can get it
@@ -2683,11 +2833,11 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             cs = record(await invoke(criticSeat, {
-              system: R.criticSystem(open, freedoms),
+              system: criticPromptFor(criticSeat, open, freedoms),
               // Patch mode shows the full draft plus the edits made since the last review, so a
               // reviewer can see what moved without re-reading the plan. Empty in full-rewrite
               // mode and on round 1, where there is no "since" to speak of.
-              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion, checks }) + externalReaskNote(criticSeat, tag),
+              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion, checks }) + answerBackNote(criticSeat) + reaskNote(criticSeat, tag, tableGap),
               log: say, label: attempt === 0 ? `panel-${round}-${labOf(criticSeat)}${tag}` : `panel-${round}-${labOf(criticSeat)}${tag}-answered`,
             }));
           } catch (err) {
@@ -2724,8 +2874,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             say(`  ${labOf(criticSeat)}/${criticSeat.model}: reply cut off at ${fromCap} tokens - asking once more with a ${biggerCap}-token cap.`);
             try {
               cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
-                system: R.criticSystem(open, freedoms),
-                user: R.criticUser({ request, criteria, draft, prior, answeredQuestion, checks }),
+                system: criticPromptFor(criticSeat, open, freedoms),
+                user: R.criticUser({ request, criteria, draft, prior, answeredQuestion, checks }) + answerBackNote(criticSeat) + (tableGap ? reaskNote(criticSeat, tag, tableGap) : ''),
                 log: say, label: `panel-${round}-${labOf(criticSeat)}${tag}-retry`,
               }));
               effectiveCap = biggerCap;
@@ -2781,7 +2931,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), passStated: true });
           return { seat: criticSeat, critique: null, passed: true, passReason: capField(parsed.pass_reason, { stage: `panel-${round}-${labOf(criticSeat)}${tag}`, field: 'pass_reason' }) || '' };
         }
-        const critique = normaliseCritique(parsed, say, { stage: `panel-${round}-${labOf(criticSeat)}${tag}` });
+        let critique = normaliseCritique(parsed, say, { stage: `panel-${round}-${labOf(criticSeat)}${tag}` });
         if (critique.unreadable) {
           // Parsed as JSON but stated no verdict - the same abstention as an unparseable reply.
           const reasonCode = abstentionReasonCode(cs.usage, askedCapOf(cs, effectiveCap));
@@ -2804,6 +2954,31 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply signs off but was cut off at the cap (stop: ${cs.usage.stop}) - counted as an abstention, not a sign-off.`);
           progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
+        }
+        // 0.8.2 (owner ruling 6 Oct 2026): a judge's `answers` about its own earlier objections. A withdrawal with no quote found in the draft does not count: the objection stays open.
+        if (answerBackOn && answerBackRound === round && answerBackLatest[labOf(criticSeat)]) {
+          const applied = applyAnswers({ lab: labOf(criticSeat), critique, own: answerBackLatest[labOf(criticSeat)].objections, shownDraft: draft, round }); // cnc-prompts F2: the draft alone (in patch mode the "Was:" blocks and the harness's sentences are not the draft)
+          // A re-ask of the same round replaces what the seat's earlier reply of the round recorded (the latest ask is the one that counts; a refused table's reply is not counted twice).
+          if (tag) for (let k = answerBackReplies.length - 1; k >= 0; k--) if (answerBackReplies[k].round === round && answerBackReplies[k].lab === labOf(criticSeat)) answerBackReplies.splice(k, 1);
+          for (const r of applied.records) answerBackReplies.push({ round, lab: labOf(criticSeat), ...r });
+          if (applied.carried.length) {
+            say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${applied.carried.length} earlier objection(s) stay open (a withdrawal needs a quote from the draft; a sustained answer, or one that says neither sustained nor withdrawn, leaves it open): ${applied.carried.map(c => c.id).join(', ')}`);
+            critique = { ...critique, failures: [...critique.failures, ...applied.carried], meets: false };
+          }
+        }
+        {
+          const outside = outsideCriteriaRows(critique, criteria);
+          if (outside.length) outsideCriteriaRowList.push({ round, lab: labOf(criticSeat), rows: outside });
+        }
+        if (tableRequired && critique.meets === true) {
+          const gap = signoffTableGap(critique, criteria);
+          if (gap) {
+            say(`  ${labOf(criticSeat)}/${criticSeat.model}: signs off without a full table (${describeTableGap(gap)}) - counted as an abstention, not a sign-off.`);
+            noteMissingRows(critique, round, labOf(criticSeat));
+            signoffTableGaps.push({ round, lab: labOf(criticSeat), ...(tag ? { stage: `panel-${round}-${labOf(criticSeat)}${tag}` } : {}), ...gap });
+            progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+            return { seat: criticSeat, critique: null, abstained: true, reasonCode: 'INCOMPLETE_TABLE', tableGap: gap };
+          }
         }
         say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
         noteMissingRows(critique, round, labOf(criticSeat));
@@ -2867,10 +3042,12 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       for (let reask = 1; reask <= 2 && heardClean() && verdicts.some(v => v.abstained); reask++) {
         for (let i = 0; i < verdicts.length; i++) {
           if (!verdicts[i].abstained) continue;
+          // 0.8.2 (owner decision 1: "one re-ask, then abstention"): a seat refused for an incomplete table is re-asked once; an unreadable or lost reply keeps its two.
+          if (reask > 1 && verdicts[i].reasonCode === 'INCOMPLETE_TABLE') continue;
           const seatToAsk = verdicts[i].seat;
           log(`  re-asking only ${labOf(seatToAsk)}/${seatToAsk.model} (${reask}/2) - it was not heard; the rest of the panel already answered this draft.`);
           const prior = relay ? verdicts.filter(v => v.critique).map((v, k) => ({ lab: `Reviewer ${String.fromCharCode(65 + k)}`, verdict_line: v.critique.verdict_line, failures: v.critique.failures })) : [];
-          verdicts[i] = await reviewSeat(seatToAsk, prior, log, `-reask${reask}`);
+          verdicts[i] = await reviewSeat(seatToAsk, prior, log, `-reask${reask}`, verdicts[i].tableGap || null);
         }
       }
 
@@ -2888,7 +3065,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // Nothing is ever dropped: an unquoted objection may still be right, and silently
       // discarding an objection is how a real defect disappears.
       const allFailures = voting.flatMap(v =>
-        markFailures(v.critique.failures, fencedSource).map(f => ({ ...f, lab: labOf(v.seat) })));
+        markFailures(v.critique.failures, fencedSource).map(f => ({ ...f, lab: labOf(v.seat), id: objectionId(labOf(v.seat), f) })));
       if (fencedSource) {
         for (const w of quoteWarnings(allFailures.filter(f => f.quote_status), 'panel')) {
           log(`    QUOTE: ${w}`);
@@ -2943,7 +3120,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // in its seeded review order, so array position is not the seat (verdict-diff reads this).
         seat_index: config.seats.critics.findIndex(c => labOf(c) === labOf(v.seat)),
         signedOff: v.abstained || v.passed ? null : v.critique.meets === true,
-        objections: v.abstained || v.passed ? null : v.critique.failures,
+        objections: v.abstained || v.passed ? null : v.critique.failures.map(f => ({ ...f, id: objectionId(labOf(v.seat), f) })),
         // v7 item 4: a pass is a stated, recorded refusal to verdict - distinct from an
         // abstention (no usable reply at all), which is why it carries its own reason field
         // instead of overloading `objections`.
@@ -2956,8 +3133,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
 
       verdicts.forEach((v, i) => panelVerdicts.push({
         round, lab: labOf(v.seat), model: v.seat.model,
+        ...(v.seat.lane ? { lane: v.seat.lane } : {}),
         verdict: v.abstained ? 'unheard' : v.passed ? 'passed' : v.critique.meets === true ? 'signed_off' : 'objected',
         reason_code: v.abstained ? (v.reasonCode || null) : null,
+        ...(v.abstained && v.tableGap ? { table_gap: v.tableGap } : {}),
         ...(v.abstained && v.noAnswer ? { no_answer: v.noAnswer } : {}),
         reasked: unheardFirst[i],
         // R1: additive. True when this seat was not asked this round: its verdict from the round
@@ -2966,7 +3145,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       }));
 
       history.push(`## Round ${round} panel\n${verdicts.map(v =>
-        `- ${labOf(v.seat)}/${v.seat.model}: ${v.abstained ? 'abstained (unreadable reply)' : v.passed ? `passed - ${v.passReason || '(no reason given)'}` : v.critique.meets ? 'signed off' : `${v.critique.failures.length} failure(s)`}`
+        `- ${labOf(v.seat)}/${v.seat.model}: ${v.abstained ? (v.reasonCode === 'INCOMPLETE_TABLE' ? 'abstained (sign-off without a full per-criterion table)' : 'abstained (unreadable reply)') : v.passed ? `passed - ${v.passReason || '(no reason given)'}` : v.critique.meets ? 'signed off' : `${v.critique.failures.length} failure(s)`}`
       ).join('\n')}`);
 
       if (allSignedOff) {
@@ -3006,7 +3185,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // seat rewording the same complaint each round is the exact pattern this catches, and
       // matching on text would miss it. Sorted, so seat ordering never makes a stable
       // disagreement look like a changing one.
-      const roundSignature = allFailures.map(f => `${f.lab}|${f.criterion}`).sort().join('\n');
+      // 0.8.2 (ticket 12): finer than (lab, criterion), so two different defects under one criterion no longer read as one stuck disagreement; see src/objection-ids.js.
+      const roundSignature = stallSignature(allFailures);
       objectionSignatures.push(roundSignature);
       openByRound.push({ round, failures: allFailures });
       if (disputeEnabled && roundSignature && objectionSignatures.length >= stallRounds) {
@@ -3038,12 +3218,17 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       log(`\nRound ${round}: revise (union of everything any lab flagged)`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
       const patchMode = config.revise?.mode === 'patch';
+      // 0.8.2 wiring (P13, owner 7 Oct 2026): with answer_back.enabled the reviser is told each failure's objection id and the DECLINED form that carries it (ONE form: the held systems replace the sentence that gives it,
+      // they do not add a second), so the judge that raised the objection is shown the reason next to it. Held (src/held-roles.js): `reviserSystemWithIds` / `patchReviserSystemWithIds` and `reviserIdsNote({ failures })`;
+      // until the re-record each falls back to what has always been sent.
+      const reviserSystemFor = patch => (answerBackOn ? held(patch ? 'patchReviserSystemWithIds' : 'reviserSystemWithIds') : undefined) ?? (patch ? R.patchReviserSystem : R.reviserSystem);
+      const idsNote = answerBackOn ? (held('reviserIdsNote')?.({ failures: allFailures }) ?? '') : '';
       const revised = (await draftStage(reviserSeat, {
-        system: patchMode ? R.patchReviserSystem(open, !!fencedSource, promptOpts) : R.reviserSystem(open, !!fencedSource, promptOpts),
-        user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }),
+        system: reviserSystemFor(patchMode)(open, !!fencedSource, promptOpts),
+        user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }) + (idsNote ? `\n\n${idsNote}` : ''),
         log, label: `revise-${round}`,
       })).text;
-      const parsedRevise = parseDisputes(revised);
+      const parsedRevise = parseDisputes(revised, { withIds: answerBackOn });
 
       // Patch mode: apply the edits locally so untouched text is byte-identical by
       // construction. Any block that does not apply cleanly falls back to one full rewrite -
@@ -3060,18 +3245,23 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           log(`  patch mode: ${applied.reason} - falling back to one full rewrite for this round.`);
           patchFallbacks.push({ round, reason: applied.reason });
           const full = (await draftStage(reviserSeat, {
-            system: R.reviserSystem(open, !!fencedSource, promptOpts),
-            user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }),
+            system: reviserSystemFor(false)(open, !!fencedSource, promptOpts),
+            user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }) + (idsNote ? `\n\n${idsNote}` : ''),
             log, label: `revise-${round}-full`,
           })).text;
-          const reparsed = parseDisputes(full);
+          const reparsed = parseDisputes(full, { withIds: answerBackOn });
           parsedRevise.draft = reparsed.draft;
-          reparsed.disputes.forEach(r => parsedRevise.disputes.push(r));
+          reparsed.disputes.forEach((r, k) => { parsedRevise.disputes.push(r); parsedRevise.disputeIds.push(reparsed.disputeIds[k]); });
           lastPatches = null;
         }
       }
+      if (answerBackOn) {
+        answerBackLatest = buildAnswerBack({ failures: allFailures, declined: parsedRevise.disputes, declinedIds: parsedRevise.disputeIds, oldDraft: draft, newDraft: parsedRevise.draft });
+        answerBackRecords.push(...answerBackSummary(round + 1, answerBackLatest)); // shown to the judge in the NEXT round
+        answerBackRound = round + 1;
+      }
       draft = parsedRevise.draft;
-      parsedRevise.disputes.forEach(reason => disputes.push({ round, reason }));
+      parsedRevise.disputes.forEach((reason, k) => disputes.push({ round, reason, ...(parsedRevise.disputeIds[k] ? { objection_id: parsedRevise.disputeIds[k] } : {}) }));
       passed = false;
 
       // v7.3: resource allocator - one extra, targeted round on top of the
@@ -3143,7 +3333,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       let cs;
       try {
         cs = record(await invoke(criticSeat, {
-          system: checks ? R.criticSystem(open, { criteriaKinds: true }) : R.criticSystem(open),
+          system: criticPromptFor(criticSeat, open, checks ? { criteriaKinds: true } : undefined),
           user: R.criticUser({ request, criteria, draft, checks }),
           log, label: `critique-${round}`,
         }));
@@ -3157,7 +3347,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // Bug audit 2026-09-28 (area 3 #2.6): this said [COUNCIL-E005], the catalog's "Policy refusal".
         log(`  ${criticSeat.provider}/${criticSeat.model}: provider failure (${String(err.message).slice(0, 120)}) - seat dropped, not counted as a pass or an objection.`);
         dropouts.push({ lab: labOf(criticSeat), model: criticSeat.model, stage: `critique-${round}`, reason: `provider failure: ${String(err.message).slice(0, 200)}` });
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: 'SEAT_UNREACHABLE', reasked: false });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: 'SEAT_UNREACHABLE', reasked: false });
         lastCritique = { meets: false, dropped: true, failures: [{
           criterion: '(critic seat dropped)',
           problem: `${criticSeat.provider}/${criticSeat.model}'s round ${round} call failed (provider error) and was degraded to a dropped seat rather than crashing the run.`,
@@ -3182,7 +3372,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         log(`  critic reply cut off at ${fromCap} tokens - asking once more with a ${biggerCap}-token cap.`);
         try {
           cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
-            system: checks ? R.criticSystem(open, { criteriaKinds: true }) : R.criticSystem(open),
+            system: criticPromptFor(criticSeat, open, checks ? { criteriaKinds: true } : undefined),
             user: R.criticUser({ request, criteria, draft, checks }),
             log, label: `critique-${round}-retry`,
           }));
@@ -3203,7 +3393,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // hiding a genuine objection, and this chain's whole value is not letting that slip
         // through. `passed` keeps whatever it already was (false unless an earlier round already
         // passed); what changes is that the report now says why, instead of nothing.
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, askedCapOf(cs, critCap)), ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, askedCapOf(cs, critCap)), ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
         log(`  critic reply could not be parsed as JSON even after repair attempts; stopping ` +
           `without a verdict from this critic - not a pass, not counted as an objection either.`);
         lastCritique = { meets: false, failures: [{
@@ -3217,7 +3407,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       if (critique.unreadable) {
         // Parsed, but no verdict in it - handled exactly like the unparseable reply above: not a
         // pass, not an objection, and the run stops saying why (bug audit 2026-09-23).
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, askedCapOf(cs, criticSeat.maxTokens)), ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, askedCapOf(cs, criticSeat.maxTokens)), ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
         log(`  critic reply states no verdict (${critique.unreadableWhy}); stopping without a verdict from this critic - not a pass, not counted as an objection either.`);
         lastCritique = { meets: false, failures: [{
           criterion: '(critic reply stated no verdict)',
@@ -3231,7 +3421,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const stopped = draftIncomplete(cs.usage);
         const reasonCode = stopped ? abstentionReasonCode(cs.usage, askedCapOf(cs, critCap))
           : (abstentionReasonCode(cs.usage, askedCapOf(cs, critCap)) === 'REASONING_EXHAUSTED' ? 'REASONING_EXHAUSTED' : 'REPLY_TRUNCATED');
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: 'unheard', reason_code: reasonCode, ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: reasonCode, ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
         log(`  [COUNCIL-E004] critic reply signs off but ${stopped ? `the provider ended it with stop "${cs.usage.stop}"` : `was cut off at the cap (stop: ${cs.usage.stop})`}; stopping without a verdict from this critic - not a pass.`);
         lastCritique = { meets: false, failures: [{
           criterion: '(critic sign-off incomplete)',
@@ -3242,7 +3432,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       lastCritique = critique;
       noteMissingRows(critique, round, labOf(criticSeat));
       if (checks) noteUnevidenced(critique, round, labOf(criticSeat), log);
-      panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, verdict: critique.meets === true ? 'signed_off' : 'objected', reason_code: null, reasked: false });
+      panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: critique.meets === true ? 'signed_off' : 'objected', reason_code: null, reasked: false });
       const failures = critique.failures;
       log(`  verdict: ${critique.meets ? 'MEETS' : `${failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
       failures.forEach(f => log(`    FAILED: ${f.criterion} - ${f.problem}`));
@@ -3306,6 +3496,15 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     }
   }
 
+  // 0.8.2 item 4 (signed vs delivered text, LABEL only): the draft the panel last reviewed, whether it signed it, and what is still open. Every model stage after this point that changes the
+  // body is recorded in `bodyChanges`, every harness-written block in `harnessNotes` (src/text-labels.js). Nothing here changes `passed` or calls a model.
+  const reviewedDraft = draft;
+  const signedAtPanel = passed === true;
+  // The number of open objections is NOT `lastCritique.failures`: that is overwritten by a round nobody was heard in (empty) and counts a first-mode "(critic reply unparseable)" stand-in.
+  // It is `openFailures` below: the one list the dissent block and `dispute.open_objections` use, so the three always say the same number (item 4 review, 6 Oct 2026).
+  const bodyChanges = [];
+  const harnessNotes = [];
+
   // 3a-bis. Dispute stage (config.dispute: { enabled: true, stall_rounds: 2 }), 2026-09-20.
   //
   // Runs once, when a unanimous chain stops without agreement - by the round cap or by the
@@ -3365,7 +3564,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     const firstSeen = new Map();
     for (const { round: r, failures } of openByRound) {
       for (const f of failures) {
-        const key = `${f.lab}|${f.criterion}`;
+        const key = objectionKey(f);
         if (!firstSeen.has(key)) firstSeen.set(key, r);
       }
     }
@@ -3379,6 +3578,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     const parsedDispute = parseDisputes(revised);
     const draftBeforeDispute = draft;
     draft = parsedDispute.draft;
+    if (draft !== draftBeforeDispute) bodyChanges.push('dispute');
     parsedDispute.disputes.forEach(reason => disputes.push({ round: 'dispute', reason }));
 
     // Dispute review (opt-in): the seats that raised the open objections check the reviser's
@@ -3393,7 +3593,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     // reviser's reply: a seat asked to summarise the objections against its own draft is the
     // last thing that should be authoring the record of them. Verbatim, or it is not a record.
     const lines = openFailures.map(f => {
-      const r = firstSeen.get(`${f.lab}|${f.criterion}`);
+      const r = firstSeen.get(objectionKey(f));
       // The carried tags (set above) are rendered, as that code's comment promises: an objection
       // whose author was not heard in the final round is shown as possibly out of date, never as a
       // current position against this draft.
@@ -3438,7 +3638,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         criterion: f.criterion,
         lab: f.lab || null,
         problem: f.problem || null,
-        first_raised_round: firstSeen.get(`${f.lab}|${f.criterion}`) ?? null,
+        ...(f.id ? { id: f.id } : {}),
+        first_raised_round: firstSeen.get(objectionKey(f)) ?? null,
         ...(f.unheard_in_final_round ? { unheard_in_final_round: true, last_raised_round: f.last_raised_round } : {}),
       })),
       panel_rereviewed: false,
@@ -3478,6 +3679,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         log, label: 'challenge-revise',
       })).text;
       const parsedRevise = parseDisputes(revised);
+      if (parsedRevise.draft !== draft) bodyChanges.push('challenge');
       draft = parsedRevise.draft;
       parsedRevise.disputes.forEach(reason => disputes.push({ round: 'challenge', reason }));
       challenge = {
@@ -3493,53 +3695,84 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     }
   }
 
-  // 3c. Cold-reader coherence check (config.coldRead: { enabled: true }), harness features
-  // v6 item A/6: catches a documented failure mode - internal contradictions merging can
-  // leave behind - by having one fresh seat with zero debate context read only the
-  // signed-off draft. No efficacy claim is made; this does not measure or assert that
-  // output quality improves.
-  let coldRead = null;
-  if (config.coldRead?.enabled === true) {
-    log('\nStage: cold-reader coherence check (post-signoff, one fresh seat, draft only)');
-    const coldReadSeat = config.seats.coldRead;
-    if (!coldReadSeat) throw new Error('config.coldRead.enabled is true but config.seats.coldRead is not set - no fallback to another seat, since any seat that already saw debate context defeats the mechanism.');
-    const cr = record(await invoke(coldReadSeat, {
-      system: R.COLD_READ_SYSTEM,
-      user: R.coldReadUser(draft),
-      log, label: 'cold-read',
-    }));
-    const parsed = parseJson(cr.text);
-    const contradictions = Array.isArray(parsed?.contradictions)
-      ? parsed.contradictions
-          .filter(c => c && typeof c.note === 'string')
-          .map(c => ({ sections: Array.isArray(c.sections) ? c.sections : [], note: c.note }))
-      : [];
-    coldRead = { raised: parsed?.raised === true, contradictions };
-    log(coldRead.raised ? `  cold-reader flagged ${contradictions.length} contradiction(s).` : '  cold-reader found no contradictions.');
-  }
-
   // 4. Optional final edit: strips chain artifacts. Never adds material.
   if (config.seats.finalist) {
     log('\nStage: final edit');
+    const beforeFinal = draft;
     draft = (await draftStage(config.seats.finalist, {
       system: R.FINALIST_SYSTEM,
       user: R.finalistUser({ request, draft, history: history.join('\n\n') }),
       log, label: 'final',
     })).text;
+    if (draft !== beforeFinal) bodyChanges.push('final_edit');
   }
 
   // Unresolved dissent goes on after the final edit, never before it: that stage strips
   // chain artifacts and would remove this as one. Placed ahead of the handoff on purpose -
   // the file a build session reads first should say what the panel could not settle.
-  if (dissentBlock) draft = `${dissentBlock}${draft}`;
+  // 3c. Cold-reader coherence check (config.coldRead: { enabled: true }), harness features
+  // v6 item A/6: catches a documented failure mode - internal contradictions merging can
+  // leave behind - by having one fresh seat with zero debate context read only the
+  // signed-off draft. No efficacy claim is made; this does not measure or assert that
+  // output quality improves.
+  // 0.8.2 (owner decision 4a, 5 Oct 2026): it runs AFTER the final edit, so the reader sees the text that is delivered (before 0.8.2 it ran before the final edit and read a draft the
+  // delivered one could differ from); a reply that cannot be read, or a seat that cannot be reached, is `status: "not_judged"` (never a silent "no contradictions"); and its findings are
+  // carried into the deliverable and WARNINGS.md (the CLI), not only report.json. The seat is a chain-file field and stays one: no seat is chosen for a chain here. A descending chain
+  // runs it once, over the final stack (the plan sub-run is given none).
+  let coldRead = null;
+  let coldReadBlock = '';
+  if (config.coldRead?.enabled === true) {
+    log('\nStage: cold-reader coherence check (post-signoff, after any final edit, one fresh seat, draft only)');
+    const coldReadSeat = config.seats.coldRead;
+    if (!coldReadSeat) throw new Error('config.coldRead.enabled is true but config.seats.coldRead is not set - no fallback to another seat, since any seat that already saw debate context defeats the mechanism.');
+    let cr = null;
+    try {
+      cr = record(await invoke(coldReadSeat, {
+        system: R.COLD_READ_SYSTEM,
+        user: R.coldReadUser(draft),
+        log, label: 'cold-read',
+      }));
+    } catch (err) {
+      rethrowControlFlow(err);
+      log(`  cold-reader: no reply (${String(err.message).slice(0, 120)}) - NOT JUDGED.`);
+      coldRead = { status: 'not_judged', reason_code: 'SEAT_UNREACHABLE', raised: false, contradictions: [] };
+    }
+    if (cr) {
+      const parsed = parseJson(cr.text);
+      if (!parsed || typeof parsed.raised !== 'boolean') {
+        const code = abstentionReasonCode(cr.usage || {}, coldReadSeat.maxTokens ?? DEFAULT_MAX_TOKENS);
+        log(`  cold-reader: the reply could not be read (${code || 'REPLY_UNPARSEABLE'}) - NOT JUDGED, which is not the same as "no contradictions".`);
+        coldRead = { status: 'not_judged', reason_code: code || 'REPLY_UNPARSEABLE', raised: false, contradictions: [] };
+      } else {
+        const contradictions = Array.isArray(parsed.contradictions)
+          ? parsed.contradictions
+              .filter(c => c && typeof c.note === 'string')
+              .map(c => ({ sections: Array.isArray(c.sections) ? c.sections : [], note: c.note }))
+          : [];
+        coldRead = { status: 'judged', raised: parsed.raised === true, contradictions };
+        log(coldRead.raised ? `  cold-reader flagged ${contradictions.length} contradiction(s).` : '  cold-reader found no contradictions.');
+      }
+    }
+    if (coldRead.status === 'not_judged') {
+      coldReadBlock = `## Cold read: not done\n\nThe cold reader (a seat that never saw the debate) was asked to read this plan for contradictions between its own sections and gave no readable answer (${coldRead.reason_code}). Nobody has done that check.\n\n---\n`;
+    } else if (coldRead.raised && coldRead.contradictions.length) {
+      coldReadBlock = `## Cold-reader findings\n\nA reader who never saw the debate read this plan and found ${coldRead.contradictions.length} contradiction(s) between its own sections. ${passed === true ? 'The panel had already signed off' : 'The panel did not sign off on this plan'}; read these before acting on anything below.\n\n${coldRead.contradictions.map((c, i) => `${i + 1}. ${c.sections.length ? `(${c.sections.join(', ')}) ` : ''}${c.note}`).join('\n')}\n\n---\n`;
+    }
+  }
+
+  // 0.8.2: the cold reader's findings go on after the dissent block (a build session reads what the panel could not settle first, then what the cold reader found).
+  const bodyDelivered = draft; // the model-written text as delivered, before any harness block
+  if (dissentBlock) harnessNotes.push('dissent_block');
+  if (coldReadBlock) harnessNotes.push('cold_read_block');
+  if (dissentBlock || coldReadBlock) draft = `${dissentBlock || ''}${coldReadBlock}${draft}`;
 
   // 5. Handoff (config.handoff): the file a build session reads first.
   let handoff = null;
+  const draftForHandoff = draft; // what the handoff is made from (the delivered text at this point)
   if (config.handoff) {
     log('\nStage: handoff');
     handoff = (await draftStage(config.seats.handoff || config.seats.builder, {
-      system: R.HANDOFF_SYSTEM,
-      user: R.handoffUser({ request, draft, planFile: config.handoffPlanFile || 'PLAN.md', checks }),
+      ...handoffPrompt({ config, request, draft, planFile: config.handoffPlanFile || 'PLAN.md', checks, criteria }),
       log, label: 'handoff',
     })).text;
   }
@@ -3601,6 +3834,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   const ledger = proposals.length ? withdrawalLedger(proposals) : null;
 
   return {
+    // 0.8.2 item 4 (additive; `passed` untouched): which text the panel signed, which text is delivered, what the handoff was made from.
+    ...(() => { const l = buildTextLabels({ reviewedDraft, signed: signedAtPanel, round: finalPanelRound, openObjections: signedAtPanel ? 0 : openFailures.length, bodyChanges, harnessNotes, body: bodyDelivered, deliverable: draft, handoffMadeFrom: config.handoff ? draftForHandoff : null }); return { signedText: l.signed_text, deliveredText: l.delivered_text, ...(l.handoff_text ? { handoffText: l.handoff_text } : {}) }; })(),
     deliverable: draft,
     criteria,
     ambiguities,
@@ -3656,6 +3891,12 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     ...(deepDive !== undefined ? { deep_dive: deepDive } : {}),
     // Additive (0.8.0): the sign-offs whose criteria table skipped criteria; [] when there were none.
     missingCriteria,
+    // Additive (0.8.2): present only when something happened - sign-offs refused for an incomplete table (signoff_table.required) and table rows that named no criterion.
+    ...(signoffTableGaps.length ? { signoffTableGaps } : {}),
+    ...(answerBackRecords.length ? { answerBack: answerBackRecords } : {}),
+    ...(answerBackReplies.length ? { answerBackReplies } : {}),
+    ...(debateOrders.length ? { debateOrders: [...debateOrders].sort((a, b) => (a.stage + a.reader < b.stage + b.reader ? -1 : 1)) } : {}),
+    ...(outsideCriteriaRowList.length ? { outsideCriteriaRows: outsideCriteriaRowList } : {}),
     criteriaLints,
     // Additive: absent unless the chain enabled criterion kinds (src/criteria-kinds.js).
     ...(kindsOn ? {

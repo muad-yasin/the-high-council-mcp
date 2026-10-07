@@ -46,7 +46,8 @@ const RULES = [
   ['pii_left', c => { c.brief.decision_at_stake = 'Does ｍａｘ＠ｅｘａｍｐｌｅ．ｃｏｍ own the invoices table?'; }],
   ['over_ceiling', c => { c.env.COUNCIL_ADVISE_MOCK = '0'; c.env.COUNCIL_ADVISE_CHAIN_SINGLE = 'pricey'; }],
   ['over_server_limit', c => { c.usdLimit = 0.1; }],
-  ['policy', c => { c.policy = JSON.stringify({ max_usd_per_run: 0.5 }); }], // the mock chain's ceiling is $1
+  // 0.8.2 item 1 (owner via C&C, 7 Oct 2026, "Terminal rule only, no cap change"): max_usd_per_run now refuses on the call's EXPECTED cost (it was the ceiling, $1 here), so the rule is exercised on the shipped priced Sol chain (expected about $0.06), not on the $0 mock chain.
+  ['policy', c => { c.env.COUNCIL_ADVISE_MOCK = '0'; c.policy = JSON.stringify({ max_usd_per_run: 0.01 }); }],
   ['cap_call', c => { c.env.COUNCIL_ADVISE_MAX_USD_PER_CALL = '0.5'; }], // rule 12, the guards: one of their codes
 ];
 

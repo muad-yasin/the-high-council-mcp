@@ -1,0 +1,95 @@
+{
+  "name": "plan-lanes-4",
+  "summary": "Optional: one writer and three reviewers, each with an assigned duty (a lane); unanimous sign-off. Experimental.",
+  "description": "Optional and experimental (0.8.2): one writer and three reviewers, each reviewer carrying a lane, meaning an assigned duty it looks at first: correctness and interfaces (OpenAI GPT-5.6 Luna), security and failure behaviour (Google Gemini 3.8 Flash), implementation and verification (Z.ai GLM 5.3 Flash). A lane is where a reviewer's attention goes first, never a smaller set of criteria: every reviewer still writes a row for every criterion and still flags a serious problem outside its lane. Anthropic Sonnet 5.5 writes the draft, every revision and the handoff and holds no panel seat; Meta Llama 4 Maverick writes the criteria. No blind proposals and no debate: one writer, three independent reviews, unanimous sign-off, a round cap of 7 and the same stall rule as the other planning chains. The roster is a starting hypothesis, not a measured optimum, and nothing here claims it plans better than another chain: it cannot be measured without ground truth. STATE: the words that tell each reviewer its lane are recorded in src/roles.js (LANE_TEXT) with the 0.8.2 prompt re-record; they have been read only by mock seats, no real seat has run this chain. GLM 5.3 Flash's panel review is allowed 360,000 output tokens (panelMaxTokens): of the OpenRouter endpoints that are zero-data-retention, only some accept that many completion tokens (8 of 17 inside the price cap on 2026-10-06 for the add-on seat; this chain does not set a price cap), and whether OpenRouter routes around one that does not, or refuses the call, is not verified. Every seat states reasoning high where its model takes a setting; GLM 5.3 Flash's own default is above high, so it gets none. One OpenRouter key covers every seat.",
+  "maxRounds": 7,
+  "signoff": "unanimous",
+  "signoff_table": { "required": true },
+  "answer_back": { "enabled": true },
+  "handoff_contract": { "milestones": true },
+  "dispute": {
+    "enabled": true,
+    "stall_rounds": 2
+  },
+  "handoff": true,
+  "estimate": {
+    "promptTokens": 10000,
+    "draftTokens": 10000,
+    "critiqueTokens": 5000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "openrouter",
+      "model": "meta-llama/llama-4-maverick",
+      "maxTokens": 16384,
+      "lab": "llama4-maverick"
+    },
+    "builder": {
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-5.5",
+      "maxTokens": 36000,
+      "lab": "sonnet5.5",
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "reviser": {
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-5.5",
+      "maxTokens": 36000,
+      "lab": "sonnet5.5",
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "handoff": {
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-5.5",
+      "maxTokens": 36000,
+      "lab": "sonnet5.5",
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-5.6-luna",
+        "maxTokens": 36000,
+        "lab": "gpt5.6-luna",
+        "lane": "correctness_interfaces",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "google/gemini-3.8-flash",
+        "maxTokens": 36000,
+        "lab": "gemini3.8-flash",
+        "lane": "security_failure",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 36000,
+        "panelMaxTokens": 360000,
+        "lab": "glm5.3-flash",
+        "lane": "implementation_verification"
+      }
+    ]
+  }
+}

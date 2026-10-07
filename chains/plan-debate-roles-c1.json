@@ -3,6 +3,10 @@
   "description": "v6 role-seat plan, phase 5 real-run candidate (docs/v6-decisions.md 'Phase 5 - role debate chain'). Same shape as plan-debate-open-c2, minus Kimi (five critic seats, not six, to match the plan's five lenses/five personas one-to-one) - each critic seat now carries a role: {lens, persona} pair (v6 \u00a71/\u00a72, applied only to the debate-stage system prompt; the panel stage and every pipeline seat below are unaffected by construction). Pipeline seats (criteria/skeleton/builder/reviser/handoff) are untouched external Claude-Code seats, exactly as in the source chain - roles only ever apply to the critics array's debate-stage prompt. Pairings and their reasoning are in docs/v6-decisions.md, not repeated here so there is one place to keep them current.",
   "maxRounds": 3,
   "signoff": "unanimous",
+  "signoff_table": { "required": true },
+  "answer_back": { "enabled": true },
+  "debate_hygiene": { "shuffle": true, "noQuoteMarks": true },
+  "handoff_contract": { "milestones": true },
   "proposals": {
     "parts": 6,
     "maxTokens": 12000

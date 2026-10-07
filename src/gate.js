@@ -15,6 +15,8 @@
 //            usable?, usable_until?, used? }   (the last three on `approved` only)
 //   listGates(runDir, {now?}) -> [{ id, status, reason? }] | null when the ledger is broken
 //   recordSent(runDir, gateId, fields?, {now?}) -> { ok: true, seq } | { ok: false, code, message }
+//   recordDeclined(runDir, gateId, 'amend_decided', fields?, {now?, before?}) -> the same, for a gate a person DECLINED (0.8.2 item 6d)
+//   recordUse(runDir, gateId, event, fields?, {now?, before?}) -> the same; event is one of USE_EVENTS (sent, contract_locked, amend_decided): recordSent is recordUse for `sent` (0.8.2 item 6d)
 //       the `sent` line of an approved, usable gate (one approval, one send); written by `council --advice-adopt`
 //   recordMoreMaterial(runDir, {items}, {now?}) -> { ok: true, seq } | { ok: false, code, message }   (DR-8)
 //   moreMaterialRecorded(runDir) -> boolean
@@ -50,6 +52,8 @@
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, writeSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { withLedger, readLedger, sha256Hex, LedgerBusyError, LedgerCorruptError, LedgerWriteError } from './gate-ledger.js';
+// The two ledger functions the contract record (src/contract-record.js) reads and appends through, so that only the gate modules name the ledger file: the verified ledger, and the public events (appendEvent refuses every other).
+export { readLedger, appendEvent } from './gate-ledger.js';
 
 // A gate is answered only through a channel a person uses (decided rule 10, DR-3). One constant, so 0.8.3
 // adds `ui` here together with its proof that a click is a person's.
@@ -61,6 +65,9 @@ export const GATES_DIR = 'gates';
 // Defined here rather than imported because this module must not depend on the MCP layer.
 export const GATE_TTL_MS = 10 * 60_000;
 const DECISIONS = ['approved', 'declined'];
+// What uses up an approval (one approval, one use): a send (advice), a contract lock, or the approval of a contract amendment (0.8.2 item 6d). The `sent` line is written by recordSent and the
+// other two by src/contract-record.js through recordUse, so `used` is decided in one place, under the ledger lock.
+export const USE_EVENTS = Object.freeze(['sent', 'contract_locked', 'amend_decided']);
 const GATE_ID = /^g[1-9][0-9]{0,5}$/;
 const KIND = /^[a-z][a-z_]{0,31}$/;
 const MASK_KEY = /^[a-z][a-z0-9_]{0,31}$/;
@@ -236,7 +243,7 @@ export function readGateAnswer(runDir, gateId, { now = () => Date.now() } = {}) 
   if (state.status === 'approved') {
     const bytes = readGateText(runDir, state.gate.text);
     if (!bytes || textSha256(bytes) !== state.gate.sha256) return { status: 'invalid', reason: 'hash_mismatch', gate: state.gate };
-    const used = ledger.lines.some(l => l.event === 'sent' && l.gate === gateId);
+    const used = ledger.lines.some(l => USE_EVENTS.includes(l.event) && l.gate === gateId);
     return { ...state, used, usable_until: state.gate.expires_at, usable: !used && t < Date.parse(state.gate.expires_at) };
   }
   return state;
@@ -304,7 +311,18 @@ export function answerGate(runDir, gateId, { channel, shownSha256, decision, act
  * gate_not_approved (pending or declined), gate_expired, gate_used, hash_mismatch (the text changed since the
  * approval), io_error.
  */
-export function recordSent(runDir, gateId, fields = {}, { now = () => Date.now() } = {}) {
+export function recordSent(runDir, gateId, fields = {}, opts = {}) {
+  return recordUse(runDir, gateId, 'sent', fields, opts);
+}
+
+/**
+ * The one writer of a line that uses up an approval: `sent` (through recordSent), `contract_locked` and `amend_decided` (0.8.2 item 6d). The same refusals as recordSent, and the same guarantees: the
+ * gate is approved, usable, unused, and its text still hashes to the approved hash, all checked under the ledger lock, so one approval is one use. `before({ gate, lines })` (optional) runs under
+ * the same lock after those checks and before the line is appended: it may refuse with { code, message } (nothing is appended), and it is where the contract's record file is written, so the file and
+ * the line are made under one lock, file first (a crash between the two leaves a file with no line, which `council contract check` reports and which has no authority).
+ */
+export function recordUse(runDir, gateId, event, fields = {}, { now = () => Date.now(), before = null } = {}) {
+  if (!USE_EVENTS.includes(event)) return refuse('bad_event', `${JSON.stringify(event)} does not use an approval`);
   if (typeof gateId !== 'string' || !GATE_ID.test(gateId)) return refuse('gate_not_found', `no gate ${JSON.stringify(gateId)}`);
   try {
     return withLedger(runDir, ({ lines, append }) => {
@@ -312,11 +330,33 @@ export function recordSent(runDir, gateId, fields = {}, { now = () => Date.now()
       const state = stateOf(runDir, gateId, lines, t);
       if (state.status === 'invalid') return refuse(state.reason, `gate ${gateId} cannot be trusted (${state.reason})`);
       if (state.status !== 'approved') return refuse(state.status === 'expired' ? 'gate_expired' : 'gate_not_approved', `gate ${gateId} is ${state.status}, not approved`);
-      if (lines.some(l => l.event === 'sent' && l.gate === gateId)) return refuse('gate_used', `gate ${gateId} was already used for a send; one approval covers one send`);
+      if (lines.some(l => USE_EVENTS.includes(l.event) && l.gate === gateId)) return refuse('gate_used', `gate ${gateId} was already used; one approval covers one use`);
       if (t >= Date.parse(state.gate.expires_at)) return refuse('gate_expired', `the approval of gate ${gateId} lapsed at ${state.gate.expires_at}`);
       const bytes = readGateText(runDir, state.gate.text);
       if (!bytes || textSha256(bytes) !== state.gate.sha256) return refuse('hash_mismatch', `the text of gate ${gateId} changed after it was approved`);
-      const line = append('sent', { ...fields, gate: gateId, sha256: state.gate.sha256 });
+      if (before) { const refused = before({ gate: state.gate, lines }); if (refused) return refuse(refused.code, refused.message); }
+      const line = append(event, { ...fields, gate: gateId, sha256: state.gate.sha256 });
+      return { ok: true, seq: line.seq };
+    }, { now });
+  } catch (err) {
+    return refusalFor(err);
+  }
+}
+
+/**
+ * The line that records a person's REFUSAL against a request that went through a gate: `amend_decided` with decision "declined" (0.8.2 item 6d). Written only when the gate reads `declined` (a person's
+ * channel declined it), under the ledger lock; `before({ lines })` may refuse (the request must still be open). It is the counterpart of recordUse, so the contract's ledger events stay written by this module.
+ * -> { ok: true, seq } | { ok: false, code, message }
+ */
+export function recordDeclined(runDir, gateId, event, fields = {}, { now = () => Date.now(), before = null } = {}) {
+  if (event !== 'amend_decided') return refuse('bad_event', `${JSON.stringify(event)} does not record a refusal`);
+  if (typeof gateId !== 'string' || !GATE_ID.test(gateId)) return refuse('gate_not_found', `no gate ${JSON.stringify(gateId)}`);
+  try {
+    return withLedger(runDir, ({ lines, append }) => {
+      const state = stateOf(runDir, gateId, lines, now());
+      if (state.status !== 'declined') return refuse('gate_not_declined', `gate ${gateId} is ${state.status}; a refusal is recorded only after a person declined its gate`);
+      if (before) { const refused = before({ gate: state.gate, lines }); if (refused) return refuse(refused.code, refused.message); }
+      const line = append(event, { ...fields, decision: 'declined', gate: gateId });
       return { ok: true, seq: line.seq };
     }, { now });
   } catch (err) {

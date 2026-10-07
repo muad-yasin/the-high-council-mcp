@@ -126,7 +126,8 @@ test('the two tools are listed with the right annotations, the host-prompt key o
   const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
   try {
     const tools = await s.list();
-    assert.equal(tools.length, 17, '15 tools and the two of the add-on');
+    // Changed by the owner's decision of 7 Oct 2026 (0.8.2 item 6d, the full Slice A): the contract record adds contract_read and contract_amend, 17 -> 19.
+    assert.equal(tools.length, 19, '15 tools, the two of the add-on and the two of the contract record');
     const q = tools.find(t => t.name === 'council_quote'), a = tools.find(t => t.name === 'council_advise');
     assert.deepEqual(q.annotations, { readOnlyHint: true, openWorldHint: false, idempotentHint: true });
     assert.deepEqual(a.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
@@ -654,7 +655,8 @@ test('the run is started with --max-usd equal to the quoted ceiling (the money b
     await finish(dir, sc(a).run);
     assert.equal(JSON.parse(readFileSync(join(dir, 'runs', sc(a).run, 'run.json'), 'utf8')).maxUsd, 0.75);
     const q2 = await s.call('council_quote', { brief: OTHER(), mode: 'single' });
-    const c = JSON.parse(readFileSync(join(chainsOf(dir), 'mock-recheck.json'), 'utf8')); delete c.advise.max_wall_ms;
+    // Owner decision, 6 Oct 2026 (no wall clocks): this test edited the chain by deleting its wall clock, which admission no longer refuses; it now swaps in an external seat, which it still refuses.
+    const c = JSON.parse(readFileSync(join(chainsOf(dir), 'mock-recheck.json'), 'utf8')); c.seats.critics = [{ provider: 'external', model: 'session', lab: 'h' }];
     writeFileSync(join(chainsOf(dir), 'mock-recheck.json'), JSON.stringify(c));
     assert.equal(sc(await s.call('council_advise', { quote_id: sc(q2).quote_id, confirm_sha256: sc(q2).text.sha256 })).code, 'seat_not_allowed', 'a chain edited after the quote is checked again');
   } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }

@@ -9,10 +9,11 @@ import { fileURLToPath } from 'node:url';
 import { dryRunReport } from '../src/dry-run.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+// 0.8.2 (owner, 6 Oct 2026, archive the unused chains): cheap and plan-debate moved to archive/chains/; cheap-7-v2 and plan-daily-7 stand in below.
 const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
 
 test('FX-3: a chain with no estimate and an 80,000-character task gets a finite worst case, and a $0.01 cap reads as exceeded', () => {
-  const c = chain('cheap');
+  const c = chain('cheap-7-v2');
   delete c.estimate;
   const r = dryRunReport(c, { taskChars: 80_000, defaultCapUsd: 0.01 });
   assert.ok(Number.isFinite(r.estimate.worstCaseWithTaskUsd), `worstCaseWithTaskUsd ${r.estimate.worstCaseWithTaskUsd}`);
@@ -21,7 +22,7 @@ test('FX-3: a chain with no estimate and an 80,000-character task gets a finite 
 });
 
 test('FX-3 (M2 review): a partial estimate block (promptTokens only) is filled from the defaults: finite, and over a $0.01 cap', () => {
-  const c = chain('plan-debate');
+  const c = chain('plan-daily-7');
   c.estimate = { promptTokens: 4000 };
   const r = dryRunReport(c, { taskChars: 80_000, defaultCapUsd: 0.01 });
   assert.ok(Number.isFinite(r.estimate.worstCaseUsd), `worstCaseUsd ${r.estimate.worstCaseUsd}`);
@@ -30,7 +31,7 @@ test('FX-3 (M2 review): a partial estimate block (promptTokens only) is filled f
 });
 
 test('FX-3: the over-cap flag compares finite numbers only: a chain with an estimate keeps its old answer', () => {
-  const c = chain('cheap');
+  const c = chain('cheap-7-v2');
   const r = dryRunReport(c, { taskChars: 80_000, defaultCapUsd: 100 });
   assert.ok(Number.isFinite(r.estimate.worstCaseWithTaskUsd));
   assert.equal(r.cap.worstCaseAboveDefault, false);

@@ -30,8 +30,8 @@ const BRIEF = (over = {}) => ({
   excerpts: [], ...over,
 });
 
-// A project that tries to decide for itself: its own chain under the shipped mock chain's name (another lab, no wall clock: admission
-// would refuse it if it were ever loaded) and a policy.json that tries to open the floor.
+// A project that tries to decide for itself: its own chain under the shipped mock chain's name (another lab; since the 6 Oct 2026 owner decision (no wall clocks) the shipped chains have no wall clock either,
+// so the lab name is what tells the two apart) and a policy.json that tries to open the floor.
 function hostileProject() {
   const dir = mkdtempSync(join(tmpdir(), 'thc-authority-'));
   mkdirSync(join(dir, 'chains'));
@@ -182,7 +182,7 @@ test('--advice-adopt runs the package\'s chain, not a project chain of the same 
     return run;
   };
   const adopt = (run, env = {}) => spawnSync(process.execPath, [cli, '--advice-adopt', `runs/${run.split('/').pop()}`], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir, COUNCIL_ADVISE_COOLDOWN_MS: '0', ...env }, timeout: 60_000 });
-  // The project's chain under the same name has no wall clock, so admission refuses it: it runs only if the package's is loaded.
+  // The project's chain under the same name uses another lab: the run reads clean only if the package's chain is the one loaded (before 0.8.2 admission also refused it for having no wall clock).
   const run = approved('2026-10-03T01-00-00-001Z');
   const r = adopt(run);
   assert.equal(r.status, 0, r.stderr);

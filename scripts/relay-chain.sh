@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # Runs an idea through two harness passes, feeding pass 1's deliverable into
-# pass 2 as context. Default shape: seven-cheap (breadth, 7 cheap-tier labs
-# stress the idea) then verify (depth, Opus-tier critics tighten what
-# survived). Override either chain by name if a different shape is wanted.
+# pass 2 as context. You name both chains (since 0.8.2 there is no default
+# chain): chain1 for breadth, for example cheap-7-v2 (7 cheap-tier labs stress
+# the idea), then chain2 for depth, a smaller panel that tightens what survived.
 #
-# Usage: scripts/relay-chain.sh tasks/idea.md [chain1] [chain2]
+# Usage: scripts/relay-chain.sh tasks/idea.md chain1 chain2
 #
 # For a third pass, re-run this script with pass 2's deliverable.md as the
-# new idea file and "seven" as chain1 - only if pass 2 still looks shaky.
+# new idea file and a heavier chain as chain1 - only if pass 2 still looks shaky.
 set -euo pipefail
 
 IDEA_FILE="${1:-}"
-CHAIN1="${2:-seven-cheap}"
-CHAIN2="${3:-verify}"
+CHAIN1="${2:-}"
+CHAIN2="${3:-}"
 
-if [ -z "$IDEA_FILE" ] || [ ! -f "$IDEA_FILE" ]; then
-  echo "Usage: scripts/relay-chain.sh tasks/idea.md [chain1] [chain2]" >&2
+if [ -z "$IDEA_FILE" ] || [ ! -f "$IDEA_FILE" ] || [ -z "$CHAIN1" ] || [ -z "$CHAIN2" ]; then
+  echo "Usage: scripts/relay-chain.sh tasks/idea.md chain1 chain2   (name both chains: there is no default chain since 0.8.2)" >&2
   exit 1
 fi
 

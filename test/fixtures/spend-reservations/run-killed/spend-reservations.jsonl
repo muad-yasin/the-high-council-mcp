@@ -1,0 +1,4 @@
+{"schema":"spend-reservations/1","event":"reserved","id":"r1","label":"criteria","seat":"openrouter/anthropic/claude-opus-5","usd":0.55,"at":"2026-10-07T09:00:00.000Z"}
+{"schema":"spend-reservations/1","event":"settled","id":"r1","outcome":"recorded","usd":0.05,"at":"2026-10-07T09:00:05.000Z"}
+{"schema":"spend-reservations/1","event":"reserved","id":"r2","label":"panel-1-glm","seat":"openrouter/z-ai/glm-5.3-flash","usd":1.25,"at":"2026-10-07T09:00:06.000Z"}
+{"schema":"spend-reservations/1","event":"settled","id":"r2","out

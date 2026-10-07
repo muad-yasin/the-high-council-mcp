@@ -1,0 +1,39 @@
+{
+  "schema": "contract/1",
+  "version": 2,
+  "supersedes": 1,
+  "run": "run-v2",
+  "locked_at": "2026-10-07T09:00:19.000Z",
+  "source": {
+    "task_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "criteria_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "signed_text_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "thin_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "obligations": [
+    {
+      "id": "O1",
+      "text": "The export command writes the file atomically: a crash never leaves a half-written file.",
+      "criterion": "C1",
+      "check": "node --test test/export.test.js",
+      "sha256": "0300ae5cb62289adfb39089b6ef3d1cdb36b15c396102c8620e7bb7e5aee5667"
+    },
+    {
+      "id": "O2",
+      "text": "Every error path prints one line naming the file, the line and the reason.",
+      "sha256": "7c9d6955bb25d93bfb58bf4063e512a3bd1e89c2fbf943ebaa3ac77b55b47d99"
+    }
+  ],
+  "amendment": {
+    "request_seq": 4,
+    "obligation_id": "O2",
+    "reason": "The line number is what a person needs to find the cause.",
+    "from_version": 1
+  },
+  "approval": {
+    "gate": "g2",
+    "text": "contract/amend-r4.md",
+    "sha256": "5a9bc3cd3a277a131b621fdd0b2e114c530ea07a22469cb6d0ae27ce7bccb9fb"
+  },
+  "sha256": "1d9cf844770c6d0ffcdd1efba5c95bb1588f78ac14e4e30aed6c88eddb5cf7e7"
+}

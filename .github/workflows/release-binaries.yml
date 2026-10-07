@@ -39,7 +39,19 @@ jobs:
       - name: Smoke-test the Windows .exe under Wine
         env:
           WINEDEBUG: '-all'
-        run: npm run smoke:bin -- dist/the-high-council-win.exe wine64
+        # The wine64 package no longer puts a `wine64` command on PATH on current Ubuntu runners
+        # (this step has failed with exit 127 since 26 Sept 2026). Use whichever launcher exists,
+        # and fail loudly if none does, rather than passing a name that is not there.
+        run: |
+          WINE_BIN="$(command -v wine64 || command -v wine || true)"
+          if [ -z "$WINE_BIN" ]; then
+            for d in /usr/lib/wine /usr/lib/wine64 /opt/wine-stable/bin; do
+              if [ -x "$d/wine64" ]; then WINE_BIN="$d/wine64"; break; fi
+            done
+          fi
+          if [ -z "$WINE_BIN" ]; then echo "no Wine launcher found after installing wine64" >&2; exit 1; fi
+          echo "using $WINE_BIN"
+          npm run smoke:bin -- dist/the-high-council-win.exe "$WINE_BIN"
       - uses: actions/upload-artifact@v4
         with:
           name: council-binaries

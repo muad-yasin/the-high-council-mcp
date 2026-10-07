@@ -34,7 +34,7 @@ export function version() {
 
 // Same lookup order as the CLI: the user's chains/ in `cwd` first, then the shipped ones.
 function chainPath(name, cwd) {
-  if (!isChainName(name)) throw new TypeError(`chain: a chain name such as "mock" or "plan-debate", got ${JSON.stringify(name)}`);
+  if (!isChainName(name)) throw new TypeError(`chain: a chain name such as "mock" or "cheap-7-v2", got ${JSON.stringify(name)}`);
   const found = [join(cwd, 'chains', `${name}.json`), join(pkg, 'chains', `${name}.json`)].find(existsSync);
   if (!found) throw new Error(`no such chain: ${name} (looked in ${join(cwd, 'chains')} and the package's chains/)`);
   return found;

@@ -4,6 +4,10 @@
   "summary": "Seven premium-tier labs argue whole architectures first; a Claude Code session writes the drafts.",
   "maxRounds": 7,
   "signoff": "unanimous",
+  "signoff_table": { "required": true },
+  "answer_back": { "enabled": true },
+  "debate_hygiene": { "shuffle": true, "noQuoteMarks": true },
+  "handoff_contract": { "milestones": true },
   "dispute": {
     "enabled": true,
     "stall_rounds": 2
@@ -15,6 +19,7 @@
   "debate": true,
   "decisions": { "enabled": true },
   "alternatives": { "enabled": true },
+  "majority_guard": { "enabled": true },
   "canary": { "enabled": true, "sampleRate": 0.1 },
   "handoff": true,
   "estimate": {

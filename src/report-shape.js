@@ -8,6 +8,8 @@
 import { renderDeepDiveBoard } from './deep-dive.js';
 import { renderAdviseBoard } from './advise.js';
 import { computeOutcome } from './outcome.js';
+import { renderTextLabelsBoard } from './text-labels.js';
+import { buildThinContract, sha256Of } from './thin-contract.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { deriveDisagreementGroups } from './disagreement-groups.js';
 import { renderDisputeReviewBoard } from './chain.js';
@@ -56,7 +58,22 @@ export function reportTaskPath(task, cwd) {
 // run.json's `taskHash`).
 // `startedAt` is when the run's first sitting began (ISO 8601), when the writer knows it; the
 // report is stamped `finished_at` as it is built.
-export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText = null, startedAt = null, result, fromRun = null, fromRunCwd = taskCwd, maxUsd = null, config = null, policyChecks = null, adviseExtra = null }) {
+/**
+ * The thin contract (src/thin-contract.js) of a chain result, or null (an advice run, or one with no criteria, task text or signed text). One function for report.json and for HANDOFF.md, which
+ * prints the record's hash before report.json is written, so the two can never disagree.
+ */
+export function thinContractOf({ taskText, contextSha256 = null, result }) {
+  if (!result || result.advise) return null;
+  const has = Array.isArray(result.criteria) && result.criteria.length;
+  return buildThinContract({
+    taskSha256: typeof taskText === 'string' ? sha256Of(taskText) : null,
+    criteriaSha256: has ? criteriaHash(result.criteria) : null,
+    checksSha256: has ? checksHash(checksOf(result.criteria, result.criteriaKinds)) : null,
+    contextSha256, groundTruth: result.ground_truth, signedTextSha256: result.signedText?.sha256,
+  });
+}
+
+export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText = null, startedAt = null, result, fromRun = null, fromRunCwd = taskCwd, maxUsd = null, config = null, contextSha256 = null, policyChecks = null, policyWarnings = null, adviseExtra = null }) {
   // v6 §7: failure-mode diagnostics, computed from this run's own real
   // debate output - never from the phase 4 measurement harness, which
   // is a deterministic heuristic probe and cannot speak to real debate
@@ -128,7 +145,7 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     ...(result.debate ? { disagreement_groups: deriveDisagreementGroups(result.debate, result.proposals) } : {}),
     // MLLM Coder v5 item 5: present only when a policy.json was in force for this run - what it
     // restricted, by capability. Absent means no policy, never "a policy with no checks".
-    ...(policyChecks ? { policy: { checks: policyChecks } } : {}),
+    ...(policyChecks ? { policy: { checks: policyChecks, ...(Array.isArray(policyWarnings) && policyWarnings.length ? { warnings: policyWarnings } : {}) } } : {}),
     // Final security-review gate (src/security-review.js): additive, present only when the chain
     // enabled the stage - same object as the run folder's security-review.json.
     ...(result.security_review !== undefined ? { security_review: result.security_review } : {}),
@@ -141,6 +158,17 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     // without a prompt change: positional criterion ids, the sign-offs whose criteria table skipped
     // criteria (src/criteria-ledger.js), proposals cut despite another lab's support, and the round by
     // lab verdict map (src/decision-records.js). A key is absent where it does not apply.
+    // 0.8.2, additive and only when something happened: sign-offs refused for an incomplete table, and table rows that named no criterion (recorded, never counted).
+    // 0.8.2 item 4, additive: the text the panel signed vs the text delivered (src/text-labels.js). `passed` is not touched.
+    ...(result.signedText ? { signed_text: result.signedText } : {}),
+    ...(result.deliveredText ? { delivered_text: result.deliveredText } : {}),
+    ...(result.handoffText ? { handoff_text: result.handoffText } : {}),
+    ...(Array.isArray(result.signoffTableGaps) && result.signoffTableGaps.length ? { signoff_table_gaps: result.signoffTableGaps } : {}),
+    // 0.8.2, additive, only with debate_hygiene.shuffle: the order and lab letters each debate reader saw.
+    ...(Array.isArray(result.answerBack) && result.answerBack.length ? { answer_back: result.answerBack } : {}),
+    ...(Array.isArray(result.answerBackReplies) && result.answerBackReplies.length ? { answer_back_replies: result.answerBackReplies } : {}),
+    ...(Array.isArray(result.debateOrders) && result.debateOrders.length ? { debate_orders: result.debateOrders } : {}),
+    ...(Array.isArray(result.outsideCriteriaRows) && result.outsideCriteriaRows.length ? { outside_criteria_rows: result.outsideCriteriaRows } : {}),
     ...(Array.isArray(result.missingCriteria) && Array.isArray(result.criteria) && result.criteria.length
       ? { criteria_ids: criterionIds(result.criteria), missing_criteria: result.missingCriteria } : {}),
     // The fingerprint of the criteria list (src/criteria-lock.js), the same one HANDOFF.md's lock block carries.
@@ -148,6 +176,11 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     // 0.8.1 FX-10 (DR-11): how each criterion is checked (criteria_kinds' check and on), fingerprinted apart from the
     // wording. This file is the sole writer; the HANDOFF.md lock block carries the same hash in its second marker.
     ...(Array.isArray(result.criteria) && result.criteria.length ? { checks_sha256: checksHash(checksOf(result.criteria, result.criteriaKinds)) } : {}),
+    // 0.8.2 item 6a (owner: thin contract YES): one record of what this run was asked, graded against, shown and signed, in full-width hashes (src/thin-contract.js). Absent for an advice run and for any
+    // run that has no criteria, task text or signed text to seal. signed_text.sha256 is item 4's hash, read here, not defined again.
+    ...(() => { const t = thinContractOf({ taskText, contextSha256, result }); return t ? { thin_contract: t } : {}; })(),
+    // 0.8.2 item 6c: only with handoff_contract.milestones: what the $0 lint found in the handoff's milestones (src/milestones.js). Never touches `passed`.
+    ...(result.handoffMilestones ? { handoff_milestones: result.handoffMilestones } : {}),
     // $0 word-level lints over the criteria, run before any paid round (src/criteria-lints.js); [] when clean.
     ...(Array.isArray(result.criteriaLints) ? { criteria_lints: result.criteriaLints } : {}),
     // The ledger status (accepted / cut / withdrawn) is on scoreboard.rows, not on proposals[] (0.8.0: the
@@ -245,8 +278,9 @@ export function renderBoardMd({ runId, result }) {
   const kindsSection = result.criteriaSummary ? `${summaryLine(result.criteriaSummary)}\n\n` : '';
   const deepDiveSection = renderDeepDiveBoard(result.deep_dive);
   const dropoutsSection = renderDropoutsBoard(result.dropouts);
+  const labelsSection = renderTextLabelsBoard({ signedText: result.signedText, deliveredText: result.deliveredText, outcome: computeOutcome(result) }); // only added to a board that exists (below)
   if (!(result.board || disputesSection || alternativesSection || kindsSection || deepDiveSection || dropoutsSection)) return '';
-  return `# Debate board - run ${runId}\n\n${kindsSection}${dropoutsSection}${alternativesSection}${deepDiveSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${renderDroppedBoard(result.debate?.dropped)}${disputesSection}`;
+  return `# Debate board - run ${runId}\n\n${kindsSection}${dropoutsSection}${labelsSection}${alternativesSection}${deepDiveSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${renderDroppedBoard(result.debate?.dropped)}${disputesSection}`;
 }
 
 // Bug audit 2026-09-28 (area 2 #4): report.json's `dropouts` (a seated lab that produced nothing

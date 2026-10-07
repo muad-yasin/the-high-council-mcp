@@ -30,22 +30,23 @@ const sha256 = s => createHash('sha256').update(s).digest('hex');
 // Re-recorded 2026-10-02 on the owner's go (0.8.1 MAN-1, "go"): the council advisor (thc-research brief 27)
 // ADDS the advisor, debate and synthesis prompts to src/roles.js (154 lines added, none removed). No existing
 // prompt changed, and the mock-chain check below was not re-recorded.
-const ROLES_SHA256 = 'ff2c2c667be4f82c24ed4d5519a9a3520eeecb091a2edf9ab816789c3d22d49c';
+// Re-recorded 2026-10-07 on the owner's go (0.8.2): the held prompt sentences of the wiring block (P1-P13, handoff milestones, lanes, contract draft) are recorded. The mock-chain shas below changed because the judges', the criteria seat's and the final editor's prompts did.
+const ROLES_SHA256 = '72b633d345a9befbc7b97ae72829c3f444f72d08430d52745b6d0ec7d9e585a8';
 // Recorded at 0d87668. `status` is the CLI's exit code (mock-security-review's mock reviewer blocks: 7).
 // mock-relay is left out: its panel order comes from Math.random (bug audit 2026-09-26 #2) and a relay
 // reviewer sees the reviews before it, so its prompts differ from run to run.
 const PINNED = {
-  'mock': { calls: 6, status: 0, sha: '520ad3092871a1d4' },
-  'mock-debate': { calls: 15, status: 0, sha: '6b07fd64d5524b7f' },
-  'mock-unanimous': { calls: 8, status: 0, sha: 'bed869a2e353c06f' },
-  'mock-proposals': { calls: 16, status: 0, sha: 'a17518831726993a' },
-  'mock-questions': { calls: 16, status: 0, sha: '626b10b8e5769823' },
-  'mock-dispute': { calls: 12, status: 0, sha: '238059db706e3883' },
-  'mock-criteria-kinds': { calls: 6, status: 0, sha: '10fbc27214ea3fcf' },
-  'mock-open': { calls: 15, status: 0, sha: '803252bcad7ff0f3' },
-  'mock-patch': { calls: 7, status: 0, sha: 'a2910b3051f24b82' },
-  'mock-security-review': { calls: 5, status: 7, sha: 'f1d0c3db8716d5ef' },
-  'mock-partitioned': { calls: 6, status: 0, sha: 'c7cff1d1987e1d38' }
+  'mock': { calls: 6, status: 0, sha: '684270c78d106687' },
+  'mock-debate': { calls: 15, status: 0, sha: 'd47c00576fa9e8fa' },
+  'mock-unanimous': { calls: 8, status: 0, sha: '61db3b8d52abbdfe' },
+  'mock-proposals': { calls: 16, status: 0, sha: '58481b3e65b9e703' },
+  'mock-questions': { calls: 16, status: 0, sha: '50f29660123da0b1' },
+  'mock-dispute': { calls: 12, status: 0, sha: '6d26755f7cb59035' },
+  'mock-criteria-kinds': { calls: 6, status: 0, sha: '79ed605ce608bbf9' },
+  'mock-open': { calls: 15, status: 0, sha: 'a94445bca06fffaa' },
+  'mock-patch': { calls: 7, status: 0, sha: '6a707383a9dc7d6a' },
+  'mock-security-review': { calls: 5, status: 7, sha: 'a9e59ab0033dd72b' },
+  'mock-partitioned': { calls: 6, status: 0, sha: '398b6ed838214a40' }
 };
 const TASK = 'Plan a small command-line tool that renames photos by the date they were taken.\n';
 

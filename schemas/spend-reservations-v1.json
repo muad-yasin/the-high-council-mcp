@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://the-high-council.dev/schema/spend-reservations-v1.json",
+  "title": "spend-reservations.jsonl - one line of a run's reservation record",
+  "description": "runs/<id>/spend-reservations.jsonl, appended by src/spend-reservations.js: one JSON object per line, each written whole with one write and fsynced. A 'reserved' line is the worst case of a paid call, written BEFORE the request is sent; a 'settled' line follows when the call returns or throws. A reserved line with no settled line is a call that was in flight when the process ended: it stays charged at its worst case in a resume's cap, council --spend and the spend report. A last line with no newline is a torn write and is ignored. The file carries amounts, stage labels and provider/model only, never task text or run content. Not tamper-evident: whoever can write the run folder can edit it. This schema describes one line.",
+  "type": "object",
+  "required": ["schema", "event", "id", "at"],
+  "properties": {
+    "schema": { "const": "spend-reservations/1" },
+    "event": { "enum": ["reserved", "settled"] },
+    "id": { "type": "string", "pattern": "^r[1-9][0-9]*$", "description": "r1, r2, ... per run folder; a resume continues after the ones already in the file." },
+    "at": { "type": "string", "format": "date-time" },
+    "label": { "type": "string", "maxLength": 200 },
+    "seat": { "type": "string", "maxLength": 200, "description": "provider/model" },
+    "usd": { "type": ["number", "null"], "minimum": 0, "description": "reserved: the call's worst case. settled: what it cost, or null when it is not known." },
+    "outcome": { "enum": ["recorded", "failed", "billed_unreadable"] }
+  },
+  "allOf": [
+    { "if": { "properties": { "event": { "const": "reserved" } } }, "then": { "required": ["label", "seat", "usd"], "properties": { "usd": { "type": "number", "exclusiveMinimum": 0 } }, "not": { "required": ["outcome"] } } },
+    { "if": { "properties": { "event": { "const": "settled" } } }, "then": { "required": ["outcome"] } }
+  ],
+  "additionalProperties": false
+}

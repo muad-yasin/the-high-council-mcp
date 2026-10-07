@@ -26,7 +26,13 @@ export const ERROR_CATALOG = {
   'COUNCIL-E002': {
     kind: 'degradable',
     title: 'Unpriced model',
-    render: ctx => ({
+    render: ctx => (ctx.capUsd !== undefined && ctx.capUsd !== null ? {
+      // 0.8.2 item 8a: under a spend cap an unpriced seat is refused, because the cap projects it at $0 and could not stop what a call to it costs.
+      what: `"${ctx.provider}/${ctx.model}"${ctx.roles ? ` (${ctx.roles})` : ''} has no listed price, so the spend cap of $${Number(ctx.capUsd).toFixed(2)} cannot hold it: the cap would count every call to it as $0. Nothing was sent and nothing was spent.`,
+      concept: `A price is the per-token rate this program uses to add up what a run costs; the spend cap is only as good as the prices it projects with.`,
+      fix: `Add an entry for "${ctx.provider}/${ctx.model}" to src/pricing.json (USD per million tokens in and out), or run with --max-usd none, which sets no spend ceiling at all.`,
+      doc: 'README.md#the-spend-cap',
+    } : {
       what: `"${ctx.provider}/${ctx.model}" has no listed price, so its cost can't be shown or added to your spend total.`,
       concept: `A price is the per-token rate this program uses to add up what a run will cost before you pay for it.`,
       fix: `Add an entry for "${ctx.provider}/${ctx.model}" to src/pricing.json.`,

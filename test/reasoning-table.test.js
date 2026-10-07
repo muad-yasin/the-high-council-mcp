@@ -24,7 +24,7 @@ test('the table: every row names a form and a source that exist, with a date; th
     if (row.form) assert.ok(row.form in REASONING_TABLE.forms, `${key}: form ${row.form} does not exist`);
   }
   for (const [name, form] of Object.entries(REASONING_TABLE.forms)) assert.ok(form.source in REASONING_TABLE.sources, `form ${name} has no source`);
-  // Turns red on asOf + staleDays + 1 (2026-12-05: age 60 still passes): re-read the pages and re-run scripts/refresh-reasoning-table.mjs (MAN-7, with 2026-10-31 and 2026-11-21).
+  // Turns red on asOf + staleDays + 1 (2026-12-06: age 60 still passes; the table was regenerated 2026-10-07): re-read the pages and re-run scripts/refresh-reasoning-table.mjs (MAN-7, with 2026-10-31 and 2026-11-21).
   assert.ok(tableAgeDays() <= REASONING_TABLE.staleDays, `src/reasoning-table.json is ${tableAgeDays()} days old (as of ${REASONING_TABLE.asOf}); re-run scripts/refresh-reasoning-table.mjs`);
 });
 

@@ -1,6 +1,6 @@
 {
   "schema": "reasoning-table/1",
-  "asOf": "2026-10-05",
+  "asOf": "2026-10-07",
   "staleDays": 60,
   "_note": "Written by scripts/refresh-reasoning-table.mjs (0.8.1 milestone R). Fields were set from the documents named in `sources` and OpenRouter's public model list, NOT exercised in a live call; the first real run of each changed chain is the live test. A date lives in asOf; test/reasoning-table.test.js fails when it is older than staleDays (a release step, MAN-7).",
   "transportCeilings": {
@@ -257,6 +257,21 @@
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
+    "openrouter/anthropic/claude-sonnet-5.5": {
+      "form": "openrouter-effort",
+      "maxOutput": 128000,
+      "defaultEffort": "high",
+      "supportedEfforts": [
+        "max",
+        "xhigh",
+        "high",
+        "medium",
+        "low"
+      ],
+      "mandatory": true,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
     "openrouter/cohere/command-r7b-12-2024": {
       "form": null,
       "maxOutput": 4000,
@@ -272,15 +287,6 @@
       "defaultEffort": null,
       "supportedEfforts": null,
       "mandatory": null,
-      "source": "openrouter-models",
-      "defaultAboveHigh": false
-    },
-    "openrouter/deepseek/deepseek-v3.2": {
-      "form": "openrouter-effort",
-      "maxOutput": 147456,
-      "defaultEffort": null,
-      "supportedEfforts": null,
-      "mandatory": false,
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
@@ -318,19 +324,6 @@
         "medium",
         "low",
         "minimal"
-      ],
-      "mandatory": true,
-      "source": "openrouter-models",
-      "defaultAboveHigh": false
-    },
-    "openrouter/google/gemini-3.7-flash": {
-      "form": "openrouter-effort",
-      "maxOutput": 65536,
-      "defaultEffort": "medium",
-      "supportedEfforts": [
-        "high",
-        "medium",
-        "low"
       ],
       "mandatory": true,
       "source": "openrouter-models",
@@ -587,6 +580,15 @@
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
+    "openrouter/xiaomi/mimo-v2.6-pro": {
+      "form": "openrouter-effort",
+      "maxOutput": 131072,
+      "defaultEffort": null,
+      "supportedEfforts": null,
+      "mandatory": null,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
     "openrouter/z-ai/glm-4.7-flash": {
       "form": "openrouter-effort",
       "maxOutput": 117964,
@@ -641,6 +643,6 @@
     "groq/llama-3.3-70b-versatile": "not a reasoning model; no reasoning field",
     "mistral/mistral-large-latest": "not a reasoning model on this id; no reasoning field",
     "ollama/*": "local models; the harness sends nothing",
-    "openrouter/mistralai/mistral-small": "not in OpenRouter's public list on 2026-10-05; no shipped seat uses it"
+    "openrouter/mistralai/mistral-small": "not in OpenRouter's public list on 2026-10-07; no shipped seat uses it"
   }
 }

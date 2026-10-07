@@ -57,7 +57,8 @@ export function toolRefExists(refText, groundTruth) {
     const entriesForTool = groundTruth.filter(g => g.tool === tool);
     return idx >= 0 && idx < entriesForTool.length;
   }
-  return groundTruth.some(g => g.tool === refText);
+  // 0.8.2 item 5 (F5): a bare tool name is evidence only when it is unambiguous. With two entries for one tool, "check_versions" could mean either, so the claim must name check_versions:0 or :1.
+  return groundTruth.filter(g => g.tool === refText).length === 1;
 }
 
 /**

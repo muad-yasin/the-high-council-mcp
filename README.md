@@ -39,11 +39,11 @@ For Claude Desktop, download the `.mcpb` bundle (`the-high-council-<version>.mcp
 You choose the number of debate rounds, the seats and labs (any lab except xAI), and the token
 limit for each model's replies.
 
-We recommend our own chains: `plan-daily-7` (the one we use most: `plan-highest-7`'s stages at a lower price, for planning
-one feature; it needs an OpenRouter key and Claude Code sessions for its external seats), `cheap-7-v2`, `plan-premium-7` and `plan-highest-7` (the top
+We recommend our own chains: `plan-daily-7` (`plan-highest-7`'s stages at a lower price, for planning
+one feature; it needs an OpenRouter key, a Claude subscription for its Claude Opus 5.5 seats and a Claude Code session to write the plan; this roster has not run yet), `cheap-7-v2`, `plan-premium-7` and `plan-highest-7` (the top
 models, GPT-6 Astra, Claude Opus 5.5, DeepSeek V4 Pro
 and GLM-5.3, write the alternative
-architectures and are the only seats that vote; cheaper seats write the proposals and the debate). You can also edit a chain to suit yourself, or run every seat on
+architectures; cheaper seats write the proposals and the debate; in `plan-highest-7` and `plan-daily-7` every seat in the chain also votes, blind, the plan's writer too). You can also edit a chain to suit yourself, or run every seat on
 your own machine with `local-ollama`. For a quick second opinion on one decision, the advisor add-on asks a single seat:
 GPT-6.1 Sol by default (`council_advise` with `mode: "single"`, see [Available tools](#available-tools)).
 
@@ -58,10 +58,11 @@ model reply in it is written in advance; what is real is the code that runs the 
 them.
 
 **What it costs.** You pay the model providers directly, with your own API keys. The demo,
-`doctor`, `init` and the `mock` chains cost $0 and make no network call. `--dry-run` prints a
-run's worst-case price before anything is called, and every run stops before any stage that could
-take it past its spend cap ($7 unless you set `--max-usd`). Most runs cost less than the worst
-case: a panel that signs off early skips the remaining rounds.
+`doctor`, `init` and the `mock` chains cost $0 and make no network call. `--dry-run` prints two
+figures before anything is called: what the chain's own size assumptions expect a run to cost, and the most
+the planned calls could cost if every one used its seat's whole output allowance (re-asks and the cut-off retry of a seat that is not Anthropic are not priced; the spend cap is the only bound). Every run stops before any stage that could
+take it past its spend cap ($7 unless you set `--max-usd`). Most runs cost less than either figure: a panel
+that signs off early skips the remaining rounds.
 
 Three commands from nothing to a priced run of your own idea (no key needed until you drop
 `--dry-run`; [Your first ten minutes](#your-first-ten-minutes) walks through them):
@@ -70,20 +71,22 @@ Three commands from nothing to a priced run of your own idea (no key needed unti
     npx the-high-council init       # writes tasks/my-first-task.md for your idea, plus a $0 mock run
     npx the-high-council --task tasks/my-first-task.md --chain cheap-7-v2 --dry-run
 
-**Which chain.** Worst-case prices as `council doctor` prints them, from the shipped price table
+**Which chain.** Prices as `council doctor` prints them (expected / at most), from the shipped price table
 (prices as of 2026-09-06) and the default task-size estimate; a long task costs more.
 
-| Chain | Who does what | Needs | Worst case |
+| Chain | Who does what | Needs | Expected / at most |
 |---|---|---|---|
-| `plan-daily-7` | `plan-highest-7`'s stages at a lower price, for planning one feature: Claude Opus 5.5 on your Claude subscription, GPT-6 Luna and DeepSeek V4 Pro write the architectures and alone vote; seven low-cost labs propose and debate. **Run once with real models; nothing about it has been measured.** | OpenRouter key + two Claude Code sessions | $5.70 |
-| `cheap-7-v2` | Claude Sonnet 5 writes the plan; low-cost models from seven other labs review it, and all seven must sign off. Up to 7 rounds. | one OpenRouter key | $11.22 |
-| `plan-premium-7` | A Claude Code session writes the plan; a seven-lab panel of larger models (GPT-6 Astra, Claude Fable 5.1, Gemini 3.8 Flash, Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, GLM-5.3) proposes, debates and reviews. | OpenRouter key + a Claude Code session | $36.75 |
-| `plan-highest-7` | Seven low-cost models propose and debate; four top models write whole architectures and are the only reviewers; one deep-dive seat checks the first draft against the task. **Untested with real models.** | OpenRouter key + a Claude Code session | $17.34 |
-| `local-ollama` | Every seat on your own machine, through Ollama. | Ollama and the models pulled | $0 |
+| `plan-daily-7` | `plan-highest-7`'s stages at a lower price, for planning one feature; **every seat, the plan's writer included, also votes, blind**; Claude Opus 5.5 on your Claude subscription takes the criteria, one architecture and one vote, and a Claude Code session writes the skeleton, the plan and the handoff (details under "Chains" below). This roster has not run. | OpenRouter key + a Claude subscription + a Claude Code session | $12.59 / $33.25 |
+| `cheap-7-v2` | Claude Sonnet 5 writes the plan; low-cost models from seven other labs review it, and all seven must sign off. Up to 7 rounds. | one OpenRouter key | $11.22 / $22.36 |
+| `plan-premium-7` | A Claude Code session writes the plan; a seven-lab panel of larger models (GPT-6 Astra, Claude Fable 5.1, Gemini 3.8 Flash, Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, GLM-5.3) proposes, debates and reviews. | OpenRouter key + a Claude Code session | $36.75 / $78.59 |
+| `plan-highest-7` | Seven low-cost models propose and debate; four top models write whole architectures; one deep-dive seat checks the first draft against the task; **every seat, the plan's writer included, also votes, blind** (the owner's deliberate choice, 7 Oct 2026). **Untested with real models.** | OpenRouter key + Claude Code sessions | $18.49 / $50.43 |
+| `local-ollama` | Every seat on your own machine, through Ollama. | Ollama and the models pulled | $0 / $0 |
 
-The three above $7 (`cheap-7-v2`, `plan-premium-7`, `plan-highest-7`) cost more than the default cap at their worst case, so give them a `--max-usd` at or above
-their dry-run price (since 0.8.1 a proposal may use a seat's whole output allowance and every shipped seat reasons at
-high, which raised the worst cases; a run that signs off early costs far less). The writer seats of `plan-daily-7`, `plan-premium-7` and `plan-highest-7` (and `plan-daily-7`'s Opus 5.5 seat) are [external](#quick-start-mcp): the run pauses
+The first figure is what the chain's own assumptions expect (the typical output of a review, every round up to the cap); the second is the most the planned calls could cost
+if every one wrote its seat's whole output allowance (an Anthropic seat's one retry included; re-asks and the cut-off retry of other seats are not priced, so the spend cap is the only bound). The second figure is the larger one by a wide margin because the reasoning models can spend that
+allowance thinking (since 0.8.1 every shipped seat reasons at high). `cheap-7-v2`, `plan-premium-7`, `plan-highest-7` and `plan-daily-7` expect to cost more than the default cap ($7), so give them a `--max-usd`
+of your own: at or above the second figure to rule out a stop at the cap, or lower if you accept that a run that uses much of its allowance stops at the cap with no plan yet (it keeps what it paid for and
+resumes with a higher `--max-usd`). A run that signs off early costs far less than either figure. The writer seats of `plan-daily-7`, `plan-premium-7`, `plan-highest-7` and `plan-open-7`, and the Claude Opus 5.5 subscription seats of `plan-daily-7` and `plan-highest-7`, are [external](#quick-start-mcp): the run pauses
 and a Claude Code session (or you) writes that stage, at no API cost. Nothing about any chain's
 output quality has been measured.
 
@@ -123,16 +126,17 @@ before anything is spent.
    (one account at [openrouter.ai](https://openrouter.ai) that reaches many labs' models) is
    enough for a seven-lab panel. Put the key in a file called `.env` in the folder you run from,
    as `OPENROUTER_API_KEY=...`, and add `.env` to your `.gitignore` so it is never committed.
-4. **Price it, then run it.** Add `--dry-run` to see the worst-case price for your task, then run
-   it without:
+4. **Price it, then run it.** Add `--dry-run` to see the expected and the maximum price for your task,
+   then run it without:
 
        npx the-high-council --task tasks/my-first-task.md --chain cheap-7-v2 --dry-run
-       npx the-high-council --task tasks/my-first-task.md --chain cheap-7-v2 --max-usd 11.23
+       npx the-high-council --task tasks/my-first-task.md --chain cheap-7-v2 --max-usd 22.37
 
-   `cheap-7-v2`'s worst case ($11.22) is above the default cap, so the run command carries its own
-   cap, set just above that price. Every run stops before it would pass its spend cap ($7 unless
-   you set `--max-usd`). A run stopped by the cap keeps what it paid for but has no plan yet, so pick
-   a cap at or above the dry run's price. A panel that signs off early costs less than the worst case.
+   `cheap-7-v2` expects $11.22 and could cost up to $22.36, both above the default cap, so the run command
+   carries its own cap, set just above the maximum (re-asks and retries are not in it, so only the cap is a bound). Every run stops before it would pass its spend cap
+   ($7 unless you set `--max-usd`). A run stopped by the cap keeps what it paid for but has no plan yet; a cap
+   below the maximum can stop a run that uses a lot of its allowance (resume it with a higher `--max-usd`).
+   A panel that signs off early costs less than either figure.
 
    The plan lands in `runs/<time>/deliverable.md`; the argument behind it is in `BOARD.md`.
 
@@ -190,7 +194,21 @@ A run moves through fixed stages. Which stages fire depends on the chain you pic
    harness writes, not a model: the acceptance criteria the run settled, how each checkable one is
    checked, and a fingerprint for each of the two. `council check-lock HANDOFF.md` ($0) says whether a
    copy still carries them; it catches an edit or
-   a slip, and is not a signature.
+   a slip, and is not a signature. `report.json` also carries a small `thin_contract` (0.8.2): full-width
+   hashes of the task, the criteria, the evidence the run recorded as shown to the seats (the `--context` documents and the tool
+   results; never a repository, seats do not see one, and not material handed in with `--draft` or `--from-run`) and the
+   text the panel signed, plus one hash over the record. `council contract check runs/<id>` ($0) recomputes what the run folder still holds and says
+   `sealed`, `DRIFT` (what changed) or `cannot check` (never a pass for what it could not read). Like the
+   lock, it is tamper-evident, not tamper-proof: whoever can edit `report.json` can edit the record too.
+   `HANDOFF.md` also carries two short sections the harness writes (no model does): "Before you build" (read the
+   plan and write down blockers before coding; the criteria are not to be edited; the record's hash in plain
+   text, which `council contract check runs/<id> --handoff HANDOFF.md` compares with the run) and "Replan
+   triggers" (stop and send the plan back when the contract check or check-lock reports a difference, when a
+   named check fails twice in a row, and so on). The "twice" is `handoff_contract.check_failures` in a chain,
+   default 2. A chain can also set `handoff_contract.milestones` (off by default; on in the seven shipped planning chains, where the handoff seat is asked for the milestone shape):
+   the harness then lints the milestones the handoff seat wrote ($0: every criterion discharged by a milestone
+   that has a named check and an expected result) and records what it found in `report.json`
+   (`handoff_milestones`), `WARNINGS.md` and the "Before you build" section; a finding never changes `passed`.
 
 Some chains add optional stages to this: whole alternative architectures written blind before
 the skeleton, a deep-dive check of the first draft, a dispute stage that records unresolved
@@ -428,21 +446,27 @@ echo "Plan the data model for a bookmarking app. Single user, offline-first." > 
 
 # see what's available and what it would cost
 council --help
-council --task tasks/your-idea.md --chain verify --dry-run
+council --task tasks/your-idea.md --chain cheap-7-v2 --dry-run
 
 # a real run
-council --task tasks/your-idea.md --chain verify
+council --task tasks/your-idea.md --chain cheap-7-v2
 ```
 
 Your requests and everything the council writes about them stay on your machine, in `tasks/` and
 `runs/` under the directory you ran from. In a clone of this repo both are gitignored, so a fork
 will not accidentally publish them.
 
-`verify` is the default when you name no chain: a panel of two labs, a hard two-round cap. It
-needs three keys (Anthropic, OpenAI and Google, one account each). With one OpenRouter key, start
-with `cheap-7-v2` instead; `council doctor` lists every chain that runs on the keys you have.
+There is no default chain: since 0.8.2 `council --task x.md` without `--chain` stops and names the recommended ones.
+`cheap-7-v2` needs one OpenRouter key; `council doctor` lists every chain that runs on the keys you have.
 `--chain` takes a chain's name (`cheap-7-v2`), never a file path: a `chains/<name>.json` of your
 own in the working directory is found by its name.
+
+**If your task already contains its own acceptance list.** A task written like a specification often ends with what the answer must contain and when it fails. The criteria seat can mirror that
+list: criteria about the format of the answer, not about what makes it right. The criteria stage has two checks that catch some of these (criteria about the criteria list or its JSON shape, or criteria that demand several documents: it asks once more, and stops the run before any paid review
+round if the second try does the same), after one or two paid criteria calls; a mirrored list that avoids those patterns passes them silently. Write the criteria yourself and hand them in instead: `council --task tasks/x.md --chain cheap-7-v2 --criteria criteria.md`. The file holds one
+criterion per line (a leading `- `, `* ` or `1. ` is dropped, lines starting with `#` are skipped), or JSON (an array, or `{ "criteria": [...] }`). A hand-written list skips the criteria stage and
+gets the same two checks before any paid review: criteria about the criteria list itself, or ones that demand documents one build stage cannot produce, stop the run. `council lint-criteria --criteria criteria.md`
+runs the $0 word-level lints on the file first.
 
 **If your task names files.** A task that names a file (`src/app.js`) without including its
 content is stopped before any call (exit 9, `BLOCKED-ARTIFACTS.md`), because the seats would
@@ -510,8 +534,8 @@ stage - a stage that could take the run past the ceiling is never called, so the
 than reporting the overspend afterwards.
 
 ```bash
-council --task tasks/x.md --max-usd 2     # this run stops at $2
-council --task tasks/x.md --max-usd none  # no ceiling (0 is refused: it used to mean this)
+council --task tasks/x.md --chain cheap-7-v2 --max-usd 2     # this run stops at $2
+council --task tasks/x.md --chain cheap-7-v2 --max-usd none  # no ceiling (0 is refused: it used to mean this)
 export MAX_USD_PER_RUN=20                         # change the default
 ```
 
@@ -645,7 +669,7 @@ Then drive it with these tools:
 
 | Tool | What it does |
 |---|---|
-| `list_chains` | Available chains with descriptions and worst-case price |
+| `list_chains` | Available chains with descriptions (price one with `dry_run`) |
 | `write_task` | Write the request the harness plans against |
 | `dry_run` | Price a run before spending anything |
 | `start_run` | Start a run in the background (`max_usd` sets its ceiling). `chain` is a chain name; `task`, `draft`, `context` and `from_run` must be inside the working directory |
@@ -662,6 +686,8 @@ Then drive it with these tools:
 | `plan_outline` | Section tree of a run's deliverable (or a `.md` file in the working directory) with word counts |
 | `council_quote` | Experimental. Preview and price a request for advice from other labs: who would receive the text, its exact size and `sha256` after masking, the worst-case and expected price, a `quote_id`. Sends and spends nothing. See [Asking other labs for advice](#asking-other-labs-for-advice-council_quote-council_advise-experimental) |
 | `council_advise` | Experimental. Spends. Asks other labs for advice on one decision, once you approve it: a leaning and every dissent in the models' own words. `start_run` and `resume_run` refuse advice chains, so this is the only way in over MCP |
+| `contract_read` | Read the locked contract of a run: its version, the obligations a person approved and the amendment requests filed against it. Checked first ($0): if the record, its approval or the ledger disagree, nothing is returned. The text comes back marked as model-written |
+| `contract_amend` | Ask for an obligation of a locked contract to be changed. Free; it only files a request, and a person decides it at a terminal with `council contract amend --decide`. See [The contract record](#the-contract-record-council-contract) |
 
 **Text from a run comes back marked as model-written.** A deliverable, a board, a log line or an
 advisor's answer was written by AI models, and a model can be fooled into writing instructions aimed
@@ -704,8 +730,10 @@ rating: a typo in a hand edit of that file makes every later advice call refuse)
   own terminal (`council --chain advise-single --task brief.md`) is your own call and has no gate; its
   record says so (`gate: null` in `advise-log.json`). The terminal check is friction, not proof
   that a person answered: a program can open a pseudo-terminal. Advice calls therefore need a person
-  at the keyboard; scripted or unattended use is not supported. `mode: "single"` asks one seat (default GPT-6.1 Sol through OpenRouter; the
-  `advisor` argument picks another); `mode: "council"` asks three labs (OpenAI GPT-6.1 Sol, Z.ai GLM-5.3, Google Gemini 3.8 Flash)
+  at the keyboard; scripted or unattended use is not supported. `mode: "single"` asks one seat: GPT-6.1 Sol through OpenRouter by default, or with the
+  `advisor` argument GPT-6 Astra (`astra`), GLM-5.3 Flash (`glm-flash`, new in 0.8.2) or Qwen3.8 Max (`qwen`, new in 0.8.2; it has no zero-retention endpoint,
+  so a quote for it is refused unless the operator set the sensitivity floor to `public`). Three more seats are reachable by name only: `gemini`, `deepseek` and `opus` (Claude Opus 5.5, the experimental control);
+  `mode: "council"` asks three labs (OpenAI GPT-6.1 Sol, Z.ai GLM-5.3, Google Gemini 3.8 Flash)
   blind, lets them read each other once, and a seat changes its answer only by quoting an argument.
   The call holds for up to `wait_seconds` (default 25, at most 30, the same for every client), your approval included;
   a run that outlives the hold returns its id, and `run_status(run, wait_seconds: 25, until: "settled")` (also at most
@@ -730,18 +758,22 @@ rating: a typo in a hand edit of that file makes every later advice call refuse)
   folder you name in `COUNCIL_ADVICE_CHAINS_DIR` (an absolute path outside the project; anything else stops
   the server), and never from the project's `chains/`: a repository's chain file would otherwise choose who
   receives the text. Your chain must pass the same checks: priced seats, not denied, zero-retention routing
-  where the model has it, a wall clock. `COUNCIL_ADVISE_MOCK=1` runs the mock chains, so the whole exchange
+  where the model has it. `COUNCIL_ADVISE_MOCK=1` runs the mock chains, so the whole exchange
   can be tried with no key and no money.
 - **When an advisor asks for more.** An answer can list what was missing from the brief. That list is model
   text, shown to the agent as untrusted, and the next call does not go out on the agent's say-so: its
   approval text starts with "This call follows an advisor's request for more material", so you see that
   the new text answers a model's request, and decide whether that material should leave your machine.
-- **Stopping.** A client that cancels the call or goes away, `council stop runs/<id>` at your
-  terminal, or the chain's own wall-clock ceiling (`advise.max_wall_ms`) stops the run before its
-  next paid step: calls already in flight finish and are billed (the wall clock cuts a call still
-  running at its deadline, which may still be billed), the run exits 18, and the answers
-  that were paid for are kept in `report-partial.json`, which `run_status` hands back. A stopped call
-  is not resumed; ask again.
+- **Stopping.** A client that cancels the call or goes away, or `council stop runs/<id>` at your
+  terminal, stops the run before its next paid step. **A stop does not cut a call that is already running:**
+  with no clock, it waits for that call, which for a slow reasoning model can take up to two hours (the request
+  deadline), and the call finishes and is billed. The run then exits 18, and the answers that were paid for are kept in `report-partial.json`, which
+  `run_status` hands back. A stopped call is not resumed; ask again. **No shipped advice chain has a time
+  limit** (owner, 6 Oct 2026: if a call takes time it takes time, and if it times out you ask again): a slow
+  reasoning model took 6 to 13 minutes for one answer in the run that measured it, and `council_advise` hands
+  back a run id within 30 seconds either way. A chain of your own can still set `advise.max_wall_ms` to end
+  the run at a deadline (then a call still running is cut off, which may still be billed); every request has
+  a 2-hour deadline regardless.
 
 What this does **not** do, stated plainly: "ZDR" in the preview is OpenRouter's routing tag for an
 endpoint, not a guarantee about what that host does with your text, and the retention table
@@ -764,34 +796,53 @@ same debate on external, based on one measured comparison, not a guarantee. Not 
 anywhere in this repo's config, README ordering, or example chains - external stays recommended
 for anyone with a subscription, since the project's cost story depends on it.
 
+### The contract record (`council contract`)
+
+After a run has ended, a person can lock a **contract** from it: a short list of obligations (an id and a sentence or two each) that a build session works against. A model drafts the list. Nothing
+becomes the contract until a person has read the exact text and approved it at a terminal, through the same approval step the advice add-on uses.
+
+```
+council contract lock runs/<id>                         # shows the exact text, asks, then writes runs/<id>/contract/v1.json and CONTRACT.md
+council contract show runs/<id> [--md]                  # the current version, each obligation, the requests filed against it
+council contract check runs/<id>                        # $0: do the record, its approval, the ledger and CONTRACT.md still agree?
+council contract amend --decide runs/<id> [request]     # a person's decision on an amendment request
+```
+
+A version is never edited. A build session that finds an obligation wrong or impossible does not change it: it calls `contract_amend`, which is free, files a request and decides nothing. A person
+decides the request at a terminal, with the exact current and the exact proposed words in front of them. An approval writes the next version, which names the one before it and the request;
+a refusal is recorded. `contract_read` hands the build session the current version, after the same check `council contract check` makes; the obligation text comes back marked as model-written.
+
+The record is **tamper-evident, not tamper-proof**. It lives in the run folder together with its approval and the ledger; whoever can write that folder can rewrite all three together, and nothing
+here detects it. `council contract check` catches an edit of one of them without the others. A 0.8.1 `council gate verify` reads a ledger that holds contract events as broken; verify it with 0.8.2.
+
 ## Chains
 
-64 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
+46 chain configs live in `chains/`. Each one is plain JSON - the seat roster, which models fill
 which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be
 copied and edited.
 
-The four recommended ones (`cheap-7-v2`, `plan-premium-7`, `plan-highest-7`, `local-ollama`) are
-in the table at the top. A few more worth knowing:
+The five recommended ones (`cheap-7-v2`, `plan-daily-7`, `plan-premium-7`, `plan-highest-7`, `local-ollama`) are
+in the table at the top. The chains the 0.8.2 cleanup moved out of `chains/` are in `archive/chains/` in the repository (not in the npm package); copy one into your project's own `chains/` to run it by name. A run recorded on one of them needs its file there too before it can be resumed, rematched or replayed (the error says so). A few more worth knowing:
 
-- **`verify`** - two labs, two rounds. The default when you name no chain; needs Anthropic, OpenAI
-  and Google keys.
+- **`verify`** - two labs, two rounds; needs Anthropic, OpenAI and Google keys. It was the default when you named no chain until 0.8.1.
+- **`plan-lanes-4`** (new in 0.8.2, optional and experimental) - one writer (Claude Sonnet 5.5, no panel seat) and
+  three reviewers (GPT-5.6 Luna, Gemini 3.8 Flash, GLM 5.3 Flash), each with an assigned lane: correctness and
+  interfaces, security and failure behaviour, implementation and verification. No blind proposals and no debate;
+  unanimous sign-off, up to 7 rounds, one OpenRouter key. A lane is where a reviewer looks first, never a smaller
+  set of criteria: every reviewer still checks every criterion. Dry run: $1.62 expected at the chain's own task-size estimate, $6.34 at most (every call at its full output allowance, GLM at 360,000 tokens for its panel
+  review, over seven rounds) (under the default $7 at the estimate sizes, by a margin that shrinks as the task grows), and about $8.9 if every GLM review were cut off
+  and retried at its larger cap, in which case the cap stops the run before it is exceeded. The words that tell a
+  reviewer its lane are recorded in the judge prompt (`LANE_TEXT` in `src/roles.js`), so each of its three judges is told where its attention goes first, and every judge still writes a row for every criterion.
+  Nothing here claims it plans better than another chain: that cannot be measured without ground truth.
 - **`plan-open-7`** - the `cheap-7-v2` panel, with a Claude Code session writing the plan instead
   of a paid seat.
-- **`plan-daily-7`** - `plan-highest-7`'s stages at a lower price, for planning one feature:
-  Claude Opus 5.5 on your Claude subscription (an external seat), GPT-6 Luna and DeepSeek V4 Pro
-  write the architectures and alone vote; seven low-cost labs propose and debate. Two Claude Code
-  sessions answer its external seats: Opus 5.5 every stage whose label contains `opus5.5-sub`
-  (including `-retry` and `-reask1`/`-reask2` forms), Sonnet 5 the writer stages. $5.70 worst case
-  (0.8.1 dry run at the prices of 2026-10-06; $5.08 at the earlier prices, $4.88 before every seat reasoned at high, $1.90 before proposals could use a
-  seat's whole output allowance).
-  **Run once with real models (2026-09-28); nothing about it has been measured.**
-- **`cheap`** - small models throughout. For testing the harness itself, not for real work.
-- **`plan-debate`** - five labs propose blind, debate each other's proposals anonymised, then a
-  blind panel grades the integrated draft.
-- **`plan-auto`** - the full open-scope chain with every seat on a real API, so no stage waits for
-  an external session. It still pauses once for your answers to its questions.
-- **`plan-unanimous`** - every critic must independently sign off on the *same* draft. Three rounds
-  here means up to fifteen critic calls, not five.
+- **`plan-daily-7`** - `plan-highest-7`'s stages at a lower price, for planning one feature.
+  **Every seat votes, blind, the plan's writer too** (the owner's deliberate choice of 7 Oct 2026; it reverses the September rule that no seat both argues and votes, for this chain and `plan-highest-7` only):
+  the criteria seat, one of the architects and one of the judges are Claude Opus 5.5 on your Claude subscription (external seats); GPT-6.1 Sol and GLM-5.3 Flash write the other architectures; six low-cost labs
+  propose and debate; thirteen judges (those seats, DeepSeek V4 Pro, GPT-6 Luna, MiniMax M3, the deep-dive seat's lab and the writer) sign off unanimously. Two Claude Code sessions answer its
+  external seats: Opus 5.5 every stage whose label contains `opus5.5-sub` (including `-retry` and `-reask1`/`-reask2` forms) and the criteria stage (`criteria`, `criteria-retry`, `criteria-feasibility-retry`: their labels carry no lab name), Sonnet 5 the writer stages and the writer's own panel review.
+  $12.59 expected, $33.25 at most (the 0.8.2 dry run of 7 Oct 2026, on the shipped price table, as of 2026-09-06; pass a `--max-usd` above the $7 default).
+  **The roster before 7 Oct ran once with real models (2026-09-28); this one has not run, and nothing about it has been measured.**
 
 Read a chain's `description` field before running it; they say what they cost you in calls.
 
@@ -821,8 +872,8 @@ for any model the table has a field for.
 - **Models the table has no field for** (for example Cohere, Groq, Mistral Large, the models on Together
   other than Qwen3.5-9B and DeepSeek V4 Flash, local Ollama models) are sent nothing. DeepSeek V4 Flash on
   Together is sent the chat-template switch vLLM documents for it; Together's own page for it was not found.
-- **`gp-judge-v1`** now runs its Sonnet and Qwen seats with reasoning on (it ran with it off). Scores
-  from this version on come from the high-effort judge, so earlier and later GP scores are not
+- **`gp-judge-v1`** (since 0.8.2 in `archive/chains/`) ran its Sonnet and Qwen seats with reasoning on (it ran with it off before). Scores
+  from that version on come from the high-effort judge, so earlier and later GP scores are not
   directly comparable.
 
 ### Optional chain-config fields
@@ -848,11 +899,11 @@ for any model the table has a field for.
   a round short of it is recorded as `notQuorate`, the run does not pass, and the loop stops.
 - **Tiered councils (experimental, used by `plan-highest-7`, `plan-daily-7` and `mock-tiered`).**
   `seats.alternatives` names who writes the whole alternative architectures, separately from the
-  proposers. `deep_dive` + `seats.deep_dive` add one non-voting seat with its own dollar cap
+  proposers. `deep_dive` + `seats.deep_dive` add one seat with its own dollar cap
   (`usd`, required) inside the run's cap. `majority_guard.enabled` shows each author every
   argument once, with no lab name or count, and keeps a proposal whose withdrawal does not quote
   the argument it gives in to. chain-lint refuses a tiered chain where a lab or model sits
-  both among the proposers and among the reviewers or architecture authors, or where the deep-dive seat shares a lab or model with a reviewer. See
+  both among the proposers and among the reviewers or architecture authors, or where the deep-dive seat shares a lab or model with a reviewer, unless the chain says `"judging": "all-roles"` at the top level (the owner's deliberate override of 7 Oct 2026, set in `plan-daily-7` and `plan-highest-7` only: there every seat with another role also judges and votes, blind; `"selfReview": "allowed"` seats the plan's writer on the panel too). See
   CHANGELOG.md's 0.7.8 entry.
 
 ## How this was built
@@ -912,6 +963,10 @@ what each rule guards against and why. Copy the folders you want into your proje
 
 ## Known limits, stated plainly
 
+- **The panel signs one draft; later stages can change what you receive, and nobody re-reads it.** The dispute pass, the post-sign-off challenge and the final edit are model edits made after
+  the last review, and the dissent and cold-read blocks are written by the harness. The run labels this and does not repair it: `report.json` has `signed_text` and `delivered_text`
+  (hashes, `same_as_signed`, `changed_by`), `BOARD.md` says so when it applies, and `HANDOFF.md` opens with a banner when a model edit changed the text after the panel signed it (a run the panel did not sign keeps its own "not a signed-off plan" banner). A cold-read or dissent block the harness adds is named in `delivered_text.harness_notes` and gets no banner. The panel is not run
+  again on the changed text (that would be a further paid pass per run), and `run_status` says so after "every lab signed off" when the delivered text differs (`delivered_text.same_as_signed` in `report.json`).
 - The spend cap is enforced against a **worst case**, not a prediction: the whole prompt billed as
   input plus the seat's entire `maxTokens` budget billed as output (for Anthropic seats, plus the
   bigger cap of the one retry they may make). Real stages almost never cost that much, so a run can stop with headroom
@@ -919,11 +974,11 @@ what each rule guards against and why. Copy the folders you want into your proje
 - The dry run (`--dry-run`, MCP `dry_run`) prices the task alone and does not read `--context`
   documents, so for a run with context its estimate is too low. The spend cap is not affected: it
   checks every real prompt, context included, before each call.
-- A seat whose model has no entry in `src/pricing.json` is **unpriced, and therefore uncapped**.
-  It contributes $0 to the running total no matter what it really costs. Check `dry_run` output
-  for `unpriced` before trusting a ceiling. `ollama` seats are the one deliberate exception: they
-  price at an explicit $0 for any model name (they are genuinely free to run), so they never show
-  up in that `unpriced` list and never need a pricing.json entry.
+- A seat whose model has no entry in `src/pricing.json` cannot be held by a spend cap, because the cap would count every call to it as $0. Since 0.8.2 a run **refuses** such a
+  seat before it sends anything (exit 5; the message names the seat and the two ways out: add a pricing row, or run with `--max-usd none`, which sets no spend ceiling at all), and
+  `--dry-run` shows the same refusal at $0. `mock`, `external` and `ollama` seats are exempt: `ollama` prices at an explicit $0 for any model name, because it is genuinely free to run.
+  What remains: the cap is only as good as the price table (it is dated, and the dry run says when it is old), and a model that answers in place of a priced one (an OpenRouter fallback in
+  `extra.models`) is charged at the priced seat's price, which can differ from its own.
 - A call that fails **after** it reached the provider - the connection drops while a 200 reply is
   being read, a 200 carries a body that is not JSON, or the request times out waiting for headers -
   is not retried, because the generation was probably already billed. Its real usage cannot be
@@ -957,14 +1012,18 @@ what each rule guards against and why. Copy the folders you want into your proje
   through 2026-11-21; Gemini 3.8 Flash, which doubles on 2027-01-01): past it, `council doctor` and
   `--dry-run` warn, but the projection and the cap keep the old price, so they can project low
   until the table is updated.
-- `plan-highest-7` has not been run with real models, and `plan-daily-7` has run once
-  (2026-09-28). None of the tiered councils' mechanisms (tiers, the deep-dive seat, the majority
+- `plan-highest-7` has not been run with real models, and `plan-daily-7` ran once (2026-09-28) with the roster it had before the 7 Oct 2026 redesign. None of the tiered councils' mechanisms (tiers, the deep-dive seat, the majority
   guard) has been measured. Their dry-run prices are projections.
+- **`run_tests` runs a repository's own test files as trusted code, with no sandbox.** It belongs to the opt-in seat tools (`verify.tools` naming `run_tests`, as `coder-gate-v1` does; a seat
+  may request it mid-stage only when the chain also sets `tools.seat_requests`). Since 0.8.2 the test process gets an allowlisted environment: `PATH`, `HOME` (`USERPROFILE`), the temporary-folder
+  variables, `LANG`, `LANGUAGE`, `LC_*`, `TERM`, `CI` and the Windows system variables (`SystemRoot`, `ComSpec`, `PATHEXT`, `WINDIR`). No provider key is in its environment, but a test is code you trust: it can still read the parent process's environment and files on disk (for example `/proc/<pid>/environ`), so run it only on a repository you trust. A project's tests that need another
+  variable (a database URL, say) will not see it. It can still read every file you can read, write files and use the network, so use it only on a repository you trust.
+- **The symbolic-link containment of the MCP tools is untested on Windows.** Since 0.8.2 the tools refuse a run folder that holds a symbolic link and open run-folder files with `O_NOFOLLOW`. That flag does not exist on Windows, so there the
+  protection rests on the `lstat` checks alone, and it has been tested on Linux only: not on a real Windows machine, and the packaged `.exe`'s smoke test under Wine does not exercise it.
 - Seats marked `external` (the writer seats in `plan-premium-7`, `plan-highest-7`,
-  `plan-daily-7` and `plan-open-7`, and the Opus 5.5 anchor seat in `plan-daily-7`) pause the run until someone answers them, and are $0 only because a Claude Code
+  `plan-daily-7` and `plan-open-7`, and the Opus 5.5 subscription seats in `plan-daily-7` and `plan-highest-7`) pause the run until someone answers them, and are $0 only because a Claude Code
   session on a subscription writes them. Nothing checks who wrote the answer.
-- Chains with many labs and high round caps get expensive quickly. `plan-unanimous` at three rounds
-  is fifteen critic calls; `plan-auto` runs several frontier models over multiple rounds. Price
+- Chains with many labs and high round caps get expensive quickly: every round asks every critic seat. Price
   before you run.
 - A panel that signs off is not a guarantee the output is correct. It means every critic seat
   checked it against the stated acceptance criteria and found nothing. Criteria that are vague
@@ -999,6 +1058,9 @@ what each rule guards against and why. Copy the folders you want into your proje
   - U5: what each provider bills for an aborted request, and a real client's cancel (the tests send `notifications/cancelled` by hand).
   - U6: Sol's real output length and latency, and GLM-5.3's latency, as advisors.
   - U7: cancellation semantics under the protocol revision the SDK negotiates (generic cancellation, not the newer stdio requirement).
+- **The contract record (`council contract`, `contract_read`, `contract_amend`) was checked only against mock providers and a pretend terminal.** Its drafting call was never made with a real model
+  (its wording, recorded in 0.8.2, has only been read by a mock seat). The person's answer is friction, not enforcement: a shell-capable agent can open a pseudo-terminal, as
+  with `council gate answer`. A contract is an agreement between a person and a build session's instructions; it does not make a build session follow it, and nothing here measures whether it helps.
 - **The approval gate is friction, not enforcement.** Every advice call needs a person to answer a gate through a terminal or an elicitation, so scripted or
   unattended use is not supported: a client that cannot ask a person (headless Claude Code, a script) gets `awaiting_approval`, and nothing is sent until someone answers at a terminal. The terminal answer can be typed by anything that runs as you. The gate's ledger is
   tamper-evident, not tamper-proof: an edit before its last line is detected; the last line, the tail and a rewrite of both the ledger and its view are not.
@@ -1010,16 +1072,16 @@ what each rule guards against and why. Copy the folders you want into your proje
 - **The advice brief is written into the run folder** (`runs/<id>/advice-brief.md`), so a commit of the run folder publishes it.
 - **`advise-single`'s ceiling is $1.32 (the "at most" its tool description shows).** It covers the first call and one retry of a cut-off reply; the typical
   cost of one call is far lower. A person's own terminal run of an advice chain is not gated (`gate: null`), and the add-on's money limits and its chain choice can
-  also be set from a project `.env` (as can the audit-log key `AUDIT_HMAC_KEY` and the quote lifetime `COUNCIL_ADVISE_QUOTE_TTL_MS`): whether those should be refused is open. The council's wall clock (900 seconds) is untuned, and the single-seat swaps
-  (Astra, Gemini) keep fixed output caps.
+  also be set from a project `.env` (as can the audit-log key `AUDIT_HMAC_KEY` and the quote lifetime `COUNCIL_ADVISE_QUOTE_TTL_MS`): whether those should be refused is open. The single-seat swaps
+  (Astra, Gemini) keep fixed output caps. The three added or raised in 0.8.2 were priced by dry run only, and no live call was made: Qwen3.8 Max has a 36,000-token cap (whether that is enough when the model reasons at its own default, above high, is not verified); GLM-5.3 Flash and DeepSeek V4.1 Flash are set to 360,000 tokens, which only some of their zero-data-retention endpoints accept (8 of 17 and 3 of 5, list read 2026-10-06), and whether OpenRouter routes around an endpoint that does not or refuses the call is not verified. No advice chain has a time limit of its own, so a stop (`council stop`, a client cancel) waits for calls already in flight, up to the 2-hour request deadline.
 - **A review cut-off in the security-review seat:** `src/security-review.js` cuts reviewer fields at 2,000 characters with a visible marker and no record.
-- **Untested on case-insensitive file systems (macOS, Windows).** The fix for `handoff.md` and `HANDOFF.md` being one file (FX-9: `handoff --from-run` now also writes with an exclusive create, so it cannot replace an existing file whatever the disk's case rules) and the working-folder path checks were tested on Linux only. No pass on a Mac or a Windows machine was run for 0.8.1.
+- **Untested on case-insensitive file systems (macOS, Windows).** The fix for `handoff.md` and `HANDOFF.md` being one file (FX-9: `handoff --from-run` now also writes with an exclusive create, so it cannot replace an existing file whatever the disk's case rules) and the working-folder path checks were tested on Linux only. No pass on a Mac or a Windows machine was run for 0.8.1 or 0.8.2.
 - **The dry run does not price every cap.** A planning chain's dry run prices a critic at the chain's own estimate, not at its output cap, so the larger caps of
   0.8.1 (360,000 tokens for DeepSeek V4.1 Flash and the panel review of GLM-5.3 Flash) appear only in the spend cap's per-stage projection, which can stop a run before
-  the dry-run total. A retry of 720,000 tokens (a 360,000-token seat at the model's maximum) cannot finish inside the 45-minute request deadline and would be a paid timeout.
+  the dry-run total. A retry of 720,000 tokens (a 360,000-token seat at the model's maximum) would take about 90 minutes at the slowest speed measured (about 134 tokens/s), close to the 2-hour request deadline, and a call that deadline cuts is a paid timeout.
 - **A failed start after approval is counted at the full ceiling.** If an advisor run cannot start after a person approved it (for example an unreadable audit-key file named in a project `.env`), the approval is used up, nothing is sent, and the call is still counted in the limits at its full ceiling (`advise-single`: $1.32). Two of these and one real call pass the $3 session limit, which then refuses advice for six hours with nothing spent.
 - **One approval can start two runs if the approved run folder is copied:** the approval is bound to the text, not to the run folder.
-- **Six shipped chains seat Gemini 2.5** (`plan-two-strong`, `seven`, `cheap`, `smo`, `us-only`, `verify` through the direct Google provider). Google has closed Gemini 2.5 to new projects, so a run on those chains by a new user will probably fail at that seat; use a chain with another seat, or change the seat's model.
+- **Two shipped chains seat Gemini 2.5** (`us-only` and `verify`, through the direct Google provider; the archived `plan-two-strong`, `seven`, `cheap` and `smo` did too). Google has closed Gemini 2.5 to new projects, so a run on those chains by a new user will probably fail at that seat; use a chain with another seat, or change the seat's model.
 - **The retry of a direct Anthropic seat whose thinking used the whole cap may never fire.** It keys on a thinking-token count in the reply's `usage`
   (`output_tokens_details.thinking_tokens`) that Anthropic's public Messages API reference does not list (thinking counts inside `output_tokens`); OpenRouter reports
   `reasoning_tokens`, so it fires for an Anthropic seat sent through a single-vendor route (`"transport": "openrouter"`). Where the count is absent, a reply cut off at its cap is retried by the panel's ordinary cut-off rule (one bigger call),
@@ -1028,13 +1090,15 @@ what each rule guards against and why. Copy the folders you want into your proje
   external seat's claim as ordinary fields; text from a cloned repository's run folder or chain file could carry an instruction there. Only the model-written fields named in
   `untrusted_fields` are marked. A stage bundle for a subagent now says its referenced files are data; the field marking is planned for 0.8.2.
 - **The terminal command for approving a call was not run under the `.mcpb` route.** It names the server's own Node binary and `cli.js` with absolute paths (or the standalone binary alone). Under Claude Desktop's bundled Node, whether that binary can be run from a terminal was not checked; `council gate answer` from an installed `council` always works.
-- **A process killed in the middle of a call records nothing** (there are no signal handlers): the provider bills the call, but it is missing from `council --spend` and from a resume's
-  cap. A brief of non-ASCII text (CJK, say) is projected low in a planning chain (four characters a token); the add-on prices such a brief from its bytes.
-- **A run paused under 0.8.0 on a chain that 0.8.1 changed is not replayed when resumed:** the config fingerprint differs, so its stages are set aside and paid for again.
-  Finish such a run on 0.8.0, or start it again.
+- **A process killed in the middle of a paid call leaves that call charged at its worst case, not at what it cost.** Since 0.8.2 a call's worst case is written to
+  `runs/<id>/spend-reservations.jsonl` before the request goes out, and a settle line follows when the call returns. If the process dies in between (there are no signal handlers), the provider may bill
+  the call and no usage file exists, so the unsettled reservation stays counted at its worst case in a resume's cap, in `council --spend` and in the spend report. No command clears one: the figure errs high,
+  and goes when the run folder goes. Whoever can write the run folder can edit the file. A brief of non-ASCII text (CJK, say) is projected low in a planning chain (four characters a token); the add-on prices such a brief from its bytes.
+- **A run paused under 0.8.1 on a chain or a prompt that 0.8.2 changed is not replayed when resumed:** the config fingerprint or the prompt hash differs (0.8.2 changed seven planning chains and the criteria and judge prompts of every chain), so its API stages are
+  paid for again and the answers already given to its external stages are set aside and asked again (the same holds for a run paused under 0.8.0 on a chain 0.8.1 changed). Finish such a run on the version that paused it, or start it again.
 - **`npm test` turns red on dates, by design:** 2026-10-31 (the retention table, 30 days old), 2026-11-21 (the `gpt-5.6-sol` promotional price row, and the OpenRouter
-  price rows of `src/pricing.json`, 45 days after `scripts/refresh-openrouter-prices.mjs` last compared them with OpenRouter's list) and 2026-12-05
-  (`src/reasoning-table.json`, 60 days old). Re-read the pages, re-date the file, then the suite is green again. The price rows of the direct providers
+  price rows of `src/pricing.json`, 45 days after `scripts/refresh-openrouter-prices.mjs` last compared them with OpenRouter's list) and 2026-12-06
+  (`src/reasoning-table.json`, 60 days old; regenerated 2026-10-07). Re-read the pages, re-date the file, then the suite is green again. The price rows of the direct providers
   (Anthropic, OpenAI, Google, ...) carry their own dates in `_source` and are not covered by that test.
 - **DeepSeek V4 Flash on Together** is sent `chat_template_kwargs {thinking: true, reasoning_effort: "high"}` from vLLM's serving recipe; Together's own page for it was
   not found, so the on-value is unconfirmed on Together.

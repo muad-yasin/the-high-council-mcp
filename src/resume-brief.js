@@ -24,9 +24,19 @@ function pendingStage(dir) {
   return w[0] || null;
 }
 
-function oneLineTaskSummary(taskPath) {
+// `readTask` (0.8.2 item 2): the MCP server passes a reader that refuses a task path outside the working folder the run recorded (src/run-files.js readRecordedTask),
+// because run.json is run-folder data. The CLI, writing the brief for its own run, passes none and reads the path as before.
+function oneLineTaskSummary(taskPath, readTask = null) {
+  if (readTask) {
+    const r = readTask(taskPath);
+    if (r.text === undefined) return r.missing || !taskPath ? '(task file not found on disk)' : `(task file not shown: ${r.refusal})`;
+    return summarizeTask(r.text);
+  }
   if (!taskPath || !existsSync(taskPath)) return '(task file not found on disk)';
-  const text = readFileSync(taskPath, 'utf8').trim();
+  return summarizeTask(readFileSync(taskPath, 'utf8'));
+}
+function summarizeTask(raw) {
+  const text = raw.trim();
   const firstLine = text.split('\n').find(l => l.trim().length > 0) || text;
   const clean = firstLine.replace(/^#+\s*/, '').trim();
   return clean.length > 140 ? `${clean.slice(0, 137)}...` : clean;
@@ -54,7 +64,7 @@ function completedKinds(dir, chainConfig) {
  * Build the resume brief for one run. Pure given its inputs: same run.json + same files on
  * disk always produce the same text (aside from being able to note new files appearing).
  */
-export function generateResumeBrief({ runId, dir, runMeta, chainConfig }) {
+export function generateResumeBrief({ runId, dir, runMeta, chainConfig, readTask = null }) {
   const kindsInOrder = chainConfig ? stageKindsFor(chainConfig) : [];
   const done = chainConfig ? completedKinds(dir, chainConfig) : [];
   const pending = pendingStage(dir);
@@ -62,7 +72,7 @@ export function generateResumeBrief({ runId, dir, runMeta, chainConfig }) {
 
   const lines = [];
   lines.push(`# RESUME BRIEF — run ${runId}`);
-  lines.push(`Task: ${oneLineTaskSummary(runMeta?.task)}`);
+  lines.push(`Task: ${oneLineTaskSummary(runMeta?.task, readTask)}`);
   lines.push(`Status: ${deliverableDone ? kindsInOrder.length : done.length} of ${kindsInOrder.length || '?'} stages complete`);
   lines.push('');
   lines.push('## Decided so far');

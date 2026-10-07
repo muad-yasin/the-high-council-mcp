@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://the-high-council.dev/schema/contract-v1.json",
+  "title": "contract/v<n>.json - one version of a run's contract (schema contract/1)",
+  "description": "runs/<id>/contract/v<n>.json, written only by src/contract-record.js and never edited: an amendment is a new version that names the one before it. The ledger (gate-ledger.jsonl) is the authority for which version is current; a version file without a ledger line has no authority, and `council contract check` fails on it. Every field but the obligations' words is written by the harness: a model's draft supplies only id, text, criterion and check (src/contract-lint.js). Tamper-evident, not tamper-proof: whoever can write the run folder can rewrite the record, its approval and the ledger together, and nothing detects that.",
+  "type": "object",
+  "required": ["schema", "version", "supersedes", "run", "locked_at", "source", "obligations", "amendment", "approval", "sha256"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "contract/1" },
+    "version": { "type": "integer", "minimum": 1 },
+    "supersedes": { "type": ["integer", "null"], "minimum": 1, "description": "null for version 1; version n-1 for every later version." },
+    "run": { "type": "string", "description": "the run folder's name when the contract was locked." },
+    "locked_at": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_sha256", "criteria_sha256", "signed_text_sha256", "thin_contract_sha256"],
+      "description": "What the run's report.json said the contract is made from (its thin contract); null where the run recorded none.",
+      "properties": {
+        "task_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "criteria_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "signed_text_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "thin_contract_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "obligations": {
+      "type": "array", "minItems": 1, "maxItems": 40,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text", "sha256"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,31}$" },
+          "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "criterion": { "type": "string", "pattern": "^C[1-9][0-9]{0,3}$" },
+          "check": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the canonical JSON of { id, text, criterion, check } (an absent one is null)." }
+        }
+      }
+    },
+    "amendment": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["request_seq", "obligation_id", "reason", "from_version"],
+          "properties": {
+            "request_seq": { "type": "integer", "minimum": 1, "description": "the ledger line of the request a person approved." },
+            "obligation_id": { "type": "string" },
+            "reason": { "type": "string", "maxLength": 500, "description": "the requester's words, untrusted." },
+            "from_version": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate", "text", "sha256"],
+      "description": "The gate a person approved, and the exact text they were shown: the contract text for version 1, the amendment text for a later version. `check` recomputes that text and compares its hash.",
+      "properties": {
+        "gate": { "type": "string", "pattern": "^g[1-9][0-9]{0,5}$" },
+        "text": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the record without this field, as JSON with every object's keys sorted and no whitespace (src/thin-contract.js canonicalJson)." }
+  }
+}

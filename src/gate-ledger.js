@@ -7,7 +7,7 @@
 //   verifyLedger(runDir)    -> the same verdict, for `council gate verify`
 //   withLedger(runDir, fn)  -> runs fn({ lines, append }) holding the run's ledger lock; append(event, fields)
 //                              writes one line. Used by src/gate.js for the two gate events.
-//   appendEvent(runDir, event, fields) -> appends one of PUBLIC_EVENTS (sent, stopped, more_material_requested).
+//   appendEvent(runDir, event, fields) -> appends one of PUBLIC_EVENTS (sent, stopped, more_material_requested, amend_requested).
 //   EVENTS, PUBLIC_EVENTS, LEDGER_FILE, LEDGER_SCHEMA
 //
 // Line format: {"schema":"gate-ledger/1","seq":n,"prev":<sha256 hex | null>,"ts":<ISO>,"event":<name>,...fields}.
@@ -40,10 +40,13 @@ import { acquireRunLock, RunLockedError } from './run-lock.js';
 export const LEDGER_FILE = 'gate-ledger.jsonl';
 export const LEDGER_LOCK_FILE = 'gate-ledger.lock';
 export const LEDGER_SCHEMA = 'gate-ledger/1';
-// The set M4 (sent), M5 (more_material_requested) and M6 (stopped) need; plan M3 Work 2.
-export const EVENTS = Object.freeze(['gate_requested', 'gate_answered', 'sent', 'stopped', 'more_material_requested']);
-// The two gate events are written only by src/gate.js (through withLedger); everything else may append these.
-export const PUBLIC_EVENTS = Object.freeze(['sent', 'stopped', 'more_material_requested']);
+// The set M4 (sent), M5 (more_material_requested) and M6 (stopped) need; plan M3 Work 2. 0.8.2 item 6d (owner, 7 Oct 2026: "we go with the full one") adds the contract record's three:
+// contract_locked, amend_requested and amend_decided (src/contract-record.js). A ledger that holds one of them is read as "broken" by a 0.8.1 tool (it reports an unknown event, whatever the
+// format id says), which the CHANGELOG lists under the breaking heading.
+export const EVENTS = Object.freeze(['gate_requested', 'gate_answered', 'sent', 'stopped', 'more_material_requested', 'contract_locked', 'amend_requested', 'amend_decided']);
+// The two gate events are written only by src/gate.js and the contract's lock and decision events only by src/contract-record.js (both through withLedger); everything else may append these.
+// amend_requested is public on purpose: it is a request that decides nothing (the `contract_amend` tool appends it), and a person reads its words before a decision.
+export const PUBLIC_EVENTS = Object.freeze(['sent', 'stopped', 'more_material_requested', 'amend_requested']);
 
 export class LedgerBusyError extends Error {
   constructor(holder, lockPath) {

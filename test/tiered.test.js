@@ -39,8 +39,9 @@ async function run(config, request = TASK) {
 // Muad's go (2026-09-26, "Yes and Yes"): on in plan-highest-7, a new chain; off everywhere else.
 // plan-daily-7 (2026-09-27, Muad's request relayed by the C&C session): a new chain built on
 // plan-highest-7's design, guard on as there.
-const GUARDED = new Set(['mock-tiered.json', 'plan-highest-7.json', 'plan-daily-7.json']);
-test('tiered: no chain but mock-tiered, plan-highest-7 and plan-daily-7 turns the majority guard on (it changes prompts)', () => {
+// 0.8.2 (owner decision 2, 5 Oct 2026, "Yes x3"): the existing majority guard is also on in plan-premium-7, plan-open-7 and cheap-7-v2.
+const GUARDED = new Set(['mock-tiered.json', 'plan-highest-7.json', 'plan-daily-7.json', 'plan-premium-7.json', 'plan-open-7.json', 'cheap-7-v2.json']);
+test('tiered: no chain but mock-tiered, the two tiered chains and the three the owner added turns the majority guard on (it changes prompts)', () => {
   for (const f of readdirSync(join(root, 'chains')).filter(x => x.endsWith('.json'))) {
     const c = JSON.parse(readFileSync(join(root, 'chains', f), 'utf8'));
     if (GUARDED.has(f)) assert.equal(c.majority_guard?.enabled, true, `${f} has the guard on`);
@@ -316,7 +317,8 @@ test('lint: every tiered config that would do nothing, or spend uncapped, is nam
   // A classic chain (no tier fields) where the same labs propose and review is not tiered.
   assert.ok(!lintChain(chain('mock-debate')).some(f => f.kind === 'mass-seat-votes'));
   // The same model under another lab id, in either anchor list, is the same lab.
-  const real = chain('plan-highest-7');
+  // 0.8.2 (owner, 7 Oct 2026): the shipped plan-highest-7 now sets "judging": "all-roles", which switches both rules off for it; these two checks are about the rules themselves, so they run on the chain without the override.
+  const { judging: _judging, ...realWithOverride } = chain('plan-highest-7'); const real = realWithOverride;
   const astra = real.seats.critics[0];
   const relabelled = { ...real, seats: { ...real.seats, proposers: [...real.seats.proposers.slice(1), { ...astra, lab: 'not-astra' }] } };
   assert.ok(kinds(relabelled).includes('mass-seat-votes'));

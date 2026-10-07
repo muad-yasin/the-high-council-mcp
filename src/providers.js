@@ -6,6 +6,7 @@
 // Anthropic uses its own Messages API. Everything else here speaks the
 // OpenAI chat-completions shape, which is why they share one adapter.
 
+import { objectionId } from './objection-ids.js';
 import { demoReply } from './mock-demo.js';
 
 const OPENAI_COMPAT = {
@@ -120,6 +121,22 @@ async function callMock({ model, system, messages, maxTokens }) {
       return demo;
     }
   }
+  // 0.8.2 item 6d (test/contract-draft.test.js): a handoff seat that drafts a contract from the criteria its prompt lists as `C1.` lines, one obligation per line, so a test proves the criteria reached the seat
+  // (no criteria lines, no obligations, and the lint refuses the empty draft). `-bad` adds a field named like an identity field, which the lint must refuse. Only that test names them, so no pinned mock chain changes.
+  // 0.8.2 (test/contract-draft.test.js): a draft that names a criterion no matter what it was shown - what a model that invents a label would write.
+  if (model === 'mock-contract-draft-invented') {
+    await new Promise(r => setTimeout(r, 10));
+    const text = JSON.stringify({ obligations: [{ id: 'O1', text: 'Build the whole plan.', criterion: 'C1' }] });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
+  if (model === 'mock-contract-draft' || model === 'mock-contract-draft-bad') {
+    await new Promise(r => setTimeout(r, 10));
+    const seenNo = new Set(); // the recorded prompt's handoff section can repeat the criteria (its lock block): one obligation per criterion number
+    const lines = [...user.matchAll(/^C(\d+)\. (.+)$/gm)].filter(m => !seenNo.has(m[1]) && seenNo.add(m[1]));
+    const obligations = lines.map(m => ({ id: `O${m[1]}`, text: `Satisfy: ${m[2]}`, criterion: `C${m[1]}`, check: `a person reads the plan against criterion C${m[1]}` }));
+    const text = JSON.stringify(model === 'mock-contract-draft-bad' ? { obligations, version: 7 } : { obligations });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
   // A critic whose reply can't be parsed - stands in for a real reply cut
   // off at the token cap. Exercises the abstention path offline.
   if (model === 'mock-unreadable') {
@@ -166,7 +183,7 @@ async function callMock({ model, system, messages, maxTokens }) {
     await new Promise(r => setTimeout(r, 10));
     const mineIdx = user.indexOf("# The other labs' alternatives");
     const theirs = [...user.matchAll(/^## ([A-Z]-ALT) \(by Lab [A-Z]\)/gm)].filter(m => m.index > mineIdx).map(m => m[1]);
-    const posts = theirs.map((id, i) => ({ on: id, stance: i === 0 ? 'object' : 'support', text: i === 0 ? 'Quote: "one service per concern" - it cannot meet the latency bar.' : 'Sound for this request.' }));
+    const posts = theirs.map((id, i) => ({ on: id, stance: i === 0 ? 'object' : 'support', text: i === 0 ? (model === 'mock-alt-unquoting' ? 'It cannot meet the latency bar.' : 'Quote: "one service per concern" - it cannot meet the latency bar.') : 'Sound for this request.' }));
     return { text: JSON.stringify({ posts }), usage: { input: 30, output: 30 }, provider: 'mock', model };
   }
   if (system.startsWith('You are one lab on an architecture panel, answering')) {
@@ -224,7 +241,11 @@ async function callMock({ model, system, messages, maxTokens }) {
     const others = [...user.matchAll(/^## ([A-Z]-\d+) \(by Lab [A-Z]\)/gm)].map(m => m[1]);
     const mineIdx = user.indexOf('# The other labs');
     const theirs = others.filter(id => user.indexOf(`## ${id} `) > mineIdx);
-    const posts = theirs.map((id, i) => ({ on: id, stance: i % 2 ? 'support' : 'object', text: i % 2 ? 'Fine as written.' : 'Quote: "mock.js" - no such file exists.' }));
+    // 0.8.2: `mock-proposer-xref` (test/debate-order.test.js) cites ANOTHER proposal and its lab by the anonymised names in its own prompt, at the START of its objections - the cross-reference
+    // a shuffled debate must re-letter for every reader. Only that test uses it, so the pinned mock chains are unchanged. `mock-proposer-unquoted` (audit fix cnc-prompts F1, test/held-door-4a.test.js) objects with no quote at all.
+    const labOfId = Object.fromEntries([...user.matchAll(/^## ([A-Z]-\d+) \(by (Lab [A-Z])\)/gm)].map(m => [m[1], m[2]]));
+    const cited = theirs[theirs.length - 1];
+    const posts = theirs.map((id, i) => ({ on: id, stance: i % 2 ? 'support' : 'object', text: i % 2 ? 'Fine as written.' : model === 'mock-proposer-xref' ? `${cited} (${labOfId[cited]}) is cited here: \"mock.js\" - no such file exists.` : model === 'mock-proposer-unquoted' ? 'It will not scale.' : 'Quote: "mock.js" - no such file exists.' }));
     // 0.7.8 debate.dropped fixtures (test/debate-dropped.test.js): a seat whose posts the stage's
     // filter must reject, one of each kind, next to its valid ones; and a seat whose reply is not JSON.
     if (model === 'mock-proposer-garbled') return { text: 'Several thoughts on these proposals, and no JSON at all.', usage: { input: 30, output: 10 }, provider: 'mock', model };
@@ -248,10 +269,11 @@ async function callMock({ model, system, messages, maxTokens }) {
     // Tiered councils (the majority guard): `mock-yield-unargued` withdraws everything without
     // naming the argument it concedes to, `mock-yield-argued` withdraws quoting the first objection
     // it was shown - so a guarded mock run records one withdrawal the guard keeps and one it honours.
-    if (model === 'mock-yield-unargued' || model === 'mock-yield-argued') {
+    if (model === 'mock-yield-unargued' || model === 'mock-yield-argued' || model === 'mock-proposer-xref') {
       const objection = (user.match(/^- (?:Lab [A-Z] - )?object: (.+)$/m) || [])[1] || '';
-      const replies = ids.map(id => ({ id, action: 'withdraw', text: 'The objection is right.', ...(model === 'mock-yield-argued' ? { conceded_to: objection.slice(0, 40) } : {}) }));
-      return { text: JSON.stringify({ replies }), usage: { input: 30, output: 20 }, provider: 'mock', model };
+      const replies = ids.map(id => ({ id, action: 'withdraw', text: 'The objection is right.', ...(model !== 'mock-yield-unargued' ? { conceded_to: objection.slice(0, 40) } : {}) }));
+      // mock-proposer-xref also echoes the prompt it was given (a field the chain ignores), so a test can read what a reader was shown.
+      return { text: JSON.stringify({ replies, ...(model === 'mock-proposer-xref' ? { _receivedUser: user } : {}) }), usage: { input: 30, output: 20 }, provider: 'mock', model };
     }
     const replies = ids.map((id, i) => i === 0 ? { id, action: 'amend', text: 'Fair.', how: 'mock.js (amended)' } : { id, action: 'keep', text: 'The file is created by the plan.' });
     if (model === 'mock-proposer-garbled') return { text: 'I stand by everything, but not in JSON.', usage: { input: 30, output: 10 }, provider: 'mock', model };
@@ -407,6 +429,16 @@ async function callMock({ model, system, messages, maxTokens }) {
   }
   if (system.startsWith('You write the handoff file')) {
     await new Promise(r => setTimeout(r, 10));
+    // 0.8.2 item 6c (test/milestones.test.js): a handoff seat that writes the milestone format against the mock criteria (C1-C3); only that test names it, so no pinned mock chain changes.
+    // 0.8.2 (test/held-door-10.test.js, 10h): the same good milestones, but the seat says the plan cannot be built as written.
+    if (model === 'mock-handoff-blocked') return { text: 'Status: blocked\n\n## What this is\nThe plan names a service that does not exist.\n\n## Milestones\n### M0 - walking skeleton\nEntry: the repo exists.\nWork: 1. build the plan (plan section 1).\nExit:\n- check: C1, C2, C3 | run the plan by hand => it works\n\n## Final checklist\n- [ ] every criterion is discharged\n', usage: { input: 30, output: 60 }, provider: 'mock', model };
+    if (model === 'mock-handoff-milestones') return { text: 'Status: ready_for_build\n\n## Milestones\n### M0 - walking skeleton\nEntry: the repo exists.\nWork: 1. build the plan (plan section 1).\nExit:\n- check: C1, C2, C3 | run the plan by hand => it works\n\n## Final checklist\n- [ ] every criterion is discharged\n', usage: { input: 30, output: 60 }, provider: 'mock', model };
+    // 0.8.2 (test/held-door-10.test.js): a handoff seat that writes milestones FROM ITS PROMPT: only when the system prompt asks for the milestone format and the user prompt lists the criteria as `C<n>.`
+    // lines, and then discharging exactly the criteria it was shown; otherwise the old free-form handoff (which the milestone lint reports as having no milestones).
+    if (model === 'mock-handoff-reads-prompt' && system.includes('## Milestones') && /^C\d+\. /m.test(user)) {
+      const ids = [...user.matchAll(/^(C\d+)\. /gm)].map(m => m[1]);
+      return { text: `Status: ready_for_build\n\n## What this is\nA fixture plan.\n\n## Milestones\n### M0 - walking skeleton\nEntry: the repo exists.\nWork: 1. build the plan (plan section 1).\nExit:\n- check: ${ids.join(', ')} | run the plan by hand => it works\n\n## Final checklist\n- [ ] every criterion is discharged\n`, usage: { input: 30, output: 60 }, provider: 'mock', model };
+    }
     return { text: 'MOCK HANDOFF\n\nRead the plan. Start with "begin".', usage: { input: 30, output: 10 }, provider: 'mock', model };
   }
   // Item 5's ambiguity-union stage. Three fixed model names, each returning two
@@ -461,7 +493,10 @@ async function callMock({ model, system, messages, maxTokens }) {
     // mock-cold-read-echo reports the exact user prompt it received back inside the reply
     // (a field the chain-side normalizer ignores), letting a test assert on the actual
     // invocation payload rather than inferring isolation from code shape alone.
-    const text = model === 'mock-cold-read-yes'
+    // 0.8.2: `mock-cold-read-garbled` answers in prose with no verdict - the reply the chain must record as NOT JUDGED, never as "no contradictions".
+    const text = model === 'mock-cold-read-garbled'
+      ? 'I read it, but I am not sure what to say about it.'
+      : model === 'mock-cold-read-yes'
       ? JSON.stringify({ raised: true, contradictions: [{ sections: ['A'], note: 'x' }] })
       : model === 'mock-cold-read-echo'
       ? JSON.stringify({ raised: false, contradictions: [], _receivedUser: user })
@@ -580,6 +615,26 @@ async function callMock({ model, system, messages, maxTokens }) {
     const text = JSON.stringify({ meets: true, criteria: rows, failures: [], verdict_line: 'All criteria met.' });
     return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
   }
+  // 0.8.2 (test/verdict-words.test.js): a critic that signs off with a full table, evidence on every row, but says UNCHECKED instead of MET on the LAST criterion - a third verdict word.
+  if (isCritic && model === 'mock-critic-unchecked-row') {
+    await new Promise(r => setTimeout(r, 10));
+    const listed = (user.match(/# Acceptance criteria\n\n([\s\S]*?)\n\n#/) || [])[1] || '';
+    const names = listed.split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean);
+    const rows = names.map((criterion, i) => ({ criterion, verdict: i === names.length - 1 ? 'UNCHECKED' : 'MET', evidence: 'Section 1 states it.' }));
+    const text = JSON.stringify({ meets: true, criteria: rows, failures: [], verdict_line: 'All criteria met.' });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
+  // 0.8.2 (test/held-prompts/*.test.js): a critic that signs off with a table missing the LAST criterion, until its prompt carries the re-ask note "# Your previous reply could not be counted",
+  // after which it writes the full table with evidence. Proves both that the note reaches an API seat and that the reply to it is accepted.
+  if (isCritic && model === 'mock-critic-table-after-note') {
+    await new Promise(r => setTimeout(r, 10));
+    const listed = (user.match(/# Acceptance criteria\n\n([\s\S]*?)\n\n#/) || [])[1] || '';
+    const names = listed.split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean);
+    const told = user.includes('# Your previous reply could not be counted');
+    const rows = (told ? names : names.slice(0, -1)).map(criterion => ({ criterion, verdict: 'MET', evidence: 'Section 1 states it.' }));
+    const text = JSON.stringify({ meets: true, criteria: rows, failures: [], verdict_line: 'All criteria met.' });
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
   if (isCritic && model === 'mock-critic-passer') {
     await new Promise(r => setTimeout(r, 10));
     const text = JSON.stringify({ pass: true, pass_reason: 'Outside my domain expertise; deferring to the rest of the panel.' });
@@ -614,6 +669,13 @@ async function callMock({ model, system, messages, maxTokens }) {
       { criterion: 'It commits to the test suite passing and names the command that runs it.', kind: 'checkable', check: 'npm test exits 0', on: 'build' },
       { criterion: 'It is scalable.', kind: 'checkable' },
     ]});
+  } else if (isCriteria && model === 'mock-criteria-spec-mirror') {
+    // 0.8.2 (test/held-door-6a.test.js): criteria about the criteria list on the first answer; on the retry they are good criteria ONLY when the retry prompt carries the sentence about a request's own
+    // list ("check whether your previous criteria repeat it"), otherwise the same meta criteria again (the gate then stops the run).
+    const told = user.includes('check whether your previous criteria repeat it');
+    text = JSON.stringify({ criteria: user.includes('Your previous answer') && told
+      ? ['The deliverable is the artifact itself, not a plan for one.', 'It states the assumptions it was written under.', 'It adds no scope the request did not ask for.']
+      : ['Is a JSON object with a "criteria" key containing a list of strings.', 'It states the assumptions it was written under.'] });
   } else if (isCriteria) {
     text = JSON.stringify({ criteria: [
       'The deliverable is the artifact itself, not a plan for one.',
@@ -627,6 +689,37 @@ async function callMock({ model, system, messages, maxTokens }) {
     // on a real holdout - the branch where a run ships with an objection on the
     // record rather than a unanimous sign-off.
     const revised = model !== 'mock-critic-holdout' && user.includes('REVISED MOCK DELIVERABLE');
+    // 0.8.2 (test/answer-back.test.js): a judge that, once the draft is revised, answers its own earlier objection in an `answers` array: `-withdraw-quoted` withdraws it quoting the
+    // draft, `-withdraw-unquoted` withdraws it with no quote, `-sustain` sustains it without listing it again, `-fixed` answers with a word that is neither sustained nor withdrawn. The test seats it under lab 'la', which the objection id depends on.
+    const answersMode = /^mock-critic-answers-(withdraw-quoted|withdraw-unquoted|sustain|fixed)$/.exec(model)?.[1];
+    if (answersMode && revised) {
+      const answers = [{ id: objectionId('la', { criterion: 'It states the assumptions it was written under.' }), status: answersMode === 'sustain' ? 'sustained' : answersMode === 'fixed' ? 'fixed' : 'withdrawn',
+        evidence: answersMode === 'withdraw-quoted' ? 'It now reads "REVISED MOCK DELIVERABLE" at the top.' : answersMode === 'sustain' ? 'Still no assumptions section.' : 'It is fixed now.' }];
+      return { text: JSON.stringify({ meets: true, criteria: [], failures: [], answers, verdict_line: 'All criteria met.' }), usage: { input: Math.ceil(user.length / 4), output: 60 }, provider: 'mock', model };
+    }
+    // 0.8.2 morning item 4 (test/audit-morning-items.test.js): a judge for PATCH-mode revision. Round 1 objects. Once its prompt carries the "Changed since your last review" section it withdraws,
+    // quoting `-was` the text of the first "Was:" block (text that is NOT in the draft any more) or `-draft` the text of the first "Now:" block (which IS in the draft). Lab 'la', like the answers family.
+    const patchMode = /^mock-critic-patch-withdraws-(was|draft)$/.exec(model)?.[1];
+    if (patchMode) {
+      const criterion = 'It states the assumptions it was written under.';
+      if (!user.includes('## Changed since your last review')) {
+        return { text: JSON.stringify({ meets: false, criteria: [], failures: [{ criterion, problem: 'No assumptions section.', fix: 'Add one.' }], verdict_line: 'One criterion failed.' }), usage: { input: Math.ceil(user.length / 4), output: 60 }, provider: 'mock', model };
+      }
+      const block = which => (user.split(`\n${which}:\n`)[1] || '').split('\n')[1] || '';
+      const quoted = block(patchMode === 'was' ? 'Was' : 'Now').trim();
+      return { text: JSON.stringify({ meets: true, criteria: [], failures: [], answers: [{ id: objectionId('la', { criterion }), status: 'withdrawn', evidence: `It now reads \`${quoted}\`.` }], verdict_line: 'All criteria met.' }), usage: { input: Math.ceil(user.length / 4), output: 60 }, provider: 'mock', model };
+    }
+    // 0.8.2 (test/held-door-3c.test.js): a judge that answers from what its PROMPT says: once the draft is revised it reads the objection id and the first changed passage out of the answer-back section
+    // and withdraws with that passage in backticks; with no such section in its prompt it objects again. Proves the section (and its words) reach the seat and that the reply it asks for is accepted.
+    if (model === 'mock-critic-reads-answerback' && revised) {
+      const section = user.split('# Your objections from the last round, and what happened')[1] || '';
+      const id = (section.match(/^- (O-[0-9a-f]{8}):/m) || [])[1];
+      const passage = ((section.match(/<changed-passage>\n([^\n]{12,})/) || [])[1] || '').trim();
+      if (id && passage) {
+        return { text: JSON.stringify({ meets: true, criteria: [], failures: [], answers: [{ id, status: 'withdrawn', evidence: `It now reads \`${passage}\`.` }], verdict_line: 'All criteria met.' }), usage: { input: Math.ceil(user.length / 4), output: 60 }, provider: 'mock', model };
+      }
+      return { text: JSON.stringify({ meets: false, criteria: [], failures: [{ criterion: 'It states the assumptions it was written under.', problem: 'No assumptions section.', fix: 'Add one.' }], verdict_line: 'One criterion failed.' }), usage: { input: Math.ceil(user.length / 4), output: 60 }, provider: 'mock', model };
+    }
     text = JSON.stringify(revised
       ? { meets: true, criteria: [], failures: [], verdict_line: 'All criteria met.' }
       : { meets: false, criteria: [], failures: [{ criterion: 'It states the assumptions it was written under.', problem: 'No assumptions section.', fix: 'Add one.' }], verdict_line: 'One criterion failed.' });
@@ -639,6 +732,11 @@ async function callMock({ model, system, messages, maxTokens }) {
     // request text so every other mock-provider test (which never sets it) is unaffected.
     const declineTrailer = isReviser && user.includes('TRIGGER_DECLINED_TEST')
       ? '\n\nDECLINED: the critic quoted no evidence for this claim.\nDECLINED: this is a matter of taste, not a defect.'
+      : '';
+    // 0.8.2 (test/held-door-4.test.js, P13): a reviser that answers FROM its prompt: it declines the first failure and, when its prompt lists the failures' ids (the "# Ids of the failures above"
+    // section), puts that id on the DECLINED line as the prompt's rule asks; with no such section it writes the old id-less line.
+    const declineWithId = isReviser && user.includes('TRIGGER_DECLINED_ID_TEST')
+      ? (() => { const id = ((user.split('# Ids of the failures above')[1] || '').match(/^\d+\. (O-[0-9a-f]{8})/m) || [])[1]; return `\n\nDECLINED: ${id ? `${id}: ` : ''}the critic quoted no evidence for this claim.`; })()
       : '';
     // v7.3: the allocator's own targeted-round prompt (src/chain.js) always names the split
     // explicitly ("The panel split on this criterion..."), a marker no other reviser call ever
@@ -665,7 +763,7 @@ async function callMock({ model, system, messages, maxTokens }) {
         return { text, usage: { input: 10, output: 10 }, provider: 'mock', model };
       }
     }
-    text = `${isReviser ? 'REVISED ' : ''}MOCK DELIVERABLE for model ${model}\n\nBody text.${isReviser ? '\n\nAssumptions: none.' : ''}${ledger}${declineTrailer}${allocatorFix}`;
+    text = `${isReviser ? 'REVISED ' : ''}MOCK DELIVERABLE for model ${model}\n\nBody text.${isReviser ? '\n\nAssumptions: none.' : ''}${ledger}${declineTrailer}${declineWithId}${allocatorFix}`;
   }
   await new Promise(r => setTimeout(r, 10));
   return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
@@ -780,11 +878,14 @@ function retryAfterMs(value) {
 
 // Providers audit #3 (2026-09-23): a request had no deadline of its own, so a body that kept
 // trickling in never ended. Every request now carries one. The default sits above the longest
-// completed call on disk (OpenRouter, 1886 s) so it never cuts a call that would have finished.
+// completed call on disk (OpenRouter, 1886 s; kept as history) so it never cuts a call that would have finished.
+// 0.8.2 (owner, 6 Oct 2026: "2h is OK"; was 45 minutes): two hours. Derivation: in the GP 2-judge run of 6 Oct the slower GLM-5.3 Flash call produced 74,362 tokens (36,000 answer + 38,362
+// thinking) in 554 s, about 134 tokens/s. At that rate a 360,000-token answer plus about 40,000 thinking is about 50 minutes, a 720,000-token retry about 90, so two hours leaves margin for
+// both. DeepSeek V4.1 Flash's speed at 360,000 tokens is not measured. The deadline is per request, for every provider and chain, planning chains included: a hung call can hold any run for it.
 // NOT fixed here: Node's own 300 s headers timeout still ends a direct non-streaming call that
 // takes longer than that to start answering; that needs streaming or a dispatcher, a separate
 // decision. What changes is that it now says so instead of "fetch failed".
-export const REQUEST_DEADLINE_MS = 45 * 60 * 1000;
+export const REQUEST_DEADLINE_MS = 120 * 60 * 1000;
 let requestDeadlineMs = REQUEST_DEADLINE_MS;
 export function setRequestDeadline(ms) { requestDeadlineMs = ms || REQUEST_DEADLINE_MS; }
 // Brief 29 (review finding 4): an absolute deadline for a whole advice call. Every request then gets what is LEFT of it, not a fresh

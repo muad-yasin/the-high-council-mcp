@@ -244,7 +244,8 @@
             "type": ["integer", "string"],
             "description": "A review round number, or one of the strings 'build' (the builder's own DECLINED lines, since 0.8.1), 'dispute', 'challenge', 'allocator-<n>' for text written outside the numbered rounds. Mixed type: see the report's fix list."
           },
-          "reason": { "type": "string", "description": "Model-supplied: why the reviser declined this objection." }
+          "reason": { "type": "string", "description": "Model-supplied: why the reviser declined this objection." },
+          "objection_id": { "type": "string", "pattern": "^O-[0-9a-f]{8}$", "description": "The id of the objection this DECLINED line answered, when the reviser named one (a chain with answer_back.enabled whose prompt asks for it). Absent when it named none. Added in 0.8.2." }
         }
       },
       "description": "Objections the builder or the reviser declined and kept out of the deliverable (their DECLINED lines). Not the same thing as `dispute`."
@@ -271,8 +272,10 @@
           "lab": { "type": "string" },
           "model": { "type": "string" },
           "verdict": { "enum": ["signed_off", "objected", "passed", "unheard"] },
+          "lane": { "enum": ["correctness_interfaces", "security_failure", "implementation_verification"], "description": "0.8.2 (item 7): the review lane of this seat, present only when the seat has one (the optional plan-lanes-4 chain)." },
           "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] },
           "no_answer": { "type": "string", "description": "Present only on an unheard seat whose reply was cut off at its cap after spending its tokens on thinking and carried no text: \"no answer: thinking used the whole cap\". The seat is unheard (an unreadable non-pass), never a pass. Added in 0.8.1." },
+          "table_gap": { "type": "object", "description": "Present only on an unheard seat refused for an incomplete sign-off table (reason_code INCOMPLETE_TABLE, chains with signoff_table.required): what the table lacked. Added in 0.8.2.", "required": ["kind", "criterion_ids"], "properties": { "kind": { "enum": ["no_table", "missing_rows", "no_evidence", "unreadable_verdict"] }, "criterion_ids": { "type": "array", "items": { "type": "string" } }, "table_rows": { "type": "integer" }, "criteria_total": { "type": "integer" } } },
           "reasked": { "type": "boolean", "description": "True if the seat was unheard once and asked again this round." },
           "carried": { "type": "boolean", "description": "Present and true when the seat was not asked this round: the draft was byte-identical to the last round's, where this seat was heard and clean, and only the unheard seat(s) were asked again (0.7.9). Absent otherwise." }
         }
@@ -311,7 +314,7 @@
               "criterion": { "type": "string" },
               "lab": { "type": ["string", "null"] },
               "problem": { "type": ["string", "null"] },
-              "first_raised_round": { "type": ["integer", "null"] },
+              "id": { "type": "string", "pattern": "^O-[0-9a-f]{8}$" }, "first_raised_round": { "type": ["integer", "null"] },
               "unheard_in_final_round": { "type": "boolean" },
               "last_raised_round": { "type": ["integer", "null"] }
             }
@@ -412,7 +415,8 @@
             "required": ["capability", "ok"],
             "properties": { "capability": { "type": "string" }, "field": { "type": "string" }, "ok": { "type": "boolean" } }
           }
-        }
+        },
+        "warnings": { "type": "array", "items": { "type": "string" }, "description": "0.8.2, additive: a check that did not refuse the run but is worth knowing (max_usd_per_run: the expected cost fits the limit, the dry run's maximum is over it). Absent when there was none." }
       },
       "description": "Present only when a policy.json was in force: the checks it configured. Absent means no policy."
     },
@@ -455,7 +459,8 @@
         "injected": { "type": "boolean" },
         "on": { "type": "string", "description": "Proposal id the canary objection was posted on." },
         "capitulated": { "type": "boolean", "description": "True if the author amended or withdrew in answer to an evidence-free objection." },
-        "note": { "type": "string" }
+        "note": { "type": "string" },
+        "no_quote_mark": { "type": "boolean", "description": "Only in a chain with debate_hygiene.noQuoteMarks: true when the canary was shown to the author through the \"[no quote]\" mark like every other post that quotes nothing, false when the reply prompt in use did not render marks. Capitulation rates are not comparable across the two without saying so. Added in 0.8.2." }
       },
       "description": "Present only when a canary objection was sampled into the debate (canary.enabled). The canary post and reply are also in debate.posts/replies, each with canary: true and by: 'canary'."
     },
@@ -481,6 +486,8 @@
       "required": ["raised", "contradictions"],
       "properties": {
         "raised": { "type": "boolean" },
+        "status": { "enum": ["judged", "not_judged"], "description": "0.8.2: not_judged when the seat could not be reached or its reply could not be read; raised is then false but that is NOT 'no contradictions' - nobody did the check. Absent on a report written before 0.8.2 (read it as judged)." },
+        "reason_code": { "$ref": "#/$defs/abstentionReason", "description": "0.8.2: why the cold read is not_judged." },
         "contradictions": {
           "type": "array",
           "items": {
@@ -490,7 +497,7 @@
           }
         }
       },
-      "description": "Present only on chains with coldRead.enabled: a fresh seat that saw only the final draft, listing contradictions between its sections."
+      "description": "Present only on chains with coldRead.enabled: a fresh seat that saw only the final draft (since 0.8.2, the text that is delivered, after any final edit), listing contradictions between its sections. Its findings, or the fact that it was not judged, are also written into the deliverable and WARNINGS.md."
     },
     "noHeardReviewer": {
       "x-stability": "experimental",
@@ -581,6 +588,85 @@
           "criterion_ids": { "type": "array", "items": { "type": "string" } }
         }
       }
+    },
+    "signoff_table_gaps": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "Sign-offs refused because the per-criterion table was not full (a row for every criterion, each with evidence and a verdict that says MET or FAILED), on a chain with signoff_table.required. Present only when there was one. The seat counted as unheard (an abstention), never as consent. Added in 0.8.2.",
+      "items": { "type": "object", "required": ["round", "lab", "kind", "criterion_ids"], "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "stage": { "type": "string" }, "kind": { "enum": ["no_table", "missing_rows", "no_evidence", "unreadable_verdict"] }, "criterion_ids": { "type": "array", "items": { "type": "string" } }, "table_rows": { "type": "integer" }, "criteria_total": { "type": "integer" } } }
+    },
+    "outside_criteria_rows": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "Table rows a reply carried that named none of the criteria (ticket 16): recorded, never counted for or against any seat. Present only when there were some. Added in 0.8.2.",
+      "items": { "type": "object", "required": ["round", "lab", "rows"], "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "rows": { "type": "array", "items": { "type": "string" } } } }
+    },
+    "answer_back": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "With answer_back.enabled: for each judge that had objections in the previous round, the round it will see them in, their ids, how many DECLINED reasons the writer gave and how many passages of the draft changed. Summary only. Present only on such chains. Added in 0.8.2 (src/answer-back.js).",
+      "items": { "type": "object", "required": ["round", "lab", "objection_ids"], "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "objection_ids": { "type": "array", "items": { "type": "string" } }, "declined": { "type": "integer" }, "changed_passages": { "type": "integer" } } }
+    },
+    "signed_text": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["sha256", "signed_off"],
+      "description": "0.8.2 (A3/F1): the draft last put to the panel: its sha256, the last panel round, whether the panel signed it (in a round where no seat could be heard the draft was shown but nobody read it). When it did not, label is 'not_accepted' and open_objections says how many objections were still open. Present on a finished run. `passed` is not touched by any of this.",
+      "properties": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "round": { "type": ["integer", "null"] }, "signed_off": { "type": "boolean" }, "label": { "enum": ["not_accepted"] }, "open_objections": { "type": "integer" } }
+    },
+    "delivered_text": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["sha256", "body_sha256", "same_as_signed", "changed_by", "harness_notes"],
+      "description": "0.8.2 (A3/F1): the text delivered (deliverable.md). sha256 is of the whole file; body_sha256 of the model-written body without the harness's own blocks. same_as_signed is true when no model stage changed the body after the panel's last review (a harness note alone does not count). changed_by names the model stages that did (dispute, challenge, final_edit); harness_notes the blocks the harness wrote (dissent_block, cold_read_block). re_reviewed is false: the panel is not re-run on a changed text.",
+      "properties": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "body_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "same_as_signed": { "type": "boolean" }, "changed_by": { "type": "array", "items": { "enum": ["dispute", "challenge", "final_edit"] } }, "harness_notes": { "type": "array", "items": { "enum": ["dissent_block", "cold_read_block"] } }, "re_reviewed": { "type": "boolean" } }
+    },
+    "handoff_milestones": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["status", "milestones", "findings"],
+      "additionalProperties": false,
+      "description": "0.8.2 (item 6c): present only when the chain sets handoff_contract.milestones. What the $0 lint found in the milestones the handoff seat wrote: the Status line (null when absent), how many milestones were parsed, and the findings (no_milestones, no_status, bad_status, duplicate_milestone, milestone_no_check, check_without_expected, unknown_criterion, criterion_not_discharged, discharge_not_checked, status_not_ready). A finding never changes passed.",
+      "properties": {
+        "status": { "type": ["string", "null"] },
+        "milestones": { "type": "integer", "minimum": 0 },
+        "findings": { "type": "array", "items": { "type": "object", "required": ["kind", "message"], "additionalProperties": false, "properties": { "kind": { "type": "string" }, "message": { "type": "string" } } } }
+      }
+    },
+    "thin_contract": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["schema", "task_sha256", "criteria_sha256", "checks_sha256", "evidence", "signed_text_sha256", "sha256"],
+      "additionalProperties": false,
+      "description": "0.8.2 (item 6a, the thin contract): one record of what this run was asked, graded against, shown and signed, all full-width sha256. task_sha256, criteria_sha256 and checks_sha256 repeat the fields of the same names; signed_text_sha256 is signed_text.sha256 (item 4). evidence.context_sha256 is the hash of the --context documents as the harness appended them (null when there were none); evidence.ground_truth_sha256 is the hash of the tool results the run recorded as shown (null when none), canonical JSON of each { tool, args, result } without result_ref. `sha256` is over the record without that field: canonical JSON, keys sorted at every depth, no whitespace, UTF-8, an unknown component the literal null. Tamper-evident, not tamper-proof: `council contract check <run>` recomputes what the folder still holds. Absent for an advice run and for a run with no criteria, task text or signed text.",
+      "properties": {
+        "schema": { "const": "thin-contract/1" },
+        "task_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "criteria_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "checks_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "evidence": { "type": "object", "required": ["context_sha256", "ground_truth_sha256"], "additionalProperties": false, "properties": { "context_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }, "ground_truth_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" } } },
+        "signed_text_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "handoff_text": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["made_from_sha256", "made_from_signed", "panel_reviewed"],
+      "description": "0.8.2 (F1): present when the chain has a handoff stage. made_from_sha256 is the text the handoff stage was given; made_from_signed is true only when that is exactly the text the panel signed; panel_reviewed is false (no panel reads a handoff). file_sha256 is the sha256 of HANDOFF.md as written, banner and lock block included; it is present only when this run wrote that file (a --rematch or --replay report has no file_sha256).",
+      "properties": { "made_from_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "made_from_signed": { "type": "boolean" }, "panel_reviewed": { "type": "boolean" }, "file_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+    },
+    "answer_back_replies": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "With answer_back.enabled: what each judge said about its own earlier objections (the `answers` array of its reply) and what the harness did with it: withdrawn (a quote from the draft was given), withdrawal_refused (no quote found in the draft: the objection stays open), sustained, unknown_id, unreadable_answer (a status that is neither sustained nor withdrawn: the objection stays open), unanswered. Present only when there were answers or own objections to answer. Added in 0.8.2.",
+      "items": { "type": "object", "required": ["round", "lab", "id", "effect"], "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "id": { "type": "string" }, "status": { "type": ["string", "null"] }, "quoted": { "type": "boolean" }, "effect": { "enum": ["withdrawn", "withdrawal_refused", "sustained", "unknown_id", "unreadable_answer", "unanswered"] } } }
+    },
+    "debate_orders": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "With debate_hygiene.shuffle: what each debate reader saw - the item ids (proposals, or alternatives) in the order it was shown them and the lab letter each lab had in its prompt. Present only on such chains. On such a chain the free text of debate.posts[] is re-lettered to real ids and lab names, so one lettering reads the whole record. Added in 0.8.2.",
+      "items": { "type": "object", "required": ["stage", "reader", "order", "letters"], "properties": { "stage": { "enum": ["debate", "alternatives"] }, "reader": { "type": "string" }, "order": { "type": "array", "items": { "type": "string" } }, "letters": { "type": "object", "additionalProperties": { "type": "string" } } } }
     },
     "criteria_ids": {
       "x-stability": "experimental",
@@ -761,7 +847,7 @@
 
   "$defs": {
     "abstentionReason": {
-      "enum": ["SEAT_UNREACHABLE", "PROVIDER_ERROR", "REPLY_TRUNCATED", "REPLY_UNPARSEABLE", "REASONING_EXHAUSTED"],
+      "enum": ["SEAT_UNREACHABLE", "PROVIDER_ERROR", "REPLY_TRUNCATED", "REPLY_UNPARSEABLE", "REASONING_EXHAUSTED", "INCOMPLETE_TABLE"],
       "description": "Closed set (RESERVED_ABSTENTION_REASONS in src/chain.js): why a seat gave no usable reply."
     },
     "question": {
@@ -782,7 +868,8 @@
         "fix": { "type": "string" },
         "lab": { "type": "string", "description": "Present in lastCritique.failures on unanimous chains: the lab that raised it." },
         "quote": { "type": "string" },
-        "quote_status": { "enum": ["verified", "unverified", "unquoted"] }
+        "quote_status": { "enum": ["verified", "unverified", "unquoted"] },
+        "id": { "type": "string", "pattern": "^O-[0-9a-f]{8}$", "description": "0.8.2, additive: a stable id for the problem, the same in every round the same lab raises the same criterion about the same quoted text (src/objection-ids.js)." }
       }
     },
     "critique": {
@@ -845,6 +932,7 @@
         "stance": { "enum": ["support", "object", "merge"] },
         "text": { "type": "string" },
         "merge_with": { "type": "string", "description": "With stance 'merge': the other id to merge with (checked to exist)." },
+        "quoted": { "type": "boolean", "description": "Only on an objection or merge post of a chain with debate_hygiene.noQuoteMarks: whether the post quotes (a quoted span of at least 8 characters) text that appears in the proposal it is about. false = 'no quote'. Added in 0.8.2 (src/post-quotes.js); detection only, no verdict reads it." },
         "canary": { "type": "boolean" }
       }
     },

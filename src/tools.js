@@ -192,6 +192,18 @@ const TEST_FILE_EXT = /\.(js|mjs|cjs|ts)$/i;
 // run_tests: { file? } - runs `node --test [file]` under the sandboxed cwd.
 // No shell (`shell: false`, spawnSync's default), no network flags, no
 // caller-supplied argv beyond one optional path already sandboxed above.
+// What a run_tests child may inherit. An ALLOWLIST, so anything not named here (provider keys, COUNCIL_PLUGIN_*, a stray FOO_SECRET, NODE_OPTIONS) is dropped
+// and a variable added to the environment tomorrow is dropped too. NODE_TEST_CONTEXT is not on it: the child must print TAP itself (comment below).
+// The Windows names are for the packaged .exe, which runs the target repo's own tests.
+const TEST_CHILD_ENV_ALLOW = new Set(['PATH', 'HOME', 'USERPROFILE', 'TMPDIR', 'TEMP', 'TMP', 'LANG', 'LANGUAGE', 'TERM', 'CI', 'SYSTEMROOT', 'COMSPEC', 'PATHEXT', 'WINDIR']);
+// Names are compared in upper case: Windows keeps the system's spelling (`Path`, `SystemRoot`), and an exact-case match would drop PATH there, so the
+// packaged .exe could not find node. The variable keeps the spelling it came with.
+export function testChildEnv(env) {
+  const out = {};
+  for (const [k, v] of Object.entries(env)) { const u = k.toUpperCase(); if (TEST_CHILD_ENV_ALLOW.has(u) || u.startsWith('LC_')) out[k] = v; }
+  return out;
+}
+
 function run_tests({ file } = {}, { cwd }) {
   const root = realRoot(cwd);
   const args = ['--test'];
@@ -216,7 +228,9 @@ function run_tests({ file } = {}, { cwd }) {
   // NODE_TEST_CONTEXT is dropped: when this tool itself runs under `node --test`, the child
   // would inherit it and report over IPC instead of printing TAP, so the seat (and the
   // redaction below) would see different output depending on who called the tool.
-  const { NODE_TEST_CONTEXT, ...env } = process.env;
+  // 0.8.2 (ChatGPT review 1, intake 2026-10-06, F12/F13): the child used to get the whole environment, provider keys included, and a test file is
+  // arbitrary code. It now gets an allowlist (see testChildEnv), so a key from the shell, a project .env or the plugin dialog cannot reach it.
+  const env = testChildEnv(process.env);
   const res = spawnSync(process.pkg ? 'node' : process.execPath, args, { cwd: root, encoding: 'utf8', timeout: 60_000, shell: false, env });
   if (res.error) return { ok: false, error: String(res.error.message || res.error) };
   // Test output goes into a prompt like any other tool result: redacted, then capped.

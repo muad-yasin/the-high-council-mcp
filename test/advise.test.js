@@ -28,7 +28,7 @@ const labels = r => r.stages.map(s => s.label);
 const BRIEF = '# Should we cache the price list?\n\nWe plan to cache the price list in memory for 24 hours to avoid a call per request.\n';
 const mock = (model, lab, extra = {}) => ({ provider: 'mock', model, lab, ...extra });
 const cfg = (critics, advise = {}, more = {}) => ({
-  // resumeAfterStop and max_wall_ms: every advice chain carries both since 0.8.1 P17 (the lint requires them).
+  // resumeAfterStop and max_wall_ms: every advice chain carries resumeAfterStop since 0.8.1 P17 (the lint requires it); max_wall_ms is optional since 0.8.2.
   name: 'test-advise', resumeAfterStop: false, maxRounds: 1, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 },
   advise: { enabled: true, usd: 1, rounds: 0, max_wall_ms: 120000, ...advise }, seats: { critics, ...(more.builder ? { builder: more.builder } : {}) },
 });
@@ -559,7 +559,8 @@ test('advise: the CLI dry run reprices an advise chain with the task as the brie
   const c = chain('advise-standard');
   const taskTokens = Math.ceil(task.length / 4);
   const want = estimateChainRows({ ...c, estimate: { ...c.estimate, promptTokens: taskTokens } }).reduce((n, r) => n + r.usd, 0);
-  assert.match(out, /Priced again with your task as the brief every seat reads: \$([\d.]+) per run, worst case/);
+  // Changed by the owner's decision of 7 Oct 2026 (item 8c, two figures): the line says "expected" and gives the maximum after it.
+  assert.match(out, /Priced again with your task as the brief every seat reads: \$([\d.]+) per run, expected; \$([\d.]+) at most\./);
   const got = Number(out.match(/brief every seat reads: \$([\d.]+)/)[1]);
   // The CLI prints 4 decimals under $1 and 2 above it (the council's worst case is about $1.2 since the 2026-10-06 price refresh), so the tolerance is the printed precision.
   assert.ok(Math.abs(got - want) < (want < 1 ? 0.00006 : 0.006), `${got} vs ${want}`);

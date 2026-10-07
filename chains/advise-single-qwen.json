@@ -1,0 +1,38 @@
+{
+  "name": "advise-single-qwen",
+  "description": "Council advisor, one seat: qwen/qwen3.8-max-0902 through OpenRouter, which has no endpoint OpenRouter tags zero-data-retention (it is sent to the lab's own host), so this chain takes public material only, priced at this seat's row in src/pricing.json. No debate, no synthesis, one call. advise.usd ($0.75) is this call's own ceiling (0.8.2), derived as: first call at the 48,000-character brief limit $0.2411 + one retry of a cut-off reply at the add-on's retry cap (cutOffRetryCap(36000, ADVICE_RETRY_MAX_TOKENS 64000) = 64,000 tokens, not the doubled 72,000, because the add-on passes its own ceiling) $0.4091 = $0.6502; +15% = $0.7477; rounded up to $0.75. Expected output per reply: 21000 tokens (D: pricing.json critiqueTokens). maxRounds is unused by advise chains.",
+  "resumeAfterStop": false,
+  "maxRounds": 1,
+  "estimate": {
+    "promptTokens": 3000,
+    "draftTokens": 2000,
+    "critiqueTokens": 3000
+  },
+  "advise": {
+    "enabled": true,
+    "usd": 0.75,
+    "rounds": 0,
+    "synthesis": "none"
+  },
+  "seats": {
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.8-max-0902",
+        "maxTokens": 36000,
+        "lab": "qwen3.8-max",
+        "extra": {
+          "provider": {
+            "max_price": {
+              "prompt": 2,
+              "completion": 6
+            }
+          }
+        },
+        "estimate": {
+          "critiqueTokens": 21000
+        }
+      }
+    ]
+  }
+}

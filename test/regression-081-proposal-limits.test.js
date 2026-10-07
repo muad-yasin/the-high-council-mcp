@@ -15,7 +15,8 @@ const chains = readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json')
 
 test('FX-12: every shipped non-mock chain with proposals asks 12,000 tokens per part; mock chains are unchanged', () => {
   const shipped = chains.filter(({ f, c }) => c.proposals && !f.startsWith('mock'));
-  assert.ok(shipped.length >= 10);
+  // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): 10 of the 18 chains with proposals moved to archive/chains/, 8 ship; the floor was 10.
+  assert.ok(shipped.length >= 8);
   for (const { f, c } of shipped) assert.equal(c.proposals.maxTokens, 12_000, f);
   for (const { f, c } of chains.filter(({ f, c }) => c.proposals && f.startsWith('mock'))) assert.notEqual(c.proposals.maxTokens, 12_000, `${f}: mock chains keep their own small caps`);
 });

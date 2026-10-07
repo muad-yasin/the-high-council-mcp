@@ -32,6 +32,7 @@ test('CLI: a critic\'s hostile verdict line is logged clean, and stored and forw
     const ext = { provider: 'external', model: 'claude-code-session' };
     writeFileSync(join(dir, 'chains', 'ext-critic.json'), JSON.stringify({
       name: 'ext-critic', description: 'test', maxRounds: 2, signoff: 'unanimous',
+      selfReview: 'allowed', // superseded by the audit decision cnc-chains-lint F1: the writer and the critic are the same external session, which lint rule 12 now sees; this fixture says so in writing
       seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: ext, reviser: ext, critics: [{ ...ext, lab: 'ext' }] },
     }));
     const env = { PATH: process.env.PATH, HOME: dir };

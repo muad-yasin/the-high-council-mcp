@@ -8,6 +8,7 @@
   "properties": {
     "provider": { "type": "string" },
     "lab": { "type": "string" },
+    "lane": { "enum": ["correctness_interfaces", "security_failure", "implementation_verification"], "description": "0.8.2 (item 7): the review lane of a panel critic: where its attention goes first. Read on seats.critics only (chain-lint refuses it elsewhere). Its words are recorded in src/roles.js (LANE_TEXT): a lane seat is told its lane, and a seat with no lane runs as a plain panel seat." },
     "maxTokens": { "type": "integer", "minimum": 1 },
     "panelMaxTokens": { "type": "integer", "minimum": 1, "description": "Optional output cap for the panel review stage only; maxTokens still governs proposals, debate and replies." },
     "temperature": { "type": "number" },

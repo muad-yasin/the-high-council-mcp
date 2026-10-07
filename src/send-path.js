@@ -18,15 +18,16 @@ import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dashFence } from './text-fence.js';
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { trustedRunDir, readRunJson, writeRunFile } from './run-files.js';
 import { join, dirname } from 'node:path';
 import { retentionAsOf, retentionAgeDays, RETENTION_STALE_DAYS, sensitivityWords } from './advice-tier.js';
 import { ADVISE_LOG_FILE, DISPOSITION_MIN_REASON_CHARS, checkDispositions, decide, installSalt, openObjections, readLedger } from './advice-guards.js';
 import { sha256Hex, ADVICE_BRIEF_FILE, ADVICE_META_FILE, ADVICE_META_SCHEMA, moreMaterialRequested } from './advice-run.js';
 import { requestGate, answerGate, readGateAnswer } from './gate.js';
-import { loadPolicy, evaluatePolicy, monthToDateUsd } from './policy.js';
+import { loadPolicy } from './policy.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
 import { profileFor, DEFAULT_SEAT } from './send-profiles.js';
-import { preSendRefusals, admitChain, seatsOf, previewSeats, gateSeatsOf, money } from './send-path-refusals.js';
+import { preSendRefusals, advicePolicyVerdict, admitChain, seatsOf, previewSeats, gateSeatsOf, money } from './send-path-refusals.js';
 
 // A quote lives this long (brief 29: about ten minutes). A quote stores the masked text, so the number of live quotes is capped too.
 export const QUOTE_TTL_MS = 10 * 60_000;
@@ -59,6 +60,7 @@ export function previewText(q) {
     ...q.seats.map(s => `  - ${s.lab} (${s.model}): ${s.retention}${s.retention_class ? ` [class ${s.retention_class}]` : ''}. ${s.detail}`),
     `Text: ${q.bytes} bytes, sha256 ${q.sha256}${Object.keys(q.masked).length ? `; masked before sending: ${Object.entries(q.masked).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(', ')}` : '; nothing needed masking'}.`,
     `Price: worst case ${money(q.price.worst_usd)}, expected about ${money(q.price.expected_usd)} (expected uses assumed or review-length output sizes: unmeasured for advice). The call cannot spend more than ${money(q.price.ceiling_usd)}.`,
+    ...(q.policyWarnings?.length ? q.policyWarnings.map(w => `Policy warning: ${w}`) : []),
     `"ZDR-tagged by OpenRouter" is OpenRouter's routing tag for that endpoint, not a guarantee. The retention table is dated ${retentionAsOf()}${retentionAgeDays() > RETENTION_STALE_DAYS ? ` (${retentionAgeDays()} days old: re-check it)` : ''}. No scanner catches names, addresses, phone numbers or passwords written as prose: read the text.`,
   ];
   return lines.join('\n');
@@ -91,7 +93,6 @@ export function createSendPath(ctx) {
   const quotes = new Map();
   let queue = Promise.resolve();
   const serial = fn => { const r = queue.then(fn, fn); queue = r.then(() => {}, () => {}); return r; };
-  const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
   // The session's last tool-started advice run (the one `previous_run` names).
   const latestToolRun = ledger => [...ledger].filter(e => !e.unreadable && e.origin === 'tool').sort((a, b) => b.ts - a.ts)[0] ?? null;
   // 0.8.1 DR-8: a call that follows, in the same session, an answer that listed what is missing from the brief tells the person so in
@@ -112,7 +113,7 @@ export function createSendPath(ctx) {
     prune(now);
     const passed = preSendRefusals(kind, { brief, mode, advisor, max_usd }, { work, runsDir, env, loadChain, usdLimit, now });
     if (passed.refusal) return passed;
-    const { limits, sens, chainName, config, masked, price, fp, ledgerNow } = passed;
+    const { limits, sens, chainName, config, masked, price, fp, ledgerNow, policyWarnings } = passed;
     const q = {
       kind,
       quote_id: `q_${randomBytes(12).toString('hex')}`, created_ms: now, expires_ms: now + ttlMs,
@@ -125,6 +126,7 @@ export function createSendPath(ctx) {
       price: { worst_usd: price.worst, expected_usd: price.expected, floor_usd: price.floor, ceiling_usd: price.ceiling },
       max_usd: max_usd ?? null, hasNewEvidence: !!brief.new_evidence, used: false,
       follow_up: followUpOf(ledgerNow, limits, now),
+      ...(policyWarnings?.length ? { policyWarnings } : {}),
     };
     quotes.set(q.quote_id, q);
     const open = openObjections(ledgerNow, { now, limits });
@@ -138,6 +140,7 @@ export function createSendPath(ctx) {
       price: { worst_usd: q.price.worst_usd, expected_usd: q.price.expected_usd, ceiling_usd: q.price.ceiling_usd, calls_at_most: price.calls },
       retention_table_as_of: retentionAsOf(),
       ...(q.follow_up ? { follow_up: q.follow_up } : {}),
+      ...(q.policyWarnings?.length ? { policy_warnings: q.policyWarnings } : {}),
       ...(open.length ? { open_objections: open } : {}),
       next: `council_advise(quote_id: "${q.quote_id}", confirm_sha256: "${q.sha256}"${open.length ? `, dispositions: [one {id, decision accept|reject|defer, reason} for each of ${open.join(', ')}]` : ''}). The user will be asked to approve the send.`,
     };
@@ -174,11 +177,16 @@ export function createSendPath(ctx) {
           const merged = [...(entry.dispositions || []).filter(x => !ds.some(d => d.id === x.id)), ...ds.map(d => ({ id: d.id, decision: d.decision, reason: d.reason.trim() }))];
           const check = checkDispositions(entry.dissent_ids || [], merged);
           if (check.invalid.length || check.boilerplate) return R('disposition_invalid', `${check.invalid.length ? `reasons too short or decisions not accept, reject or defer for ${check.invalid.join(', ')}` : 'the same reason was given for three or more objections'}.`, `Give each objection its own reason of at least ${DISPOSITION_MIN_REASON_CHARS} characters.`);
+          // 0.8.2 item 2 (found by its review): `run` is a client-supplied id and this wrote advise-log.json.tmp with a bare writeFileSync, so a symbolic link planted
+          // there took the write. The folder must pass trustedRunDir (no link in it), the read is O_NOFOLLOW, and the temp file is written without following a link.
+          const g = trustedRunDir(runsDir, run);
+          if (g.refusal) return R('ledger_unreadable', `the record of run ${run} cannot be used: ${g.refusal}.`, 'Ask the user to repair it.');
           const p = join(runsDir, run, ADVISE_LOG_FILE);
-          const log = readJson(p);
+          const log = readRunJson(join(runsDir, run), ADVISE_LOG_FILE);
           if (!log) return R('ledger_unreadable', `the record of run ${run} cannot be read.`, 'Ask the user to repair it.');
-          writeFileSync(`${p}.tmp`, `${JSON.stringify({ ...log, dispositions: merged, dispositions_complete: check.complete }, null, 2)}\n`);
-          renameSync(`${p}.tmp`, p);
+          const wrote = writeRunFile(join(runsDir, run), `${ADVISE_LOG_FILE}.tmp`, `${JSON.stringify({ ...log, dispositions: merged, dispositions_complete: check.complete }, null, 2)}\n`);
+          if (wrote.refusal) return R('ledger_unreadable', `the record of run ${run} cannot be written: ${wrote.refusal}.`, 'Ask the user to repair it.');
+          renameSync(`${p}.tmp`, p); // replaces a link at advise-log.json itself, never follows it
           recorded = true;
         }
       }
@@ -202,7 +210,7 @@ export function createSendPath(ctx) {
         id = nextRunId(); dir = join(runsDir, id);
         try { mkdirSync(dir); break; } catch (e) { if (e.code !== 'EEXIST' || i >= 5) throw e; await new Promise(r => setTimeout(r, 2)); }
       }
-      writeFileSync(join(dir, ADVICE_BRIEF_FILE), q.text);
+      writeFileSync(join(dir, ADVICE_BRIEF_FILE), q.text); // fs-ok: a run folder this call just created exclusively (mkdirSync without recursive), nothing can be planted in it yet
       const previous = latestToolRun(ledger);
       // Recomputed here: what the person is asked about is the session as it stands when the folder is made.
       q.follow_up = followUpOf(ledger, limits, Date.now());
@@ -216,7 +224,7 @@ export function createSendPath(ctx) {
         // Cut to the 200 characters readAdviceMeta accepts (M5 review D4: a longer name failed every adopt after approval).
         client: { name: io.clientName == null ? null : String(io.clientName).slice(0, 200), version: io.clientVersion == null ? null : String(io.clientVersion).slice(0, 200) },
       };
-      writeFileSync(join(dir, `${ADVICE_META_FILE}.tmp`), `${JSON.stringify(meta, null, 2)}\n`);
+      writeFileSync(join(dir, `${ADVICE_META_FILE}.tmp`), `${JSON.stringify(meta, null, 2)}\n`); // fs-ok: the same folder, created exclusively a few lines above
       renameSync(join(dir, `${ADVICE_META_FILE}.tmp`), join(dir, ADVICE_META_FILE));
       const g = requestGate(dir, {
         kind, textPath: ADVICE_BRIEF_FILE,
@@ -249,8 +257,9 @@ export function createSendPath(ctx) {
     if (gap) return R('seat_not_allowed', `${gap}.`, 'Ask for a new quote.');
     const { policy } = loadPolicy(work);
     if (policy) {
-      const ev = evaluatePolicy(policy, { config, allSeats: seatsOf(config), worstCaseUsd: q.price.ceiling_usd, monthToDateUsd: monthToDateUsd(runsDir, Date.now()) });
+      const ev = advicePolicyVerdict(policy, config, q.price.ceiling_usd, { runsDir, now: Date.now() });
       if (!ev.ok) return R('policy', `policy.json refuses this call: ${ev.reasons.join(' ')}`, 'Ask the user; the policy is theirs.');
+      if (ev.warnings.length) q.policyWarnings = ev.warnings; // as the person is about to be asked: the dialog is built from the quote
     }
     return null;
   }

@@ -41,7 +41,9 @@ test('landing page: MCP tool count matches the registered tools', { skip: !page 
   const server = readFileSync(join(root, 'src', 'mcp', 'server.js'), 'utf8');
   // The add-on's two tools (brief 29) are registered in src/mcp/advice.js with registerTool, not in server.js.
   const advice = readFileSync(join(root, 'src', 'mcp', 'advice.js'), 'utf8');
-  const real = (server.match(/^server\.tool\(/gm) || []).length + (advice.match(/^\s*server\.registerTool\(/gm) || []).length;
+  // The contract's two tools (0.8.2 item 6d, owner 7 Oct 2026: the full Slice A) are registered in src/mcp/contract.js; the count learns the new file.
+  const contract = readFileSync(join(root, 'src', 'mcp', 'contract.js'), 'utf8');
+  const real = (server.match(/^server\.tool\(/gm) || []).length + (advice.match(/^\s*server\.registerTool\(/gm) || []).length + (contract.match(/^\s*server\.registerTool\(/gm) || []).length;
   assert.ok(real > 0, 'found no registered MCP tools to compare against');
   assert.equal(statFor('MCP tools'), String(real));
 });

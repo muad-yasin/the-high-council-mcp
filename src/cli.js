@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmS
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, runSingleStage, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, setStopCheck, resetFieldCuts, fieldCutsSoFar, ExternalPause, BudgetExceeded, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
+import { runChain, runSingleStage, checkSeats, everySeatOf, resolveChainSeats, panelLabCount, setCache, setBudget, setReservationSink, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, setStopCheck, resetFieldCuts, fieldCutsSoFar, ExternalPause, BudgetExceeded, UnpricedSeat, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
 import { secretShapesIn, SecretShapedPrompt } from './outbound-scan.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus, waitingStages, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
@@ -12,7 +12,7 @@ import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sum
 import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFromStageLogText, sumRoundUsdFromStageLogText } from './spans.js';
 import { appendSpanRecord, buildSpanRecord } from './progress-spans.js';
 import { computeOutcome } from './outcome.js';
-import { reportJsonShape, renderBoardMd, partialReportJsonShape, renderPartialBoardMd, PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE } from './report-shape.js';
+import { reportJsonShape, thinContractOf, renderBoardMd, partialReportJsonShape, renderPartialBoardMd, PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE } from './report-shape.js';
 import { summarise, formatUsd, priceOf, estimateChainRows, priceTableLines, DEFAULT_ESTIMATE } from './cost.js';
 import { providerNames, envKeyName, keyFor, isKeyOptional, call, isRetryable, setRequestDeadlineAt } from './providers.js';
 import { AdviceStopped } from './advise.js';
@@ -39,8 +39,9 @@ import { lintCriteria } from './criteria-lints.js';
 import { stripDeclined, readModelDraft } from './draft-disputes.js';
 import { keyEnvValue, keySource, keyProblem } from './key-env.js';
 import { applyEnvFile } from './env-file.js';
-import { pickDraft, readCriteria, readChecks, existsExactCase, stopState, partialBanner, externalPromptText } from './handoff-from-run.js';
-import * as HandoffRoles from './roles.js';
+import { pickDraft, readCriteria, readChecks, existsExactCase, stopState, partialBanner, finishedState, externalPromptText } from './handoff-from-run.js';
+import { textSha256 } from './text-labels.js';
+import { handoffPrompt } from './handoff-prompt.js';
 import { scanForPii, applyPiiGate } from './pii-gate.js';
 import { harnessVersion } from './version.js';
 import { stageKindOf } from './stage-contract.js';
@@ -112,8 +113,19 @@ import { scanArtifacts } from './key-redaction.js';
 import { resetToolCallLog, renderToolsMd } from './tools.js';
 import { arguedWarnings } from './argued.js';
 import { councilCommand, unignoredEnvFile } from './invocation.js';
-import { contextFileList, readContextFile, ContextFileError } from './context-files.js';
-import { chainNameRefusal } from './chain-name.js';
+import { contextFileList, readContextFile, contextBundleText, ContextFileError } from './context-files.js';
+import { sha256Of } from './thin-contract.js';
+import { checkThinContract, renderCheck } from './thin-contract-check.js';
+import { contractCommand } from './contract-cli.js';
+import { contractDraftPrompt, finishDraft } from './contract-draft.js';
+import { unpricedSeats } from './unpriced.js';
+import { openReservations, unsettledReservations } from './spend-reservations.js';
+import { checkContract } from './contract-record.js';
+import { builderSection, checkFailuresOf } from './handoff-contract-text.js';
+import { lintMilestones } from './milestones.js';
+import { criterionIds } from './criteria-ledger.js';
+import { trustedRunDir, readRunJson, readRunFile, readRecordedTask } from './run-files.js';
+import { chainNameRefusal, noChainRefusal, PROMOTED_CHAINS, archivedChainHint } from './chain-name.js';
 import { terminalSafe } from './terminal-safe.js';
 import { gateCommand } from './gate-cli.js';
 import { adviseRateCommand } from './advise-rate.js';
@@ -184,7 +196,7 @@ if (existsSync(envPath)) {
 const rawArgv = process.argv.slice(2);
 // Audit A1-1 (0.8.1): `--max-usd=0.2` used to match no flag, so the run silently got the $7 default while the log said --max-usd. A flag that takes a value is
 // now read in both spellings (`--name value` and `--name=value`), in this one place, before anything else looks at argv.
-const VALUE_FLAGS = new Set(['advice-adopt', 'allow-pii', 'allow-unfenced', 'chain', 'context', 'criteria', 'date', 'days', 'draft', 'from-run', 'label', 'max-usd', 'model', 'out', 'pii-gate', 'provider', 'rematch', 'rematch-seed', 'replay', 'replay-date', 'repo', 'resume', 'rounds', 'run', 'run-id', 'signoff', 'task']);
+const VALUE_FLAGS = new Set(['advice-adopt', 'allow-pii', 'allow-unfenced', 'chain', 'context', 'criteria', 'date', 'days', 'draft', 'from-run', 'handoff', 'label', 'max-usd', 'model', 'out', 'pii-gate', 'provider', 'rematch', 'rematch-seed', 'replay', 'replay-date', 'repo', 'resume', 'rounds', 'run', 'run-id', 'signoff', 'task']);
 const expandEquals = args => args.flatMap(a => { const m = /^--([a-z][a-z0-9-]*)=([\s\S]*)$/.exec(a); return m && VALUE_FLAGS.has(m[1]) ? [`--${m[1]}`, m[2]] : [a]; });
 const argvExpanded = expandEquals((rawArgv[0] === 'council' || rawArgv[0] === 'relay') ? rawArgv.slice(1) : rawArgv);
 // Re-audit 2: a flag that takes no value, spelled `--flag=value` (`--dry-run=true`), used to be ignored, and the command then ran for real (a paid run under the default cap).
@@ -195,6 +207,15 @@ const argvExpanded = expandEquals((rawArgv[0] === 'council' || rawArgv[0] === 'r
 }
 const argv = argvExpanded;
 // Audit A1-5: an invalid cap (a corrupt run.json value, a malformed flag) stops the command with one clear line instead of a stack trace, before any spend.
+// 0.8.2 item 8a for the side runs (--rematch, --replay): under a cap a seat with no price row is refused before anything is sent, with the same message and exit 5 as a run (the main path checks at its own start).
+function refuseUnpricedOrExit(config, cap) {
+  if (cap === null || cap === undefined || !config) return;
+  const found = unpricedSeats(config);
+  if (!found.length) return;
+  console.error('');
+  for (const u of found) { console.error(formatCouncilError('COUNCIL-E002', { provider: u.provider, model: u.model, roles: u.roles, capUsd: cap })); console.error(''); }
+  process.exit(EXIT_DEGRADABLE);
+}
 function setBudgetOrExit(cap) { try { setBudget(cap); } catch (e) { console.error(e.message); process.exit(2); } }
 if (argv[0] === '--version' || argv[0] === '-v') {
   console.log(harnessVersion());
@@ -336,10 +357,11 @@ if (argv[0] === 'doctor') {
     const missing = checkSeats(seats);
     const runnable = missing.length === 0;
     const worst = estimateChainRows(cfg).reduce((sum, r) => sum + r.usd, 0);
+    const most = estimateChainRows(cfg, { maximum: true }).reduce((sum, r) => sum + r.usd, 0);
     const label = f.replace(/\.json$/, '');
     const providers = new Set(seats.filter(Boolean).map(s => s.provider));
     const local = providers.has('ollama') ? '  (needs Ollama running locally, with the chain\'s models pulled)' : '';
-    console.log(`  ${label.padEnd(cw)}  ${(runnable ? 'runnable' : 'blocked ').padEnd(8)}  worst-case ${formatUsd(worst).padStart(9)}/run${runnable ? local : `  (missing: ${missing.join(', ')})`}`);
+    console.log(`  ${label.padEnd(cw)}  ${(runnable ? 'runnable' : 'blocked ').padEnd(8)}  expected ${formatUsd(worst).padStart(8)}, at most ${formatUsd(most).padStart(8)}/run${runnable ? local : `  (missing: ${missing.join(', ')})`}`);
     // v5 §1 candidate 13: warn, never fail - an old chain file is read exactly as it always was.
     // Printed once per distinct warning after the list, with the chains it covers, rather than
     // once under every chain (48 identical lines buried the listing).
@@ -353,7 +375,7 @@ if (argv[0] === 'doctor') {
       // The labs a chain advertises are its panel's: critics only, by labOf (a seat's own `lab`
       // wins). Counting every seat by model-id prefix called cheap-7-v2 a 9-lab chain while the
       // README calls it a seven-lab panel.
-      oneKey.set(keyNames[0], [...(oneKey.get(keyNames[0]) || []), { label, worst, labs: panelLabCount(resolved) }]);
+      oneKey.set(keyNames[0], [...(oneKey.get(keyNames[0]) || []), { label, worst, most, labs: panelLabCount(resolved) }]);
     }
   }
   for (const [warning, labels] of schemaWarnings) {
@@ -363,7 +385,7 @@ if (argv[0] === 'doctor') {
   console.log(`\nStart here:`);
   console.log(`  $0, no key:  "${councilCommand()} demo" shows every stage on a scripted example; "${councilCommand()} init" writes a task and chain you own.`);
   for (const [envName, chains] of oneKey) {
-    const shown = chains.sort((a, b) => a.worst - b.worst).slice(0, 3).map(c => `${c.label} (worst case ${formatUsd(c.worst)}${c.labs ? `, ${c.labs}-lab panel` : ''})`);
+    const shown = chains.sort((a, b) => a.worst - b.worst).slice(0, 3).map(c => `${c.label} (expected ${formatUsd(c.worst)}, at most ${formatUsd(c.most)}${c.labs ? `, ${c.labs}-lab panel` : ''})`);
     console.log(`  one key:     ${envName} alone runs ${shown.join(', ')}`);
   }
   console.log(`  before paying: "${councilCommand()} --task tasks/<yours>.md --chain <name> --dry-run" prices it; every run stops at its spend cap ($7 unless you set --max-usd).`);
@@ -495,7 +517,7 @@ if (argv[0] === 'init') {
     console.log(`  ${r.label.padEnd(12)} ${r.seat.padEnd(w)}  ${r.priced ? formatUsd(r.usd) : 'unpriced'}`);
   }
   const worst = rows.reduce((s, r) => s + r.usd, 0);
-  console.log(`  worst case: ${formatUsd(worst)} for the whole chain`);
+  console.log(`  expected: ${formatUsd(worst)} for the whole chain (typical output; "council --dry-run" also prints the maximum)`);
 
   console.log(`\nRunning a canned, offline, $0 task end to end so you can see a real run folder before touching a key:`);
   const cannedConfig = {
@@ -598,6 +620,50 @@ if (argv[0] === 'check-lock' || argv[0] === 'verify-handoff') {
   process.exit(1);
 }
 
+// `council contract check <runs/id>` (0.8.2 item 6a): $0, no network. Recomputes what the run folder still holds (the criteria, the task file, the --context documents, the tool results,
+// deliverable.md, HANDOFF.md) and compares it with the thin contract in report.json. Exit 0 sealed, 1 drift (each on its own line), 2 nothing to check. What it cannot read is said, never a pass.
+// The family name leaves room for the full contract record (`contract lock | show`) in a later release.
+if (argv[0] === 'contract' && argv[1] !== 'draft') {
+  // 0.8.2 item 6d: lock, show and amend --decide live in src/contract-cli.js (the record, its gate and its terminal answer); check stays here, beside the thin-contract check it extends.
+  if (argv[1] !== 'check') process.exit(await contractCommand(argv.slice(1), { work }));
+  if (!argv[2] || argv[2].startsWith('--')) {
+    console.error('usage: council contract check <runs/id> [--handoff <HANDOFF.md>]');
+    process.exit(2);
+  }
+  const abs = resolve(work, argv[2]);
+  const trusted = trustedRunDir(dirname(abs), basename(abs));
+  if (trusted.refusal) { console.error(`contract check: ${trusted.refusal}`); process.exit(2); }
+  // 0.8.2 item 6d: a run that holds a contract record (or amendment requests) is also checked as a record: ledger, versions, approvals, CONTRACT.md. A run with none is checked and answered exactly as in 6a.
+  const record = checkContract(trusted.dir);
+  const printRecord = () => { for (const l of record.lines) (record.exit === 0 ? console.log : (x) => console.error(`contract check: ${x}`))(l); };
+  const report = readRunJson(trusted.dir, 'report.json');
+  if (!report) {
+    if (record.present) { printRecord(); process.exit(record.exit); }
+    console.error(`contract check: ${argv[2]}/report.json is missing or not JSON (an unfinished run has no thin contract)`); process.exit(2);
+  }
+  const meta = readRunJson(trusted.dir, 'run.json') || {};
+  const task = meta.task ? readRecordedTask(meta.task, work) : {};
+  let contextBundle;
+  if (meta.context) { try { contextBundle = contextBundleText(contextFileList(meta.context)); } catch { contextBundle = undefined; /* a context file that is gone or refused (size, FIFO) is reported as 'cannot check: context', never as a pass */ } }
+  // --handoff: the builder's own copy of HANDOFF.md, read from wherever it is (this is the person's own command).
+  const copyArg = flag('handoff', null);
+  let handoffCopyText;
+  if (copyArg !== null) {
+    if (copyArg === true) { console.error('contract check: --handoff needs a file'); process.exit(2); }
+    try { handoffCopyText = readFileSync(resolve(work, copyArg), 'utf8'); } catch { console.error(`contract check: cannot read ${copyArg}`); process.exit(2); }
+  }
+  const verdict = checkThinContract({
+    report, taskText: task.text, contextBundle, hasContext: Boolean(meta.context), handoffCopyText,
+    deliverableText: readRunFile(trusted.dir, 'deliverable.md').text, handoffText: readRunFile(trusted.dir, 'HANDOFF.md').text,
+  });
+  const shown = renderCheck(verdict);
+  for (const l of shown.out) console.log(l);
+  for (const l of shown.err) console.error(`contract check: ${l}`);
+  if (record.present) printRecord();
+  // The record half decides when the run has no thin contract to check (verdict.note); otherwise a drift in either is 1, and thin's own 2 ("nothing outside report.json could be checked") stays 2: not checked is never a pass.
+  process.exit(!record.present ? verdict.exit : record.exit === 1 ? 1 : verdict.note ? record.exit : verdict.exit);
+}
+
 // `council handoff --from-run <folder> [--chain <name>] [--max-usd N|none]` (0.8.0): a HANDOFF.md for a
 // run that stopped before it wrote one (the spend cap, an abandoned pause, a crash), made from the
 // latest draft the folder holds (src/handoff-from-run.js). One call on the chain's handoff seat (its
@@ -606,21 +672,25 @@ if (argv[0] === 'check-lock' || argv[0] === 'verify-handoff') {
 // it writes HANDOFF-from-run.md next to one that exists. An external handoff seat (a session you run)
 // gets a prompt file instead of a call. Exit 0 written, 2 nothing to hand off, 3 the prompt was written
 // for an external seat, 4 the cap, 11 a key-shaped string in the draft, 16 the call failed or was cut off.
-if (argv[0] === 'handoff') {
+if (argv[0] === 'handoff' || (argv[0] === 'contract' && argv[1] === 'draft')) {
+  // 0.8.2 item 6d: `council contract draft --from-run <run>` is this same block in draft mode: the same chain and seat lookup, run lock, policy gate, outbound key scan, spend cap and per-call cost record; the call's prompt
+  // is src/contract-draft.js's (held until the re-record) and its reply is a draft of obligations (linted, written as contract/draft.json) instead of a HANDOFF file.
+  const draftMode = argv[0] === 'contract';
+  const who = draftMode ? 'contract draft' : 'handoff';
   const fromArg = flag('from-run', null);
   if (!fromArg || fromArg === true) {
-    console.error('handoff: --from-run <run folder> is required');
-    console.error('usage: council handoff --from-run runs/<id> [--chain <name>] [--max-usd N|none]');
+    console.error(`${who}: --from-run <run folder> is required`);
+    console.error(`usage: council ${draftMode ? 'contract draft' : 'handoff'} --from-run runs/<id> [--chain <name>] [--max-usd N|none]`);
     process.exit(2);
   }
   const hRunDir = resolve(work, fromArg);
   const hMeta = existsSync(join(hRunDir, 'run.json')) ? (() => { try { return JSON.parse(readFileSync(join(hRunDir, 'run.json'), 'utf8')); } catch { return null; } })() : null;
-  if (!hMeta) { console.error(`handoff: ${hRunDir} is not a run folder (no readable run.json)`); process.exit(2); }
+  if (!hMeta) { console.error(`${who}: ${hRunDir} is not a run folder (no readable run.json)`); process.exit(2); }
   const chainArg = flag('chain', null);
   const hChain = chainArg && chainArg !== true ? chainArg : hMeta.chain;
   { const bad = chainNameRefusal(hChain, chainArg ? '--chain' : 'the chain recorded in run.json'); if (bad) { console.error(bad); process.exit(2); } }
   const hConfigPath = [hMeta.cwd ? join(hMeta.cwd, 'chains', `${hChain}.json`) : null, join(work, 'chains', `${hChain}.json`), join(pkg, 'chains', `${hChain}.json`)].filter(Boolean).find(existsSync);
-  if (!hConfigPath) { console.error(`handoff: no such chain "${hChain}" (looked in the run's own chains/, ./chains and the package's)`); process.exit(1); }
+  if (!hConfigPath) { console.error(`${who}: no such chain "${hChain}" (looked in the run's own chains/, ./chains and the package's).${archivedChainHint(hChain)}`); process.exit(1); }
   let hConfig;
   try { hConfig = JSON.parse(readFileSync(hConfigPath, 'utf8')); } catch { console.error(`\n${formatCouncilError('COUNCIL-E003', { path: hConfigPath })}`); process.exit(EXIT_FATAL); }
   exitOnLint(hConfig, hConfigPath);
@@ -628,20 +698,20 @@ if (argv[0] === 'handoff') {
   // whose acceptance items came from advice, read as signed off (advice reports carry passed: true, which is not a
   // sign-off). Refused before anything is read further or spent.
   if (hConfig.advise?.enabled === true || existsSync(join(hRunDir, 'advise-log.json'))) {
-    console.error(`handoff: ${hRunDir} is an advice call (chain "${hChain}"), not a plan: there is nothing to hand off. Read its deliverable.md (the advice) instead.`);
+    console.error(`${who}: ${hRunDir} is an advice call (chain "${hChain}"), not a plan: there is nothing to hand off. Read its deliverable.md (the advice) instead.`);
     process.exit(2);
   }
   try { hConfig = resolveChainSeats(hConfig); } catch { /* reported by the seat check below */ }
   const hSeat = hConfig.seats?.handoff || hConfig.seats?.builder;
-  if (!hSeat) { console.error(`handoff: chain "${hChain}" has neither a handoff nor a builder seat`); process.exit(2); }
+  if (!hSeat) { console.error(`${who}: chain "${hChain}" has neither a handoff nor a builder seat`); process.exit(2); }
   const hDraft = pickDraft(hRunDir);
-  if (!hDraft) { console.error(`handoff: nothing to hand off - ${hRunDir} holds no draft (deliverable.md, final.md, revise-N.md or build.md)`); process.exit(2); }
+  if (!hDraft) { console.error(`${who}: nothing to hand off - ${hRunDir} holds no draft (deliverable.md, final.md, revise-N.md or build.md)`); process.exit(2); }
   const hTaskPath = hMeta.task ? (isAbsolute(hMeta.task) ? hMeta.task : resolve(hMeta.cwd || work, hMeta.task)) : null;
   let hRequest;
-  try { hRequest = readFileSync(hTaskPath, 'utf8'); } catch { console.error(`handoff: cannot read the run's task file (${hTaskPath || 'none recorded'})`); process.exit(2); }
+  try { hRequest = readFileSync(hTaskPath, 'utf8'); } catch { console.error(`${who}: cannot read the run's task file (${hTaskPath || 'none recorded'})`); process.exit(2); }
   const hCriteria = readCriteria(hRunDir);
   // FX-6: never a silent HANDOFF.md without its lock block.
-  if (!hCriteria.length) console.error(`handoff: no criteria could be read from ${hRunDir} (report.json, report-partial.json, criteria.md): the file is written without a lock block, so council check-lock cannot check it.`);
+  if (!hCriteria.length) console.error(draftMode ? `${who}: no criteria could be read from ${hRunDir} (report.json, report-partial.json, criteria.md): the obligations cannot be linked to criteria.` : `${who}: no criteria could be read from ${hRunDir} (report.json, report-partial.json, criteria.md): the file is written without a lock block, so council check-lock cannot check it.`);
   // Audit A5-1 (0.8.1): one process per run folder, like --resume. A handoff used to ignore the lock, so it could run beside a resume and replace a finished run's
   // HANDOFF.md, and two handoffs could both write the same name. Taken before the model call and held to exit (released by the exit listener).
   try { acquireRunLock(hRunDir); } catch (err) {
@@ -651,8 +721,16 @@ if (argv[0] === 'handoff') {
   }
   const hState = stopState(hRunDir);
   const hRunId = basename(hRunDir);
-  const hSystem = HandoffRoles.HANDOFF_SYSTEM;
-  const hUser = HandoffRoles.handoffUser({ request: hRequest, draft: hDraft.text, planFile: hConfig.handoffPlanFile || 'PLAN.md', checks: '' });
+  let hSystem, hUser;
+  if (draftMode) {
+    if (hSeat.provider === 'external') { console.error(`${who}: the handoff seat of "${hChain}" is external (a session you run); a contract draft is made by a model call. Write the draft yourself and pass it: council contract lock runs/<id> --draft <file>`); process.exit(2); }
+    // The recorded prompt is roles.js's (CONTRACT_DRAFT_SYSTEM, contractDraftUser; P12): a build without it refuses a real seat here, before anything is sent (src/contract-draft.js).
+    const dp = contractDraftPrompt({ provider: hSeat.provider, request: hRequest, draft: hDraft.text, handoff: readRunFile(hRunDir, 'HANDOFF.md').text ?? '', criteria: hCriteria });
+    if (!dp.ok) { console.error(`${who}: ${dp.message}`); process.exit(2); }
+    hSystem = dp.system; hUser = dp.user;
+  } else {
+    ({ system: hSystem, user: hUser } = handoffPrompt({ config: hConfig, request: hRequest, draft: hDraft.text, planFile: hConfig.handoffPlanFile || 'PLAN.md', checks: '', criteria: hCriteria }));
+  }
   // Exact case (FX-9): on a case-insensitive disk existsSync would find the stage file handoff.md under this name.
   const hOut = existsExactCase(hRunDir, 'HANDOFF.md') ? 'HANDOFF-from-run.md' : 'HANDOFF.md';
   if (hSeat.provider === 'external') {
@@ -663,7 +741,7 @@ if (argv[0] === 'handoff') {
     process.exit(3);
   }
   const hMissing = checkSeats([hSeat]);
-  if (hMissing.length) { console.error(`handoff: a key is missing for ${hMissing.join(', ')}. Set it, then run this again.`); process.exit(EXIT_DEGRADABLE); }
+  if (hMissing.length) { console.error(`${who}: a key is missing for ${hMissing.join(', ')}. Set it, then run this again.`); process.exit(EXIT_DEGRADABLE); }
   // The same policy gate the run itself passes (GuardLayer #4's class: a seat the policy forbids must not
   // be called because a different command reached it).
   {
@@ -683,7 +761,7 @@ if (argv[0] === 'handoff') {
   if (!hAllowSecret) {
     const found = secretShapesIn(hRequest).map(f => ({ where: hTaskPath, ...f }));
     if (found.length) {
-      console.error(`\nhandoff: refused - the task file contains ${found.length} credential-shaped string(s).`);
+      console.error(`\n${who}: refused - the task file contains ${found.length} credential-shaped string(s).`);
       for (const l of secretRefusalLines(found)) console.error(l);
       console.error('Remove the key from the task, or rerun with --allow-secret-shaped to send it deliberately.');
       process.exit(EXIT_PII_BLOCKED);
@@ -701,26 +779,39 @@ if (argv[0] === 'handoff') {
   } else if ('maxUsd' in hMeta) hCap = hMeta.maxUsd;
   else hCap = Number(process.env.MAX_USD_PER_RUN) > 0 ? Number(process.env.MAX_USD_PER_RUN) : 7;
   setBudgetOrExit(hCap);
+  setReservationSink(openReservations(hRunDir)); // 0.8.2 item 8b: this call's reservation is on disk before it is sent (src/spend-reservations.js)
   countEarlierSpend(hSpent);
-  console.log(`handoff: ${hDraft.name} of ${hRunId} -> ${hSeat.provider}/${hSeat.model}${hState.signedOff ? '' : ` (the run ${hState.reason}: the file will say the plan was not signed off)`}; cap ${hCap === null ? 'none' : formatUsd(hCap)}, ${formatUsd(hSpent)} already spent`);
+  console.log(`${who}: ${hDraft.name} of ${hRunId} -> ${hSeat.provider}/${hSeat.model}${hState.signedOff ? '' : ` (the run ${hState.reason}${draftMode ? '' : ': the file will say the plan was not signed off'})`}; cap ${hCap === null ? 'none' : formatUsd(hCap)}, ${formatUsd(hSpent)} already spent`);
   // FX-1: a call that fails after it was sent (it may be billed) is charged on disk, as in a run.
   setChargeHook(c => recordLostCharge(hRunDir, c.label, c));
   let hRes;
   try {
-    hRes = await runSingleStage(hSeat, { system: hSystem, user: hUser, log: m => console.log(m), label: 'handoff-from-run' });
+    hRes = await runSingleStage(hSeat, { system: hSystem, user: hUser, log: m => console.log(m), label: draftMode ? 'contract-draft' : 'handoff-from-run' });
   } catch (err) {
-    if (err instanceof BudgetExceeded) { console.error(`handoff: stopped by the spend cap (${formatUsd(err.spent)} spent, this call could cost up to ${formatUsd(err.projected)}, ceiling ${formatUsd(err.cap)}). Raise --max-usd.`); process.exit(4); }
-    if (err instanceof SecretShapedPrompt) exitOnSecretShaped(err, 'handoff');
-    console.error(`handoff: the call failed - ${err?.message || err}`);
+    if (err instanceof UnpricedSeat) { console.error(`\n${formatCouncilError('COUNCIL-E002', { provider: hSeat.provider, model: hSeat.model, roles: 'handoff', capUsd: hCap })}`); process.exit(EXIT_DEGRADABLE); }
+    if (err instanceof BudgetExceeded) { console.error(`${who}: stopped by the spend cap (${formatUsd(err.spent)} spent, this call could cost up to ${formatUsd(err.projected)}, ceiling ${formatUsd(err.cap)}). Raise --max-usd.`); process.exit(4); }
+    if (err instanceof SecretShapedPrompt) exitOnSecretShaped(err, who);
+    console.error(`${who}: the call failed - ${err?.message || err}`);
     process.exit(EXIT_RUN_FAILED);
   }
   // The money is on record before anything else can fail, a cut-off reply included. One file per call (FX-1): a second
   // handoff used to overwrite the first's handoff-from-run.usage.json; superseded/ is what --spend and a resume's cap read.
-  recordCall(hRunDir, 'handoff-from-run', { provider: hRes.provider, model: hRes.model, usage: hRes.usage, usd: hRes.usd, ms: hRes.ms, promptHash: hRes.promptHash });
+  recordCall(hRunDir, draftMode ? 'contract-draft' : 'handoff-from-run', { provider: hRes.provider, model: hRes.model, usage: hRes.usage, usd: hRes.usd, ms: hRes.ms, promptHash: hRes.promptHash });
   const hStop = hRes.usage?.stop;
   if (['length', 'max_tokens', 'error', 'content_filter', 'refusal'].includes(hStop) || !String(hRes.text || '').trim()) {
-    console.error(`handoff: the reply did not complete (${hStop ? `stop: ${hStop}` : 'empty'}); nothing was written. Raise the seat's maxTokens and run this again. ${formatUsd(hRes.usd)} was spent.`);
+    console.error(`${who}: the reply did not complete (${hStop ? `stop: ${hStop}` : 'empty'}); nothing was written. Raise the seat's maxTokens and run this again. ${formatUsd(hRes.usd)} was spent.`);
     process.exit(EXIT_RUN_FAILED);
+  }
+  if (draftMode) {
+    const ids = criterionIds(hCriteria);
+    const fin = finishDraft(hRunDir, String(hRes.text), { criteriaIds: ids }); // [] (not null) for a run with no readable criteria: an invented label is refused
+    if (!fin.ok) {
+      console.error(`${who}: the reply is refused by the lint (${fin.problems.length} problem${fin.problems.length === 1 ? '' : 's'}); only the reply itself was kept (contract/draft-reply.md), no draft was written. ${formatUsd(hRes.usd)} was spent.`);
+      for (const l of fin.problems) console.error(`  ${terminalSafe(l)}`);
+      process.exit(EXIT_RUN_FAILED);
+    }
+    console.log(`${who}: wrote ${join(hRunDir, 'contract', 'draft.json')} (${fin.obligations.length} obligation${fin.obligations.length === 1 ? '' : 's'}, ${formatUsd(hRes.usd)}). Read it, then: council contract lock ${fromArg}`);
+    process.exit(0);
   }
   // The reply itself, as every stage keeps its own (<label>.md); the usage file above is what `council --spend`
   // and the next cap check read.
@@ -728,7 +819,18 @@ if (argv[0] === 'handoff') {
   // case-insensitive disk. Written atomically: temp file, then rename.
   writeFileSync(join(hRunDir, 'handoff-from-run.reply.md.tmp'), String(hRes.text));
   renameSync(join(hRunDir, 'handoff-from-run.reply.md.tmp'), join(hRunDir, 'handoff-from-run.reply.md'));
-  const body = partialBanner({ state: hState, draftName: hDraft.name, runId: hRunId }) + String(hRes.text).replace(/\s+$/, '') + '\n' + lockBlock(hCriteria, { runId: hRunId, checks: readChecks(hRunDir, hCriteria) });
+  // 0.8.2 item 6b: the same harness-written section as a run's own HANDOFF.md, from the thin contract the run's report.json holds (none in an older run: then the file reads as before).
+  const hChecks = readChecks(hRunDir, hCriteria);
+  let hFailures, hGaps = []; try { const hCfgRead = JSON.parse(readFileSync(hConfigPath, 'utf8')); hFailures = checkFailuresOf(hCfgRead); if (hCfgRead.handoff_contract?.milestones === true) hGaps = lintMilestones({ text: String(hRes.text), criteriaIds: criterionIds(hCriteria) }).findings; } catch { hFailures = undefined; /* the chain file was already read and linted above; if it cannot be read again the section is written with the default threshold and no milestone gaps, never a failed handoff */ }
+  // Audit fix 73-handoff 1: the milestone gaps are written where the run path writes them (WARNINGS.md) and said on the console, whether or not the run has a thin contract to carry them into the file
+  // (a cap-stopped run has no report.json; a 0.8.1 run has no thin_contract: builderSection returns '' for both).
+  if (hGaps.length) {
+    if (!existsSync(join(hRunDir, 'WARNINGS.md'))) writeFileSync(join(hRunDir, 'WARNINGS.md'), '# Warnings\n\n');
+    appendFileSync(join(hRunDir, 'WARNINGS.md'), hGaps.map(f => `- handoff_milestones: ${f.kind}: ${f.message}\n`).join(''));
+    console.log(`${who}: handoff milestones: ${hGaps.length} gap(s) (${[...new Set(hGaps.map(f => f.kind))].join(', ')}); see ${join(hRunDir, 'WARNINGS.md')}`);
+  }
+  const hBuilder = builderSection({ thin: readRunJson(hRunDir, 'report.json')?.thin_contract, runId: hRunId, failures: hFailures, hasChecks: Array.isArray(hChecks) && hChecks.some(Boolean), gaps: hGaps });
+  const body = partialBanner({ state: hState, draftName: hDraft.name, runId: hRunId }) + String(hRes.text).replace(/\s+$/, '') + '\n' + (hBuilder ? `\n${hBuilder}` : '') + lockBlock(hCriteria, { runId: hRunId, checks: hChecks });
   // Exclusive create (audit A5-1, FX-9): a file that appeared since the name was chosen (another handoff, the run's own HANDOFF.md finishing, or on a case-insensitive disk
   // the stage file handoff.md under another spelling) is never overwritten: the next free name is used.
   let hWritten = null;
@@ -736,8 +838,8 @@ if (argv[0] === 'handoff') {
     const name = n === 0 ? hOut : n === 1 ? 'HANDOFF-from-run.md' : `HANDOFF-from-run-${n}.md`;
     try { writeFileSync(join(hRunDir, name), body, { flag: 'wx' }); hWritten = name; } catch (err) { if (err.code !== 'EEXIST') throw err; }
   }
-  if (!hWritten) { console.error(`handoff: HANDOFF.md, HANDOFF-from-run.md and its numbered names all exist in ${hRunDir}; nothing was written. ${formatUsd(hRes.usd)} was spent. The reply is in handoff-from-run.reply.md.`); process.exit(EXIT_RUN_FAILED); }
-  console.log(`handoff: wrote ${join(hRunDir, hWritten)} (${formatUsd(hRes.usd)})`);
+  if (!hWritten) { console.error(`${who}: HANDOFF.md, HANDOFF-from-run.md and its numbered names all exist in ${hRunDir}; nothing was written. ${formatUsd(hRes.usd)} was spent. The reply is in handoff-from-run.reply.md.`); process.exit(EXIT_RUN_FAILED); }
+  console.log(`${who}: wrote ${join(hRunDir, hWritten)} (${formatUsd(hRes.usd)})`);
   process.exit(0);
 }
 
@@ -1031,7 +1133,7 @@ if (rematchArg) {
   const chainConfigPath = [join(work, 'chains', `${chainName}.json`), join(pkg, 'chains', `${chainName}.json`)]
     .find(existsSync);
   if (!chainConfigPath) {
-    console.error(`--rematch: chain "${chainName}" (recorded in ${originalRunMetaPath}) has no chain config on disk.`);
+    console.error(`--rematch: chain "${chainName}" (recorded in ${originalRunMetaPath}) has no chain config on disk.${archivedChainHint(chainName)}`);
     process.exit(2);
   }
   const rawRematchConfig = JSON.parse(readFileSync(chainConfigPath, 'utf8'));
@@ -1049,6 +1151,8 @@ if (rematchArg) {
     process.exit(1);
   }
 
+  // Audit fix cnc-money F3: an unpriced seat under a cap is refused before any folder exists (it used to leave <id>.rematch-N/run.json behind, so the same command later said "already exists").
+  refuseUnpricedOrExit(rematchConfig, maxUsd);
   const rematchRunId = `${basename(originalRunDir)}.rematch-${seed}`;
   const rematchRunDir = join(dirname(originalRunDir), rematchRunId);
   // Replay audit #4: the same seed again re-paid the whole rematch and overwrote the earlier folder.
@@ -1063,6 +1167,7 @@ if (rematchArg) {
 
   console.log(`\nrematch of ${basename(originalRunDir)} (chain: ${chainName}, seed: ${seed})`);
   setBudgetOrExit(maxUsd);
+  setReservationSink(openReservations(rematchRunDir));
   console.log(`cap:   ${maxUsd === null ? 'none - this rematch has no spend ceiling' : `${formatUsd(maxUsd)} (--max-usd)`}`);
   let rematchResult;
   const rematchStartedAt = new Date().toISOString();
@@ -1133,7 +1238,9 @@ if (argv.includes('--replay')) {
     process.exit(2);
   }
   // Replay audit #4: a second replay on the same day re-paid everything and overwrote the first.
-  if (existsSync(replayDirFor(runDir, date))) {
+  // (a folder holding only spend-reservations.jsonl is what a replay that failed on its first call left, 0.8.2 item 8b: it is reused, not a finished replay)
+  const replayExisting = (() => { try { const names = readdirSync(replayDirFor(runDir, date)); return names.length === 0 || names.every(n => n === 'spend-reservations.jsonl') ? false : true; } catch { return false; } })();
+  if (replayExisting) {
     console.error(`--replay: ${basename(replayDirFor(runDir, date))} already exists - this run was already replayed for that date. Pass another --replay-date, or move the old folder aside first. Nothing was run.`);
     process.exit(2);
   }
@@ -1148,10 +1255,11 @@ if (argv.includes('--replay')) {
       exitOnLint(rawReplayConfig, replayChainPath);
       let replayConfig = null;
       try { replayConfig = resolveChainSeats(rawReplayConfig); } catch { /* reported by council-replay */ }
-      if (replayConfig) refuseSideRun('--replay', replayConfig, runMetaForChain);
+      if (replayConfig) { refuseSideRun('--replay', replayConfig, runMetaForChain); refuseUnpricedOrExit(replayConfig, maxUsd); }
     }
   }
   setBudgetOrExit(maxUsd);
+  setReservationSink(openReservations(replayDirFor(runDir, date)));
   console.log(`cap:   ${maxUsd === null ? 'none - this replay has no spend ceiling' : `${formatUsd(maxUsd)} (--max-usd)`}`);
   try {
     const { replayDir, diff } = await runCouncilReplay(runDir, {
@@ -1318,7 +1426,8 @@ if (argv.includes('--metrics')) {
 // repriced at today's pricing.json - distinct from `--dry-run`'s
 // worst-case estimate from the chain's declared token assumptions.
 if (argv.includes('--forecast-cost')) {
-  const chainNameArg = flag('chain', 'verify');
+  const chainNameArg = flag('chain', null);
+  if (chainNameArg === null) { console.error(noChainRefusal('--forecast-cost')); process.exit(2); }
   const days = Number(flag('days', 90));
   if (!Number.isFinite(days) || days <= 0) {
     console.error('--days: expected a positive number of days');
@@ -1327,7 +1436,7 @@ if (argv.includes('--forecast-cost')) {
   const f = forecastCost(chainNameArg, join(work, 'runs'), { days });
   console.log(`\nCost forecast for chain "${f.chain}", from ${f.runsUsed} historical run(s) in the last ${f.days} day(s):`);
   if (f.low === null) {
-    console.log(`  no estimate - ${f.note}. Try "council --chain ${f.chain} --dry-run" for a worst-case estimate with no history needed.`);
+    console.log(`  no estimate - ${f.note}. Try "council --chain ${f.chain} --dry-run" for an estimate with no history needed.`);
   } else {
     console.log(`  ${formatUsd(f.low)} - ${formatUsd(f.high)}  (mean ${formatUsd(f.mean)})`);
     console.log(`  This is a range from what this chain has actually cost before, repriced at today's rates - not a promise. A run outside this range is possible.`);
@@ -1386,7 +1495,7 @@ if (adoptArg !== null) {
   const ceiling = r.gate.price.ceiling_usd;
   maxUsd = flag('max-usd', null) !== null && maxUsd !== null ? Math.min(maxUsd, ceiling) : ceiling;
 }
-const chainName = adopt ? adopt.meta.chain : flag('chain', 'verify');
+const chainName = adopt ? adopt.meta.chain : flag('chain', null);
 const taskPath = adopt ? join(adopt.dir, ADVICE_BRIEF_FILE) : flag('task', null);
 const fromRun = flag('from-run', null);
 const resumeRun = flag('resume', null);
@@ -1395,7 +1504,7 @@ const resumeRun = flag('resume', null);
 // CLI backlog). A usage error instead, before anything else runs.
 for (const name of ['chain', 'task', 'from-run', 'resume', 'draft', 'context']) {
   if (flag(name, null) === true) {
-    console.error(`--${name}: needs a value, e.g. --${name} ${name === 'chain' ? 'verify' : name === 'resume' || name === 'from-run' ? 'runs/<id>' : name === 'context' ? 'context/' : '<file>'}`);
+    console.error(`--${name}: needs a value, e.g. --${name} ${name === 'chain' ? 'cheap-7-v2' : name === 'resume' || name === 'from-run' ? 'runs/<id>' : name === 'context' ? 'context/' : '<file>'}`);
     process.exit(2);
   }
 }
@@ -1438,37 +1547,36 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        and print the deliverable and board
   council doctor                       which API keys you have (names only),
                                        which chains you can run with them, and
-                                       each one's worst-case price. No network call.
+                                       each one's expected and maximum price. No network call.
   council doctor --chain <file>        lint one chain file before any paid run
   council doctor --scan-artifacts      scan your tasks and chains for key formats
-  council --task tasks/example.md [--chain <name>] [--rounds N]
-                                       --chain takes a chain name (default verify),
-                                       never a path. Recommended: cheap-7-v2 (one
-                                       OpenRouter key), plan-premium-7, plan-highest-7
-                                       (untested with real models), local-ollama ($0)
+  council --task tasks/example.md --chain <name> [--rounds N]
+                                       --chain takes a chain name (no default since 0.8.2),
+                                       never a path. Recommended: ${PROMOTED_CHAINS.join(', ')}
+                                       (what each needs and costs: the README, or \`council doctor\`)
   council fence --task tasks/x.md --repo <path> <file> [file...]
                                        append real files to the task, fenced, so the
                                        seats read the code instead of guessing it
   council --task tasks/x.md --allow-unfenced [a.js,b.ts]
                                        run although the task names files it does not
                                        include (all of them, or only those listed)
-  council --task tasks/x.md --chain plan-relay --from-run runs/<earlier run>
+  council --task tasks/x.md --chain cheap-7-v2 --from-run runs/<earlier run>
                                        reuse that run's criteria and first draft,
                                        so two panels can be compared on one draft
-  council --task tasks/x.md --chain plan-unanimous --from-run runs/<r> --draft file.md --rounds 1
+  council --task tasks/x.md --chain cheap-7-v2 --from-run runs/<r> --draft file.md --rounds 1
                                        panel-only: grade this draft against that run's criteria
   council --task tasks/x.md --criteria criteria.md
                                        use these acceptance criteria instead of the
                                        criteria stage (one per line, or JSON with
                                        optional kind/check per criterion)
-  council --task tasks/x.md --chain plan-debate --context context/my-project
+  council --task tasks/x.md --chain cheap-7-v2 --context context/my-project
                                        append standing direction docs to the request
                                        (each file 2 MB at most)
   council --resume runs/<r>            continue a run that paused at an external seat
                                        (after writing runs/<r>/<label>.md); completed
                                        stages replay from disk and cost nothing
-  council --chain seven --dry-run      estimate tokens and cost, call nothing
-  council --chain seven --dry-run --json
+  council --chain cheap-7-v2 --dry-run estimate tokens and cost, call nothing
+  council --chain cheap-7-v2 --dry-run --json
                                        the same as one JSON document, plus which
                                        seat lacks which API key
   council --spend [--days 7]           what every run has cost, across runs,
@@ -1530,6 +1638,22 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council check-lock HANDOFF.md [--run runs/<r>]
                                        does this HANDOFF still carry the criteria the
                                        run locked into it? ($0; alias verify-handoff)
+  council contract check runs/<r> [--handoff HANDOFF.md]
+                                       does this run folder (and a HANDOFF copy you hold) still match
+                                       its thin contract (task, criteria, evidence, signed text), and
+                                       its contract record if it has one? ($0)
+  council contract lock runs/<r> [--draft <file>]
+                                       show the exact obligations to a person, and on approval write
+                                       contract/v1.json + CONTRACT.md (needs a terminal, or answer the
+                                       gate with council gate answer, then run it again)
+  council contract draft --from-run runs/<r> [--chain <name>] [--max-usd N|none]
+                                       one call on the run's handoff seat drafts the obligations
+                                       (contract/draft.json); a person reads it before council contract lock
+  council contract show runs/<r> [--md]
+                                       the current contract version, its obligations and requests ($0)
+  council contract amend --decide runs/<r> [request] [--decline]
+                                       a person's decision on an amendment request: the exact current
+                                       and proposed words, then approve (a new version) or decline
   council gate show runs/<r> [gate]    a run's gates, or one gate's whole text
   council gate answer runs/<r> <gate> [--decline]
                                        show the exact text, then approve or decline
@@ -1576,6 +1700,7 @@ if (resumeRun) {
   }
 }
 const chainNameEff = resumeMeta?.chain || chainName;
+if (chainNameEff === null) { console.error(noChainRefusal()); process.exit(2); }
 // A chain is named, never a path (src/chain-name.js): the name is joined onto chains/ below.
 { const bad = chainNameRefusal(chainNameEff, resumeMeta ? '--resume: the chain recorded in run.json' : '--chain'); if (bad) { console.error(bad); process.exit(2); } }
 // A user's own chains/ takes precedence, so a custom chain works from an
@@ -1600,7 +1725,7 @@ const configPath = adviceLookup ? adviceChainPath(chainNameEff, { env: process.e
 if (!existsSync(configPath)) {
   // Bug audit 2026-09-28 (area 4 LOW-4): name every folder searched, not just the package's.
   const searched = [...new Set([resumeMeta?.cwd ? join(resumeMeta.cwd, 'chains') : null, join(work, 'chains'), join(pkg, 'chains')].filter(Boolean))];
-  console.error(`No such chain: "${chainNameEff}" - looked for ${chainNameEff}.json in ${searched.join(' and ')}.`);
+  console.error(`No such chain: "${chainNameEff}" - looked for ${chainNameEff}.json in ${searched.join(' and ')}.${archivedChainHint(chainNameEff)}`);
   process.exit(1);
 }
 // v5 §1 candidate 4, COUNCIL-E003: a malformed chain file is a fatal,
@@ -1780,6 +1905,7 @@ const allSeats = everySeatOf(config);
 // fact about a moment (the policy file may change later), which is why it is persisted rather
 // than re-derived.
 let policyChecks = null;
+let policyWarnings = [];
 
 // v7.x item 1, COUNCIL-E005: the central policy file. No file at the locked path (work/
 // policy.json) = today's behavior, byte-identical - this is the very first thing checked, and
@@ -1810,8 +1936,9 @@ let policyChecks = null;
     if (fields.target_file !== undefined) ctx.changeRequest = { target_file: fields.target_file };
     const signoff = signoffFlag || fields.signoff;
     if (signoff !== undefined) ctx.signoff = signoff;
-    const { ok, reasons, checks } = evaluatePolicy(policy, ctx);
+    const { ok, reasons, checks, warnings } = evaluatePolicy(policy, ctx);
     policyChecks = checks;
+    policyWarnings = warnings; // 0.8.2 item 8c: the maximum over max_usd_per_run warns (printed in the dry run and at the start, and written to WARNINGS.md); it never refuses
     if (!ok) {
       console.error(`\n${formatCouncilError('COUNCIL-E005', { path: POLICY_PATH(work), chain: config.name, reasons })}`);
       process.exit(EXIT_POLICY_REFUSED);
@@ -1824,10 +1951,10 @@ if (dryRun && argv.includes('--json')) {
   // key. Nothing else is printed, so a caller can parse the whole output.
   const taskFileForDry = taskPath ? resolve(work, taskPath) : null;
   const taskChars = taskFileForDry && existsSync(taskFileForDry) ? readFileSync(taskFileForDry, 'utf8').length : null;
-  console.log(JSON.stringify(dryRunReport(config, {
+  console.log(JSON.stringify({ ...dryRunReport(config, {
     fromRun, taskChars, defaultCapUsd: maxUsd ?? null,
     history: forecastCost(config.name, join(work, 'runs')),
-  }), null, 2));
+  }), ...(policyWarnings.length ? { policyWarnings } : {}) }, null, 2));
   process.exit(0);
 }
 
@@ -1845,12 +1972,17 @@ if (dryRun) {
     console.log(`  ${r.label.padEnd(12)} ${r.seat.padEnd(w)}  ${String(r.input).padStart(7)} in  ${String(r.output).padStart(6)} out  ${cost}`);
   }
   const t = rows.reduce((s, r) => ({ i: s.i + r.input, o: s.o + r.output, u: s.u + r.usd }), { i: 0, o: 0, u: 0 });
-  console.log(`\n  TOTAL        ${''.padEnd(w)}  ${String(t.i).padStart(7)} in  ${String(t.o).padStart(6)} out  ${formatUsd(t.u)}  per run`);
+  console.log(`\n  TOTAL        ${''.padEnd(w)}  ${String(t.i).padStart(7)} in  ${String(t.o).padStart(6)} out  ${formatUsd(t.u)}  per run  (expected)`);
+  // 0.8.2 item 8c: the same calls with every one writing its seat's whole output allowance (and an Anthropic seat's one retry): what the spend cap's own projection charges. Both figures, so a cap can be chosen against the right one.
+  const maxRows = estimateChainRows(config, { fromRun, maximum: true });
+  const mt = maxRows.reduce((s2, r) => ({ o: s2.o + r.output, u: s2.u + r.usd }), { o: 0, u: 0 });
+  console.log(`  MAXIMUM      ${''.padEnd(w)}  ${''.padStart(7)}     ${String(mt.o).padStart(6)} out  ${formatUsd(mt.u)}  per run  (every call at its whole output allowance)`);
   const externalRows = rows.filter(r => r.seat.startsWith('external/')).length;
   if (externalRows) console.log(`\n  ${externalRows} of ${rows.length} stages are answered by external seats (a person or another session, e.g. a Claude Code session on a subscription) and are not in this total.`);
   console.log(config.advise?.enabled === true
-    ? `\n  Worst case: every seat answers up to its full token cap and every planned debate round runs. A panel whose blind answers agree skips the debate and costs less.`
-    : `\n  Worst case is the full round cap. A clean first critique stops early and costs less.`);
+    ? `\n  Every seat answers up to its full token cap and every planned debate round runs, so the expected and the maximum figure differ only by an Anthropic seat's one retry. A panel whose blind answers agree skips the debate and costs less.`
+    : `\n  Expected: the chain's assumed sizes, the typical output of a review, every round up to the cap; a clean first critique stops early and costs less. Maximum: every planned call writes its seat's whole output allowance (an Anthropic seat's one retry is included); a re-ask, the retry of a cut-off reply from another seat and the stages a chain does not list are not priced, and the spend cap stops them. The cap can stop a run between the two figures.`);
+  for (const w of policyWarnings) console.log(`\n  policy warning - ${w}`);
   for (const line of priceTableLines()) console.log(`  ${line}`);
   // The rows above price the chain's own assumed prompt size, not the task in hand: a 13-word task
   // and a 30,000-token one priced the same (walked 2026-09-25). With --task, say how the task
@@ -1863,9 +1995,11 @@ if (dryRun) {
       // An advise chain's whole prompt is the brief (src/advise.js adds only its own fixed prompt, which
       // the rows already carry), so the task replaces the assumption instead of being added to it.
       const advising = config.advise?.enabled === true;
-      const bigger = estimateChainRows({ ...config, estimate: { ...(config.estimate || DEFAULT_ESTIMATE), promptTokens: advising ? taskTokens : assumed + taskTokens } }, { fromRun }).reduce((sum, r) => sum + r.usd, 0);
+      const biggerConfig = { ...config, estimate: { ...(config.estimate || DEFAULT_ESTIMATE), promptTokens: advising ? taskTokens : assumed + taskTokens } };
+      const bigger = estimateChainRows(biggerConfig, { fromRun }).reduce((sum, r) => sum + r.usd, 0);
+      const biggerMax = estimateChainRows(biggerConfig, { fromRun, maximum: true }).reduce((sum, r) => sum + r.usd, 0);
       console.log(`  Your task is roughly ${taskTokens} tokens, more than the ${assumed} this estimate assumes for a whole prompt.`);
-      console.log(advising ? `  Priced again with your task as the brief every seat reads: ${formatUsd(bigger)} per run, worst case.` : `  Priced again with your task added to every prompt: ${formatUsd(bigger)} per run, worst case.`);
+      console.log(advising ? `  Priced again with your task as the brief every seat reads: ${formatUsd(bigger)} per run, expected; ${formatUsd(biggerMax)} at most.` : `  Priced again with your task added to every prompt: ${formatUsd(bigger)} per run, expected; ${formatUsd(biggerMax)} at most.`);
     } else {
       console.log(`  Your task (roughly ${taskTokens} tokens) fits inside the ${assumed}-token prompt this estimate assumes.`);
     }
@@ -1873,12 +2007,13 @@ if (dryRun) {
   // mock/external are synthetic seats that are never billed and were never
   // going to be in pricing.json - only a real provider's missing price is
   // worth telling anyone about.
-  const unpriced = [...new Set(rows.filter(r => !r.priced && !r.seat.startsWith('mock/') && !r.seat.startsWith('external/')).map(r => r.seat))];
+  // Every seat slot, not only the planned rows (0.8.2 item 8a): an unpriced seat of a stage that is switched off is refused under a cap too.
+  const unpriced = [...new Set([...rows.filter(r => !r.priced && !r.seat.startsWith('mock/') && !r.seat.startsWith('external/')).map(r => r.seat), ...unpricedSeats(config).map(u => `${u.provider}/${u.model}`)])];
   if (unpriced.length) {
     console.log('');
     for (const seat of unpriced) {
       const [provider, model] = seat.split('/');
-      console.log(`  ${formatCouncilError('COUNCIL-E002', { provider, model }).replace(/\n/g, '\n  ')}`);
+      console.log(`  ${formatCouncilError('COUNCIL-E002', { provider, model, ...(maxUsd !== null ? { capUsd: maxUsd } : {}) }).replace(/\n/g, '\n  ')}`);
     }
   }
   process.exit(0);
@@ -1897,6 +2032,21 @@ if (missing.length) {
   }
   console.error(`Run "${councilCommand()} doctor" to see exactly which keys each shipped chain needs.`);
   process.exit(EXIT_DEGRADABLE);
+}
+
+// A resumed run inherits the ceiling it was started under unless this invocation names a different one - otherwise resuming would silently drop the cap the run was created with.
+const maxUsdEff = argv.includes('--max-usd') ? maxUsd
+  : (resumeMeta && 'maxUsd' in resumeMeta) ? resumeMeta.maxUsd
+  : maxUsd;
+// 0.8.2 item 8a (owner, 7 Oct 2026): under a cap, a seat with no price row is refused before anything is sent. The cap projects such a seat at $0, so it could not stop what a call to it costs; the way out is a pricing row
+// or --max-usd none. mock, external and ollama are exempt (src/cost.js needsPrice). invoke() refuses the same seats if a call reaches it some other way.
+if (maxUsdEff !== null) {
+  const unpricedNow = unpricedSeats(config);
+  if (unpricedNow.length) {
+    console.error('');
+    for (const u of unpricedNow) { console.error(formatCouncilError('COUNCIL-E002', { provider: u.provider, model: u.model, roles: u.roles, capUsd: maxUsdEff })); console.error(''); }
+    process.exit(EXIT_DEGRADABLE);
+  }
 }
 
 const taskPathEff = resumeMeta?.task || taskPath;
@@ -1959,6 +2109,7 @@ const contextArg = contextArgRaw && contextArgRaw !== true
 // work, since MCP cannot pass --allow-unfenced). The gate reads the task text alone.
 const requestForArtifactGate = request;
 let contextFilesForScan = [];
+let contextSha256 = null;
 let contextHash = null; // 0.8.0: the standing-context bundle's hash, so a resume can tell it changed
 if (contextArg) {
   // Which files, and each one read non-blocking with a size cap: a FIFO, a device or an oversized
@@ -1967,8 +2118,9 @@ if (contextArg) {
   try {
     files = contextFileList(contextArg);
     contextFilesForScan = files;
-    docs = files.map(f => `## ${f.split('/').pop()}\n\n${readContextFile(f)}`).join('\n\n---\n\n');
+    docs = contextBundleText(files);
     contextHash = contextHashOf(docs);
+    contextSha256 = sha256Of(docs); // 0.8.2 item 6a: the full-width hash the thin contract carries (contextHash above is the 12-character fingerprint)
   } catch (e) {
     if (!(e instanceof ContextFileError)) throw e;
     console.error(`${e.message}. Refused before any call.`);
@@ -2240,13 +2392,16 @@ setChargeHook(c => recordLostCharge(runDir, c.label, c));
 // A resumed run inherits the ceiling it was started under unless this
 // invocation names a different one - otherwise resuming would silently drop
 // the cap the run was created with.
-const maxUsdEff = argv.includes('--max-usd') ? maxUsd
-  : (resumeMeta && 'maxUsd' in resumeMeta) ? resumeMeta.maxUsd
-  : maxUsd;
 setBudgetOrExit(maxUsdEff);
 // Money path #2: what earlier sittings spent on stages that were later superseded still counts.
 const earlierSupersededUsd = supersededSpendOf(runDir);
 countEarlierSpend(earlierSupersededUsd);
+// 0.8.2 item 8b: calls an earlier sitting reserved and never settled (the process ended while they were in flight) stay charged at their worst case, so a resume cannot lap the cap; this sitting writes its own
+// reservations before it sends (src/spend-reservations.js).
+const earlierUnsettled = unsettledReservations(runDir);
+const earlierUnsettledUsd = earlierUnsettled.reduce((n, r) => n + r.usd, 0);
+countEarlierSpend(earlierUnsettledUsd);
+setReservationSink(openReservations(runDir));
 
 const logPath = join(runDir, 'run.log');
 const log = (...parts) => {
@@ -2258,15 +2413,25 @@ const log = (...parts) => {
 
 log(`council run ${runId}${resumeMeta ? ' (resumed)' : ''}`);
 log(config.advise?.enabled === true ? `chain: ${config.name} (advice: ${config.seats.critics.length} seat(s), ${config.advise.rounds ?? 0} debate round(s) at most)` : `chain: ${config.name} (${config.maxRounds} round cap)`);
+if (earlierUnsettled.length) log(`earlier sitting: ${earlierUnsettled.length} call(s) were in flight when the process ended and were never settled (${earlierUnsettled.map(r => r.label).join(', ')}); ${formatUsd(earlierUnsettledUsd)} (their worst case) stays counted toward the cap`);
 if (earlierSupersededUsd > 0) log(`spent earlier on superseded stages: ${formatUsd(earlierSupersededUsd)} (counted toward the cap; see superseded/)`);
 log(`cap:   ${maxUsdEff === null ? 'none - this run has no spend ceiling' : `${formatUsd(maxUsdEff)} per run (--max-usd)`}`);
 log(`task:  ${taskPathEff}`);
 // A chain whose worst case is above the ceiling may stop part-way, with no deliverable yet. Said
 // before anything is spent, not only when the cap trips (walked 2026-09-25: plan-premium-7's worst
 // case is $18.55 against the $7 default).
+for (const w of policyWarnings) log(`policy warning - ${w}`);
+if (policyWarnings.length) {
+  if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
+  // Audit fix cnc-cli-resume F3: the policy is re-evaluated every sitting (by design), but its warning is recorded once per run: a line already in WARNINGS.md is not appended again.
+  const haveWarned = readFileSync(join(runDir, 'WARNINGS.md'), 'utf8');
+  appendFileSync(join(runDir, 'WARNINGS.md'), policyWarnings.map(w => `- policy: ${w}\n`).filter(l => !haveWarned.includes(l)).join(''));
+}
 if (!resumeMeta && maxUsdEff !== null) {
   const worstCase = estimateChainRows(config, { fromRun }).reduce((sum, r) => sum + r.usd, 0);
-  if (worstCase > maxUsdEff) log(`note:  this chain's worst case is ${formatUsd(worstCase)}, above the ${formatUsd(maxUsdEff)} cap. If it gets that far it stops before the stage that would cross it, keeps what it has, and resumes with a higher --max-usd.`);
+  const mostCase = estimateChainRows(config, { fromRun, maximum: true }).reduce((sum, r) => sum + r.usd, 0);
+  if (worstCase > maxUsdEff) log(`note:  this chain's expected cost is ${formatUsd(worstCase)} (at most ${formatUsd(mostCase)}), above the ${formatUsd(maxUsdEff)} cap. If it gets that far it stops before the stage that would cross it, keeps what it has, and resumes with a higher --max-usd.`);
+  else if (mostCase > maxUsdEff) log(`note:  this chain's expected cost is ${formatUsd(worstCase)}, within the ${formatUsd(maxUsdEff)} cap, but its maximum is ${formatUsd(mostCase)}: a run in which every call writes its seat's whole output allowance stops at the cap before the stage that would cross it, keeps what it has, and resumes with a higher --max-usd.`);
 }
 
 // v2 plan §6: before any stage runs, before a single metered API call, a static keyword
@@ -2503,13 +2668,13 @@ const reportArgsFor = result => {
     // A run.json from before 0.7.7 has no startedAt: the report then has no started_at either.
     startedAt: resumeMeta ? (resumeMeta.startedAt ?? null) : runStartedAt, result, config,
     fromRun: fromRun || resumeMeta?.fromRun || null, fromRunCwd: fromRun ? work : (resumeMeta?.cwd || work), maxUsd: maxUsdEff,
-    policyChecks: policyChecks ?? resumeMeta?.policyChecks ?? null,
+    policyChecks: policyChecks ?? resumeMeta?.policyChecks ?? null, policyWarnings, contextSha256,
     // Brief 29: an advice run's additive fields (where the brief went, the dispositions), nested under report.advise.
     adviseExtra: adviceOn ? adviceReportExtra({ config, meta: adviceMeta, stages: result.stages }) : null,
   };
 };
 
-// Brief 29: an advice call can be stopped from outside and is bounded by its own wall clock. A STOP file in the run
+// Brief 29: an advice call can be stopped from outside and, when its chain sets `advise.max_wall_ms`, is bounded by that wall clock (0.8.2: no shipped chain sets one; without it a call is bounded by the 2-hour request deadline only). A STOP file in the run
 // folder (the MCP server writes one when a client cancels or leaves) or the chain's `advise.max_wall_ms` makes
 // runAdvise skip every stage it has not started; calls already in flight finish and are recorded (they are billed
 // either way). The wall clock also becomes every request's own deadline, so one hung call cannot outlive it. A STOP
@@ -2751,6 +2916,13 @@ To continue: raise that seat's \`maxTokens\` in the chain (or, for an external s
     finalState();
     process.exit(3);
   }
+  if (err instanceof UnpricedSeat) {
+    // Reached only when a call got past the start-of-run refusal (a model resolved at call time): the run stops before the call, keeps what it has on disk and can resume after a price row is added or with --max-usd none.
+    const [provider, ...rest] = err.seat.split('/');
+    console.error(`\n${formatCouncilError('COUNCIL-E002', { provider, model: rest.join('/'), roles: err.label, capUsd: err.cap })}`);
+    finalState();
+    process.exit(EXIT_DEGRADABLE);
+  }
   if (err instanceof BudgetExceeded) {
     // Deliberately NO report.json and NO deliverable.md: a run folder that
     // carries those reads as a finished run everywhere else in this codebase.
@@ -2886,7 +3058,28 @@ if (boardMd) writeFileSync(join(runDir, 'BOARD.md'), boardMd);
 // The locked-criteria block (src/criteria-lock.js) is written by the harness after the model's text,
 // so the criteria a build session reads are the ones the run settled, and `council check-lock` can tell
 // when a copy no longer carries them.
-if (result.handoff) writeFileSync(join(runDir, 'HANDOFF.md'), result.handoff.replace(/\s+$/, '') + '\n' + lockBlock(result.criteria, { runId, checks: checksOf(result.criteria, result.criteriaKinds) }));
+if (result.handoff) {
+  // 0.8.2 item 4 (F1/F7): a harness-written banner above the model's text when the plan is not a clean sign-off (not signed, or degraded) or the delivered text is not the signed text (src/handoff-from-run.js
+  // finishedState/partialBanner, the same wording `council handoff --from-run` uses). The lock block stays last and unmoved; the file's hash is recorded in report.json (handoff_text.file_sha256).
+  const handoffBanner = partialBanner({ state: finishedState({ passed: result.passed, outcome: computeOutcome(result), delivered_text: result.deliveredText }), draftName: 'deliverable.md', runId });
+  // 0.8.2 item 6b: the harness-written "Before you build" and "Replan triggers" (src/handoff-contract-text.js) go between the model's text and the lock block, which stays last.
+  const checksHere = checksOf(result.criteria, result.criteriaKinds);
+  // 0.8.2 item 6c: with handoff_contract.milestones on, the seat-written milestones are linted ($0): every criterion discharged by a milestone with a check. Findings never change `passed`.
+  let milestoneGaps = [];
+  if (config.handoff_contract?.milestones === true) {
+    const lint = lintMilestones({ text: result.handoff, criteriaIds: criterionIds(result.criteria) });
+    milestoneGaps = lint.findings;
+    result.handoffMilestones = { status: lint.status, milestones: lint.milestones.length, findings: lint.findings };
+    if (lint.findings.length) {
+      if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
+      appendFileSync(join(runDir, 'WARNINGS.md'), lint.findings.map(f => `- handoff_milestones: ${f.kind}: ${f.message}\n`).join(''));
+    }
+  }
+  const builderText = builderSection({ thin: thinContractOf({ taskText: rawTaskTextForCacheFingerprint, contextSha256, result }), runId, failures: checkFailuresOf(config), hasChecks: checksHere.some(Boolean), gaps: milestoneGaps });
+  const handoffFile = handoffBanner + result.handoff.replace(/\s+$/, '') + '\n' + (builderText ? `\n${builderText}` : '') + lockBlock(result.criteria, { runId, checks: checksHere });
+  writeFileSync(join(runDir, 'HANDOFF.md'), handoffFile);
+  if (result.handoffText) result.handoffText = { ...result.handoffText, file_sha256: textSha256(handoffFile) };
+}
 // "How this plan was argued" (src/argued.js): its own file next to the deliverable, never inside it,
 // and every id or lab it names that the run never had goes to WARNINGS.md as well as report.json.
 if (result.argued) {
@@ -2919,6 +3112,13 @@ if (result.lints?.length || result.claimWarnings?.length || result.toolRequestWa
   // v7.x item 3: seat-requested tool calls that exceeded the per-stage cap, or named a
   // disallowed tool, same WARNINGS.md the lint/claim lines above already append to.
   appendFileSync(join(runDir, 'WARNINGS.md'), (result.toolRequestWarnings || []).map(w => `- tool_request: ${w}\n`).join(''));
+}
+// 0.8.2 (owner decision 4a, 5 Oct 2026): the cold reader's findings, or the fact that it was not judged, reach WARNINGS.md as well as report.json and the deliverable.
+if (result.coldRead && (result.coldRead.status === 'not_judged' || (result.coldRead.raised && result.coldRead.contradictions?.length))) {
+  if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
+  appendFileSync(join(runDir, 'WARNINGS.md'), result.coldRead.status === 'not_judged'
+    ? `- cold_read_not_judged: the cold reader gave no readable answer (${result.coldRead.reason_code}); nobody has checked the plan for contradictions between its sections\n`
+    : result.coldRead.contradictions.map(c => `- cold_read: ${c.sections?.length ? `(${c.sections.join(', ')}) ` : ''}${c.note}\n`).join(''));
 }
 // TOOLS.md: every tool call this sitting made, after redaction (pre-release audit 2026-09-23,
 // FenceToolsRedaction #7 - the log was collected and never written). Appended, so a resumed run

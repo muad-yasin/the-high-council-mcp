@@ -22,6 +22,7 @@ import { runChain } from './chain.js';
 import { reportJsonShape, renderBoardMd } from './report-shape.js';
 import { taskHashOf } from './scope-freeze.js';
 import { computeVerdictDiff } from './verdict-diff.js';
+import { archivedChainHint } from './chain-name.js';
 
 const readJson = p => JSON.parse(readFileSync(p, 'utf8'));
 
@@ -35,7 +36,7 @@ const readJson = p => JSON.parse(readFileSync(p, 'utf8'));
  */
 function loadChainConfig(chainsDir, name) {
   const p = join(chainsDir, `${name}.json`);
-  if (!existsSync(p)) throw new Error(`council-replay: no chain config "${name}" at ${p}`);
+  if (!existsSync(p)) throw new Error(`council-replay: no chain config "${name}" at ${p}.${archivedChainHint(name)}`);
   return readJson(p);
 }
 

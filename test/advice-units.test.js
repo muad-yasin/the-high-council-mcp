@@ -170,7 +170,7 @@ test('every shipped tool chain is admitted: advise chain, lints clean, priced, n
   }
 });
 
-test('admission refuses: not an advise chain, an unpriced seat, a denied model, a missing ZDR routing, a missing wall clock, an external seat', () => {
+test('admission refuses: not an advise chain, an unpriced seat, a denied model, a missing ZDR routing, an external seat', () => {
   const ok = chain('advise-single');
   assert.match(admitChain('x', chain('mock')), /not an advise chain/);
   assert.match(admitChain('x', { ...ok, seats: { critics: [{ ...ok.seats.critics[0], model: 'openai/gpt-9-imaginary' }] } }), /no price in pricing\.json|lint/);
@@ -179,8 +179,13 @@ test('admission refuses: not an advise chain, an unpriced seat, a denied model, 
   assert.match(admitChain('x', noRouting), /extra\.provider\.zdr must be true/);
   const noDeny = structuredClone(ok); noDeny.seats.critics[0].extra.provider.data_collection = 'allow';
   assert.match(admitChain('x', noDeny), /data_collection must be "deny"/);
-  const noWall = structuredClone(ok); delete noWall.advise.max_wall_ms;
-  assert.match(admitChain('x', noWall), /no advise\.max_wall_ms/);
+  // Owner decision, 6 Oct 2026 ("no clocks, no reason to add them"; plan "Decided 6 Oct evening"): the 0.8.1 rule that refused a chain with no wall clock is gone, so the assertion that
+  // admission refuses one changed. The field stays OPTIONAL: when a chain sets it, a bad value is still found by the lint, and a good one is admitted.
+  assert.equal(admitChain('x', ok), null, 'the shipped chain has no wall clock and is admitted');
+  const withWall = structuredClone(ok); withWall.advise.max_wall_ms = 120000;
+  assert.equal(admitChain('x', withWall), null, 'a chain that still sets a wall clock is admitted too');
+  const badWall = structuredClone(ok); badWall.advise.max_wall_ms = 'soon';
+  assert.ok(lintChain(badWall, 'x').some(f => /max_wall_ms/.test(f.message)), 'a set value is still validated');
   assert.match(admitChain('x', { ...ok, seats: { critics: [{ provider: 'external', model: 'session', lab: 'h' }] } }), /external seat/);
   assert.match(seatRoutingGap({ provider: 'openrouter', model: 'openai/gpt-6.1-sol' }), /zdr must be true/);
   assert.equal(seatRoutingGap({ provider: 'openrouter', model: 'meta/muse-spark-1.3' }), null, 'a class C seat has no ZDR tag to require');
@@ -600,5 +605,6 @@ test('the reports schema documents the additive fields as experimental', () => {
   for (const k of ['sent_to', 'dispositions']) assert.ok(schema.properties.advise.properties[k], `advise.${k}`);
   // 0.8.1 DR-13: the patch's root copies are gone (the brief's hash is task_sha256; stopped_by lives in advise).
   for (const k of ['brief_sha256', 'sent_to', 'dispositions', 'stopped_by']) assert.equal(k in schema.properties, false, k);
-  assert.ok(readdirSync(join(root, 'chains')).length >= 61);
+  // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): 21 chains moved to archive/chains/ and two advise chains were added, so chains/ holds 45; the floor was 61.
+  assert.ok(readdirSync(join(root, 'chains')).length >= 45);
 });

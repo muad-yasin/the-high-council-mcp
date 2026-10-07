@@ -45,6 +45,8 @@ const FROZEN_V6_KEYS = [
   // 2026-09-29 (0.8.0): 'missingCriteria' (sign-offs whose criteria table skipped criteria) and
   // 'criteriaLints' ($0 word-level findings over the criteria list). Both additive, both [] when empty.
   'missingCriteria', 'criteriaLints',
+  // 0.8.2 item 4 (owner 6 Oct 2026: label the signed vs the delivered text): 'signedText' and 'deliveredText' are on every finished run (additive; 'handoffText' only with a handoff).
+  'signedText', 'deliveredText',
 ].sort();
 
 test('verify absent: result has no ground_truth key and matches the frozen v6 key set', async () => {

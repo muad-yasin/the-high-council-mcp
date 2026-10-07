@@ -27,6 +27,8 @@ export function tableAgeDays(now = Date.now()) {
 // The effort values that are "high or above". Anything else, set explicitly, is a lowering (a smaller effort or none at all).
 const HIGH_OR_ABOVE = new Set(['high', 'xhigh', 'max']);
 const LOW_WORDS = new Set(['none', 'minimal', 'low', 'medium']);
+// The order of the effort words, lowest first (the table's defaultEffort and supportedEfforts use these words). One place: the above-high-default check reads it.
+const EFFORT_RANK = { none: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
 
 // A seat's wire identity: the provider the request really goes to and the model id that provider is asked for. Under single-vendor
 // mode (src/providers.js resolveVendorSeat) `provider` is already the vendor and `model` its own id, so one lookup serves both.
@@ -80,6 +82,15 @@ export function loweringReasons(extra, seat = null) {
   if (e.include_reasoning === false) add('include_reasoning', false, 'reasoning hidden from the reply (OpenRouter\'s spelling of reasoning.exclude)');
   if ('thinking_level' in e && !HIGH_OR_ABOVE.has(e.thinking_level)) add('thinking_level', e.thinking_level, 'a thinking level below high');
   if ('thinking_budget' in e) add('thinking_budget', e.thinking_budget, 'a fixed thinking budget');
+  // 0.8.2 (owner, 7 Oct 2026, "Yes" to the never-lower check): on a model whose own default is ABOVE high (the table's defaultAboveHigh), an explicit
+  // "high" is a lowering too. Only the words the checks above let through are read here (a word below high is already reported once).
+  const row = seat ? rowOf(seat) : null;
+  const defaultRank = row?.defaultAboveHigh ? EFFORT_RANK[row.defaultEffort] : undefined;
+  if (defaultRank !== undefined) {
+    for (const [path, value] of [['reasoning.effort', r?.effort], ['reasoning_effort', e.reasoning_effort], ['output_config.effort', oc?.effort], ['chat_template_kwargs.reasoning_effort', e.chat_template_kwargs?.reasoning_effort]]) {
+      if (HIGH_OR_ABOVE.has(value) && EFFORT_RANK[value] < defaultRank) add(path, value, `an effort below the model's own default (${row.defaultEffort})`);
+    }
+  }
   if (e.extra_body && typeof e.extra_body === 'object' && !Array.isArray(e.extra_body)) {
     for (const r of loweringReasons(e.extra_body, seat)) add(`extra_body.${r.path}`, r.value, r.why);
   }

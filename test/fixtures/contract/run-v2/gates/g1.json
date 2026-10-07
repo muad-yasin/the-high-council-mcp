@@ -1,0 +1,26 @@
+{
+  "schema": "gate/1",
+  "id": "g1",
+  "kind": "contract_lock",
+  "status": "approved",
+  "text": "contract/proposal-db703ad4617c.md",
+  "sha256": "db703ad4617cd668ea13e71f7f277edd0a11fe1e5682b82f1cfc14c9120420bf",
+  "bytes": 1179,
+  "price": null,
+  "seats": [],
+  "sensitivity": null,
+  "masks": {},
+  "meta_sha256": "88836f5c9b5239016e7dbd01ae08da739c8fe2c93b290f2838c83b0996af9798",
+  "requested_at": "2026-10-07T09:00:02.000Z",
+  "expires_at": "2026-10-07T10:00:01.000Z",
+  "answer": {
+    "decision": "approved",
+    "channel": "cli",
+    "actor": "fixture",
+    "reason": null,
+    "tty": true,
+    "at": "2026-10-07T09:00:05.000Z",
+    "seq": 2
+  },
+  "seq": 1
+}

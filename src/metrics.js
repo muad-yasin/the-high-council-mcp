@@ -63,7 +63,9 @@ function toolNamesFromHandoff(text) {
 // need to count them and check whether each one names a declared tool.
 function acceptanceItemsFromHandoff(text) {
   const m = text.match(/## Acceptance test per item\n([\s\S]*?)(\n## |\n?$)/);
-  if (!m) return [];
+  // 0.8.2 (item 10g): a handoff written in the milestone format (handoff_contract.milestones) has no such heading; its acceptance tests are the `- check:` lines of each milestone's Exit. Without this the figure
+  // read zero items on every such handoff. A handoff with the old heading is read as before.
+  if (!m) return text.split('\n').filter(l => /^\s*-\s+check:/i.test(l));
   return m[1].split('\n').filter(l => /^[\s]*-\s+/.test(l));
 }
 

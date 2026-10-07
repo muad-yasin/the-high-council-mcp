@@ -35,12 +35,17 @@ export const TOOL_TRUST = Object.freeze({
   verdict_stats: { wrap: false, reason: 'counts and rates per chain and lab derived from report.json; no run text' },
   metrics_report: { wrap: false, reason: 'rates and counts derived from report.json and HANDOFF.md; no run text' },
   // signoff: each critic's objections and pass reason, model-written (M5 review D2).
-  list_runs: { wrap: 'fields', fields: ['lastLogLines', 'signoff'] },
-  run_status: { wrap: 'fields', fields: ['lastLogLines', 'keyLines', 'signoff'] },
+  // Audit fix cnc-mcp-security F3: every other string a run folder lends the summary is named too (label from run.json, chain and task from report.json or the log, the state sentence, the security gate, waitingFor
+  // and the progress events from stage-log.jsonl): hidden characters are removed from them and they are named untrusted, like the log lines.
+  list_runs: { wrap: 'fields', fields: ['lastLogLines', 'signoff', 'label', 'chain', 'task', 'state', 'securityGate', 'waitingFor'] },
+  run_status: { wrap: 'fields', fields: ['lastLogLines', 'keyLines', 'signoff', 'label', 'chain', 'task', 'state', 'securityGate', 'waitingFor', 'progress'] },
   read_run_file: { wrap: 'text' },
   plan_outline: { wrap: 'fields', fields: ['sections', 'ledger'] },
   write_task: { wrap: false, reason: 'returns the path written and a word count of the caller\'s own text' },
   council_quote: { wrap: false, reason: 'returns the preview of the caller\'s own brief, masked, before anything is sent; no model has written anything' },
+  // 0.8.2 item 6d: the obligations are model-drafted words and the requests are the words of whoever filed them; both are returned as untrusted fields.
+  contract_read: { wrap: 'fields', fields: ['obligations', 'requests'] },
+  contract_amend: { wrap: false, reason: 'returns the request number, the version and the obligation id the caller named, and a harness sentence; the caller\'s own words are not echoed, and no model has written anything' },
   council_advise: { wrap: 'own', reason: 'a settled answer is wrapped by adviceResult (notice, random-id markers, untrusted_fields); every other outcome is harness text, except a failed start\'s CLI log tail, from which hidden characters are removed' },
 });
 

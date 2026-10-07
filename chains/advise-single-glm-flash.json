@@ -1,0 +1,40 @@
+{
+  "name": "advise-single-glm-flash",
+  "description": "Council advisor, one seat: z-ai/glm-5.3-flash through OpenRouter, routed only to endpoints OpenRouter tags zero-data-retention (a routing tag, not a guarantee), priced at this seat's row in src/pricing.json. No debate, no synthesis, one call. advise.usd ($0.42) is this call's own ceiling (0.8.2), derived as: first call at the 48,000-character brief limit $0.1819 (input $0.0019 + 360,000 output tokens at this seat's pricing.json row of $0.50 per Mtok $0.18) + one retry of an unreadable reply at the same 360,000-token cap $0.1819 = $0.3638; +15% = $0.4183; rounded up to $0.42. A reply cut off at 360,000 is not retried: cutOffRetryCap(360000, ADVICE_RETRY_MAX_TOKENS 64000) = 360,000, no larger cap. maxTokens is 360,000, up from 36,000, by the owner's decision of 6 Oct 2026 (a real run's first call was cut off at 36,000 after 38,362 reasoning tokens). The number rules endpoints out: of the 17 OpenRouter endpoints that are zero-data-retention and inside this seat's max_price, 8 accept 360,000 completion tokens (Decart, Near AI, Modal, Crusoe, CoreWeave, Fireworks, Together, Parasail) and 9 stop at 131,072 or 262,144 (list read 2026-10-06). Whether OpenRouter skips an endpoint below the requested max_tokens or refuses the call is not verified; a cheap real call settles it. There is no wall-clock limit (owner, 6 Oct 2026). Expected output per reply: 14500 tokens (D: pricing.json critiqueTokens). maxRounds is unused by advise chains.",
+  "resumeAfterStop": false,
+  "maxRounds": 1,
+  "estimate": {
+    "promptTokens": 3000,
+    "draftTokens": 2000,
+    "critiqueTokens": 3000
+  },
+  "advise": {
+    "enabled": true,
+    "usd": 0.42,
+    "rounds": 0,
+    "synthesis": "none"
+  },
+  "seats": {
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 360000,
+        "lab": "glm5.3-flash",
+        "extra": {
+          "provider": {
+            "zdr": true,
+            "data_collection": "deny",
+            "max_price": {
+              "prompt": 0.15,
+              "completion": 0.5
+            }
+          }
+        },
+        "estimate": {
+          "critiqueTokens": 14500
+        }
+      }
+    ]
+  }
+}

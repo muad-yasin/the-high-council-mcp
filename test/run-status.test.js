@@ -107,6 +107,13 @@ test('finishedRunState: a blocked or unjudged security gate is never reported as
   assert.equal(finishedRunState({ passed: true, security_review: { gate: 'pass' } }), 'done: every lab signed off');
   assert.equal(finishedRunState({ passed: true }), 'done: every lab signed off');
   assert.equal(finishedRunState({ passed: false }), 'done: open objections');
+  // 0.8.2 item 5 first commit (C&C ruling on item 4, 6 Oct 2026): ADDITIVE, so an old matcher on "every lab signed off" still matches.
+  const changed = { passed: true, delivered_text: { same_as_signed: false, changed_by: ['final_edit', 'challenge'] } };
+  assert.match(finishedRunState(changed), /^done: every lab signed off/);
+  assert.equal(finishedRunState(changed), 'done: every lab signed off, on the signed draft; the delivered text differs (changed by the final edit and the post-signoff challenge)');
+  assert.equal(finishedRunState({ passed: true, delivered_text: { same_as_signed: true, changed_by: [] } }), 'done: every lab signed off');
+  assert.equal(finishedRunState({ passed: false, delivered_text: { same_as_signed: false, changed_by: ['dispute'] } }), 'done: open objections', 'an unsigned run keeps its sentence');
+  assert.equal(finishedRunState({ passed: true, delivered_text: { same_as_signed: false } }), 'done: every lab signed off, on the signed draft; the delivered text differs', 'a damaged record does not throw');
 });
 
 test('deriveRunStatus (0.8.1 M6): an advice run stopped at exit 18 reads <cause>_stopped from its STOPPED-<cause>.json, after a budget stop and an error', () => {

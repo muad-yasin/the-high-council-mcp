@@ -23,7 +23,9 @@ const at = ms => () => ms;
 const BRIEF = 'The exact brief.\nSecond line.\n';
 
 function freshGate(text = BRIEF, extra = {}) {
-  const d = mkdtempSync(join(tmpdir(), 'gate-answer-'));
+  // 0.8.2 (C&C, 7 Oct 2026: an advice gate is approved at the terminal only from a run folder inside a runs/ folder, src/gate-cli.js): the fixture's run folder sits in one, as a real advice run does.
+  const base = mkdtempSync(join(tmpdir(), 'gate-answer-')); mkdirSync(join(base, 'runs'));
+  const d = join(base, 'runs', 'r1'); mkdirSync(d);
   writeFileSync(join(d, 'advice-brief.md'), text);
   const r = requestGate(d, { kind: 'advice', textPath: 'advice-brief.md', price: { ceiling_usd: 0.75 }, seats: [{ lab: 'openai' }], sensitivity: { label: 'public', set_by: 'operator' }, masks: { email: 1 }, ...extra }, { now: at(T0) });
   assert.equal(r.ok, true, r.message);
@@ -218,9 +220,11 @@ const GATE_MODULES = ['src/gate.js', 'src/gate-ledger.js', 'src/gate-cli.js'];
 // added: src/send-path.js (requests the gate, answers it with the client's dialog), src/cli.js (--advice-adopt records
 // the send), src/advice-run.js (the adoption check) and src/run-status.js (a folder awaiting approval).
 const IMPORTERS = {
-  'gate.js': ['src/gate-cli.js', 'src/send-path.js', 'src/cli.js', 'src/advice-run.js', 'src/run-status.js'],
+  // 0.8.2 item 6d (owner, 7 Oct 2026: "we go with the full one"): src/contract-record.js asks the gate for the contract's lock and amendment approvals, through gate.js only.
+  'gate.js': ['src/gate-cli.js', 'src/send-path.js', 'src/cli.js', 'src/advice-run.js', 'src/run-status.js', 'src/contract-record.js'],
   'gate-ledger.js': ['src/gate.js', 'src/gate-cli.js'],
-  'gate-cli.js': ['src/cli.js'],
+  // 0.8.2 item 6d: src/contract-cli.js answers its lock and amendment gates through gate-cli.js's terminal answer (answerAtTerminal), never through answerGate itself.
+  'gate-cli.js': ['src/cli.js', 'src/contract-cli.js'],
 };
 const PERSON_LITERALS = ["'cli'", "'elicitation'"];
 // Who may import answerGate itself: the terminal command and the client's dialog. Each passes its channel as a literal.

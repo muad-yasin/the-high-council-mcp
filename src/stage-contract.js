@@ -71,7 +71,7 @@ const STAGE_DEFS = {
   reply: {
     role: 'As the proposal\'s own author, decide whether to keep, amend, or withdraw it in light of the debate posts against it.',
     required_sections: ['replies'],
-    return_instructions: 'Return JSON: { "replies": [{ "proposal": string, "action": "keep"|"amend"|"withdraw", "text": string }] }.',
+    return_instructions: 'Return JSON: { "replies": [{ "id": string, "action": "keep"|"amend"|"withdraw", "text": string }] }.',
   },
   build: {
     role: 'Integrate the surviving proposals into one coherent first draft of the deliverable.',
@@ -123,13 +123,25 @@ const STAGE_DEFS = {
     required_sections: ['How this plan was argued', ...ARGUED_SECTIONS],
     return_instructions: 'Return the section as plain markdown, with the headings exactly as named in the prompt.',
   },
+  // 0.8.2 morning item 3b: the dispute stage's own job (src/roles.js DISPUTE_SYSTEM) is NOT the revise job: the panel is finished and will not review the result, so the writer marks what could not be settled instead of fixing it.
+  dispute: {
+    role: 'Revise the plan one last time after the review panel failed to agree. The panel will not review the result and nothing can turn it into an approved plan: make the draft honest about every unresolved objection (fix it where it is right; rewrite a claim you cannot verify as UNVERIFIED, saying what would settle it; where you believe it wrong, say why in one sentence at that place). Never delete a disputed claim silently.',
+    required_sections: ['draft'],
+    return_instructions: 'Return the full revised plan as plain text/markdown and nothing else: no summary of what you changed (the disagreement is recorded separately).',
+  },
+  // 0.8.2 morning item 3b (owner: "Your recommendation to both, yes"): the cold reader's own JSON (src/roles.js COLD_READ_SYSTEM).
+  'cold-read': {
+    role: 'Read one draft cold - nothing else is given - and list any contradictions between its own sections.',
+    required_sections: ['raised', 'contradictions'],
+    return_instructions: 'Return JSON: { "raised": true|false, "contradictions": [{ "sections": [string], "note": string }] }.',
+  },
 };
 
 // Order matters only for readability; STAGE_KIND_PATTERNS is checked in
 // order and the first match wins, so put more specific patterns first.
 const STAGE_KIND_PATTERNS = [
   [/^questions$/, 'questions'],
-  [/^criteria$/, 'criteria'],
+  [/^criteria(-feasibility)?(-retry)?$/, 'criteria'], // audit fix cnc-cli-resume F4: the criteria retries are the criteria stage too (an external criteria seat pauses on them)
   [/^alternative-/, 'alternative'],
   [/^alt-debate-/, 'alt-debate'],
   [/^alt-reply-/, 'alt-reply'],
@@ -139,6 +151,10 @@ const STAGE_KIND_PATTERNS = [
   [/^judge-/, 'judge'],
   [/^debate-/, 'debate'],
   [/^reply-/, 'reply'],
+  [/^canary-reply-/, 'reply'], // 0.8.2 item 3b: the canary is shown through the reply prompt (chain.js, replySystem), so it is answered in the reply shape
+  [/^dispute(-retry)?$/, 'dispute'], // 0.8.2 item 3b: its own kind, the dispute prompt is not the reviser's (above)
+  [/^deep-dive-revise(-retry)?$/, 'revise'], // 0.8.2 item 3b: the reviser's own question (fix these findings); the label had no kind, so prepare_stage_prompt refused it
+  [/^cold-read(-retry)?$/, 'cold-read'],
   [/^build(-retry)?$/, 'build'],
   [/^panel-/, 'panel'],
   [/^critique-/, 'critique'],
@@ -171,7 +187,9 @@ export function stageKindsFor(config) {
   kinds.push('build');
   kinds.push(config.signoff === 'unanimous' ? 'panel' : 'critique');
   kinds.push('revise');
+  if (config.dispute?.enabled === true) kinds.push('dispute');
   kinds.push('final');
+  if (config.coldRead?.enabled === true) kinds.push('cold-read');
   if (config.handoff) kinds.push('handoff');
   if (config.argued?.enabled === true && !config.descending) kinds.push('argued');
   return kinds;
@@ -188,7 +206,7 @@ export function requiredSectionsFor(stageKind) {
 // check for) vs. freeform markdown/text (required_sections names a single symbolic slot,
 // satisfied by any non-empty text). Used by partial-deliverable detection (§7.1) to know how
 // to validate a stage's raw output without re-deriving it from return_instructions text.
-const STRUCTURED_STAGE_KINDS = new Set(['questions', 'criteria', 'alternative', 'alt-debate', 'alt-reply', 'propose', 'judge', 'debate', 'reply', 'panel', 'critique']);
+const STRUCTURED_STAGE_KINDS = new Set(['questions', 'criteria', 'alternative', 'alt-debate', 'alt-reply', 'propose', 'judge', 'debate', 'reply', 'panel', 'critique', 'cold-read']);
 export function isStructuredStage(stageKind) {
   return STRUCTURED_STAGE_KINDS.has(stageKind);
 }
@@ -209,7 +227,8 @@ export function buildStageContract(config, stageKind) {
     role: def.role,
     no_prior_context: true,
     deliverable_format: {
-      required_sections: [...def.required_sections],
+      // 0.8.2 item 6c: a chain that asks for seat-written milestones (handoff_contract.milestones) lists them for the handoff stage; advisory for a freeform stage, the lint in src/milestones.js is the check.
+      required_sections: [...def.required_sections, ...(stageKind === 'handoff' && config.handoff_contract?.milestones === true ? ['milestones', 'final_checklist'] : [])],
       approx_length: approxLength,
     },
     return_instructions: def.return_instructions,

@@ -21,8 +21,9 @@ const seatsOf = c => everySeatOf(c).filter(Boolean);
 // Every id a seat can name: its model, and the model lists and routing order `extra` can carry.
 const idsOf = s => [s.model, ...(s.extra?.models || []), ...(s.extra?.provider?.order || []), s.extra?.model].filter(x => typeof x === 'string');
 
-test('the shipped advice chains are the seven the release ships (a new one is checked here too)', () => {
-  assert.deepEqual(ADVICE, ['advise-premium.json', 'advise-single-astra.json', 'advise-single-deepseek.json', 'advise-single-gemini.json', 'advise-single-opus.json', 'advise-single.json', 'advise-standard.json']);
+// 0.8.2 (owner, 6 Oct 2026, "yes" to two new single seats): advise-single-glm-flash and advise-single-qwen join the seven of 0.8.1.
+test('the shipped advice chains are the nine the release ships (a new one is checked here too)', () => {
+  assert.deepEqual(ADVICE, ['advise-premium.json', 'advise-single-astra.json', 'advise-single-deepseek.json', 'advise-single-gemini.json', 'advise-single-glm-flash.json', 'advise-single-opus.json', 'advise-single-qwen.json', 'advise-single.json', 'advise-standard.json']);
 });
 
 test('every seat of every shipped advice chain has a price row and a retention row (no seat previews as "unknown")', () => {

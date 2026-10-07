@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeLocked } from '../scripts/contract-fixtures.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -128,6 +129,13 @@ test('every MCP tool answers within the budget through a whole mock run, and eve
     const advised = await step('council_advise', { quote_id: quote.quote_id, confirm_sha256: quote.text.sha256, wait_seconds: 1 });
     assert.ok(advised.run, JSON.stringify(advised));
     await step('run_status', { run: advised.run, wait_seconds: 1 });
+
+    // The contract tools (0.8.2 item 6d): a run folder that holds a locked contract (made by the real contract code), then a read and a request. Both are $0 and local.
+    writeLocked(join(dir, 'runs', 'lat-contract'));
+    const read = await step('contract_read', { run: 'lat-contract' });
+    assert.equal(read.verified, true, JSON.stringify(read));
+    const filed = await step('contract_amend', { run: 'lat-contract', version: 1, obligation_id: 'O2', reason: 'latency fixture', proposed_text: 'Every error path prints one line.' });
+    assert.equal(filed.requested, true, JSON.stringify(filed));
 
     const untested = tools.filter(t => !timings.some(x => x.name === t));
     assert.deepEqual(untested, [], `a tool with no latency fixture: add a step to this test (${untested.join(', ')})`);

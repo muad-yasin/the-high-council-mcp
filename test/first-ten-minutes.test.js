@@ -110,12 +110,13 @@ test('dry run with --task: a task larger than the assumed prompt is priced again
   assert.ok(Number(again) > Number(base), `${again} > ${base}`);
 });
 
-test('a run whose worst case is above the cap says so before spending, and still stops at the cap', () => {
+// Changed by the owner's decision of 7 Oct 2026 ("build it tonight", item 8c: the dry run shows two figures, expected and maximum): the note and the doctor line say "expected" and "at most" instead of "worst case".
+test('a run whose expected cost is above the cap says so before spending, and still stops at the cap', () => {
   const dir = mkdtempSync(join(tmpdir(), 'thc-cap-'));
   writeFileSync(join(dir, 'task.md'), 'Plan a habit tracker.\n');
   const r = spawnSync('node', [cli, '--task', 'task.md', '--chain', 'mock-budget'], { encoding: 'utf8', cwd: dir, env: noKeys });
   assert.equal(r.status, 4);
-  const note = r.stdout.indexOf('note:  this chain\'s worst case is');
+  const note = r.stdout.indexOf('note:  this chain\'s expected cost is');
   assert.ok(note > 0 && note < r.stdout.indexOf('Stage:'), 'the note comes before the first stage');
 });
 
@@ -129,6 +130,6 @@ test('doctor: the one-key line counts a chain\'s panel labs by labOf, critics on
   assert.equal(panelLabCount({ seats: {} }), 0);
   const out = execFileSync('node', [cli, 'doctor'], { encoding: 'utf8', env: noKeys });
   const line = out.split('\n').find(l => l.includes('OPENROUTER_API_KEY alone runs'));
-  if (line.includes('cheap-7-v2')) assert.match(line, /cheap-7-v2 \(worst case [^,]+, 7-lab panel\)/);
+  if (line.includes('cheap-7-v2')) assert.match(line, /cheap-7-v2 \(expected [^,]+, at most [^,]+, 7-lab panel\)/);
   assert.doesNotMatch(line, /\d+ labs?\)/, 'the old every-seat count is gone');
 });

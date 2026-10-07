@@ -30,6 +30,12 @@ export function contextFileList(entries) {
   return files;
 }
 
+// The text the CLI appends for a set of context files: one `## <name>` section per file, in order. One function for the CLI and for `council contract check`, so the evidence hash is
+// recomputed from exactly the text it was made from.
+export function contextBundleText(files) {
+  return files.map(f => `## ${f.split('/').pop()}\n\n${readContextFile(f)}`).join('\n\n---\n\n');
+}
+
 // Reads one context file, refusing anything that is not a regular file within the size limit.
 export function readContextFile(path, maxBytes = MAX_CONTEXT_FILE_BYTES) {
   let fd;

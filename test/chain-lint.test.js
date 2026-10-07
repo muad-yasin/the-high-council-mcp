@@ -142,9 +142,10 @@ test('council --chain <broken chain name> refuses to run, fail-loud, before any 
   }
 });
 
-test('item 6: chains/plan-two-strong.json (the roster-inversion chain) passes chain-lint', () => {
-  const config = JSON.parse(readFileSync(join(root, 'chains', 'plan-two-strong.json'), 'utf8'));
-  const findings = lintChain(config, 'chains/plan-two-strong.json');
+// 0.8.2 (owner, 6 Oct 2026, archive the unused chains): plan-two-strong now lives in archive/chains/ and is still linted here.
+test('item 6: archive/chains/plan-two-strong.json (the roster-inversion chain) passes chain-lint', () => {
+  const config = JSON.parse(readFileSync(join(root, 'archive', 'chains', 'plan-two-strong.json'), 'utf8'));
+  const findings = lintChain(config, 'archive/chains/plan-two-strong.json');
   assert.deepEqual(findings, []);
 });
 
@@ -243,11 +244,12 @@ test('self-review: scoped to unanimous signoff, where the author\'s lab holds a 
 // The sweep: which shipped chains does this rule actually fail? Pinned so that
 // adding a chain that grades its own work, or quietly "fixing" cheap-7 with the
 // escape hatch, fails the suite instead of passing unnoticed.
+// 0.8.2 (owner, 6 Oct 2026, archive the unused chains): cheap-7 moved to archive/chains/, so the sweep covers both folders and the pin still holds.
 test('self-review: exactly one shipped chain fails it, and it is the superseded one', () => {
-  const failing = readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json')).filter(f => {
-    const config = JSON.parse(readFileSync(join(root, 'chains', f), 'utf8'));
-    return lintChain(config, `chains/${f}`).some(x => x.kind === 'self-review');
-  });
+  const failing = ['chains', join('archive', 'chains')].flatMap(dir => readdirSync(join(root, dir)).filter(f => f.endsWith('.json')).filter(f => {
+    const config = JSON.parse(readFileSync(join(root, dir, f), 'utf8'));
+    return lintChain(config, `${dir}/${f}`).some(x => x.kind === 'self-review');
+  }));
   assert.deepEqual(failing, ['cheap-7.json']);
 });
 
@@ -332,4 +334,14 @@ test('chain-lint: a debating-seat role in a chain that never debates is reported
   // With no proposers array the critics are the debating seats, and the rule follows them.
   const critSeats = { ...seats, proposers: undefined, critics: [{ provider: 'mock', model: 'mock-critic-a', lab: 'a', role: { lens: 'security-and-legal' } }] };
   assert.equal(kinds({ seats: critSeats, maxRounds: 1 }).length, 1);
+});
+
+// 0.8.2 (owner decision 1): the table rule only applies where a panel signs off together; the lint says so instead of letting a chain believe it is on.
+test('signoff_table.required needs signoff "unanimous": refused otherwise, clean with it, and a typo is caught', () => {
+  const base = JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8'));
+  assert.deepEqual(lintChain({ ...base, signoff_table: { required: true } }, 'chains/fixture.json'), []);
+  const first = lintChain({ ...base, signoff: 'first', signoff_table: { required: true } }, 'chains/fixture.json');
+  assert.ok(first.some(f => f.kind === 'signoff-table-needs-unanimous'), JSON.stringify(first));
+  assert.ok(lintChain({ ...base, signoff_table: { require: true } }, 'chains/fixture.json').some(f => /signoff-table/.test(f.kind)), 'a typo in the key is caught');
+  assert.deepEqual(lintChain({ ...base, signoff: 'first', signoff_table: { required: false } }, 'chains/fixture.json'), []);
 });

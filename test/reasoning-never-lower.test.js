@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runChain, setBudget, setCache, budgetState, BudgetExceeded, NO_ANSWER_THINKING } from '../src/chain.js';
+import { runChain, setBudget, setCache, budgetState, BudgetExceeded, NO_ANSWER_THINKING, setPromptSpy } from '../src/chain.js';
 import { projectAttempts, projectStage, worstCaseOf } from '../src/cost.js';
 import { retryCapFor, retryCeilingOf, loweringReasons } from '../src/reasoning.js';
 
@@ -200,9 +200,12 @@ test('money: a call that fails after it was sent is charged the worst case of th
     });
     try {
       const seat = SEAT();
-      const { first, retry } = projectAttempts(seat, { system: '', user: '' });
       setCache(null); setBudget(100);
-      await assert.rejects(() => runChain({ request: 'R', config: config(seat), log: () => {} }));
+      // The retry is projected on the stage's real prompt (the criteria prompt), which the recorded wording of 7 Oct 2026 made longer: read it off the spy, never hard-code its size.
+      let sent = null;
+      setPromptSpy(p => { sent ??= { system: p.system, user: p.user }; });
+      try { await assert.rejects(() => runChain({ request: 'R', config: config(seat), log: () => {} })); } finally { setPromptSpy(null); }
+      const { first, retry } = projectAttempts(seat, sent);
       assert.equal(n >= 2, true, 'fixture: the first attempt was cut off, the retry was sent');
       const spent = budgetState().spent;
       // spent = the billed first attempt (30 in, 4000 out) + what the failed retry is charged. The retry asked for 8,000 output tokens, so its own

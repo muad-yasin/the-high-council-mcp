@@ -136,7 +136,7 @@ union of all objections and the whole panel re-reviews).
   (written by `scripts/refresh-reasoning-table.mjs`; sources in the file; not exercised live) says per model what field means high, the model's own default and
   its largest reply; `loweringReasons` is the one list of settings that lower it. No code path may lower a seat's effort (`test/reasoning-never-lower.test.js`
   scans for it); chain-lint's `reasoning-not-high` refuses a shipped chain that does (a user's own chain passes through). The table turns `npm test` red on
-  2026-12-05 (60 days); with the retention table (2026-10-31) and the Sol price row and the OpenRouter price rows (both 2026-11-21) those are release-week chores, not bugs.
+  2026-12-06 (60 days; the table was regenerated on 2026-10-07); with the retention table (2026-10-31) and the Sol price row and the OpenRouter price rows (both 2026-11-21) those are release-week chores, not bugs.
 - `src/key-env.js` - the one reader of provider keys: the plugin dialog's `COUNCIL_PLUGIN_<LAB>_API_KEY`, then the standard variable, then `.env`; empty, blank
   or a `${user_config.` placeholder counts as unset, and a key with a control character in it is "malformed" (never sent; `council doctor` says so). `src/env-file.js` - the one
   reader of a project's `.env`: it never sets `COUNCIL_PLUGIN_*`, process-level variables (`NODE_*`, `LD_*`, `PATH`, proxies), the loopback-key switch or an operator-only setting,
@@ -147,6 +147,14 @@ union of all objections and the whole panel re-reviews).
   hash-chained ledger; the terminal answer is `council gate answer`), `src/advice-brief.js` + `advice-mask.js` (the brief schema, masking, the exact text a person reads),
   `src/advise.js` (the blind-then-debate run), `src/advice-guards.js` (limits and the cross-run ledger), `src/advice-run.js` + `advice-stop.js` + `stop-files.js` (the run folder and the stop rule),
   `src/mcp/untrusted.js` + `return-path.js` (what comes back to the agent, marked as untrusted text).
+- Added in 0.8.2 (the plan: `Review/0.8.2_Plan_2026-10-06.md`, the build log in the maintainer's local `Review/Build_0.8.2/`): the contract record (`src/contract-lint.js`, `contract-record.js`, `contract-cli.js`,
+  `contract-draft.js`, `src/mcp/contract.js`: versions in `runs/<id>/contract/`, the gate ledger is the authority, `council contract draft|lock|show|check|amend`, MCP `contract_read` / `contract_amend`); cost honesty
+  (`src/unpriced.js` refuses an unpriced seat under a cap, `src/spend-reservations.js` writes a call's worst case before it is sent, `estimateChainRows(..., { maximum: true })` gives the dry run's second figure,
+  `scripts/model-caps-report.mjs` generates `maintainers/MODEL-CAPS.md` and a test diffs it); the debate pieces (`src/objection-ids.js`, `src/answer-back.js`, `src/post-quotes.js`, `src/criteria-ledger.js`,
+  `src/milestones.js`, `src/lanes.js`, `src/handoff-prompt.js` = the one place the handoff prompts are built). A chain's switches (`signoff_table`, `answer_back`, `debate_hygiene`, `handoff_contract`, `judging`) are listed in
+  `config/chain-schema.json`; `"judging": "all-roles"` (owner, 7 Oct 2026) is the explicit override that lets a chain's architects, proposers, deep dive and writer also vote.
+- Prompt text that is DRAFTED but not yet recorded is test data in `test/held-prompts/held.js`; `src/held-roles.js` (code only) returns a function for a held name only once `src/roles.js` exports one of that name, and
+  `setPromptSpy` (chain.js) lets a door test read the prompt a seat is sent. After the 0.8.2 re-record every held sentence is in `roles.js`; the held file stays as test data and `test/held-prompts.test.js` compares the two.
 - `src/mcp/server.js` - the same operations as MCP tools. It **spawns `src/cli.js` detached** so a
   long run outlives the tool call; the client polls `run_status`. It does not run chains in-process.
 
@@ -172,8 +180,11 @@ ceiling; `invoke()` projects the worst case for the stage it is about to run (wh
 input, whole `maxTokens` as output, doubled for Anthropic's retry) and throws `BudgetExceeded`
 rather than spending past it. Replayed stages count toward the ceiling too, so resuming cannot lap
 it. Any new paid call must go through `invoke()` or it escapes the cap entirely. An unpriced seat
-projects $0 and is therefore uncapped - which is why the `mock-*` chains run free under any
-ceiling, and why `mock-budget` exists with fixture prices to test the cap offline.
+projects $0, so a cap cannot hold it: since 0.8.2 a run under a cap refuses one before anything is sent
+(`unpricedSeats` in `src/unpriced.js` at the run's start, exit 5; `invoke()` throws `UnpricedSeat` as the backstop),
+and `--max-usd none` is the way out. `mock` (which is why the `mock-*` chains run free under any ceiling, and why
+`mock-budget` exists with fixture prices to test the cap offline), `external` and `ollama` are exempt (`needsPrice`
+in `src/cost.js`).
 
 **External seats pause the run.** `provider: "external"` throws `ExternalPause` (thrown, not
 returned, so control flow stays linear). The CLI catches it, writes `NEEDS-<stage>.md` with both
@@ -284,3 +295,10 @@ intended. Runs with no `report.json` (still going, or stopped by the cap) are co
 Spend output carries the chain and the cost only - never the task path or any run content. A test
 pins that, along with the degradation contract: a missing, unreadable or corrupt `runs/` must
 produce a usable answer rather than an error, and `spendReport` must never write to disk.
+
+**One recorded figure (0.8.2, item 8b).** The derivation above has exactly one exception: `runs/<id>/spend-reservations.jsonl` (`src/spend-reservations.js`, schema `spend-reservations/1`).
+`invoke()` appends a `reserved` line (the call's worst case, with its label and seat) with one write and an fsync BEFORE it sends, and a `settled` line when the call returns or throws. A `reserved`
+line with no `settled` line is a call in flight when the process died: the provider may have billed it and nothing else on disk says so, so it stays charged at its worst case in a resume's cap, `--spend`
+and the spend report (`costOfRun` in `src/spend.js` adds it). Why this is not the ledger the section above argued against: it records a moment nothing else can reconstruct (a call sent and not yet
+answered), it lives and dies with the run folder (it is no second copy outside it), a missing, torn or corrupt file reads as "none" (today's behaviour), and spend output still carries amounts only. The
+opposite rule holds for writing: if a reservation cannot be written the call is not sent. There is no command that reconciles an unsettled reservation, on purpose: the figure errs high.

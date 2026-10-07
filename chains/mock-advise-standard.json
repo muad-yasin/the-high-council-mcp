@@ -12,8 +12,7 @@
     "enabled": true,
     "usd": 1,
     "rounds": 1,
-    "synthesis": "seat",
-    "max_wall_ms": 120000
+    "synthesis": "seat"
   },
   "seats": {
     "builder": {

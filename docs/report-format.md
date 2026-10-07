@@ -43,14 +43,14 @@ criterion asks the plan to be consistent with itself, most criteria only ask tha
 a vague word with no number or check; `[]` when clean, never a stop), `criteria_sha256` (a fingerprint of the criteria list, the same one the lock block at the end of
 `HANDOFF.md` carries; `council check-lock HANDOFF.md --run runs/<id>` compares them), `checks_sha256` (since 0.8.1: a
 fingerprint of how each criterion is checked, its `check` and `on` from `criteria_kinds`, null for the others; the lock block
-lists each check under its criterion and carries this hash in a second marker, which `check-lock` verifies too), `criteria_ids` (positional, index-aligned with `criteria`: `C1`, `C2`, ...) and `missing_criteria[]`
+lists each check under its criterion and carries this hash in a second marker, which `check-lock` verifies too), `thin_contract` (0.8.2, experimental: one record of the task, criteria, checks, evidence and signed text hashes, all 64-hex, plus `sha256` over the record without that field: canonical JSON, keys sorted at every depth, no whitespace, UTF-8, an unknown component the literal null; `evidence.ground_truth_sha256` is over each shown `{ tool, args, result }` without `result_ref`; `council contract check runs/<id>` recomputes it, and it is tamper-evident, not tamper-proof; absent for an advice run), `handoff_milestones` (0.8.2, experimental, only when the chain sets `handoff_contract.milestones`: `{ status, milestones, findings[] }`, what a $0 lint found in the milestones the handoff seat wrote; never changes `passed`), `criteria_ids` (positional, index-aligned with `criteria`: `C1`, `C2`, ...) and `missing_criteria[]`
 (sign-offs whose criteria table left criteria out, by round and lab; `[]` when none did, and a reply
 with no table at all is not listed); `cut_despite_support[]` (proposals the plan cut although another
 lab supported them in the debate, with supporters and objectors; only when the run had proposals and a
 debate); `disagreement_map[]` (one row per review round: each lab's verdict, `(carried)` when it was
 reused on an unchanged draft).
 
-Since 0.8.1 (optional and additive, none read by any verdict, prompt or stop): `field_cuts[]` (every place a model's text was cut before other seats read it: stage, field, original and kept length; `[]` when nothing was cut), `disputes[].round` can be `"build"` (the builder's own DECLINED lines; a reply made only of them stops the run), `panelVerdicts[].no_answer` (`"no answer: thinking used the whole cap"`: an unheard seat whose reply was cut off at its cap after spending its tokens on thinking and carried no text; never a pass), `stages[].cappedAt` (the output cap a reply was asked at: the seat's own, or the bigger one an Anthropic seat's retry used) and `stages[].noAnswer` (the same mark on the stage), and `advise` (the council advisor's roll-up, only on an advice call).
+Since 0.8.2, `panelVerdicts[].lane` (additive, only for a seat with a review lane, the optional `plan-lanes-4` chain). Since 0.8.1 (optional and additive, none read by any verdict, prompt or stop): `field_cuts[]` (every place a model's text was cut before other seats read it: stage, field, original and kept length; `[]` when nothing was cut), `disputes[].round` can be `"build"` (the builder's own DECLINED lines; a reply made only of them stops the run), `panelVerdicts[].no_answer` (`"no answer: thinking used the whole cap"`: an unheard seat whose reply was cut off at its cap after spending its tokens on thinking and carried no text; never a pass), `stages[].cappedAt` (the output cap a reply was asked at: the seat's own, or the bigger one an Anthropic seat's retry used) and `stages[].noAnswer` (the same mark on the stage), and `advise` (the council advisor's roll-up, only on an advice call).
 
 Most optional stages add their field only when the chain turns that stage on. When the field is
 missing, the stage did not run. It does not mean the stage found nothing.
@@ -68,6 +68,8 @@ missing, the stage did not run. It does not mean the stage found nothing.
   run's top-level `passed`.
 - A `stages[]` entry with `priced: false` shows `usd: 0`, which means *unknown*, not free. Check
   `totals.unpriced` too.
+- `totals.usd` is the sum of the stages' settled `usd`. It excludes an unsettled reservation (a call that was sent when the process ended and never settled): `council --spend`, `run_status` and a resume's cap count
+  such a reservation at its worst case, so those figures can be higher than the report's total.
 - `task` is never absolute (since 0.7.7): it is relative to the directory the run was started in,
   or the file name alone if the task lives outside it. Reports from 0.7.6 and earlier can carry an
   absolute path after a resume, rematch, replay or `init`. `task_sha256` (experimental) is the
@@ -86,8 +88,8 @@ experimental fields added:
 
 - `partial`: always `true`. It never appears in `report.json`.
 - `stoppedBy`: `"budget"` (the per-run spend cap, exit 4), or, since 0.8.1, for an advice call stopped at exit 18: `"user"` (a
-  person, `council stop`), `"client_cancel"` (the MCP client cancelled or went away) or `"wall_clock"` (the chain's
-  `advise.max_wall_ms` passed). A stopped advice call's `advise` holds the answers that were paid for (`advise.status`
+  person, `council stop`), `"client_cancel"` (the MCP client cancelled or went away) or `"wall_clock"` (a chain's own
+  `advise.max_wall_ms` passed; no shipped chain sets one since 0.8.2, the value stays readable for runs recorded before). A stopped advice call's `advise` holds the answers that were paid for (`advise.status`
   `"stopped"`). A reader must ignore a value it does not know.
 - `stoppedAtStage`: the label of the stage the run stopped before. That stage was never paid for.
 

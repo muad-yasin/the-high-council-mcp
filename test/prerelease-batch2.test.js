@@ -51,8 +51,9 @@ test('money #1: a capped rematch records what its in-flight panel siblings spent
   const id = readdirSync(join(dir, 'runs'))[0];
   const stages = JSON.parse(readFileSync(join(dir, 'runs', id, 'report.json'), 'utf8')).stages;
   const cost = l => stages.find(s => s.label === l).usd;
-  // 1.3 lets criteria, build and one parallel critic through, then stops the second.
-  const r = cliRun(dir, ['--rematch', join('runs', id), '--rematch-seed', '7', '--max-usd', '1.3']);
+  // 1.7 lets criteria, build and one parallel critic through, then stops the second. It sits well inside the range that holds that shape (a critic's worst case is
+  // about $1.0 to $1.2, so the first fits at 0.124 + that and the second never fits beside it): 1.3 did until the recorded judge wording of 7 Oct 2026 made the prompt longer.
+  const r = cliRun(dir, ['--rematch', join('runs', id), '--rematch-seed', '7', '--max-usd', '1.7']);
   assert.equal(r.status, 4, r.stderr);
   const marker = JSON.parse(readFileSync(join(dir, 'runs', `${id}.rematch-7`, 'STOPPED-budget.json'), 'utf8'));
   const paid = cost('criteria') + cost('build') + cost('panel-1-a');

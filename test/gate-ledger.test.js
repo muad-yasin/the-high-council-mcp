@@ -155,8 +155,11 @@ test('a missing ledger reads as an empty, valid one; an unreadable one fails clo
 });
 
 test('appendEvent writes only the public events; the ledger sets schema, seq, prev, ts and event itself', () => {
-  assert.deepEqual([...PUBLIC_EVENTS].sort(), ['more_material_requested', 'sent', 'stopped']);
-  assert.deepEqual([...EVENTS].sort(), ['gate_answered', 'gate_requested', 'more_material_requested', 'sent', 'stopped']);
+  // Changed by the owner's decision of 7 Oct 2026 ("we go with the full one", 0.8.2 item 6d): the contract record adds contract_locked, amend_requested and amend_decided; only amend_requested is public.
+  assert.deepEqual([...PUBLIC_EVENTS].sort(), ['amend_requested', 'more_material_requested', 'sent', 'stopped']);
+  assert.deepEqual([...EVENTS].sort(), ['amend_decided', 'amend_requested', 'contract_locked', 'gate_answered', 'gate_requested', 'more_material_requested', 'sent', 'stopped']);
+  assert.throws(() => appendEvent(tmp(), 'contract_locked', { version: 1 }), /not an event this function writes/);
+  assert.throws(() => appendEvent(tmp(), 'amend_decided', { decision: 'approved' }), /not an event this function writes/);
   const d = tmp();
   assert.throws(() => appendEvent(d, 'gate_answered', { gate: 'g1', decision: 'approved' }), /not an event this function writes/);
   assert.throws(() => appendEvent(d, 'gate_requested', { gate: 'g1' }), /not an event this function writes/);

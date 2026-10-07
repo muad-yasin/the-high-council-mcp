@@ -13,6 +13,7 @@ import { readStoppedMarker } from './stop-files.js';
 import { waitingStages } from './run-status.js';
 import { parseJson } from './chain.js';
 import { stripDeclined, parseDisputes } from './draft-disputes.js';
+import { changedAfterReviewSentence } from './text-labels.js';
 
 const read = p => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
 const readJson = p => { const t = read(p); if (t == null) return null; try { return JSON.parse(t); } catch { return null; } };
@@ -75,12 +76,30 @@ export function readChecks(runDir, criteria) {
 }
 
 /**
+ * The state of a run that FINISHED (it has a report), from its `passed`, `outcome` and `delivered_text` (0.8.2 item 4; F7 of the ChatGPT review). One definition, used for a run folder
+ * (stopState) and for the run that has just ended (the CLI, when it writes HANDOFF.md). `signedOff` is true only for a clean sign-off: `passed` true AND an outcome that is not `degraded`
+ * (one verdict plus six stated passes reads passed:true, outcome degraded: it used to get a clean handoff with no banner). `changedAfterReview` is the sentence naming the model stages
+ * that changed the text after the panel's last review, '' when none did.
+ */
+export function finishedState({ passed, outcome, delivered_text }) {
+  const signed = passed === true;
+  const degraded = signed && outcome === 'degraded';
+  return {
+    finished: true,
+    signedOff: signed && !degraded,
+    degraded,
+    changedAfterReview: changedAfterReviewSentence({ delivered_text }),
+    reason: degraded ? 'ended degraded: the result reads as passed, but not every seat gave a verdict (an abstention, a stated pass, a dropped lab, or too few heard)' : signed ? 'signed off' : 'finished with open objections',
+  };
+}
+
+/**
  * Where the run stopped, from the marker files it left. { finished, signedOff, reason } where
  * `finished` means report.json exists (a full run: no banner needed unless the panel did not sign off).
  */
 export function stopState(runDir) {
   const report = readJson(join(runDir, 'report.json'));
-  if (report) return { finished: true, signedOff: report.passed === true, reason: report.passed === true ? 'signed off' : 'finished with open objections' };
+  if (report) return finishedState({ passed: report.passed, outcome: report.outcome, delivered_text: report.delivered_text });
   const has = f => existsSync(join(runDir, f));
   if (has('STOPPED-budget.json')) {
     const b = readJson(join(runDir, 'STOPPED-budget.json'));
@@ -99,12 +118,19 @@ export function stopState(runDir) {
 
 /** The harness-written note that goes above a handoff whose plan no panel signed off. '' when it did. */
 export function partialBanner({ state, draftName, runId }) {
-  if (state.signedOff) return '';
+  const changed = state.changedAfterReview ? [`> **Not the signed text.** ${state.changedAfterReview} Written by the harness, not a model.`] : [];
+  if (state.signedOff) return changed.length ? [...changed, '', ''].join('\n') : '';
+  if (state.degraded) {
+    return [
+      `> **Not a clean sign-off.** Written by the harness, not a model, from the latest draft of run ${runId || '(unnamed)'} (\`${draftName}\`).`,
+      `> The run ${state.reason}. Read the run's BOARD.md or report.json for who was not heard before you treat any part of the plan below as signed off.`,
+      ...changed, '', '',
+    ].join('\n');
+  }
   return [
     `> **Not a signed-off plan.** Written by the harness, not a model, from the latest draft of run ${runId || '(unnamed)'} (\`${draftName}\`).`,
     `> The run ${state.reason}. The panel did not sign off on the plan below: treat every part of it as a proposal, and read the run's BOARD.md or report.json for what was left open.`,
-    '',
-    '',
+    '', '', // no "Not the signed text" line here: nothing was signed, and this banner is the 0.8.1 one (item 4 review: the CHANGELOG says it is kept)
   ].join('\n');
 }
 

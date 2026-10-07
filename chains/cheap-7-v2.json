@@ -4,6 +4,10 @@
   "summary": "Seven labs on one OpenRouter key: blind proposals, debate, unanimous sign-off.",
   "maxRounds": 7,
   "signoff": "unanimous",
+  "signoff_table": { "required": true },
+  "answer_back": { "enabled": true },
+  "debate_hygiene": { "shuffle": true, "noQuoteMarks": true },
+  "handoff_contract": { "milestones": true },
   "dispute": {
     "enabled": true,
     "stall_rounds": 2
@@ -13,6 +17,7 @@
     "maxTokens": 12000
   },
   "debate": true,
+  "majority_guard": { "enabled": true },
   "canary": { "enabled": true, "sampleRate": 0.1 },
   "handoff": true,
   "estimate": {

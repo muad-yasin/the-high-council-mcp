@@ -128,7 +128,17 @@ export function checksSection(texts, kinds, heading = '# How the checkable crite
 // 2026-09-28 (area 3 #2.4): this counter matched only an exact "MET", so a PASS / PASSED / YES / " MET"
 // row with no evidence signed off without ever being counted as met on trust.
 export const MET_VERDICT = /^(MET|PASS|PASSED|YES)$/;
-export const isMetVerdict = v => MET_VERDICT.test(String(v || '').trim().toUpperCase());
+// The word of a verdict cell, as every reader of a table row takes it (owner, 7 Oct 2026): trimmed, upper case, and without a closing full stop or exclamation mark - "Met." is MET and "Failed." is FAILED. One
+// reading, shared by the parser (src/chain.js normaliseCritique), the table gate (isReadableVerdict) and the checkable-criterion counter below; before it, "Failed." was neither a failure nor a pass for the parser and
+// a row so marked signed off.
+// 0.8.2 (owner, 7 Oct 2026, "Your recommendation to both, yes"): also without the markdown a judge wraps the word in ("**FAILED**", "`FAILED`", "_PASS_") and a closing colon ("Failed:", "Met:"). The whole cell is still the word:
+// "NOT MET" is not "NOT", and "Met, except the TTL" or "**Partially met**" stay neither word. An underscore INSIDE the word ("not_met") is kept.
+export const verdictWord = v => String(v ?? '').trim().toUpperCase().replace(/^[\s*_`]+/, '').replace(/[\s.!:*_`]+$/, ''); // "Failed ." (a space before the stop) is the same word
+export const isMetVerdict = v => MET_VERDICT.test(verdictWord(v));
+// The other half of the same reading: the words a table row may use to say a criterion FAILED (src/chain.js normaliseCritique turns such a row into a failure).
+export const FAILED_VERDICT = /^(FAILED|FAIL|NOT[\s_-]*MET|UNMET|NO)$/;
+// 0.8.2 (owner, 7 Oct 2026): a row whose verdict is neither of the two readings (UNCHECKED, PARTIAL, "MET (partially)", SATISFIED, "see notes") says nothing a sign-off may rest on (src/criteria-ledger.js signoffTableGap).
+export const isReadableVerdict = v => { const w = verdictWord(v); return MET_VERDICT.test(w) || FAILED_VERDICT.test(w); };
 
 export function unevidencedCheckableMets(critique, texts, kinds) {
   if (!kinds || !critique || !Array.isArray(critique.criteria)) return [];

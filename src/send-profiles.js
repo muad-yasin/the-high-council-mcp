@@ -63,11 +63,13 @@ export function adviceChainPath(name, { env = process.env, work = process.cwd() 
 
 // One seat id per single-mode chain (src/advice-seats is this table plus the chain files themselves: the chain file IS
 // the seat's definition, its price row and its ceiling). `sol` is the default: a non-Anthropic model, because Claude is
-// already the caller and `/advisor`. `opus` (the control) is reachable only by naming it. The 0.8.1 roster (plan DR-16): glm, muse,
-// qwen and sonnet single chains are not shipped; a user can seat any of them in their own chain.
+// already the caller and `/advisor`. `opus` (the control) is reachable only by naming it. The 0.8.1 roster (plan DR-16) shipped no glm, muse,
+// qwen or sonnet single chain; 0.8.2 adds `glm-flash` and `qwen` (owner, 6 Oct 2026: "yes" to the two new single seats). `qwen` has no
+// zero-retention endpoint (retention class C), so a quote for it is refused unless the operator's floor is `public` (src/advice-tier.js). muse and sonnet are still not shipped:
+// a user can seat any model in their own chain.
 export const SEAT_CHAINS = Object.freeze({
   sol: 'advise-single', astra: 'advise-single-astra', gemini: 'advise-single-gemini', deepseek: 'advise-single-deepseek',
-  opus: 'advise-single-opus',
+  opus: 'advise-single-opus', 'glm-flash': 'advise-single-glm-flash', qwen: 'advise-single-qwen',
 });
 export const DEFAULT_SEAT = 'sol';
 export const COUNCIL_CHAIN = 'advise-standard';

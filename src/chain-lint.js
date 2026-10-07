@@ -11,6 +11,7 @@ import { reasoningProblems } from './reasoning.js';
 import { dirname, join, resolve } from 'node:path';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { LANE_IDS } from './lanes.js';
 import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots, everySeatOf, SIGNOFF_MODES } from './chain.js';
 import { deniedSeatsOf } from './denied-models.js';
 
@@ -53,6 +54,20 @@ export function lintChain(config, filePath = '<chain>') {
         message: `seats.${key} is not a recognized stage seat and will never run.`,
         fix: `Rename "seats.${key}" to one of: ${KNOWN_SEAT_KEYS.join(', ')} in ${filePath}, or remove it if it isn't meant to run.`,
       });
+    }
+  }
+
+  // 1b. Review lanes (0.8.2 item 7, src/lanes.js): `lane` means something only on a panel critic, and only with a lane id the harness knows. On any other seat, with an unknown id, or on a descending chain
+  // (whose critic prompt is a different one) the setting would silently do nothing, so it is refused.
+  for (const [key, value] of Object.entries(seats)) {
+    // seats.descending is a map of stage -> seat: its seats are looked at too (a descending critic prompt carries no lane).
+    const flat = key === 'descending' && value && typeof value === 'object' && !Array.isArray(value) && value.model === undefined ? Object.values(value) : (Array.isArray(value) ? value : [value]);
+    for (const seat of flat) {
+      if (!seat || typeof seat !== 'object' || seat.lane === undefined) continue;
+      if (config?.advise?.enabled === true) { if (!findings.some(f => f.kind === 'invalid-lane' && /advise chain/.test(f.message))) findings.push({ kind: 'invalid-lane', message: 'an advise chain has a "lane": the advisor builds its own prompts and carries no lanes, so it would silently do nothing.', fix: `Remove "lane" from the seats in ${filePath}.` }); continue; }
+      if (key !== 'critics') findings.push({ kind: 'invalid-lane', message: `seats.${key} has a "lane": a lane is read on panel critics only, so it would silently do nothing here.`, fix: `Remove "lane" from seats.${key} in ${filePath}.` });
+      else if (!LANE_IDS.includes(seat.lane)) findings.push({ kind: 'invalid-lane', message: `seats.critics has lane "${seat.lane}", which is not one of ${LANE_IDS.join(', ')}.`, fix: `Use one of ${LANE_IDS.join(', ')} in ${filePath}, or remove "lane".` });
+      else if (config?.descending) findings.push({ kind: 'invalid-lane', message: 'a critic has a "lane" on a descending chain, whose critic prompt does not carry lanes: it would silently do nothing.', fix: `Remove "lane" from the critics, or turn off "descending", in ${filePath}.` });
     }
   }
 
@@ -198,6 +213,12 @@ export function lintChain(config, filePath = '<chain>') {
     alternatives: { enabled: 'boolean', maxTokens: 'positive-integer', debaters: 'debaters' },
     // Tiered councils (2026-09-26). Both experimental, both off in every chain written before them.
     majority_guard: { enabled: 'boolean' },
+    // 0.8.2 (owner decision 1): a sign-off without a full per-criterion table is an abstention. Off in every chain written before it existed.
+    signoff_table: { required: 'boolean' },
+    // 0.8.2 (owner decision 2): debate hygiene. Both flags change what debate seats see; off in every chain written before them.
+    debate_hygiene: { shuffle: 'boolean', noQuoteMarks: 'boolean' },
+    // 0.8.2 (owner decision 3): the answer-back data for the next round's judges. Off in every chain written before it existed.
+    answer_back: { enabled: 'boolean' },
     // The council advisor (thc-research brief 27, src/advise.js). Experimental; off in every chain written before it.
     advise: { enabled: 'boolean', usd: 'positive-number', rounds: 'advise-rounds', skipDebateWhenUnanimous: 'boolean', synthesis: 'advise-synthesis', samples: 'advise-samples', max_wall_ms: 'advise-wall' },
     deep_dive: { enabled: 'boolean', job: 'job', focus: 'string-array', usd: 'positive-number', maxCalls: 'positive-integer', chunkChars: 'chunk' },
@@ -205,6 +226,8 @@ export function lintChain(config, filePath = '<chain>') {
     canary: { enabled: 'boolean', sampleRate: 'rate' },
     ambiguity_union: { enabled: 'boolean' },
     argued: { enabled: 'boolean' },
+    // 0.8.2 item 6b: how many times in a row a criterion's named check may fail before HANDOFF.md tells the builder to stop and replan (src/handoff-contract-text.js; default 2).
+    handoff_contract: { check_failures: 'positive-integer', milestones: 'boolean' },
   };
   const typeOk = (want, v) => want === 'boolean' ? typeof v === 'boolean'
     : want === 'positive-integer' ? Number.isInteger(v) && v >= 1
@@ -242,14 +265,14 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
-  // 5b2. 0.8.1 P17 (plan M6 Work 3, decided rule 6): an advice chain is a tool chain: it carries its own wall clock, and a stopped
+  // 5b2. 0.8.1 P17 (plan M6 Work 3, decided rule 6): an advice chain is a tool chain: a stopped
   // advice call is never resumed (it is asked again), so `resumeAfterStop` must say false. A planning chain may leave it out (true).
   if (config?.resumeAfterStop !== undefined && typeof config.resumeAfterStop !== 'boolean') {
     findings.push({ kind: 'invalid-resume-after-stop', message: 'resumeAfterStop must be true or false.', fix: `Set "resumeAfterStop" to true or false in ${filePath}.` });
   }
+  // 0.8.2 (owner, 6 Oct 2026: "no clocks, no reason to add them"): `advise.max_wall_ms` is OPTIONAL again. Rule `advice-no-wall-clock` (0.8.1) is gone; a chain that sets it still gets its deadline.
   if (config?.advise?.enabled === true) {
     if (config.resumeAfterStop !== false) findings.push({ kind: 'advice-resume-after-stop', message: 'an advice chain must set "resumeAfterStop": false: a stopped advice call is asked again, never continued.', fix: `Add "resumeAfterStop": false to ${filePath}.` });
-    if (!Number.isInteger(config.advise.max_wall_ms)) findings.push({ kind: 'advice-no-wall-clock', message: 'an advice chain must set advise.max_wall_ms: a call with no wall-clock ceiling is refused at admission.', fix: `Add "max_wall_ms" (milliseconds, at least 1000) to the advise block of ${filePath}.` });
   }
 
   // 5c. "How this plan was argued" with descending mode (src/argued.js). The section needs the
@@ -759,10 +782,14 @@ export function lintChain(config, filePath = '<chain>') {
   if (config?.signoff === 'unanimous' && Array.isArray(seats.critics) && config?.selfReview !== 'allowed') {
     const critics = seats.critics.filter(Boolean);
     const criticLabs = new Set(critics.map(labOf));
-    const criticModels = new Set(critics.map(modelIdentity).filter(Boolean));
+    // Audit fix cnc-chains-lint F1: an external seat has no real model identity (modelIdentity is null on purpose: mock chains reuse names), but an EXTERNAL writer and an external critic that name the
+    // same session ("claude-code-session") are the same agent, so for this rule an external seat is identified by its model string. Without this, `selfReview: "allowed"` on plan-daily-7 and
+    // plan-highest-7 was inert (the writer's own critic seat passed the rule with or without the key).
+    const identOf = seat => modelIdentity(seat) ?? (seat?.provider === 'external' && seat.model ? `external:${String(seat.model).toLowerCase()}` : null);
+    const criticModels = new Set(critics.map(identOf).filter(Boolean));
     for (const kind of ['builder', 'reviser']) {
       const seat = seats[kind];
-      const sameModel = seat && modelIdentity(seat) && criticModels.has(modelIdentity(seat));
+      const sameModel = seat && identOf(seat) && criticModels.has(identOf(seat));
       if (seat && sameModel && !criticLabs.has(labOf(seat))) {
         findings.push({
           kind: 'self-review',
@@ -815,6 +842,13 @@ export function lintChain(config, filePath = '<chain>') {
       for (const [k, v] of Object.entries(node)) if (k !== 'extra') walk(v, path ? `${path}.${k}` : k);
     };
     walk(roster, '');
+  }
+  if ('judging' in (config || {}) && config.judging !== 'all-roles') {
+    findings.push({
+      kind: 'judging',
+      message: `judging must be the exact string "all-roles" when present (got ${JSON.stringify(config.judging)}) - any other value silently reads as "not set".`,
+      fix: `Set "judging": "all-roles" in ${filePath}, or remove the key entirely.`,
+    });
   }
   if ('selfReview' in (config || {}) && config.selfReview !== 'allowed') {
     findings.push({
@@ -915,6 +949,36 @@ export function lintChain(config, filePath = '<chain>') {
       fix: `Add the mass seats under "seats.proposers" in ${filePath}, or remove alternatives.debaters.`,
     });
   }
+  // 0.8.2: the table rule is applied where a panel signs off together (signoff "unanimous"); on any other chain it would do nothing and look like it did.
+  if (config?.signoff_table?.required === true && config.signoff !== 'unanimous') {
+    findings.push({
+      kind: 'signoff-table-needs-unanimous',
+      message: 'signoff_table.required is true but this chain does not set "signoff": "unanimous", so no sign-off is ever checked against the table.',
+      fix: `Set "signoff": "unanimous" in ${filePath}, or remove signoff_table.`,
+    });
+  }
+  // Audit fix 73-config F2: the 0.8.2 flags that only act in one mode are named when they sit on a chain in another, like signoff_table above (a flag that does nothing and looks as if it did).
+  if (config?.answer_back?.enabled === true && config.signoff !== 'unanimous') {
+    findings.push({
+      kind: 'answer-back-needs-unanimous',
+      message: 'answer_back.enabled is true but this chain does not set "signoff": "unanimous": the answer-back exists only in the panel loop that unanimous sign-off runs, so it never happens.',
+      fix: `Set "signoff": "unanimous" in ${filePath}, or remove answer_back.`,
+    });
+  }
+  if ((config?.debate_hygiene?.shuffle === true || config?.debate_hygiene?.noQuoteMarks === true) && !((config.proposals && config.debate) || config.alternatives?.enabled === true)) {
+    findings.push({
+      kind: 'debate-hygiene-without-debate',
+      message: 'debate_hygiene.shuffle or noQuoteMarks is true but this chain runs no debate (neither proposals + debate nor alternatives), so there is nothing to shuffle or mark.',
+      fix: `Enable "proposals" and "debate", or "alternatives", in ${filePath}, or remove debate_hygiene.`,
+    });
+  }
+  if (config?.handoff_contract?.milestones === true && config.handoff !== true) {
+    findings.push({
+      kind: 'handoff-milestones-without-handoff',
+      message: 'handoff_contract.milestones is true but this chain does not set "handoff": true, so no handoff is written and no milestones are asked for or checked.',
+      fix: `Set "handoff": true (and a handoff seat) in ${filePath}, or remove handoff_contract.milestones.`,
+    });
+  }
   if (config?.majority_guard?.enabled === true) {
     const debates = (config.proposals && config.debate) || config.alternatives?.enabled === true;
     if (!debates) {
@@ -946,7 +1010,11 @@ export function lintChain(config, filePath = '<chain>') {
   };
   const inAnchorTier = tierOf([...(Array.isArray(seats.critics) ? seats.critics : []), ...(Array.isArray(seats.alternatives) ? seats.alternatives : [])]);
   const votes = tierOf(seats.critics);
-  if (tiered && Array.isArray(seats.proposers)) {
+  // 0.8.2 (owner, 7 Oct 2026, deliberate): `"judging": "all-roles"` at the top level is the explicit, greppable override for these two rules (`grep -r '"judging"' chains/` lists every chain that sets it):
+  // every seat with another role (architects, proposers, the deep dive) also judges and votes, blind. It REVERSES the September independence rule for the chains that say so; a chain without it is still
+  // checked by both. The key must be that exact string (anything else is a finding, like selfReview).
+  const allRoles = config?.judging === 'all-roles';
+  if (tiered && Array.isArray(seats.proposers) && !allRoles) {
     const both = [...new Set(seats.proposers.filter(s => s && typeof s === 'object').map(inAnchorTier).filter(Boolean))];
     if (both.length) {
       findings.push({
@@ -959,7 +1027,7 @@ export function lintChain(config, filePath = '<chain>') {
   // The deep-dive seat does not vote either: its findings go to the reviser before the panel's first
   // review. Seated on a lab (or model) that also votes, one lab both sets the reviser's first agenda
   // and judges the result.
-  if (config?.deep_dive?.enabled === true && seats.deep_dive && !Array.isArray(seats.deep_dive) && typeof seats.deep_dive === 'object') {
+  if (config?.deep_dive?.enabled === true && seats.deep_dive && !Array.isArray(seats.deep_dive) && typeof seats.deep_dive === 'object' && !allRoles) {
     const as = votes(seats.deep_dive);
     if (as) {
       findings.push({
@@ -982,7 +1050,7 @@ export function lintChain(config, filePath = '<chain>') {
         fix: `Set "advise": { ..., "usd": <dollars> } in ${filePath}.`,
       });
     }
-    const ignoredKeys = ['proposals', 'debate', 'alternatives', 'deep_dive', 'dispute', 'questions', 'handoff', 'argued', 'security_review', 'descending', 'challenge', 'coldRead', 'claims', 'canary', 'lints', 'majority_guard', 'decisions', 'ambiguity_union', 'preflight', 'verify', 'signoff', 'panel', 'revise']
+    const ignoredKeys = ['proposals', 'debate', 'alternatives', 'deep_dive', 'dispute', 'signoff_table', 'debate_hygiene', 'answer_back', 'questions', 'handoff', 'argued', 'security_review', 'descending', 'challenge', 'coldRead', 'claims', 'canary', 'lints', 'majority_guard', 'decisions', 'ambiguity_union', 'preflight', 'verify', 'signoff', 'panel', 'revise']
       .filter(k => config[k] !== undefined && config[k] !== false && config[k]?.enabled !== false);
     const ignoredSeats = ['criteria', 'skeleton', 'reviser', 'finalist', 'handoff', 'proposers', 'alternatives', 'deep_dive', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'ambiguity', 'descending', 'security_reviewer'].filter(k => seats[k] !== undefined);
     if (ignoredKeys.length || ignoredSeats.length) {

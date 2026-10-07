@@ -10,7 +10,7 @@
   "additionalProperties": false,
   "patternProperties": {
     "^_": {
-      "description": "A leading-underscore top-level key is a free-form human note, not engine-read config - real precedent: chains/gp-judge-v1.json's \"_maxTokensNote\". Left unconstrained in type/shape on purpose (it's prose, not data any code parses) rather than special-cased to one exact field name, so the next author adding a similarly-named note doesn't retrigger this exact validation failure."
+      "description": "A leading-underscore top-level key is a free-form human note, not engine-read config - real precedent: archive/chains/gp-judge-v1.json's \"_maxTokensNote\". Left unconstrained in type/shape on purpose (it's prose, not data any code parses) rather than special-cased to one exact field name, so the next author adding a similarly-named note doesn't retrigger this exact validation failure."
     }
   },
   "properties": {
@@ -47,6 +47,10 @@
         "first",
         "unanimous"
       ]
+    },
+    "judging": {
+      "description": "\"all-roles\" (0.8.2, owner 7 Oct 2026, deliberate) waives chain-lint's mass-seat-votes and deep-dive-votes rules for this chain: every seat with another role (architects, proposers, the deep dive) also judges and votes, blind. Say so in \"description\".",
+      "const": "all-roles"
     },
     "selfReview": {
       "description": "\"allowed\" waives chain-lint's self-review rule for this chain (a builder or reviser grading its own draft). Say why in \"description\".",
@@ -231,6 +235,31 @@
         }
       }
     },
+    "answer_back": {
+      "type": "object",
+      "description": "0.8.2 (owner decision 3, 5 Oct 2026, ticket 10). With enabled true the harness builds, after each revise, what each judge will be shown in the next round about its own earlier objections (their ids, the reviser's declined reasons, the changed passages) and records a summary in report.json. Data only until the prompt that renders it is approved.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "debate_hygiene": {
+      "type": "object",
+      "description": "0.8.2 (owner decision 2, 5 Oct 2026). shuffle: true gives every debate reader its own seeded order of the proposals and its own lab letters, and picks the canary target by seed (a pure function of the run id, so a resume replays it); the order each reader saw is recorded in report.json. noQuoteMarks: true marks, for the author, an objection or merge that quotes nothing of the proposal it is about. Both change what seats see; off in every chain written before them.",
+      "additionalProperties": false,
+      "properties": {
+        "shuffle": { "type": "boolean" },
+        "noQuoteMarks": { "type": "boolean" }
+      }
+    },
+    "signoff_table": {
+      "type": "object",
+      "description": "0.8.2 (owner decision 1, 5 Oct 2026). With required true a judge's sign-off without a full per-criterion table (a row for every criterion, each with evidence and a verdict that says MET or FAILED) does not count: the seat is re-asked alone (once a round for a refused table; an unreadable reply keeps the existing two), then recorded as an abstention, never consent; heard clean verdicts are carried on an unchanged draft and the round cap still ends the loop. Changes when a run passes; off in every chain written before it existed.",
+      "additionalProperties": false,
+      "properties": {
+        "required": { "type": "boolean" }
+      }
+    },
     "majority_guard": {
       "type": "object",
       "description": "Experimental (tiered councils). With enabled true: authors see each argument once with no lab letter and no count, the reply prompts carry an evidence bar, and a withdrawal that does not quote the argument it concedes to is recorded as unargued and the proposal stays for the builder to judge. Changes prompts; off in every chain written before it existed.",
@@ -250,7 +279,7 @@
         "skipDebateWhenUnanimous": { "type": "boolean", "description": "Default true: no debate when every blind answer agrees." },
         "synthesis": { "enum": ["none", "seat"], "description": "\"none\" (default): the harness rolls the answers up, no call. \"seat\": seats.builder, which must not be on the panel, writes the text of the leaning; the dissent is still the harness's." },
         "samples": { "type": "integer", "minimum": 1, "maximum": 5, "description": "Default 1. Each seat is asked this many times, independently (a one-model-asked-k-times control arm). Not with rounds above 0." },
-        "max_wall_ms": { "type": "integer", "minimum": 1000, "description": "Optional wall-clock ceiling for the whole call, in milliseconds (brief 29). Every request gets it as its own deadline, and once it has passed no further call is started and the run ends at exit 18 with report-partial.json (stoppedBy wall_clock; 0.8.1). A call still running at the deadline is cut off and recorded as not answering. Required for an advice chain since 0.8.1 (P17). Unset: no ceiling beyond the per-request default of 45 minutes." }
+        "max_wall_ms": { "type": "integer", "minimum": 1000, "description": "Optional (since 0.8.2 no shipped chain sets it, and no chain must) wall-clock ceiling for the whole call, in milliseconds (brief 29). Every request gets it as its own deadline, and once it has passed no further call is started and the run ends at exit 18 with report-partial.json (stoppedBy wall_clock; 0.8.1). A call still running at the deadline is cut off and recorded as not answering. Was required for an advice chain in 0.8.1 (P17); optional since 0.8.2. Unset: no ceiling beyond the per-request default of 2 hours." }
       }
     },
     "deep_dive": {
@@ -264,6 +293,21 @@
         "usd": { "type": "number", "exclusiveMinimum": 0 },
         "maxCalls": { "type": "integer", "minimum": 1 },
         "chunkChars": { "type": "integer", "minimum": 1000 }
+      }
+    },
+    "handoff_contract": {
+      "type": "object",
+      "description": "0.8.2 (item 6b): settings for the harness-written \"Before you build\" and \"Replan triggers\" sections of HANDOFF.md. Two keys are read. \"check_failures\": how many times in a row a criterion's named check may fail before the builder is told to stop and replan. Default 2 (the number the harness's own stall rule treats as a stall: dispute.stall_rounds is at least 2). \"milestones\": see its own description.",
+      "additionalProperties": false,
+      "properties": {
+        "check_failures": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "milestones": {
+          "type": "boolean",
+          "description": "Default false. When true the harness parses the handoff for seat-written milestones (src/milestones.js) and records what it finds: every criterion discharged by a milestone with a check, every check with an expected result. A finding never changes passed. The words that ask the handoff seat to write them are recorded in src/roles.js (the seven shipped planning chains set this)."
+        }
       }
     },
     "argued": {

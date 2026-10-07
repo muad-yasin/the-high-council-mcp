@@ -11,9 +11,9 @@
 //     A file that exists but fails to parse -> { policy: null, error: <message> }: malformed is
 //     itself a refusal (the caller in cli.js treats a non-null error as fatal), never a silent
 //     fallback to "no policy."
-//   evaluatePolicy(policy, ctx) -> { ok: boolean, reasons: string[] }
+//   evaluatePolicy(policy, ctx) -> { ok: boolean, reasons: string[], checks, warnings: string[] }  (warnings never refuse: 0.8.2 item 8c, the maximum over max_usd_per_run)
 //     Pure - no filesystem, no network, no provider call - so it is fully offline-testable.
-//     `ctx`: { config, allSeats, worstCaseUsd, monthToDateUsd, changeRequest?, signoff? }.
+//     `ctx`: { config, allSeats, worstCaseUsd, maximumUsd?, monthToDateUsd, changeRequest?, signoff? }.
 //     `reasons` is empty iff ok. Also returns `checks`: [{ capability, field, ok }], one per
 //     check the policy configures (see POLICY_CAPABILITIES).
 //
@@ -64,6 +64,7 @@ export function monthToDateUsd(runsDir, now = Date.now()) {
   return spendReport(runsDir, { days, now }).totalUsd;
 }
 
+// The EXPECTED figure of the dry run (typical review output), as it always was: a policy REFUSES on this one. The MAXIMUM (0.8.2 item 8c, estimateChainRows with maximum: true) only WARNS (owner, 7 Oct 2026: "make it a warning, not a refusal").
 function worstCaseRunUsd(config) {
   return estimateChainRows(config).reduce((s, r) => s + r.usd, 0);
 }
@@ -77,6 +78,7 @@ export function buildPolicyContext(config, allSeats, runsDir, now = Date.now()) 
     config,
     allSeats,
     worstCaseUsd: worstCaseRunUsd(config),
+    maximumUsd: estimateChainRows(config, { maximum: true }).reduce((s, r) => s + r.usd, 0),
     monthToDateUsd: monthToDateUsd(runsDir, now),
   };
 }
@@ -112,8 +114,9 @@ function configuredFields(policy) {
 }
 
 export function evaluatePolicy(policy, ctx) {
-  const { config, allSeats, worstCaseUsd, monthToDateUsd: mtdUsd } = ctx;
+  const { config, allSeats, worstCaseUsd, maximumUsd, monthToDateUsd: mtdUsd } = ctx;
   const reasons = [];
+  const warnings = [];
   const billedSeats = (allSeats || []).filter(s => s?.provider && !SYNTHETIC_PROVIDERS.has(s.provider));
 
   if (Array.isArray(policy.allowed_providers)) {
@@ -135,7 +138,13 @@ export function evaluatePolicy(policy, ctx) {
   }
 
   if (typeof policy.max_usd_per_run === 'number' && worstCaseUsd > policy.max_usd_per_run) {
-    reasons.push(`max_usd_per_run: this chain's worst-case cost is $${worstCaseUsd.toFixed(4)}, over the $${policy.max_usd_per_run.toFixed(4)} limit.`);
+    // 0.8.2 item 1 (owner via C&C, 7 Oct 2026: "Terminal rule only, no cap change"): the advice send path now hands in the chain's expected cost as `worstCaseUsd` (the CLI's own figure) and the call's ceiling (at least the CLI's maximum) as `maximumUsd`, and says so (`figure: 'call'`).
+    reasons.push(`max_usd_per_run: ${ctx.figure === 'call' ? `the expected cost of this call's chain (the first figure --dry-run prints) is $${worstCaseUsd.toFixed(4)}${Number.isFinite(maximumUsd) ? ` and the most this call can spend (its ceiling) $${maximumUsd.toFixed(4)}` : ''}` : `this chain's expected cost (the first figure --dry-run prints) is $${worstCaseUsd.toFixed(4)}${Number.isFinite(maximumUsd) ? ` and its maximum $${maximumUsd.toFixed(4)}` : ''}`}, over the $${policy.max_usd_per_run.toFixed(4)} limit.`);
+  } else if (typeof policy.max_usd_per_run === 'number' && Number.isFinite(maximumUsd) && maximumUsd > policy.max_usd_per_run) {
+    // Warns, never refuses (owner, 7 Oct 2026): the expected cost fits; a run in which every call writes its seat's whole output allowance could go past the limit. The spend cap, not this policy, is what stops it.
+    warnings.push(ctx.figure === 'call'
+      ? `max_usd_per_run: the expected cost of this call's chain (the first figure --dry-run prints) is $${worstCaseUsd.toFixed(4)}, within the $${policy.max_usd_per_run.toFixed(4)} limit, but the most this call can spend (its ceiling) is $${maximumUsd.toFixed(4)}, over it. It is sent only if you approve it, and its ceiling stops it at $${maximumUsd.toFixed(4)}.`
+      : `max_usd_per_run: this chain's expected cost is $${worstCaseUsd.toFixed(4)}, within the $${policy.max_usd_per_run.toFixed(4)} limit, but its maximum cost (every call at its whole output allowance; the MAXIMUM figure --dry-run prints) is $${maximumUsd.toFixed(4)}, over it. The run starts; only its spend cap stops a run that goes past the limit.`);
   }
 
   if (typeof policy.max_usd_per_month === 'number' && mtdUsd > policy.max_usd_per_month) {
@@ -167,7 +176,7 @@ export function evaluatePolicy(policy, ctx) {
     field,
     ok: !reasons.some(r => r.startsWith(`${field}:`)),
   }));
-  return { ok: reasons.length === 0, reasons, checks };
+  return { ok: reasons.length === 0, reasons, checks, warnings };
 }
 
 // MLLM Coder v3 item 4 (relay/runs/2026-09-14T21-38-45-696Z/revise-1.md): a change request whose

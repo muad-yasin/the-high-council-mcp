@@ -3,7 +3,7 @@
 // "Known defects in 0.8.0" heading. A limit is deleted when it stops being true, never because it is embarrassing (CLAUDE.md): this test keeps both directions honest.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,18 +36,26 @@ test('one phrase per unverified item U1-U7, and per limit plan section 7 names',
     ['advise-single ceiling', /`advise-single`'s ceiling is \$1\.32/],
     ['untested on case-insensitive file systems', /Untested on case-insensitive file systems \(macOS, Windows\)/],
     ['the dry run does not price every cap', /dry run does not price every cap/],
-    ['a retry past the request deadline', /cannot finish inside the 45-minute request deadline/],
-    ['a run paused under 0.8.0 is re-paid', /paused under 0\.8\.0 on a chain that 0\.8\.1 changed/],
-    ['the red-test dates', /2026-10-31.*2026-11-21.*2026-12-05/s],
+    // owner decision 6 Oct 2026 ("2h is OK"): the request deadline went from 45 minutes to 2 hours, so the pinned sentence changed with it.
+    ['a retry past the request deadline', /close to the 2-hour request deadline/],
+    // Moved to the current version by the audit finding cnc-cli-resume F1 (a run paused under 0.8.1 is re-paid on 0.8.2): the sentence names both causes.
+    ['a run paused under 0.8.1 is re-paid', /paused under 0\.8\.1 on a chain or a prompt that 0\.8\.2 changed/],
+    // 0.8.2 item 2 (ChatGPT review 1 F12/F13, owner: all of it in 0.8.2): the run_tests limit is pinned so it cannot be deleted without the test saying so.
+    ['run_tests is trusted code', /`run_tests` runs a repository's own test files as trusted code, with no sandbox/],
+    ['symlink containment untested on Windows', /symbolic-link containment of the MCP tools is untested on Windows/],
+    // 0.8.2 item 7: the reasoning table was regenerated on 2026-10-07 (to add Sonnet 5.5's row), so its date moved from 2026-12-05 to 2026-12-06; the README line moved with it.
+    ['the red-test dates', /2026-10-31.*2026-11-21.*2026-12-06/s],
     ['DeepSeek on Together unconfirmed', /DeepSeek V4 Flash on Together/],
     ['reasoning fields not exercised live', /not exercised in a live call/],
     ['a failed start after approval is counted', /A failed start after approval is counted at the full ceiling/],
     ['one approval, two runs', /One approval can start two runs if the approved run folder is copied/],
-    ['Gemini 2.5 closed to new projects', /Six shipped chains seat Gemini 2\.5/],
+    // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): four of the six moved to archive/chains/, so the sentence says Two; the next test derives the count.
+    ['Gemini 2.5 closed to new projects', /Two shipped chains seat Gemini 2\.5/],
     ['the direct-Anthropic retry may never fire', /retry of a direct Anthropic seat whose thinking used the whole cap may never fire/],
     ['run-folder fields not marked untrusted', /Some fields an agent reads about a run are not marked as untrusted text/],
     ['the terminal approval command under .mcpb', /terminal command for approving a call was not run under the `\.mcpb` route/],
-    ['a killed process records nothing', /A process killed in the middle of a call records nothing/],
+    // Changed by the owner's decision of 7 Oct 2026 (0.8.2 item 8b, the reservation record): a killed process no longer records nothing; the limit now says it stays charged at its worst case.
+    ['a killed process leaves the call charged at its worst case', /A process killed in the middle of a paid call leaves that call charged at its worst case/],
     ['plugin strict validation warning', /claude plugin validate --strict \.` fails on it: "CLAUDE\.md at the plugin root is not loaded as project context"/],
   ];
   const missing = must.filter(([, re]) => !re.test(limits)).map(([name]) => name);
@@ -67,4 +75,13 @@ test('none of the phrases of the fixed 0.8.0 defects, nor the "Known defects in 
     /covers each\s+criterion's wording, not how it is checked/,
   ];
   assert.deepEqual(gone.filter(re => re.test(limits)).map(String), []);
+});
+
+test('the Gemini 2.5 limit counts exactly the shipped chains that seat Gemini 2.5, by name (0.8.2: derived, not typed)', () => {
+  const seating = readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json') && /gemini-2\.5/.test(readFileSync(join(root, 'chains', f), 'utf8'))).map(f => f.slice(0, -5)).sort();
+  const m = limits.match(/(\w+) shipped chains seat Gemini 2\.5\*{0,2} \(([^)]*)\)/);
+  assert.ok(m, 'the limit sentence has the form "<Count> shipped chains seat Gemini 2.5 (`a`, `b` ...)"');
+  assert.equal(['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'].indexOf(m[1]), seating.length, `README says ${m[1]}, chains/ has ${seating.length}: ${seating}`);
+  const named = [...m[2].matchAll(/`([^`]+)`/g)].map(x => x[1]).filter(n => seating.includes(n)).sort();
+  assert.deepEqual(named, seating, 'every shipped chain that seats Gemini 2.5 is named');
 });
