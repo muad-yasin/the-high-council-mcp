@@ -114,7 +114,7 @@ export function gitIgnoredSet(root, relPaths) {
     // binary now reads as "not a repository" only where nothing marks a checkout (no `.git` entry at the root or above, no GIT_DIR / GIT_WORK_TREE):
     // there is no .gitignore to honour, the same answer git itself gives below. Any other error, and a checkout, stay closed.
     if (probe.error.code === 'ENOENT') {
-      if (!insideGitCheckout(root, env)) return new Set();
+      if (!insideGitCheckout(root, process.env)) return new Set(); // process.env, not the spread copy: on Windows only process.env looks names up without case
       throw failed('git is not installed or not on PATH, and this folder is inside a git repository');
     }
     throw failed(String(probe.error.code || probe.error.message || probe.error));
