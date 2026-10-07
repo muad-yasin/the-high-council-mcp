@@ -53,9 +53,11 @@ https://sower-industries.de/en/THC/ (the npm `homepage`); the GitHub Pages workf
 hand. The npm package `the-high-council` is public: **0.7.6 was published 2026-09-23** on Muad's go
 (after a 24-audit pre-release round); **0.8.0 was published 2026-10-02** (npm, GitHub
 release with the `.mcpb`, MCP registry), as is (Muad: no users besides him yet), and audited
-after release on 2026-10-02 (findings in the maintainer's local `Review/`). The latest is **0.8.1, released
+after release on 2026-10-02 (findings in the maintainer's local `Review/`). **0.8.1 was released
 2026-10-06** (npm, GitHub release with the `.mcpb`, tag `v0.8.1`, MCP registry), carrying those fixes and the
-advisor add-on; the 19 skills went public with it. No new releases unless he asks; `npm publish` is his (2FA passkey, run from a real terminal).
+advisor add-on; the 19 skills went public with it. The latest is **0.8.2, released 2026-10-07** (npm, GitHub release
+with the `.mcpb`, tag `v0.8.2` on the squash commit `a11345d`, MCP registry): the contract record, the debate and sign-off
+options, no default chain, and the fixes of ten audits; the per-finding history stays on the local branch `release/0.8.2`. No new releases unless he asks; `npm publish` is his (2FA passkey, run from a real terminal).
 The licence stays MIT.
 
 Read `maintainers/HANDOFF.md` before starting work. It carries the release order and the hard rules. Its two
