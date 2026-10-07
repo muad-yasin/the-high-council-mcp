@@ -284,7 +284,7 @@
     },
     "deep_dive": {
       "type": "object",
-      "description": "Experimental (tiered councils). One seat (seats.deep_dive), one job, a large output cap and its own dollar cap (usd, required when enabled) inside the run's cap. It reads the source in chunks, once per focus entry; its findings go to the reviser before the panel's first review. It does not vote.",
+      "description": "Experimental (tiered councils). One seat (seats.deep_dive), one job, a large output cap and its own dollar cap (usd, required when enabled) inside the run's cap. It reads the source in chunks, once per focus entry; its findings go to the reviser before the panel's first review. The findings are not votes; under \"judging\": \"all-roles\" the same lab may also judge on the panel.",
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },

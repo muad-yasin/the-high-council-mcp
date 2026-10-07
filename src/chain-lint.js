@@ -1024,7 +1024,7 @@ export function lintChain(config, filePath = '<chain>') {
       });
     }
   }
-  // The deep-dive seat does not vote either: its findings go to the reviser before the panel's first
+  // The deep-dive seat's findings are not votes either: they go to the reviser before the panel's first
   // review. Seated on a lab (or model) that also votes, one lab both sets the reviser's first agenda
   // and judges the result.
   if (config?.deep_dive?.enabled === true && seats.deep_dive && !Array.isArray(seats.deep_dive) && typeof seats.deep_dive === 'object' && !allRoles) {

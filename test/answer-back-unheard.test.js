@@ -19,7 +19,7 @@ const verdict = (meets, extra = {}) => JSON.stringify({ meets, criteria: [{ crit
 const SECTION = '# Your objections from the last round';
 
 // `replies(label)` returns the judge's reply text for a panel label, or null for the default (a clean sign-off with no answers). Builder and reviser return the same draft every time.
-async function run(replies, { maxRounds = 4, dispute = null } = {}) {
+async function run(replies, { maxRounds = 4, dispute = null, extra = {} } = {}) {
   const hashes = new Map(); const prompts = new Map();
   setBudget(null);
   setPromptSpy(p => { hashes.set(p.label, promptHashOf(p.system, p.user)); prompts.set(p.label, p.user); });
@@ -29,7 +29,7 @@ async function run(replies, { maxRounds = 4, dispute = null } = {}) {
   } });
   const seat = lab => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000 });
   const r = await runChain({ request: 'Write a worker plan with a retry limit.', runId: 'r-30', log: () => {}, config: {
-    name: 'fixture-30', criteria: [criterion], maxRounds, signoff: 'unanimous', answer_back: { enabled: true }, ...(dispute ? { dispute } : {}),
+    name: 'fixture-30', criteria: [criterion], maxRounds, signoff: 'unanimous', answer_back: { enabled: true }, ...(dispute ? { dispute } : {}), ...extra,
     seats: { builder: seat('writer'), reviser: seat('writer'), critics: [seat('la'), seat('lb')] },
   } });
   return { r, prompts };
@@ -82,4 +82,33 @@ test('30 + 27: a judge that never answers is still bounded: the dispute stage st
   assert.equal(r.dispute?.reason, 'stalled', JSON.stringify(r.dispute && { reason: r.dispute.reason, at: r.dispute.stopped_at_round }));
   assert.ok(r.dispute.stopped_at_round < 7, `before the round cap (round ${r.dispute.stopped_at_round})`);
   assert.ok(r.dispute.open_objections.some(o => o.lab === 'la'), 'the open objection is la\'s, on the record');
+});
+
+// The final review of items 27/28/30 (7 Oct 2026), finding 1: the same loss when ANOTHER judge objects, so the round IS revised. The answer-back data was rebuilt at the revise from the
+// heard judges' objections only, so the unheard judge's open objection vanished and a later clean sign-off passed the run.
+test('30 (revise path): a judge unheard in a round that is revised because another judge objected is still shown its open objection next round, and a silent sign-off does not pass', async () => {
+  const other = { criterion, problem: 'The limit has no unit.', fix: 'Say per request.' };
+  const replies = label => label === 'panel-1-la' ? verdict(false)
+    : /^panel-2-la/.test(label) ? UNREADABLE
+      : label === 'panel-2-lb' ? JSON.stringify({ meets: false, criteria: [{ criterion, verdict: 'FAILED', evidence: 'x' }], failures: [other], verdict_line: 'No.' })
+        : /^panel-([3-9])-lb/.test(label) ? verdict(true, { answers: [{ id: objectionId('lb', other), status: 'withdrawn', evidence: '`The worker retries failed requests.`' }] }) : null;
+  const { r, prompts } = await run(replies);
+  assert.ok(prompts.has('revise-2'), [...prompts.keys()].join(', '));
+  assert.ok(prompts.get('panel-3-la')?.includes(SECTION), 'shown its round-1 objection in round 3');
+  assert.ok(prompts.get('panel-3-la').includes(ID));
+  assert.equal(prompts.get('revise-2').includes('No retry limit is specified.'), false, 'the reviser\'s list is unchanged: the unheard judge did not raise it again this round');
+  assert.equal(r.passed, false, 'its sign-off without an answer is not a pass');
+  assert.ok(r.answerBackReplies.some(x => x.round === 3 && x.lab === 'la' && x.effect === 'unanswered'));
+});
+
+// Finding 3: an answer read from a reply that is then not counted (refused for its table) still settles what it answered: a withdrawal with a quote is not shown again.
+test('30: an objection withdrawn with a quote in a reply refused for its table is not shown again, nor counted unanswered, in the next round', async () => {
+  const noTable = JSON.stringify({ meets: true, criteria: [], failures: [], answers: [{ id: ID, status: 'withdrawn', evidence: '`The worker retries failed requests.`' }], verdict_line: 'Pass.' });
+  const { r, prompts } = await run(label => label === 'panel-1-la' ? verdict(false) : /^panel-2-la/.test(label) ? noTable : null, { extra: { signoff_table: { required: true } } });
+  assert.equal(r.panelVerdicts.find(v => v.round === 2 && v.lab === 'la')?.reason_code, 'INCOMPLETE_TABLE');
+  assert.deepEqual(r.answerBackReplies.filter(x => x.lab === 'la').map(x => [x.round, x.effect, x.quoted]), [[2, 'withdrawn', true]], 'the quoted withdrawal stands across the table refusal');
+  assert.ok(prompts.has('panel-3-la'), [...prompts.keys()].join(', '));
+  assert.equal(prompts.get('panel-3-la').includes(SECTION), false, 'nothing open: no section');
+  assert.equal(r.answerBackReplies.some(x => x.round >= 3 && x.lab === 'la'), false);
+  assert.equal(r.passed, true);
 });

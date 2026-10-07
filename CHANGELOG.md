@@ -8,13 +8,18 @@
   found by an outside review of 0.8.2, 7 October 2026; roadmap item 27). Until now an objection the judge simply left out of its `answers` was recorded as `unanswered` and
   dropped, so a clean sign-off passed, while a withdrawal without a quote was kept open. Now that judge is asked once more, told the objection ids it skipped (a new
   sentence, `criticUnansweredNote`); whatever is still unanswered after that is carried as an open failure, and the judge's verdict is an objection. A judge that
-  already objects carries its skipped objections at once, with no extra call. **Cost:** a judge that never writes `answers` costs one extra call in each round it
-  signs off clean, and it blocks a unanimous pass until the dispute stage (or the round cap) stops the run. `report.json`'s `answer_back_replies` keeps the
+  already objects carries its skipped objections at once, with no extra call. **Cost:** a judge that never writes `answers` turns each round it would have signed
+  off into an objection: one re-ask, then a reviser call and a full panel review in the next round, until the stall rule (two identical rounds, with `dispute.enabled`)
+  or the round cap stops the run. The dry run's figures do not include re-asks. `report.json`'s `answer_back_replies` keeps the
   `unanswered` record; the carried objection is in `signoff[].objections` with `carried_from_round` (`test/held-door-27.test.js`).
-- **A judge that was not heard in a round keeps its open objections into the next one** (roadmap item 30, found while building item 27). When every heard judge signed off
-  and one was unheard (an unreadable or lost reply), the run went on to the next round with no revise, and that judge was no longer shown its objections nor had its
-  answers read, so a plain clean sign-off passed the run. The objections now stay with it, and `report.json`'s `answerBack` lists that round for the judges asked
-  again (`test/answer-back-unheard.test.js`).
+- **A judge that was not heard in a round keeps its open objections into the next one** (roadmap item 30, found while building item 27). A judge whose reply was
+  unreadable, lost or refused for its table was no longer shown its earlier objections in the next round, nor were its answers read, so a plain clean sign-off passed
+  the run. This happened both when the round went on with no revise (every heard judge signed off) and when another judge's objection caused a revise (the answer-back
+  data was rebuilt from the heard judges only). The still-open objections now stay with that judge (an objection it withdrew with a quote in a reply that was not
+  counted stays withdrawn); they go to the judge again, not into the reviser's list. `report.json`'s `answer_back` lists each round for the judges asked again
+  (`test/answer-back-unheard.test.js`).
+- **A run paused before this change and resumed after it asks the writer's panel seat again** (`panel-N-sonnet5-writer` in `plan-daily-7` and `plan-highest-7`): that
+  seat's prompt text changed (item 28 below), so its cached reply no longer matches. No stage label changed.
 
 ### Changed
 

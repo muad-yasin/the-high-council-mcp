@@ -20,7 +20,7 @@ import { parsePatches, applyPatches, changedSince } from './patch-revise.js';
 import { injectCanary, shouldSampleCanary, runIdUnit, pickCanaryTarget, pickCanaryTargetSeeded, CANARY_NOTE } from './canary.js';
 import { readerView, viewRecord, translateRefs } from './debate-order.js';
 import { markPostQuote } from './post-quotes.js';
-import { buildAnswerBack, answerBackSummary, applyAnswers } from './answer-back.js';
+import { buildAnswerBack, answerBackSummary, applyAnswers, stillOpen } from './answer-back.js';
 import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
 import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
 import { promptHashOf, promptSha256Of, cacheVerdict } from './cache-integrity.js';
@@ -2744,7 +2744,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
 
   // 2c. Tiered councils: the deep-dive seat (config.deep_dive, src/deep-dive.js). One seat, one job,
   //     its own dollar cap inside the run's, every call through invoke(). It runs on the first
-  //     draft, before any anchor reviews it, and does not vote: its findings go to the reviser in
+  //     draft, before any anchor reviews it; its findings are not votes (under all-roles its lab may also judge on the panel) and go to the reviser in
   //     one pass (label `deep-dive-revise`), fixed or DECLINED like a critic's, and the anchors
   //     then review that draft. Skipped when a draft was handed in (--from-run, a panel comparison
   //     on a fixed draft), like the proposal stages. Absent or not `true`: nothing here runs, no
@@ -3277,9 +3277,17 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // Roadmap item 30 (found building item 27, 7 Oct 2026; Muad's yes via C&C): the answer-back data was set only at a revise, so an unheard judge asked again in the next round was
         // no longer shown its open objections nor had its answers read, and a plain clean sign-off passed the run. The draft is unchanged and nothing was revised, so the same data
         // still holds: it moves on to the next round, for the seats that will be asked again (report.json's answerBack says what each round showed, and to whom).
+        // Only what is still open moves on: an objection the judge withdrew with a quote in a reply that was then not counted (refused for its table) is settled (final review, finding 3).
         if (answerBackOn && answerBackRound === round) {
+          const asked = {};
+          for (const [lab, entry] of Object.entries(answerBackLatest)) {
+            if (carry.byLab.has(lab)) continue; // heard and clean on this same text: not asked again
+            const objections = stillOpen(entry, answerBackReplies, { round, lab });
+            if (objections.length) asked[lab] = { ...entry, objections }; else delete answerBackLatest[lab];
+          }
+          Object.assign(answerBackLatest, asked);
           answerBackRound = round + 1;
-          answerBackRecords.push(...answerBackSummary(round + 1, Object.fromEntries(Object.entries(answerBackLatest).filter(([lab]) => !carry.byLab.has(lab)))));
+          answerBackRecords.push(...answerBackSummary(round + 1, asked));
         }
         continue;
       }
@@ -3325,7 +3333,12 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         }
       }
       if (answerBackOn) {
-        answerBackLatest = buildAnswerBack({ failures: allFailures, declined: parsedRevise.disputes, declinedIds: parsedRevise.disputeIds, oldDraft: draft, newDraft: parsedRevise.draft });
+        // Final review of items 27/28/30 (7 Oct 2026), finding 1: a judge UNHEARD this round keeps its still-open objections (those it was shown this round, minus any it withdrew with a
+        // quote in a reply that was not counted). They go to the judge again next round, not into the reviser's list above: nothing re-raised them this round, and the judge answers first.
+        const keptOpen = answerBackRound === round
+          ? verdicts.filter(v => v.abstained).flatMap(v => stillOpen(answerBackLatest[labOf(v.seat)], answerBackReplies, { round, lab: labOf(v.seat) }).map(o => ({ ...o, lab: labOf(v.seat) })))
+          : [];
+        answerBackLatest = buildAnswerBack({ failures: [...allFailures, ...keptOpen], declined: parsedRevise.disputes, declinedIds: parsedRevise.disputeIds, oldDraft: draft, newDraft: parsedRevise.draft });
         answerBackRecords.push(...answerBackSummary(round + 1, answerBackLatest)); // shown to the judge in the NEXT round
         answerBackRound = round + 1;
       }

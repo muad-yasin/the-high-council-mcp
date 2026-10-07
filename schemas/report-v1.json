@@ -181,7 +181,7 @@
     "deep_dive": {
       "x-stability": "experimental",
       "type": "object",
-      "description": "Present only on chains with deep_dive.enabled (tiered councils): the one deep-dive seat's calls, its own dollar cap, what it spent, why it stopped (null, own_cap or max_calls) and its findings, each with a quote_status. The seat does not vote."
+      "description": "Present only on chains with deep_dive.enabled (tiered councils): the one deep-dive seat's calls, its own dollar cap, what it spent, why it stopped (null, own_cap or max_calls) and its findings, each with a quote_status. The findings are not votes; under \"judging\": \"all-roles\" the same lab may also judge on the panel."
     },
 
     "challenge": {

@@ -96,3 +96,14 @@ export function applyAnswers({ lab, critique, own, shownDraft, round }) {
   }
   return { carried, unanswered, records };
 }
+
+/**
+ * A lab's own objections still open after `round`: its answer-back entry minus the ids its latest reply of that round withdrew with a quote. Used where a judge's answer-back data
+ * is carried past a round in which its verdict was not counted (unheard: an unreadable or lost reply, or a sign-off refused for its table): an answer that was read still settles
+ * what it answered (final review of items 27/28/30, 7 Oct 2026, finding 3), and nothing else is dropped (finding 1). `replies` is the run's answer_back_replies.
+ */
+export function stillOpen(entry, replies, { round, lab }) {
+  const key = v => String(v ?? '').trim().toLowerCase(); // the same id normalisation as applyAnswers
+  const closed = new Set((replies || []).filter(r => r.round === round && r.lab === lab && r.effect === 'withdrawn').map(r => key(r.id)));
+  return (entry?.objections || []).filter(o => !closed.has(key(o.id)));
+}
