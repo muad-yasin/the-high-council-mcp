@@ -75,14 +75,15 @@ Three commands from nothing to a priced run of your own idea (no key needed unti
 
 | Chain | Who does what | Needs | Worst case |
 |---|---|---|---|
+| `plan-daily-7` | `plan-highest-7`'s stages at a lower price, for planning one feature: Claude Opus 5.5 on your Claude subscription, GPT-6 Luna and DeepSeek V4 Pro write the architectures and alone vote; seven low-cost labs propose and debate. **Run once with real models; nothing about it has been measured.** | OpenRouter key + two Claude Code sessions | $5.70 |
 | `cheap-7-v2` | Claude Sonnet 5 writes the plan; low-cost models from seven other labs review it, and all seven must sign off. Up to 7 rounds. | one OpenRouter key | $11.22 |
 | `plan-premium-7` | A Claude Code session writes the plan; a seven-lab panel of larger models (GPT-6 Astra, Claude Fable 5.1, Gemini 3.8 Flash, Muse Spark 1.2, Qwen 3.8 Max, DeepSeek V4 Pro, GLM-5.3) proposes, debates and reviews. | OpenRouter key + a Claude Code session | $36.75 |
 | `plan-highest-7` | Seven low-cost models propose and debate; four top models write whole architectures and are the only reviewers; one deep-dive seat checks the first draft against the task. **Untested with real models.** | OpenRouter key + a Claude Code session | $17.34 |
 | `local-ollama` | Every seat on your own machine, through Ollama. | Ollama and the models pulled | $0 |
 
-All three cost more than the default cap at their worst case, so give them a `--max-usd` at or above
+The three above $7 (`cheap-7-v2`, `plan-premium-7`, `plan-highest-7`) cost more than the default cap at their worst case, so give them a `--max-usd` at or above
 their dry-run price (since 0.8.1 a proposal may use a seat's whole output allowance and every shipped seat reasons at
-high, which raised the worst cases; a run that signs off early costs far less). The writer seats of `plan-premium-7` and `plan-highest-7` are [external](#quick-start-mcp): the run pauses
+high, which raised the worst cases; a run that signs off early costs far less). The writer seats of `plan-daily-7`, `plan-premium-7` and `plan-highest-7` (and `plan-daily-7`'s Opus 5.5 seat) are [external](#quick-start-mcp): the run pauses
 and a Claude Code session (or you) writes that stage, at no API cost. Nothing about any chain's
 output quality has been measured.
 
