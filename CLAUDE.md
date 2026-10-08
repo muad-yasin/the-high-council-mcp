@@ -236,6 +236,42 @@ date. Read the comment before changing the behaviour, and keep the regression te
   or code verbatim, and never port code from a differently-licensed project. This project is MIT
   and wants others to do the same with it - the same courtesy runs the other way.
 
+## How sessions work together (the owner's C&C workflow, published on purpose)
+
+This is the owner's working method for building this repo with several Claude Code sessions at once. It is
+published deliberately (Muad, 8 Oct 2026: the public may know it, and it might help someone). The master copy
+lives on the owner's private board; this is its published copy as of 8 Oct 2026. **C&C** is the owner's
+Command-and-Control session: a Claude Code session that routes work to builder sessions, reviews each
+milestone and answers PASS or FIX. CLAUDE.md is loaded into every session in this repo, so these rules reach
+every one of them, after a `/compact` too.
+
+1. **Roles.** C&C routes and decides; builder sessions build; the owner talks only to C&C. Dispatch means
+   dispatch: C&C does not build a dispatched job itself.
+2. **C&C consults its advisor before anything goes to a builder** that carries a fix, a ruling, a go, a
+   PASS/FIX or a change to what it builds; also on a milestone's proposed defaults and at each milestone
+   report before the verdict. Plain acknowledgements are exempt. If something went out without it: consult
+   now, send a correction, and say so plainly.
+3. **The advisor line, checked on both sides.** Every such C&C message ends with
+   `Advisor: consulted - <what it changed>`. A builder that receives a fix, ruling or go without that line
+   replies "advisor line missing?" and acts on nothing in it until the line arrives.
+4. **Builders use their advisor** at the start, at important steps, when stuck, and before every report; each
+   report says what the advisor flagged.
+5. **Skills.** Every brief and every post-compact reminder names the skills the role needs (the catalog is
+   `skills/README.md`).
+6. **After any `/compact`**, a session re-reads its instructions, its own resume file and its skills, then
+   tells C&C: its commit and state, the skills it re-read, one rule from two of them in its own words, what its
+   advisor said, and its next three steps. A session that cannot produce this has lost the rules.
+7. **Builder reports**, per milestone: the commit SHAs; every exit check with its command and output; the test
+   arithmetic; evidence that the checks can fail (deliberate breakages that turn the tests red); the advisor's
+   flags; the items to flag. Then wait for PASS/FIX. A heads-up before every full test run, with absolute log
+   paths, and a check that the process and the log exist after launch.
+8. **C&C reviews** in its own worktree (never the shared checkout), against the plan's own exit list (not only
+   the builder's map of it), reads the log tails and the names of skipped tests, and checks the owner's gates
+   every milestone: prompt words need the owner's yes; no paid calls without his go and a cap; push, release
+   and publish are his (pushes go out in batches of five or more commits); no efficacy claims; no xAI/Grok;
+   reasoning effort is never lowered; a count moves in the same commit as the thing it counts.
+9. **Mistakes are disclosed at once, in plain words,** by whoever made them.
+
 ## The landing page (`docs/`)
 
 `docs/` is the landing page, served from sower-industries.de (GitHub Pages is off; the repo is public): a single standalone `index.html` plus self-hosted fonts. It is a
