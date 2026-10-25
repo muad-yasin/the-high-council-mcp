@@ -28,6 +28,8 @@ const NOT_NODE_SCOPED = {
   integration_failed: 'scope: an agreement (R@g1:A1), not a node',
   // NEW CODE (lane T, G2, C&C's Q5 ruling B): derived from the pin on every read, at tree scope; it clears itself when the root task's bytes match the pin again, so it is decided here and opens no stop
   root_task_changed: 'scope tree: the root task is not the one the tree was started with (src/tree-root-task.js rootTaskOf)',
+  // CHANGED ACCEPTED (lane T, G5+6, D2 F18 fold, C&C ruling 25 Okt 2026): OLD had no root_task_unreadable. NEW: the root task file that does not read feeds the same derived reason at tree scope (put-back words), clearing itself when it reads with the pinned bytes
+  root_task_unreadable: 'scope tree: the root task file does not read (src/tree-root-task.js rootTaskOf)',
 };
 // incomplete-severity codes: they open NO stop (opensBlockedStop = blocked severity, plus BLOCKED_CHILD_ALSO), so the restore never meets them
 const NO_STOP = ['awaiting_cap', 'root_missing', 'generation_pending', 'not_started', 'running', 'stopped', 'stale', 'split_not_verified', 'unexpanded', 'needs_decision_unresolved', 'integration_unrecorded', 'held_unrecorded', 'open_stop'];

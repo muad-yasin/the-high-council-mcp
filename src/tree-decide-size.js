@@ -70,7 +70,7 @@ export function newPlanInputBytes({ rootDir, record, runsDir, work, decisionArgs
  *  not make `decide` unusable, but the caller says that the size was NOT checked. Anything else (a defect in this very code) is thrown, not turned into a permanent silent skip. */
 function failOpen(e) {
   if (e instanceof NotExpandable) return { ok: false, why: e.drift ? WHY.changed : WHY.missing };
-  if (e instanceof DeriveRefusal) return { ok: false, why: e.code === 'root_task_changed' ? WHY.rootTask : WHY.missing };
+  if (e instanceof DeriveRefusal) return { ok: false, why: e.code === 'root_task_changed' ? WHY.rootTask : e.code === 'root_task_unreadable' ? WHY.unreadable : WHY.missing };     // D2 F18 fold: a root task that does not read is a refusal now (it was a thrown read error, WHY.unreadable): the same words as before
   if (e instanceof ChainUnavailable) return { ok: false, why: WHY.chain };       // the chain file the tree registered is gone or edited (a package update, a project copy): registration throws the same error at the sitting
   if (['ENOENT', 'EACCES', 'EISDIR', 'ENOTDIR'].includes(e?.code)) return { ok: false, why: WHY.unreadable };
   throw e;

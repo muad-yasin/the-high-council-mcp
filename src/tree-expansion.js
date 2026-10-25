@@ -145,7 +145,7 @@ function contextRefsCheck({ node, block, plan, rootDir, work, rootTaskPath }) {
   // recorded from bytes the tree was not started with
   const task = rootTaskOf(rootDir, { work, path: rootTaskPath });
   if (task.refusal?.code === 'root_task_changed') return { refusal: refusal(4, 'root_task_changed', 'root task', task.refusal.detail) };
-  if (task.refusal) return { refusal: refusal(4, 'root_task_unreadable', 'root task', `the root task cannot be read (${task.refusal.error?.message ?? task.refusal.detail}), so the children's context_refs cannot be checked`) };
+  if (task.refusal) return { refusal: refusal(4, 'root_task_unreadable', 'root task', `the root task cannot be read (${task.refusal.detail}), so the children's context_refs cannot be checked`) };
   const rootTask = { name: task.name, text: task.text, sha256: task.sha256 };
   const resolved = [];
   for (const c of block.children) {

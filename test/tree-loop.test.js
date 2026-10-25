@@ -300,11 +300,13 @@ test('fail closed: a child the grant formula does not admit now gets no grant (a
   assert.ok(eventsOf(t.r).some(e => e.event === 'blocked' && e.scope === 'R/M1@g1' && /not admitted: budget/.test(e.detail)));
 });
 
-test('an error that is not a refusal is not recorded as one: an unreadable root task file propagates out of registerNextChild instead of becoming a "parent" refusal', async () => {
+// CHANGED ACCEPTED (lane T, G5+6, D2 F18 fold, C&C ruling 25 Okt 2026). OLD: an unreadable root task file propagated out of registerNextChild as its raw read error (ENOENT), nothing recorded. NEW: it is a refusal with no owner
+// (check root_task_unreadable, a file cause the sitting re-checks), recorded once on the child, never a "parent" refusal; no bundle is written.
+test('a root task file that does not read is a refusal (root_task_unreadable, a file cause), not a raw read error and never a "parent" refusal; no bundle is written', async () => {
   const t = await treeWith();
-  const before = eventsOf(t.r).length;
-  assert.throws(() => registerNextChild(t.rootDir, { work: t.work, rootTaskPath: join(t.work, 'tasks', 'missing.md') }), /ENOENT/);
-  assert.equal(eventsOf(t.r).length, before, 'nothing recorded'); assert.deepEqual(bundleFolders(t.r), []);
+  const r = registerNextChild(t.rootDir, { work: t.work, rootTaskPath: join(t.work, 'tasks', 'missing.md') });
+  assert.deepEqual([r.kind, r.check], ['refused', 'root_task_unreadable'], JSON.stringify(r));
+  assert.ok(eventsOf(t.r).some(e => e.event === 'blocked' && e.check === 'root_task_unreadable'), 'the refusal is recorded'); assert.deepEqual(bundleFolders(t.r), []);
 });
 
 // CHANGED ACCEPTED TEST (money-test conversion, lane C (drafted by lane B, reviewed by C), 24 Okt 2026; C&C ruling (c); the full suite on fad02049 listed this file's #4327; this test passed there and typed the same class of figure). OLD: cap 13.5378 + 0.04, a share of 4.5126 over the cheapest end 4.119, registered as 4.51 (typed). NEW: the share is a sub-cent amount (X.XXXX, 0.0076 past the cent since the fix-up below; 0.0026 before) half way between the chain's cheapest end and at-most figure, so the relation (a sub-cent share floors to the cent, previewed, bound and registered at the floored figure) holds whatever the estimate is.

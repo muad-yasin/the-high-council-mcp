@@ -290,7 +290,11 @@ export function gatherReadinessFacts(rootDir, { work, deny = null } = {}) {
   return {
     problems, treeId: state.treeId, sticky: [...state.sticky.keys()], accounting, cap, derivationRefused: derivationRefusalsOf({ rootDir, record, state, runsDir, work, liveNodes }),
     // C&C's Q5 ruling B, point 3 (25 Okt 2026): the root task read against its pin on EVERY read, never recorded (a second copy of the file's state); it holds paid work only (every derivation refuses while it stands), never the record-only phase
-    rootTaskChanged: (t => (t.refusal?.code === 'root_task_changed' ? t.refusal.detail : null))(rootTaskOf(rootDir, { work })),
+    // D2 F18 fold (C&C ruling, 25 Okt 2026): a root task that does not READ feeds the same derived reason as a changed one (root_task_unreadable beside root_task_changed). Neither text carries an absolute path (the pin check's
+    // sentence names the file by its name since the fix-up ON TOP of a943f492): readiness is printed in the tree handoff, which names nothing outside the runs folder
+    // only a task file that does not READ is root_task_unreadable here: a root run that has not written its run.json yet (an interrupted `tree start`: tree_started with no R, or R registered and refused before its run.json) records
+    // no task to read, and root_missing / not_started already say what that state needs (the fresh-eyes review of G5+6: the put-back words would be false there)
+    ...(t => ({ rootTaskChanged: t.refusal?.code === 'root_task_changed' ? t.refusal.detail : null, rootTaskUnreadable: t.refusal?.code === 'root_task_unreadable' && (() => { try { rootTaskPathOf(rootDir, work); return true; } catch { return false; } })() }))(rootTaskOf(rootDir, { work })),
     openStops: state.openStops.map(id => { const e = record.events.find(x => x.id === id); return { id, node: e?.node ?? null, generation: e?.generation ?? null }; }),
     limits: { ...effectiveLimits(record.tree, record.events), runs: state.nodes.size }, nodes, integrations,
     // c3b: children a person closed before they were ever registered (no nodes row, no run): the newest generation of a live path only, like a node
@@ -382,6 +386,7 @@ export function verdictOf(facts) {
   if (!byPath.has('R')) incomplete('root_missing', 'tree', 'the root is not registered yet');
   for (const r of facts.sticky) blocked('sticky_block', 'tree', `the tree is blocked: ${r}`);
   if (facts.rootTaskChanged) blocked('root_task_changed', 'tree', `the root task is not the one the tree was started with: ${facts.rootTaskChanged}`);     // A-DRAFT; clears itself when the bytes match again
+  if (facts.rootTaskUnreadable) blocked('root_task_unreadable', 'tree', 'the root task file does not read: put it back as the tree was started with; a different goal is a new tree, started with `council tree start`');     // D2 F18 fold (A-DRAFT); clears itself when the file reads with the pinned bytes
   if (!facts.accounting.ok) blocked('accounting_blocked', 'tree', `the accounting gate fails: ${facts.accounting.problems.slice(0, 3).map(p => `${p.code} (${p.detail})`).join('; ') || 'no detail'}`);
   for (const c of facts.closedUnstarted ?? []) incomplete('closed_incomplete', nodeKey(c.node, c.generation), `${nodeKey(c.node, c.generation)} was closed before it started, by a person: nothing ran; what waits for it starts only if it is replaced`);
   for (const s of facts.openStops) incomplete('open_stop', s.node ? nodeKey(s.node, s.generation) : 'tree', `a needs_decision stop (${s.id}) is open`);

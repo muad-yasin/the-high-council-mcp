@@ -123,7 +123,9 @@ export function registerKid(t, key, node, runId, grantUsd, generation = 1, chain
 /** A synthetic run folder: a run.json (unless `runJson: false`) and whatever evidence the scenario needs. usage: [{ file, usd, reservationId, provider }]. */
 export function syntheticRun(t, runId, { runJson = true, usage = [], superseded = [], report = null, maxUsd = 100, tree = null } = {}) {
   const dir = join(t.runsDir, runId); mkdirSync(dir, { recursive: true });
-  if (runJson) writeFileSync(join(dir, 'run.json'), JSON.stringify({ chain: t.childChain, task: 'x', maxUsd, ...(tree ? { tree } : {}) }));
+  // FIXTURE REPAIR (lane T, G5+6, C&C's yes 25 Okt 2026, as CR-3B-001): the ROOT run records its task as a real root run does (src/cli.js writes run.json `task: <the path given>`, here the pinned tasks/x.md; no cwd, so a copied
+  // tree resolves it against its own working folder). Before, every run said `task: 'x'`, a file that never exists, so a hand-built tree's root task never read (nothing looked until the F18 fold's readiness reason)
+  if (runJson) writeFileSync(join(dir, 'run.json'), JSON.stringify({ chain: t.childChain, task: runId === ROOT_ID ? 'tasks/x.md' : 'x', maxUsd, ...(tree ? { tree } : {}) }));
   for (const u of usage) writeFileSync(join(dir, `${u.file}.usage.json`), JSON.stringify({ provider: u.provider ?? 'openrouter', model: 'm', usage: { input: 1, output: 1 }, usd: u.usd, ...(u.reservationId ? { reservationId: u.reservationId } : {}) }));
   if (superseded.length) mkdirSync(join(dir, 'superseded'), { recursive: true });
   for (const u of superseded) writeFileSync(join(dir, 'superseded', `${u.file}.usage.json`), JSON.stringify({ provider: u.provider ?? 'openrouter', usd: u.usd, ...(u.reservationId ? { reservationId: u.reservationId } : {}), ...(u.kind ? { kind: u.kind } : {}) }));

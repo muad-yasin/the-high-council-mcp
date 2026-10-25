@@ -121,9 +121,9 @@ export function loadDerivation({ rootDir, parentRef, childId, generation = 1, ro
   if (!entry) throw new Error(`${key}'s block has no child ${childId}`);
   const node = childNode(parentRef.node, entry.milestone);
   const depth = node.split('/').length - 1;
-  // the root task's bytes through the ONE pin-checked reader (C&C's Q5 ruling B): a changed or unusable pin is a FILE cause, refused with no owner (no plan's text can change it); a file that does not read throws its own read error, as before
+  // the root task's bytes through the ONE pin-checked reader (C&C's Q5 ruling B): a changed or unusable pin, or a file that does not read (D2 F18 fold, C&C 25 Okt 2026: a refusal, no longer a raw read error), is a FILE cause,
+  // refused with no owner (no plan's text can change it; the live re-derivation counts it 'unable', src/tree-ready.js rederivationOutcome)
   const task = rootTaskOf(rootDir, { work, path: rootTaskPath });
-  if (task.refusal?.error) throw task.refusal.error;
   if (task.refusal) throw new DeriveRefusal(task.refusal.code, task.refusal.detail);
   const rootTask = { name: task.name, text: task.text, sha256: task.sha256 };
 

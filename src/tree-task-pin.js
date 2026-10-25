@@ -7,7 +7,7 @@
 // reads as "unknown", never a throw; a damaged field reads as "unusable" with a reason. Extra keys inside the field are not damage (the record is additive). A task outside the working folder is accepted: a normal
 // run accepts one, and the pin must not refuse what the run accepts. This file reads no environment variable; it reads the task file only in makeRootTaskPin and readTaskAgainstPin.
 import { readFileSync, statSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { basename, isAbsolute, resolve } from 'node:path';
 import { taskHashOf } from './scope-freeze.js';
 
 // src/integrity.js fingerprint(): the first 12 hex characters of the text's sha256 - the one `taskHash` run.json carries (a change detector for the frozen-scope check, not a tamper seal)
@@ -42,8 +42,8 @@ export function makeRootTaskPin(taskFile, cwd) {
  */
 export function readTaskAgainstPin(path, pin) {
   let text;
-  try { if (!statSync(path).isFile()) throw new Error('not a file'); text = readFileSync(path, 'utf8'); } catch (error) { return { ok: false, code: 'root_task_unreadable', reason: `the task file ${path} cannot be read`, error }; }
-  if (pin && taskHashOf(text) !== pin.taskHash) return { ok: false, code: 'root_task_changed', reason: `the task file ${path} has changed since the tree was started (its hash differs from the pinned one)` };
+  try { if (!statSync(path).isFile()) throw new Error('not a file'); text = readFileSync(path, 'utf8'); } catch (error) { return { ok: false, code: 'root_task_unreadable', reason: `the task file ${basename(path)} cannot be read`, error }; }
+  if (pin && taskHashOf(text) !== pin.taskHash) return { ok: false, code: 'root_task_changed', reason: `the task file ${basename(path)} has changed since the tree was started (its hash differs from the pinned one)` };     // the file's NAME, never its absolute path: the sentence reaches readiness, which the tree handoff prints (fix-up ON TOP of a943f492)
   return { ok: true, path, text };
 }
 
