@@ -75,7 +75,7 @@ import { runMcpServer } from './mcp/server.js';
 import { renderBoardHtml } from './board-export.js';
 import { buildTranscript, renderTranscriptText } from './replay.js';
 import { lintChain } from './chain-lint.js';
-import { reshuffleSeats } from './rematch.js';
+import { reshuffleSeats, RematchRefused, rematchDestinationProblems } from './rematch.js';
 import { computeVerdictDiff } from './verdict-diff.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { formatCouncilError, ERROR_CATALOG } from './errors.js';
@@ -1660,7 +1660,17 @@ if (rematchArg) {
   const rawRematchConfig = JSON.parse(readFileSync(chainConfigPath, 'utf8'));
   exitOnLint(rawRematchConfig, chainConfigPath);
   const originalConfig = resolveChainSeats(rawRematchConfig);
-  const rematchConfig = reshuffleSeats(originalConfig, seed);
+  // CR-MX-001: a layered array where only some seats have a layer is refused, and where each seat of the RESHUFFLED config would send its key is checked before anything else (the lint above ran on the original chain only).
+  const rematchConfig = (() => {
+    try { return reshuffleSeats(originalConfig, seed); } catch (err) {
+      if (err instanceof RematchRefused) { console.error(`--rematch: ${err.message} Nothing was run and nothing was spent.`); process.exit(2); }
+      throw err;
+    }
+  })();
+  {
+    const bad = rematchDestinationProblems(everySeatOf(rematchConfig));
+    if (bad.length) { console.error(`--rematch: after the seats were reshuffled, ${bad.map(b => `${b.seat}: ${b.reasons.join('; ')}`).join(' | ')}. A rematch never sends a key where the chain itself would not. Nothing was run and nothing was spent.`); process.exit(2); }
+  }
   refuseSideRun('--rematch', originalConfig, originalRunMeta);
   sideGateOrExit(rematchConfig, everySeatOf(rematchConfig), originalRunMeta.cwd || work);
   if (sideDryRun) refuseStray();   // T1-1: a dry run prints after the gate and has no refusal of its own below; a real rematch is checked after its key, price and already-run refusals, further down
