@@ -865,7 +865,7 @@ subscription. The two `advise-` rows show what the advice add-on itself shows an
 | `plan-claude-council` | not run yet | $0.00 | $0.00 |
 | `advise-standard` | not run yet | $0.75 | $1.40 |
 | `advise-single` | $0.03 to $0.15 (3 runs, 0.8.2, 2026-10-07 to 2026-10-08) | $0.08 | $1.32 |
-| `verify` | not run yet | $0.47 | $3.20 |
+| `verify` | not run yet | $0.48 | $3.20 |
 | `local-ollama` | not run yet | $0.00 | $0.00 |
 
 <!-- pricing:end -->
