@@ -2597,7 +2597,7 @@ if (dryRun) {
   // A dry run prices the chain from the config's own declared token
   // assumptions. It calls nothing, so it costs nothing.
   console.log(`\nChain: ${config.name} - ${config.description}`);
-  console.log(config.advise?.enabled === true ? `Advice call: ${config.seats.critics.length} seat(s), ${config.advise.rounds ?? 0} debate round(s) at most, its own ceiling ${formatUsd(config.advise.usd)}\n` : (roundLimitsOf(config).overseer !== null ? `Overseer rounds: ${roundLimitsOf(config).overseer} (a round ends when the top layer gives a verdict; the run stops, resumable, at that cap or when a layer's revision bound is reached; at most ${roundLimitsOf(config).passes} passes, a ceiling, not a plan)\n` : `Rounds: ${config.maxRounds}\n`));
+  console.log(config.advise?.enabled === true ? `Advice call: ${config.seats.critics.length} seat(s), ${config.advise.rounds ?? 0} debate round(s) at most, its own ceiling ${formatUsd(config.advise.usd)}\n` : (roundLimitsOf(config).overseer !== null ? `Overseer rounds: ${roundLimitsOf(config).overseer} (a round ends when the top layer gives a verdict; the run stops, resumable, at that cap or when a layer's revision bound is reached; at most ${roundLimitsOf(config).passes} passes, a ceiling, not a plan)\n` : `Rounds: ${roundLimitsOf(config).passes}\n`));
   const rows = printChainRows(config, { fromRun });
   console.log(config.advise?.enabled === true
     ? `\n  Every seat answers up to its full token cap and every planned debate round runs, so the expected figure and the upper estimate differ only by an Anthropic seat's one retry. A panel whose blind answers agree skips the debate and costs less.`
@@ -3180,7 +3180,7 @@ const log = (...parts) => {
 };
 
 log(`council run ${runId}${resumeMeta ? ' (resumed)' : ''}`);
-log(config.advise?.enabled === true ? `chain: ${config.name} (advice: ${config.seats.critics.length} seat(s), ${config.advise.rounds ?? 0} debate round(s) at most)` : `chain: ${config.name} (${roundLimitsOf(config).overseer !== null ? `${roundLimitsOf(config).overseer} overseer rounds, at most ${roundLimitsOf(config).passes} passes, a ceiling` : `${config.maxRounds} round cap`})`);
+log(config.advise?.enabled === true ? `chain: ${config.name} (advice: ${config.seats.critics.length} seat(s), ${config.advise.rounds ?? 0} debate round(s) at most)` : `chain: ${config.name} (${roundLimitsOf(config).overseer !== null ? `${roundLimitsOf(config).overseer} overseer rounds, at most ${roundLimitsOf(config).passes} passes, a ceiling` : `${roundLimitsOf(config).passes} round cap`})`);   // CR-4B-007: the EFFECTIVE cap (maxRounds, else the default of 2), never "undefined" for a chain that omits maxRounds
 if (earlierUnsettled.length) log(`earlier sitting: ${earlierUnsettled.length} call(s) were in flight when the process ended and were never settled (${earlierUnsettled.map(r => r.label).join(', ')}); ${formatUsd(earlierUnsettledUsd)} (their worst case) stays counted toward the cap`);
 if (earlierSupersededUsd > 0) log(`spent earlier on superseded stages: ${formatUsd(earlierSupersededUsd)} (counted toward the cap; see superseded/)`);
 log(`cap:   ${maxUsdEff === null ? 'none - this run has no spend ceiling' : `${formatUsd(maxUsdEff)} per run (${capGateApplies ? 'the limit typed for this run' : '--max-usd'})`}`);
@@ -3339,7 +3339,7 @@ function writeStateJson() {
     runId, label: labelEff,
     phase: deriveRunStatus(runDir, runMetaNow),
     stage: currentStage,
-    round: currentRound, maxRounds: roundLimitsOf(config).overseer !== null ? roundLimitsOf(config).passes : config.maxRounds,
+    round: currentRound, maxRounds: roundLimitsOf(config).passes,
     seats: [...seatState.entries()].map(([key, status]) => ({ lab: labFromKey(key), ...(labFromKey(key) !== key ? { seat: key } : {}), status })),
     // The external stages the run is waiting on (empty unless it is paused): what a live view shows
     // as "your turn" without listing the folder itself.
