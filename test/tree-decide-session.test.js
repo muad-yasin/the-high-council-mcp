@@ -159,7 +159,7 @@ test('PRICE BOUND (a SUPERSEDED generation): a newer generation of the member\'s
   const { r, n } = await priceStoppedTree();
   assert.ok(call(r, { step: 'quote', ...PRICE_BASE, model: 'openrouter/vendor/stopped-model' }).gate, 'before: the model is the session\'s to price');
   const { id: _id, at: _at, schema: _s, ...reg } = readTreeRecord(r.t.rootDir).events.find(e => e.event === 'node_registered' && e.node === n.node && e.generation === n.generation);
-  rawAppend(r, [{ ...reg, generation: n.generation + 1, runId: 'run-newer-generation' }]);
+  rawAppend(r, [{ ...reg, generation: n.generation + 1, runId: '2026-10-19T10-00-01-000Z' }]);
   const before = writtenAfter(r);
   const after = call(r, { step: 'quote', ...PRICE_BASE, model: 'openrouter/vendor/stopped-model' });
   assert.equal(writtenAfter(r), before, 'the refusal wrote no gate and no event: ' + JSON.stringify(after).slice(0, 200));
