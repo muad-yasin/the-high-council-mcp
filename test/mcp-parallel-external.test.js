@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { waitForRunEnd } from './helpers/child-gone.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -85,7 +86,7 @@ test('two external critics: both are listed, either can be answered first, and t
     // The last one resumes the run, which finishes.
     const b = await call(dir, 'submit_stage', { run, stage: 'panel-1-ea', content: passWithIds(runDir, 'panel-1-ea') });
     assert.equal(b.resumed, true, JSON.stringify(b));
-    for (let i = 0; i < 120 && !existsSync(join(runDir, 'report.json')); i++) await new Promise(r => setTimeout(r, 250));
+    await waitForRunEnd(runDir);
     assert.ok(existsSync(join(runDir, 'report.json')), 'the run finished after both answers');
     // CHANGED ACCEPTED TEST (decider-readiness apply patch fix-up 2, 24 Okt 2026; C&C ruling: this test passed on the on-state while both external answers were dropped as unheard, i.e. for the wrong reason). OLD: the answers were plain PASS and only the run's finish was asserted (the mock critic's pass finished it). NEW: the answers carry the pair when one is recorded, and the report must show both external seats HEARD (signed_off, not unheard).
     const heard = JSON.parse(readFileSync(join(runDir, 'report.json'), 'utf8')).panelVerdicts.filter(v => v.round === 1 && (v.lab === 'ea' || v.lab === 'ec'));
@@ -127,7 +128,7 @@ test('a dotted lab (opus5.5-sub) can be fetched and answered over MCP; a ".." la
     // The answer resumes the run in a detached child. Wait for it to finish before the cleanup below,
     // or rmSync races its writes (CI 2026-09-29, v0.7.9 tag build: ENOTEMPTY on runs/<id>).
     const runDir = join(dir, 'runs', run);
-    for (let i = 0; i < 120 && !existsSync(join(runDir, 'report.json')); i++) await new Promise(r => setTimeout(r, 250));
+    await waitForRunEnd(runDir);
     assert.ok(existsSync(join(runDir, 'report.json')), 'the run finished after the answer');
   } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });

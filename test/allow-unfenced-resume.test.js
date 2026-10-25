@@ -14,6 +14,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE } from '../src/report-shape.js';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { childGone, childPid } from './helpers/child-gone.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -97,6 +98,7 @@ test('scenario 1, over MCP: submit_stage resumes such a run (it cannot pass --al
       await new Promise(res => setTimeout(res, 100));
     }
     assert.ok(!existsSync(join(runDir, 'BLOCKED-ARTIFACTS.md')), 'the MCP resume was blocked by the artifact gate');
+    assert.ok(await childGone(runDir), `the resumed child (pid ${childPid(runDir)}) was still running before the folder is removed`);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

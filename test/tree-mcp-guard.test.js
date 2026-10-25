@@ -9,6 +9,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { memberResumeRedirect } from '../src/tree-redirect.js';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { childGone, childPid } from './helpers/child-gone.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -94,6 +95,7 @@ test('L20 negative: a run with NO tree field still resumes over MCP (resume_run 
   const p = payload(r); assert.notEqual(p.resumed, false, JSON.stringify(p).slice(0, 300)); assert.equal(p.tree, undefined);
   for (let i = 0; i < 100 && w.logs().length <= before; i++) await quiet(100);
   assert.ok(w.logs().length > before, 'a CLI child ran (its log appeared)');
+  assert.ok(await childGone(w.dir), `the resumed child (pid ${childPid(w.dir)}) was still running before the folder is removed`);   // the log opens BEFORE the child is spawned, so the wait above does not wait for the child
 });
 
 test('L20 submit_stage on a member says who resumes it on EVERY reply: more stages left, and a duplicate answer', async () => {

@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { verifyAuditLog, parseAuditLog } from '../src/audit.js';
+import { childGone, childPid } from './helpers/child-gone.js';
 import { writeStopRequest } from '../src/stop-files.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -928,6 +929,8 @@ test('the spawn hold is armed only by the advice start: even in mock-advice mode
     assert.ok(await until(() => answered !== null), 'start_run answered without the hold file (a hold would keep it waiting up to 60 s)');
     assert.equal(existsSync(`${never}.entered`), false, 'and the hold never started');
     assert.equal(existsSync(`${never}.returned`), false, 'and no after-marker was written');
+    const started = folders(dir)[0];                                                  // the child makes its run folder; it ends at once (a closed port), and the folder is removed only after it exited
+    if (started) assert.ok(await childGone(join(dir, 'runs', started)), `the run's child (pid ${childPid(join(dir, 'runs', started))}) was still running`);
   } finally { await s.close(); await sleep(300); rmSync(dir, { recursive: true, force: true }); }
 });
 

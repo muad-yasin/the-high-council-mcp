@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { pickBuildDraft } from '../src/handoff-from-run.js';
 import { BUILD_READ_SET, BUILD_DRAFT_FILES } from '../src/from-run-files.js';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { childGone } from './helpers/child-gone.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -102,6 +103,7 @@ test('MCP: ordinary build-retry.md and records are not refused; resume_run re-ch
     const runId = out.run;
     for (let i = 0; i < 300 && !(runId && existsSync(join(p.dir, 'runs', runId, 'NEEDS-revise-1.md'))); i++) await new Promise(r => setTimeout(r, 100));
     assert.ok(existsSync(join(p.dir, 'runs', runId, 'NEEDS-revise-1.md')), 'the run started and paused at the external reviser');
+    assert.ok(await childGone(join(p.dir, 'runs', runId)), 'the paused run\'s child exited (it writes NEEDS-*.md and then its last files) before the folder is removed');
     rmSync(join(p.from, 'build-retry.md')); symlinkSync(p.target, join(p.from, 'build-retry.md'));
     const res = await mcpSession(p.dir, [{ name: 'resume_run', arguments: { run: runId } }]);
     const again = body(res.get(2));

@@ -11,6 +11,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { keyEnvValue } from '../src/key-env.js';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { childGone } from './helpers/child-gone.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const server = join(root, 'src', 'mcp', 'server.js');
@@ -33,25 +34,6 @@ function mcpSession({ cwd, env, calls }) {
   return byId;
 }
 const payload = m => JSON.parse(m?.result?.content?.[0]?.text ?? 'null');
-// True when the process no longer exists. EPERM means it exists (another user's process); ESRCH means gone.
-const pidGone = pid => { try { process.kill(pid, 0); return false; } catch (e) { return e.code !== 'EPERM'; } };
-// The pid of the child a run folder belongs to: `.spawn.json` when the server recorded one (it does for a resume and the advice path, where the folder exists at the spawn), else the pid the child itself wrote into run.json
-// (on start_run the CHILD makes the folder, so the server has nothing to record: C&C's note that .spawn.json covers this call was wrong, found by the red run). null when neither reads.
-function childPid(runDir) {
-  for (const f of ['.spawn.json', 'run.json']) {
-    try { const pid = JSON.parse(readFileSync(join(runDir, f), 'utf8')).pid; if (Number.isInteger(pid)) return pid; } catch { /* absent or mid-write: try the next */ }
-  }
-  return null;
-}
-// Waits until the run's child has exited, polling every 100 ms, with a 60 s guard that only a broken run reaches. No pid to read: nothing to wait for.
-async function childGone(runDir) {
-  const pid = childPid(runDir);
-  if (pid === null) return true;
-  const t0 = Date.now();
-  while (!pidGone(pid) && Date.now() - t0 < 60_000) await new Promise(r => setTimeout(r, 100));
-  return pidGone(pid);
-}
-
 test('COUNCIL_WORKDIR puts tasks and runs there, not in the directory the host started the server in', () => {
   const hostCwd = mkdtempSync(join(tmpdir(), 'thc-host-'));
   const work = join(mkdtempSync(join(tmpdir(), 'thc-work-')), 'council'); // does not exist yet

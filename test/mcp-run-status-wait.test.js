@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { childGone, childPid } from './helpers/child-gone.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -47,7 +48,7 @@ const bodies = r => [...r.answers.entries()].filter(([id]) => id > 1).map(([, a]
 async function settle(dir, run) {
   for (let i = 0; i < 12; i++) {
     const s = await session(dir, [{ name: 'run_status', arguments: { run, wait_seconds: 5 } }], { delay: 400 });
-    if (bodies(s)[0].body.progress.settled) return;
+    if (bodies(s)[0].body.progress.settled) { assert.ok(await childGone(join(dir, 'runs', run)), `the run's child (pid ${childPid(join(dir, 'runs', run))}) was still running after the run settled`); return; }
   }
   assert.fail('the run never settled');
 }
@@ -137,6 +138,7 @@ test('until=settled holds across finished calls, sends several rising progress n
     assert.ok(s.notes.length >= 1, `at least one notification during the hold (got ${s.notes.length})`);
     for (let i = 1; i < s.notes.length; i++) assert.ok(s.notes[i].progress > s.notes[i - 1].progress, 'progress rises');
     assert.equal(s.notes.at(-1).progress, a.body.progress.cursor, 'the last notification carries the final line count');
+    assert.ok(await childGone(join(dir, 'runs', run)), 'the run\'s child exited before the folder is removed');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -160,5 +162,6 @@ test('a bare since answers at once from the cursor, and a run paused at an exter
     assert.equal(held.body.progress.status, 'paused');
     assert.equal(held.body.progress.settled, true);
     assert.deepEqual(held.body.waitingFor, ['build']);
+    assert.ok(await childGone(join(dir, 'runs', run)), 'the paused run\'s child exited before the folder is removed');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
