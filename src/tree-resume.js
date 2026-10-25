@@ -198,7 +198,7 @@ export async function resumeHandler({ rootDir, rootId, work, stdout, stderr, now
   let release;
   try { release = acquireRunLock(treeDirOf(rootDir), { file: SITTING_LOCK_FILE }); }
   catch (e) {
-    if (e instanceof RunLockedError) { err(`council tree resume: another sitting of this tree is running (pid ${e.holder?.pid} on ${e.holder?.host}). Nothing was started.`); return 1; }
+    if (e instanceof RunLockedError) { err(e.holder?.unreadable ? `council tree resume: ${e.message} Nothing was started.` : `council tree resume: another sitting of this tree is running (pid ${e.holder?.pid} on ${e.holder?.host}). Nothing was started.`); return 1; }
     err(`council tree resume: could not take the sitting lock (${e.code || e.message}). Nothing was started.`); return 1;
   }
   try {

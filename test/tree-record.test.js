@@ -202,6 +202,18 @@ test('a member whose claim cannot take the tree lock fails closed: exit 19, "not
   assert.ok(!existsSync(join(f.work, 'runs', ROOT_ID, 'deliverable.md')));
 });
 
+test('CR-X3-002 (real verb): a member whose claim finds an EMPTY, young .tree.lock fails closed (exit 19) with the lock file named and the way out, not "pid null"; nothing is written', () => {
+  const f = fixture(); registerRoot(f.rootDir);
+  const lock = join(f.rootDir, 'tree', '.tree.lock');
+  writeFileSync(lock, '');   // byte-identical to what a take killed between its create and its write leaves
+  const r = run(f.work, ['--chain', 'mock', '--task', 'tasks/x.md', '--run-id', ROOT_ID, '--tree-node', lineage(f.work, 'R')]);     // retries its bounded wait, then gives up
+  assert.equal(r.status, 19, r.stderr);
+  assert.ok(r.stderr.includes(lock), r.stderr); assert.match(r.stderr, /is empty or half-written[^]*delete that file/);
+  assert.doesNotMatch(r.stderr, /pid null|locked by another process/);
+  assert.match(r.stderr, /Nothing was run and nothing was spent/);
+  assert.deepEqual(names(f.rootDir), ['tree_started', 'node_registered']);
+});
+
 // ---------------------------------------------------------------------------------------------------------------------------------- exit checks 3, 6, 7, 9: recovery
 const factsFor = map => runId => map[runId] ?? { hasRunJson: false, end: null, paused: false };
 

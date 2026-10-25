@@ -2,7 +2,7 @@
 // others use an injected resumer so a deterministic failure can be repeated exactly. Every working folder is removed at the end of the file.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { RunLockedError, acquireRunLock } from '../src/run-lock.js';
@@ -124,6 +124,21 @@ test('two `tree resume` at once: the second starts and resumes NOTHING and says 
   writeFileSync(join(treeDirOf(r.t.rootDir), SITTING_LOCK_FILE), JSON.stringify({ pid: 999993, host: hostnameOf(), at: new Date().toISOString(), nonce: 'x' }));
   const third = await resume(r, { startRun: async () => ({ exitCode: 3 }), resumeRun: nothing });
   assert.notEqual(third.err.includes('another sitting'), true, third.err);
+});
+
+test('CR-X3-002 (real verb): an EMPTY .sitting.lock left by a take that died is refused while it is young (the file named, the wait said, nothing started, the stop left) and replaced once it is older than 30 seconds', async () => {
+  const r = await trackedRealRoot(pricedChildren()); approvePending(r);
+  const lock = join(treeDirOf(r.t.rootDir), SITTING_LOCK_FILE);
+  writeFileSync(lock, '');   // byte-identical to what a take killed between its create and its write leaves
+  requestStop(r.t.rootDir);
+  const young = await resume(r, { startRun: nothing, resumeRun: nothing });
+  assert.equal(young.code, 1); assert.ok(young.err.includes(lock), young.err); assert.match(young.err, /is empty or half-written[^]*older than 30 seconds[^]*delete that file[^]*Nothing was started\./);
+  assert.doesNotMatch(young.err, /pid null|another sitting of this tree is running/);
+  assert.equal(stopRequested(r.t.rootDir), true, 'it did not get as far as removing the stop');
+  const old = new Date(Date.now() - 60_000); utimesSync(lock, old, old);   // the one constructed part: the age
+  const third = await resume(r, { startRun: async () => ({ exitCode: 3 }), resumeRun: nothing });
+  assert.doesNotMatch(third.err, /empty or half-written|another sitting/, third.err);
+  assert.equal(existsSync(lock), false, 'taken, used and released');
 });
 
 test('`tree resume` removes a stop first (the person asked to go on) and says so; the verb is wired in the CLI (treeCommand reaches the handler and its exit code), and it refuses a blocked or corrupt tree before it starts anything', async () => {

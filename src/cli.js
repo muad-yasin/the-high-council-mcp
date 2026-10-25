@@ -930,7 +930,7 @@ if (argv[0] === 'handoff' || (argv[0] === 'contract' && argv[1] === 'draft')) {
       hCap = start.capUsd; hMirror = start.mirror;
       installPostRunHook({ runDir: hRunDir, runId: hRunId, lineage: hMeta.tree, claim: start.claim });
     } catch (err) {
-      const why = err instanceof TreeRefusal ? err.message : err instanceof RunLockedError ? `the tree record is locked by another process (pid ${err.holder?.pid}) and stayed locked` : `the tree record could not be written (${err.code || err.message})`;
+      const why = err instanceof TreeRefusal ? err.message : err instanceof RunLockedError ? (err.holder?.unreadable ? err.message : `the tree record is locked by another process (pid ${err.holder?.pid}) and stayed locked`) : `the tree record could not be written (${err.code || err.message})`;
       console.error(`\n${who}: ${why}\nNothing was run and nothing was spent.`);
       process.exit(EXIT_TREE_REFUSED);
     }
@@ -2799,7 +2799,7 @@ if (treeNodeArg !== null) {
 const exitOnMemberRefusal = err => {
   // Fail closed: a member that cannot record its claim does not run. The table refusing the step, the gate or a check failing, no live grant, the record locked past the retries, an unreadable record, a full disk:
   // all exit 19, nothing run, nothing spent.
-  const why = err instanceof TreeRefusal ? err.message : err instanceof RunLockedError ? `the tree record is locked by another process (pid ${err.holder?.pid}) and stayed locked` : `the tree record could not be written (${err.code || err.message})`;
+  const why = err instanceof TreeRefusal ? err.message : err instanceof RunLockedError ? (err.holder?.unreadable ? err.message : `the tree record is locked by another process (pid ${err.holder?.pid}) and stayed locked`) : `the tree record could not be written (${err.code || err.message})`;
   console.error(`\n${why}\nNothing was run and nothing was spent.`);
   process.exit(EXIT_TREE_REFUSED);
 };

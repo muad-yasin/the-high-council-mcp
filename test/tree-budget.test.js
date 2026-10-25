@@ -1002,6 +1002,23 @@ test('a member\'s post-run `handoff --from-run` whose claim cannot take the tree
   assert.equal(stateOf(readTreeRecord(t.rootDir)).active, null, 'no phantom active node');
 });
 
+test('CR-X3-002 (real verb): a member\'s post-run `handoff --from-run` that finds an EMPTY, young .tree.lock fails closed (exit 19) with the lock file named, not "pid null"; nothing is written', async () => {
+  const t = newTree({ cap: 100, childChain: 'priced-debate', extraChains: chainSet(1) });
+  registerRoot(t.rootDir);
+  assert.equal((await api.run(rootOpts(t))).exitCode, 0);
+  const key = approveFrontier(t.rootDir, ['R/M1']); registerKid(t, key, 'R/M1', IDS[0], 50);
+  assert.equal((await api.run({ chain: 'priced-debate', task: 'tasks/x.md', cwd: t.work, runId: IDS[0], treeNode: lineageFile(t.work, 'R/M1'), maxUsd: 50 })).exitCode, 0);
+  const lock = join(t.rootDir, 'tree', '.tree.lock');
+  writeFileSync(lock, '');   // byte-identical to what a take killed between its create and its write leaves
+  const n = events(t.rootDir).length;
+  const h = spawnSync(process.execPath, [cli, 'handoff', '--from-run', join(t.runsDir, IDS[0]), '--max-usd', '30'], { cwd: t.work, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: t.work } });
+  assert.equal(h.status, 19, h.stdout + h.stderr);
+  assert.ok(h.stderr.includes(lock), h.stderr); assert.match(h.stderr, /is empty or half-written[^]*delete that file/);
+  assert.doesNotMatch(h.stderr, /pid null|locked by another process/);
+  assert.match(h.stderr, /Nothing was run and nothing was spent/);
+  assert.equal(events(t.rootDir).length, n, 'nothing was written');
+});
+
 test('C&C Q1 (half 1): registerChildAdmitted, the only production writer of a child registration, REQUIRES bundleSha256 (64 hex) and bundleBytes (a whole number of 1 or more) and throws without them, registering nothing', () => {
   const t = closedRootTree({ cap: 20 });
   const key = approveFrontier(t.rootDir, ['R/M1']);

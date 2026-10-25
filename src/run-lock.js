@@ -13,12 +13,25 @@ import { join } from 'node:path';
 
 export const LOCK_FILE = '.council.lock';
 
+// Which lock files get an age rule for an UNREADABLE file (empty, or half-written) without the caller asking for one: the lock names in a tree's folder (the tree record, the sitting, the views).
+// The bound is the one the approvals ledger's lock and send-path's run-lock take already use: 30 seconds. Why age is a safe judge here and judges no process: a take writes its JSON in the very next
+// call after it creates the file, so a live take is unreadable for microseconds, and a live holder (on any host) always has readable JSON in the file. A file that is still unreadable after 30 seconds
+// therefore only says that no take ever finished (a power cut or a full disk between the create and the write). The run lock (.council.lock) is not listed: it keeps "unreadable = held" (a named asymmetry,
+// CR-X3-002). test/run-lock.test.js pins these names to TREE_LOCK_FILE, SITTING_LOCK_FILE and VIEWS_LOCK_FILE (src/tree-record.js, src/tree-files.js), which this module cannot import without a cycle.
+export const UNREADABLE_STALE_MS_BY_LOCK = Object.freeze({ '.tree.lock': 30_000, '.sitting.lock': 30_000, '.views.lock': 30_000 });
+const staleMsOf = (file, given) => given ?? UNREADABLE_STALE_MS_BY_LOCK[file];
+
+// A-DRAFT (CR-X3-002): what a person reads when the lock file cannot be read.
+const unreadableWords = (lockPath, staleMs) => `${lockPath} is empty or half-written (a power cut or a full disk can leave that), so it is not known who holds it. ` +
+  (staleMs > 0 ? `If it is older than ${Math.round(staleMs / 1000)} seconds the next try replaces it; try again then. If it stays, delete that file.` : 'If no other process is working on this run, delete that file.');
+
 export class RunLockedError extends Error {
   constructor(holder, lockPath) {
-    super(`run is already running: pid ${holder.pid} on ${holder.host} holds ${lockPath} (since ${holder.at}). ` +
+    super(holder?.unreadable ? unreadableWords(lockPath, holder.staleMs) : `run is already running: pid ${holder.pid} on ${holder.host} holds ${lockPath} (since ${holder.at}). ` +
       'Two processes on one run pay for every stage twice. Wait for it, or stop it; ' +
       'if that process is gone and this is wrong, delete the lock file.');
     this.holder = holder;
+    this.lockPath = lockPath;
   }
 }
 
@@ -34,19 +47,23 @@ export function isPidAlive(pid) {
 
 /** The current holder of `runDir`'s lock if a live process holds it, else null. Read-only. */
 //
-// `unreadableStaleMs` (0.8.1, opt-in, the gate ledger's lock only): a lock file that cannot be parsed and
-// is older than this (by mtime) is stale rather than held forever. Unset, nothing changes for the run lock.
+// `unreadableStaleMs` (0.8.1, opt-in, the gate ledger's lock): a lock file that cannot be parsed and is older than this (by mtime) is stale rather than held forever. Unset, the bound comes from
+// UNREADABLE_STALE_MS_BY_LOCK by the file's name (the tree folder's locks, CR-X3-002); for any other name nothing changes: the run lock treats an unreadable file as held.
 export function lockHolder(runDir, { file = LOCK_FILE, unreadableStaleMs } = {}) {
+  const bound = staleMsOf(file, unreadableStaleMs);
   let holder;
   try {
     holder = JSON.parse(readFileSync(join(runDir, file), 'utf8'));
   } catch (err) {
     if (err.code === 'ENOENT') return null;
-    if (unreadableStaleMs > 0) {
-      try { if (Date.now() - statSync(join(runDir, file)).mtimeMs > unreadableStaleMs) return null; } catch { return null; /* gone meanwhile */ }
+    holder = null;   // unreadable, below
+  }
+  if (!holder || typeof holder !== 'object') {   // also JSON `null` or a bare number: a file with no holder in it
+    if (bound > 0) {
+      try { if (Date.now() - statSync(join(runDir, file)).mtimeMs > bound) return null; } catch { return null; /* gone meanwhile */ }
     }
     // Unreadable or half-written: treat as held rather than guess. The message names the file.
-    return { pid: null, host: 'unknown', at: 'unknown', unreadable: true };
+    return { pid: null, host: 'unknown', at: 'unknown', unreadable: true, staleMs: bound > 0 ? bound : 0 };
   }
   if (holder.host === hostname() && !isPidAlive(holder.pid)) return null; // stale
   return holder;
@@ -63,7 +80,7 @@ export function lockHolder(runDir, { file = LOCK_FILE, unreadableStaleMs } = {})
 // with O_EXCL, so exactly one contender at a time may replace a stale lock, and it re-checks that the
 // lock is still stale before replacing it (atomically, by rename). Everyone else backs off as locked.
 // No timing is involved, so a loaded machine cannot reopen the race. A claim left by a dead process
-// is cleared, and that attempt reports the run as locked; the next attempt succeeds.
+// is cleared and the claim is tried once more at once (CR-X3-002; before, that attempt reported the run as locked).
 // What the lock file ITSELF says right now, for the takeover (8 Oct 2026, found by the ledger concurrency test "two processes appending at once": 2 red of ~26 whole-file runs, a LOST ledger line with a valid chain):
 //   'absent'  there is no lock file (its holder released it a moment ago);
 //   'held'    a live holder, a holder on another host, or a file that cannot be read yet (its writer is between creating it and writing it);
@@ -81,6 +98,21 @@ function lockFileState(lockPath, unreadableStaleMs) {
   return holder.host === hostname() && !isPidAlive(holder.pid) ? 'stale' : 'held';
 }
 
+// Writes `body` as JSON into the file this process has just created (`wx`). If the write throws, or comes up short (a full disk can return fewer bytes without throwing), the file is closed and removed and the error
+// leaves acquireRunLock: NO handle is returned, so nothing runs behind an empty or half-written lock (CR-X3-002: the sitting lock is the gate in front of paid starts, and a file that stays unreadable is replaced
+// after 30 seconds, which is only sound if its taker never went on as the holder).
+function writeLockBody(fd, path, body, { removeOnFail = true } = {}) {
+  try {
+    const text = JSON.stringify(body);
+    if (writeSync(fd, text) !== Buffer.byteLength(text)) throw Object.assign(new Error(`short write to ${path}`), { code: 'ENOSPC' });
+  } catch (err) {
+    try { closeSync(fd); } catch { /* already closed */ }
+    if (removeOnFail) { try { unlinkSync(path); } catch { /* already gone */ } }
+    throw err;
+  }
+  closeSync(fd);
+}
+
 const isMine = (lockPath, mine) => {
   try {
     const now = JSON.parse(readFileSync(lockPath, 'utf8'));
@@ -96,7 +128,8 @@ const isMine = (lockPath, mine) => {
 // `_seam` (TEST ONLY, a no-op unless a test passes one; it is not reachable from the environment or the command line, like chain.js's setPromptSpy): called as _seam(stage, lockPath) at the two points where another
 // process can change the lock file between our looking and our acting: 'after-exists' (our create failed because the file existed, before we read it), 'after-claim' (the claim is ours, before we read the
 // file's state) and 'before-take' (we have decided what the file's state is, before we act on it). test/run-lock.test.js uses it to make the interleaving that lost an update deterministic.
-export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, unreadableStaleMs, _seam = null } = {}) {
+export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, unreadableStaleMs: givenStaleMs, _seam = null } = {}) {
+  const unreadableStaleMs = staleMsOf(file, givenStaleMs);
   const seam = stage => { if (_seam) _seam(stage, join(runDir, file)); };
   const lockPath = join(runDir, file);
   const mine = { pid, host: hostname(), at: new Date().toISOString(), nonce: Math.random().toString(36).slice(2) };
@@ -116,18 +149,25 @@ export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, un
     const holder = holderNow();
     if (holder) throw new RunLockedError(holder, lockPath);
     const claimPath = `${lockPath}.claim`;
+    // A claim left behind by a dead process, or an unreadable one older than the bound (its writer died between the create and the write; CR-X3-002), is cleared and the claim is tried once more at once.
+    // One that is being written right now, or belongs to a live process, is respected: the attempt reports the run as locked.
+    const claimAbandoned = () => {
+      let c = null;
+      try { c = JSON.parse(readFileSync(claimPath, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return false; /* unreadable: below */ }
+      if (c && typeof c === 'object') return c.host === hostname() && !isPidAlive(c.pid);
+      if (!(unreadableStaleMs > 0)) return false;
+      try { return Date.now() - statSync(claimPath).mtimeMs > unreadableStaleMs; } catch { return false; }
+    };
     let cfd;
-    try { cfd = openSync(claimPath, 'wx'); } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      try {
-        const c = JSON.parse(readFileSync(claimPath, 'utf8'));
-        if (c.host === hostname() && !isPidAlive(c.pid)) unlinkSync(claimPath);
-      } catch { /* being written, or already gone */ }
-      throw locked();
+    for (let again = true; cfd === undefined; again = false) {
+      try { cfd = openSync(claimPath, 'wx'); } catch (e) {
+        if (e.code !== 'EEXIST') throw e;
+        if (again && claimAbandoned()) { try { unlinkSync(claimPath); } catch { /* gone meanwhile */ } continue; }
+        throw locked();
+      }
     }
-    writeSync(cfd, JSON.stringify({ pid, host: mine.host }));
-    closeSync(cfd);
     try {
+      writeLockBody(cfd, claimPath, { pid, host: mine.host }, { removeOnFail: false });   // inside the try: a write that throws must not leave the claim behind. The `finally` below is the ONLY remover of the claim (a second unlink could delete a contender's fresh claim)
       // Branch on the lock file's ACTUAL state, never on "no holder" (that is also what an ABSENT lock looks like, and renaming over an absent lock overwrites one another process created in the meantime):
       //   absent -> create it exclusively, the way the fast path does (a lock that appeared since is then EEXIST = locked); the content is written after the create, so a reader that sees the young empty file
       //             reads it as 'held', never as stale;
@@ -141,8 +181,7 @@ export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, un
       if (state === 'absent') {
         let nfd;
         try { nfd = openSync(lockPath, 'wx'); } catch (e) { if (e.code === 'EEXIST') throw locked(); throw e; }
-        writeSync(nfd, JSON.stringify(mine));
-        closeSync(nfd);
+        writeLockBody(nfd, lockPath, mine);
       } else {
         const tmp = `${lockPath}.${pid}.${mine.nonce}.tmp`;
         writeFileSync(tmp, JSON.stringify(mine));
@@ -153,7 +192,6 @@ export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, un
     }
     return hold();
   }
-  writeSync(fd, JSON.stringify(mine));
-  closeSync(fd);
+  writeLockBody(fd, lockPath, mine);
   return hold();
 }
