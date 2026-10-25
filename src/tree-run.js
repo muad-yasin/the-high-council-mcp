@@ -214,6 +214,8 @@ async function sitting(rootDir, { work, startRun, resumeRun, facts, now, rootTas
       const dir = join(runsDir, n.runId);
       if (pausedAtExternalSeat(dir)) return result('waiting', { node: n.node, generation: n.generation, runId: n.runId, needs: needsFilesOf(runsDir, n.runId) });
       if (n.claim && claimAlive(n.claim, facts)) return result('running_elsewhere', { node: n.node, generation: n.generation, runId: n.runId });
+      // CR-2G-003: a node that holds a LIVE post-run claim (a paid `handoff --from-run` call on its finished run, in another terminal or on another host: claimAlive never judges another host's claim dead) is being worked on, as a live run claim is; a DEAD post-run claim on this host never reaches this line, the record-only phase released it above
+      if (n.postRun && claimAlive(n.postRun, facts)) return result('running_elsewhere', { node: n.node, generation: n.generation, runId: n.runId });
       // round semantics 2b: the member stopped at its overseer limit and waits for the person's choice: a sitting holds here (exit 20), it neither resumes it nor goes on to a sibling
       // member verb: a recorded choice for THIS stop is acted on by `tree resume` (it writes the member's entry and resumes it), not by this loop: 'interrupted' points there
       if (waitsForChoice(runEndOf(dir)) && (replacedOf(state, `${n.node}@g${n.generation}`) || !pendingChoiceOf(dir, n))) return result('awaiting_choice', { node: n.node, generation: n.generation, runId: n.runId, conflict: runEndOf(dir)?.kind === 'conflict_stopped', stopped: stoppedFilesOf(runsDir, n.runId), replaced: replacedOf(state, `${n.node}@g${n.generation}`), replacedPhrase: heldPhraseOf(state, `${n.node}@g${n.generation}`) });
