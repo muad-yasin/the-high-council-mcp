@@ -3191,7 +3191,6 @@ if (capGateApplies) {
 // invocation names a different one - otherwise resuming would silently drop
 // the cap the run was created with.
 setBudgetOrExit(maxUsdEff);
-flushChoices();   // CR-1E-006: the last refusal of the start has passed (a chain that is not paid has no gate; the typed-limit wait wrote its own copy above): a choice typed on this command reaches run.json now, before the first call
 // Money path #2: what earlier sittings spent on stages that were later superseded still counts.
 const earlierSupersededUsd = supersededSpendOf(runDir);
 countEarlierSpend(earlierSupersededUsd);
@@ -3311,6 +3310,10 @@ if (!resumeMeta && maxUsdEff !== null) {
   // blocked sitting would otherwise keep the run reading as blocked.
   for (const f of [ARTIFACTS_BLOCKED_FILE, 'NEEDS-ARTIFACTS.md']) if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
+// CR-1E-006, ONE rule: a command that is REFUSED leaves no choice on disk. A choice typed on this command (--continue / --finish, --skip-seat, --prevail) reaches run.json only here, after the LAST refusal that can come before the first call: the changed-task and
+// changed-context checks, the typed-limit gate's refusal, the cap, and the artifact gate (exit 9: its way out is a different command, --allow-unfenced or a changed task, and a saved choice would apply silently). A tree member never gets here with a pending
+// choice (a direct choice is refused for a member above). THE ONE EXCEPTION is the typed-limit WAIT (exit 21, "No call was started"), whose printed next step is a plain `--resume` after `gate answer`: capGateOrExit writes the choice before that exit (beforePendingExit).
+flushChoices();
 
 // A previous sitting may have stopped this run at the ceiling. Clear that
 // marker now that we are past it, so a run that goes on to finish is not
