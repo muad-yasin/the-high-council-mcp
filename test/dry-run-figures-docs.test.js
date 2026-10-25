@@ -29,6 +29,15 @@ test('README: the table of recommended chains prints each chain\'s expected and 
   assert.ok(readme.split('\n').find(l => l.startsWith('| `local-ollama` |')).trimEnd().endsWith('| $0 / $0 |'));
 });
 
+// 0.8.3 (W, CR-4A-003, 25 Okt 2026), NEW TEST: the "cheapest end" printed under the $7 default cap is a figure the dry run gives (its floor), in the README row AND in the chain's own description (the README printed $6.74 against the description's generated $6.75).
+test('plan-medium-council: the cheapest end the README row and the chain description print is the dry run\'s own floor', () => {
+  const floor = dryRunReport(readChainFile(root, 'plan-medium-council'), { defaultCapUsd: 7 }).estimate.floorUsd;
+  assert.ok(Number.isFinite(floor), 'the dry run gives a floor');
+  const row = readme.split('\n').find(l => l.startsWith('| `plan-medium-council` |'));
+  assert.ok(row.includes(`the cheapest end ($${floor.toFixed(2)})`), `the row should say "the cheapest end ($${floor.toFixed(2)})"`);
+  assert.ok(readChainFile(root, 'plan-medium-council').description.includes(`the cheapest end, $${floor.toFixed(2)},`), 'the description says the same figure');
+});
+
 // 0.8.3 (lane B, commit 2), CHANGED ACCEPTED TEST (Muad 23 Okt 2026: cheap-7-v2 retires, the quick start names the new one-key chain and "--max-usd 10"): OLD = the example named cheap-7-v2's two figures and a cap just above its maximum; NEW = the example names plan-default-opro-council's two figures and the Claude Desktop default cap, which is above its expected figure and below its upper estimate (and the default cap of $7 is below the upper estimate, which is why the command names a cap at all).
 test('README: the first-ten-minutes example names the expected and the upper figure of plan-default-opro-council and the Desktop default cap in the run command', () => {
   const f = figures('plan-default-opro-council');

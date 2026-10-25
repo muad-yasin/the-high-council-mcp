@@ -163,7 +163,7 @@ validate(reportJson) || console.error(validate.errors);
 ```
 
 `test/report-schema.test.js` does the same against real offline runs of the shipped mock chains
-that finish in one sitting (18 of the 21; the other three pause for a person or stop at their cap),
+that finish in one sitting (19 of the 22; the other three pause for a person or stop at their cap),
 a resumed `mock-external` run, a descending-mode run, and one run with every optional stage turned
 on. `test/report-partial.test.js` validates the `report-partial.json` of capped `mock-budget`,
 multi-round, descending, `--rematch` and `--replay` runs against the same schema.

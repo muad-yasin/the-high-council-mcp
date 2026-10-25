@@ -51,6 +51,9 @@ test('A6-4/A6-7/A6-8: counts and dates in the docs follow the code', () => {
   assert.doesNotMatch(read('docs/index.html'), /doubled for Anthropic seats/);
   assert.match(read('docs/skills.html'), /Last updated 2026-10-0[56]/);
   assert.doesNotMatch(read('docs/report-format.md'), /14 of the 17/);
+  // 0.8.3 (W, CR-4E-004, 25 Okt 2026): the count is derived, not banned one old string at a time. The schema test runs every shipped mock chain but the three that pause for a person or stop at their cap.
+  const mockChains = readdirSync(join(root, 'chains')).filter(f => /^mock.*\.json$/.test(f)).length;
+  assert.ok(read('docs/report-format.md').includes(`(${mockChains - 3} of the ${mockChains}; the other three pause`), `docs/report-format.md should say "${mockChains - 3} of the ${mockChains}"`);
   assert.doesNotMatch(read('docs/report-format.md'), /Every field in it has a description/);
   assert.doesNotMatch(read('CLAUDE.md'), /while the repo is private/);
 });
