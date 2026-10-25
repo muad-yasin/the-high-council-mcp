@@ -80,17 +80,22 @@ export function candidatePlanAccept(rootDir, { stopId, actor, via, reason, gate,
   const revert = Boolean(own && !own.unreadable && own.observedBodySha256 !== null && own.observedBodySha256 === n.closedBodySha256 && accepted === n.closedBodySha256);
   let splitHash;
   try { splitHash = splitHashOf(snap.text); } catch (e) { if (e instanceof TreeRefusal) return writerRefusal(e.reason); throw e; }
-  // the scans run on the SAME text that is hashed (one snapshot): the key scan of every run input and, when the tree turned it on, the PII gate. A finding refuses for EVERY actor (C&C 14 Oct 2026, 2c condition 3): an accepted body becomes the input of the sub-plans derived from it,
-  // and a sub-plan's own scan would refuse at its start and strand the tree one step later. The shape NAMES are shown, never a value.
+  // the scans run on the SAME text that is hashed (one snapshot): the key scan of every run input and, when the tree turned it on, the PII gate. The shape NAMES are shown, never a value.
+  // A KEY finding refuses for EVERY actor and every mode (C&C 14 Oct 2026, 2c condition 3): an accepted body becomes the input of the sub-plans derived from it, and a sub-plan's own key scan would refuse at its start.
+  // A PERSONAL-DATA finding refuses only when the gate BLOCKS (hard-stop). CR-SOL-001, the owner's answer of 25 Okt 2026 (Muad: "2: yes, I'm not exactly sure but your recommendation sounds fine"), amends the 14 Oct A3 text: under warn the
+  // gate never refuses a run (a member's start goes on and records its findings, src/cli.js; the derived child's input check runs the gate under hard-stop only, src/tree-bundle-input.js), so a changed plan is not refused either; the count it let
+  // through is kept on the record (scan.piiWarned, written only under warn).
   const keyList = textSecretFindings(snap.text, 'deliverable.md');
   const pii = treeInputScanModeFrom(record.tree);
   if (pii.status === 'unusable') return writerRefusal(`the tree's personal-data mode cannot be read (${pii.reason}): a plan is not accepted while the check that guards it cannot be read`);
-  const piiList = pii.status === 'on' ? piiGateReport({ mode: pii.mode, sources: [['deliverable.md', snap.text]], forTree: 'member' }).findings : null;
-  if (keyList.length || (piiList?.length ?? 0) > 0) {
+  const piiReport = pii.status === 'on' ? piiGateReport({ mode: pii.mode, sources: [['deliverable.md', snap.text]], forTree: 'member' }) : null;
+  const piiList = piiReport?.blocked ? piiReport.findings : [];
+  const piiWarned = piiReport && !piiReport.blocked && pii.mode === 'warn' ? piiReport.findings : null;
+  if (keyList.length || piiList.length) {
     const parts = [];
     if (keyList.length) parts.push(`${keyList.length} key-shaped string${keyList.length === 1 ? '' : 's'} (${[...new Set(keyList.map(f => f.name))].join(', ')})`);
-    if (piiList?.length) parts.push(`${piiList.length} personal-data finding${piiList.length === 1 ? '' : 's'} (${[...new Set(piiList.map(f => f.type))].join(', ')})`);
-    return writerRefusal(`the changed plan holds ${parts.join(' and ')}: the tree holds no plan that its own key and personal-data checks refuse. Edit the file to remove ${parts.length === 1 && keyList.length + (piiList?.length ?? 0) === 1 ? 'it' : 'them'} and ask again`);
+    if (piiList.length) parts.push(`${piiList.length} personal-data finding${piiList.length === 1 ? '' : 's'} (${[...new Set(piiList.map(f => f.type))].join(', ')})`);
+    return writerRefusal(`the changed plan holds ${parts.join(' and ')}: the tree holds no plan that its own key and personal-data checks refuse. Edit the file to remove ${parts.length === 1 && keyList.length + piiList.length === 1 ? 'it' : 'them'} and ask again`);
   }
   if (actor === 'session' && typeof reason === 'string' && reason) {
     const inReason = textSecretFindings(reason, 'reason').length + (pii.status === 'on' ? piiGateReport({ mode: pii.mode, sources: [['reason', reason]], forTree: 'member' }).findings.length : 0);
@@ -101,11 +106,11 @@ export function candidatePlanAccept(rootDir, { stopId, actor, via, reason, gate,
     ...(via ? { via } : {}), ...(typeof reason === 'string' ? { reason } : {}),
     previousBodySha256: n.deliveredBodySha256, acceptedBodySha256: accepted,
     ...(snap.thinContractSha256 ? { thinContractSha256: snap.thinContractSha256 } : {}), splitSha256: splitHash,
-    scan: { keyFindings: 0, piiFindings: pii.status === 'on' ? 0 : null },
+    scan: { keyFindings: 0, piiFindings: pii.status === 'on' ? 0 : null, ...(piiWarned ? { piiWarned: piiWarned.length } : {}) },
     ...(gate ? { gateId: gate.gateId, shownSha256: gate.shownSha256 } : {}), ...(revert ? { revert: true } : {}),
   };
   const facts = {
-    node: n, stop, previousBodySha256: n.deliveredBodySha256, acceptedBodySha256: accepted, revert, piiOn: pii.status === 'on', text: snap.text, bodyBytes: Buffer.byteLength(snap.text, 'utf8'), thinContractSha256: snap.thinContractSha256,
+    node: n, stop, previousBodySha256: n.deliveredBodySha256, acceptedBodySha256: accepted, revert, piiOn: pii.status === 'on', piiWarned: piiWarned ? { count: piiWarned.length, types: [...new Set(piiWarned.map(f => f.type))] } : null, text: snap.text, bodyBytes: Buffer.byteLength(snap.text, 'utf8'), thinContractSha256: snap.thinContractSha256,
     // the table's own session-only conditions, from the SAME functions the table uses (the typed form tells the person which of them would have stopped a session)
     conditions: { root: stop.node === 'R', children: registeredChildrenOf(state, stop.node, stop.generation), approvedFrontiers: approvedFrontiersOf(state, stop.node, stop.generation), dependents: registeredDependentsOf(state, stop.node, stop.generation), dead: [...deadKeys(state)] },
   };

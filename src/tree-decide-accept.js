@@ -50,6 +50,17 @@ const indent = text => text.split('\n').map(l => `      ${l}`).join('\n');   // 
 const kb = n => `${Math.ceil(n / 1024)} KB`;
 const idsOf = nodes => `${nodes.slice(0, 3).map(k => (typeof k === 'string' ? k : k.node)).join(', ')}${nodes.length > 3 ? ', ...' : ''}`;
 
+/** The scan sentence of the form, from candidatePlanAccept's facts (types, never a value). Under --pii-gate warn the personal-data gate refuses nothing (CR-SOL-001, Muad 25 Okt 2026), so the warn variant says what it let through. */
+function scanLine(f) {
+  if (f.piiWarned) {
+    const { count, types } = f.piiWarned;
+    return count
+      ? `The file holds no key-shaped string that the tree's own checks would refuse. It holds ${count} personal-data-shaped string${count === 1 ? '' : 's'} (${types.join(', ')}), which this tree lets through because it was started with --pii-gate warn.`
+      : 'The file holds no key-shaped string that the tree\'s own checks would refuse, and no personal-data-shaped string.';
+  }
+  return `The file holds no key-shaped string${f.piiOn ? ' and no personal-data-shaped string' : ''} that the tree's own checks would refuse.`;
+}
+
 /** What the person is told a SESSION could not have decided alone: the table's own session-only conditions, from the same functions (candidatePlanAccept's facts.conditions). */
 /** The words for registered nodes that are dead, whichever way they died (a decision replaced them, or the plan they grow from; the plan accepted here is still standing): they never start and nothing is rebuilt for them. */
 const deadTail = n => (n === 1 ? `is dead: it was ${DEAD_REASON}, so it never starts and nothing is rebuilt for it.` : `are dead: each was ${DEAD_REASON}, so they never start and nothing is rebuilt for them.`);
@@ -124,7 +135,7 @@ Accepting means this file stands as the plan; the panel did not sign it.
 
 ${change}
 
-What stays the same: the thin contract and the split are the ones the panel checked. The file holds no key-shaped string${f.piiOn ? ' and no personal-data-shaped string' : ''} that the tree's own checks would refuse.${only.length ? `\n\nA session could not accept this on its own, because:\n${only.map(l => `  - ${l}`).join('\n')}` : ''}
+What stays the same: the thin contract and the split are the ones the panel checked. ${scanLine(f)}${only.length ? `\n\nA session could not accept this on its own, because:\n${only.map(l => `  - ${l}`).join('\n')}` : ''}
 
 Recording it: ${effectLine}. \`council tree status\`, the tree handoff and the MCP tree status then say this plan was accepted by a person and not signed by the panel. No money moves.
 
