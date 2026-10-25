@@ -95,6 +95,7 @@ export function nodesToVerify({ record, state, runsDir, holdsSplit = holdsSplitF
 export function verifyClosedNodes(rootDir, { work, facts, now, deps = {} } = {}) {
   const verify = deps.verify ?? verifySplit;                                          // the seam a test uses to see the arguments (the tree's real lists)
   const record = readTreeRecord(rootDir);
+  if (record.corrupt.length) return [];       // CR-RC-002: nothing is verified against, or appended to, a record that does not read; restoreClosedStops (the record-only phase's other writer, src/tree-restore.js) and detectStops (src/tree-detect.js) guard the same way, and the caller's corrupt check says so
   const state = stateOf(record);
   const runsDir = dirname(rootDir);
   const out = [];
