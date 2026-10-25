@@ -1161,7 +1161,7 @@ what each rule guards against and why. Copy the folders you want into your proje
   and goes when the run folder goes. Whoever can write the run folder can edit the file. A brief of non-ASCII text (CJK, say) is projected low in a planning chain (four characters a token); the add-on prices such a brief from its bytes.
 - **A run paused under 0.8.1 on a chain or a prompt that 0.8.2 changed is not replayed when resumed:** the config fingerprint or the prompt hash differs (0.8.2 changed seven planning chains and the criteria and judge prompts of every chain), so its API stages are
   paid for again and the answers already given to its external stages are set aside and asked again (the same holds for a run paused under 0.8.0 on a chain 0.8.1 changed). Finish such a run on the version that paused it, or start it again.
-- **`npm test` turns red on dates, by design:** 2026-11-21 (the `gpt-5.6-sol` promotional price row), 2026-11-23 (the retention table, older than 30 days), 2026-12-08
+- **`npm test` turns red on dates, by design:** 2026-11-21 (the `gpt-5.6-sol` promotional price row), 2026-11-23 (the retention table, older than 30 days), 2026-12-10
   (the OpenRouter price rows of `src/pricing.json`, more than 45 days after `scripts/refresh-openrouter-prices.mjs` last compared them with OpenRouter's list) and 2026-12-23
   (`src/reasoning-table.json`, older than 60 days; regenerated 2026-10-23). Re-read the pages, re-date the file, then the suite is green again. The price rows of the direct providers
   (Anthropic, OpenAI, Google, ...) carry their own dates in `_source` and are not covered by that test.

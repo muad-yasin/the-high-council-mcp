@@ -45,7 +45,8 @@ test('one phrase per unverified item U1-U7, and per limit plan section 7 names',
     ['symlink containment untested on Windows', /symbolic-link containment of the MCP tools is untested on Windows/],
     // 0.8.2 item 7: the reasoning table was regenerated on 2026-10-07 (to add Sonnet 5.5's row), so its date moved from 2026-12-05 to 2026-12-06; the README line moved with it.
     // 0.8.3 step (g): the README line named 2026-11-21 for the price rows (true for a stamp of 2026-10-06) and 2026-12-06 for the reasoning table (regenerated 2026-10-07); the files say 2026-12-08 (stamp 2026-10-23) and, after the table was regenerated on 2026-10-23, 2026-12-23. The dates are now in date order.
-    ['the red-test dates', /2026-11-21.*2026-11-23.*2026-12-08.*2026-12-23/s],
+    // CHANGED ACCEPTED (price-table refresh, 25 Okt 2026; C&C GO (a)): the OpenRouter rows were compared with the live list on 2026-10-25 (0 rows raised), so the freshness test turns red on 2026-12-10, not 2026-12-08 (stamp + 45 days + 1); the README line moved with it. OLD /2026-12-08/; NEW /2026-12-10/ (a re-record of the one date, not a loosening).
+    ['the red-test dates', /2026-11-21.*2026-11-23.*2026-12-10.*2026-12-23/s],
     ['DeepSeek on Together unconfirmed', /DeepSeek V4 Flash on Together/],
     ['reasoning fields not exercised live', /not exercised in a live call/],
     ['a failed start after approval is counted', /A failed start after approval is counted at the full ceiling/],
