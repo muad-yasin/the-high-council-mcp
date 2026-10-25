@@ -4,7 +4,8 @@
 // What it does: counts, per .js file anywhere under src/ (widened from src/tree-*.js and src/mcp/tree*.js: the other 137 files held none of the idioms at c6969e3, so the wider scan costs nothing and a new file ANYWHERE is judged against a baseline of 0), the direct idioms for "the newest generation of a path" (the pattern table below; line comments are stripped). It is GREEN against today's counts (the baseline), RED when a file gets MORE of them (a new direct comparison: use the predicate)
 // and RED when a file gets FEWER (the baseline is stale: lower it in the same commit, so the progress is visible). Some sites ask about the ROOT only, which is never adopted (tree-transitions.js, tree-person-stop.js, ...): the builder of the record half classifies each remaining site and lowers
 // the baseline as it moves, or keeps it with the reason. PERMANENT counts (they are the predicate and a definition themselves and can never reach zero): tree-transitions.js `isSupersededGeneration`'s own `latestGenerationOf(` call (1) and `function generationOf(` (1). The site list is larger than the first page said (14 sites in 9 files): the inline sort idiom and tree-handoff's newestOf add most of the rest (58 occurrences in 17 files at release 3bc8a6a).
-// What it does NOT see: a newest-generation idiom written some other way (`.reduce`, a manual loop), and a file outside src/.
+// What it does NOT see: a newest-generation idiom written some other way (`.reduce`, a manual loop), a `Math.max(` whose `.generation` sits on another line or after a `;` (since G7 item 6 the pattern reads to the first
+// `.generation` in the same statement, through nested parens), and a file outside src/.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ export const PATTERNS = Object.freeze({
   latestByPath: /\blatestByPath\(/g,                                      // path -> ONE node (the newest): can never hold an adopted old generation beside a new one
   generationOf: /(?<![\w.])generationOf\(/g,                              // the slot generation under a parent path
   sortNewest: /b\.generation\s*-\s*a\.generation/g,                       // the inline idiom: sort the nodes of a path newest first
-  maxGeneration: /Math\.max\([^)]*\.generation/g,                          // the inline idiom: the highest generation
+  maxGeneration: /Math\.max\([^;\n]*?\.generation/g,                       // the inline idiom: the highest generation. G7 item 6 (26 Okt 2026): OLD /Math\.max\([^)]*\.generation/g, whose `[^)]` stopped at the first paren INSIDE the call (`.values()`)
   newestOf: /\bnewestOf\b/g,                                              // tree-handoff's path -> newest map
 });
 /** Counts per pattern in one file's text (line comments stripped). Pure. */
@@ -39,7 +40,8 @@ export const BASELINE = Object.freeze({
   'tree-bundle-input.js': { latestGenerationOf: 2 },
   'tree-check.js': { latestGenerationOf: 1 },
   'tree-continuation.js': { sortNewest: 2 },
-  'tree-decide-stop.js': { latestGenerationOf: 1, maxGeneration: 1 },
+  // RAISED (G7 item 6, 26 Okt 2026, the widened maxGeneration): maxGeneration 1 -> 2. OLD: 1. WHY: rootRemedies' `Math.max(0, ...[...state.nodes.values()]...)` (the newest ROOT generation): root-only, never adopted.
+  'tree-decide-stop.js': { latestGenerationOf: 1, maxGeneration: 2 },
   // RAISED 23 Okt 2026 (red-triage SG-1 unit, oversize check; found by the box set of e69a2ed): + 'tree-decide-size.js': { sortNewest: 1 }. OLD: no such file. WHY: the what-if size check picks the node a decision REPLACES (the newest node of the target's path older than the generation being opened) to find the frontier it was registered under and so the parent, as registration does (tree-loop.js). It is a lookup of one earlier node by path, not a liveness test. UNVERIFIED for an ADOPTED slot (openingTargetOf returns the slot's path there): no row covers it (tree-regen-slot's regenerate is synthetic, so the what-if skips it); registration stays the authority.
   'tree-decide-size.js': { sortNewest: 1 },
   'tree-decide.js': { sortNewest: 1 },
@@ -60,7 +62,10 @@ export const BASELINE = Object.freeze({
   // RAISED in the K4 commit (C2a-record commit 3): sortNewest 3 -> 4. The new `liveNodesByPath` DEFINES the lineage-aware live set (it sorts a path's live nodes newest first); like `isSupersededGeneration` and `generationOf` it can never reach zero. The other counts are unchanged; the readers move onto the predicate and the helper in C2b, which lowers the OTHER files' entries.
   // C2b-1b: latestByPath 1 -> 2: `liveNodesOf` DEFINES the live set the re-keyed readers iterate (it calls latestByPath once); permanent like the other definitions.
   // RAISED 23 Okt 2026 (red-triage SG-1 unit; the slot fix's dead-frontier block, 35f23f0): latestGenerationOf 11 -> 12. OLD: 11. WHY: foldRecord's era scope reads `const rootNow = latestGenerationOf(state, 'R');` (tree-transitions.js:455): the literal ROOT path, which is never adopted, so the adopted-aware predicate does not apply (a ROOT-ONLY site, like the others kept above). This test was not in the sets that carried 35f23f0; it has been red on every tree since; the box set of e69a2ed found it.
-  'tree-transitions.js': { latestGenerationOf: 12, latestByPath: 2, generationOf: 3, sortNewest: 4, maxGeneration: 2 },
+  // RAISED (G7 item 6, 26 Okt 2026, the widened maxGeneration): maxGeneration 2 -> 9. OLD: 2. WHY, the seven sites the old pattern missed (a paren inside the call): ROOT-ONLY: foldRecord's `latestRoot` (abandon), holdabilityOf's
+  //   `rootGen`, the root re-plan guard's registered root generation (applyEvent). PERMANENT: `latestGenerationOf`'s own definition. BOOKKEEPING: foldRecord's `maxOpened` (the highest generation a decision OPENED per path).
+  //   BY PATH, kept at today's count, not reviewed for adoption here: foldRecord's `plainLatest` (the regenerate-of-a-reused-node slot rule) and pendingBelowOf's `registeredGen`. The count keeps a NEW site from passing.
+  'tree-transitions.js': { latestGenerationOf: 12, latestByPath: 2, generationOf: 3, sortNewest: 4, maxGeneration: 9 },
 });
 
 /** The pure comparison: { file: { pattern: count } } found vs the baseline -> { more: [...], fewer: [...] }. A file the baseline does not list has a baseline of 0, so a NEW file with an idiom is `more`. */
@@ -96,9 +101,10 @@ test('the counter itself: it counts each idiom, strips line comments, and ignore
     "const s = generationOf(state, p);",
     "const n = [...a].sort((a, b) => b.generation - a.generation)[0];",
     "const h = Math.max(0, ...nodes.map(n => n.generation));",
+    "const v = Math.max(0, ...[...state.nodes.values()].map(n => n.generation));",       // G7 item 6: a paren inside the call (values()) no longer hides the idiom
     "const o = new Map(nodes.map(n => [n.node, n.generation])); newestOf.has(x);",
   ].join('\n');
-  assert.deepEqual(countSites(bad), { latestGenerationOf: 1, latestByPath: 1, generationOf: 1, sortNewest: 1, maxGeneration: 1, newestOf: 1 });
+  assert.deepEqual(countSites(bad), { latestGenerationOf: 1, latestByPath: 1, generationOf: 1, sortNewest: 1, maxGeneration: 2, newestOf: 1 });
   assert.deepEqual(countSites("// latestGenerationOf(x) in a comment\nconst c = childGenerationOf(state, 1, p); const d = closedUnstartedGenerationOf(state, p);"), {});
 });
 
