@@ -3,7 +3,7 @@
 // records ONE `plan_accepted` (actor person, via terminal) through the one writer, src/tree-accept.js. Every number and refusal sentence comes from `candidatePlanAccept` (the form's preflight, its text and its rebuild comparison are the writer's own view): this file computes none.
 //
 // Contract:
-//   buildAcceptPlan({ rootDir, rootId, stopArg, facts }) -> { refusal } | { text, expect, typedLabel, formName, after, apply }   (the shape every `decide` form returns; nothing is written here)
+//   buildAcceptPlan({ rootDir, rootId, stopArg, facts, work }) -> { refusal } | { text, expect, typedLabel, formName, after, apply }   (work: the working folder, for the re-derivation a derivation_refused stop runs)   (the shape every `decide` form returns; nothing is written here)
 //   lineDiff(oldText, newText) -> string[]   a pure line diff (`- old`, `+ new`, two lines of context, `...` between hunks); used only here
 // Order, as every decide form: preflight (refusals ask nobody and write nothing) -> text -> the gate -> the form is built AGAIN after the yes and the approval is NOT used when the text moved (src/tree-decide.js) -> `apply`.
 import { dirname } from 'node:path';
@@ -82,7 +82,7 @@ function sessionOnlyLines(c, { rootId, stopId }) {
   return out;
 }
 
-export function buildAcceptPlan({ rootDir, rootId, stopArg, facts = {} }) {
+export function buildAcceptPlan({ rootDir, rootId, stopArg, facts = {}, work }) {
   const record = readTreeRecord(rootDir);
   if (!record.tree || record.corrupt.length) return { refusal: `the record of this tree does not read (${record.corrupt.length} problem${record.corrupt.length === 1 ? '' : 's'}); nothing can be decided on it` };
   const state = stateOf(record);
@@ -91,7 +91,7 @@ export function buildAcceptPlan({ rootDir, rootId, stopArg, facts = {} }) {
   if (!state.openStops.includes(stopArg)) return { refusal: `--stop ${stopArg}: that is not an open stop${open.length ? ` (open: ${open.join(', ')})` : ' (no stop is open that this form answers)'}` };
   const runsDir = dirname(rootDir);
   // the preview of the event a person's answer would write: the gate does not exist yet, so the candidate carries a placeholder gate that is NEVER recorded (the real gate fields come in `apply`)
-  const c = candidatePlanAccept(rootDir, { stopId: stopArg, actor: 'person', via: 'terminal', gate: { gateId: 'preview', shownSha256: '0'.repeat(64) }, runsDir });
+  const c = candidatePlanAccept(rootDir, { stopId: stopArg, actor: 'person', via: 'terminal', gate: { gateId: 'preview', shownSha256: '0'.repeat(64) }, runsDir, work });     // work: the writer re-derives a derivation_refused stop's children (Astra (c)); without it the person's form could never answer one
   if (c.refusal) return { refusal: c.refusal };
   const f = c.facts; const n = f.node; const stop = f.stop;
   const key = `${stop.node}@g${stop.generation}`;
@@ -144,6 +144,6 @@ To approve, type the stop id: ${stop.id}
   return {
     text: terminalSafeMarked(text), expect: stop.id, typedLabel: 'the stop id', formName: `accept the changed plan of ${key} (stop ${stop.id})`,
     after: `${f.revert ? 'The plan is the panel\'s again' : 'The plan is accepted'} for ${key}; stop ${stop.id} is answered. Run \`council tree resume ${rootId}\` to go on; \`council tree status ${rootId}\` shows who accepted it.`,
-    apply: ({ gateId, shownSha256, actor, via }) => acceptChangedPlan(rootDir, { stopId: stop.id, actor, via, gate: { gateId, shownSha256 }, runsDir, facts, expect: { acceptedBodySha256: f.acceptedBodySha256, previousBodySha256: f.previousBodySha256 } }),
+    apply: ({ gateId, shownSha256, actor, via }) => acceptChangedPlan(rootDir, { stopId: stop.id, actor, via, gate: { gateId, shownSha256 }, runsDir, work, facts, expect: { acceptedBodySha256: f.acceptedBodySha256, previousBodySha256: f.previousBodySha256 } }),
   };
 }

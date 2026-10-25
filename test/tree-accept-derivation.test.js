@@ -8,6 +8,10 @@ import { join } from 'node:path';
 import { readTreeRecord, stateOf, TreeRefusal } from '../src/tree-record.js';
 import { runTree } from '../src/tree-run.js';
 import { acceptChangedPlan } from '../src/tree-accept.js';
+import { buildAcceptPlan } from '../src/tree-decide-accept.js';
+import { ROOT_ID } from './helpers/tree-fixture.js';
+import { decideHandler } from '../src/tree-decide.js';
+import { terminal } from './helpers/terminal.js';
 import { trackedRealRoot } from './helpers/temp-trees.js';
 import { pricedChildren, splitMilestoneChildren } from './helpers/child-chains.js';
 import { block3, plan3 } from './helpers/split-fixture.js';
@@ -36,6 +40,23 @@ test('(c) KEPT: the provider\'s plan edited to hold the promised heading is acce
   assert.equal(stateOf(readTreeRecord(r.t.rootDir)).openStops.includes(stop.id), false, 'the stop is answered');
   await runTree(r.t.rootDir, { work: r.t.work, startRun: start });
   assert.equal(stateOf(readTreeRecord(r.t.rootDir)).nodes.has('R/M2@g1'), true, 'the consumer registers against the accepted plan');
+});
+
+// The person's TYPED route (council tree decide --accept-plan --stop): the form and its apply hand the working folder to the writer, whose re-derivation of the held-back children needs it (fix-up to (c), found by the LB group's red).
+const decide = async (r, flags, answers) => {
+  const io = terminal(answers); const timer = setTimeout(() => io.stdin.end(), 8000);
+  const code = await decideHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, flags, work: r.t.work, stdin: io.stdin, stdout: io.stdout, stderr: io.stderr, now: () => Date.now() }).finally(() => clearTimeout(timer));
+  return { code, shown: io.shown(), errors: io.errors() };
+};
+
+test('the person\'s typed accept on a derivation_refused stop accepts a repaired body: `council tree decide --accept-plan --stop` builds the form, the typed stop id records plan_accepted (actor person) with rechecked, and the stop is answered', { timeout: 600_000 }, async () => {
+  const { r, stop, file } = await providerStopped();
+  writeFileSync(file, readFileSync(file, 'utf8').replace('## Store\n', '## Overview\nget(id) and put(record).\n\n## Store\n'));
+  const out = await decide(r, { 'accept-plan': true, stop: stop.id }, [stop.id, 'y']);
+  assert.equal(out.code, 0, out.errors);
+  const acc = eventsOf(r).filter(e => e.event === 'plan_accepted');
+  assert.equal(acc.length, 1); assert.equal(acc[0].actor, 'person'); assert.deepEqual(acc[0].rechecked, ['derivation_refused']);
+  assert.equal(stateOf(readTreeRecord(r.t.rootDir)).openStops.includes(stop.id), false, 'the stop is answered');
 });
 
 test('(c) NARROW: an edit that still lacks the heading is refused and names the child it still cannot feed; nothing is recorded', { timeout: 600_000 }, async () => {

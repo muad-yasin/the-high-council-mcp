@@ -593,7 +593,7 @@ export async function decideHandler({ rootDir, rootId, flags, work, stdin, stdou
   else if (chosen.form === 'close') build = () => buildClose({ rootDir, rootId, nodeArg: chosen.value, facts });
   else if (chosen.form === 'allow-pii-node') build = () => buildAllowPii({ rootDir, rootId, nodeArg: chosen.value });
   else if (chosen.form === 'top-up') build = () => buildTopUp({ rootDir, rootId, nodeArg: chosen.value, amountRaw: flags.amount, work, ceiling });
-  else if (chosen.form === 'accept-plan') build = () => buildAcceptPlan({ rootDir, rootId, stopArg: flags.stop, facts });
+  else if (chosen.form === 'accept-plan') build = () => buildAcceptPlan({ rootDir, rootId, stopArg: flags.stop, facts, work });
   else if (chosen.form === 'amend-cap') build = () => buildAmendCap({ rootDir, rootId, raw: chosen.value, facts, work, ceiling });
   else if (chosen.form === 'accept-chain-limits') build = () => buildAcceptChainLimits({ rootDir, rootId, nameArg: chosen.value, work, facts });
   else if (chosen.form === 'open-root-stop') {
