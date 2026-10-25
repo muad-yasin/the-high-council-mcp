@@ -20,7 +20,8 @@ test('evaluatePolicy: expected over the limit refuses and names both figures; ex
   const policy = { max_usd_per_run: 1 };
   const over = evaluatePolicy(policy, ctx(2, 5));
   assert.equal(over.ok, false); assert.equal(over.warnings.length, 0);
-  assert.match(over.reasons[0], /expected cost .* is \$2\.0000 and its maximum \$5\.0000, over the \$1\.0000 limit/);
+  // CHANGED ACCEPTED (CR-4B-002, 25 Okt 2026; Muad 18 Okt: "upper estimate" replaces "at most" and "maximum"): OLD the refusal's words "and its maximum $5.0000"; NEW "and its upper estimate $5.0000". WHY: the refusal still named the figure "maximum" while the warning below and the dry run print "upper estimate"; one figure, one name (a re-record of the exact sentence, not a loosening).
+  assert.match(over.reasons[0], /expected cost .* is \$2\.0000 and its upper estimate \$5\.0000, over the \$1\.0000 limit/);
   const warn = evaluatePolicy(policy, ctx(0.5, 3));
   assert.equal(warn.ok, true, 'the run is not refused');
   assert.equal(warn.warnings.length, 1);
