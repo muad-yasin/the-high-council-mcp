@@ -1710,7 +1710,8 @@ if (rematchArg) {
     if (bad.length) { console.error(`--rematch: after the seats were reshuffled, ${bad.map(b => `${b.seat}: ${b.reasons.join('; ')}`).join(' | ')}. A rematch never sends a key where the chain itself would not. Nothing was run and nothing was spent.`); process.exit(2); }
   }
   refuseSideRun('--rematch', originalConfig, originalRunMeta);
-  sideGateOrExit(rematchConfig, everySeatOf(rematchConfig), originalRunMeta.cwd || work);
+  // CR-RC-006: the policy file is THIS project's (`work`). The original is directly in work/runs (the placement check above), so `work` is the project that owns the run; the run's recorded folder is gone when the project was moved or renamed, and "no folder, so no policy" would have let the rematch past a monthly limit.
+  sideGateOrExit(rematchConfig, everySeatOf(rematchConfig));
   if (sideDryRun) refuseStray();   // T1-1: a dry run prints after the gate and has no refusal of its own below; a real rematch is checked after its key, price and already-run refusals, further down
   if (sideDryRun) priceSideRunAndExit('--rematch', rematchConfig, join(dirname(originalRunDir), `${basename(originalRunDir)}.rematch-${seed}`));
 
@@ -1740,7 +1741,7 @@ if (rematchArg) {
   const rematchAgain = againCommand(argv.includes('--rematch-seed') ? [] : ['--rematch-seed', String(seed)]);
   const rematchCap = rematchPaid ? await sideLimitOrExit({
     verb: 'rematch', dir: rematchRunDir, runId: rematchRunId, config: rematchConfig, subject: { chain: chainName, task: originalTaskPath }, again: rematchAgain,
-    scopeBaseOf: () => ({ taskSha256: sha256Hex(originalRequest), contextSha256: null, chainSha256: sha256Hex(readFileSync(chainConfigPath)), policySha256: policySha256Of(originalRunMeta.cwd || work), sensitivityFloor: null, piiMode: null }),
+    scopeBaseOf: () => ({ taskSha256: sha256Hex(originalRequest), contextSha256: null, chainSha256: sha256Hex(readFileSync(chainConfigPath)), policySha256: policySha256Of(work), sensitivityFloor: null, piiMode: null }),
   }) : maxUsd;
   setBudgetOrExit(rematchCap); // before armSideRun: setBudget starts the counters again, and the earlier sittings' spend is counted into them
   const rematchSide = armSideRun('--rematch', rematchRunDir, rematchConfig, fingerprintInputs(originalRequest, rematchConfig));
@@ -1852,7 +1853,7 @@ if (argv.includes('--replay')) {
       try { replayConfig = resolveChainSeats(rawReplayConfig); } catch { /* reported by council-replay */ }
       if (replayConfig) {
         refuseSideRun('--replay', replayConfig, runMetaForChain);
-        sideGateOrExit(replayConfig, everySeatOf(replayConfig), runMetaForChain.cwd || work);
+        sideGateOrExit(replayConfig, everySeatOf(replayConfig));   // CR-RC-006: this project's policy file, as for --rematch
         if (sideDryRun) refuseStray();   // T1-1: as for --rematch; a real replay is checked below
         if (sideDryRun) priceSideRunAndExit('--replay', replayConfig, replayDirFor(runDir, date));
         replayPaid = chainIsPaid(replayConfig);
@@ -1886,7 +1887,7 @@ if (argv.includes('--replay')) {
         if (paidNow) {
           const replayCap = await sideLimitOrExit({
             verb: 'replay', dir, runId: basename(dir), config, subject: { chain: config.name, task: runMetaForChain.task }, again: replayAgain,
-            scopeBaseOf: () => ({ taskSha256: sha256Hex(taskText), contextSha256: null, chainSha256: sha256Hex(readFileSync(join(chainsDir, `${runMetaForChain.chain}.json`))), policySha256: policySha256Of(runMetaForChain.cwd || work), sensitivityFloor: null, piiMode: null }),
+            scopeBaseOf: () => ({ taskSha256: sha256Hex(taskText), contextSha256: null, chainSha256: sha256Hex(readFileSync(join(chainsDir, `${runMetaForChain.chain}.json`))), policySha256: policySha256Of(work), sensitivityFloor: null, piiMode: null }),
           });
           setBudgetOrExit(replayCap);
           console.log(`cap:   ${formatUsd(replayCap)} (the limit typed for this replay)`);
