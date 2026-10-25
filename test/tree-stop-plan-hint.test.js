@@ -13,7 +13,8 @@ const screen = codes => renderNeedsDecisionStop(view(codes));      // returns th
 test('E170: a plan_unreadable stop says to put deliverable.md back as the run wrote it, what the sitting compares, and the accept route', () => {
   const text = screen(['plan_unreadable']);
   assert.ok(text.includes("Put deliverable.md of R/M2 back exactly as the run wrote it (in that run's folder): the next `council tree resume` closes this stop by itself when the plan text matches what was recorded (and, where a contract check failed, when that check passes again), and says so."), text);
-  assert.ok(text.includes('A file that was changed is not closed that way: its answers are a new plan (regenerate), abandon, or accepting the change: `council tree decide RID --accept-plan --stop e9`.'), text);
+  // CHANGED ACCEPTED TEST (G7, Fable FINAL T-04, 26 Okt 2026). OLD: 'A file that was changed is not closed that way: its answers are a new plan (regenerate), abandon, or accepting the change: `council tree decide RID --accept-plan --stop e9`.'
+  assert.ok(text.includes('If the change was meant, the stop is not closed that way: its answers are a new plan (regenerate), abandon, or accepting the change with `council tree decide RID --accept-plan --stop e9`.'), text);
 });
 
 test('E170 CONTROL (passes at base too): a stop that holds only report_unreadable keeps its own restore hint and gets no plan hint', () => {

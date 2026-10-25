@@ -51,7 +51,8 @@ test('S7 + S8b + F9-1: a child not admitted for budget names the cap raise on th
   const d = describeFrontier({ rootDir: r.t.rootDir, work: r.t.work, pending });
   const notAdmitted = (d.view.children ?? []).filter(c => c.admitted === false);
   assert.ok(notAdmitted.length, JSON.stringify(d.view.children));
-  for (const c of notAdmitted) assert.match(c.notAdmittedReason ?? c.reason ?? '', /not admitted: budget \(.*; you can raise the tree's cap with council tree decide \S+ --amend-cap <total>\)/);
+  // CHANGED ACCEPTED TEST (G7, Fable FINAL T-16, 26 Okt 2026): the two figures carry their unit. OLD: /not admitted: budget \(.*; you can raise the tree's cap with council tree decide \S+ --amend-cap <total>\)/
+  for (const c of notAdmitted) assert.match(c.notAdmittedReason ?? c.reason ?? '', /^not admitted: budget \(an equal share of the \$\d+\.\d\d still free is under the chain's cheapest end \$\d+\.\d\d; you can raise the tree's cap with council tree decide \S+ --amend-cap <total>\)$/);
   approvePending(r);
   const reasons = readinessOf(r.t.rootDir, { work: r.t.work }).reasons.filter(x => x.code === 'unexpanded');
   assert.ok(reasons.some(x => /\(it was not admitted for budget: raise the tree's cap with `council tree decide \S+ --amend-cap <total>`, then `council tree approve \S+` offers it again\)/.test(x.text)), JSON.stringify(reasons));
