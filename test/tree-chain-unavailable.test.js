@@ -2,7 +2,8 @@
 // rejects `tree resume`. Two variants: a child chain at registration, and the root chain when an approved root re-plan registers. All-mock, $0; the chain files live in the working folder's chains/, where the CLI looks first.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { resumeHandler } from '../src/tree-resume.js';
@@ -38,4 +39,18 @@ test('T18 root variant (D3 F18 correction): the ROOT chain edited after a root r
   assert.match(r.text, /R was not registered \(chain\): the root chain cannot be read: the chain file depth2-root\.json is not the one the tree registered/, r.text);
   assert.ok(r.text.includes(S13(S.rootId)), r.text);
   assert.equal(S.state().nodes.has('R@g2'), false);
+});
+
+test('fix-up ON TOP of 56a6bba4 (CR-G2-002 class): a child chain file that is GONE is refused with no absolute path in the printed text or in the refusal the tree record keeps (the folder named by its role)', { timeout: 400_000 }, async () => {
+  const r = await trackedRealRoot(pricedChildren());
+  approvePending(r);
+  const file = join(r.t.work, 'chains', 'priced-debate.json'); renameSync(file, `${file}.away`);
+  const out = new PassThrough(); const err = new PassThrough(); const buf = []; out.on('data', d => buf.push(String(d))); err.on('data', d => buf.push(String(d)));
+  const code = await resumeHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, work: r.t.work, stdout: out, stderr: err, deps: { startRun: draftStarter(r) } });
+  const text = buf.join('');
+  assert.equal(code, 1, text);
+  assert.match(text, /was not registered \(chain\): the chain file priced-debate\.json is not in the working folder's chains\/ or the package\./, text);
+  const recorded = readTreeRecord(r.t.rootDir).events.filter(e => e.event === 'blocked' && e.check === 'chain').map(e => e.detail);
+  assert.ok(recorded.length, 'the refusal is recorded');
+  for (const t of [text, ...recorded]) assert.ok(!t.includes(r.t.work) && !t.includes(tmpdir()), `no absolute path: ${t.slice(0, 400)}`);
 });

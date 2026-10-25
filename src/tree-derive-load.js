@@ -61,7 +61,7 @@ export function loadChainConfig({ tree, depth, work }) {
   const entry = tree.chains.find(c => c.depth === Math.min(depth, 2));
   if (!entry) throw new ChainUnavailable(`tree.json names no chain for depth ${depth}`);
   const path = [join(work, 'chains', `${entry.name}.json`), join(PKG_CHAINS, `${entry.name}.json`)].find(existsSync);
-  if (!path) throw new ChainUnavailable(`the chain ${entry.name} is not in ${join(work, 'chains')} or the package.${outdatedChainHint(entry.name)}`);
+  if (!path) throw new ChainUnavailable(`the chain file ${entry.name}.json is not in the working folder's chains/ or the package.${outdatedChainHint(entry.name)}`);       // fix-up ON TOP of 56a6bba4 (CR-G2-002 class, A-DRAFT): the folder by its role, never its absolute path - since D2 F18 this sentence is a refusal detail written to the tree record and returned to an MCP session
   if (configSha256(path) !== entry.sha256) { const words = limitsOnlyWords({ tree, entry, path }); throw new ChainUnavailable(`the chain file ${basename(path)} is not the one the tree registered (sha256 differs)${words ? `; ${words}` : ''}`); }
   return { name: entry.name, sha256: entry.sha256, config: JSON.parse(readFileSync(path, 'utf8')) };
 }
