@@ -19,13 +19,15 @@ const RUN = '2026-10-18T07-00-00-000Z';
 const hex = c => c.repeat(64);
 const parts = seats => ({ taskSha256: hex('a'), contextSha256: null, chainSha256: hex('b'), seats, policySha256: null, sensitivityFloor: null, piiMode: 'warn', userPrices: [] });
 
-test('SM-1 (CR-5B-004): the scope of seats that all name a model hashes exactly as it did before (a literal digest computed on the code before the change); a seat with no model is null in the scope and changes the digest', () => {
+test('SM-1 (CR-5B-004): the scope of seats that all name a model hashes exactly as it did before (a literal digest computed on the code before the change); a seat with no model is null in the scope and changes the digest (and the function itself still refuses a model that is neither)', () => {
   const withModels = buildStartScope(parts([{ role: 'critic', provider: 'openrouter', model: 'qwen/qwen3.7-plus' }, { role: 'builder', provider: 'mock', model: 'mock-builder' }]));
   assert.equal(capScopeSha256(withModels), '10dfe1ca8e9f66aa03ce69fa1373e39bce43aaa382a756c3a07a19259a3d1ccf', 'byte-identical to the scope before the change');
   const noModel = buildStartScope(parts([{ role: 'critic', provider: 'openrouter', model: 'qwen/qwen3.7-plus' }, { role: 'builder', provider: 'external', model: null }]));
   assert.deepEqual(noModel.seats[1], { role: 'builder', provider: 'external', model: null });
   assert.notEqual(capScopeSha256(noModel), capScopeSha256(withModels));
-  assert.throws(() => buildStartScope(parts([{ role: 'builder', provider: 'external', model: 7 }])), /seats must be/, 'a model that is neither a string nor null is still refused');
+  // buildStartScope ITSELF still refuses a model that is neither a string nor null. From the CLI that case never reaches it: capGateOrExit maps any non-string model to null first (a throw there would bring back a crash after the run folder exists), so a
+  // malformed model type is for the chain lint to refuse, which has no such rule in 0.8.3.
+  assert.throws(() => buildStartScope(parts([{ role: 'builder', provider: 'external', model: 7 }])), /seats must be/, 'buildStartScope itself refuses a model that is neither a string nor null');
 });
 
 test('SM-2 (real verbs): a paid chain with an external seat that names no model reaches the typed-limit screen (exit 21), takes the typed limit and goes on to pause at the external seat (exit 3), instead of crashing with a TypeError', async () => {
