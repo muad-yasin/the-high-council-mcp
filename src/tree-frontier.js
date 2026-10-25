@@ -88,7 +88,8 @@ export function dependencyOrder(parentNode, block) {
 }
 
 /** The refusals of the loop that the person answers by approving again: what the approval was shown is no longer what would start (src/tree-loop.js registerNextChild). */
-export const REOPEN_CHECKS = Object.freeze(['held_changed', 'split_changed', 'ceiling_changed']);
+// admission_changed (D2 F9a, B14a/b): a child the approved preview admitted was refused admission at registration (a limit or the budget moved): the frontier waits for a new approval that shows it with today's numbers
+export const REOPEN_CHECKS = Object.freeze(['held_changed', 'split_changed', 'ceiling_changed', 'admission_changed']);
 /**
  * Does this frontier wait for a person again? ONE function for every reason an earlier approval no longer covers what would start:
  *  - the loop refused it since its latest approval for a reason a new approval answers (held_changed, split_changed, ceiling_changed: blocked records that carry its frontierKey);
@@ -346,7 +347,7 @@ export function describeFrontier({ rootDir, work, rootTaskPath, pending }) {
     else if (unstartedOf(x)) { admitted = false; refusedBy = 'closed_unstarted'; reason = 'not admitted: closed before it started (a person closed it; it starts only as a new generation)'; }
     else if (admitted && !x.d.startable) { admitted = false; refusedBy = 'no_criteria'; reason = 'not admitted: no acceptance item is left after the guards (a run needs a criteria list)'; }       // A-DRAFT (BUG-B-006; mirrors tree-loop.js `no_criteria`, which refused it only AFTER the approval); it takes no share of the free money either (grantable above)
     else if (admitted && !x.figures) { admitted = false; reason = 'not admitted: price pending preparation (the child chain has no dry-run figure yet)'; }
-    else if (admitted && (!g.admitted || floorCents(g.grantUsd) + MONEY_EPS < x.figures.cheapestUsd)) { admitted = false; refusedBy = 'budget'; reason = `not admitted: budget (an equal share of the ${budget.availableUsd.toFixed(2)} still free is under the chain's cheapest end ${x.figures.cheapestUsd.toFixed(2)})`; }
+    else if (admitted && (!g.admitted || floorCents(g.grantUsd) + MONEY_EPS < x.figures.cheapestUsd)) { admitted = false; refusedBy = 'budget'; reason = `not admitted: budget (an equal share of the ${budget.availableUsd.toFixed(2)} still free is under the chain's cheapest end ${x.figures.cheapestUsd.toFixed(2)}; you can raise the tree's cap with council tree decide ${basename(rootDir)} --amend-cap <total>)`; }     // D2 F9b S7 (A-DRAFT): the way out the root route already names
     const items = x.d.obligationMap.items;
     const agreementOf = (a, own) => ({ id: a.id, [own]: childNode(parent.node, block.children.find(k => k.id === (own === 'to' ? a.to : a.from)).milestone), what: a.what, check: a.integration_check });
     const mine = ids => (block.agreements ?? []).filter(a => ids.includes(a.id));

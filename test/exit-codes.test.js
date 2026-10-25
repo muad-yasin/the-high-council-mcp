@@ -26,7 +26,8 @@ test('the tree\'s "stopped for a person" code is one number in src/cli.js and sr
   assert.equal(fromCli, EXIT_STOPPED_FOR_PERSON); assert.ok(![0, 1].includes(EXIT_STOPPED_FOR_PERSON));
   const src = readFileSync(join(root, 'src', 'tree-resume.js'), 'utf8');
   assert.match(src, /const EXIT_OF = \{ held_by_stop: EXIT_STOPPED_FOR_PERSON, limit_reached: EXIT_STOPPED_FOR_PERSON, awaiting_choice: EXIT_STOPPED_FOR_PERSON, /);
-  assert.equal((src.match(/EXIT_STOPPED_FOR_PERSON/g) ?? []).length, 6, 'the constant, its three mappings, the blocked rule and the waiting approval');
+  // CHANGED ACCEPTED (lane T, G3+4, D3 F9-1): OLD 6. NEW 7: a sitting with nothing to do while an approved child (or new root plan) waits for money it was not admitted for exits 20 too (the person raises the cap; tree-admission-reopen.test.js pins the exit)
+  assert.equal((src.match(/EXIT_STOPPED_FOR_PERSON/g) ?? []).length, 7, 'the constant, its three mappings, the blocked rule, the waiting approval and the money wait');
 });
 
 test('a blocked tree exits 20 when a person can act (root_affected, parent_changed) and 1 when something is broken (record_corrupt, an unknown reason, none)', async () => {

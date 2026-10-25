@@ -30,6 +30,7 @@ import { detectIntegrationStops, detectStops } from './tree-detect.js';
 import { computeReadiness, recordReadinessAfter } from './tree-readiness.js';
 import { openBlockedChildStops } from './tree-blocked-child.js';
 import { UNCHECKED_WHY, restoreClosedStops } from './tree-restore.js';
+import { waitingForMoney } from './tree-budget.js';
 import { rootRemedies } from './tree-decide-stop.js';
 import { findPendingFrontier } from './tree-frontier.js';
 import { needsDecisionStopText, sittingFacts } from './tree-stop-view.js';
@@ -239,7 +240,9 @@ async function sitting(rootDir, { work, startRun, resumeRun, facts, now, rootTas
     const approvalWaits = pendingFrontier !== null;                  // a frontier (a replacement included) waits for `council tree approve`
     const replacementWaits = pendingFrontier?.openedBy != null;      // ... and it is a REPLACEMENT
     if (held.length || state.openStops.length) return result('held_by_stop', { approvalWaits, replacementWaits, stopIds: state.openStops, blockedStopIds: state.openStops.filter(id => record.events.find(e => e.id === id)?.source === 'blocked'), openStopsInfo: state.openStops.map(id => record.events.find(e => e.id === id)).filter(Boolean).map(e => ({ id: e.id, source: e.source ?? null, node: e.node ?? null, child: e.child?.node ?? (e.source === 'bundle_input' ? e.node : null) })), held: held.map(w => ({ node: w.node, why: w.why, sources: w.sources ?? [] })), waiting: next.waiting, awaitingApproval: next.awaitingApproval });
-    return result('nothing_to_do', { approvalWaits, replacementWaits, waiting: next.waiting, awaitingApproval: next.awaitingApproval });
+    // D3 F9-1: an approved child (or new root plan) that was NOT admitted for budget waits for money: the sitting names that way on (S8) and exits 20, never a 0 that a script reads as "done"
+    const refusedForBudget = waitingForMoney(record, state).filter(w => w.kind === 'refused').map(w => w.key);
+    return result('nothing_to_do', { approvalWaits, replacementWaits, waiting: next.waiting, awaitingApproval: next.awaitingApproval, ...(refusedForBudget.length ? { refusedForBudget } : {}) });
   }
   return result('limit_reached');
 }

@@ -63,7 +63,7 @@ export function registerChildAdmitted(rootDir, child, { now, facts } = {}) {
     const record = readTreeRecord(rootDir);
     const refuse = (reason, check, detail) => {
       appendTreeEventLocked(rootDir, { event: 'blocked', reason, scope: key, transition: 'node_registered', ...(check ? { check } : {}), detail }, { facts, now });
-      throw new TreeRefusal({ code: reason, transition: 'node_registered', reason: detail });
+      throw new TreeRefusal({ code: reason, transition: 'node_registered', reason: detail, check });
     };
     if (record.corrupt.length || !record.tree) return appendTreeEventLocked(rootDir, { event: 'node_registered', attempt: 1, depth: depthOf(child.node), parentNode: parentOf(child.node), ...child }, { facts, now });   // throws record_corrupt / not started
     const gate = gateTree(rootDir, { record });

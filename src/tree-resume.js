@@ -91,6 +91,8 @@ function sittingBody(res, rootId) {
       for (const w of res.waiting ?? []) L.push(`  ${w.node} waits: ${w.why.join('; ')}`);
       for (const k of res.awaitingApproval ?? []) L.push(`  A frontier (${k.slice(0, 12)}) waits for your approval: run \`council tree approve ${rootId}\`.`);
       if (res.approvalWaits && !(res.awaitingApproval ?? []).length) L.push(`  A frontier waits for your approval: run \`council tree approve ${rootId}\`.`);
+      // D3 F9-1 with D2 S8 (A-DRAFT): what was approved but not admitted for budget, and the way on
+      for (const k of res.refusedForBudget ?? []) L.push(k.startsWith('R@g') ? `  R: the new root plan (${k}) was approved but not admitted for budget: raise the tree's cap with \`council tree decide ${rootId} --amend-cap <total>\`, then \`council tree approve ${rootId}\` offers it again.` : `  ${k} was approved but not admitted for budget: raise the tree's cap with \`council tree decide ${rootId} --amend-cap <total>\`, then \`council tree approve ${rootId}\` offers it again.`);
       break;
     case 'held_by_stop':
       L.push(res.started.length ? `${res.started.length} run${res.started.length === 1 ? '' : 's'} went through this sitting (${res.started.map(s => s.node).join(', ')}), and then it stopped: an open stop holds ${res.held.length === 1 ? 'a node' : 'nodes'} back, so this is NOT finished.` : 'Nothing could start: an open stop holds back what is left, so this is NOT finished.');
@@ -179,6 +181,7 @@ export function exitCodeOf(sitting) {
   if (sitting.status === 'blocked') return (sitting.reasons ?? []).length && sitting.reasons.every(r => r === 'root_affected' || r === 'parent_changed') ? EXIT_STOPPED_FOR_PERSON : 1;
   // an approval that waits (a replacement frontier or an ordinary first split) is a human gate: 0 would let a script read "done" there (C&C, 9 Oct)
   if (sitting.status === 'nothing_to_do' && sitting.approvalWaits === true) return EXIT_STOPPED_FOR_PERSON;
+  if (sitting.status === 'nothing_to_do' && (sitting.refusedForBudget ?? []).length) return EXIT_STOPPED_FOR_PERSON;      // D3 F9-1: money is the person's to raise
   return EXIT_OF[sitting.status] ?? 1;
 }
 

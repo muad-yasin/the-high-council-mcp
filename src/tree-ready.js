@@ -409,6 +409,8 @@ export function verdictOf(facts) {
 
   function judgeNode(n, k) {
     // S8 (C&C 12 Oct: one mechanism, no second code): the same reason for the ROOT, with wording that names the way on - a person decided a new root plan and its run is not registered yet (valid once S8-5 builds `council tree approve` for it)
+    // D2 F9c S8 (A-DRAFT): a new root plan an approved preview did NOT admit for budget waits for money, not for an approval ("Nothing waits" until money comes back): name the way out
+    if (n.nextGeneration && n.node === 'R' && refusedForBudget(facts, `R@g${n.nextGeneration}`)) { incomplete('generation_pending', k, `R: the new root plan (R@g${n.nextGeneration}) was approved but not admitted for budget: raise the tree's cap with \`council tree decide ${facts.treeId ?? '<root>'} --amend-cap <total>\`, then \`council tree approve ${facts.treeId ?? '<root>'}\` offers it again`); return; }
     if (n.nextGeneration) { incomplete('generation_pending', k, n.node === 'R' ? `R: a new root plan (R@g${n.nextGeneration}) was decided and its run is not registered yet: run \`council tree approve ${facts.treeId ?? '<root>'}\`` : `${n.node}: generation ${n.nextGeneration} was opened and is not registered yet`); return; }
     // staleness is about the record (a provider moved, a stop put the node in question), so it is read whatever state the node's own run is in
     for (const p of n.providers) {
@@ -448,7 +450,7 @@ export function verdictOf(facts) {
       if (m.status === 'ready') settled = true;
       else if (m.status === 'decompose') {
         const child = byPath.get(childNode(placeOfFact(n), m.id));
-        if (!child) incomplete('unexpanded', k, `${k}: milestone ${m.id} is decompose and its child ${childNode(placeOfFact(n), m.id)} is not registered${limitNote(facts, n, childNode(placeOfFact(n), m.id))}`);
+        if (!child) incomplete('unexpanded', k, `${k}: milestone ${m.id} is decompose and its child ${childNode(placeOfFact(n), m.id)} is not registered${limitNote(facts, n, childNode(placeOfFact(n), m.id))}${refusedForBudget(facts, childNode(placeOfFact(n), m.id)) ? ` (it was not admitted for budget: raise the tree's cap with \`council tree decide ${facts.treeId ?? '<root>'} --amend-cap <total>\`, then \`council tree approve ${facts.treeId ?? '<root>'}\` offers it again)` : ''}`);     // D2 F9c S8b (A-DRAFT)
         // whether the child is ready is known only after every node is judged: settled below, bottom-up
       } else if (m.status === 'needs-decision') {
         settled = split.resolved.includes(m.id);
@@ -493,6 +495,11 @@ export function verdictOf(facts) {
     if (!changed) break;
   }
   return answer(reasons, milestones.map(({ _child, _place, ...m }) => m), facts.nodes, facts.integrations ?? []);
+}
+
+/** D2 F9c: an approved preview refused this key (node@gN) or path (any generation) for budget, and it is still not registered: the cap facts' own list (src/tree-budget.js waitingForMoney). */
+function refusedForBudget(facts, keyOrPath) {
+  return (facts.cap?.waiting ?? []).some(w => w.kind === 'refused' && (w.key === keyOrPath || w.key.startsWith(`${keyOrPath}@g`)));
 }
 
 function limitNote(facts, n, childPath) {

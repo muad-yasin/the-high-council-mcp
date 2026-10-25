@@ -37,10 +37,11 @@ const sleepSync = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0
 
 /** A refused transition or an unusable record. The CLI turns it into exit 19 (EXIT_TREE_REFUSED). `code` is 'transition_refused', 'record_corrupt', or another blocked reason. */
 export class TreeRefusal extends Error {
-  constructor({ code, transition = null, reason }) {
+  constructor({ code, transition = null, reason, check = null }) {
     super(`tree refused${transition ? ` ${transition}` : ''} (${code}): ${reason}`);
     this.name = 'TreeRefusal';
     this.code = code; this.transition = transition; this.reason = reason;
+    this.check = check;       // in memory only (D2 F9a): the refusing writer's own check word, e.g. 'admission' for a limit or the budget (never written beyond the `blocked` line the writer already appended)
   }
 }
 

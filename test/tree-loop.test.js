@@ -294,7 +294,8 @@ test('a provider that split but whose handoff did not reproduce its block is not
 test('fail closed: a child the grant formula does not admit now gets no grant (a tampered preview that admits all three under a root cap of 9 cannot register any: three equal shares are 3.00, under the chain\'s cheapest 4.119; was 3.20 before the system text was counted)', async () => {
   const t = await treeWith({ cap: 9, tweak: p => { for (const c of p.children) { c.admitted = true; delete c.reason; c.capUsd = 3.3; } return p; } });
   const r = registerNextChild(t.rootDir, { work: t.work });
-  assert.equal(r.kind, 'refused'); assert.equal(r.check, 'continuation_refused'); assert.match(r.detail, /not admitted: budget/);
+  // CHANGED ACCEPTED (lane T, G3+4, D2 F9a): OLD check 'continuation_refused'. NEW 'admission_changed': the preview admitted the child and registration refused it for budget, so the frontier waits for a new approval (a reopen line); it still registers nothing
+  assert.equal(r.kind, 'refused'); assert.equal(r.check, 'admission_changed'); assert.match(r.detail, /not admitted: budget/);
   assert.equal(stateOf(readTreeRecord(t.rootDir)).nodes.has('R/M1@g1'), false, 'nothing was registered');
   assert.ok(eventsOf(t.r).some(e => e.event === 'blocked' && e.scope === 'R/M1@g1' && /not admitted: budget/.test(e.detail)));
 });

@@ -356,6 +356,9 @@ export function registerNextChild(rootDir, { work, rootTaskPath = rootTaskPathOf
     return { kind: 'registered', node, runId, grantUsd, event, bundleDir: bundle.dir };
   } catch (e) {
     if (!(e instanceof TreeRefusal)) throw e;
+    // D2 F9a (B14a/b): a child its approved preview ADMITTED is refused admission now (a limit or the budget; accounting_blocked is not one): the frontier waits for a new approval that shows it with today's numbers, through
+    // the reopen line (REOPEN_CHECKS: written every time it happens). Without it the approval stayed valid, nothing was offered and the refused child waited for nothing.
+    if (e.check === 'admission') return refuse('admission_changed', e.reason);
     return { kind: 'refused', node, check: e.code, detail: e.reason };                   // admission already wrote its `blocked` record
   }
 }
