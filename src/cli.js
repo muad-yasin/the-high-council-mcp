@@ -1648,14 +1648,15 @@ if (rematchArg) {
   // CR-RM-003: only an original run can be rematched. The folder the rematch would make has to be a name the spend and status readers recognise (RUN_FOLDER, the same regex they use): `<id>.rematch-5.rematch-7` and `<id>-init.rematch-7` are
   // not, so their spend would be invisible to --spend, --cost-today and the limits. A rematch folder also records `rematchOf`. (A --replay folder has no run.json at all, so it is refused above.)
   if (originalRunMeta.rematchOf || !RUN_FOLDER.test(`${basename(originalRunDir)}.rematch-${seed}`)) {
-    console.error(`--rematch: ${basename(originalRunDir)} cannot be rematched: only a finished run with a plain run id can, because the spend of a rematch of anything else would not show in --spend or the spending limits. Rematch the original run instead. Nothing was run and nothing was spent.`);
+    console.error(`--rematch: ${basename(originalRunDir)} cannot be rematched: only a finished run whose folder is named by its start time (like 2026-10-25T18-37-06-737Z) can, because the spend of a rematch of anything else would not show in --spend or the spending limits. Rematch the original run instead. Nothing was run and nothing was spent.`);
     process.exit(2);
   }
 
   // CR-RM-001: the task is read where the original run read it (run.json `cwd`, as the side-run gate and the report below already do) and must be the bytes the original run started with (its recorded taskHash, the way --replay checks):
   // an edited task would be paid for and the board would blame the panel for a change of input, and a rematch only ever sends the task text the original start checked for personal data and keys. A run.json from before taskHash existed has none to compare.
   const originalTaskPath = originalRunMeta.task;
-  // run.json `cwd` first; a project folder that was moved or renamed since has no such folder, and the task is then looked up in the folder the command runs from. Either way the recorded hash below decides: the same bytes rematch, a different file is refused.
+  // A run started today records its task path ABSOLUTE, and an absolute path is used as it is. The lookup below serves an older RELATIVE record: run.json `cwd` first, and the folder the command runs from when that folder is gone. Either way the recorded hash
+  // below is what decides: the same bytes rematch, a different file is refused. (A project folder that was moved or renamed breaks an absolute record for --resume and --replay too: one rule for all three verbs is a 0.8.4 item.)
   const originalTaskDir = originalRunMeta.cwd && existsSync(originalRunMeta.cwd) ? originalRunMeta.cwd : work;
   const originalTaskFile = originalTaskPath ? resolve(originalTaskDir, originalTaskPath) : null;
   if (!originalTaskPath || !existsSync(originalTaskFile)) {

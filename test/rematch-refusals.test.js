@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve, dirname, basename } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'cli.js');
@@ -42,7 +42,7 @@ test('RM-3: a rematch folder, or a folder whose rematch name the readers would n
   const before = runs(dir);
   const again = sh(dir, ['--rematch', join('runs', `${id}.rematch-5`), '--rematch-seed', '7']);
   assert.equal(again.status, 2, again.stdout + again.stderr);
-  assert.match(again.stderr, /--rematch: .*cannot be rematched: only a finished run with a plain run id can, because the spend of a rematch of anything else would not show in --spend or the spending limits\. Rematch the original run instead\. Nothing was run and nothing was spent\./);
+  assert.match(again.stderr, /--rematch: .*cannot be rematched: only a finished run whose folder is named by its start time \(like 2026-10-25T18-37-06-737Z\) can, because the spend of a rematch of anything else would not show in --spend or the spending limits\. Rematch the original run instead\. Nothing was run and nothing was spent\./);
   assert.deepEqual(runs(dir), before, 'no folder was made');
   // `<id>-init` is a run folder name the readers know, but `<id>-init.rematch-7` is not one.
   cpSync(join(dir, 'runs', id), join(dir, 'runs', `${id}-init`), { recursive: true });
@@ -63,22 +63,21 @@ test('RM-1: an edited task is refused (exit 2, nothing made); the unedited task 
   writeFileSync(join(dir, 'tasks', 'smoke.md'), TASK);
   const originalSha = JSON.parse(readFileSync(join(dir, 'runs', id, 'report.json'), 'utf8')).task_sha256;
   assert.equal(sh(dir, ['--rematch', join('runs', id), '--rematch-seed', '3']).status, 0, 'the restored task runs');
-  // From another working folder, with a DIFFERENT file at the same relative path there: the task is the original run's own (run.json cwd), not the one in the folder the command runs from.
+  // From another working folder, with a DIFFERENT file at the same relative path there: the task is the original run's own (the recorded task path is absolute), not the one in the folder the command runs from. A regression guard, not a red: the old source reads the same file.
   const other = mkdtempSync(join(tmpdir(), 'thc-rematch-other-')); mkdirSync(join(other, 'tasks'));
   writeFileSync(join(other, 'tasks', 'smoke.md'), 'A different task that must not be sent.\n');
   const far = sh(other, ['--rematch', join(dir, 'runs', id), '--rematch-seed', '4']);
   assert.equal(far.status, 0, far.stdout + far.stderr);
   const rematchReport = JSON.parse(readFileSync(join(dir, 'runs', `${id}.rematch-4`, 'report.json'), 'utf8'));
   assert.equal(rematchReport.task_sha256, originalSha, 'the rematch sent the original run\'s task bytes');
-  assert.ok(basename(dir));
 });
 
 test('RM-1 (moved project): when the recorded folder no longer exists the task is looked up where the command runs; the same bytes rematch, a changed file is still refused', () => {
   const { dir, id } = original();
   const moved = `${dir}-moved`; renameSync(dir, moved);          // the project folder was renamed: run.json `cwd` names a folder that is gone
   assert.equal(existsSync(dir), false);
-  // A run started today records its task path ABSOLUTE (the old folder, which a rename leaves dangling: "original task file not found", unchanged). The fallback is for a RELATIVE recorded path, the older record shape, which no verb writes
-  // any more - so run.json is edited by hand here, and the report says so.
+  // A run started today records its task path ABSOLUTE (the old folder, which a rename leaves dangling: "original task file not found", unchanged). The cwd lookup serves a RELATIVE recorded path, the older record shape, which no verb writes
+  // any more - so run.json is edited by hand here to reproduce it.
   const metaPath = join(moved, 'runs', id, 'run.json'); const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
   writeFileSync(metaPath, JSON.stringify({ ...meta, task: 'tasks/smoke.md' }, null, 2));
   const ok = sh(moved, ['--rematch', join('runs', id), '--rematch-seed', '6']);
