@@ -129,7 +129,8 @@ export const EVENT_OPTIONAL = Object.freeze({
   // member verb, the conflict ask: `--prevail-node` records choice 'prevail' with one pick per conflict the decider asked about: [{ n, prevail: <objection id> | 'neither' }]
   node_choice: { picks: v => Array.isArray(v) && v.length > 0 && v.every(p => p && typeof p === 'object' && Number.isInteger(p.n) && typeof p.prevail === 'string' && p.prevail !== '') },
   // S8 held state: the child paths the verified block names (see src/tree-expansion.js verifySplit); absent in a record written before it, which reads as 'unknown' (a node whose children are unknown is never held)
-  split_verified: { children: v => Array.isArray(v) && v.every(isNodePath) },
+  // resolvedRefs (CR-2E-003, C&C 25 Okt 2026): what each child's context_refs resolved to when the split was verified, { child, sha256 } in the block's order (src/tree-expansion.js verifySplit); absent on a split verified before 0.8.3's reference check
+  split_verified: { children: v => Array.isArray(v) && v.every(isNodePath), resolvedRefs: v => Array.isArray(v) && v.every(x => isObj(x) && isStr(x.child) && isSha(x.sha256)) },
   // S8 (the root re-plan, rulings row 130): `kind` is 'split' when absent (every record before S8); a 'root_replan' frontier has NO parent (the four parent fields are null) and names the decision that opened it (`openedBy`)
   // K8 (C2a-record commit 4): `candidates` = the kept candidates' fates beside the children ([{ key, fate, reason }]); optional, inside boundSha256 once C2b's writer emits it
   frontier_previewed: { boundSha256: isStr, kind: v => v === 'split' || v === 'root_replan', openedBy: isStr, candidates: v => Array.isArray(v) && v.every(c => isObj(c) && isStr(c.key) && isStr(c.fate) && isStr(c.reason)) },       // C3: `reason` holds a fate CODE (same, scope, acceptance, branch_not_whole, slot_filled, no_slot, not_compared, ...), never words; the words are built from it at print time

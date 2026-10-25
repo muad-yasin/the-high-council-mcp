@@ -22,10 +22,12 @@
 //     ready_for_build + no finding; partial + exactly status_not_ready, only when the node's split has a `decompose` milestone; needs_decision + exactly status_not_ready, only when it has a `needs-decision` milestone.
 //   Item 3: `contract check` exits 0 (the command's own function, contractCheckOf; any other exit, or one that cannot run, is blocked).
 //   Item 1: every milestone of a node's VERIFIED split (a split_verified record naming the sha256 of the block on disk) is settled (above). A node whose plan holds a split fence but has no split_verified is
-//   `split_not_verified` (incomplete), or `expansion_refused` (blocked) when a refusal was recorded for it AFTER its last verification (or with none): a refusal older than a later verification is history.
+//   `split_not_verified` (incomplete), or `expansion_refused` (blocked) when a refusal was recorded for it and it has no verification: once a split_verified exists, no refusal record counts (D2 F3: what `tree approve` meets later is
+//   read live, never as the plan's verdict).
 //   Item 5: no node is stale (the fold's stale marks, or a registered dependsOn whose provider now has a newer generation: stale/incomplete; or whose thin-contract pin differs: provider_pin/blocked), stopped at
 //   its cap, still running, or closed incomplete by a person; no needs_decision stop is open; no sticky tree block (record_corrupt, parent_changed, root_affected); the accounting gate (gateTree) passes.
-//   Which `blocked` RECORDS count: only expansion_refused for a node, as above, and the sticky reasons. transition_refused, continuation_refused and accounting_blocked records are refused requests that change
+//   Which `blocked` RECORDS count: only expansion_refused for a node, as above, and the sticky reasons. A derivation refusal (transition 'derivation') is never counted as recorded: it is a TRIGGER for a live re-derivation of the
+//   unregistered child, and a refusal of a plan's own text found NOW is `derivation_refused` (blocked) at the node whose text failed (D2 F2; facts.derivationRefused). transition_refused, continuation_refused and accounting_blocked records are refused requests that change
 //   nothing (tree-transitions.js), so one stray resume cannot freeze readiness; the accounting gate is read live instead.
 //   Item 4 (HELD ITEMS): every agreement of a verified split (its integration_check), every check_not_enforced item and every obligation carried in context only (deduplicated by obligation identity, not by carrier)
 //   is a reason `integration_unrecorded` / `held_unrecorded` (incomplete) until a person records a result. M6 S2: an AGREEMENT's result is counted only as `council tree check` writes it (src/tree-check.js): the NEWEST
@@ -45,13 +47,14 @@ import { canonicalJson, sha256Of } from './thin-contract.js';
 import { readRunJson, trustedRunDir } from './run-files.js';
 import { contractCheckOf } from './run-contract-check.js';
 import { readTreeRecord, stateOf } from './tree-record.js';
-import { deadKeys, isSupersededGeneration, latestByPath, latestGenerationOf, liveNodesOf, orphansOf, placeOf, planAuthorityOf } from './tree-transitions.js';
+import { approvalValid, deadKeys, isSupersededGeneration, latestByPath, latestGenerationOf, liveNodesOf, orphansOf, placeOf, planAuthorityOf } from './tree-transitions.js';
 import { childNode, depthOf, nodeKey, obligationKey } from './tree-identity.js';
 import { qualify } from './tree-qid.js';
 import { isWithin, statusPolicyOk } from './tree-deps.js';
-import { readNodePlan, readPlanOf } from './tree-derive-load.js';
+import { loadDerivation, readNodePlan, readPlanOf } from './tree-derive-load.js';
 import { extractSplitBlocks, splitSha256 } from './tree-split.js';
-import { itemText } from './tree-derive.js';
+import { DeriveRefusal, deriveChild, itemText } from './tree-derive.js';
+import { rootTaskPathOf } from './tree-root-task.js';
 import { budgetOf, capFactsOf, effectiveLimits, gateTree } from './tree-budget.js';
 
 export const VERDICTS = Object.freeze(['ready', 'incomplete', 'blocked']);
@@ -253,7 +256,10 @@ export function gatherReadinessFacts(rootDir, { work, deny = null } = {}) {
         const fences = extractSplitBlocks(plan.plan.text);
         if (fences.length) {
           const verified = n.verifiedSplit ?? null;
-          const after = record.events.filter(e => e.event === 'blocked' && e.reason === 'expansion_refused' && e.transition === 'expansion' && e.scope === key && idNum(e.id) > idNum(verified?.id ?? 'e0'));
+          // D2 F3 (CR-2I-001; C&C accepted the rule, 25 Okt 2026): a refusal counts only while the node has NO split_verified (a verify-time refusal of the plan's own output). After the verification every cause is read LIVE (the accounting
+          // gate, the contract check, the plan's readability, a changed split, the ancestors), so a refusal `tree approve` met at that moment (transition 'approval' since 0.8.3; 'expansion' in records written before it, the only writer
+          // of that word after a verification) is history: it was never the plan's verdict, and a plan that was never wrong is not held against it.
+          const after = verified ? [] : record.events.filter(e => e.event === 'blocked' && e.reason === 'expansion_refused' && e.transition === 'expansion' && e.scope === key);
           fact.split = {
             readable: !!plan.block, sha256: plan.block ? splitSha256(plan.block) : null, verifiedSha256: verified?.sha ?? null,
             refusals: after.map(e => ({ check: String(e.check ?? ''), detail: String(e.detail ?? '') })),
@@ -282,12 +288,45 @@ export function gatherReadinessFacts(rootDir, { work, deny = null } = {}) {
   let cap = null;                                                                             // gate page 13: what waits for money and whether the CAP is what it waits for (null = not computable: the gate cannot be read)
   try { const g = gateTree(rootDir, { record }); accounting = { ok: g.ok === true, problems: (g.problems ?? []).map(p => ({ code: String(p.code), detail: String(p.detail) })) }; try { cap = capFactsOf(record, budgetOf(rootDir, { record, gate: g })); } catch { cap = null; } } catch (e) { accounting = { ok: false, problems: [{ code: 'gate_unreadable', detail: String(e.message) }] }; }
   return {
-    problems, treeId: state.treeId, sticky: [...state.sticky.keys()], accounting, cap,
+    problems, treeId: state.treeId, sticky: [...state.sticky.keys()], accounting, cap, derivationRefused: derivationRefusalsOf({ rootDir, record, state, runsDir, work, liveNodes }),
     openStops: state.openStops.map(id => { const e = record.events.find(x => x.id === id); return { id, node: e?.node ?? null, generation: e?.generation ?? null }; }),
     limits: { ...effectiveLimits(record.tree, record.events), runs: state.nodes.size }, nodes, integrations,
     // c3b: children a person closed before they were ever registered (no nodes row, no run): the newest generation of a live path only, like a node
     closedUnstarted: [...state.closedUnstarted.keys()].filter(k => !deadKeys(state).has(k)).map(k => { const m = /^(.*)@g(\d+)$/.exec(k); return { node: m[1], generation: Number(m[2]) }; }).filter(c => c.generation >= latestGenerationOf(state, c.node)),
   };
+}
+
+/**
+ * D2 F2(b) (CR-2E-002, CR-MAP-007): a derivation refusal whose cause is a plan's OWN TEXT, as it stands NOW. Every `blocked` record of a derivation (transition 'derivation', check missing_context or weakened_obligation) for a child that
+ * is not registered is a TRIGGER only, never the verdict (RULE 1a): the child is derived again, live, with the call the refusing verb made (a preview while its frontier has no valid approval, else in full, the providers included),
+ * and only a DeriveRefusal that names an owner becomes a fact { owner, child, check, detail }. Anything else - it derives now (a code change, a file back), an owner-less refusal, an unreadable file, a moved chain - gives no fact: the
+ * other reasons speak for files and drift (D3 F2-1: every throw is caught here, so no reader of readiness can be broken by it). File reads only: no model, no network; bounded by the refused, unregistered children (usually none).
+ */
+function derivationRefusalsOf({ rootDir, record, state, runsDir, work, liveNodes }) {
+  const out = []; const seen = new Set();
+  let rootTaskPath;
+  for (const e of record.events) {
+    if (e.event !== 'blocked' || e.reason !== 'expansion_refused' || e.transition !== 'derivation' || (e.check !== 'missing_context' && e.check !== 'weakened_obligation')) continue;
+    const m = /^(R(?:\/[A-Za-z][A-Za-z0-9_-]*)+)@g([1-9]\d*)$/.exec(String(e.scope));
+    if (!m || seen.has(e.scope)) continue;
+    seen.add(e.scope);
+    const child = m[1]; const generation = Number(m[2]);
+    if (state.nodes.has(e.scope)) continue;                                                           // registered: its own run and readiness speak for it
+    const parentPath = child.slice(0, child.lastIndexOf('/'));
+    const parent = liveNodes.find(n => n.node === parentPath && n.phase === 'closed' && n.verifiedSplit && !isSupersededGeneration(state, n.node, n.generation));       // the live generation of the parent path (adopted-aware)
+    if (!parent) continue;
+    try {
+      const entry = (readPlanOf(runsDir, parent).block?.children ?? []).find(c => childNode(parent.node, c.milestone) === child);
+      if (!entry) continue;
+      const approved = [...state.frontiers.values()].some(f => f.parentNode === parent.node && f.parentGeneration === parent.generation && f.revisions?.length && approvalValid(f) && (f.children ?? []).some(c => c.node === child));
+      rootTaskPath ??= rootTaskPathOf(rootDir, work);
+      deriveChild(loadDerivation({ rootDir, parentRef: { node: parent.node, generation: parent.generation }, childId: entry.id, generation, rootTaskPath, work, preview: !approved, record }));
+    } catch (err) {
+      // only a refusal of a plan's own text is a fact; every other throw (a file, the record, a chain, a defect elsewhere) is left to the reasons that read those things live
+      if (err instanceof DeriveRefusal && err.owner) out.push({ owner: { node: err.owner.node, generation: err.owner.generation }, child: e.scope, check: err.code, detail: err.detail });
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------- the rules
@@ -328,6 +367,8 @@ export function verdictOf(facts) {
     const k = key(n);
     const before = reasons.length;
     judgeNode(n, k);
+    // D2 F2(c): OUTSIDE judgeNode's early returns, so a leaf provider gets it and its count makes it 'not ready'; the one stop writer (src/tree-blocked-child.js) then opens a stop on this node, answered by a new plan of it
+    for (const d of (facts.derivationRefused ?? []).filter(x => nodeKey(x.owner.node, x.owner.generation) === k)) blocked('derivation_refused', k, `${k}: ${d.child} cannot be derived from this plan (${d.check}): ${d.detail}`);
     nodeReasons.set(placeOfFact(n), reasons.slice(before).filter(r => r.severity !== 'info').length);     // an `info` note (accepted_change) does not make a child 'not ready'
   }
 

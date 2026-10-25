@@ -20,7 +20,7 @@ export function splitChangedOf(record) {
   const fromC = new Map();
   for (const e of refusals) {
     if (typeof e.frontierKey === 'string') { fromA.set(e.frontierKey, e); continue; }
-    if (e.transition !== 'expansion' || !SCOPE.test(String(e.scope))) continue;
+    if ((e.transition !== 'expansion' && e.transition !== 'approval') || !SCOPE.test(String(e.scope))) continue;       // D2 F3: `tree approve` writes its refusals with transition 'approval' since 0.8.3 (history for readiness); the (C) status row still shows them
     (frontierWords.test(String(e.detail)) ? fromC : fromB).set(e.scope, e);
   }
   const out = [];

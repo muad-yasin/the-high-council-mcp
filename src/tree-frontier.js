@@ -2,9 +2,8 @@
 // record, `describeFrontier` derives every child as a PREVIEW (src/tree-derive.js; the providers have not run), simulates admission and the grant split with the SAME pure functions registration uses
 // (src/tree-budget.js admitAgainstLimits, proposeGrants), and returns the view src/tree-stop.js renders plus the data an approval binds. src/tree-approve.js is the only caller that records anything.
 import { readFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { canonicalJson, sha256Of } from './thin-contract.js';
-import { readRunJson } from './run-files.js';
 import { readTreeRecord, stateOf } from './tree-record.js';
 import { childNode, frontierKey, nodeKey } from './tree-identity.js';
 import { blockEdges } from './tree-deps.js';
@@ -12,6 +11,7 @@ import { approvalValid, retiredNodeBy, childGenerationOf, deadKeys, foldRecord, 
 import { checkRootTaskPin } from './tree-task-pin.js';
 import { rootTaskRefOf } from './tree-root-replan.js';
 import { expansionCheck } from './tree-expansion.js';
+import { rootTaskPathOf } from './tree-root-task.js';
 import { loadChainConfig, loadDerivation, readPlanOf } from './tree-derive-load.js';
 import { DeriveRefusal, deriveChild, itemText } from './tree-derive.js';
 import { dryRunReport } from './dry-run.js';
@@ -46,11 +46,7 @@ export function heldItemsOf(d) {
 export const heldDigest = d => sha256Of(canonicalJson(heldItemsOf(d)));
 
 /** The root task file of a tree: the root run's own record of it (run.json `task`, relative to the folder it was started from, else `work`). */
-export function rootTaskPathOf(rootDir, work) {
-  const meta = readRunJson(rootDir, 'run.json');
-  if (!meta || typeof meta.task !== 'string') throw new Error('the root run has no task recorded in run.json');
-  return resolve(typeof meta.cwd === 'string' ? meta.cwd : work, meta.task);
-}
+export { rootTaskPathOf };                       // moved to src/tree-root-task.js (one place for the verification of a split and for the derivation); re-exported for every existing importer
 
 /**
  * The inputs PLAN 5.3 checks 3 and 8 need for a node: `inheritedGlobal` = the ids of its own acceptance list whose obligation was `global` where it originated (none at the root), and `ancestorQuestions` = the open
@@ -135,9 +131,13 @@ export function findPendingFrontier({ rootDir, record = readTreeRecord(rootDir),
   for (const e of record.events) if (e.event === 'split_verified') verified.set(`${e.node}@g${e.generation}`, e);
   const alive = n => !isSupersededGeneration(state, n.node, n.generation) && !orphans.has(`${n.node}@g${n.generation}`) && retiredNodeBy(state, `${n.node}@g${n.generation}`) === null;       // money fix-up 3: a node a recorded decision replaced or set aside proposes no children frontier either (a reopened frontier, a limit raise or a share offer must not ask the person to approve them)
   const closed = [...state.nodes.values()].filter(n => n.phase === 'closed' && verified.has(`${n.node}@g${n.generation}`) && alive(n)).sort((a, b) => pathOrder(a.node, b.node) || a.generation - b.generation);
+  // D2 F2(e): a parent whose OWN text cannot give one of its children its input waits behind its open `derivation_refused` stop (that stop is the door, answered by a new plan of the parent); its frontier is not offered, and the next
+  // pending frontier in path order is (record-only: the stop's codes as the fold keeps them)
+  const derivationStopOn = n => state.openStops.some(id => { const m = state.stopMeta.get(id); return m?.source === 'blocked' && m.node === n.node && m.generation === n.generation && (m.blockedCodes ?? []).includes('derivation_refused'); });
   for (const n of closed) {
     const v = verified.get(`${n.node}@g${n.generation}`);
     if (v.runId !== n.runId) continue;
+    if (derivationStopOn(n)) continue;
     const block = readPlanOf(runsDir, n).block;
     // A verified node whose plan no longer reads (the file was edited after the review) is NOT skipped: it comes back with no block so the caller says why it is refused, instead of "nothing waits".
     if (!block) return { parent: { node: n.node, generation: n.generation, runId: n.runId }, splitSha256: v.splitSha256, block: null, key: null };
@@ -172,7 +172,7 @@ export function findPendingFrontier({ rootDir, record = readTreeRecord(rootDir),
     }
     for (const [parentPath, kids] of [...parents].sort(([a], [b]) => pathOrder(a, b))) {
       const parent = closed.filter(n => n.node === parentPath).sort((a, b) => b.generation - a.generation)[0];
-      if (!parent) continue;
+      if (!parent || derivationStopOn(parent)) continue;
       const v = verified.get(`${parent.node}@g${parent.generation}`);
       if (!v || v.runId !== parent.runId) continue;
       const block = readPlanOf(runsDir, parent).block;
@@ -377,7 +377,8 @@ export function describeFrontier({ rootDir, work, rootTaskPath, pending }) {
   const reusedSlots = new Map(children.filter(c => c.reused).map(c => [`${c.reused.adoptsNode}@g${c.reused.adoptsGeneration}`, `${c.node}@g${c.generation}`]));
   const candidates = readBack ? (storedPreview.candidates ?? []) : (reusePlan.fates ?? []).map(f => ({ key: f.candidate, fate: f.fate === 'adopted' && reusedSlots.get(f.candidate) !== f.slot ? 'kept' : f.fate, reason: f.code, slot: f.slot ?? null }));
   const adoptedSlots = candidates.filter(c => c.fate === 'adopted').map(c => c.slot).sort().join(',');
-  if (adoptedSlots !== [...reusedSlots.values()].sort().join(',')) return { refusal: `Cannot show the approval preview: the reuse check and the previewed children disagree about which slots a finished run fills (reuse check: ${adoptedSlots || 'none'}; previewed children: ${[...reusedSlots.values()].sort().join(', ') || 'none'}). This is a defect in the tree tool. The tree record has not been changed.` };       // B-DRAFT (C3 a, fail closed)
+  // D2 F3(c) (rides BUG-B-008): the refusal is an object like every other describe refusal, so `tree approve` and the session route print its sentence through refusalWords (a plain string printed "PLAN 5.5 item undefined")
+  if (adoptedSlots !== [...reusedSlots.values()].sort().join(',')) return { refusal: { item: 4, check: 'reuse_disagreement', field: 'reuse check', detail: `Cannot show the approval preview: the reuse check and the previewed children disagree about which slots a finished run fills (reuse check: ${adoptedSlots || 'none'}; previewed children: ${[...reusedSlots.values()].sort().join(', ') || 'none'}). This is a defect in the tree tool. The tree record has not been changed.` } };       // B-DRAFT (C3 a, fail closed)
   // C3 step b: the words of the screen (never bound: the gate binds the printed text, the preview binds the codes). Words are taken from the LIVE fates only where they match a bound candidate (same key and code); otherwise the screen prints the code. Per slot: the finished run that fills it (with the spend it carries, grant plus top-ups minus what it returned; unknown when the close recorded no return), or the comparison's reason a candidate was not used there.
   const liveFate = (key_, code) => (reusePlan.fates ?? []).find(f => f.candidate === key_ && f.code === code);
   for (const c of children) {

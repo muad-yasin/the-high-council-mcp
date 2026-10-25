@@ -9,7 +9,7 @@ import { TreeRefusal, appendTreeEvent, readTreeRecord, stateOf } from '../src/tr
 import { approvalValid, foldRecord } from '../src/tree-transitions.js';
 import { MONEY_EPS, acceptAccounting, admitAgainstLimits, budgetOf, effectiveLimits, gateTree, lifetimeCapOf, proposeGrants, topUp } from '../src/tree-budget.js';
 import { registerRoot } from '../src/tree-register.js';
-import { capFor, mockBudgetFigures, shareOver } from './helpers/money-figures.js';
+import { capFor, ceilCents, mockBudgetFigures, shareOver } from './helpers/money-figures.js';
 import { GATE_FIELDS, IDS, ROOT_ID, SPLIT_ROOT_HANDOFF_USD, approveFrontier, claim, closedChildTree, closedRootTree, hostnameOf, newTree, reservedLine, registerKid, settledLine, syntheticRun, writeLines } from './helpers/tree-fixture.js';
 
 const cents = n => Math.round(n * 1e6) / 1e6;
@@ -222,7 +222,9 @@ test('accepting a charge (the library function behind `decide --accounting`): ac
 // the pools from the chain's own dry run, so the relation it is about holds by construction. WHY: with the 16 drafted functions recorded the figures become { 8.714, 45.75 }, and "cap 26 shares 8.67 each over 8.064" became "8.67 under 8.714".
 // PROVISIONAL, like prompt-pin: the pin holds { 8.714, 45.75 }, the figures with the 16 drafted functions recorded (measured on the box on B's scratch src/roles.js, tree 4497d0e8, set-4497d0e8-box-20261024-041641.txt: this test's "actual" block; it held { 8.064, 44.45 } on the integration tip, where roles.js has none of them). So this commit is red by design on a tree without the recorded words, like prompt-pin; at the apply lane A re-records exactly this test's two numbers on the real roles.js, in the same step as prompt-pin. No other test types a mock-budget figure.
 test('PIN (the one pin of the mock-budget figures; re-recorded with prompt-pin at the apply): the chain\'s own dry-run figures are what the tree tests assume', () => {
-  assert.deepEqual(mockBudgetFigures(), { cheapestUsd: 8.714, atMostUsd: 45.75 }, 'the chain\'s own dry-run figures stand in for pack B\'s');
+  // Re-recorded 25 Okt 2026 (lane T, G1, with prompt-pin's ROLES_SHA256; Muad 25 Okt 2026 14:45 "Yes to all", Astra's context_refs paragraph in treeSplitWriterNote): OLD { 8.714, 45.75 } NEW { 8.899000000000001, 46.120000000000005 }. WHY: the
+  // longer split-writer note is system text of every tree member's builder and reviser calls, so the chain's upper estimate moves (the figures are computed, not rounded: the pin holds them as computed).
+  assert.deepEqual(mockBudgetFigures(), { cheapestUsd: 8.899000000000001, atMostUsd: 46.120000000000005 }, 'the chain\'s own dry-run figures stand in for pack B\'s');
 });
 
 test('grants: each proposed grant is min(atMost, available / k) in dependency order; a child under the chain\'s cheapest end is "not admitted: budget" and takes nothing; treeSpent + held never passes the cap (C3)', () => {
@@ -243,7 +245,9 @@ test('grants: each proposed grant is min(atMost, available / k) in dependency or
   assert.ok(Math.abs(p.reduce((n, x) => n + x.grantUsd, 0) - cap3) < 1e-9);
   // a big pool: capped at the chain's at-most figure, not at an equal share of everything
   p = proposeGrants({ availableUsd: 2 * fig.atMostUsd + 10, children: ['a', 'b'].map(four) });
-  assert.deepEqual(p.map(x => [x.grantUsd, x.maysStopBeforeFinishing]), [[fig.atMostUsd, false], [fig.atMostUsd, false]]);
+  // CHANGED ACCEPTED (lane T, G1, 25 Okt 2026). OLD: the grant equals fig.atMostUsd. NEW: the grant equals ceilCents(fig.atMostUsd). WHY: proposeGrants grants the binding at-most figure "whole, rounded UP to the cent" (src/tree-budget.js:515-516);
+  // the old figure 45.75 was a whole cent, so the two expressions agreed by accident; the re-recorded figure 46.120000000000005 is not, and the product grants 46.12. The relation the test is about (capped at the at-most figure, not at an equal share) is unchanged.
+  assert.deepEqual(p.map(x => [x.grantUsd, x.maysStopBeforeFinishing]), [[ceilCents(fig.atMostUsd), false], [ceilCents(fig.atMostUsd), false]]);
   // in the record: register what was admitted, never the child that was not; the invariant holds at every step
   const t = closedRootTree({ cap: cap3 });      // the same relation to the cheapest end: the first share of four is under it, the other three above
   const key = approveFrontier(t.rootDir, ['R/M1', 'R/M2', 'R/M3', 'R/M4']);

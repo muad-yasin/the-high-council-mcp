@@ -205,30 +205,34 @@ test('context.md holds the seven parts of PLAN 6.4 in order, each copied section
   assert.equal(d.files['task.md'], `Milestone: M1\nScope: Choose and build the record store.\nOpen question: Which store holds the records?\n\n${treeChildTaskInstruction()}\n`);
 });
 
-test('missing_context: a ref with no source document, a heading not exactly once, no root-task ref, an exclusions section not named, a root task without headings that is still referred to; a root task WITHOUT headings goes in whole', () => {
+// CHANGED ACCEPTED TEST (lane T, G1; the owner's decision, Muad 25 Okt 2026 14:45: "Yes to all" on Astra's Q1 = A + X + a restricted B; C&C's ruling of 25 Okt 2026 on a headingless root task). OLD BAR: every reference needed a source
+// prefix; the root task's exclusions section had to be named; a "root-task:" reference to a root task with no headings was refused. NEW BAR: a bare heading resolves when exactly one heading of that text exists across the root task and
+// the plan (here "Goal"); the harness supplies every exclusions section itself (route X), so a split that names only the goal derives; a "root-task:" reference to a headingless root task resolves to the whole file. WHY: the split
+// writer's prompt never stated the prefix grammar or the exclusions duty (CR-2E-003, P1), so a real model's split was refused at approve with no way out. Every other refusal below is unchanged (the resolver's own tests:
+// test/tree-context-refs.test.js).
+test('missing_context: a heading not exactly once, an unknown source, no root-task section; a bare heading one document holds once and a split that names only the goal DERIVE; a root task WITHOUT headings goes in whole', () => {
   const root = rootParent();
-  const refuse = (refs, p = root, over = {}) => assert.throws(() => derive((() => { const q = clone(p); q.block.children[0].context_refs = refs; return q; })(), 'K1', over), e => e instanceof DeriveRefusal && e.code === 'missing_context', JSON.stringify(refs));
-  refuse(['Goal', 'root-task: Non-goals']);                                                  // no source document
-  refuse(['root-task: Goal', 'root-task: Non-goals', 'elsewhere: Overview']);                // an unknown source
+  const withRefs = (refs, p = root) => { const q = clone(p); q.block.children[0].context_refs = refs; return q; };
+  const refuse = (refs, p = root, over = {}) => assert.throws(() => derive(withRefs(refs, p), 'K1', over), e => e instanceof DeriveRefusal && e.code === 'missing_context', JSON.stringify(refs));
+  assert.doesNotThrow(() => derive(withRefs(['Goal', 'root-task: Non-goals']), 'K1'), 'CHANGED: a bare "Goal" that only the root task holds, once, resolves there');
+  refuse(['root-task: Goal', 'root-task: Non-goals', 'elsewhere: Overview']);                // an unknown source is a bare heading no document holds
   refuse(['root-task: Goal', 'root-task: Non-goals', 'parent-plan: No such heading']);       // zero
   refuse(['root-task: Goal', 'root-task: Non-goals', 'root-task: Nowhere']);
   refuse(['parent-plan: Overview']);                                                         // the child's refs omit the root goal altogether
-  refuse(['root-task: Goal']);                                                               // the root task has a Non-goals section and the refs do not name it
+  assert.doesNotThrow(() => derive(withRefs(['root-task: Goal']), 'K1'), 'CHANGED: the Non-goals section is supplied by the harness (route X)');
   const dup = { ...ROOT_TASK, ...doc('task.md', '# Goal\nOne.\n\n# Goal\nTwo.\n\n# Non-goals\nNone.\n') };
   assert.throws(() => derive(root, 'K1', { rootTask: dup }), e => e.code === 'missing_context' && /found 2/.test(e.detail), 'a heading twice is not addressable');
-  // a root task without any heading goes in whole and verbatim; naming a heading of it then names nothing
+  // a root task without any heading goes in whole and verbatim
   const bare = doc('task.md', 'Just a paragraph of plain text,\nwith no headings at all.\n');
-  const p2 = clone(root); p2.block.children[0].context_refs = ['parent-plan: Overview'];
-  const d = derive(p2, 'K1', { rootTask: bare });
+  const d = derive(withRefs(['parent-plan: Overview']), 'K1', { rootTask: bare });
   assert.ok(d.files['context.md'].includes(`----- root task task.md (sha256 ${bare.sha256}), the whole file: it has no addressable headings -----\n${bare.text}----- end -----`));
-  const p3 = clone(root); p3.block.children[0].context_refs = ['root-task: Goal'];
-  assert.throws(() => derive(p3, 'K1', { rootTask: bare }), e => e.code === 'missing_context');
-  // the exclusion headings are whole and case-insensitive; a different heading does not count as the exclusions section
+  const p3 = derive(withRefs(['root-task: Goal']), 'K1', { rootTask: bare });
+  assert.ok(p3.files['context.md'].includes(`, the whole file: it has no addressable headings (context_refs "root-task: Goal" resolve to it) -----\n${bare.text}----- end -----`), 'CHANGED (C&C ruling): a "root-task:" reference to a headingless root task resolves to the whole file');
+  // the exclusion headings are whole and case-insensitive (X supplies "OUT OF SCOPE"); a different heading is not an exclusions section
   const ooo = doc('task.md', '# Goal\nG.\n\n# OUT OF SCOPE\nX.\n');
-  const p4 = clone(root); p4.block.children[0].context_refs = ['root-task: Goal'];
-  assert.throws(() => derive(p4, 'K1', { rootTask: ooo }), e => e.code === 'missing_context' && /OUT OF SCOPE/.test(e.detail));
-  const p5 = clone(root); p5.block.children[0].context_refs = ['root-task: Goal'];
-  assert.doesNotThrow(() => derive(p5, 'K1', { rootTask: doc('task.md', '# Goal\nG.\n\n# Out of scope reading\nX.\n') }), '"Out of scope reading" is not an exclusions heading');
+  assert.ok(derive(withRefs(['root-task: Goal']), 'K1', { rootTask: ooo }).files['context.md'].includes('heading "OUT OF SCOPE" -----\n# OUT OF SCOPE\nX.\n'), 'CHANGED: supplied, not refused');
+  const p5 = derive(withRefs(['root-task: Goal']), 'K1', { rootTask: doc('task.md', '# Goal\nG.\n\n# Out of scope reading\nX.\n') });
+  assert.equal(p5.files['context.md'].includes('Out of scope reading'), false, '"Out of scope reading" is not an exclusions heading: not supplied');
 });
 
 test('a provider\'s answer: the sections its agreements name (provider_refs), labelled with node, generation, run id and pin; a missing heading, an unpinned provider, a re-pinned one and a missing provider are each missing_context', () => {

@@ -8,6 +8,7 @@
 //   4. the split is valid (every check of PLAN 5.3) and, when a frontier key is given, that frontier's approval exists, is still valid and was made for this split.
 // A refusal is a `blocked` record (reason expansion_refused, the check named) and NOTHING else: no child folder, no change to `passed`. Items 1-3 are also what a child's start re-checks on every ancestor
 // (PLAN 7.6 step 2, src/tree-continuation.js defaultAncestorCheck). Pure of models; reads files; writes only the record, and only through the two functions at the bottom.
+import { readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { contractCheckOf } from './run-contract-check.js';
 import { readRunFile, readRunJson, trustedRunDir } from './run-files.js';
@@ -16,6 +17,9 @@ import { appendTreeEvent, readTreeRecord, stateOf } from './tree-record.js';
 import { approvalValid } from './tree-transitions.js';
 import { childNode, nodeKey } from './tree-identity.js';
 import { bodyOfDelivered, checkSplit, extractSplitBlocks, firstDifference, splitSha256 } from './tree-split.js';
+import { sha256Of } from './thin-contract.js';
+import { DeriveRefusal, resolveContextRefs } from './tree-context-refs.js';
+import { rootTaskPathOf } from './tree-root-task.js';
 
 const refusal = (item, check, field, detail) => ({ item, check, field, detail });
 
@@ -85,7 +89,9 @@ export function expansionCheck({ runDir, work, upTo = 4, inheritedGlobal, ancest
   const diff = firstDifference(bodyBlock, handoffBlock);
   if (diff) return out(refusal(3, 'handoff_differs', diff.path, `the handoff's copy differs from the signed block at ${diff.path} (signed: ${diff.expected}; handoff: ${diff.actual})`));
   const sha = splitSha256(bodyBlock);
-  if (upTo < 4) return { refusal: null, sha256: sha, block: bodyBlock };
+  // the plan's body as the derivation reads it (src/tree-derive-load.js readNodePlan: the same bytes, the same hash), for the reference check of verifySplit
+  const plan = { name: 'deliverable.md', text: body.body, sha256: accepted ?? report.delivered_text?.body_sha256 ?? null };
+  if (upTo < 4) return { refusal: null, sha256: sha, block: bodyBlock, plan };
   // 4. the split is valid, and the frontier is approved
   const ids = Array.isArray(report.criteria_ids) ? report.criteria_ids : criterionIds(report.criteria);
   const split = checkSplit({ text: body.body, criteriaIds: ids, inheritedGlobal, ancestorQuestions });
@@ -97,19 +103,24 @@ export function expansionCheck({ runDir, work, upTo = 4, inheritedGlobal, ancest
     if (!approvalValid(frontier)) return { refusal: refusal(4, 'approval', 'frontier_approved', 'the frontier\'s approval is no longer valid (what it bound has changed, or it carries no hash while the preview does)'), sha256: sha, block: bodyBlock };
     if (frontier.splitSha256 !== sha) return { refusal: refusal(4, 'approval', 'splitSha256', `the frontier was previewed for split ${String(frontier.splitSha256).slice(0, 12)}, not for the verified block ${sha.slice(0, 12)}`), sha256: sha, block: bodyBlock };
   }
-  return { refusal: null, sha256: sha, block: bodyBlock };
+  return { refusal: null, sha256: sha, block: bodyBlock, plan };
 }
 
-/** Writes the refusal as a `blocked` record (reason expansion_refused, scope the node, the check named) and nothing else. Returns the event. */
-export function recordExpansionRefusal(rootDir, { node, generation }, r, { facts, now } = {}) {
-  return appendTreeEvent(rootDir, { event: 'blocked', reason: 'expansion_refused', scope: nodeKey(node, generation), transition: 'expansion', check: r.check, detail: refusalWords(r) }, { facts, now });
+/**
+ * Writes the refusal as a `blocked` record (reason expansion_refused, scope the node, the check named) and nothing else. Returns the event (null when `once` found the same line).
+ * `transition`: 'expansion' (the default: the node's verification, which readiness counts until a split_verified exists) or 'approval' (`tree approve` met it: history, D2 F3). `once`: write one line per (scope, check, detail).
+ */
+export function recordExpansionRefusal(rootDir, { node, generation }, r, { facts, now, transition = 'expansion', once = false } = {}) {
+  const fields = { event: 'blocked', reason: 'expansion_refused', scope: nodeKey(node, generation), transition, check: r.check, detail: refusalWords(r) };
+  if (once && readTreeRecord(rootDir).events.some(e => e.event === 'blocked' && e.scope === fields.scope && e.transition === transition && e.check === fields.check && e.detail === fields.detail)) return null;
+  return appendTreeEvent(rootDir, fields, { facts, now });
 }
 
 /**
  * Items 1-4 for a node whose run has ended (no frontier yet): on success a `split_verified` record names the node, its run and the verified block's sha256; on a refusal a `blocked` record names the item and the field.
  * Creates no folder and never touches report.json. Returns { refusal, sha256, event }.
  */
-export function verifySplit(rootDir, { node, generation, runId, runDir, work, inheritedGlobal, ancestorQuestions }, { facts, now } = {}) {
+export function verifySplit(rootDir, { node, generation, runId, runDir, work, inheritedGlobal, ancestorQuestions, rootTaskPath }, { facts, now } = {}) {
   const r = expansionCheck({ runDir, work, inheritedGlobal, ancestorQuestions });
   if (r.refusal) return { refusal: r.refusal, sha256: r.sha256, event: recordExpansionRefusal(rootDir, { node, generation }, r.refusal, { facts, now }) };
   // M5f (a): the record holds ONE verified split per node@generation. The same block again is the existing record (no second event, the same return value); another block is a refusal, written as a `blocked`
@@ -120,6 +131,32 @@ export function verifySplit(rootDir, { node, generation, runId, runDir, work, in
     const refused = refusal(4, 'split_changed', 'splitSha256', `${nodeKey(node, generation)} was verified with split ${String(had.sha).slice(0, 12)}; its plan now reads as ${String(r.sha256).slice(0, 12)}: the first verification stands`);
     return { refusal: refused, sha256: r.sha256, event: recordExpansionRefusal(rootDir, { node, generation }, refused, { facts, now }) };
   }
+  // CR-2E-003 (the owner's decision, Muad 25 Okt 2026 14:45: "Yes to all" on Astra's Q1; C&C's G1 rulings): every child's context_refs are resolved NOW, by the resolver the derivation uses (src/tree-context-refs.js), against the root task
+  // and this plan's body, so a split whose references cannot be read is refused HERE (check `context_refs`, a verify-time refusal of the plan's own text: the blocked stop opens on THIS node, whose new plan is the answer) and never at
+  // approve. A provider's headings are not checked here: the provider has not run (the derivation at registration checks them). What each child resolved to is recorded (`resolvedRefs`: the child id and the resolver's hash), so a
+  // later derivation can tell a split that resolved then and fails now (a file changed) from one that never resolved.
+  const refs = contextRefsCheck({ node, block: r.block, plan: r.plan, rootDir, work, rootTaskPath });
+  if (refs.refusal) return { refusal: refs.refusal, sha256: r.sha256, event: recordExpansionRefusal(rootDir, { node, generation }, refs.refusal, { facts, now }) };
   // `children` (S8 held state): the paths the verified block names, so the record alone can say whether a node is half-finished (a named child never registered); the fold cannot read the plan
-  return { refusal: null, sha256: r.sha256, event: appendTreeEvent(rootDir, { event: 'split_verified', node, generation, runId, splitSha256: r.sha256, children: (r.block?.children ?? []).map(c => childNode(node, c.milestone)) }, { facts, now }) };
+  return { refusal: null, sha256: r.sha256, event: appendTreeEvent(rootDir, { event: 'split_verified', node, generation, runId, splitSha256: r.sha256, children: (r.block?.children ?? []).map(c => childNode(node, c.milestone)), resolvedRefs: refs.resolved }, { facts, now }) };
+}
+
+/** The reference check of a split before it is verified: { refusal } for the FIRST child whose context_refs do not resolve, else { resolved: [{ child, sha256 }] } in the block's order. Reads the root task file; writes nothing. */
+function contextRefsCheck({ node, block, plan, rootDir, work, rootTaskPath }) {
+  let rootTask;
+  try {
+    const path = rootTaskPath ?? rootTaskPathOf(rootDir, work);
+    const text = readFileSync(path, 'utf8');
+    rootTask = { name: basename(path), text, sha256: sha256Of(text) };
+  } catch (e) {
+    return { refusal: refusal(4, 'root_task_unreadable', 'root task', `the root task cannot be read (${e.message}), so the children's context_refs cannot be checked`) };
+  }
+  const resolved = [];
+  for (const c of block.children) {
+    try { resolved.push({ child: c.id, sha256: resolveContextRefs({ refs: c.context_refs, rootTask, parentPlan: plan }).sha256 }); } catch (e) {
+      if (!(e instanceof DeriveRefusal)) throw e;
+      return { refusal: refusal(4, 'context_refs', `${childNode(node, c.milestone)} (${c.id})`, e.detail) };       // printed: "PLAN 5.5 item 4 (context_refs): R/M1 (K1): <the resolver's sentence>"
+    }
+  }
+  return { resolved };
 }

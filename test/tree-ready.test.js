@@ -451,19 +451,23 @@ test('held items are read from a registered node\'s obligation map: check-not-en
   assert.deepEqual(verdictOf(f).reasons.filter(x => x.code === 'held_unrecorded').map(x => x.scope.replace(/ref-[0-9a-f]{12}$/, 'ref-KEY')).sort(), ['R/M1@g1:ref-KEY', 'R@g1:C2', 'R@g1:C4']);
 });
 
-test('the record\'s milestone_resolved events are read per node AND generation, and a refusal counts only when it was recorded after the last verification', async () => {
+// CHANGED ACCEPTED TEST (lane T, G1, D2 F3; C&C accepted the readiness rule on 25 Okt 2026 after reading this test). OLD BAR: a refusal recorded AFTER the last verification counted as `expansion_refused`. NEW BAR: once a split_verified
+// exists no refusal record counts; before it, every one does. WHY: after a verification the only writer of such a line is `tree approve` (CR-2I-001), whose refusal is read live and was never the plan's verdict; counting it froze a
+// plan that was never wrong behind a paid new plan.
+test('the record\'s milestone_resolved events are read per node AND generation, and a refusal counts only while the node has no verification', async () => {
   const r = await trackedRealRoot({ verify: false });
   const refusal = detail => ({ event: 'blocked', reason: 'expansion_refused', scope: 'R@g1', transition: 'expansion', check: 'ancestor_questions', detail });
   rawEvents(r.t, [refusal('before: older than the verification')]);
+  assert.deepEqual(gatherReadinessFacts(r.t.rootDir, { work: r.t.work }).nodes[0].split.refusals.map(x => x.detail), ['before: older than the verification'], 'before any verification a refusal counts');
   const v = verifySplit(r.t.rootDir, { node: 'R', generation: 1, runId: ROOT_ID, runDir: r.runDir, work: r.t.work, inheritedGlobal: [], ancestorQuestions: [] });
   assert.equal(v.refusal, null);
   assert.deepEqual(gatherReadinessFacts(r.t.rootDir, { work: r.t.work }).nodes[0].split.refusals, [], 'a refusal older than the verification is history');
   rawEvents(r.t, [refusal('after: newer than the verification'), { event: 'milestone_resolved', node: 'R', generation: 1, milestone: 'M5', decisionId: 'e1', changesProvides: false }, { event: 'milestone_resolved', node: 'R', generation: 2, milestone: 'M4', decisionId: 'e1' }, { event: 'milestone_resolved', node: 'R/M1', generation: 1, milestone: 'M3', decisionId: 'e1' }]);
   const f = gatherReadinessFacts(r.t.rootDir, { work: r.t.work });
-  assert.deepEqual(f.nodes[0].split.refusals.map(x => x.detail), ['after: newer than the verification']);
+  assert.deepEqual(f.nodes[0].split.refusals, [], 'CHANGED: a refusal newer than the verification is history too (D2 F3)');
   assert.deepEqual(f.nodes[0].split.resolved, ['M5'], 'only this node and generation');
   const out = verdictOf(healthy(f));
-  assert.ok(out.reasons.some(x => x.code === 'expansion_refused' && /newer than the verification/.test(x.text)));
+  assert.equal(out.reasons.some(x => x.code === 'expansion_refused'), false, 'CHANGED: nothing holds the verified plan back');
   assert.equal(out.milestones.find(m => m.id === 'M5').settled, true); assert.equal(out.milestones.find(m => m.id === 'M4').settled, true, 'M4 is a ready milestone; the stray g2 event settled nothing else');
 });
 

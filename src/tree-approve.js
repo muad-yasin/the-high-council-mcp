@@ -1,6 +1,6 @@
 // `council tree approve <rootId>` (0.8.3 M5b2c; PLAN 8.2). The person's approval of the next frontier: show exactly what would start, ask at a terminal (the typed frontier-key prefix, then y/N), and only then record it.
 // Order, and why:
-//   1. describe the next pending frontier from the record (src/tree-frontier.js, reads only); a refusal is recorded as `blocked` (expansion_refused) and nothing else;
+//   1. describe the next pending frontier from the record (src/tree-frontier.js, reads only); a refusal is recorded as `blocked` (expansion_refused, transition 'approval': history, never the plan's verdict, D2 F3) and nothing else;
 //   2. the text goes under tree/gate-texts/ and a gate is requested on the ROOT run folder; the answer is taken ONLY by the gate's terminal answer (src/tree-gate.js). Until the person answers, NOTHING is
 //      added to events.jsonl: a gate left unanswered past its expiry approves nothing and records nothing (PLAN 8.2);
 //   3. after the person says yes, the frontier is described AGAIN: if anything it shows has changed in the minutes they read it (the money, a limit, a ceiling), the approval is NOT used and nothing is recorded;
@@ -43,7 +43,7 @@ export async function approveHandler({ rootDir, rootId, work, stdin, stdout, std
     const r = described.refusal;
     try {
       if (r.derivationRefusals) for (const d of r.derivationRefusals) recordDerivationRefusal(rootDir, { node: d.node, generation: d.generation ?? 1 }, { code: d.code, detail: d.detail, message: d.detail }, clock);
-      else recordExpansionRefusal(rootDir, pending.parent, r, clock);
+      else recordExpansionRefusal(rootDir, pending.parent, r, { ...clock, transition: 'approval', once: true });       // D2 F3: an approve-time refusal is HISTORY (readiness does not read 'approval'); written once per (scope, check, detail)
     } catch (e) { if (!(e instanceof TreeRefusal)) throw e; }
     err(`tree approve: ${pending.parent.node} cannot be expanded yet. ${refusalWords(r)}`);
     return EXIT_REFUSED;

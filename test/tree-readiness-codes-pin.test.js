@@ -19,6 +19,8 @@ const REFUSES = {
   split_changed: 'the plan now holds another split than the verified one: a change, not a restore',
   expansion_refused: 'a recorded refusal of the node\'s expansion: not a file state',
   closed_incomplete: 'a person closed the node: only a person\'s answer replaces it',
+  // NEW CODE (lane T, G1, D2 F2): decided as refusing under ruling 9.2 as it stands; F4c (G2, Q2 "Yes to all") gives it a live re-check that keeps the stop open when the re-check cannot run (D3 F4-1)
+  derivation_refused: 'a plan\'s own text cannot give one of its children its input: a restored file does not change that text; a new plan of this node answers it',
 };
 // blocked-severity codes whose scope is the TREE or an AGREEMENT, never a node key: pendingBlockedChildren (src/tree-blocked-child.js) keeps only scopes matching a node key, so they open no stop
 const NOT_NODE_SCOPED = {

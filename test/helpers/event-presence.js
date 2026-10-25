@@ -13,7 +13,8 @@ export const PRESENCE = {
   node_closed: e => bad(e, { returnedUsd: v => Number.isFinite(v) && v >= 0, ...(e.outcome === 'incomplete' ? { gateId: str, shownSha256: sha, ...who, planCopy: v => v === null } : { thinContractSha256: sha, planCopy: v => v === null || v === 'plan-at-close.md' }) }),   // restore gap 2a: the audit copy is an EXPLICIT value on every writer (a person's incomplete close keeps no plan: null)
   guard_refused: e => bad(e, { origin: str }),
   frontier_previewed: e => bad(e, { boundSha256: sha }),
-  split_verified: e => bad(e, { splitSha256: sha, children: arr }),   // S8 held state: the child paths the verified block names; an absent list reads as unknown = never held, so a writer that drops it must turn this red
+  // resolvedRefs (CR-2E-003, lane T G1): what each child's context_refs resolved to when the split was verified; a writer that drops it fails here
+  split_verified: e => bad(e, { splitSha256: sha, children: arr, resolvedRefs: arr }),   // S8 held state: the child paths the verified block names; an absent list reads as unknown = never held, so a writer that drops it must turn this red
   decision_recorded: e => bad(e, { stopId: str, gateId: str, shownSha256: sha, ...who, form: v => v === 'regenerate' || v === 'milestone', ...(e.form === 'milestone' ? { node: str, generation: Number.isInteger, milestone: str } : {}) }),
   milestone_resolved: e => bad(e, { decisionId: str, remaining: v => Array.isArray(v) && v.every(x => typeof x === 'string'), ...(e.node === 'R' ? {} : { changesProvides: v => v === false }) }),
   tree_abandoned: e => bad(e, { gateId: str, shownSha256: sha, ...who }),   // ROADMAP 57: the typed gate of the abandon; written only by src/tree-abandon.js abandonTree (its form arrives in the next commit)

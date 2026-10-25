@@ -19,18 +19,13 @@ import { held } from './held-roles.js';
 import { lintCriteria } from './criteria-lints.js';
 import { normaliseCriteria, parseCriteriaFile } from './criteria-kinds.js';
 import { headingsOf } from './tree-split.js';
+import { DeriveRefusal, EXCLUSION_HEADINGS, resolveContextRefs } from './tree-context-refs.js';
 import { appendTreeEvent, fsyncDir, readTreeRecord, stateOf } from './tree-record.js';
 import { childNode, nodeKey, obligationIdentity } from './tree-identity.js';
 import { isNodePath } from './tree-transitions.js';
 import { bundleHashOfFiles, bundleDirName, NODE_FILE } from './tree-continuation.js';
 
-/** A derivation the plan refuses: `code` is `weakened_obligation` or `missing_context` (PLAN 6.2, 6.4); the record keeps it as `blocked` reason expansion_refused with the code as the check. */
-export class DeriveRefusal extends Error {
-  constructor(code, detail) { super(`${code}: ${detail}`); this.name = 'DeriveRefusal'; this.code = code; this.detail = detail; }
-}
-
-/** The headings whose section is a root task's exclusions (C&C, 8 Oct 2026, DECISIONS): whole and case-insensitive. */
-export const EXCLUSION_HEADINGS = Object.freeze(['non-goals', 'non-goal', 'exclusions', 'out of scope', 'not in scope']);
+export { DeriveRefusal, EXCLUSION_HEADINGS, resolveContextRefs };       // moved to src/tree-context-refs.js (a leaf the verification of a split imports too); re-exported for every existing importer
 export const CONTEXT_SOURCES = Object.freeze(['root-task', 'parent-plan']);
 
 const norm = s => String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -56,14 +51,7 @@ export function sectionOf(text, heading) {
 }
 
 export const piece = (label, text) => `----- ${label} -----\n${text}${text.endsWith('\n') ? '' : '\n'}----- end -----\n\n`;
-const missing = detail => new DeriveRefusal('missing_context', detail);
-
-/** "root-task: Goal" -> { source: 'root-task', heading: 'Goal' }; anything without a known source document is `missing_context`. */
-function parseRef(ref) {
-  const m = String(ref).match(/^(root-task|parent-plan):\s*(\S[\s\S]*)$/);
-  if (!m) throw missing(`the reference ${JSON.stringify(String(ref).slice(0, 80))} names no source document (write "root-task: <heading>" or "parent-plan: <heading>")`);
-  return { source: m[1], heading: norm(m[2]) };
-}
+const missing = (detail, owner = null) => new DeriveRefusal('missing_context', detail, owner);
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------- the acceptance list (PLAN 6.2) and the two guards (6.3)
 
@@ -83,7 +71,7 @@ function parentObligations(parent, classOf) {
       // a parent whose chain has criterion kinds OFF records its list as plain texts (src/chain.js takeCriteria), so its copy of a kind item (checkable / judgement) is the origin's TEXT as a string: the words are the origin's when the string IS its criterion text; the child below takes the ORIGIN's form from the identity (o.identity.form, not the parent's copy), so a checkable item stays check_not_enforced instead of becoming plain text (BUG-B-007). A parent whose copy has other words, or another object form, is still refused.
       const plainOfKind = typeof form === 'string' && id0.form !== null && typeof id0.form === 'object' && form === id0.form.criterion;
       if (!textSame || (canonicalJson(form) !== canonicalJson(id0.form) && !plainOfKind)) {
-        throw new DeriveRefusal('weakened_obligation', `${parent.node} holds ${id} (obligation ${id0.originId} of ${id0.originNode}) in words that are not the origin's: an inherited obligation is never reworded (its text hash ${id0.textSha256.slice(0, 12)} does not match)`);
+        throw new DeriveRefusal('weakened_obligation', `${parent.node} holds ${id} (obligation ${id0.originId} of ${id0.originNode}) in words that are not the origin's: an inherited obligation is never reworded (its text hash ${id0.textSha256.slice(0, 12)} does not match)`, { node: parent.node, generation: parent.generation });
       }
       return { id, ownForm: form, ownText, identity: id0, fresh: false };
     }
@@ -156,31 +144,24 @@ export function deriveChild({ treeId, generation = 1, parent, childId, rootTask,
 
   // 3. context.md, its seven parts in order (PLAN 6.4)
   const ctx = [];
-  const rootHeadings = headingsOf(rootTask.text);
   // the stretches of context.md the TREE CODE wrote from the pinned root task's own bytes (the body between a piece's label line and its end line), as character offsets: the only text a root allowance may cover in a child's input (C&C ruling, 19 Okt 2026: bytes, never the value)
   const rootTaskSpans = [];
   const rootPush = (label, text) => { const from = ctx.join('').length + `----- ${label} -----\n`.length; ctx.push(piece(label, text)); rootTaskSpans.push({ from, to: from + text.length }); };
-  const refs = child.context_refs.map(parseRef);
-  const rootRefs = refs.filter(r => r.source === 'root-task'); const planRefs = refs.filter(r => r.source === 'parent-plan');
+  const resolved = resolveContextRefs({ refs: child.context_refs, rootTask, parentPlan: parent.plan, owner: { node: parent.node, generation: parent.generation } });
   ctx.push('# Context\n\n');
   ctx.push('## 1. The child\'s entry in the signed split\n\n');
   ctx.push(entryText({ block, child, milestone }));
   ctx.push('\n## 2. The root task: its goal and exclusions\n\n');
-  if (!rootHeadings.length) {
-    if (rootRefs.length) throw missing(`the root task has no headings, so ${JSON.stringify(`root-task: ${rootRefs[0].heading}`)} names nothing`);
-    rootPush(`root task ${rootTask.name} (sha256 ${rootTask.sha256}), the whole file: it has no addressable headings`, rootTask.text);
-  } else {
-    if (!rootRefs.length) throw missing('the child\'s context_refs name no section of the root task (the goal must be named: "root-task: <heading>")');
-    const exclusion = rootHeadings.filter(h => EXCLUSION_HEADINGS.includes(norm(h.text).toLowerCase()));
-    for (const h of exclusion) if (!rootRefs.some(r => r.heading === norm(h.text))) throw missing(`the root task has an exclusions section ("${norm(h.text)}") and the child's context_refs do not name it`);
-    for (const r of rootRefs) { const p = refParts('root task', rootTask, r.heading); rootPush(p.label, p.text); }
-  }
+  if (resolved.whole) {
+    const named = resolved.whole.refs.length ? ` (context_refs ${resolved.whole.refs.map(r => JSON.stringify(r)).join(', ')} resolve to it)` : '';
+    rootPush(`root task ${rootTask.name} (sha256 ${rootTask.sha256}), the whole file: it has no addressable headings${named}`, rootTask.text);
+  } else for (const p of resolved.root) rootPush(p.label, p.text);
   ctx.push('## 3. What the providers settled\n\n');
   const provided = preview ? { text: '(the providers have not finished: what they settled is added when they have)\n\n', dependsOn: [] } : providerPieces({ block, child, providers });
   const providedAt = ctx.join('').length;
   ctx.push(provided.text || '(this plan expects nothing from its siblings)\n\n');
   ctx.push('## 4. Sections of the parent plan named in the child\'s context_refs\n\n');
-  if (planRefs.length) for (const r of planRefs) ctx.push(refPiece('parent plan', parent.plan, r.heading)); else ctx.push('(none named)\n\n');
+  if (resolved.plan.length) for (const p of resolved.plan) ctx.push(piece(p.label, p.text)); else ctx.push('(none named)\n\n');
   ctx.push('## 5. The parent\'s locked criteria, for reference\n\n');
   // Muad's yes, 11 Oct 2026 ("Yes to all three"): the parent's items are PC<n> (never C<n>, which is the child's own numbering: its position in criteria.json, the list its handoff prompt shows), the sentence below says so, and each
   // item names the child's own number when the child carries it - matched by IDENTITY (origin node, generation, id), never by text or by the parent's id string. A refinement has no parent item.
@@ -201,7 +182,7 @@ export function deriveChild({ treeId, generation = 1, parent, childId, rootTask,
   const task = `Milestone: ${child.milestone}\nScope: ${child.scope}\nOpen question: ${milestone?.open_question ?? ''}\n${instruction ? `\n${instruction}\n` : ''}`;
   const criteria = kept.map(e => e.form);
   const files = { 'task.md': task, 'criteria.json': `${JSON.stringify(criteria, null, 2)}\n`, 'context.md': context };
-  if (criteria.length) assertHandedInUnchanged(criteria, files['criteria.json']);
+  if (criteria.length) assertHandedInUnchanged(criteria, files['criteria.json'], i => (kept[i]?.identity ? { node: kept[i].identity.originNode, generation: kept[i].identity.originGeneration } : { node: parent.node, generation: parent.generation }));
   if (preview) {
     return {
       preview: true, node, generation, files: null, criteria, lineage: null, bundleSha256: null, bundleBytes: null,
@@ -240,8 +221,9 @@ function uniqueSources(list) {
  * clips an object's `criterion` (2000 characters) and `check` (500), turns an unknown `on` into `build`, downgrades a checkable item with no check, and DROPS a whitespace-only string. An item that reading would change
  * is not handed in unchanged; the derivation refuses it (`weakened_obligation`) instead of recording equality the run would not honour. Strings are otherwise passed through untouched.
  */
-function assertHandedInUnchanged(criteria, file) {
-  const refuse = (i, what) => new DeriveRefusal('weakened_obligation', `the child chain would not hand item C${i + 1} in unchanged (${what}); an inherited obligation is never altered on the way in`);
+function assertHandedInUnchanged(criteria, file, ownerOf = () => null) {
+  // owner (D3 F2-4): the plan that WROTE the item - its origin node, or the parent for a refinement it added; a new plan of that node is the one that can word it so the child chain hands it in unchanged
+  const refuse = (i, what) => new DeriveRefusal('weakened_obligation', `the child chain would not hand item C${i + 1} in unchanged (${what}); an inherited obligation is never altered on the way in`, ownerOf(i));
   const parsed = parseCriteriaFile(file, 'criteria.json');
   if (canonicalJson(parsed) !== canonicalJson(criteria)) throw refuse(0, 'criteria.json does not read back as the list');
   const n = normaliseCriteria(parsed);
@@ -259,12 +241,6 @@ function assertHandedInUnchanged(criteria, file) {
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------- the parts of context.md
 
-function refParts(what, doc, heading) {
-  const s = sectionOf(doc.text, heading);
-  if (s.count !== 1) throw missing(`${what} ${doc.name}: the heading ${JSON.stringify(heading)} must exist exactly once, found ${s.count}`);
-  return { label: `${what} ${doc.name} (sha256 ${doc.sha256}), heading "${s.headingText}"`, text: s.section };
-}
-function refPiece(what, doc, heading) { const p = refParts(what, doc, heading); return piece(p.label, p.text); }
 
 /** Part 1: the child's own entry, every value as the signed block holds it. */
 function entryText({ block, child, milestone }) {
@@ -305,7 +281,7 @@ function providerPieces({ block, child, providers }) {
     const refs = [...new Set(e.agreements.flatMap(id => block.agreements.find(a => a.id === id)?.provider_refs ?? []))];
     for (const ref of refs) {
       const s = sectionOf(p.plan.text, ref);
-      if (s.count !== 1) throw missing(`the provider ${p.node}: the heading ${JSON.stringify(norm(ref))} (provider_refs) must exist exactly once in its plan, found ${s.count}`);
+      if (s.count !== 1) throw missing(`the provider ${p.node}: the heading ${JSON.stringify(norm(ref))} (provider_refs) must exist exactly once in its plan, found ${s.count}`, { node: p.node, generation: p.generation });
       out.push(piece(`${label(p)}, ${p.plan.name} (sha256 ${p.plan.sha256}), heading "${s.headingText}"`, s.section)); owners.push({ node: p.node, generation: p.generation });
     }
     // (b) every descendant at its current generation, in node-path order: the section its own split names as the basis of each ready milestone
@@ -315,11 +291,11 @@ function providerPieces({ block, child, providers }) {
       dependsOn.push({ node: d.node, generation: d.generation, thinContractSha256: d.thinContractSha256 });
       for (const m of (d.block?.milestones ?? []).filter(x => x.status === 'ready')) {
         const named = headingsOf(d.plan.text).filter(h => h.level <= 4 && !/^m\d+\b/i.test(norm(h.text)) && norm(h.text).toLowerCase() !== 'milestones' && basisContains(m.basis, h.text));
-        if (!named.length) throw missing(`the descendant ${d.node}: the basis of its ready milestone ${m.id} names no heading of its plan`);
+        if (!named.length) throw missing(`the descendant ${d.node}: the basis of its ready milestone ${m.id} names no heading of its plan`, { node: d.node, generation: d.generation });
         const done = new Set();
         for (const h of named) {
           const s = sectionOf(d.plan.text, h.text);
-          if (s.count !== 1 || done.has(s.headingText)) { if (s.count !== 1) throw missing(`the descendant ${d.node}: the heading ${JSON.stringify(norm(h.text))} (the basis of ${m.id}) must exist exactly once, found ${s.count}`); continue; }
+          if (s.count !== 1 || done.has(s.headingText)) { if (s.count !== 1) throw missing(`the descendant ${d.node}: the heading ${JSON.stringify(norm(h.text))} (the basis of ${m.id}) must exist exactly once, found ${s.count}`, { node: d.node, generation: d.generation }); continue; }
           done.add(s.headingText);
           out.push(piece(`${label(d)}, ${d.plan.name} (sha256 ${d.plan.sha256}), heading "${s.headingText}" (basis of its ready milestone ${m.id})`, s.section)); owners.push({ node: d.node, generation: d.generation });
         }
@@ -412,7 +388,7 @@ export function recordGuardRefusals(rootDir, derived, { facts, now } = {}) {
   return derived.guardRefused.map(g => appendTreeEvent(rootDir, { event: 'guard_refused', node: derived.node, generation: derived.generation, item: itemText(g.form), guard: g.guard, ...(g.identity ? { origin: `${g.identity.originNode}:${g.identity.originId}` } : {}) }, { facts, now }));
 }
 
-/** A refused derivation is a `blocked` record in the closed list: reason expansion_refused, the refusal's code (missing_context, weakened_obligation) as the check. Nothing else is written. */
+/** A refused derivation is a `blocked` record in the closed list: reason expansion_refused, the refusal's code (missing_context, weakened_obligation) as the check. Nothing else is written. Readiness never counts it as a verdict: it is the TRIGGER for a live re-derivation, and a refusal of a plan's own text found then is `derivation_refused` at the node whose text failed (D2 F2, src/tree-ready.js). */
 export function recordDerivationRefusal(rootDir, { node, generation }, refusal, { facts, now } = {}) {
   return appendTreeEvent(rootDir, { event: 'blocked', reason: 'expansion_refused', scope: nodeKey(node, generation), transition: 'derivation', check: refusal.code, detail: refusal.detail }, { facts, now });
 }
