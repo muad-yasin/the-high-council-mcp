@@ -24,7 +24,7 @@ const person = why => `${why}. This approval is a person's: \`council tree appro
 const some = v => (Array.isArray(v) ? v.length > 0 : !!v);
 
 /** Everything the session may check without writing: the pending frontier, the Atomic conditions, the text. -> { refusal } | { ok, pending, described, text, conditions }. */
-function frontierPre({ rootDir, work, reason }, { needReason = true } = {}) {
+function frontierPre({ rootDir, work, reason, deny = null }, { needReason = true } = {}) {
   if (needReason && (typeof reason !== 'string' || reason.trim().length < 3)) return { refusal: 'the answer carries the USER\'s own yes in their words (reason): ask the user first, show them the quoted text, and pass what they said. Nothing was recorded.' };       // B-DRAFT (Muad 21 Okt 2026: a session may not approve money on a written reason alone)
   const record = readTreeRecord(rootDir);
   if (!record.tree || record.corrupt.length) return { refusal: `the record does not read (${record.corrupt.length} problem(s)); nothing can be approved on it` };
@@ -38,7 +38,7 @@ function frontierPre({ rootDir, work, reason }, { needReason = true } = {}) {
   const f = state.frontiers.get(pending.key);
   if (f?.revisions?.length || frontierReopened(record, pending.key)) return { refusal: person('this frontier was approved before or was reopened by a change') };
   if (pending.parent?.node === 'R' && pending.parent.generation >= 2) return { refusal: person('this is the first children frontier of a re-planned root: its approval passes over the held children of the earlier root plan') };
-  const described = describeFrontier({ rootDir, work, pending });
+  const described = describeFrontier({ rootDir, work, pending, deny });       // R16: the MCP route passes the denylist (src/mcp/tree-decide.js)
   if (described.refusal) return { refusal: `the frontier cannot be put to anyone yet: ${refusalWords(described.refusal)}`, frontierRefusal: { pending, r: described.refusal } };     // recorded by the caller (this function writes nothing)
   const { view } = described; const kids = view.children ?? [];
   const open = kids.filter(c => !c.registered && !c.reused);

@@ -267,12 +267,15 @@ function describeRootReplan({ rootDir, work, pending, record, state }) {
 /**
  * Describes a pending frontier: { refusal } when it cannot be put to a person (a PLAN 5.5 item fails, the audit inputs are unreadable, or a child cannot be derived), else
  *   { view, frontierKey, preview, boundSha256, text } where `view` is src/tree-stop.js's input, `preview` is the payload of the `frontier_previewed` record (including each child's chain, ceiling and the grant
- * shown as its cap) and `boundSha256` is the hash of exactly that payload plus the formula and the limits. Reads only. `ctx` = { rootDir, work, rootTaskPath }.
+ * shown as its cap) and `boundSha256` is the hash of exactly that payload plus the formula and the limits. Reads only. `ctx` = { rootDir, work, rootTaskPath, deny }.
+ * `deny` (R16): the secret denylist predicate (src/tools.js isDeniedPath) a caller that reads a run folder it does not trust passes (every MCP route: tree_status, tree_decide's frontier form); it reaches the parent's
+ * `contract check` (src/run-contract-check.js), here and in every derivation it loads (src/tree-derive-load.js, the reuse comparison src/tree-reuse-wire.js), so a denied recorded task path is not read. The CLI on the person's own
+ * folder passes none.
  */
-export function describeFrontier({ rootDir, work, rootTaskPath, pending }) {
+export function describeFrontier({ rootDir, work, rootTaskPath, pending, deny = null }) {
   const record = readTreeRecord(rootDir);
   const state = stateOf(record);
-  if (pending.kind === 'root_replan') return describeRootReplan({ rootDir, work, pending, record, state });
+  if (pending.kind === 'root_replan') return describeRootReplan({ rootDir, work, pending, record, state });       // `deny` has nothing to reach here (no expansion check); the root task read is C&C's CR-RC-006
   rootTaskPath = rootTaskPath ?? rootTaskPathOf(rootDir, work);       // (a root replacement reads its task from the pin, not from run.json)
   const runsDir = dirname(rootDir);
   const { parent, splitSha256, block, key } = pending;
@@ -283,7 +286,7 @@ export function describeFrontier({ rootDir, work, rootTaskPath, pending }) {
   // PLAN 5.5 items 1-4, as at a child's start and an expansion (the same function): a refusal names the item and the field
   const inputs = treeInputsFor({ record, state, runsDir, node: parent.node });
   if (inputs.unreadable.length) return { refusal: { item: 4, check: 'ancestor_questions', field: 'ancestors', detail: `the plan of ${inputs.unreadable.join(', ')} cannot be read, so PLAN 5.3 check 8 cannot be applied` } };
-  const checked = expansionCheck({ runDir: parentDir, work, upTo: 4, inheritedGlobal: inputs.inheritedGlobal, ancestorQuestions: inputs.ancestorQuestions, accepted: planAuthorityOf(parent) });
+  const checked = expansionCheck({ runDir: parentDir, work, upTo: 4, inheritedGlobal: inputs.inheritedGlobal, ancestorQuestions: inputs.ancestorQuestions, accepted: planAuthorityOf(parent), deny });
   if (checked.refusal) return { refusal: checked.refusal };
   if (!block) return { refusal: { item: 3, check: 'body_block', field: 'deliverable.md', detail: 'the split block of the plan cannot be read' } };
   if (checked.sha256 !== splitSha256) return { refusal: { item: 3, check: 'split_changed', field: 'splitSha256', detail: `the verified split ${String(splitSha256).slice(0, 12)} is not the block now in the plan (${String(checked.sha256).slice(0, 12)})` } };
@@ -293,7 +296,7 @@ export function describeFrontier({ rootDir, work, rootTaskPath, pending }) {
   const derived = []; const derivationRefusals = [];
   for (const c of ordered) {
     try {
-      const args = loadDerivation({ rootDir, parentRef: { node: parent.node, generation: parent.generation }, childId: c.id, generation: genOf(c), rootTaskPath, work, preview: true });
+      const args = loadDerivation({ rootDir, parentRef: { node: parent.node, generation: parent.generation }, childId: c.id, generation: genOf(c), rootTaskPath, work, preview: true, deny });
       derived.push({ child: c, d: deriveChild(args), chain: loadChainConfig({ tree: record.tree, depth: childNode(parent.node, c.milestone).split('/').length - 1, work }) });
     } catch (e) {
       if (e instanceof DeriveRefusal) derivationRefusals.push({ child: c, node: childNode(parent.node, c.milestone), generation: genOf(c), code: e.code, detail: e.detail ?? e.message, owner: e.owner ?? null });     // owner: in memory only (D2 F2(a)), so approve can say whether the plan's own text caused it
@@ -322,7 +325,7 @@ export function describeFrontier({ rootDir, work, rootTaskPath, pending }) {
   // C2b-2: a slot filled by a finished run of an earlier plan (REUSED) is not a run to start: it takes a place in the split's width, no money and no run. The entry is computed now (a pure comparison of the files) or, for a frontier shown AGAIN after its approval, read back from the preview that was approved.
   const slotPathOf = x => childNode(parent.node, x.child.milestone);
   const approvedReused = new Map((state.frontiers.get(key)?.children ?? []).filter(c => c.reused).map(c => [c.node, c.reused]));
-  const reusePlan = reusePlanFor({ rootDir, work, rootTaskPath, state, parent, slotsWanted: fresh.map(x => ({ node: slotPathOf(x), generation: genOf(x.child) })) });
+  const reusePlan = reusePlanFor({ rootDir, work, rootTaskPath, state, parent, slotsWanted: fresh.map(x => ({ node: slotPathOf(x), generation: genOf(x.child) })), deny });
   const wanted = reusePlan.reused;
   // C2b-2 money fix-up 2: a slot a LIVE adoption holds that THIS frontier's own approval does not carry (a frontier re-keyed for the same parent - the era-2 numbering - sees the slot as unfilled and, before this, registered it fresh with a grant). The table (K8, reusedRefusal) lets exactly ONE approved frontier carry the `reused` entry of a candidate, so the second frontier cannot copy the entry: it shows the slot as NOT ADMITTED, held by the finished run, with no grant and no run. Its place in the split's width is counted by fanOutOf (a held slot is a child of every frontier that names it).
   const heldElsewhere = x => !approvedReused.has(slotPathOf(x)) && slotHeldBy(state, keyOfChild(x)) !== null;

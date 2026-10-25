@@ -100,14 +100,15 @@ export function providerSubtreeOf(state, pnode) {
 }
 
 // `record` (optional, default: the record on disk) lets the decide form ask a WHAT-IF question about the record a decision would leave (src/tree-decide-size.js); every other caller reads the record on disk, as before.
-export function loadDerivation({ rootDir, parentRef, childId, generation = 1, rootTaskPath, work, preview = false, record = readTreeRecord(rootDir) }) {
+export function loadDerivation({ rootDir, parentRef, childId, generation = 1, rootTaskPath, work, preview = false, record = readTreeRecord(rootDir), deny = null }) {       // `deny` (R16): the denylist an MCP route passes (src/tree-frontier.js describeFrontier); the CLI passes none
   const state = stateOf(record);
   const runsDir = dirname(rootDir);
   const key = nodeKey(parentRef.node, parentRef.generation);
   const pn = state.nodes.get(key);
   if (!pn) throw new NotExpandable(`${key} is not in the record`);
   const runDir = join(runsDir, pn.runId);
-  const check = expansionCheck({ runDir, work, upTo: 3, accepted: planAuthorityOf(pn) });
+  // the same `deny` as the frontier's own expansion check (src/tree-frontier.js): without it this check read the denied file the first one skipped, and describeFrontier threw NotExpandable instead of describing
+  const check = expansionCheck({ runDir, work, upTo: 3, accepted: planAuthorityOf(pn), deny });
   if (check.refusal) throw new NotExpandable(`${key} cannot be expanded: ${refusalWords(check.refusal)}`, { drift: true });
   const me = readPlanOf(runsDir, pn);
   const registered = record.events.find(e => e.event === 'node_registered' && e.node === parentRef.node && e.generation === parentRef.generation);

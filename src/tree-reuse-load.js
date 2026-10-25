@@ -58,7 +58,7 @@ export function contextParts(text) {
 }
 const COMPARED_PARTS = Object.freeze([1, 2, 6]);
 
-export function verifyOldChild({ rootDir, work, rootTaskPath, oldParent, node, generation, derive = deriveChild }) {
+export function verifyOldChild({ rootDir, work, rootTaskPath, oldParent, node, generation, derive = deriveChild, deny = null }) {
   const fail = (problem, old = null) => ({ problem, side: null, old });
   const record = readTreeRecord(rootDir); const state = stateOf(record); const runsDir = dirname(rootDir);
   const n = state.nodes.get(keyOf(node, generation));
@@ -76,7 +76,7 @@ export function verifyOldChild({ rootDir, work, rootTaskPath, oldParent, node, g
   const childId = block?.children?.find(c => c.milestone === milestone)?.id;
   if (!childId) return fail(`the earlier parent's signed split has no child for milestone ${milestone}`, old);
   let args; let derived;
-  try { args = loadDerivation({ rootDir, parentRef: oldParent, childId, generation, rootTaskPath, work, preview: false }); derived = derive(args); } catch (e) { return fail(`its earlier derivation cannot be redone (${words(e)})`, old); }
+  try { args = loadDerivation({ rootDir, parentRef: oldParent, childId, generation, rootTaskPath, work, preview: false, deny }); derived = derive(args); } catch (e) { return fail(`its earlier derivation cannot be redone (${words(e)})`, old); }
   const folder = bundleDirOf(rootDir, node, generation);
   const onDisk = bundleSha256Of(folder);
   if (onDisk === null) return fail('its input bundle folder is gone', old);
@@ -162,7 +162,7 @@ export function branchPinsOf(state, n) {
  *   candidateKeys  ['<node>@g<n>', ...]  the held / kept nodes A's `candidatesOf` lists
  * -> { slots, candidates, ambiguousKeys } ready for comparePairs / assignSlots (src/tree-reuse.js). Reads files; writes nothing.
  */
-export function loadSlotsAndCandidates({ rootDir, work, rootTaskPath, newParent, slotGeneration, candidateKeys, eligibility, wholeBranch }) {
+export function loadSlotsAndCandidates({ rootDir, work, rootTaskPath, newParent, slotGeneration, candidateKeys, eligibility, wholeBranch, deny = null }) {       // `deny` (R16): passed on to every derivation it loads (describeFrontier's MCP routes)
   if (typeof eligibility !== 'function') throw new TypeError('loadSlotsAndCandidates: `eligibility` (A\'s per-node held-eligible predicate) is required: this file keeps no list of its own');
   if (typeof wholeBranch !== 'function') throw new TypeError('loadSlotsAndCandidates: `wholeBranch` (A\'s whole-branch predicate) is required: without it a branch with a missing piece could be adopted as a unit');
   const record = readTreeRecord(rootDir); const state = stateOf(record); const runsDir = dirname(rootDir);
@@ -172,7 +172,7 @@ export function loadSlotsAndCandidates({ rootDir, work, rootTaskPath, newParent,
   const slots = (newBlock?.children ?? []).map((c, position) => {
     const node = childNode(newParent.node, c.milestone);
     let newSide = null; let newProblem = null;
-    try { const args = loadDerivation({ rootDir, parentRef: newParent, childId: c.id, generation: slotGeneration, rootTaskPath, work, preview: true }); newSide = sideOf({ args, derived: deriveChild(args) }); } catch (e) { newProblem = words(e); }
+    try { const args = loadDerivation({ rootDir, parentRef: newParent, childId: c.id, generation: slotGeneration, rootTaskPath, work, preview: true, deny }); newSide = sideOf({ args, derived: deriveChild(args) }); } catch (e) { newProblem = words(e); }
     return { node, generation: slotGeneration, position, newSide, newProblem, expects: newSide?.expects ?? [] };
   });
   const candidates = candidateKeys.map(key => {
@@ -183,7 +183,7 @@ export function loadSlotsAndCandidates({ rootDir, work, rootTaskPath, newParent,
     if (!n) return { ...base, ...verdict, oldProblem: `${key} is not registered in this tree` };
     const f = state.frontiers.get(n.frontierKey);
     if (!f || typeof f.parentNode !== 'string' || typeof f.parentGeneration !== 'number') return { ...base, ...verdict, oldProblem: `${key} has no proposing frontier on record` };
-    const ver = verifyOldChild({ rootDir, work, rootTaskPath, oldParent: { node: f.parentNode, generation: f.parentGeneration }, node: n.node, generation: n.generation });
+    const ver = verifyOldChild({ rootDir, work, rootTaskPath, oldParent: { node: f.parentNode, generation: f.parentGeneration }, node: n.node, generation: n.generation, deny });
     const reg = record.events.find(e => e.event === 'node_registered' && e.node === n.node && e.generation === n.generation);
     const { pins, problem } = pinsOf({ registeredDependsOn: reg?.dependsOn, state, runsDir });
     // the nodes of this candidate's own branch as run-level pins: a consumer planned against this node pinned the provider AND its subtree (tree-derive.js dependsOn), so the slot rule counts them as filled when this candidate is the occupant (BUG-B-002)

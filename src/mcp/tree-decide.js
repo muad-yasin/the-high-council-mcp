@@ -6,6 +6,7 @@
 import { RUN_FOLDER } from '../run-status.js';
 import { trustedRunDir } from '../run-files.js';
 import { readTreeRecord } from '../tree-record.js';
+import { isDeniedPath } from '../tools.js';
 import { memberFolderRefusal } from './tree-members.js';
 import { sessionFrontierAnswer, sessionFrontierQuote } from '../tree-approve-session.js';
 import { sessionDraft } from '../tree-session-draft.js';
@@ -38,7 +39,7 @@ export function treeDecideResult({ runsDir, work, args, now }) {
     return result(w.refusal ? { error: w.refusal } : { recorded: w.recorded, draft: w.draftId, bytes: w.bytes, sha256: w.sha256 });
   }
   if (args.form === 'frontier' && (step === 'quote' || step === 'answer')) {
-    const fa = { rootDir: t.dir, work, reason: args.reason, gate: args.gate, shown: args.shown };
+    const fa = { rootDir: t.dir, work, reason: args.reason, gate: args.gate, shown: args.shown, deny: isDeniedPath };       // R16: a run folder this route does not trust (as tree_status)
     if (step === 'quote') { const q = sessionFrontierQuote(fa, { now }); return result(q.refusal ? { error: q.refusal } : { gate: q.gateId, shown: q.shownSha256, expiresAt: q.expiresAt, text: q.text }); }
     const r = sessionFrontierAnswer(fa, { now }); return result(r.refusal ? { error: r.refusal } : { recorded: r.recorded });
   }

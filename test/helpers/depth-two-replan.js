@@ -34,7 +34,7 @@ const UNSIGNED = '# A draft the mock critics do not sign\n\nIt carries no marker
 const quiet = () => { const stdout = new PassThrough(); const stderr = new PassThrough(); const buf = []; stdout.on('data', d => buf.push(String(d))); stderr.on('data', d => buf.push(String(d))); return { stdout, stderr, text: () => buf.join('') }; };
 
 /** -> { work, rootDir, rootId, childStop, rootStop, decision, opened, kinds(), state(), nodeOf(node, generation), sit(), approve() }. Every assertion names the leg that failed. */
-export async function driveToDepthTwoReplan({ taskText = 'Plan a tiny change.\n', startFlags = {}, stopBeforeReplan = false, stopAtChildStop = false, stopAfterChildFrontier = false } = {}) {
+export async function driveToDepthTwoReplan({ taskText = 'Plan a tiny change.\n', startFlags = {}, stopBeforeReplan = false, stopAtChildStop = false, stopAtChildFrontier = false, stopAfterChildFrontier = false } = {}) {
   const work = track(mkdtempSync(join(tmpdir(), 'thc-depth2-')));
   mkdirSync(join(work, 'tasks')); mkdirSync(join(work, 'chains'));
   writeFileSync(join(work, 'tasks', 'x.md'), taskText);
@@ -78,6 +78,7 @@ export async function driveToDepthTwoReplan({ taskText = 'Plan a tiny change.\n'
   // leg 4: R/M1 (it splits) and R/M3 run; R/M1's own split is verified and its children frontier waits
   r = await S.sit(); assert.equal(r.code, 20, `leg 4: ${r.text}`);
   assert.deepEqual([S.nodeOf('R/M1', 1)?.phase, S.nodeOf('R/M1', 1)?.outcome], ['closed', 'passed'], `leg 4: R/M1 must close passed with a split. ${r.text}`);
+  if (stopAtChildFrontier) { S.decide = decide; return S; }       // G7 item 3 (builder 19): R/M1's children frontier waits, not approved (its parent is not the root)
   // leg 5
   r = await S.approve(); assert.equal(r.code, 0, `leg 5: ${r.text}`);
   S.decide = decide;

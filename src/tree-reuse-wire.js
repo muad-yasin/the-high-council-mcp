@@ -49,14 +49,14 @@ export function wholeBranchOf(state, key) {
  * -> { reused: Map(slot path -> the K8 `reused` entry), fates, slotFates }. Empty (and nothing read) when the tree holds no candidate, so a tree that never re-planned is untouched.
  * A pair whose candidate sits at another LEVEL than the slot is refused HERE, at pairing, before the person is asked (a frontier that is approved must be buildable): the pair becomes a 'changed' row naming both paths.
  */
-export function reusePlanFor({ rootDir, work, rootTaskPath, state, parent, slotsWanted }) {
+export function reusePlanFor({ rootDir, work, rootTaskPath, state, parent, slotsWanted, deny = null }) {       // `deny` (R16): describeFrontier's, passed to every derivation the comparison loads
   const candidates = candidatesOf(state).filter(c => c.state !== 'set_aside' && c.eligible === true);
   if (!candidates.length || !slotsWanted.length) return { reused: new Map(), fates: [], slotFates: [] };
   const newParent = { node: parent.node, generation: parent.generation };
   const generations = [...new Set(slotsWanted.map(s => s.generation))].sort((a, b) => a - b);
   let loaded = null; const slots = [];
   for (const generation of generations) {
-    const got = loadSlotsAndCandidates({ rootDir, work, rootTaskPath, newParent, slotGeneration: generation, candidateKeys: candidates.map(c => c.key), eligibility: () => ({ eligible: true }), wholeBranch: key => wholeBranchOf(state, key) });
+    const got = loadSlotsAndCandidates({ rootDir, work, rootTaskPath, newParent, slotGeneration: generation, candidateKeys: candidates.map(c => c.key), eligibility: () => ({ eligible: true }), wholeBranch: key => wholeBranchOf(state, key), deny });
     loaded ??= got;       // the candidates and the ambiguous keys do not depend on the slot generation
     slots.push(...got.slots.filter(sl => slotsWanted.some(w => w.node === sl.node && w.generation === generation)));
   }
