@@ -12,6 +12,7 @@ import { activeIsOwnChild } from './tree-transitions.js';
 import { describeFrontier, findPendingFrontier, frontierReopened } from './tree-frontier.js';
 import { notAdmittedWords, renderFrontierText } from './tree-stop.js';
 import { refusalWords } from './tree-expansion.js';
+import { recordFrontierRefusal } from './tree-approve.js';
 import { terminalSafeMarked } from './terminal-safe.js';
 import { lockHolder } from './run-lock.js';
 import { SITTING_LOCK_FILE } from './tree-files.js';
@@ -38,7 +39,7 @@ function frontierPre({ rootDir, work, reason }, { needReason = true } = {}) {
   if (f?.revisions?.length || frontierReopened(record, pending.key)) return { refusal: person('this frontier was approved before or was reopened by a change') };
   if (pending.parent?.node === 'R' && pending.parent.generation >= 2) return { refusal: person('this is the first children frontier of a re-planned root: its approval passes over the held children of the earlier root plan') };
   const described = describeFrontier({ rootDir, work, pending });
-  if (described.refusal) return { refusal: `the frontier cannot be put to anyone yet: ${refusalWords(described.refusal)}` };
+  if (described.refusal) return { refusal: `the frontier cannot be put to anyone yet: ${refusalWords(described.refusal)}`, frontierRefusal: { pending, r: described.refusal } };     // recorded by the caller (this function writes nothing)
   const { view } = described; const kids = view.children ?? [];
   const open = kids.filter(c => !c.registered && !c.reused);
   if (open.some(c => !c.admitted)) return { refusal: person(`${open.filter(c => !c.admitted).map(c => c.node).join(', ')} is not admitted (${notAdmittedWords(open.find(c => !c.admitted).notAdmittedReason) ?? 'see the preview'})`) };
@@ -54,7 +55,11 @@ function frontierPre({ rootDir, work, reason }, { needReason = true } = {}) {
 
 /** Call 1: the exact text and its hash; a pending gate the SESSION asked for. -> { refusal } | { gateId, text, shownSha256, expiresAt }. */
 export function sessionFrontierQuote(a, { now } = {}) {
-  const pre = frontierPre(a, { needReason: false }); if (pre.refusal) return pre;
+  const pre = frontierPre(a, { needReason: false });
+  // D3 F2-2: the session route records a frontier refusal like `tree approve` (one writer: recordFrontierRefusal), so a derivation refusal is a trigger readiness re-derives; it opens no stop here (no MCP route runs a sitting's
+  // writes): the next sitting opens it, and until then status says the next resume opens it
+  if (pre.frontierRefusal) recordFrontierRefusal(a.rootDir, pre.frontierRefusal.pending, pre.frontierRefusal.r, now ? { now } : {});
+  if (pre.refusal) return { refusal: pre.refusal };
   const gate = requestTreeGate(a.rootDir, { kind: TREE_GATE_KINDS.frontier, text: pre.text, requestedBy: 'session' }, now ? { now } : {});
   if (!gate.ok) return { refusal: `cannot ask for the approval (${gate.code}): ${gate.message}` };
   return { gateId: gate.gate.id, text: pre.text, shownSha256: sha256Of(pre.text), expiresAt: gate.gate.expires_at };

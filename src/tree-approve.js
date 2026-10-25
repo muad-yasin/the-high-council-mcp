@@ -1,6 +1,7 @@
 // `council tree approve <rootId>` (0.8.3 M5b2c; PLAN 8.2). The person's approval of the next frontier: show exactly what would start, ask at a terminal (the typed frontier-key prefix, then y/N), and only then record it.
 // Order, and why:
-//   1. describe the next pending frontier from the record (src/tree-frontier.js, reads only); a refusal is recorded as `blocked` (expansion_refused, transition 'approval': history, never the plan's verdict, D2 F3) and nothing else;
+//   1. describe the next pending frontier from the record (src/tree-frontier.js, reads only); a refusal is recorded as `blocked` (expansion_refused, transition 'approval': history, never the plan's verdict, D2 F3), except a derivation
+//      refusal, which is recorded as the trigger readiness re-derives (D2 F2) and, when a plan's own text caused it, opens that plan's stop at once (D2 F2(d));
 //   2. the text goes under tree/gate-texts/ and a gate is requested on the ROOT run folder; the answer is taken ONLY by the gate's terminal answer (src/tree-gate.js). Until the person answers, NOTHING is
 //      added to events.jsonl: a gate left unanswered past its expiry approves nothing and records nothing (PLAN 8.2);
 //   3. after the person says yes, the frontier is described AGAIN: if anything it shows has changed in the minutes they read it (the money, a limit, a ceiling), the approval is NOT used and nothing is recorded;
@@ -16,8 +17,24 @@ import { recordDerivationRefusal } from './tree-derive.js';
 import { describeFrontier, findPendingFrontier } from './tree-frontier.js';
 import { renderFrontierText, prefixOf, money } from './tree-stop.js';
 import { TREE_GATE_KINDS, askTreeGate, recordTreeUse, requestTreeGate } from './tree-gate.js';
-import { recordReadinessAfter } from './tree-readiness.js';
+import { computeReadiness, recordReadinessAfter } from './tree-readiness.js';
+import { openBlockedChildStops } from './tree-blocked-child.js';
+import { needsDecisionStopText } from './tree-stop-view.js';
+import { RunLockedError } from './run-lock.js';
 import { finalSentenceOf, recordRefusalLine, treeFinalRefusal } from './tree-abandon.js';
+
+/**
+ * The record a frontier refusal leaves (ONE writer for the two approval routes: this verb and the session's, src/tree-approve-session.js; D3 F2-2): a derivation refusal is recorded on the child's key as the TRIGGER readiness re-derives
+ * live (D2 F2(b)); any other refusal is HISTORY (transition 'approval', D2 F3), once per (scope, check, detail). A refused write is not this call's failure (the table already wrote its own line).
+ */
+export function recordFrontierRefusal(rootDir, pending, r, clock = {}) {
+  try {
+    const have = readTreeRecord(rootDir).events;
+    // a trigger already on record for the same child, check and words is not written again (approving twice, or the session's quote and then the person's verb, ask the same question)
+    if (r.derivationRefusals) for (const d of r.derivationRefusals) { const scope = `${d.node}@g${d.generation ?? 1}`; if (!have.some(e => e.event === 'blocked' && e.transition === 'derivation' && e.scope === scope && e.check === d.code && e.detail === d.detail)) recordDerivationRefusal(rootDir, { node: d.node, generation: d.generation ?? 1 }, { code: d.code, detail: d.detail, message: d.detail }, clock); }
+    else recordExpansionRefusal(rootDir, pending.parent, r, { ...clock, transition: 'approval', once: true });
+  } catch (e) { if (!(e instanceof TreeRefusal)) throw e; }
+}
 
 const EXIT_REFUSED = 19;                    // the same exit the member commands use when the tree refuses (src/cli.js EXIT_TREE_REFUSED)
 
@@ -41,11 +58,19 @@ export async function approveHandler({ rootDir, rootId, work, stdin, stdout, std
   if (described.refusal && pending.kind === 'root_replan') { err(`tree approve: the new root plan cannot be put to you yet. ${described.refusal.detail}`); return EXIT_REFUSED; }       // S8-5: nothing is recorded (there is no parent node a refusal could be about)
   if (described.refusal) {
     const r = described.refusal;
-    try {
-      if (r.derivationRefusals) for (const d of r.derivationRefusals) recordDerivationRefusal(rootDir, { node: d.node, generation: d.generation ?? 1 }, { code: d.code, detail: d.detail, message: d.detail }, clock);
-      else recordExpansionRefusal(rootDir, pending.parent, r, { ...clock, transition: 'approval', once: true });       // D2 F3: an approve-time refusal is HISTORY (readiness does not read 'approval'); written once per (scope, check, detail)
-    } catch (e) { if (!(e instanceof TreeRefusal)) throw e; }
+    recordFrontierRefusal(rootDir, pending, r, clock);
     err(`tree approve: ${pending.parent.node} cannot be expanded yet. ${refusalWords(r)}`);
+    if (!r.derivationRefusals?.some(d => d.owner)) { err(`This is not held against the plan: once it is fixed, run \`council tree approve ${rootId}\` again.`); return EXIT_REFUSED; }     // D2 F3 S3 (A-DRAFT)
+    // D2 F2(d): a refusal of a plan's OWN text opens its stop NOW, through the sitting's own trio (computeReadiness -> openBlockedChildStops -> recordReadinessAfter, as src/tree-run.js afterStep), so no window is left where
+    // status prints approve again; the stop sits on the plan whose text failed (the owner), never on the child. A busy lock or a refused write leaves it to the next sitting, which opens it the same way.
+    let opened = [];
+    try {
+      const computed = computeReadiness(rootDir, { work });
+      if (!computed.unreadable) opened = openBlockedChildStops(rootDir, { verdict: computed.verdict, ...clock });
+      recordReadinessAfter(rootDir, { work, ...clock, writeFiles: false });
+    } catch (e) { if (!(e instanceof RunLockedError) && !(e instanceof TreeRefusal)) throw e; }
+    if (opened.length) { err('This comes from the plan\'s own text, so approving again gives the same answer. A stop is open for it now:'); for (const e of opened) err(needsDecisionStopText(rootDir, e).trimEnd()); }     // D2 S1a (A-DRAFT)
+    else err(`This comes from the plan's own text, so approving again gives the same answer; \`council tree status ${rootId}\` shows the stop that answers it.`);     // D2 S1b (A-DRAFT)
     return EXIT_REFUSED;
   }
 
