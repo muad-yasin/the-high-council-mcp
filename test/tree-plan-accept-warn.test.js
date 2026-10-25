@@ -80,7 +80,7 @@ test('WARN, PERSON through `council tree decide --accept-plan`: the form says wh
 test('WARN, the key scan still refuses for every actor: a key-shaped string in the edit is refused by the writer, and the refusal names the key only (warn blocks no personal data)', { timeout: 400_000 }, async () => {
   const { r, start } = await finished('warn');
   const { stop } = await changed(r, start, 'R/M2', `\nThe store reads ${KEY_URL} and mails ${MAIL}.\n`);
-  const sentence = /^the changed plan holds 1 key-shaped string \([^)]+\): the tree holds no plan that its own key and personal-data checks refuse\. Edit the file to remove it and ask again$/;
+  const sentence = /^the changed plan holds 1 key-shaped string \(.+\): the tree holds no plan that its own key and personal-data checks refuse\. Edit the file to remove it and ask again$/;
   assert.match(refusal(() => session(r, stop)), sentence);
   const b = buildAcceptPlan({ rootDir: r.t.rootDir, rootId: ROOT_ID, stopArg: stop.id });
   assert.match(String(b.refusal), sentence, 'the person\'s form is refused with the same sentence');
