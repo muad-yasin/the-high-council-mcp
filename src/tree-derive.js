@@ -188,6 +188,7 @@ export function deriveChild({ treeId, generation = 1, parent, childId, rootTask,
       preview: true, node, generation, files: null, criteria, lineage: null, bundleSha256: null, bundleBytes: null,
       obligationMap: { items, context: contextOnly.map(c => ({ identity: c.identity ?? null, form: c.form ?? c.identity?.form, ...(c.refinement ? { refinement: c.refinement } : {}), reason: c.reason ?? 'context', ...(c.guard ? { guard: c.guard } : {}) })) },
       guardRefused, checkNotEnforced, held: heldFor, startable: criteria.length > 0, lints: lintCriteria(criteria), dependsOn: [],
+      resolved: { whole: resolved.whole !== null, root: resolved.root.map(p => ({ heading: p.heading, text: p.text })) },     // READ-B LB-4: what the ONE resolver gave part 2, for the reuse check (src/tree-reuse.js sideOf)
     };
   }
   if (earlierPlan) files['old-plan.md'] = earlierPlan.text;       // bundle unit step 2 (slot route): the builder-only earlier plan (src/old-plan.js OLD_PLAN_FILE)
@@ -203,6 +204,7 @@ export function deriveChild({ treeId, generation = 1, parent, childId, rootTask,
     lints: lintCriteria(criteria),
     dependsOn: provided.dependsOn,
     rootTaskSpans, rootTaskHash: taskHashOf(rootTask.text),
+    resolved: { whole: resolved.whole !== null, root: resolved.root.map(p => ({ heading: p.heading, text: p.text })) },     // READ-B LB-4: the same as the preview's (the reuse check's OLD side is a full derivation, src/tree-reuse-load.js)
     // REBUILD (gate page 14, C&C condition A): the plans whose text ENTERED this bundle, from what the derivation consumed, not from what the node declares: the parent (part 4), every node whose text is in part 3 (the owners of the carrier spans) and every node it pinned (dependsOn: a provider and each descendant)
     sources: uniqueSources([{ node: parent.node, generation: parent.generation }, ...(provided.spans ?? []).map(x => ({ node: x.node, generation: x.generation })), ...provided.dependsOn.map(d => ({ node: d.node, generation: d.generation })), ...(earlierPlan ? [{ node: earlierPlan.node, generation: earlierPlan.generation }] : [])]),
   };

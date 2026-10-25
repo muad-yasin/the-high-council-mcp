@@ -4,7 +4,7 @@
 //   src/tree-reuse-load.js  the LOADER: reads both sides from the run folders through `loadDerivation` + `deriveChild` (the one function on both sides) and VERIFIES the old side against what the old child registered.
 // All $0: the real trees are all-mock; every working folder is a temp folder removed at the end of the file.
 import test from 'node:test';
-import { canonicalJson } from '../src/thin-contract.js';
+import { canonicalJson, sha256Of } from '../src/thin-contract.js';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -308,4 +308,19 @@ test('RU-18 an item that is both an acceptance item and a check_not_enforced ite
   const oldS = side({ acceptance: [acc('Run the linter.', 1, 'C4')], carried: [both] }); const newS = side({ acceptance: [acc('Run the linter.', 2, 'C9')], carried: [bothNew] });
   const r = one(child({ oldSide: oldS, newSide: newS })); assert.equal(r.verdict, 'same', JSON.stringify(r));
   const entries = r.identityMap.filter(m => m.from === 'R@g1:C4'); assert.equal(entries.length, 1); assert.equal(entries[0].to.originId, 'C9');
+});
+
+test('LB-4 (READ-B): root_sections compare what the ONE resolver gives the child: bare references both ways (["Goal"] vs ["Notes"] is changed, ["Goal"] twice is same), the supplied exclusions (naming "root-task: Non-goals" or not is same), prefixed references that differ stay changed, and a headingless task is whole whatever its "root-task:" reference says', async () => {
+  const r = await realRoot();
+  const args = loadDerivation({ rootDir: r.t.rootDir, parentRef: { node: 'R', generation: 1 }, childId: 'K1', generation: 1, rootTaskPath: r.rootTaskPath, work: r.t.work, preview: true });
+  const doc = text => ({ name: 'task.md', text, sha256: sha256Of(text) });
+  const headed = doc('# Goal\nBuild a small notes app.\n\n# Notes\nKeep it plain.\n\n# Non-goals\nNo mobile app.\n');
+  const sideWith = (refs, rootTask = headed) => { const b = JSON.parse(JSON.stringify(args.parent.block)); b.children.find(c => c.id === 'K1').context_refs = refs; const a = { ...args, rootTask, parent: { ...args.parent, block: b } }; return reuse.sideOf({ args: a, derived: deriveChild(a) }); };
+  const cmp = (newSide, oldSide) => one({ node: 'R/M1', slot: { node: 'R/M1', generation: 2 }, newSide, oldSide, old: { node: 'R/M1', generation: 1, runId: 'x' }, oldProblem: null, eligible: true, ineligibleWhy: null, wholeBranch: true });
+  assert.equal(cmp(sideWith(['Goal']), sideWith(['Goal'])).verdict, 'same', 'the same bare reference: same (control)');
+  const bare = cmp(sideWith(['Notes']), sideWith(['Goal'])); assert.equal(bare.verdict, 'changed'); assert.equal(bare.field, 'root_sections', 'bare references to different sections: the child receives different text');
+  assert.equal(cmp(sideWith(['root-task: Goal']), sideWith(['root-task: Goal', 'root-task: Non-goals'])).verdict, 'same', 'the exclusions are supplied either way: naming them changes nothing the child receives');
+  assert.equal(cmp(sideWith(['root-task: Notes']), sideWith(['root-task: Goal'])).field, 'root_sections', 'prefixed references to different sections stay changed');
+  const flat = doc('Build a small notes app.\n');
+  assert.equal(cmp(sideWith(['root-task: Goal'], flat), sideWith([], flat)).verdict, 'same', 'a headingless task is supplied whole, with or without a "root-task:" reference');
 });

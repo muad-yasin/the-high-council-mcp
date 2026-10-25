@@ -27,7 +27,7 @@
 import { canonicalJson, sha256Of } from './thin-contract.js';
 import { oneLine } from './criteria-lock.js';
 import { childNode } from './tree-identity.js';
-import { itemText, sectionOf } from './tree-derive.js';
+import { itemText } from './tree-derive.js';
 
 /** F1..F9 in the order they are checked, with the plain name each reason uses. */
 export const REUSE_FIELDS = Object.freeze([
@@ -81,8 +81,9 @@ export function sideOf({ args, derived }) {
   const siblingIsAmbiguous = siblingId => { const sc = scopeOfSibling(siblingId); return sc !== '' && block.children.filter(c => norm(c.scope ?? '') === sc).length > 1; };
   const agreements = ['provides', 'expects'].flatMap(direction => child[direction].flatMap(e => e.agreements.map(id => { const a = agr(id); return { direction, sibling: milestoneOf(e.sibling), siblingScope: scopeOfSibling(e.sibling), siblingAmbiguous: siblingIsAmbiguous(e.sibling), what: a.what, integrationCheck: a.integration_check, providerRefs: [...(a.provider_refs ?? [])] }; })));
   const expects = [...new Set(child.expects.filter(e => e.agreements.length).map(e => childNode(args.parent.node, milestoneOf(e.sibling))))].sort();
-  const rootRefs = child.context_refs.map(r => /^root-task:\s*(\S[\s\S]*)$/.exec(String(r))).filter(Boolean).map(m => norm(m[1]));
-  const rootSections = rootRefs.length ? rootRefs.map(heading => ({ heading, text: sectionOf(args.rootTask.text, heading).section ?? '' })) : [{ heading: '(the whole root task)', text: args.rootTask.text }];
+  // READ-B LB-4: the root task's part of the child's input as the ONE resolver gave it (src/tree-context-refs.js, through the preview derivation): a bare reference, the supplied exclusions sections and a whole-file task compare
+  // by what the child actually receives, never by re-reading the reference strings here
+  const rootSections = derived.resolved.whole ? [{ heading: '(the whole root task)', text: args.rootTask.text }] : derived.resolved.root.map(p => ({ heading: p.heading, text: p.text }));
   const cc = args.childChain ?? {};
   return {
     node: derived.node, milestone: child.milestone, scope: child.scope, openQuestion: milestone?.open_question ?? '', acceptance, refinements, carried, agreements, rootSections,
