@@ -7,6 +7,9 @@ import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sha256Of } from '../src/thin-contract.js';
 import { appendTreeEvent, readTreeRecord, stateOf } from '../src/tree-record.js';
+import { pendingBlockedChildren } from '../src/tree-blocked-child.js';
+import { affectedFor } from '../src/tree-affected.js';
+import { computeReadiness } from '../src/tree-readiness.js';
 import { EVENT_NAMES, RESTORABLE_CODES, eventShapeError, transitionRefusal } from '../src/tree-transitions.js';
 import { restoreClosedStops, restoreDecision, snapshotOfRun } from '../src/tree-restore.js';
 import { runTree } from '../src/tree-run.js';
@@ -35,6 +38,17 @@ const blockedStops = r => eventsOf(r).filter(e => e.event === 'needs_decision_op
 const restored = r => eventsOf(r).filter(e => e.event === 'stop_restored');
 const openStopIds = r => stateOf(readTreeRecord(r.t.rootDir)).openStops;
 const run = r => restoreClosedStops(r.t.rootDir, { runsDir: r.t.runsDir });
+/** OLD RECORD, as 943906f wrote it (CONSTRUCTED, named): the loop that opened blocked stops computed the pending list ONCE and wrote a stop for every entry, so a consumer got its own stop beside its provider's. Since D2 F15
+ *  (one hold opens one stop per question) a new tree never gets both; a tree recorded before that has them, and this builds exactly that record from the functions the old loop called. */
+function oldRecordStops(r) {
+  const record = readTreeRecord(r.t.rootDir);
+  const pending = pendingBlockedChildren(record, stateOf(record), computeReadiness(r.t.rootDir, { work: r.t.work }).verdict);
+  for (const p of pending) {
+    const now = readTreeRecord(r.t.rootDir);
+    const { affected } = affectedFor({ record: now, state: stateOf(now), runsDir: r.t.runsDir, node: p.node, generation: p.generation });
+    appendTreeEvent(r.t.rootDir, { event: 'needs_decision_opened', node: p.node, generation: p.generation, runId: p.runId, source: 'blocked', blockedBy: p.blockedBy, affected });
+  }
+}
 
 test('R1 (REAL): a node whose report.json was unreadable opens a blocked stop; the SAME bytes put back close it by one stop_restored (actor sitting, the record-held hash, the snapshot\'s hash), recorded, with nothing else written (no money, no decision), and a further call writes nothing', { timeout: 400_000 }, async () => {
   const { r, start } = await finished();
@@ -59,38 +73,56 @@ test('R1 (REAL): a node whose report.json was unreadable opens a blocked stop; t
   assert.equal(eventsOf(r).some(e => e.event === 'decision_recorded'), false, 'it is not a person\'s decision');
 });
 
-test('R6 + R11 (REAL): two damaged nodes, two stops (R/M2 depends on R/M1, so its stop ALSO names provider_pin); restoring R/M1 closes ONLY its stop - the other stays open, its node stays stale-marked by its own stop, and once its own file is back too, the dependent\'s stop closes with the provider pins it re-read; a restored node damaged AGAIN opens a NEW stop', { timeout: 400_000 }, async () => {
+test('R6 + R11 (REAL): two damaged nodes, ONE stop (D2 F15: R/M2 depends on R/M1, so the first stop puts it in question); restoring R/M1 closes that stop, and the NEXT sitting opens R/M2\'s own stop; once its own file is back too, that stop closes; a restored node damaged AGAIN opens a NEW stop. CHANGED ACCEPTED TEST (26 Okt 2026): the old bar was "two damaged nodes, two stops" (R/M2 [provider_pin, report_unreadable] beside R/M1), the state CR-2F-002 names as the bug', { timeout: 400_000 }, async () => {
   const { r, start } = await finished();
   const o1 = damage(r, 'R/M1'); const o2 = damage(r, 'R/M2');
   await sitting(r, start);
+  assert.deepEqual(blockedStops(r).map(e => [e.node, e.blockedBy.map(b => b.code)]), [['R/M1', ['report_unreadable']]], 'one stop: R/M2 waits in the first stop\'s affected set');
+  const stop1 = blockedStops(r)[0].id;
+  restore(r, 'R/M1', o1);
+  const out = run(r);
+  assert.deepEqual(out.map(x => [x.node, x.restored, x.why ?? null]), [['R/M1', true, null]]);
+  assert.deepEqual(openStopIds(r), [], 'the only stop closed');
+  await sitting(r, start);
+  assert.deepEqual(blockedStops(r).map(e => [e.node, e.blockedBy.map(b => b.code)]), [['R/M1', ['report_unreadable']], ['R/M2', ['report_unreadable']]], 'R/M2\'s own damage surfaces once R/M1\'s stop is closed (its provider reads fine now: no provider_pin)');
+  const stop2 = blockedStops(r)[1].id;
+  assert.deepEqual(openStopIds(r), [stop2]);
+  const st = stateOf(readTreeRecord(r.t.rootDir));
+  assert.equal(st.stale.has('R/M2@g1'), true, 'the node of the open stop is in question');
+  assert.equal(st.stale.has('R/M1@g1'), false, 'the restored node\'s own marks are released');
+  assert.deepEqual(run(r).map(x => [x.node, x.restored, x.why ?? null]), [['R/M2', false, 'still_unreadable']]);
+  restore(r, 'R/M2', o2);
+  assert.deepEqual(run(r).map(x => [x.node, x.restored]), [['R/M2', true]]);
+  assert.equal(restored(r).length, 2); assert.deepEqual(openStopIds(r), []);
+  assert.equal(restored(r)[0].stopId, stop1); assert.equal(restored(r)[1].stopId, stop2);
+  assert.deepEqual(presenceProblems(restored(r)), [], 'the presence audit');
+  // R11: the restored node is damaged AGAIN
+  damage(r, 'R/M1');
+  await sitting(r, start);
+  const again = blockedStops(r).filter(e => e.node === 'R/M1');
+  assert.equal(again.length, 2, 'a NEW stop for R/M1 opened after the restore'); assert.notEqual(again[0].id, again[1].id);
+  assert.deepEqual(blockedStops(r).slice(-1).map(e => [e.node, e.blockedBy.map(b => b.code)]), [['R/M1', ['report_unreadable']]], 'and none for R/M2: the new stop puts it in question');
+  assert.deepEqual(openStopIds(r), [again[1].id]);
+});
+
+test('OLD RECORD (CONSTRUCTED, as 943906f wrote it; D2 F15 "old records"): two stops already open from one damaged provider report close for free when the files are back; the dependent\'s stop names the free restore of its provider (S14; 26 Okt 2026: in a 0.8.3 tree this line is reachable only through old records, because no answer closes a provider\'s stop without its files coming back except regenerate, which replaces the consumers, and trees first ship in 0.8.3, so old records are dev trees only); restoring R/M1 closes ONLY its stop, the other stays open, and once its own file is back too the dependent\'s stop closes with the provider pins it re-read', { timeout: 400_000 }, async () => {
+  const { r, start } = await finished();
+  const o1 = damage(r, 'R/M1'); const o2 = damage(r, 'R/M2');
+  oldRecordStops(r);
   const stops = Object.fromEntries(blockedStops(r).map(e => [e.node, e.id]));
-  assert.deepEqual(blockedStops(r).map(e => [e.node, e.blockedBy.map(b => b.code)]), [['R/M1', ['report_unreadable']], ['R/M2', ['provider_pin', 'report_unreadable']]]);
-  // D2 F13j S14 (A-DRAFT; lane T, G5+6; B3c): the dependent's stop names the free restore of its provider's files, through the real gather (src/tree-stop-view.js pinProviders from the registration's pins). RED at f7ccc764: no such line
-  // (the provider_pin restore was not printed, D1a B3c); R/M1's own stop names no provider_pin, so it gets none
+  assert.deepEqual(blockedStops(r).map(e => [e.node, e.blockedBy.map(b => b.code)]), [['R/M1', ['report_unreadable']], ['R/M2', ['provider_pin', 'report_unreadable']]], 'the fixture is the record 943906f left');
+  // D2 F13j S14 (A-DRAFT; lane T, G5+6; B3c): the dependent\'s stop names the free restore of its provider\'s files, through the real gather (src/tree-stop-view.js pinProviders from the registration\'s pins); R/M1\'s own stop names no provider_pin, so it gets none
   assert.ok(needsDecisionStopText(r.t.rootDir, blockedStops(r).find(e => e.node === 'R/M2')).split('\n').includes('  Put the run files of R/M1@g1 back as its run wrote them: the next `council tree resume` closes this stop by itself when its thin contract reads as the one R/M2 was registered against.'));
   assert.equal(needsDecisionStopText(r.t.rootDir, blockedStops(r).find(e => e.node === 'R/M1')).includes('Put the run files of'), false);
   restore(r, 'R/M1', o1);
-  const out = run(r);
-  assert.deepEqual(out.map(x => [x.node, x.restored, x.why ?? null]), [['R/M1', true, null], ['R/M2', false, 'still_unreadable']]);
+  assert.deepEqual(run(r).map(x => [x.node, x.restored, x.why ?? null]), [['R/M1', true, null], ['R/M2', false, 'still_unreadable']]);
   assert.deepEqual(openStopIds(r), [stops['R/M2']], 'only the restored node\'s stop closed');
-  const st = stateOf(readTreeRecord(r.t.rootDir));
-  assert.equal(st.stale.has('R/M2@g1'), true, 'the node of the still-open stop stays in question');
-  assert.equal(st.stale.has('R/M1@g1'), false, 'the restored node\'s own marks are released');
   restore(r, 'R/M2', o2);
   assert.deepEqual(run(r).map(x => [x.node, x.restored]), [['R/M2', true]], 'its own file is back AND the provider it registered against reads the pin it registered against: the dependent\'s stop closes by itself (C&C ruling 1, option (b))');
   const [e2] = restored(r).slice(-1); const m1 = nodeOf(r, 'R/M1');
   assert.deepEqual(e2.providerPins, [{ node: 'R/M1', generation: 1, boundThinContractSha256: m1.thinContractSha256, observedThinContractSha256: m1.thinContractSha256 }]);
   assert.equal(restored(r).length, 2); assert.deepEqual(openStopIds(r), []);
   assert.deepEqual(presenceProblems(restored(r)), [], 'the presence audit: the dependent\'s event carries its providerPins');
-  // R11: the restored node is damaged AGAIN
-  damage(r, 'R/M1');
-  await sitting(r, start);
-  const again = blockedStops(r).filter(e => e.node === 'R/M1');
-  assert.equal(again.length, 2, 'a NEW stop for R/M1 opened after the restore'); assert.notEqual(again[0].id, again[1].id);
-  // the dependent is now in question again: R/M1's pin reads differently, so R/M2 gets a NEW provider_pin stop of its own (its own file is fine)
-  const stopsNow = blockedStops(r).slice(-2);
-  assert.deepEqual(stopsNow.map(e => [e.node, e.blockedBy.map(b => b.code)]), [['R/M1', ['report_unreadable']], ['R/M2', ['provider_pin']]]);
-  assert.deepEqual(openStopIds(r), stopsNow.map(e => e.id));
 });
 
 test('R2 + R4 (REAL, the red rows): a swapped deliverable.md beside a swapped report.json whose body_sha256 MATCHES the swapped body is a different hash than the record holds: the stop stays open (the comparison is to the RECORD, never to the report); a changed deliverable beside the original report stays open too', { timeout: 400_000 }, async () => {
@@ -207,12 +239,12 @@ test('plan_unreadable (REAL, gate page 9.2): a stop whose cause is a MISSING del
   assert.deepEqual(openStopIds(r), []); assert.equal(restored(r)[0].providerPins, undefined, 'a stop with no provider_pin carries no provider pins');
 });
 
-// The provider_pin table rows (gate page 9.3), each its OWN test(), one shared real fixture: R/M1 and R/M2 damaged, the stops open, then both files put back. Each candidate is appended to the REAL record's fold and must be refused with ITS OWN reason.
+// The provider_pin table rows (gate page 9.3), each its OWN test(), one shared fixture: R/M1 and R/M2 damaged, the two stops of an OLD RECORD open (oldRecordStops), then both files put back. Each candidate is appended to the REAL record's fold and must be refused with ITS OWN reason.
 let fixture;
 const shared = () => (fixture ??= (async () => {
   const { r, start } = await finished();
   const o1 = damage(r, 'R/M1'); const o2 = damage(r, 'R/M2');
-  await sitting(r, start);
+  oldRecordStops(r);      // OLD RECORD (constructed, named above): a new tree opens one stop for these two; the rows below need the dependent\'s provider_pin stop
   restore(r, 'R/M1', o1); restore(r, 'R/M2', o2);
   const state = stateOf(readTreeRecord(r.t.rootDir));
   const stop = blockedStops(r).find(e => e.node === 'R/M2'); const m1 = nodeOf(r, 'R/M1'); const m2 = nodeOf(r, 'R/M2');
