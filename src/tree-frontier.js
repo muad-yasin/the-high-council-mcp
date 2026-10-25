@@ -286,7 +286,7 @@ export function describeFrontier({ rootDir, work, rootTaskPath, pending, deny = 
   // PLAN 5.5 items 1-4, as at a child's start and an expansion (the same function): a refusal names the item and the field
   const inputs = treeInputsFor({ record, state, runsDir, node: parent.node });
   if (inputs.unreadable.length) return { refusal: { item: 4, check: 'ancestor_questions', field: 'ancestors', detail: `the plan of ${inputs.unreadable.join(', ')} cannot be read, so PLAN 5.3 check 8 cannot be applied` } };
-  const checked = expansionCheck({ runDir: parentDir, work, upTo: 4, inheritedGlobal: inputs.inheritedGlobal, ancestorQuestions: inputs.ancestorQuestions, accepted: planAuthorityOf(parent), deny });
+  const checked = expansionCheck({ runDir: parentDir, work, upTo: 4, inheritedGlobal: inputs.inheritedGlobal, ancestorQuestions: inputs.ancestorQuestions, accepted: planAuthorityOf(state.nodes.get(nodeKey(parent.node, parent.generation))), deny });       // the RECORD's accepted body hash is on the state node; `pending.parent` is { node, generation, runId } and never carried it, so an accepted plan's frontier was refused here as drift (builder 19's trace, 26 Okt 2026)
   if (checked.refusal) return { refusal: checked.refusal };
   if (!block) return { refusal: { item: 3, check: 'body_block', field: 'deliverable.md', detail: 'the split block of the plan cannot be read' } };
   if (checked.sha256 !== splitSha256) return { refusal: { item: 3, check: 'split_changed', field: 'splitSha256', detail: `the verified split ${String(splitSha256).slice(0, 12)} is not the block now in the plan (${String(checked.sha256).slice(0, 12)})` } };
