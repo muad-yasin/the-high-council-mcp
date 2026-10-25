@@ -28,7 +28,7 @@ test('RM-2: a seed that is not a plain non-negative number written with digits i
   for (const bad of ['-5', '1e21', '0x10', ' 5', '5.5', '1000000000000000000000', 'abc']) {
     const r = sh(dir, ['--rematch', join('runs', id), '--rematch-seed', bad]);
     assert.equal(r.status, 2, `seed ${JSON.stringify(bad)}: ${r.stdout}${r.stderr}`);
-    assert.match(r.stderr, /--rematch-seed: expected a whole number written with digits only \(0 or more\), got ".*"\. Nothing was run and nothing was spent\./, bad);
+    assert.match(r.stderr, /--rematch-seed: expected a whole number written with digits only, from 0 up to 9007199254740991, got ".*"\. Nothing was run and nothing was spent\./, bad);
     assert.deepEqual(runs(dir), before, `seed ${JSON.stringify(bad)} made a folder`);
   }
   const ok = sh(dir, ['--rematch', join('runs', id), '--rematch-seed', '12']);

@@ -1659,7 +1659,7 @@ if (rematchArg) {
   // CR-RM-002: the seed becomes part of a folder name (`<id>.rematch-<seed>`) that the spend and status readers recognise only for digits, so it is digits only: `-5` made `<id>.rematch--5`, which no reader sees, and `1e21` or `0x10` were
   // taken as numbers too. (A bare `--rematch-seed` with no value arrives as `true` and keeps today's behaviour.)
   if (typeof seedArg === 'string' && !(/^\d+$/.test(seedArg) && Number.isSafeInteger(Number(seedArg)))) {
-    console.error(`--rematch-seed: expected a whole number written with digits only (0 or more), got "${seedArg}". Nothing was run and nothing was spent.`);
+    console.error(`--rematch-seed: expected a whole number written with digits only, from 0 up to 9007199254740991, got "${seedArg}". Nothing was run and nothing was spent.`);
     process.exit(2);
   }
   const seed = seedArg !== null ? Number(seedArg) : Math.floor(Math.random() * 1_000_000);
