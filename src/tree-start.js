@@ -42,7 +42,7 @@ import { formatUsd } from './cost.js';
 import { everySeatOf, resolveChainSeats } from './chain.js';
 import { chainLintLines, inputSecretFindings, missingKeyLines, piiGateReport, policyGate, policyRefusalText, secretScanRefusalLines } from './run-preflight.js';
 import { TREE_PII_ALLOW_TYPES, TREE_PII_MODES, piiAllowProblem, treePiiModeFrom } from './tree-pii-mode.js';
-import { checkRootTaskPin, makeRootTaskPin, rootTaskPinFrom } from './tree-task-pin.js';
+import { DENIED_TASK_WORDS, checkRootTaskPin, makeRootTaskPin, rootTaskPinFrom } from './tree-task-pin.js';
 import { nextRunId } from './run-files.js';   // the one run id generator, as an ordinary run makes its ids
 
 const PKG_CHAINS = join(dirname(fileURLToPath(import.meta.url)), '..', 'chains');
@@ -106,7 +106,7 @@ function checkOptions(flags, work, { dry = false, ceiling, piiSetting = { mode: 
   let st = null;
   try { st = statSync(taskPath); } catch { /* reported below */ }
   if (!st || !st.isFile()) return { code: 1, message: `--task ${flags.task}: no such task file` };
-  if (isDeniedPath(relative(work, taskPath))) return { code: 1, message: `--task ${flags.task}: a file of that name is never read (it looks like a secrets file)` };
+  if (isDeniedPath(relative(work, taskPath))) return { code: 1, message: `--task ${flags.task}: ${DENIED_TASK_WORDS}` };
   try { readFileSync(taskPath); } catch { return { code: 1, message: `--task ${flags.task}: the file cannot be read` }; }
   const chains = {};
   for (const [key, shown] of [['chain', '--chain'], ['child-chain', '--child-chain']]) {

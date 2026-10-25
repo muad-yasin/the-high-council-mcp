@@ -7,8 +7,12 @@
 // reads as "unknown", never a throw; a damaged field reads as "unusable" with a reason. Extra keys inside the field are not damage (the record is additive). A task outside the working folder is accepted: a normal
 // run accepts one, and the pin must not refuse what the run accepts. This file reads no environment variable; it reads the task file only in makeRootTaskPin and readTaskAgainstPin.
 import { readFileSync, statSync } from 'node:fs';
-import { basename, isAbsolute, resolve } from 'node:path';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { taskHashOf } from './scope-freeze.js';
+import { isDeniedPath } from './tools.js';
+
+/** The words for a task file the secret denylist names (R16's list, src/tools.js isDeniedPath): `tree start` refuses one, and the root task reader never opens one (CR-RC-006). One copy. */
+export const DENIED_TASK_WORDS = 'a file of that name is never read (it looks like a secrets file)';
 
 // src/integrity.js fingerprint(): the first 12 hex characters of the text's sha256 - the one `taskHash` run.json carries (a change detector for the frozen-scope check, not a tamper seal)
 const HEX12 = /^[0-9a-f]{12}$/;
@@ -41,6 +45,9 @@ export function makeRootTaskPin(taskFile, cwd) {
  * `pin` null = no pin to compare (a tree.json written before the pin: dev fixtures only, trees first ship in 0.8.3). -> { ok: true, path, text } | { ok: false, code: 'root_task_unreadable' | 'root_task_changed', reason, error? }. Never throws.
  */
 export function readTaskAgainstPin(path, pin) {
+  // CR-RC-006: a recorded task path the denylist names is refused BEFORE anything is opened, on every route: `tree start` refuses it (src/tree-start.js, the same test: the path relative to the folder the tree was started
+  // from, which is the pin's cwd), so one here can only be an edit after the start. The answer is the same whether such a file exists or not (no existence oracle). The basename is checked too, for a pin with no folder.
+  if ((typeof pin?.cwd === 'string' && isDeniedPath(relative(pin.cwd, path))) || isDeniedPath(basename(path))) return { ok: false, code: 'root_task_unreadable', reason: `the task file ${basename(path)}: ${DENIED_TASK_WORDS}` };
   let text;
   try { if (!statSync(path).isFile()) throw new Error('not a file'); text = readFileSync(path, 'utf8'); } catch (error) { return { ok: false, code: 'root_task_unreadable', reason: `the task file ${basename(path)} cannot be read`, error }; }
   if (pin && taskHashOf(text) !== pin.taskHash) return { ok: false, code: 'root_task_changed', reason: `the task file ${basename(path)} has changed since the tree was started (its hash differs from the pinned one)` };     // the file's NAME, never its absolute path: the sentence reaches readiness, which the tree handoff prints (fix-up ON TOP of a943f492)
