@@ -33,6 +33,9 @@ test('T9 (F9a + F13b, B14b): two split children\'s frontiers approved before any
   const run = await runTree(r.t.rootDir, { work: r.t.work, startRun: start });
   const reopen = kinds('blocked').filter(e => e.check === 'admission_changed');
   assert.ok(reopen.length >= 1, `a child an approved preview admitted was refused at registration: ${JSON.stringify(run).slice(0, 400)}`);
+  // CR-RC-004 (RULE 1c): the sitting that meets the refusal prints its way on in that line (sittingLines is what `tree resume` prints)
+  assert.equal(run.status, 'refused', JSON.stringify(run).slice(0, 400));
+  assert.match(sittingLines(run, ROOT_ID).join('\n'), /was not registered \(admission_changed\): .*not admitted: run limit \([^)]*\); run `council tree approve` again/);
   const pending = findPendingFrontier({ rootDir: r.t.rootDir });
   assert.equal(pending?.key, reopen.at(-1).frontierKey, 'that frontier waits for a new approval');
   const view = describeFrontier({ rootDir: r.t.rootDir, work: r.t.work, pending }).view;
