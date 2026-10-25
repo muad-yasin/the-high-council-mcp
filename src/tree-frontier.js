@@ -11,7 +11,7 @@ import { checkRootTaskPin } from './tree-task-pin.js';
 import { rootTaskRefOf } from './tree-root-replan.js';
 import { expansionCheck } from './tree-expansion.js';
 import { rootTaskPathOf } from './tree-root-task.js';
-import { loadChainConfig, loadDerivation, readPlanOf } from './tree-derive-load.js';
+import { ChainUnavailable, loadChainConfig, loadDerivation, readPlanOf } from './tree-derive-load.js';
 import { DeriveRefusal, deriveChild, itemText } from './tree-derive.js';
 import { dryRunReport } from './dry-run.js';
 import { reusePlanFor } from './tree-reuse-wire.js';
@@ -297,6 +297,7 @@ export function describeFrontier({ rootDir, work, rootTaskPath, pending }) {
       derived.push({ child: c, d: deriveChild(args), chain: loadChainConfig({ tree: record.tree, depth: childNode(parent.node, c.milestone).split('/').length - 1, work }) });
     } catch (e) {
       if (e instanceof DeriveRefusal) derivationRefusals.push({ child: c, node: childNode(parent.node, c.milestone), generation: genOf(c), code: e.code, detail: e.detail ?? e.message, owner: e.owner ?? null });     // owner: in memory only (D2 F2(a)), so approve can say whether the plan's own text caused it
+      else if (e instanceof ChainUnavailable) return { refusal: { item: 4, check: 'chain', field: 'child chain', detail: e.message } };       // D2 F18 (B16a): a refusal (approve records it as history), never a stack trace
       else throw e;
     }
   }

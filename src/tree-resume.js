@@ -148,7 +148,7 @@ function sittingBody(res, rootId) {
     case 'start_failed': L.push(`${at} could not be started: ${res.error}`); break;
     case 'interrupted': L.push(`${at} was interrupted (its process is gone, its run did not end). Run \`council tree resume ${rootId}\` to resume it once.`); break;
     case 'running_elsewhere': L.push(`${at} is running in another process. Nothing was started.`); break;
-    case 'refused': L.push(`${res.node} was not registered (${res.check}): ${res.detail}`); break;
+    case 'refused': L.push(`${res.node} was not registered (${res.check}): ${res.detail}`); if (res.check === 'chain') L.push(`Nothing was started: put the chain file back as the tree registered it, or end the tree with \`council tree decide ${rootId} --abandon\`.`); break;     // D2 F18 S13 (A-DRAFT)
     case 'blocked':
       L.push(`The tree is blocked: ${(res.reasons ?? []).join(', ')}. Nothing was started.`);
       if (res.rootAffected) {

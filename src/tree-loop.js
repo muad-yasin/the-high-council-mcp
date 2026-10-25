@@ -24,7 +24,7 @@ import { isWithin, subtreeEligible } from './tree-deps.js';
 import { milestoneLintOf } from './tree-ready.js';
 import { expansionCheck, recordExpansionRefusal, verifySplit } from './tree-expansion.js';
 import { DeriveRefusal, deriveChild, itemText, recordDerivationRefusal, recordGuardRefusals, writeBundle } from './tree-derive.js';
-import { NotExpandable, loadChainConfig, loadDerivation, readNodePlan, readPlanOf } from './tree-derive-load.js';
+import { ChainUnavailable, NotExpandable, loadChainConfig, loadDerivation, readNodePlan, readPlanOf } from './tree-derive-load.js';
 import { REOPEN_CHECKS, dependencyOrder, frontierReopened, heldDigest, heldItemsOf, rootReplanBound, rootTaskPathOf, rootTaskTextOf, treeInputsFor } from './tree-frontier.js';
 import { registerRootReplan, rootBundle, writeRootBundle } from './tree-root-replan.js';
 import { oldPlanOf } from './old-plan.js';
@@ -300,6 +300,7 @@ export function registerNextChild(rootDir, { work, rootTaskPath = rootTaskPathOf
       return { kind: 'refused', node, check: 'parent_changed', detail: e.message };
     }
     if (e instanceof NotExpandable) return refuse('parent', e.message);              // the parent is not in the record
+    if (e instanceof ChainUnavailable) return refuse('chain', e.message);             // D2 F18 (B16a): the pinned chain file is changed or gone: a refusal the sitting ends on (its words name --accept-chain-limits when only the limits moved), never a stack trace
     throw e;                                                                          // anything else is a defect or an unreadable file: never recorded as a refusal
   }
   // a stop written while the child was being derived registers nothing and writes nothing (C&C, 9 Oct: the stop is checked again right before the bundle is written and right before the registration)
@@ -321,7 +322,7 @@ export function registerNextChild(rootDir, { work, rootTaskPath = rootTaskPathOf
   if (inputFound.findings.length) return openBundleInputStop(rootDir, { child: { node, generation: previewChild.generation }, parent: { node: parent.node, generation: parent.generation }, found: inputFound, facts, now });
 
   // the grant: an equal share of what is free among the children still to register, never above the cap the approval showed (PLAN 7.3, 8.2)
-  const chain = loadChainConfig({ tree: record.tree, depth: node.split('/').length - 1, work });
+  let chain; try { chain = loadChainConfig({ tree: record.tree, depth: node.split('/').length - 1, work }); } catch (e) { if (e instanceof ChainUnavailable) return refuse('chain', e.message); throw e; }       // D2 F18
   const inputBytes = bundleAllowanceBytesOf(record.tree);
   const figures = chainFigures(chain.config, { inputBytes });
   if (!figures) return refuse('price', `the child chain ${chain.name} has no dry-run figure: no grant can be sized`);
@@ -394,7 +395,7 @@ function registerRootFromFrontier(rootDir, { work, record, state, pick, facts, n
   const limits = effectiveLimits(record.tree, record.events);
   const payload = { frontierKey: preview.frontierKey, kind: preview.kind, openedBy: preview.openedBy, parentNode: null, parentGeneration: null, parentRunId: null, splitSha256: null, children: preview.children };       // the recorded event minus its envelope and its hash
   if (rootReplanBound({ preview: payload, limits, decisionText: decision.text, taskText: task.text, oldPlan: decision.oldPlan ?? null, allowanceBytes: decision.allowanceBytes ?? null }) !== (state.frontiers.get(key).previewHash ?? null)) return refuse('limits_changed', 'what the approval bound (the decision, the task bytes, a limit) is not what would be registered; run `council tree approve` again');
-  const chain = loadChainConfig({ tree: record.tree, depth: 0, work });
+  let chain; try { chain = loadChainConfig({ tree: record.tree, depth: 0, work }); } catch (e) { if (e instanceof ChainUnavailable) return refuse('chain', `the root chain cannot be read: ${e.message}`); throw e; }       // D2 F18 with D3's correction: the root chain too
   const rootAllowance = allowanceOfDecision(record.tree, decision);       // the size the approval of THIS root plan was priced at (--allow-size), else the tree's number
   const figures = chainFigures(chain.config, { inputBytes: rootAllowance });
   if (!figures) return refuse('price', `the root chain ${chain.name} has no dry-run figure: no grant can be sized`);
