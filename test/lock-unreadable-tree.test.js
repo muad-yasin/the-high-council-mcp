@@ -114,11 +114,11 @@ test('X3-6 a take whose write THROWS never goes on as the holder: the error leav
   assert.throws(() => acquireRunLock(d, { file: SITTING_LOCK_FILE, pid: 1n }), TypeError);
   assert.equal(existsSync(lock), false, 'no empty file behind');
   assert.equal(process.listenerCount('exit'), before, 'and no release handler: nothing was held');
-  // the takeover branches too: a stale lock, then a throwing write for the new owner's body
+  // the takeover through a stale lock: the BigInt fails at the CLAIM's write (its JSON.stringify), before the new owner's body is ever written; the claim must not be left behind
   writeFileSync(lock, JSON.stringify({ pid: DEAD_PID, host: hostname(), at: 'then', nonce: 'x' }));
   assert.throws(() => acquireRunLock(d, { file: SITTING_LOCK_FILE, pid: 1n }), TypeError);
   assert.equal(existsSync(`${lock}.claim`), false, 'the claim is not left behind either');
-  // and an absent-then-created lock still works for a normal take afterwards
+  // and a normal take through the stale-lock takeover (claim, then rename) still works afterwards. The absent branch's write and the stale branch's temp-file write are covered by reading the code only
   writeFileSync(lock, JSON.stringify({ pid: DEAD_PID, host: hostname(), at: 'then', nonce: 'y' }));
   acquireRunLock(d, { file: SITTING_LOCK_FILE })();
 });
