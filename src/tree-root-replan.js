@@ -14,7 +14,6 @@
 // is required and the function throws without it, so a caller cannot omit the check silently.
 // Tier of what this file keeps (backend-developer rule 5): nothing. Every figure is derived on read from the record and the files.
 import { basename, dirname } from 'node:path';
-import { readFileSync } from 'node:fs';
 import { sha256Of } from './thin-contract.js';
 import { taskHashOf } from './scope-freeze.js';
 import { nextRunId } from './run-files.js';
@@ -93,7 +92,7 @@ export function rootReplanPreflight(rootDir, { work, stopId, sittingHeld, allowa
   if (found.refusal) return found;
   const checked = checkRootTaskPin(found.ref);
   if (!checked.ok) return refusal('task_changed', `${checked.reason} (recorded in ${found.source}): a different goal is a new tree, started with \`council tree start\``);
-  const text = readFileSync(checked.path, 'utf8');
+  const text = checked.text;       // the text the pin check read and hashed (one read: src/tree-task-pin.js readTaskAgainstPin)
   // 2.5 money: what is free AFTER the set-aside covers the root chain's cheapest end. Computed from the cap, the spend and the unknown-spend hold, never from today's availableUsd (which still counts grants the decision is
   // about to release). The cap is never raised: when it does not fit, the only route left is a new tree.
   const budget = budgetOf(rootDir, { record, gate });

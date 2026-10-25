@@ -46,14 +46,15 @@ test('PIN-3 a task OUTSIDE the working folder is accepted by the pin (a normal r
   const pin = makeRootTaskPin(file, work);
   assert.deepEqual(pin, { task: file, cwd: work, taskHash: taskHashOf('Plan a tiny change.\n') }, 'the same three values and the same hash function as run.json');
   assert.equal(rootTaskPinFrom({ rootTask: pin }).status, 'ok');
-  assert.deepEqual(checkRootTaskPin(pin), { ok: true, path: file });
+  // CHANGED ACCEPTED TEST (lane T, G2, C&C's Q5 ruling B): the check now RETURNS the text it read and hashed (one read: src/tree-task-pin.js readTaskAgainstPin), so no caller reads the file a second time after the check. BEFORE { ok, path }.
+  assert.deepEqual(checkRootTaskPin(pin), { ok: true, path: file, text: 'Plan a tiny change.\n' });
   writeFileSync(file, 'A DIFFERENT task.\n');
   const changed = checkRootTaskPin(pin); assert.equal(changed.ok, false); assert.match(changed.reason, /changed/);
   const gone = checkRootTaskPin({ ...pin, task: join(elsewhere, 'missing.md') }); assert.equal(gone.ok, false); assert.match(gone.reason, /cannot be read/);
   const dir = checkRootTaskPin({ ...pin, task: elsewhere }); assert.equal(dir.ok, false);
   assert.equal(checkRootTaskPin({ task: 5 }).ok, false, 'a damaged pin is unusable, not a throw');
   // a relative path resolves against the recorded cwd, as run.json's task does
-  const rel = checkRootTaskPin({ task: 'task.md', cwd: elsewhere, taskHash: taskHashOf('A DIFFERENT task.\n') }); assert.deepEqual(rel, { ok: true, path: file });
+  const rel = checkRootTaskPin({ task: 'task.md', cwd: elsewhere, taskHash: taskHashOf('A DIFFERENT task.\n') }); assert.deepEqual(rel, { ok: true, path: file, text: 'A DIFFERENT task.\n' });     // CHANGED ACCEPTED (as above): BEFORE { ok, path }
 });
 
 test('PIN-4 createTreeFile writes the pin when given one (and only then), refuses a damaged one before writing, and the tree_started hash covers the field', () => {

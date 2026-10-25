@@ -26,6 +26,8 @@ const NOT_NODE_SCOPED = {
   sticky_block: 'scope tree: a sticky tree block (parent_changed, root_affected, record_corrupt)',
   accounting_blocked: 'scope tree: the accounting gate fails',
   integration_failed: 'scope: an agreement (R@g1:A1), not a node',
+  // NEW CODE (lane T, G2, C&C's Q5 ruling B): derived from the pin on every read, at tree scope; it clears itself when the root task's bytes match the pin again, so it is decided here and opens no stop
+  root_task_changed: 'scope tree: the root task is not the one the tree was started with (src/tree-root-task.js rootTaskOf)',
 };
 // incomplete-severity codes: they open NO stop (opensBlockedStop = blocked severity, plus BLOCKED_CHILD_ALSO), so the restore never meets them
 const NO_STOP = ['awaiting_cap', 'root_missing', 'generation_pending', 'not_started', 'running', 'stopped', 'stale', 'split_not_verified', 'unexpanded', 'needs_decision_unresolved', 'integration_unrecorded', 'held_unrecorded', 'open_stop'];

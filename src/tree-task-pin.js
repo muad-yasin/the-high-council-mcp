@@ -5,7 +5,7 @@
 // (no run.json) still has its task on record; the sitting that starts such a root and S8's re-plan of a root both read it from here.
 // Persistence (backend-developer checklist): tree.json stays schema `tree/1` - the field is additive and optional; a tree.json written before it (frozen at 35a9b38: test/fixtures/tree-json/) has no `rootTask` and
 // reads as "unknown", never a throw; a damaged field reads as "unusable" with a reason. Extra keys inside the field are not damage (the record is additive). A task outside the working folder is accepted: a normal
-// run accepts one, and the pin must not refuse what the run accepts. This file reads no environment variable; it reads the task file only in makeRootTaskPin and checkRootTaskPin.
+// run accepts one, and the pin must not refuse what the run accepts. This file reads no environment variable; it reads the task file only in makeRootTaskPin and readTaskAgainstPin.
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { taskHashOf } from './scope-freeze.js';
@@ -36,12 +36,19 @@ export function makeRootTaskPin(taskFile, cwd) {
   return { task: taskFile, cwd, taskHash: taskHashOf(readFileSync(taskFile, 'utf8')) };
 }
 
-/** Does the file the pin names still hold the text it was pinned with? -> { ok: true, path } | { ok: false, reason }. Never throws. */
+/**
+ * THE read of a root task file against its pin (C&C's Q5 ruling B, 25 Okt 2026): the file is read ONCE, its hash compared with the pin's, and the TEXT returned, so nothing that reads the root task has a gap between the check and the read.
+ * `pin` null = no pin to compare (a tree.json written before the pin: dev fixtures only, trees first ship in 0.8.3). -> { ok: true, path, text } | { ok: false, code: 'root_task_unreadable' | 'root_task_changed', reason, error? }. Never throws.
+ */
+export function readTaskAgainstPin(path, pin) {
+  let text;
+  try { if (!statSync(path).isFile()) throw new Error('not a file'); text = readFileSync(path, 'utf8'); } catch (error) { return { ok: false, code: 'root_task_unreadable', reason: `the task file ${path} cannot be read`, error }; }
+  if (pin && taskHashOf(text) !== pin.taskHash) return { ok: false, code: 'root_task_changed', reason: `the task file ${path} has changed since the tree was started (its hash differs from the pinned one)` };
+  return { ok: true, path, text };
+}
+
+/** Does the file the pin names still hold the text it was pinned with? -> { ok: true, path, text } | { ok: false, reason }. Never throws. The read is readTaskAgainstPin's (one read: the text it returns is the text it checked). */
 export function checkRootTaskPin(pin) {
   if (rootTaskProblem(pin)) return { ok: false, reason: `the pin is damaged (${rootTaskProblem(pin)})` };
-  const path = isAbsolute(pin.task) ? pin.task : resolve(pin.cwd, pin.task);
-  let text;
-  try { if (!statSync(path).isFile()) throw new Error('not a file'); text = readFileSync(path, 'utf8'); } catch { return { ok: false, reason: `the task file ${path} cannot be read` }; }
-  if (taskHashOf(text) !== pin.taskHash) return { ok: false, reason: `the task file ${path} has changed since the tree was started (its hash differs from the pinned one)` };
-  return { ok: true, path };
+  return readTaskAgainstPin(isAbsolute(pin.task) ? pin.task : resolve(pin.cwd, pin.task), pin);
 }

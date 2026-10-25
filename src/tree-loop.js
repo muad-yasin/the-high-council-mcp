@@ -67,7 +67,8 @@ function recordBlockedOnce(rootDir, record, fields, { facts, now } = {}) {
 // (the run-folder refusal included); a root task that could not be read (G1's no-route refusal, C&C's G1 obligation); a reference that did not resolve (`context_refs`, C&C 25 Okt 2026, Q1 of T's G2 plan: below the root the root task is
 // read live, so an edited root task refuses there too; a reference the plan's own text got wrong gives the same answer again and writes nothing new, recordExpansionRefusal `once`). Every other check is the plan's own output: a
 // byte-identical plan gives the same answer, so it is asked once.
-export const RECHECKED = Object.freeze(['ancestor_questions', 'contract_check', 'root_task_unreadable', 'context_refs']);
+// root_task_changed (C&C's Q5 ruling B): the root task differs from the pin; putting it back verifies the split again.
+export const RECHECKED = Object.freeze(['ancestor_questions', 'contract_check', 'root_task_unreadable', 'root_task_changed', 'context_refs']);
 
 /**
  * The closed, passed nodes whose plan holds a split block that no `split_verified` and no expansion refusal names yet. (A leaf has no block: nothing to verify, nothing recorded.)

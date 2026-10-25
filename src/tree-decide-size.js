@@ -23,6 +23,7 @@ export const WHY = Object.freeze({
   missing: 'a piece it is built from is not there',
   unreadable: 'a file it needs could not be read',
   chain: 'the chain file it needs is missing or has changed',
+  rootTask: 'the root task is not the one the tree was started with',      // C&C's Q5 ruling B (A-DRAFT): the pin-checked reader refused (root_task_changed); a value on the MCP route, never a throw
   unfolded: 'the decision could not be placed in the record',
   opensNothing: 'the decision opens no new plan',
 });
@@ -69,7 +70,7 @@ export function newPlanInputBytes({ rootDir, record, runsDir, work, decisionArgs
  *  not make `decide` unusable, but the caller says that the size was NOT checked. Anything else (a defect in this very code) is thrown, not turned into a permanent silent skip. */
 function failOpen(e) {
   if (e instanceof NotExpandable) return { ok: false, why: e.drift ? WHY.changed : WHY.missing };
-  if (e instanceof DeriveRefusal) return { ok: false, why: WHY.missing };
+  if (e instanceof DeriveRefusal) return { ok: false, why: e.code === 'root_task_changed' ? WHY.rootTask : WHY.missing };
   if (e instanceof ChainUnavailable) return { ok: false, why: WHY.chain };       // the chain file the tree registered is gone or edited (a package update, a project copy): registration throws the same error at the sitting
   if (['ENOENT', 'EACCES', 'EISDIR', 'ENOTDIR'].includes(e?.code)) return { ok: false, why: WHY.unreadable };
   throw e;

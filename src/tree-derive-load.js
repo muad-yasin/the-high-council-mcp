@@ -7,7 +7,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sha256Of } from './thin-contract.js';
 import { outdatedChainHint } from './chain-name.js';
 import { readRunFile, readRunJson } from './run-files.js';
 import { readTreeRecord, stateOf } from './tree-record.js';
@@ -18,6 +17,7 @@ import { expansionCheck, refusalWords } from './tree-expansion.js';
 import { configSha256, limitsOnlyWords } from './tree-continuation.js';
 import { DeriveRefusal } from './tree-derive.js';
 import { slotEarlierPlan } from './old-plan.js';
+import { rootTaskOf } from './tree-root-task.js';
 
 const PKG_CHAINS = join(dirname(fileURLToPath(import.meta.url)), '..', 'chains');
 
@@ -121,8 +121,11 @@ export function loadDerivation({ rootDir, parentRef, childId, generation = 1, ro
   if (!entry) throw new Error(`${key}'s block has no child ${childId}`);
   const node = childNode(parentRef.node, entry.milestone);
   const depth = node.split('/').length - 1;
-  const text = readFileSync(rootTaskPath, 'utf8');
-  const rootTask = { name: basename(rootTaskPath), text, sha256: sha256Of(text) };
+  // the root task's bytes through the ONE pin-checked reader (C&C's Q5 ruling B): a changed or unusable pin is a FILE cause, refused with no owner (no plan's text can change it); a file that does not read throws its own read error, as before
+  const task = rootTaskOf(rootDir, { work, path: rootTaskPath });
+  if (task.refusal?.error) throw task.refusal.error;
+  if (task.refusal) throw new DeriveRefusal(task.refusal.code, task.refusal.detail);
+  const rootTask = { name: task.name, text: task.text, sha256: task.sha256 };
 
   // the providers this child expects something from, and each provider's whole subtree as it stands
   const nodes = [...state.nodes.values()];

@@ -1,7 +1,6 @@
 // Finding the next frontier and describing it for a person (0.8.3 M5b2c; PLAN 8.1-8.3). A frontier is one set of children proposed from one verified split. Nothing here writes: `findPendingFrontier` reads the
 // record, `describeFrontier` derives every child as a PREVIEW (src/tree-derive.js; the providers have not run), simulates admission and the grant split with the SAME pure functions registration uses
 // (src/tree-budget.js admitAgainstLimits, proposeGrants), and returns the view src/tree-stop.js renders plus the data an approval binds. src/tree-approve.js is the only caller that records anything.
-import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { canonicalJson, sha256Of } from './thin-contract.js';
 import { readTreeRecord, stateOf } from './tree-record.js';
@@ -219,7 +218,7 @@ export function rootTaskTextOf(tree) {
   if (found.refusal) return { refusal: found.refusal.text };
   const checked = checkRootTaskPin(found.ref);
   if (!checked.ok) return { refusal: `${checked.reason}: a different goal is a new tree, started with \`council tree start\`` };
-  return { text: readFileSync(checked.path, 'utf8') };
+  return { text: checked.text };      // the text the pin check read and hashed (one read: src/tree-task-pin.js readTaskAgainstPin)
 }
 
 /** describeFrontier for a root replacement (S8-5): no parent block, no providers, no split checks; the accounting gate, the limits and the grant are the same functions a child's use. */

@@ -8,7 +8,6 @@
 //   4. the split is valid (every check of PLAN 5.3) and, when a frontier key is given, that frontier's approval exists, is still valid and was made for this split.
 // A refusal is a `blocked` record (reason expansion_refused, the check named) and NOTHING else: no child folder, no change to `passed`. Items 1-3 are also what a child's start re-checks on every ancestor
 // (PLAN 7.6 step 2, src/tree-continuation.js defaultAncestorCheck). Pure of models; reads files; writes only the record, and only through the two functions at the bottom.
-import { readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { contractCheckOf } from './run-contract-check.js';
 import { readRunFile, readRunJson, trustedRunDir } from './run-files.js';
@@ -17,9 +16,8 @@ import { appendTreeEvent, readTreeRecord, stateOf } from './tree-record.js';
 import { approvalValid } from './tree-transitions.js';
 import { childNode, nodeKey } from './tree-identity.js';
 import { bodyOfDelivered, checkSplit, extractSplitBlocks, firstDifference, splitSha256 } from './tree-split.js';
-import { sha256Of } from './thin-contract.js';
 import { DeriveRefusal, resolveContextRefs } from './tree-context-refs.js';
-import { rootTaskPathOf } from './tree-root-task.js';
+import { rootTaskOf } from './tree-root-task.js';
 
 const refusal = (item, check, field, detail) => ({ item, check, field, detail });
 
@@ -143,14 +141,12 @@ export function verifySplit(rootDir, { node, generation, runId, runDir, work, in
 
 /** The reference check of a split before it is verified: { refusal } for the FIRST child whose context_refs do not resolve, else { resolved: [{ child, sha256 }] } in the block's order. Reads the root task file; writes nothing. */
 function contextRefsCheck({ node, block, plan, rootDir, work, rootTaskPath }) {
-  let rootTask;
-  try {
-    const path = rootTaskPath ?? rootTaskPathOf(rootDir, work);
-    const text = readFileSync(path, 'utf8');
-    rootTask = { name: basename(path), text, sha256: sha256Of(text) };
-  } catch (e) {
-    return { refusal: refusal(4, 'root_task_unreadable', 'root task', `the root task cannot be read (${e.message}), so the children's context_refs cannot be checked`) };
-  }
+  // the root task through the ONE pin-checked reader (C&C's Q5 ruling B): a split verified while the file differs from the pin is refused (root_task_changed, RECHECKED: putting the file back verifies it again), so no resolvedRefs are
+  // recorded from bytes the tree was not started with
+  const task = rootTaskOf(rootDir, { work, path: rootTaskPath });
+  if (task.refusal?.code === 'root_task_changed') return { refusal: refusal(4, 'root_task_changed', 'root task', task.refusal.detail) };
+  if (task.refusal) return { refusal: refusal(4, 'root_task_unreadable', 'root task', `the root task cannot be read (${task.refusal.error?.message ?? task.refusal.detail}), so the children's context_refs cannot be checked`) };
+  const rootTask = { name: task.name, text: task.text, sha256: task.sha256 };
   const resolved = [];
   for (const c of block.children) {
     try { resolved.push({ child: c.id, sha256: resolveContextRefs({ refs: c.context_refs, rootTask, parentPlan: plan }).sha256 }); } catch (e) {

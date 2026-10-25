@@ -54,7 +54,7 @@ import { blockEdges, isWithin, statusPolicyOk } from './tree-deps.js';
 import { loadDerivation, readNodePlan, readPlanOf } from './tree-derive-load.js';
 import { extractSplitBlocks, splitSha256 } from './tree-split.js';
 import { DeriveRefusal, deriveChild, itemText } from './tree-derive.js';
-import { rootTaskPathOf } from './tree-root-task.js';
+import { rootTaskOf, rootTaskPathOf } from './tree-root-task.js';
 import { budgetOf, capFactsOf, effectiveLimits, gateTree } from './tree-budget.js';
 
 export const VERDICTS = Object.freeze(['ready', 'incomplete', 'blocked']);
@@ -289,6 +289,8 @@ export function gatherReadinessFacts(rootDir, { work, deny = null } = {}) {
   try { const g = gateTree(rootDir, { record }); accounting = { ok: g.ok === true, problems: (g.problems ?? []).map(p => ({ code: String(p.code), detail: String(p.detail) })) }; try { cap = capFactsOf(record, budgetOf(rootDir, { record, gate: g })); } catch { cap = null; } } catch (e) { accounting = { ok: false, problems: [{ code: 'gate_unreadable', detail: String(e.message) }] }; }
   return {
     problems, treeId: state.treeId, sticky: [...state.sticky.keys()], accounting, cap, derivationRefused: derivationRefusalsOf({ rootDir, record, state, runsDir, work, liveNodes }),
+    // C&C's Q5 ruling B, point 3 (25 Okt 2026): the root task read against its pin on EVERY read, never recorded (a second copy of the file's state); it holds paid work only (every derivation refuses while it stands), never the record-only phase
+    rootTaskChanged: (t => (t.refusal?.code === 'root_task_changed' ? t.refusal.detail : null))(rootTaskOf(rootDir, { work })),
     openStops: state.openStops.map(id => { const e = record.events.find(x => x.id === id); return { id, node: e?.node ?? null, generation: e?.generation ?? null }; }),
     limits: { ...effectiveLimits(record.tree, record.events), runs: state.nodes.size }, nodes, integrations,
     // c3b: children a person closed before they were ever registered (no nodes row, no run): the newest generation of a live path only, like a node
@@ -379,6 +381,7 @@ export function verdictOf(facts) {
   const key = n => nodeKey(n.node, n.generation);
   if (!byPath.has('R')) incomplete('root_missing', 'tree', 'the root is not registered yet');
   for (const r of facts.sticky) blocked('sticky_block', 'tree', `the tree is blocked: ${r}`);
+  if (facts.rootTaskChanged) blocked('root_task_changed', 'tree', `the root task is not the one the tree was started with: ${facts.rootTaskChanged}`);     // A-DRAFT; clears itself when the bytes match again
   if (!facts.accounting.ok) blocked('accounting_blocked', 'tree', `the accounting gate fails: ${facts.accounting.problems.slice(0, 3).map(p => `${p.code} (${p.detail})`).join('; ') || 'no detail'}`);
   for (const c of facts.closedUnstarted ?? []) incomplete('closed_incomplete', nodeKey(c.node, c.generation), `${nodeKey(c.node, c.generation)} was closed before it started, by a person: nothing ran; what waits for it starts only if it is replaced`);
   for (const s of facts.openStops) incomplete('open_stop', s.node ? nodeKey(s.node, s.generation) : 'tree', `a needs_decision stop (${s.id}) is open`);
