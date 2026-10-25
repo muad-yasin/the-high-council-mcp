@@ -54,7 +54,7 @@ import { adviceChainDirs, loadAdviceChain } from '../send-profiles.js';
 import { isAdviceFolder } from '../advice-run.js';
 import { readStoppedMarker, stopSpendNote, STOP_STATUS, isRoundStop, waitsForPerson, ROUND_STOPPED_STATE } from '../stop-files.js';
 import { childEndOf } from './run-end.js';
-import { stopIdOf } from '../overseer-rounds.js';
+import { stopIdOf, roundLimitsOf } from '../overseer-rounds.js';
 import { PARTIAL_REPORT_FILE } from '../report-shape.js';
 import { memberResumeRedirect } from '../tree-redirect.js';
 import { treeStatusResult } from './tree-status.js';
@@ -407,7 +407,7 @@ server.tool('list_chains', 'Chains available to run, with their description and 
     const c = chainConfigFor(name);
     if (!c) return null;
     const user = existsSync(join(work, 'chains', `${name}.json`));
-    return { name: c.name, description: c.description, ...(typeof c.summary === 'string' ? { summary: c.summary } : {}), maxRounds: c.maxRounds, signoff: c.signoff || 'first', proposals: !!c.proposals, debate: !!c.debate, handoff: !!c.handoff, ...(user ? { source: 'user' } : {}), ...(c.advise?.enabled === true ? { advice_tools_only: true } : {}) };
+    return { name: c.name, description: c.description, ...(typeof c.summary === 'string' ? { summary: c.summary } : {}), ...(roundLimitsOf(c).overseer === null ? { maxRounds: roundLimitsOf(c).passes } : {}), signoff: c.signoff || 'first', proposals: !!c.proposals, debate: !!c.debate, handoff: !!c.handoff, ...(user ? { source: 'user' } : {}), ...(c.advise?.enabled === true ? { advice_tools_only: true } : {}) };
   }).filter(Boolean);
   return text(chains);
 });

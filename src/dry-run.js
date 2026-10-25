@@ -78,7 +78,7 @@ export function dryRunReport(config, { fromRun = false, taskChars = null, histor
     chain: config.name ?? null,
     description: config.description ?? null,
     ...(typeof config.summary === 'string' ? { summary: config.summary } : {}),
-    maxRounds: config.maxRounds ?? null,
+    maxRounds: roundLimitsOf(config).overseer !== null ? null : roundLimitsOf(config).passes,   // CR-4B-007: the EFFECTIVE pass cap (a chain that leaves maxRounds out runs with the default of 2, as the dry run's figures and its "Rounds:" line say)
     // round semantics (2a): present only for a chain with overseer rounds; maxRounds is then null (the ceiling is derived, never a second key)
     ...(roundLimitsOf(config).overseer !== null ? { maxOverseerRounds: roundLimitsOf(config).overseer, passCeiling: roundLimitsOf(config).passes } : {}),
     signoff: config.signoff || 'first',
