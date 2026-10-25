@@ -1343,7 +1343,11 @@ const withRaisedBy = (f, critics) => {
 };
 // A conflict item as the decider prompt, the decisions[] rows and the asked rows show it: the BARE lab, the repeated seat's key moved to `seat`.
 const bareConflictItem = it => ({ ...shownFailure(it), others: it.others.map(shownFailure) });
-const shownFailure = f => (f?.lab && labFromKey(f.lab) !== f.lab ? { ...f, lab: labFromKey(f.lab), seat: f.lab } : f);
+// CR-6A-004: a peer a withdrawal quoted (`quoted_ref`) is recorded by its seat KEY (`<lab>-l2` for a model repeated on a second layer); the record shows the lab, and `quoted_layer` beside it says which layer.
+const shownFailure = f => {
+  const g = f?.lab && labFromKey(f.lab) !== f.lab ? { ...f, lab: labFromKey(f.lab), seat: f.lab } : f;
+  return g?.quoted_ref && labFromKey(g.quoted_ref) !== g.quoted_ref ? { ...g, quoted_ref: labFromKey(g.quoted_ref) } : g;
+};
 const shownCritique = c => (c?.failures?.some(f => f?.lab && labFromKey(f.lab) !== f.lab) ? { ...c, failures: c.failures.map(shownFailure) } : c);
 export async function runDisputeReview(config, { request, openFailures, draftBefore, draftAfter, invoke, record, log = () => {} }) {
   const critics = config.seats?.critics || [];
@@ -4074,7 +4078,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
               if (!ledgerOffLogged) { ledgerOffLogged = true; log('  ledger not built: answer_back is off, so there are no dispositions to show the top layer.'); }
             } else {
               const sentence = held('overseerLedgerSection');
-              const rowsOf = sentence ? objectionLedger({ openByRound: ledgerRaises, replies: answerBackReplies, reviserByRound: reviserByRoundOf(), draftShaByRound, heardByRound, notAskedByRound, layerOf: Object.fromEntries(config.seats.critics.map(c => [seatKeyOf(c), c.layer])), currentRound: round }).map(r => ({ ...r, raised_by: { ...r.raised_by, lab: labFromKey(r.raised_by.lab) } })) : [];   // the ledger sentence is a prompt: the bare lab, never the seat key
+              const rowsOf = sentence ? objectionLedger({ openByRound: ledgerRaises, replies: answerBackReplies, reviserByRound: reviserByRoundOf(), draftShaByRound, heardByRound, notAskedByRound, layerOf: Object.fromEntries(config.seats.critics.map(c => [seatKeyOf(c), c.layer])), currentRound: round }).map(r => ({ ...r, raised_by: { ...r.raised_by, lab: labFromKey(r.raised_by.lab) }, ...(r.judge?.quoted_ref ? { judge: { ...r.judge, quoted_ref: `${labFromKey(r.judge.quoted_ref)}${layerNoteOf(r.judge.quoted_ref)}` } } : {}) })) : [];   // CR-6A-004: the quoted peer is named like every other seat in text a model reads: the lab, plus " (layer N)" for a model repeated on more than one layer   // the ledger sentence is a prompt: the bare lab, never the seat key
               if (!sentence) log('  ledger section held: the top layer is asked with the ordinary prompt.');
               else if (rowsOf.length) {
                 const fit = fitLedger(rowsOf, ({ rows, omitted }) => sentence({ rows, omitted }));
