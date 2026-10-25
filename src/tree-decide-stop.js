@@ -103,7 +103,7 @@ const MILESTONE_ID = '[A-Za-z][A-Za-z0-9_-]*';
 const QUALIFIED = new RegExp(`^(R(?:/${MILESTONE_ID})*)@g([1-9][0-9]*):(${MILESTONE_ID})$`);
 
 /** The milestones a person could resolve in place: every `needs-decision` milestone in the split block of a closed node, not yet resolved. */
-function openMilestones(record, state, runsDir) {
+export function openMilestones(record, state, runsDir) {
   const resolved = new Set(record.events.filter(e => e.event === 'milestone_resolved').map(e => `${e.node}@g${e.generation}:${e.milestone}`));
   const out = [];
   for (const n of [...state.nodes.values()].sort((a, b) => (a.node < b.node ? -1 : a.node > b.node ? 1 : a.generation - b.generation))) {

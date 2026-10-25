@@ -157,7 +157,8 @@ test('R6 (Astra F9): a tree with an OPEN stop and nothing runnable exits 20 (sto
   const code = await resumeHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, work: r.t.work, stdout: io.stdout, stderr: io.stderr, now: () => Date.now(), deps: { startRun: async () => { calls.push('start'); return { exitCode: 0 }; }, resumeRun: async () => { calls.push('resume'); return { exitCode: 0 }; } } });
   assert.equal(calls.length, 0, 'nothing started');
   assert.equal(code, 20, `${io.shown()}${io.errors()}`);
-  assert.match(io.shown(), new RegExp(`Open stop: ${stop.id}\\. Answer it with \`council tree decide ${ROOT_ID}\``));
+  // CHANGED ACCEPTED (lane T, G3+4, D2 F7b S5): BEFORE `Open stop: <id>. Answer it with \`council tree decide <root>\`` (and "resolve in place with --milestone <id>", which this node does not take)
+  assert.match(io.shown(), new RegExp(`Open stop ${stop.id}: answer it with \`council tree decide ${ROOT_ID} --stop ${stop.id}\``));
 });
 
 test('R8 (Opus 3-4): the gate text of a --milestone resolution holds no control or bidi character from the plan\'s question (terminalSafe): the hashed text, the hash the decision kept and the screen are clean', async () => {

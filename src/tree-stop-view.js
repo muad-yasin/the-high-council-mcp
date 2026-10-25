@@ -13,8 +13,8 @@ import { childNode, nodeKey } from './tree-identity.js';
 import { affectedFor, treeGraph } from './tree-affected.js';
 import { gateTree, memberSpentUsd } from './tree-budget.js';
 import { renderBundleInputStop, renderClosedUnstartedStop, renderNeedsDecisionStop } from './tree-stop.js';
-import { milestoneKeysOf, rootRemedies } from './tree-decide-stop.js';
-import { deadKeys, isSupersededGeneration, orphansOf, placeOf } from './tree-transitions.js';
+import { milestoneKeysOf, openMilestones, rootRemedies } from './tree-decide-stop.js';
+import { deadKeys, isSupersededGeneration, keepRefusal, orphansOf, placeOf } from './tree-transitions.js';
 
 const handoffText = runDir => {
   try { const m = /^## What this is\s*\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(readFileSync(join(runDir, 'HANDOFF.md'), 'utf8')); return m ? m[1].trim() : null; } catch { return null; }
@@ -91,11 +91,14 @@ export function needsDecisionStopText(rootDir, stopEvent) {
   });
   const rootId = record.tree.treeId;
   const own = stopEvent.id;
+  // D2 F7b (A-DRAFT S4): the free KEEP is printed exactly when the table would take it: keepRefusal, the function buildKeep and the table row use, with buildKeep's own milestone reader (so a printed KEEP never refuses)
+  const keepRoute = () => (stopEvent.source === 'node_closed' && keepRefusal(state, { stopId: own, node: node.node, generation: node.generation }, { milestonesOf: () => openMilestones(record, state, runsDir).filter(x => x.node === node.node && x.generation === node.generation).map(() => ({ status: 'needs-decision' })) }) === null
+    ? [`accept it as it is ($0): council tree decide ${rootId} --keep ${node.node}@g${node.generation}`] : []);
   const routes = stopEvent.source === 'blocked'
     ? [node.node === 'R' ? `answer it with a NEW ROOT plan: council tree decide ${rootId} --stop ${own}` : `regenerate what it affects (a new generation of ${node.node}): council tree decide ${rootId} --stop ${own}`]
     : node.node === 'R'
     ? (() => { const ks = rootRemedies(record, state, runsDir); const plan = `answer it with a NEW ROOT plan: council tree decide ${rootId} --stop ${own}`; return ks.length ? [...ks.map(k => `answer it in place: council tree decide ${rootId} --milestone ${k} --stop ${own}`), plan] : [plan]; })()
-    : [`regenerate what it affects: council tree decide ${rootId} --stop ${own}`, ...(stopEvent.source === 'blocked' ? [] : milestoneKeysOf(record, state, runsDir, node.node, node.generation)).map(k => `resolve ${k} in place: council tree decide ${rootId} --milestone ${k} --stop ${own}`), `widen it to one obligation: council tree decide ${rootId} --stop ${own} --obligation <node>@g<n>:<id>`];
+    : [`regenerate what it affects: council tree decide ${rootId} --stop ${own}`, ...keepRoute(), ...(stopEvent.source === 'blocked' ? [] : milestoneKeysOf(record, state, runsDir, node.node, node.generation)).map(k => `resolve ${k} in place: council tree decide ${rootId} --milestone ${k} --stop ${own}`), `widen it to one obligation: council tree decide ${rootId} --stop ${own} --obligation <node>@g<n>:<id>`];
   return renderNeedsDecisionStop({
     stopId: stopEvent.id, node: node.node, generation: node.generation, status: 'needs_decision', whatThisIs: handoffText(join(runsDir, node.runId)), acceptedPlan: node.acceptedBy ? { actor: node.acceptedBy.actor, via: node.acceptedBy.via ?? null } : null, provides, expects, affected,
     spentUsd: (() => { try { return memberSpentUsd(record, node, join(runsDir, node.runId)); } catch { return 0; } })(),     // a node a person closed before it ever started has no run folder: nothing was spent

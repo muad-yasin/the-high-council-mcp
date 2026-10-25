@@ -174,8 +174,9 @@ test('(f) the REAL sequence for the key: a child ends Status needs_decision with
   const lines = sittingLines(out, ROOT_ID).join('\n');
   assert.ok(lines.includes(`Blocked-child stop ${stop.id}: answer it with \`council tree decide ${ROOT_ID} --stop ${stop.id}\` (a new generation of the child).`), lines);
   // R/M3 (independent, same fixture) ended needs_decision too: ITS open stop legitimately gets the generic sentence; the blocked stop must not be in it
-  const generic = lines.split('\n').filter(l => /resolve in place with --milestone/.test(l));
-  assert.equal(generic.length, 1, lines); assert.equal(generic[0].includes(stop.id), false, 'a blocked stop is never told "resolve in place"');
+  // CHANGED ACCEPTED (lane T, G3+4, D2 F7b S5): the generic line is found by its new words; BEFORE /resolve in place with --milestone/ (the old line named --milestone, which a node with no needs-decision milestone does not take)
+  const generic = lines.split('\n').filter(l => /^ {2}Open stops? .*: answer (it|each) with `council tree decide /.test(l));
+  assert.equal(generic.length, 1, lines); assert.equal(generic[0].includes(stop.id), false, 'a blocked stop is never in the generic line');
 });
 
 test('(g) THE RULE, generically: report_unreadable and expansion_refused are on no list, and each opens a blocked stop on its child (blockedBy names exactly that code)', async () => {
