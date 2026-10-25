@@ -52,7 +52,7 @@ test('RM-3: a rematch folder, or a folder whose rematch name the readers would n
   assert.equal(existsSync(join(dir, 'runs', `${id}-init.rematch-7`)), false);
 });
 
-test('RM-1: an edited task is refused (exit 2, nothing made); the unedited task runs, from another folder too, with the ORIGINAL task bytes', () => {
+test('RM-1: an edited task is refused (exit 2, nothing made); the unedited task runs; a rematch typed from another folder is refused (CR-RC-003)', () => {
   const { dir, id } = original();
   const before = runs(dir);
   writeFileSync(join(dir, 'tasks', 'smoke.md'), `${TASK}One line added after the run.\n`);
@@ -61,15 +61,15 @@ test('RM-1: an edited task is refused (exit 2, nothing made); the unedited task 
   assert.match(edited.stderr, /--rematch: the task file .*smoke\.md has changed since .* started - a rematch tests the panel, not the task, so the input must be byte-identical\. Restore the file to what that run started with\. Nothing was run and nothing was spent\./);
   assert.deepEqual(runs(dir), before, 'no folder was made');
   writeFileSync(join(dir, 'tasks', 'smoke.md'), TASK);
-  const originalSha = JSON.parse(readFileSync(join(dir, 'runs', id, 'report.json'), 'utf8')).task_sha256;
   assert.equal(sh(dir, ['--rematch', join('runs', id), '--rematch-seed', '3']).status, 0, 'the restored task runs');
-  // From another working folder, with a DIFFERENT file at the same relative path there: the task is the original run's own (the recorded task path is absolute), not the one in the folder the command runs from. A regression guard, not a red: the old source reads the same file.
+  // From another working folder: refused (CR-RC-003). The rematch folder would land in THIS project's runs/, where the other folder's --spend and limits never look (test/side-run-placement.test.js has the sentences);
+  // before, this call ran and sent the original run's own task bytes. The task-path lookup therefore has no reachable case from another folder any more; the moved-project test below keeps the cwd lookup.
   const other = mkdtempSync(join(tmpdir(), 'thc-rematch-other-')); mkdirSync(join(other, 'tasks'));
   writeFileSync(join(other, 'tasks', 'smoke.md'), 'A different task that must not be sent.\n');
   const far = sh(other, ['--rematch', join(dir, 'runs', id), '--rematch-seed', '4']);
-  assert.equal(far.status, 0, far.stdout + far.stderr);
-  const rematchReport = JSON.parse(readFileSync(join(dir, 'runs', `${id}.rematch-4`, 'report.json'), 'utf8'));
-  assert.equal(rematchReport.task_sha256, originalSha, 'the rematch sent the original run\'s task bytes');
+  assert.equal(far.status, 2, far.stdout + far.stderr);
+  assert.match(far.stderr, /--rematch: .* is in .*runs, not in .*runs, so the spend of a rematch written beside it would not show/);
+  assert.equal(existsSync(join(dir, 'runs', `${id}.rematch-4`)), false, 'no folder was made');
 });
 
 test('RM-1 (moved project): when the recorded folder no longer exists the task is looked up where the command runs; the same bytes rematch, a changed file is still refused', () => {

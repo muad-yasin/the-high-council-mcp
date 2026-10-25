@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync, statSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync, statSync, renameSync, realpathSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1412,6 +1412,22 @@ function refuseSideRun(what, config, runMeta) {
 // T2-1 commit 5 (14 Oct 2026): `--replay`, `--rematch`, `handoff --from-run`, `contract draft --from-run` and `digest --provider` are paid calls on a finished run, and `--dry-run` was a known flag that none of them read: each RAN (p23/p24 probes,
 // scratch/c/probe-out) and wrote files. A dry run is now a SEPARATE early branch in each block: after the usage, lint and refuseSideRun refusals and the policy gate, before every lock, folder, reservation, tree claim and prompt file, it prints a
 // price and exits 0. The policy gate is ONE function (src/run-preflight.js sideCommandGate) called by all five at their own point; before this the handoff block had an inline copy and the other three had none.
+// CR-RC-003: a side run (--rematch, --replay) writes its folder BESIDE the original. --spend, --cost-today and the spending limits read only join(work, 'runs'), so a side folder written anywhere else is spend
+// they cannot see. The original therefore has to sit directly in this project's runs/ folder; otherwise the command refuses before anything is written or sent (the dry run too, so it predicts the real run).
+// The PARENT is compared by real path (a run folder that is itself a symlink inside runs/ still gets its side folder inside runs/); where a path cannot be resolved the resolved string is used.
+// A-DRAFT (two shapes): the parent is some project's runs/ folder (name the project and the command), or it is not a runs/ folder at all (the folder has to be moved into one first).
+function sidePlacementRefusal(flagName, what, originalDir) {
+  const runsDir = join(work, 'runs');
+  const parent = dirname(originalDir);
+  const real = p => { try { return realpathSync(p); } catch { return resolve(p); } };
+  if (real(parent) === real(runsDir)) return null;
+  const id = basename(originalDir);
+  const cause = `so the spend of ${what} written beside it would not show in --spend, --cost-today or`;
+  if (basename(parent) === 'runs') {
+    return `${flagName}: ${originalDir} is in ${parent}, not in ${runsDir}, ${cause} this project's spending limits. Run it from the project that holds that folder (${dirname(parent)}), as: council ${flagName} runs/${id}. Nothing was run and nothing was spent.`;
+  }
+  return `${flagName}: ${originalDir} is not in a project's runs/ folder, ${cause} any project's spending limits. Move the folder into the runs/ folder of the project it belongs to, then run council ${flagName} runs/${id} from that project. Nothing was run and nothing was spent.`;
+}
 function sideGateOrExit(config, allSeats, policyCwd = work, neighbour = null, callFigureUsd = null) {
   const refused = sideCommandGate({ config, allSeats, work, policyCwd, callFigureUsd });
   if (!refused) return;
@@ -1636,6 +1652,7 @@ if (rematchArg) {
   // 0.8.3 M2 (C&C, 8 Oct): a rematch is a paid call on a finished run that writes a SIDE folder, and the tree sums only the folders its record names, so it would spend outside the tree's accounting. Refused for a tree member,
   // before the side folder exists.
   if (originalRunMeta.tree) { console.error(`--rematch: ${originalRunDir} is a member of a recursive-councils tree; a rematch would spend outside the tree's record. Nothing was run and nothing was spent.`); process.exit(EXIT_TREE_REFUSED); }
+  { const placed = sidePlacementRefusal('--rematch', 'a rematch', originalRunDir); if (placed) { console.error(placed); process.exit(2); } }
   const seedArg = flag('rematch-seed', null);
   // Default random, but always recorded on disk (run.json below) so a rematch that used a random
   // seed is still reproducible after the fact by reading what it actually ran with.
@@ -1808,6 +1825,7 @@ if (argv.includes('--replay')) {
   }
   // 0.8.3 M2 (C&C, 8 Oct): same as --rematch above: a replay writes a side folder the tree's accounting does not read.
   if (runMetaForChain.tree) { console.error(`--replay: ${runDir} is a member of a recursive-councils tree; a replay would spend outside the tree's record. Nothing was run and nothing was spent.`); process.exit(EXIT_TREE_REFUSED); }
+  { const placed = sidePlacementRefusal('--replay', 'a replay', runDir); if (placed) { console.error(placed); process.exit(2); } }
   // Replay audit #4: a second replay on the same day re-paid everything and overwrote the first. T2-1 (13 Oct 2026): only a FINISHED replay (report.json) is "already replayed"; a folder that was started and did not finish is
   // RESUMED from its stage files (armSideRun, below), so its paid stages are not paid for again; a live process on it is refused by the run lock.
   if (existsSync(join(replayDirFor(runDir, date), 'report.json'))) {
