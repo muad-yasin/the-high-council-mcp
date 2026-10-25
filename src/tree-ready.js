@@ -331,7 +331,7 @@ export function rederivedTriggers({ rootDir, record, state, runsDir, work, liveN
     const parentPath = child.slice(0, child.lastIndexOf('/'));
     const parent = liveNodes.find(n => n.node === parentPath && n.phase === 'closed' && n.verifiedSplit && !isSupersededGeneration(state, n.node, n.generation));       // the live generation of the parent path (adopted-aware)
     if (!parent) continue;
-    const where = { child: e.scope, parent: { node: parent.node, generation: parent.generation } };
+    const where = { child: e.scope, parent: { node: parent.node, generation: parent.generation }, preview: true, treeId: record.tree?.treeId ?? '<root>' };       // preview: until the call below says otherwise (a throw before it read nothing in full)
     let block;
     try {
       block = readPlanOf(runsDir, parent).block;
@@ -339,6 +339,7 @@ export function rederivedTriggers({ rootDir, record, state, runsDir, work, liveN
       if (!entry) continue;
       const approved = [...state.frontiers.values()].some(f => f.parentNode === parent.node && f.parentGeneration === parent.generation && f.revisions?.length && approvalValid(f) && (f.children ?? []).some(c => c.node === child));
       rootTaskPath ??= rootTaskPathOf(rootDir, work);
+      where.preview = !approved;
       deriveChild(loadDerivation({ rootDir, parentRef: { node: parent.node, generation: parent.generation }, childId: entry.id, generation, rootTaskPath, work, preview: !approved, record }));
       out.push({ ...where, providers: providersOf(parent.node, block, child), outcome: 'derives' });
     } catch (err) {
@@ -356,7 +357,11 @@ export function rederivedTriggers({ rootDir, record, state, runsDir, work, liveN
  * new failure is not a success). The sitting's close test and the accept of a repaired provider body read this ONE rule.
  */
 export function rederivationOutcome(triggers, { node, generation }) {
-  const mine = triggers.filter(t => (t.parent.node === node && t.parent.generation === generation) || t.providers.some(p => isWithin(node, p)));
+  // CR-RC-001: a derivation is judged by the stopped plan's ROLE in it. As the child's PARENT, a preview read that plan, so a return counts. As a provider (or inside a provider's subtree: a descendant basis), it does not: a preview
+  // never runs providerPieces (src/tree-derive.js), where an owned refusal of a provider is thrown, so a preview that returns has not checked the cause of this stop. That entry is 'unable', with its way on (A-DRAFT)
+  const asParent = t => t.parent.node === node && t.parent.generation === generation;
+  const mine = triggers.filter(t => asParent(t) || t.providers.some(p => isWithin(node, p)))
+    .map(t => (t.outcome === 'derives' && t.preview && !asParent(t) ? { ...t, outcome: 'unable', detail: `derived as a preview only (its frontier waits for a new approval), and a preview does not read what its providers settled: approve the frontier again with \`council tree approve ${t.treeId}\`, then the check runs in full` } : t));
   if (!mine.length) return { outcome: 'unable', mine };
   if (mine.every(t => t.outcome === 'derives')) return { outcome: 'resolved', mine };
   return { outcome: mine.some(t => t.outcome === 'owned') ? 'still' : 'unable', mine };
