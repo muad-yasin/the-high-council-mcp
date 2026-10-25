@@ -67,7 +67,8 @@ function foldedName(token) {
 
 // The one rule for "a value flag takes the token after it" (src/cli.js flag() reads the same way): unless that token itself starts with `--` or, T1-1, spells a KNOWN option once its look-alikes are folded. findUnknownFlag and
 // findStrayPositional both use it, so what one treats as a value the other does too.
-const consumesNext = (next, known) => next !== undefined && !next.startsWith('--') && !(foldedName(next) !== null && known(foldedName(next)) && (startsLikeOption(next) || LEAD.test(next)));
+// CR-6B-003: the folded name is compared in LOWER case (the options are all lower case), so `--label —Dry-run` (an em dash and a capital D) is refused like `--label —dry-run`, not taken as the label of a real run.
+const consumesNext = (next, known) => next !== undefined && !next.startsWith('--') && !(foldedName(next) !== null && known(foldedName(next).toLowerCase()) && (startsLikeOption(next) || LEAD.test(next)));
 
 /**
  * The first token of `args` that looks like an option and is not one, as { token, name, suggestion, odd }, or null. Shapes that look like an option: `--name` (on neither list), `-name`, a single dash and a letter (the CLI has no single-dash option:
