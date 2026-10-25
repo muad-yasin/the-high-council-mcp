@@ -1674,9 +1674,10 @@ async function invoke(seat, { system, user, log, label }) {
     // extra.models fallback, a dated alias), and an unpriced answering model cost $0, so the cap went
     // blind for that call. It is charged at the seat's own model's price instead, and says so.
     const priceAnswer = r => {
-      const own = costOf(r.provider, r.model, r.usage);
+      const pin = ownPinOf(seat);   // CR-1F-001: the call carried the seat's own pin, so it is recorded at max(row, pin) per field, as the projection priced it
+      const own = costOf(r.provider, r.model, r.usage, pin);
       if (own.priced || r.model === seat.model) return own;
-      const asSeat = costOf(r.provider, seat.model, r.usage);
+      const asSeat = costOf(r.provider, seat.model, r.usage, pin);
       if (asSeat.priced) log(`  ${label}: answered by ${r.provider}/${r.model}, which has no price entry - charged at ${seat.model}'s price.`);
       return asSeat.priced ? asSeat : own;
     };

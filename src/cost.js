@@ -135,10 +135,13 @@ export function readUsd(v) {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
 }
 
-export function costOf(provider, model, usage) {
+// CR-1F-001: `pin` is the seat's OWN provider.max_price (ownPinOf), and the recorded cost uses the same per-field max(row, own pin) as worstCaseOf's projection: OpenRouter may route a pinned call to any host up to the pin,
+// so a call recorded at the lower row could be billed more than the cap was told (budget.spent, the usage file, report totals and --spend all read this figure). A pin below the row never lowers it.
+export function costOf(provider, model, usage, pin = null) {
   const p = priceOf(provider, model);
   if (!p) return { usd: 0, priced: false };
-  const usd = (usage.input / 1e6) * p.in + (usage.output / 1e6) * p.out;
+  const pIn = Math.max(p.in, pin?.prompt ?? 0), pOut = Math.max(p.out, pin?.completion ?? 0);
+  const usd = (usage.input / 1e6) * pIn + (usage.output / 1e6) * pOut;
   return { usd, priced: true };
 }
 
