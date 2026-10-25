@@ -2,8 +2,15 @@
 // Stable within a minor version: these names, options and result fields. `report` follows the
 // report.json contract (fields are added, never renamed or removed without a major version).
 
-/** Where a run stands, derived from its run folder. */
-export type RunStatus = 'done' | 'budget_stopped' | 'failed' | 'blocked' | 'paused' | 'running' | 'stopped';
+/**
+ * Where a run stands, derived from its run folder: every value src/run-status.js deriveRunStatus can return (test/run-status-type.test.js derives the list from the code).
+ * 'awaiting_user_cap': a paid run waits for the spending limit a person types. 'awaiting_choice': the run stopped and waits for a person's choice (an overseer limit, a conflict, a refused price).
+ * 'user_stopped', 'client_cancel_stopped' and 'wall_clock_stopped': the run was stopped on purpose or by its clock. The five approval values are an advice call's folder before its run has started.
+ */
+export type RunStatus =
+  | 'done' | 'budget_stopped' | 'failed' | 'blocked' | 'paused' | 'running' | 'stopped'
+  | 'awaiting_user_cap' | 'awaiting_choice' | 'user_stopped' | 'client_cancel_stopped' | 'wall_clock_stopped'
+  | 'awaiting_approval' | 'approved' | 'declined' | 'approval_expired' | 'approval_invalid';
 
 /**
  * Per-run spend ceiling. Omitted: the CLI default (MAX_USD_PER_RUN, else $7).
