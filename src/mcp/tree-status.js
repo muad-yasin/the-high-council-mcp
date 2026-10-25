@@ -31,6 +31,7 @@
 //   problems        what the record reader says about a corrupt line.
 // NOT named (harness numbers and ids only): abandoned (event and gate ids, a recorded time, retired stop ids: ROADMAP 57), nodes (paths, generations, phases, run ids), memberRefusals (paths, generations, counts, a flag), closedUnstarted (paths, generations, a stop id, a recorded time), acceptedNodes (paths, generations, run ids, a decision id, an actor), adoptedNodes (paths, generations, run ids, a slot, a parent, a decision id), heldNodes and keptNodes (paths, generations, run ids), gate (codes, run ids, reservation keys), limits, money, stopMarker, piiGate (one of five fixed words: the reason text of an unusable value is never in the payload or the view), consistency, run, treeId, awaitingApproval (frontier keys).
 import { readRunJson, trustedRunDir } from '../run-files.js';
+import { memberFolderRefusal } from './tree-members.js';
 import { RUN_FOLDER } from '../run-status.js';
 import { isDeniedPath } from '../tools.js';
 import { readTreeRecord } from '../tree-record.js';
@@ -80,10 +81,7 @@ export function treeStatusResult({ runsDir, run, work }) {
   }
   // CONTAINMENT (0.8.2 item 2: every run folder a tool touches is a real folder with no symbolic link in it). The readers behind the view were written for the CLI and open member folders themselves (a stop's "What this
   // is" is read raw from HANDOFF.md, for one), so EVERY run folder the record registers is checked here first; one that refuses ends the call and is named. A missing folder (a registered node that has not started) is fine.
-  const members = [...new Set(record.events.filter(e => e.event === 'node_registered' && typeof e.runId === 'string').map(e => e.runId))].sort();
-  for (const id of members) {
-    const m = RUN_FOLDER.test(id) ? trustedRunDir(runsDir, id) : { refusal: 'not a run folder name' };
-    if (m.refusal && m.refusal !== 'no such run') return result({ error: `the tree's member run ${id} is not a folder this tool may read: ${m.refusal}` });
-  }
+  const unsafeMember = memberFolderRefusal(runsDir, record);   // CR-3B-001: the check lives in src/mcp/tree-members.js, shared with tree_decide
+  if (unsafeMember) return result({ error: unsafeMember });
   return result(treeStatusPayload(gatherStatusFacts(t.dir, { work, deny: isDeniedPath })));   // the held nodes and a `dead` list without them come from the facts (src/tree-status.js, S8-6a2): one source for the payload and its `view` text
 }

@@ -6,6 +6,7 @@
 import { RUN_FOLDER } from '../run-status.js';
 import { trustedRunDir } from '../run-files.js';
 import { readTreeRecord } from '../tree-record.js';
+import { memberFolderRefusal } from './tree-members.js';
 import { sessionFrontierAnswer, sessionFrontierQuote } from '../tree-approve-session.js';
 import { sessionDraft } from '../tree-session-draft.js';
 import { SESSION_FORMS, sessionDecideAnswer, sessionDecideQuote, sessionDefer, sessionPriceAnswer, sessionPriceQuote } from '../tree-decide-session.js';
@@ -23,7 +24,11 @@ export function treeDecideResult({ runsDir, work, args, now }) {
   if (typeof run !== 'string' || !RUN_FOLDER.test(run)) return result({ error: 'no such run' });
   const t = trustedRunDir(runsDir, run);
   if (t.refusal) return result({ error: t.refusal });
-  if (!readTreeRecord(t.dir).exists) return result({ error: `run ${run} is not the root of a recursive-councils tree` });
+  const record = readTreeRecord(t.dir);
+  if (!record.exists) return result({ error: `run ${run} is not the root of a recursive-councils tree` });
+  // CR-3B-001: the same containment check as `tree_status`, before ANY step: the readers below open the member folders the record registers.
+  const unsafeMember = memberFolderRefusal(runsDir, record);
+  if (unsafeMember) return result({ error: unsafeMember });
   if (step === 'defer') {
     const d = sessionDefer({ rootDir: t.dir, stop: args.stop, conditions: args.conditions, reason: args.reason });
     return result(d.refusal ? { error: d.refusal } : { recorded: d.recorded });
