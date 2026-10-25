@@ -114,10 +114,14 @@ set, which shipped chains you can already run with them, and what each would cos
 spending anything. Where it falls short: [Known limits](#known-limits-stated-plainly).
 
 > **On what this does and doesn't claim.** This repo publishes the mechanism: the chains, the seat
-> rosters, the stage order. It does not claim to produce better plans than a single good model
-> would. That is an open question and we have not measured it. What it does, concretely, is make
-> disagreement between models *visible and recorded* instead of averaged away - you can read who
-> objected to what, who withdrew a proposal under argument, and who held their position.
+> rosters, the stage order. The claim at the top of this page rests so far on one documented case,
+> the plan for 0.8.3 itself: an outside AI review found the Council's amended plan substantially
+> stronger than its starting draft, mostly in requirement inheritance, dependencies, integration
+> checks and recovery, and noted that part of that gain came from later outside reviews and the
+> maintainer's own rulings. One case is not a benchmark, so no general number is claimed. What the
+> repo does, concretely, is make disagreement between models *visible and recorded* instead of
+> averaged away - you can read who objected to what, who withdrew a proposal under argument, and
+> who held their position.
 
 ## Your first ten minutes
 
@@ -994,8 +998,6 @@ shared with a German site. Its loops were pre-rendered to static HTML and the fo
 instead. `test/landing-page.test.js` fails if a script tag or a third-party URL ever comes back —
 and if the page's typed-in numbers stop matching the repo, which has already caught the page
 claiming 29 chains and 12 tools when there were 30 and 11.
-
-No claim is made here that any of this produces better plans. It has not been measured.
 
 ## Skills
 
