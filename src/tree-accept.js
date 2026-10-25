@@ -22,6 +22,7 @@ import { approvedFrontiersOf, deadKeys, planAcceptStopRefusal, registeredChildre
 import { treeInputScanModeFrom } from './tree-pii-mode.js';
 import { piiGateReport, textSecretFindings } from './run-preflight.js';
 import { snapshotOfRun } from './tree-restore.js';
+import { rederivationOutcome, rederivedTriggers } from './tree-ready.js';
 
 const refuse = reason => new TreeRefusal({ code: 'transition_refused', transition: 'plan_accepted', reason });
 
@@ -59,7 +60,7 @@ function splitHashOf(text) {
  *  | { event, facts }   accepted by every check here and by the table.
  * facts: { node, stop, previousBodySha256, acceptedBodySha256, revert, text (the new body, one read), conditions: the session-only conditions that hold (root, children, approvedFrontiers, dependents), ... }.
  */
-export function candidatePlanAccept(rootDir, { stopId, actor, via, reason, gate, runsDir = dirname(rootDir) } = {}) {
+export function candidatePlanAccept(rootDir, { stopId, actor, via, reason, gate, runsDir = dirname(rootDir), work } = {}) {
   if (typeof stopId !== 'string' || !stopId) throw new TypeError('candidatePlanAccept: { stopId } is required');
   if (actor !== 'session' && actor !== 'person' && actor !== 'sitting') throw new TypeError('candidatePlanAccept: actor is session, person or sitting (sitting is refused by the table)');
   const writerRefusal = reasonText => ({ refusal: reasonText, writer: true });
@@ -114,18 +115,34 @@ export function candidatePlanAccept(rootDir, { stopId, actor, via, reason, gate,
     // the table's own session-only conditions, from the SAME functions the table uses (the typed form tells the person which of them would have stopped a session)
     conditions: { root: stop.node === 'R', children: registeredChildrenOf(state, stop.node, stop.generation), approvedFrontiers: approvedFrontiersOf(state, stop.node, stop.generation), dependents: registeredDependentsOf(state, stop.node, stop.generation), dead: [...deadKeys(state)] },
   };
+  // Astra (c) (D3 F2-5): a stop whose cause is that this plan could not give a child its input is answered by a changed plan ONLY when every refused child that reads this plan derives from the ACCEPTED bytes: the failing derivation is
+  // re-run against a record that holds the candidate (in memory, never written), through readiness' own helper and outcome rule (the sitting's close test reads the same). Anything short of 'resolved' refuses, and says which.
+  if ((state.stopMeta.get(stopId)?.blockedCodes ?? []).includes('derivation_refused')) {
+    let r;
+    try {
+      const hypo = { ...record, events: [...record.events, { ...event, id: 'e~candidate' }] };
+      r = rederivationOutcome(rederivedTriggers({ rootDir, record: hypo, state: stateOf(hypo), runsDir, work }), stop);
+    } catch (e) { r = { outcome: 'unable', mine: [], error: String(e?.message ?? e).split('\n')[0] }; }
+    if (r.outcome !== 'resolved') {
+      const still = r.mine.find(t => t.outcome !== 'derives');
+      return writerRefusal(r.outcome === 'still'
+        ? `the changed plan still does not give ${still.child} its input (${still.check}): ${still.detail}`
+        : `the refused children could not be derived again against the changed plan (${still ? `${still.child}: ${still.detail}` : (r.error ?? 'no refused child reads this plan')}), so it is not accepted for this stop`);
+    }
+    event.rechecked = ['derivation_refused'];
+  }
   const table = transitionRefusal(state, event);
   if (table) return { refusal: table.reason, writer: false, event, facts };
   return { event, facts };
 }
 
 /** `expect` = { acceptedBodySha256, previousBodySha256 }: the hashes of the candidate a PERSON was shown. Under the lock the fresh snapshot must carry the same two, else nothing is recorded (C&C FIX on 2c, 14 Oct 2026: the form compares text before the lock, the file can move between that compare and the lock). The person's form always passes it. */
-export function acceptChangedPlan(rootDir, { stopId, actor, via, reason, gate, runsDir = dirname(rootDir), now, facts, expect } = {}) {
+export function acceptChangedPlan(rootDir, { stopId, actor, via, reason, gate, runsDir = dirname(rootDir), now, facts, expect, work } = {}) {
   if (typeof stopId !== 'string' || !stopId) throw new TypeError('acceptChangedPlan: { stopId } is required');
   if (actor !== 'session' && actor !== 'person' && actor !== 'sitting') throw new TypeError('acceptChangedPlan: actor is session, person or sitting (sitting is refused by the table)');
   let out = null;
   withTreeLock(rootDir, () => {
-    const c = candidatePlanAccept(rootDir, { stopId, actor, via, reason, gate, runsDir });
+    const c = candidatePlanAccept(rootDir, { stopId, actor, via, reason, gate, runsDir, work });
     if (c.refusal && c.writer) throw refuse(c.refusal);
     if (expect && (c.event.acceptedBodySha256 !== expect.acceptedBodySha256 || c.event.previousBodySha256 !== expect.previousBodySha256)) {
       throw refuse('the plan changed after it was shown to you, so no acceptance was recorded (your typed approval is used up): ask again to see the text as it is now');

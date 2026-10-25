@@ -30,8 +30,7 @@ import { bodyOfDelivered } from './tree-split.js';
 import { parseMilestones } from './milestones.js';
 import { appendTreeEventLocked, readTreeRecord, stateOf, withTreeLock } from './tree-record.js';
 import { RESTORABLE_CODES, isSupersededGeneration, planAuthorityOf } from './tree-transitions.js';
-import { rederivedTriggers } from './tree-ready.js';
-import { isWithin } from './tree-deps.js';
+import { rederivationOutcome, rederivedTriggers } from './tree-ready.js';
 
 const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 /** The `why` words of a close test that could NOT RUN (Astra (a): unable to check is not still failing; the sitting says them apart). */
@@ -135,11 +134,7 @@ export function restoreClosedStops(rootDir, { runsDir = dirname(rootDir), now, f
       // helper (one rule). FAIL CLOSED: any throw here is 'unable', never resolved
       let derivation = null;
       if ((state.stopMeta.get(id)?.blockedCodes ?? []).includes('derivation_refused')) {
-        try {
-          const reads = t => (t.parent.node === stop.node && t.parent.generation === stop.generation) || t.providers.some(p => isWithin(stop.node, p));
-          const mine = rederivedTriggers({ rootDir, record: readTreeRecord(rootDir), state, runsDir, work }).filter(reads);
-          derivation = !mine.length ? 'unable' : mine.every(t => t.outcome === 'derives') ? 'resolved' : mine.some(t => t.outcome === 'owned') ? 'still' : 'unable';
-        } catch { derivation = 'unable'; }
+        try { derivation = rederivationOutcome(rederivedTriggers({ rootDir, record: readTreeRecord(rootDir), state, runsDir, work }), stop).outcome; } catch { derivation = 'unable'; }
       }
       afterSnapshot?.({ stopId: id, node: stop.node, generation: stop.generation });                 // TEST-ONLY seam (R7): a file replaced between the read and the append
       const d = restoreDecision({ state, stop, snapshot, providerSnapshots, contractExit, derivation });

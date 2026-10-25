@@ -344,6 +344,18 @@ export function rederivedTriggers({ rootDir, record, state, runsDir, work, liveN
   return out;
 }
 
+/**
+ * D2 F4c / D3 F4-1, and Astra (c): the outcome of the live re-derivation for the plan of `stop` = { node, generation }, from rederivedTriggers' list. Only the derivations that READ that plan count (it is the child's parent, a provider
+ * of the child, or inside a provider's subtree). 'resolved' only when there is at least one and every one returned; 'still' when one was refused for a plan's own text; 'unable' otherwise (an empty set included: the absence of a
+ * new failure is not a success). The sitting's close test and the accept of a repaired provider body read this ONE rule.
+ */
+export function rederivationOutcome(triggers, { node, generation }) {
+  const mine = triggers.filter(t => (t.parent.node === node && t.parent.generation === generation) || t.providers.some(p => isWithin(node, p)));
+  if (!mine.length) return { outcome: 'unable', mine };
+  if (mine.every(t => t.outcome === 'derives')) return { outcome: 'resolved', mine };
+  return { outcome: mine.some(t => t.outcome === 'owned') ? 'still' : 'unable', mine };
+}
+
 /** The provider paths of `child` in its parent's block (src/tree-deps.js blockEdges); [] when the block did not read. */
 function providersOf(parentNode, block, child) {
   return block ? blockEdges(parentNode, block).edges.filter(x => x.consumer === child).map(x => x.provider) : [];

@@ -141,7 +141,7 @@ export const EVENT_OPTIONAL = Object.freeze({
   // PLAN 8.4: for a stopped CHILD the person states whether the answer changes anything the node provides to a sibling; only "no" resolves in place (false); "yes" is the regenerate form. The root provides to no sibling: no field.
   milestone_resolved: { decisionId: isStr, changesProvides: v => typeof v === 'boolean', remaining: v => Array.isArray(v) && v.every(isStr) },                         // M4: the decision_recorded whose text resolved the milestone (M5 writes it; one source of truth for the text)
   guard_refused: { origin: isStr },
-  plan_accepted: { via: ANSWERED_BY.via, reason: isStr, gateId: isStr, shownSha256: isSha, thinContractSha256: isStr, revert: v => typeof v === 'boolean' },
+  plan_accepted: { via: ANSWERED_BY.via, reason: isStr, gateId: isStr, shownSha256: isSha, thinContractSha256: isStr, revert: v => typeof v === 'boolean', rechecked: v => Array.isArray(v) && v.length === 1 && v[0] === 'derivation_refused' },   // rechecked: Astra (c), the writer re-derived the refused children against the accepted bytes and every one returned
   stop_restored: { rechecked: v => Array.isArray(v) && v.length > 0 && v.every(c => RECHECKED_BY_SITTING.includes(c)) && new Set(v).size === v.length, thinContractSha256: isStr, contractExit: v => v === 0, providerPins: v => Array.isArray(v) && v.length > 0 && v.every(p => isObj(p) && isNodePath(p.node) && isGen(p.generation) && isSha(p.boundThinContractSha256) && isSha(p.observedThinContractSha256)) },   // the closure's thin-contract pin the snapshot was compared to (present only when the closure held one)
   // M6 S2 (design note 1.5): a result COUNTS only when complete - the gate whose approval authorized it, the hash of the text read, and `bound` (the versions it was recorded against, built by ONE function, bindingOf in
   // src/tree-ready.js). Like grant_issued they are optional in the SHAPE (a bare event is well formed and is ignored by the reader, S1's bare-pass test), and required to count.
@@ -1597,8 +1597,13 @@ export function transitionRefusal(state, event, facts = {}) {
       if (early) return refuse(event, early);
       const meta = state.stopMeta.get(event.stopId);
       const codes = meta.blockedCodes ?? [];
-      const outside = codes.filter(c => !PLAN_ACCEPT_CODES.includes(c));
-      if (!codes.includes('plan_unreadable') || outside.length) return refuse(event, `stop ${event.stopId} names ${outside.length ? outside.join(', ') : 'no unreadable plan'}: a changed plan is accepted only for a stop whose cause is the plan file itself (${PLAN_ACCEPT_CODES.join(' and ')})`);
+      // Astra (c) (Muad 25 Okt 2026 14:45 "Yes to all"; D3 F2-5): the free edit-and-accept route is KEPT for a stop of a plan whose own text could not give a child its input (derivation_refused, the provider missing a promised heading):
+      // narrowly, only with the writer's evidence that every refused child derives from the ACCEPTED bytes (rechecked), and under every check below (the same split, the same thin contract, the scans, who may answer)
+      const derivation = codes.includes('derivation_refused');
+      const outside = codes.filter(c => !PLAN_ACCEPT_CODES.includes(c) && c !== 'derivation_refused');
+      if ((!derivation && !codes.includes('plan_unreadable')) || outside.length) return refuse(event, `stop ${event.stopId} names ${outside.length ? outside.join(', ') : 'no unreadable plan'}: a changed plan is accepted only for a stop whose cause is the plan file itself (${PLAN_ACCEPT_CODES.join(' and ')})`);
+      if (derivation && !(Array.isArray(event.rechecked) && event.rechecked.includes('derivation_refused'))) return refuse(event, `stop ${event.stopId} names derivation_refused: the acceptance carries the writer's re-derivation of the refused children against the accepted plan (rechecked)`);
+      if (!derivation && event.rechecked !== undefined) return refuse(event, `stop ${event.stopId} names no derivation_refused, so the acceptance carries no re-derivation`);
       if (event.actor === 'sitting') return refuse(event, 'the sitting never accepts a changed plan: a change to an accepted plan is answered by the session (with its reason) or by a person');
       const n = state.nodes.get(`${event.node}@g${event.generation}`);
       if (event.previousBodySha256 !== n.deliveredBodySha256) return refuse(event, `the event names the previous plan body ${event.previousBodySha256.slice(0, 12)}, the record holds ${n.deliveredBodySha256.slice(0, 12)}`);
