@@ -2935,9 +2935,7 @@ if (treeLineage && resumeRun) roundChoices = backedRoundChoices(join(dirname(res
     if ((wantContinue || wantFinish) && id) {
       const choice = wantFinish ? 'finish' : 'continue';
       roundChoices = [...roundChoices.filter(c => c.stop !== id), roundChoiceEntry(stop, choice, config)];
-      const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
-      writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, roundChoices }, null, 2));
-      resumeMeta.roundChoices = roundChoices; // the resume branch below rewrites run.json from resumeMeta (pid, ...): without this the choice would be overwritten by the stale copy
+      resumeMeta.roundChoices = roundChoices; // CR-1E-006: held in memory only; the resume branch below writes run.json from resumeMeta AFTER every refusal, the stray-word one and the run lock included
     }
   } else if (wantContinue || wantFinish) {
     console.error(`--continue / --finish: ${runDir} is not stopped at an overseer limit, so there is nothing to answer. Nothing was run and nothing was spent.`); process.exit(2);
@@ -2960,9 +2958,7 @@ if (treeLineage) seatChoices = [];   // D-013: nothing writes a seat choice for 
     if (memberNotice) { console.error(`--skip-seat: ${runDir} is a member of a tree; a seat is not skipped from a tree member in 0.8.3. Fix the price (pricing.user.json) and run \`council tree resume\`. Nothing was run and nothing was spent.`); process.exit(2); }
     if (!stop.skippable || !Array.isArray(stop.seatKeys) || !stop.seatKeys.length) { console.error(`--skip-seat: ${stop.seat} cannot be skipped here: its stage (${stop.label}) cannot do without it (${stop.noSkip ?? 'no seat to spare'}). Add its price to pricing.user.json and resume. Nothing was run and nothing was spent.`); process.exit(2); }
     seatChoices = [...seatChoices.filter(c => !stop.seatKeys.includes(c.seat)), ...stop.seatKeys.map((k, i) => ({ seat: k, choice: 'skip', via: 'cli', at: new Date().toISOString(), ...(skipLabelOf(stop, i) ? { label: skipLabelOf(stop, i) } : {}) }))];   // `via`, not `by`: the CLI cannot tell a person from an agent with a shell, so no actor is claimed (like roundChoices)
-    const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
-    writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, seatChoices }, null, 2));
-    resumeMeta.seatChoices = seatChoices;   // the resume branch below rewrites run.json from resumeMeta: without this the choice would be overwritten by the stale copy
+    resumeMeta.seatChoices = seatChoices;   // CR-1E-006: held in memory only; the resume branch below writes run.json from resumeMeta AFTER every refusal, the stray-word one and the run lock included
   }
   setSeatSkips(seatChoices);
 }
@@ -2984,9 +2980,7 @@ if (treeLineage) conflictChoices = backedConflictChoices(join(dirname(resolve(re
     const parsed = parsePrevail(prevailArg === true ? '' : prevailArg, stop);
     if (!parsed.ok) { console.error(`--prevail: ${parsed.why}. Nothing was run and nothing was spent.`); process.exit(2); }
     conflictChoices = [...conflictChoices.filter(c => !(c.pass === stop.pass && parsed.picks.some(p => p.n === c.n))), ...parsed.picks.map(p => ({ pass: stop.pass, n: p.n, prevail: p.prevail, via: 'cli', at: new Date().toISOString() }))];
-    const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
-    writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, conflictChoices }, null, 2));
-    resumeMeta.conflictChoices = conflictChoices;   // the resume branch below rewrites run.json from resumeMeta
+    resumeMeta.conflictChoices = conflictChoices;   // CR-1E-006: held in memory only; the resume branch below writes run.json from resumeMeta after every refusal
   } else if (conflictMarker && stop?.kind === 'conflict' && !stop.conflicts.every(c => conflictChoices.some(x => x.pass === stop.pass && x.n === c.n))) {
     console.error(conflictMarker.data?.reason ?? 'This run is stopped because the decider asked for your choice: --resume <run folder> --prevail n=<objection id>|neither.');
     process.exit(EXIT_CONFLICT_ASKED);
