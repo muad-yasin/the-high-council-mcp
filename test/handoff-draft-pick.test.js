@@ -309,3 +309,41 @@ test('DP-19: a RESUMED `--from-run` run whose earlier run now has no finished fi
   assert.equal(again.status, 2, again.stdout + again.stderr);
   assert.match(again.stderr, /--from-run: .* holds no finished first draft: `build-retry\.md` was cut off at its output-token cap \(stop "length"\); `build\.md` was cut off at its output-token cap \(stop "length"\)\./);
 });
+
+// ---------------------------------------------------------------------------------------------------------------------------------- DP-20 CR-5D-001: the stages after the rounds, and a round's allocator
+// `dispute` (the plan as amended for the open objections), `challenge-revise` and a round's `allocator-N` each REPLACE the draft, and the grammar knew none of them: a run that stopped at the spend cap between the dispute and the handoff
+// handed on the pre-dispute `revise-N.md`, silently, under a banner naming it. The truth here is the run's own stage order (report.json stages[]): the last draft-producing stage that ran is the draft the handoff must read.
+const DRAFT_STAGE = /^(build|deep-dive-revise|revise-\d+(-full)?|allocator-\d+|dispute|challenge-revise)(-retry)?$/;
+const unanimous = JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8'));
+function lastDraftStage(real) {
+  const labels = JSON.parse(read(join(real.run, 'report.json'))).stages.map(s => s.label).filter(l => DRAFT_STAGE.test(l) && existsSync(join(real.run, `${l}.md`)));
+  return { labels, last: labels.at(-1) };
+}
+for (const [what, stage, config] of [
+  ['dispute', 'dispute', 'mock-dispute'],
+  ['challenge-revise', 'challenge-revise', { ...unanimous, name: 'pd', challenge: { enabled: true }, seats: { ...unanimous.seats, challenger: { provider: 'mock', model: 'mock-challenge-yes', lab: 'mock-challenger' } } }],
+  ['allocator-N', /^allocator-\d+$/, { ...unanimous, name: 'pd', maxRounds: 3, allocator: { enabled: true }, seats: { ...unanimous.seats, critics: [{ provider: 'mock', model: 'mock-critic-a', lab: 'lab-a' }, { provider: 'mock', model: 'mock-critic-holdout', lab: 'lab-holdout' }] } }],
+]) {
+  test(`DP-20 (${what}): a real run that produced the stage; a folder cut off after it hands on that stage's file, not the revise it replaced`, () => {
+    const real = realRun(`dp20-${what}`, config);
+    const { labels, last } = lastDraftStage(real);
+    assert.ok(typeof stage === 'string' ? labels.includes(stage) : labels.some(l => stage.test(l)), `the fixture run produced the stage (${labels})`);
+    assert.ok(typeof stage === 'string' ? last === stage : stage.test(last), `and it ran last of the draft stages (${labels})`);
+    assert.ok(labels.some(l => /^revise-\d+$/.test(l)), 'an earlier revise exists that the stage replaced');
+    const dir = folderWith(real, labels.map(l => `${l}.md`));
+    assert.equal(pickDraft(dir).name, `${last}.md`);
+  });
+}
+
+test('DP-20 (ranks): dispute above the highest revise, challenge-revise above dispute, final above both; allocator-N above its own round\'s revise and below the next round\'s; each -retry above its first try', () => {
+  const pick = names => pickDraft(folderWith(REAL.buildRescued, ['build.md', 'build-retry.md'], Object.fromEntries(names.map(n => [n, `# ${n}\n`])))).name;
+  assert.equal(pick(['revise-1.md', 'revise-12.md', 'dispute.md']), 'dispute.md');
+  assert.equal(pick(['revise-3.md', 'dispute.md', 'dispute-retry.md']), 'dispute-retry.md');
+  assert.equal(pick(['dispute.md', 'challenge-revise.md']), 'challenge-revise.md');
+  assert.equal(pick(['dispute.md', 'challenge-revise.md', 'final.md']), 'final.md');
+  assert.equal(pick(['revise-2.md', 'revise-2-full.md', 'allocator-2.md']), 'allocator-2.md');
+  assert.equal(pick(['revise-2.md', 'allocator-2.md', 'allocator-2-retry.md']), 'allocator-2-retry.md');
+  assert.equal(pick(['revise-2.md', 'allocator-2.md', 'revise-3.md']), 'revise-3.md');
+  assert.equal(pick(['allocator-1.md', 'deep-dive-revise.md']), 'allocator-1.md');
+  assert.equal(pickDraft(folderWith(REAL.buildRescued, ['build.md'], { 'dispute-full.md': 'x', 'allocator-.md': 'x', 'allocator-x.md': 'x', 'challenge-revise-full.md': 'x' })).name, 'build.md', 'names no stage writes are not drafts');
+});

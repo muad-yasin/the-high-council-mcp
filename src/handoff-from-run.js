@@ -22,14 +22,17 @@ const readJson = p => { const t = read(p); if (t == null) return null; try { ret
 
 // ------------------------------------------------------------------------------------------------------------------------------------ which draft (audit items 4, 5, 9 (-full), 15a; 13 Oct 2026)
 // The name grammar of every draft-producing stage (src/chain.js): each `draftStage` call can retry once under `<label>-retry`, and patch mode adds `revise-N-full` (its own retry is `revise-N-full-retry`).
-// RANK = stage order, and each ADOPTED attempt outranks the attempt it replaced: deliverable.md; final; revise-N from the highest N down; deep-dive-revise; build. Within one stage: first try < retry < full < full-retry.
+// RANK = stage order, and each ADOPTED attempt outranks the attempt it replaced: deliverable.md; final; challenge-revise; dispute; revise-N from the highest N down (a round's allocator-N, the targeted extra revision that follows its revise-N, outranks it);
+// deep-dive-revise; build. Within one stage: first try < retry < full < full-retry; allocator-N is above revise-N's own names. CR-5D-001: dispute, challenge-revise and allocator-N each replace the draft, and the grammar once knew none of them.
 // Only the names a stage can write: `-full` belongs to a revise round alone (a `build-full.md` is no draft, and a name the folder holds but no stage wrote is not read at all: the MCP jail check lists the files a from_run folder may be read for).
-const DRAFT_NAME = /^(?:(build|deep-dive-revise|final)|revise-(\d+)(-full)?)(-retry)?\.md$/;
+const DRAFT_NAME = /^(?:(build|deep-dive-revise|dispute|challenge-revise|final)|revise-(\d+)(-full)?|allocator-(\d+))(-retry)?\.md$/;
+const STAGE_ORDER = { build: 0, 'deep-dive-revise': 1, dispute: 1e8, 'challenge-revise': 1e8 + 1, final: 1e9 };   // the stages after every round sit above any revise round number
 const rankOf = name => {
   const m = DRAFT_NAME.exec(name);
   if (!m) return null;
-  const stage = m[1] === 'build' ? 0 : m[1] === 'deep-dive-revise' ? 1 : m[1] === 'final' ? 1e9 : 1 + Number(m[2]);
-  return { stage, within: (m[3] ? 2 : 0) + (m[4] ? 1 : 0), kind: m[1] === 'build' ? 'build' : m[1] === 'final' ? 'final' : 'revise' };
+  const stage = m[1] ? STAGE_ORDER[m[1]] : 1 + Number(m[2] ?? m[4]);
+  const within = m[4] !== undefined ? 4 + (m[5] ? 1 : 0) : (m[3] ? 2 : 0) + (m[5] ? 1 : 0);
+  return { stage, within, kind: m[1] === 'build' ? 'build' : m[1] === 'final' ? 'final' : 'revise' };
 };
 /** The candidate file names of a folder listing, highest rank first. `only`: restrict to one stage kind (the build stage, for the first-draft readers). */
 function candidatesOf(names, only = null) {
