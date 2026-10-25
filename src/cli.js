@@ -1826,6 +1826,12 @@ if (argv.includes('--replay')) {
   // 0.8.3 M2 (C&C, 8 Oct): same as --rematch above: a replay writes a side folder the tree's accounting does not read.
   if (runMetaForChain.tree) { console.error(`--replay: ${runDir} is a member of a recursive-councils tree; a replay would spend outside the tree's record. Nothing was run and nothing was spent.`); process.exit(EXIT_TREE_REFUSED); }
   { const placed = sidePlacementRefusal('--replay', 'a replay', runDir); if (placed) { console.error(placed); process.exit(2); } }
+  // CR-RC-004: the folder the replay would make has to be a name the spend and status readers recognise (RUN_FOLDER, the same regex they use), as for --rematch (CR-RM-003). `<id>.rematch-5.replay-<date>` and
+  // `<id>-init.replay-<date>` are not, so their spend would be invisible to --spend, --cost-today and the limits. A-DRAFT: the same sentence as the accepted --rematch one, with "replay" for "rematch".
+  if (!RUN_FOLDER.test(basename(replayDirFor(runDir, date)))) {
+    console.error(`--replay: ${basename(runDir)} cannot be replayed: only a finished run whose folder is named by its start time (like 2026-10-25T18-37-06-737Z) can, because the spend of a replay of anything else would not show in --spend or the spending limits. Replay the original run instead. Nothing was run and nothing was spent.`);
+    process.exit(2);
+  }
   // Replay audit #4: a second replay on the same day re-paid everything and overwrote the first. T2-1 (13 Oct 2026): only a FINISHED replay (report.json) is "already replayed"; a folder that was started and did not finish is
   // RESUMED from its stage files (armSideRun, below), so its paid stages are not paid for again; a live process on it is refused by the run lock.
   if (existsSync(join(replayDirFor(runDir, date), 'report.json'))) {
