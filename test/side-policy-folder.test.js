@@ -1,4 +1,4 @@
-// CR-RC-006: --rematch and --replay read the policy file from the folder recorded in the run's run.json, and that folder is gone when the project was moved or renamed ("no folder, so no policy"), so a monthly or per-run
+// CR-RC-008: --rematch and --replay read the policy file from the folder recorded in the run's run.json, and that folder is gone when the project was moved or renamed ("no folder, so no policy"), so a monthly or per-run
 // limit in the moved project's policy.json did not apply. Both now read the policy of the project the command is typed in (the original is directly in its runs/ folder: CR-RC-003), the one --spend counts from.
 // Real verbs on an all-mock run, offline, $0, no hand-written records. The moved shape: the task file lives OUTSIDE the project (a run records its task path absolute, so a task inside a renamed project would be refused
 // first with "original task file not found" and never reach the gate); the project folder is then renamed, which leaves the run's recorded folder gone.

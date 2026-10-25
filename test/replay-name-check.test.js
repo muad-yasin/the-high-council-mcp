@@ -1,4 +1,4 @@
-// CR-RC-004 (found with CR-RC-003): --replay of a folder that is itself a rematch (`<id>.rematch-5`), or of `<id>-init`, wrote `<name>.replay-<date>`, a folder name the spend and status readers do not recognise (the
+// CR-RC-007 (found with CR-RC-003): --replay of a folder that is itself a rematch (`<id>.rematch-5`), or of `<id>-init`, wrote `<name>.replay-<date>`, a folder name the spend and status readers do not recognise (the
 // same hole as --rematch's CR-RM-003, which the accepted RM-3 test covers), so that replay's spend was invisible to --spend, --cost-today and the limits. Real verbs on an all-mock run, offline, $0.
 import test from 'node:test';
 import assert from 'node:assert/strict';

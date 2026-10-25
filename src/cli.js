@@ -1710,7 +1710,7 @@ if (rematchArg) {
     if (bad.length) { console.error(`--rematch: after the seats were reshuffled, ${bad.map(b => `${b.seat}: ${b.reasons.join('; ')}`).join(' | ')}. A rematch never sends a key where the chain itself would not. Nothing was run and nothing was spent.`); process.exit(2); }
   }
   refuseSideRun('--rematch', originalConfig, originalRunMeta);
-  // CR-RC-006: the policy file is THIS project's (`work`). The original is directly in work/runs (the placement check above), so `work` is the project that owns the run; the run's recorded folder is gone when the project was moved or renamed, and "no folder, so no policy" would have let the rematch past a monthly limit.
+  // CR-RC-008: the policy file is THIS project's (`work`). The original is directly in work/runs (the placement check above), so `work` is the project that owns the run; the run's recorded folder is gone when the project was moved or renamed, and "no folder, so no policy" would have let the rematch past a monthly limit.
   sideGateOrExit(rematchConfig, everySeatOf(rematchConfig));
   if (sideDryRun) refuseStray();   // T1-1: a dry run prints after the gate and has no refusal of its own below; a real rematch is checked after its key, price and already-run refusals, further down
   if (sideDryRun) priceSideRunAndExit('--rematch', rematchConfig, join(dirname(originalRunDir), `${basename(originalRunDir)}.rematch-${seed}`));
@@ -1827,7 +1827,7 @@ if (argv.includes('--replay')) {
   // 0.8.3 M2 (C&C, 8 Oct): same as --rematch above: a replay writes a side folder the tree's accounting does not read.
   if (runMetaForChain.tree) { console.error(`--replay: ${runDir} is a member of a recursive-councils tree; a replay would spend outside the tree's record. Nothing was run and nothing was spent.`); process.exit(EXIT_TREE_REFUSED); }
   { const placed = sidePlacementRefusal('--replay', 'a replay', runDir); if (placed) { console.error(placed); process.exit(2); } }
-  // CR-RC-004: the folder the replay would make has to be a name the spend and status readers recognise (RUN_FOLDER, the same regex they use), as for --rematch (CR-RM-003). `<id>.rematch-5.replay-<date>` and
+  // CR-RC-007: the folder the replay would make has to be a name the spend and status readers recognise (RUN_FOLDER, the same regex they use), as for --rematch (CR-RM-003). `<id>.rematch-5.replay-<date>` and
   // `<id>-init.replay-<date>` are not, so their spend would be invisible to --spend, --cost-today and the limits. A-DRAFT: the same sentence as the accepted --rematch one, with "replay" for "rematch".
   if (!RUN_FOLDER.test(basename(replayDirFor(runDir, date)))) {
     console.error(`--replay: ${basename(runDir)} cannot be replayed: only a finished run whose folder is named by its start time (like 2026-10-25T18-37-06-737Z) can, because the spend of a replay of anything else would not show in --spend or the spending limits. Replay the original run instead. Nothing was run and nothing was spent.`);
@@ -1853,7 +1853,7 @@ if (argv.includes('--replay')) {
       try { replayConfig = resolveChainSeats(rawReplayConfig); } catch { /* reported by council-replay */ }
       if (replayConfig) {
         refuseSideRun('--replay', replayConfig, runMetaForChain);
-        sideGateOrExit(replayConfig, everySeatOf(replayConfig));   // CR-RC-006: this project's policy file, as for --rematch
+        sideGateOrExit(replayConfig, everySeatOf(replayConfig));   // CR-RC-008: this project's policy file, as for --rematch
         if (sideDryRun) refuseStray();   // T1-1: as for --rematch; a real replay is checked below
         if (sideDryRun) priceSideRunAndExit('--replay', replayConfig, replayDirFor(runDir, date));
         replayPaid = chainIsPaid(replayConfig);
