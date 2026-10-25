@@ -16,6 +16,7 @@ import { startTyped } from './helpers/typed-cap.js';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
 const RUN = '2026-10-18T07-00-00-000Z';
+const EXIT_SCOPE_CHANGED = 14;   // src/cli.js (not exported): the changed-task / changed-context refusal
 const PROBE_BODY = { error: { message: 'No endpoints found that satisfy the max price for this request', code: 404 } };
 
 // a loopback OpenRouter stub: the first request is served as the mock proposer would (the seat gets through its proposal), every later one is refused with the probe's 404
@@ -61,10 +62,43 @@ test('CW-1 (real verbs): a --skip-seat that the stray-word refusal stops leaves 
   } finally { await s.close(); }
 });
 
-test('CW-2 (source order): no write of roundChoices, seatChoices or conflictChoices into run.json precedes the stray-word refusal in src/cli.js', () => {
+test('CW-3 (real verbs): a --skip-seat that the CHANGED-TASK refusal stops leaves NO choice in run.json (the refusal comes after the resume branch\'s first run.json write), and the plain resume asks the seat again', async () => {
+  const s = await stub();
+  try {
+    const dir = mkdtempSync(join(tmpdir(), 'thc-choice-order3-')); mkdirSync(join(dir, 'tasks')); mkdirSync(join(dir, 'chains'));
+    writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a small reading list app.\n');
+    const base = JSON.parse(readFileSync(join(root, 'chains', 'mock-debate.json'), 'utf8'));
+    const seat = { provider: 'openrouter', model: 'qwen/qwen3.7-plus', lab: 'orx', maxTokens: 500, baseUrl: s.url };
+    writeFileSync(join(dir, 'chains', 'cw.json'), JSON.stringify({ ...base, name: 'cw', seats: { ...base.seats, proposers: [seat, ...base.seats.proposers] } }));
+    const run = args => new Promise(done => {
+      let out = '';
+      const child = spawn(process.execPath, [cli, ...args], { cwd: dir, env: { PATH: process.env.PATH, HOME: tmpdir(), OPENROUTER_API_KEY: 'sk-or-v1-placeholder-not-a-key', COUNCIL_ALLOW_LOOPBACK_KEY_HOST: '1' } });
+      child.stdout.on('data', d => { out += d; }); child.stderr.on('data', d => { out += d; });
+      child.on('exit', code => done({ code, out }));
+    });
+    const rd = join(dir, 'runs', RUN);
+    const first = await startTyped(run, ['--chain', 'cw', '--task', 'tasks/t.md', '--run-id', RUN], rd);
+    assert.equal(first.code, EXIT_PRICE_REFUSED, first.out);
+    const hits = s.hits.length;
+    writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a small reading list app, and also a shopping list.\n');   // the task changed while the run was stopped
+    const refused = await run(['--resume', rd, '--skip-seat']);
+    assert.equal(refused.code, EXIT_SCOPE_CHANGED, refused.out);
+    assert.equal(s.hits.length, hits, 'nothing was sent');
+    assert.equal(JSON.parse(readFileSync(join(rd, 'run.json'), 'utf8')).seatChoices, undefined, 'the refused command recorded no choice');
+    writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a small reading list app.\n');
+    const plain = await run(['--resume', rd]);
+    assert.equal(plain.code, EXIT_PRICE_REFUSED, 'the plain resume asks the refused seat again (the choice was never made)');
+    assert.ok(s.hits.length > hits, 'and the seat was asked again, not dropped');
+  } finally { await s.close(); }
+});
+
+test('CW-2 (source order): no choice is assigned into resumeMeta, and ONE flushChoices() follows the last refusal of the start (and the typed-limit wait)', () => {
   const src = readFileSync(cli, 'utf8');
-  const stray = src.indexOf('refuseStray();   // T1-1: the last refusal of the main path');
-  assert.ok(stray > 0, 'the main path\'s last refusal is found');
-  const writes = [...src.matchAll(/JSON\.stringify\(\{ \.\.\.onDisk, (roundChoices|seatChoices|conflictChoices) \}/g)].filter(m => m.index < stray);
-  assert.deepEqual(writes.map(m => m[1]), [], 'a choice is held in memory until the resume branch writes run.json');
+  assert.deepEqual([...src.matchAll(/resumeMeta\.(roundChoices|seatChoices|conflictChoices) = (?!roundChoices;)/g)].map(m => m[1]), [], 'a new choice is held in pendingChoices, never assigned into resumeMeta (whose run.json writes come before the changed-task refusal)');
+  assert.equal([...src.matchAll(/pendingChoices\.(roundChoices|seatChoices|conflictChoices) = /g)].length, 3, 'the three sites hold their choice in pendingChoices');
+  const flushes = [...src.matchAll(/^flushChoices\(\);/gm)];
+  assert.equal(flushes.length, 1, 'exactly one top-level flush');
+  assert.ok(flushes[0].index > src.indexOf('setBudgetOrExit(maxUsdEff);'), 'it comes after the typed-limit gate and the cap is set');
+  assert.ok(flushes[0].index > src.indexOf('checkFrozenContext({'), 'and after the changed-task and changed-context refusals');
+  assert.match(src, /beforePendingExit: flushChoices/, 'the typed-limit WAIT (exit 21, not a refusal) writes the choice for the plain resume that follows gate answer');
 });

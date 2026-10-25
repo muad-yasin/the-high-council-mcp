@@ -1423,7 +1423,7 @@ function sideGateOrExit(config, allSeats, policyCwd = work, neighbour = null, ca
 // `scopeBaseOf()` yields the inputs of the scope that only the caller knows (task, context, chain file, policy file, PII mode); it is called at the point the inline code built them. `beforeAuthorize` runs where the inline code prepared run.json.
 // T5b: handoff / contract draft / digest keep their gate in `<original run folder>/side/<verb>-<h8>/` (runDir = that folder) and spend in the ORIGINAL folder (`floorDir`: the floor on the screen is what the original has counted, the same figure the armed budget carries as earlier spend);
 // `oneCall` = { usd } is the worst case of the ONE call (these commands make one), used for the estimate and the maximum instead of a chain's rows; `flagUsd` is the `--max-usd` number as the caller parsed it (the blocks above `maxUsd`'s declaration cannot read the variable).
-async function capGateOrExit({ runDir, runId, resume, config, fromRun, subject, scopeBaseOf, beforeAuthorize = null, sideVerb = null, sideLabel = sideVerb, again = null, floorDir = runDir, oneCall = null, flagUsd }) {
+async function capGateOrExit({ runDir, runId, resume, config, fromRun, subject, scopeBaseOf, beforeAuthorize = null, beforePendingExit = null, sideVerb = null, sideLabel = sideVerb, again = null, floorDir = runDir, oneCall = null, flagUsd }) {
   const ceilings = [];
   const limitUsd = usdLimitOrExit();   // the one helper (and the one sentence) the early refusals use too
   if (limitUsd !== null) ceilings.push({ usd: limitUsd, source: 'COUNCIL_MAX_USD_LIMIT' });
@@ -1469,6 +1469,7 @@ async function capGateOrExit({ runDir, runId, resume, config, fromRun, subject, 
   });
   if (outcome.status === 'refused') { console.error(`\n${outcome.message}`); process.exit(2); }
   if (outcome.status === 'pending') {
+    if (beforePendingExit) beforePendingExit();   // the wait is not a refusal: a choice typed on this command is kept for the plain --resume that follows `gate answer`
     if (outcome.note) console.error(`\n${outcome.note.message}`);
     console.error(`\nThis ${sideLabel ?? 'run'} waits for a spending limit that you type. No call was started and nothing more was spent.\n  1. ${councilCommand()} gate answer ${runDir} ${outcome.gate}\n  2. ${again ?? `${councilCommand()} --resume ${runDir}`}`);
     process.exit(EXIT_AWAITING_USER_CAP);
@@ -2928,6 +2929,16 @@ if (resumeMeta && existsSync(join(runDir, 'report.json'))) {
   if (overflowExit) console.error(overflowExit);
   process.exit(EXIT_ALREADY_FINISHED);
 }
+// CR-1E-006: a choice typed on THIS command (--continue / --finish, --skip-seat, --prevail) is held in `pendingChoices`, never assigned into resumeMeta, so none of the run.json writes of the resume branch below (the pid rewrite, the amended task hash, the context
+// hash) carries it. flushChoices() writes it once, from the file as it is on disk, after the last refusal of the start (the changed-task and changed-context checks, and the typed-limit gate's refusal). The gate's WAIT (exit 21: "No call was started")
+// is not a refusal: the person's next step is a plain --resume after `gate answer`, so the choice is written before that exit too.
+const pendingChoices = {};
+function flushChoices() {
+  if (!Object.keys(pendingChoices).length) return;
+  const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, ...pendingChoices }, null, 2));
+  for (const k of Object.keys(pendingChoices)) delete pendingChoices[k];
+}
 // Round semantics 2b-ii (Muad 15 Oct 2026: after the cap or a bound the PERSON chooses; C&C ruling): --continue / --finish answer a run that STOPPED at an overseer limit (STOPPED-overseer_cap/layer_bound.json, report-partial.json, no report.json).
 // The choice is recorded in run.json `roundChoices` keyed by the stop (so typing it again after the limit screen counts once) and applied on the replay (chain.js effectiveLimits). A resume WITHOUT a choice
 // is not an error and not a fresh stop: it says again that the run is waiting and exits 23 (nothing spent, nothing changed).
@@ -2955,7 +2966,7 @@ if (treeLineage && resumeRun) roundChoices = backedRoundChoices(join(dirname(res
     if ((wantContinue || wantFinish) && id) {
       const choice = wantFinish ? 'finish' : 'continue';
       roundChoices = [...roundChoices.filter(c => c.stop !== id), roundChoiceEntry(stop, choice, config)];
-      resumeMeta.roundChoices = roundChoices; // CR-1E-006: held in memory only; the resume branch below writes run.json from resumeMeta AFTER every refusal, the stray-word one and the run lock included
+      pendingChoices.roundChoices = roundChoices; // CR-1E-006: held in memory; flushChoices() writes it after the last refusal of the start
     }
   } else if (wantContinue || wantFinish) {
     console.error(`--continue / --finish: ${runDir} is not stopped at an overseer limit, so there is nothing to answer. Nothing was run and nothing was spent.`); process.exit(2);
@@ -2978,7 +2989,7 @@ if (treeLineage) seatChoices = [];   // D-013: nothing writes a seat choice for 
     if (memberNotice) { console.error(`--skip-seat: ${runDir} is a member of a tree; a seat is not skipped from a tree member in 0.8.3. Fix the price (pricing.user.json) and run \`council tree resume\`. Nothing was run and nothing was spent.`); process.exit(2); }
     if (!stop.skippable || !Array.isArray(stop.seatKeys) || !stop.seatKeys.length) { console.error(`--skip-seat: ${stop.seat} cannot be skipped here: its stage (${stop.label}) cannot do without it (${stop.noSkip ?? 'no seat to spare'}). Add its price to pricing.user.json and resume. Nothing was run and nothing was spent.`); process.exit(2); }
     seatChoices = [...seatChoices.filter(c => !stop.seatKeys.includes(c.seat)), ...stop.seatKeys.map((k, i) => ({ seat: k, choice: 'skip', via: 'cli', at: new Date().toISOString(), ...(skipLabelOf(stop, i) ? { label: skipLabelOf(stop, i) } : {}) }))];   // `via`, not `by`: the CLI cannot tell a person from an agent with a shell, so no actor is claimed (like roundChoices)
-    resumeMeta.seatChoices = seatChoices;   // CR-1E-006: held in memory only; the resume branch below writes run.json from resumeMeta AFTER every refusal, the stray-word one and the run lock included
+    pendingChoices.seatChoices = seatChoices;   // CR-1E-006: held in memory; flushChoices() writes it after the last refusal of the start
   }
   setSeatSkips(seatChoices);
 }
@@ -3000,7 +3011,7 @@ if (treeLineage) conflictChoices = backedConflictChoices(join(dirname(resolve(re
     const parsed = parsePrevail(prevailArg === true ? '' : prevailArg, stop);
     if (!parsed.ok) { console.error(`--prevail: ${parsed.why}. Nothing was run and nothing was spent.`); process.exit(2); }
     conflictChoices = [...conflictChoices.filter(c => !(c.pass === stop.pass && parsed.picks.some(p => p.n === c.n))), ...parsed.picks.map(p => ({ pass: stop.pass, n: p.n, prevail: p.prevail, via: 'cli', at: new Date().toISOString() }))];
-    resumeMeta.conflictChoices = conflictChoices;   // CR-1E-006: held in memory only; the resume branch below writes run.json from resumeMeta after every refusal
+    pendingChoices.conflictChoices = conflictChoices;   // CR-1E-006: held in memory; flushChoices() writes it after the last refusal of the start
   } else if (conflictMarker && stop?.kind === 'conflict' && !stop.conflicts.every(c => conflictChoices.some(x => x.pass === stop.pass && x.n === c.n))) {
     console.error(conflictMarker.data?.reason ?? 'This run is stopped because the decider asked for your choice: --resume <run folder> --prevail n=<objection id>|neither.');
     process.exit(EXIT_CONFLICT_ASKED);
@@ -3170,6 +3181,7 @@ if (capGateApplies) {
       policySha256: existsSync(join(resumeMeta?.cwd || work, 'policy.json')) ? sha256Hex(readFileSync(join(resumeMeta?.cwd || work, 'policy.json'))) : null, sensitivityFloor: null, piiMode: piiGateEff,
     }),
     beforeAuthorize: () => { if (!resumeMeta) { const fresh = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')); delete fresh.maxUsd; writeFileSync(join(runDir, 'run.json'), JSON.stringify(fresh, null, 2)); } },
+    beforePendingExit: flushChoices,
   });
   // The typed figure is THE limit of this run, whatever a flag, the environment or a saved run.json said; run.json keeps it as a convenience copy (the gate ledger is the record).
   const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
@@ -3179,6 +3191,7 @@ if (capGateApplies) {
 // invocation names a different one - otherwise resuming would silently drop
 // the cap the run was created with.
 setBudgetOrExit(maxUsdEff);
+flushChoices();   // CR-1E-006: the last refusal of the start has passed (a chain that is not paid has no gate; the typed-limit wait wrote its own copy above): a choice typed on this command reaches run.json now, before the first call
 // Money path #2: what earlier sittings spent on stages that were later superseded still counts.
 const earlierSupersededUsd = supersededSpendOf(runDir);
 countEarlierSpend(earlierSupersededUsd);
