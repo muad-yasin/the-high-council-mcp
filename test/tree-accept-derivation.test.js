@@ -59,6 +59,16 @@ test('the person\'s typed accept on a derivation_refused stop accepts a repaired
   assert.equal(stateOf(readTreeRecord(r.t.rootDir)).openStops.includes(stop.id), false, 'the stop is answered');
 });
 
+test('the person\'s accept form on a derivation_refused stop names the stop\'s real cause (the plan could not give a child its input; the changed file is the answer) and the check that lets it be offered, never "the plan file is not the text its panel signed" as the cause', { timeout: 600_000 }, async () => {
+  const { r, stop, file } = await providerStopped();
+  writeFileSync(file, readFileSync(file, 'utf8').replace('## Store\n', '## Overview\nget(id) and put(record).\n\n## Store\n'));
+  const f = buildAcceptPlan({ rootDir: r.t.rootDir, rootId: ROOT_ID, stopArg: stop.id, work: r.t.work });
+  assert.equal(f.refusal, undefined, f.refusal);
+  assert.ok(f.text.includes('The tree stopped because this plan could not give a child it holds back its input, and the plan file of R/M1@g1 has been changed since its panel signed it. Why the tree stopped:'), f.text);
+  assert.ok(f.text.includes('Every child this stop holds back can be derived from the changed text now (checked for this form).\nAccepting means this file stands as the plan; the panel did not sign it.'), f.text);
+  assert.doesNotMatch(f.text, /is not the text its panel signed/);
+});
+
 test('(c) NARROW: an edit that still lacks the heading is refused and names the child it still cannot feed; nothing is recorded', { timeout: 600_000 }, async () => {
   const { r, stop, file } = await providerStopped();
   writeFileSync(file, readFileSync(file, 'utf8').replace('## Store\n', '## Summary\nA summary.\n\n## Store\n'));

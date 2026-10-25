@@ -117,6 +117,13 @@ export function buildAcceptPlan({ rootDir, rootId, stopArg, facts = {}, work }) 
   }
   const why = (stop.blockedBy ?? []).map(b => `  - ${b.code}: ${b.text ?? ''}`.trimEnd());
   const only = sessionOnlyLines(f.conditions, { rootId, stopId: stop.id });
+  // READ-B accept-form fact fix (C&C ruling, 25 Okt 2026; A-DRAFT): on a derivation_refused stop the changed file is the person's REMEDY, not the stop's cause, and the form is offered only because the writer re-derived every child the
+  // stop holds back from the changed text (src/tree-accept.js candidatePlanAccept, Astra (c)): the text says both
+  const derivation = (state.stopMeta.get(stop.id)?.blockedCodes ?? []).includes('derivation_refused');
+  const cause = derivation
+    ? `The tree stopped because this plan could not give a child it holds back its input, and the plan file of ${key} has been changed since its panel signed it. Why the tree stopped:`
+    : `The plan file of ${key} is not the text its panel signed. Why the tree stopped:`;
+  const rederived = derivation ? 'Every child this stop holds back can be derived from the changed text now (checked for this form).\n' : '';
   const text = f.revert
     ? `Put back the signed plan for ${key}?   (stop ${stop.id})
 The plan file of ${key} was accepted as a changed plan earlier, and it is the text the panel signed again now. Why the tree stopped:
@@ -129,9 +136,9 @@ Recording it: ${effectLine}. No money moves.
 To approve, type the stop id: ${stop.id}
 `
     : `Accept a changed plan for ${key}?   (stop ${stop.id})
-The plan file of ${key} is not the text its panel signed. Why the tree stopped:
+${cause}
 ${why.join('\n') || '  (the stop names no reason)'}
-Accepting means this file stands as the plan; the panel did not sign it.
+${rederived}Accepting means this file stands as the plan; the panel did not sign it.
 
 ${change}
 
