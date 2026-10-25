@@ -13,7 +13,7 @@
 import { dirname } from 'node:path';
 import { appendTreeEventLocked, readTreeRecord, stateOf, withTreeLock } from './tree-record.js';
 import { affectedFor } from './tree-affected.js';
-import { closedUnstartedGenerationOf, deadKeys, isSupersededGeneration, orphansOf } from './tree-transitions.js';
+import { closedUnstartedGenerationOf, deadKeys, isSupersededGeneration, orphansOf, undetectedDecisionCloses } from './tree-transitions.js';
 import { nodeKey } from './tree-identity.js';
 
 // `closed_incomplete` IS here although it is incomplete severity and a person's own act (`decide --close`): measured, a node closed incomplete has NO other route to a replacement (decide refuses with no stop open,
@@ -30,6 +30,8 @@ const SCOPE = /^(R(?:\/[A-Za-z][A-Za-z0-9_-]*)*)@g([1-9]\d*)$/;     // a node ke
  */
 export function pendingBlockedChildren(record, state, verdict) {
   const orphans = orphansOf(state);
+  // CR-2J-001: a close that ended needs_decision and whose node_closed stop detection has not written yet (a sitting that `tree stop` ended before detection ran) is detection's to open: its answers include the free KEEP, which a blocked stop never offers.
+  const undetected = new Set(undetectedDecisionCloses(state).map(u => nodeKey(u.node, u.generation)));
   const have = new Set(state.openStops.map(id => record.events.find(e => e.id === id)).filter(Boolean).map(stopKey));   // OPEN stops of any source only
   const byKey = new Map();
   for (const r of verdict.reasons) {
@@ -39,7 +41,7 @@ export function pendingBlockedChildren(record, state, verdict) {
     const key = nodeKey(m[1], Number(m[2]));
     // c3b: a child a person closed before it ever started has no nodes row and no run; it is closed all the same (its stop carries no runId, like the stop that led to the close)
     const n = state.nodes.get(key) ?? (state.closedUnstarted.has(key) && !deadKeys(state).has(key) ? { node: m[1], generation: Number(m[2]), phase: 'closed', runId: undefined } : undefined);
-    if (!n || n.phase !== 'closed' || orphans.has(nodeKey(n.node, n.generation)) || isSupersededGeneration(state, n.node, n.generation) || closedUnstartedGenerationOf(state, n.node) > n.generation || state.stale.has(nodeKey(n.node, n.generation)) || have.has(stopKey(n))) continue;
+    if (!n || n.phase !== 'closed' || orphans.has(nodeKey(n.node, n.generation)) || isSupersededGeneration(state, n.node, n.generation) || closedUnstartedGenerationOf(state, n.node) > n.generation || state.stale.has(nodeKey(n.node, n.generation)) || undetected.has(nodeKey(n.node, n.generation)) || have.has(stopKey(n))) continue;
     const entry = byKey.get(nodeKey(n.node, n.generation)) ?? { node: n.node, generation: n.generation, runId: n.runId, blockedBy: [] };
     entry.blockedBy.push({ code: r.code, text: r.text });
     byKey.set(nodeKey(n.node, n.generation), entry);
