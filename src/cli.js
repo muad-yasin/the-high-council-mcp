@@ -8,7 +8,7 @@ import { registerSeatKeys, seatKeyOf, labFromKey } from './seat-key.js';
 import { secretShapesIn, secretRefusalLines, SecretShapedPrompt, assertOutboundClean } from './outbound-scan.js';
 import { savedPiiGateRefusal, chainLintLines, missingKeyLines, piiGateReport, piiWarningLines, piiLogLines, policyGate, policyRefusalText, sideCommandGate, inputSecretFindings, textSecretFindings, secretScanRefusalLines } from './run-preflight.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
-import { deriveRunStatus, waitingStages, ARTIFACTS_BLOCKED_FILE } from './run-status.js';
+import { deriveRunStatus, waitingStages, ARTIFACTS_BLOCKED_FILE, RUN_FOLDER } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
 import { createInterface as createReadlineInterface } from 'node:readline';
 import { spawnSync } from 'node:child_process';
@@ -1638,18 +1638,35 @@ if (rematchArg) {
   const seedArg = flag('rematch-seed', null);
   // Default random, but always recorded on disk (run.json below) so a rematch that used a random
   // seed is still reproducible after the fact by reading what it actually ran with.
+  // CR-RM-002: the seed becomes part of a folder name (`<id>.rematch-<seed>`) that the spend and status readers recognise only for digits, so it is digits only: `-5` made `<id>.rematch--5`, which no reader sees, and `1e21` or `0x10` were
+  // taken as numbers too. (A bare `--rematch-seed` with no value arrives as `true` and keeps today's behaviour.)
+  if (typeof seedArg === 'string' && !(/^\d+$/.test(seedArg) && Number.isSafeInteger(Number(seedArg)))) {
+    console.error(`--rematch-seed: expected a whole number written with digits only (0 or more), got "${seedArg}". Nothing was run and nothing was spent.`);
+    process.exit(2);
+  }
   const seed = seedArg !== null ? Number(seedArg) : Math.floor(Math.random() * 1_000_000);
-  if (!Number.isInteger(seed)) {
-    console.error(`--rematch-seed: expected an integer, got ${seedArg}`);
+  // CR-RM-003: only an original run can be rematched. The folder the rematch would make has to be a name the spend and status readers recognise (RUN_FOLDER, the same regex they use): `<id>.rematch-5.rematch-7` and `<id>-init.rematch-7` are
+  // not, so their spend would be invisible to --spend, --cost-today and the limits. A rematch folder also records `rematchOf`. (A --replay folder has no run.json at all, so it is refused above.)
+  if (originalRunMeta.rematchOf || !RUN_FOLDER.test(`${basename(originalRunDir)}.rematch-${seed}`)) {
+    console.error(`--rematch: ${basename(originalRunDir)} cannot be rematched: only a finished run with a plain run id can, because the spend of a rematch of anything else would not show in --spend or the spending limits. Rematch the original run instead. Nothing was run and nothing was spent.`);
     process.exit(2);
   }
 
+  // CR-RM-001: the task is read where the original run read it (run.json `cwd`, as the side-run gate and the report below already do) and must be the bytes the original run started with (its recorded taskHash, the way --replay checks):
+  // an edited task would be paid for and the board would blame the panel for a change of input, and a rematch only ever sends the task text the original start checked for personal data and keys. A run.json from before taskHash existed has none to compare.
   const originalTaskPath = originalRunMeta.task;
-  if (!originalTaskPath || !existsSync(resolve(work, originalTaskPath))) {
+  // run.json `cwd` first; a project folder that was moved or renamed since has no such folder, and the task is then looked up in the folder the command runs from. Either way the recorded hash below decides: the same bytes rematch, a different file is refused.
+  const originalTaskDir = originalRunMeta.cwd && existsSync(originalRunMeta.cwd) ? originalRunMeta.cwd : work;
+  const originalTaskFile = originalTaskPath ? resolve(originalTaskDir, originalTaskPath) : null;
+  if (!originalTaskPath || !existsSync(originalTaskFile)) {
     console.error(`--rematch: original task file not found (recorded as "${originalTaskPath}" in ${originalRunMetaPath}).`);
     process.exit(2);
   }
-  const originalRequest = readFileSync(resolve(work, originalTaskPath), 'utf8');
+  const originalRequest = readFileSync(originalTaskFile, 'utf8');
+  if (originalRunMeta.taskHash && taskHashOf(originalRequest) !== originalRunMeta.taskHash) {
+    console.error(`--rematch: the task file ${originalTaskFile} has changed since ${basename(originalRunDir)} started - a rematch tests the panel, not the task, so the input must be byte-identical. Restore the file to what that run started with. Nothing was run and nothing was spent.`);
+    process.exit(2);
+  }
 
   const chainName = originalRunMeta.chain;
   { const bad = chainNameRefusal(chainName, `--rematch: the chain recorded in ${originalRunMetaPath}`); if (bad) { console.error(bad); process.exit(2); } }

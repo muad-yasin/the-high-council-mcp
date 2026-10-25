@@ -267,6 +267,9 @@ test('THE PRINTED COMMAND IS THE PERSON\'S OWN: every flag typed is kept (--allo
     typeCap(join(f.work, 'runs', `${ID}.replay-${printedDate}`), '3');
     const go = await f.run(again, 1);          // without the kept flag this would be refused for task drift before the stub; with it the run reaches the provider
     assert.ok(f.count() >= 1, `${go.stdout}${go.stderr}`);
+    // CHANGED ACCEPTED TEST (CR-RM-001, 25 Okt 2026; C&C ruled): a rematch now refuses a task file that changed since the original run (exit 2, before the typed-limit screen). OLD: the rematch half below ran on the task the replay half above had just edited
+    // ('The task changed after the original run.') and reached the screen (exit 21). NEW: the original text is put back first, so the rematch half still tests what it tests (the printed command and its seed) and nothing else.
+    writeFileSync(join(f.work, 'tasks', 'x.md'), 'Plan a tiny change.\n');
     // an unseeded rematch prints the seed it picked, and a seed the person passed is not repeated
     const m = await f.run(['--rematch', join('runs', ID)]);
     assert.equal(m.status, 21); const margs = printedArgs(m.stderr);
