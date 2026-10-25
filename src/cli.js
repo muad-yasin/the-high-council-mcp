@@ -1173,6 +1173,8 @@ if (argv[0] === 'digest') {
       }
     }
     if (providerArg === true || modelArg === null || modelArg === true) { console.error('digest: --provider needs --model (the model to call). Nothing was sent.'); process.exit(2); }
+    // CR-6A-003: an external seat answers by hand and this one call cannot pause for it (the pause is control flow the digest lets through), so it used to end in a stack trace after the run folder was read. Refused here, before anything is sent or written.
+    if (providerArg === 'external') { console.error('digest: --provider external is not available: an external seat is answered by hand and a digest call cannot pause for it. Name a provider that answers by itself with --provider and --model, or leave --provider out to get the free template. Nothing was sent.'); process.exit(2); }
     // T5b: a digest on a PAID seat waits for a limit a person types (the call is the first and only one, so its screen is built where its prompt is known, inside digestCall below); `--max-usd N` is then only the suggestion and `none` is not offered.
     // A digest on a free seat needs no flag any more (nothing to cap); a number given for it still caps it.
     const capArg = flag('max-usd', null);
