@@ -56,11 +56,11 @@ process.on('exit', () => { if (process.env.KEEP_TREE_TMP) return; for (const dir
 /** A working folder with a task and a started tree (tree.json + tree_started), the root NOT yet registered. */
 // BUNDLE UNIT (19 Okt 2026): the real default allowance (100,000 bytes) prices a child for a 25k-token input, which moves every fixture-chain ceiling; the fixtures' chains assume a 1000-token prompt, so their trees are started with an allowance of 4000 bytes (= that prompt): the figures stay at their declared sizes and the bundle must fit in 4000 bytes. BG-rows set their own.
 export const FIXTURE_BUNDLE_ALLOWANCE_BYTES = 4000;
-export function newTree({ cap = 100, rootChain = SPLIT_ROOT, childChain = 'mock-budget', extraChains = {}, limits, piiGate, bundleAllowanceBytes = FIXTURE_BUNDLE_ALLOWANCE_BYTES } = {}) {
+export function newTree({ cap = 100, rootChain = SPLIT_ROOT, childChain = 'mock-budget', extraChains = {}, limits, piiGate, bundleAllowanceBytes = FIXTURE_BUNDLE_ALLOWANCE_BYTES, task = 'Plan a tiny change.\n' } = {}) {     // task: the root task's text (pinned at start)
   const work = mkdtempSync(join(tmpdir(), 'thc-budget-'));
   madeTrees.add(work);
   mkdirSync(join(work, 'tasks'));
-  writeFileSync(join(work, 'tasks', 'x.md'), 'Plan a tiny change.\n');
+  writeFileSync(join(work, 'tasks', 'x.md'), task);
   // chains of the test's own (a seat on a local server, say) live in the working folder's chains/, where the CLI looks first; their hash is taken from that file
   if (Object.keys(extraChains).length) mkdirSync(join(work, 'chains'), { recursive: true });
   let splitRootSha = rootChain === SPLIT_ROOT ? installSplitRoot(work) : null;

@@ -258,7 +258,8 @@ test('a real split tree: the reading order puts a provider before its consumer (
   assert.deepEqual(f.order.map(o => o.registered), [true, false, false, false]);
   const text = renderTreeHandoff(f);
   assert.match(text, /1\. `R`\n2\. `R\/M2` \(not registered yet\)\n3\. `R\/M3` \(not registered yet\)\n4\. `R\/M1` \(not registered yet\)/);
-  assert.match(text, /root-task heading|no context_refs name a root-task section/);
+  // CHANGED ACCEPTED (lane T, LB group, READ-B LB-9): BEFORE /root-task heading|no context_refs name a root-task section/; the fixture's root task has no headings, so section 5 now points at the whole root task every child is given
+  assert.match(text, /- the whole root task \(it has no heading that can hold the goal\), given to `R@g1:M/);
   assert.match(text, /global criteria of the root: `C1`/);
   assert.match(text, /- `R@g1:A1`: K3 -> K1: no result recorded/);
 });

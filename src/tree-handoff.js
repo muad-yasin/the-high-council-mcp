@@ -37,6 +37,8 @@ import { terminalSafe } from './terminal-safe.js';
 import { childNode, nodeKey } from './tree-identity.js';
 import { qualify } from './tree-qid.js';
 import { readNodePlan } from './tree-derive-load.js';
+import { resolveContextRefs } from './tree-context-refs.js';
+import { rootTaskOf } from './tree-root-task.js';
 import { gatherReadinessFacts, verdictOf } from './tree-ready.js';
 import { rootUnstartedOf } from './tree-root-unstarted.js';
 
@@ -71,8 +73,8 @@ export function readinessFor(record, computed, position) {
 /** A reason's words as the handoff shows them. A held item's reason carries a clipped quote of the criterion (S1: `("...")`); a handoff points and does not quote, so that tail is dropped. */
 const reasonText = r => (r.code === 'held_unrecorded' ? oneLine(r.text).replace(/ \("[^"]*"\)(?= has no recorded pass$)/, '') : oneLine(r.text));
 
-function blockOfRun(dir, n) {
-  try { return readNodePlan(dir, { acceptedBodySha256: planAuthorityOf(n) }).block; } catch { return null; }
+function planOfRun(dir, n) {       // { block, plan } of the node's accepted plan (plan: { name, text, sha256 }), or null: the handoff's ONE plan read (LB-9: section 5 resolves the children's references against `plan`)
+  try { const p = readNodePlan(dir, { acceptedBodySha256: planAuthorityOf(n) }); return p.block ? { block: p.block, plan: p.plan } : null; } catch { return null; }
 }
 
 /** Reading/build order (PLAN 9.3 item 2): the root, then the children of each split in agreement order (a provider before the consumers it has an agreement with; ties by milestone number), each child followed by its own children. */
@@ -288,13 +290,13 @@ export function gatherHandoffFacts(rootDir, { work, deny = null } = {}) {
   const verdict = verdictOf(rf);
   const byId = new Map(record.events.map(e => [e.id, e]));
 
-  const blocks = new Map(); const dirs = new Map();
+  const blocks = new Map(); const plans = new Map(); const dirs = new Map();
   const nodes = rf.nodes.map(n => {
     const t = trustedRunDir(runsDir, n.runId);
     const dir = t.refusal ? null : t.dir;
     const report = dir ? readRunJson(dir, 'report.json') : null;
     const files = dir ? listRunFiles(dir) : [];
-    if (dir) { dirs.set(nodeKey(n.node, n.generation), dir); const b = blockOfRun(dir, n); if (b) blocks.set(nodeKey(n.node, n.generation), b); }       // C2b-1c: per-node data is keyed by the node's own key (an adopted node and the new node of its path are two nodes)
+    if (dir) { dirs.set(nodeKey(n.node, n.generation), dir); const p = planOfRun(dir, n); if (p) { blocks.set(nodeKey(n.node, n.generation), p.block); plans.set(nodeKey(n.node, n.generation), p.plan); } }       // C2b-1c: per-node data is keyed by the node's own key (an adopted node and the new node of its path are two nodes)
     const tc = report?.thin_contract;
     return {
       node: n.node, generation: n.generation, depth: n.depth, runId: n.runId, phase: n.phase, outcome: n.outcome, closedStatus: n.closedStatus,
@@ -372,21 +374,28 @@ export function gatherHandoffFacts(rootDir, { work, deny = null } = {}) {
     return { id: e.id, at: e.at ?? null, keys: [...(e.reservationIds ?? [])].map(String).sort(), nodes: owners };
   });
 
-  // pointers to the root constraints: headings the splits' context_refs name in the root task, and the root's global criteria, by id
-  const refs = new Map(); const globals = new Set();
+  // pointers to the root constraints (READ-B LB-9): what each child of a VERIFIED split is given of the root task, through the ONE resolver (src/tree-context-refs.js) on the accepted plan and the root task read against its pin:
+  // the sections its split names (prefixed or bare), every exclusions section, or the whole file; and the root's global criteria, by id. A split not verified yet gives nothing here (its references are not checked yet).
+  // Fail closed, never a silent guess: a root task that does not read against its pin gives `unread` (why) and the references as the splits wrote them.
+  const refs = new Map(); const wholeUsers = new Set(); const written = new Map(); const globals = new Set();
+  const root = rootTaskOf(rootDir, { work });
+  // the reason in fixed words by the refusal's code, never its detail: the detail of an unreadable file carries its absolute path, and the handoff names no path outside the runs folder (byte-identical from a copy, M6 exit 7)
+  const rootWhy = root.refusal ? (root.refusal.code === 'root_task_changed' ? 'the root task is not the one the tree was started with' : 'the root task file does not read') : null;
+  let unread = null;
+  const add = (map, k, user) => { if (!map.has(k)) map.set(k, new Set()); map.get(k).add(user); };
   for (const n of nodes) {
     const b = blocks.get(nodeKey(n.node, n.generation));
     if (!b) continue;
-    for (const k of b.children ?? []) for (const ref of k.context_refs ?? []) {
-      const m = String(ref).match(/^root-task:\s*(\S[\s\S]*)$/);
-      if (!m) continue;
-      const heading = oneLine(m[1]);
-      if (!refs.has(heading)) refs.set(heading, new Set());
-      refs.get(heading).add(qualify({ node: n.node, generation: n.generation, id: String(k.milestone) }));
-    }
     if (n.node === 'R') for (const c of b.classes ?? []) if (c.class === 'global') globals.add(String(c.id));
+    if (state.nodes.get(nodeKey(n.node, n.generation))?.verifiedSplit?.runId !== n.runId) continue;
+    for (const k of b.children ?? []) {
+      const user = qualify({ node: n.node, generation: n.generation, id: String(k.milestone) });
+      if (root.refusal) { unread ??= rootWhy; for (const ref of k.context_refs ?? []) add(written, oneLine(ref), user); continue; }
+      let r; try { r = resolveContextRefs({ refs: k.context_refs ?? [], rootTask: root, parentPlan: plans.get(nodeKey(n.node, n.generation)) }); } catch (e) { unread ??= `${user}: ${oneLine(e.detail ?? e.message)}`; for (const ref of k.context_refs ?? []) add(written, oneLine(ref), user); continue; }     // a verified split that does not resolve now: said, never guessed
+      if (r.whole) wholeUsers.add(user); else for (const piece of r.root) add(refs, oneLine(piece.heading), user);
+    }
   }
-  const constraints = { refs: [...refs.entries()].sort((a, b) => byText(a[0], b[0])).map(([heading, used]) => ({ heading, usedBy: [...used].sort(byText) })), globals: [...globals].sort(byText) };
+  const constraints = { refs: [...refs.entries()].sort((a, b) => byText(a[0], b[0])).map(([heading, used]) => ({ heading, usedBy: [...used].sort(byText) })), whole: [...wholeUsers].sort(byText), unread, written: [...written.entries()].sort((a, b) => byText(a[0], b[0])).map(([ref, used]) => ({ ref, usedBy: [...used].sort(byText) })), globals: [...globals].sort(byText) };
 
   const blocksByPlace = new Map(nodes.filter(n => blocks.has(nodeKey(n.node, n.generation))).map(n => [n.place ?? n.node, blocks.get(nodeKey(n.node, n.generation))]));
   const { order, cycle } = orderOf(nodes, blocksByPlace);
@@ -482,8 +491,12 @@ export function renderTreeHandoff(facts) {
     add('', '### Limits raised', ...list(facts.limits, 'none', l => `- ${oneLine(l.limit)}: ${oneLine(l.from)} -> ${oneLine(l.to)} (${oneLine(l.id)} at ${oneLine(l.at ?? NONE)}${l.shownSha256 ? `, shown text sha256 ${oneLine(l.shownSha256)}` : ''})`));
     add('', '### Accounting accepted', ...list(facts.accounting, 'none', a => `- ${oneLine(a.id)} at ${oneLine(a.at ?? NONE)}: ${a.keys.length} reservation${a.keys.length === 1 ? '' : 's'} (${oneLine(a.keys.join(', '))})${a.nodes.length ? ` of ${a.nodes.map(code).join(', ')}` : ''}`));
 
-    add('', '## 5. Pointers to the root constraints', '', 'The root task\'s sections that the splits\' context_refs name (by heading), and the root\'s global criteria (by id). Read them in the root task itself.',
-      ...list(facts.constraints.refs, 'no context_refs name a root-task section', c => `- root-task heading ${code(c.heading)}, named by ${c.usedBy.map(code).join(', ')}`),
+    // READ-B LB-9 (A-DRAFT): what each child of a verified split is given of the root task, through the one resolver; the references as written only when that cannot be derived, with the reason
+    const cons = facts.constraints;
+    add('', '## 5. Pointers to the root constraints', '', 'The root task\'s sections each smaller plan is given (by heading: the sections its split names and every exclusions section), and the root\'s global criteria (by id). Read them in the root task itself.',
+      ...((cons.whole ?? []).length ? [`- the whole root task (it has no heading that can hold the goal), given to ${cons.whole.map(code).join(', ')}`] : []),
+      ...(((cons.whole ?? []).length || cons.unread) && !cons.refs.length ? [] : list(cons.refs, 'no context_refs name a root-task section', c => `- root-task heading ${code(c.heading)}, given to ${c.usedBy.map(code).join(', ')}`)),
+      ...(cons.unread ? [`- What each smaller plan is given could not be derived (${cons.unread}); the references as the splits wrote them:`, ...(cons.written ?? []).map(w => `  - ${code(w.ref)}, written by ${w.usedBy.map(code).join(', ')}`)] : []),
       `- global criteria of the root: ${facts.constraints.globals.length ? facts.constraints.globals.map(code).join(', ') : NONE}`);
 
     add('', '## 6. What to read next', '');

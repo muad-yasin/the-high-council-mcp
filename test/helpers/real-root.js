@@ -10,8 +10,8 @@ import { ROOT_ID, newTree, rootOpts } from './tree-fixture.js';
 import { block3, planWith } from './split-fixture.js';
 
 /** -> { t, runDir, split, rootTaskPath }. cap 100 and the fixture-priced child chain `mock-budget` (cheapest 6.1, at most 40.8) make all three children admissible. */
-export async function realRoot({ childChain = 'mock-budget', plan = planWith(block3(), { preface: 'REVISED MOCK DELIVERABLE\n\n' }), cap = 100, verify = true, limits, extraChains, rootCriteria, piiGate, bundleAllowanceBytes } = {}) {   // bundleAllowanceBytes undefined = newTree's fixture default
-  const t = newTree({ cap, childChain, limits, piiGate, ...(bundleAllowanceBytes !== undefined ? { bundleAllowanceBytes } : {}), ...(extraChains ? { extraChains } : {}) });
+export async function realRoot({ childChain = 'mock-budget', plan = planWith(block3(), { preface: 'REVISED MOCK DELIVERABLE\n\n' }), cap = 100, verify = true, limits, extraChains, rootCriteria, piiGate, bundleAllowanceBytes, task } = {}) {   // bundleAllowanceBytes undefined = newTree's fixture default
+  const t = newTree({ cap, childChain, limits, piiGate, ...(bundleAllowanceBytes !== undefined ? { bundleAllowanceBytes } : {}), ...(extraChains ? { extraChains } : {}), ...(task !== undefined ? { task } : {}) });
   registerRoot(t.rootDir);
   writeFileSync(join(t.work, 'plan.md'), plan);
   if (rootCriteria) writeFileSync(join(t.work, 'crit.json'), JSON.stringify(rootCriteria));     // the root's acceptance list, handed in (a list the root's own guards accept and a child chain's flags may not)
