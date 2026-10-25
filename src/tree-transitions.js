@@ -836,11 +836,10 @@ export function obligationOriginOf(state, stopId) {
   return null;
 }
 export function ineligibleBelowRoot(state, { answeringStopId = null } = {}) {
-  const { rootGen, live, fine, subtree, keyOf_ } = holdabilityOf(state, answeringStopId);
+  const { rootGen, live, fine, subtree, keyOf_, placeOf } = holdabilityOf(state, answeringStopId);
   const out = new Set();
   for (const top of live) {
-    const f = state.frontiers.get(top.frontierKey);
-    if (!f || f.parentNode !== 'R' || f.parentGeneration !== rootGen) continue;
+    if (placeOf(top) !== `R@g${rootGen}`) continue;       // D2 F10 + D3 F10-1 (CR-2A-002): the tops are the nodes that sit, BY PLACE, under the current root plan: its own children and the nodes its frontier adopted
     // K1 (M7 apply, C2a-record; C2a_Gate_Page.md section 3, Astra #3/#5): ELIGIBILITY IS PER NODE. Before, one node that failed anywhere in a child's subtree made the child AND its whole subtree ineligible (dead from the decision). Now only the node that fails itself is set
     // aside; its finished neighbours stay candidates, and whether a whole branch can be adopted is a different question (wholeness, K6, answered at the comparison).
     for (const n of subtree(top)) if (!fine(n)) out.add(keyOf_(n));
@@ -869,8 +868,11 @@ function holdabilityOf(state, answeringStopId) {
   const dead = deadKeys(state);
   const keyOf_ = n => `${n.node}@g${n.generation}`;
   const live = [...state.nodes.values()].filter(n => n.node !== 'R' && !dead.has(keyOf_(n)));
+  // D2 F10 with D3 F10-1 (CR-2A-002, "judge the root route by place, as the sub-plan route does by path"): a node sits under the parent of the frontier that holds it NOW - an ADOPTED node under its adopting frontier's parent
+  // (state.adopted: { slot, frontierKey }), every other node under its own frontier's parent - so the walk reaches an adopted node at any depth (before, it stayed under the plan it was first registered by, and a re-plan never judged it)
+  const placeOf = n => { const a = state.adopted?.get(keyOf_(n)); const f = state.frontiers.get(a ? a.frontierKey : n.frontierKey); return f ? `${f.parentNode}@g${f.parentGeneration}` : null; };
   const childrenOf = new Map();
-  for (const n of live) { const f = state.frontiers.get(n.frontierKey); if (!f) continue; const pk = `${f.parentNode}@g${f.parentGeneration}`; if (!childrenOf.has(pk)) childrenOf.set(pk, []); childrenOf.get(pk).push(n); }
+  for (const n of live) { const pk = placeOf(n); if (!pk) continue; if (!childrenOf.has(pk)) childrenOf.set(pk, []); childrenOf.get(pk).push(n); }
   const subtree = n => { const out = [n]; for (const c of childrenOf.get(keyOf_(n)) ?? []) out.push(...subtree(c)); return out; };
   const stopNodes = new Set(state.openStops.map(id => { const m = state.stopMeta.get(id); return m?.node ? `${m.node}@g${m.generation}` : null; }).filter(Boolean));
   const pendingBelow = n => pendingBelowOf(state, n);       // HALF-FINISHED: see pendingBelowOf
@@ -880,7 +882,7 @@ function holdabilityOf(state, answeringStopId) {
   for (const origin of retired.origins.values()) for (const k of state.stopMeta.get(origin.originStopId)?.affected ?? []) ownOfOrigin.add(k);
   const fine = n => n.phase === PHASES.closed && !ownOfOrigin.has(keyOf_(n)) && !pendingBelow(n) && n.outcome === 'passed' && !endedNeedsDecision(state, n) && !stopNodes.has(keyOf_(n))
     && !(state.staleSrc.get(keyOf_(n)) ?? []).some(src => !((src.kind === 'stop' && (src.id === answeringStopId || retired.stops.has(src.id))) || (src.kind === 'decision' && retired.decisions.has(src.id))));
-  return { rootGen, live, fine, subtree, keyOf_ };
+  return { rootGen, live, fine, subtree, keyOf_, placeOf };
 }
 const splitKey = k => ({ node: String(k).replace(/@g\d+$/, ''), generation: Number(String(k).replace(/^.*@g/, '')) });
 const topmostPaths = nodes => nodes.filter(a => !nodes.some(b => b !== a && a.node.startsWith(`${b.node}/`)));

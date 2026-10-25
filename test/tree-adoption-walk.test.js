@@ -339,3 +339,23 @@ test('C4a: the abandon screen names the kept earlier runs it retires', async () 
   await decideHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, flags: { abandon: true }, work: r.t.work, stdin: t.stdin, stdout: t.stdout, stderr: t.stderr, now: () => Date.now() }).finally(t.stop);
   assert.match(t.shown(), /Finished runs of an earlier plan that are held or kept as candidates; abandoning retires them: R\/M1@g1\./, t.shown() + t.errors());
 });
+
+// D2 F10 / D3 F10-1 (CR-2A-002), T10 part (1), real verbs: a node the CURRENT root plan ADOPTED (R/M1@g1, adopted in place into the slot R/M1@g2 by R@g2's children frontier) whose run then fails is judged at the next root re-plan,
+// BY PLACE: it sits under R@g2 (its adopting frontier's parent), not under R@g1 (the plan that first registered it). Before, only nodes whose OWN frontier hung under R@rootGen were judged, so it stayed held, eligible for reuse.
+test('T10 (1) CR-2A-002: an adopted node of the current root plan whose HANDOFF.md then changes is SET ASIDE at the next root re-plan (listed in the decision\'s affected, candidatesOf not eligible), not held eligible', async () => {
+  const { r, start } = await walk({ rename: false });
+  const st0 = stateOf(readTreeRecord(r.t.rootDir));
+  assert.equal(st0.adopted.get('R/M1@g1')?.slot, 'R/M1@g2', 'R/M1@g1 is adopted in place by R@g2\'s frontier');
+  const m1 = st0.nodes.get('R/M1@g1');
+  writeFileSync(join(r.t.runsDir, m1.runId, 'HANDOFF.md'), `${readFileSync(join(r.t.runsDir, m1.runId, 'HANDOFF.md'), 'utf8')}\nA late change to the adopted run.\n`);
+  await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 0, startRun: start });                            // the sitting meets the changed file: a stop on R/M1@g1
+  let t = io(['The adopted store no longer matches its run: plan again.\n.', 'R@g2', 'y']);
+  assert.equal(await decideHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, flags: { 'open-root-stop': true }, work: r.t.work, stdin: t.stdin, stdout: t.stdout, stderr: t.stderr, now: () => Date.now() }).finally(t.stop), 0, t.shown() + t.errors());
+  const rootStop = readTreeRecord(r.t.rootDir).events.filter(e => e.event === 'needs_decision_opened' && e.node === 'R').at(-1);
+  t = io(['Plan it again.\n.', rootStop.id, 'y']);
+  assert.equal(await decideHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, flags: { stop: rootStop.id }, work: r.t.work, stdin: t.stdin, stdout: t.stdout, stderr: t.stderr, now: () => Date.now() }).finally(t.stop), 0, t.shown() + t.errors());
+  const dec = readTreeRecord(r.t.rootDir).events.filter(e => e.event === 'decision_recorded' && e.stopId === rootStop.id).at(-1);
+  assert.ok(dec.affected.some(a => a.node === 'R/M1' && a.generation === 1), `the adopted R/M1@g1 is in the decision's affected: ${JSON.stringify(dec.affected)}`);
+  const cand = candidatesOf(stateOf(readTreeRecord(r.t.rootDir))).find(c => c.key === 'R/M1@g1');
+  assert.ok(cand && cand.eligible !== true, `R/M1@g1 is not held eligible: ${JSON.stringify(cand)}`);
+});
