@@ -56,13 +56,31 @@ function pendingOf(rootDir, verdict) {
   return pendingBlockedChildren(record, stateOf(record), verdict);
 }
 
+/**
+ * The entry to open next (CR-2F-002 / B7): a pending child that sits in NO OTHER pending child's affected set (src/tree-affected.js: the consumers of a node, of its ancestors, and everything below). The stop of a provider puts its consumers in question,
+ * so once it is written the consumers are stale and `pendingBlockedChildren` drops them; a consumer opened FIRST would not drop its provider, and both would get a stop. Path order (the order `pendingBlockedChildren` returns) decides only when
+ * no entry is free, a set of children that all put each other in question: nothing is then dropped silently, each gets its own stop as before.
+ */
+function nextToOpen(record, state, runsDir, pending) {
+  const affectedKeys = new Map(pending.map(p => [nodeKey(p.node, p.generation), new Set(affectedFor({ record, state, runsDir, node: p.node, generation: p.generation }).affected.map(a => nodeKey(a.node, a.generation)))]));
+  const free = pending.find(p => !pending.some(q => q !== p && affectedKeys.get(nodeKey(q.node, q.generation)).has(nodeKey(p.node, p.generation))));
+  return free ?? pending[0];
+}
+
 /** -> the needs_decision_opened events appended (usually none). `verdict` is S1's answer for the record as it stands. */
 export function openBlockedChildStops(rootDir, { verdict, now } = {}) {
   const opened = [];
   if (!pendingOf(rootDir, verdict).length) return opened;                       // the common case takes no lock
   withTreeLock(rootDir, () => {
-    for (const p of pendingOf(rootDir, verdict)) {                              // re-read under the lock: another sitting may have written it
-      const record = readTreeRecord(rootDir); const state = stateOf(record);
+    const done = new Set();                                                     // each node@generation at most once per hold: a repeat ends the loop (fail closed, never a spin)
+    for (;;) {
+      const record = readTreeRecord(rootDir);                                   // re-read under the lock AND after every append: another sitting may have written it, and a stop just written puts its consumers in question
+      if (record.corrupt.length || !record.tree) break;
+      const state = stateOf(record);
+      const pending = pendingBlockedChildren(record, state, verdict).filter(p => !done.has(nodeKey(p.node, p.generation)));
+      if (!pending.length) break;
+      const p = nextToOpen(record, state, dirname(rootDir), pending);
+      done.add(nodeKey(p.node, p.generation));
       const { affected } = affectedFor({ record, state, runsDir: dirname(rootDir), node: p.node, generation: p.generation });
       opened.push(appendTreeEventLocked(rootDir, { event: 'needs_decision_opened', node: p.node, generation: p.generation, ...(p.runId !== undefined ? { runId: p.runId } : {}), source: 'blocked', blockedBy: p.blockedBy, affected }, now ? { now } : {}));
     }
