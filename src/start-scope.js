@@ -4,7 +4,7 @@
 //   chainIsPaid(config) -> boolean      true when ANY seat slot of the chain is a provider that bills: not `mock`, not `external` (a person or another session answers), not a free local provider (ollama, `isFreeProvider`).
 //                                       A mixed chain is paid. Asked once at the start of a run; a FREE-ONLY chain needs no typed limit, no prompt and no gate (page 2).
 //   buildStartScope(parts) -> scope        the object the typed limit is bound to; the caller hashes it with capScopeSha256 (src/gate.js: this module imports no gate module, test/gate-answer.test.js R2)
-//       parts = { taskSha256, contextSha256|null, chainSha256, seats: [{ role, provider, model }], policySha256|null, sensitivityFloor|null, piiMode|null, deliverableSha256?|null (T5b: omitted when absent), userPrices: [{ key, file_in, file_out, effective_in, effective_out }] }
+//       parts = { taskSha256, contextSha256|null, chainSha256, seats: [{ role, provider, model|null }], policySha256|null, sensitivityFloor|null, piiMode|null, deliverableSha256?|null (T5b: omitted when absent), userPrices: [{ key, file_in, file_out, effective_in, effective_out }] }
 //       capScopeSha256(scope) is the one digest the gate request and the consume both use.
 //   user_prices (T4 page / price-row page section 9): for every seat of the chain whose price rests on the project's pricing.user.json, the raw row and the merged result; a row edited between the screen and the start is a changed screen. Shipped rows are NOT in it.
 //   Every field is REQUIRED (null where there is genuinely none): a missing field throws, so a caller that forgot one cannot get a digest that silently covers less than the screen showed. Seat order is part of the scope. CEILINGS ARE NOT IN IT (C&C-pending default, 14 Oct 2026): the ceiling in force is bound in the gate's own `cap` fields and checked against the typed amount at answer time, and again at consume
@@ -26,7 +26,8 @@ export function buildStartScope(parts = {}) {
   need(HEX64.test(taskSha256 ?? ''), 'taskSha256 must be a sha256 hex digest');
   need(contextSha256 === null || HEX64.test(contextSha256 ?? ''), 'contextSha256 must be a sha256 hex digest or null');
   need(HEX64.test(chainSha256 ?? ''), 'chainSha256 must be a sha256 hex digest');
-  need(Array.isArray(seats) && seats.every(s => s && typeof s.role === 'string' && typeof s.provider === 'string' && typeof s.model === 'string'), 'seats must be [{ role, provider, model }]');
+  // CR-5B-004: a seat may name NO model (an external seat is written `{ "provider": "external" }`, and a mock one may be): its model is null in the scope, never a crash after the run folder and the lock exist. A seat WITH a model hashes exactly as before.
+  need(Array.isArray(seats) && seats.every(s => s && typeof s.role === 'string' && typeof s.provider === 'string' && (typeof s.model === 'string' || s.model === null)), 'seats must be [{ role, provider, model|null }]');
   need(policySha256 === null || HEX64.test(policySha256 ?? ''), 'policySha256 must be a sha256 hex digest or null');
   need(sensitivityFloor === null || typeof sensitivityFloor === 'string', 'sensitivityFloor must be a string or null');
   need(piiMode === null || typeof piiMode === 'string', 'piiMode must be a string or null');

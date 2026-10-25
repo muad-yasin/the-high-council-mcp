@@ -1428,7 +1428,7 @@ async function capGateOrExit({ runDir, runId, resume, config, fromRun, subject, 
   const suggested = argv.includes('--max-usd') ? { usd: flagUsd !== undefined ? flagUsd : maxUsd, source: '--max-usd' } : Number(process.env.MAX_USD_PER_RUN) > 0 ? { usd: Number(process.env.MAX_USD_PER_RUN), source: 'MAX_USD_PER_RUN' } : null;
   const scope = buildStartScope({
     ...scopeBaseOf(),
-    seats: everySeatSlotsOf(config).map(({ role, seat }) => ({ role, provider: seat.provider, model: seat.model })),
+    seats: everySeatSlotsOf(config).map(({ role, seat }) => ({ role, provider: seat.provider, model: typeof seat.model === 'string' ? seat.model : null })),   // CR-5B-004: a seat with no model is null in the scope
     // the rows of THIS chain's seats that rest on pricing.user.json (project-writable: a changed row is a changed screen); shipped rows are not in the digest (package-versioned)
     userPrices: [...new Map(everySeatSlotsOf(config).filter(({ seat }) => seat && userRowOf(seat.provider, seat.model)).map(({ seat }) => [`${seat.provider}/${seat.model}`, seat])).values()].map(seat => {
       const raw = userRowOf(seat.provider, seat.model); const eff = effectiveRow(seat.provider, seat.model);
