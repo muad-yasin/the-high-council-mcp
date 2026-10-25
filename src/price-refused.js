@@ -9,7 +9,8 @@
 //   recommendationOf(err)                   -> { kind: 'skip' | 'row' | 'none' }: skip when the stage can do without the seat AND at least 2 other voices stay (Muad 15 Okt: no single-judge layer), else the user row.
 //   priceRefusedWords(err, { runPath, command })     -> the sentence a person reads (A-DRAFT). `runPath` set = a resumable run (names --resume and --skip-seat); null = an advice call (not resumed). `command` = how the CLI is invoked.
 //   priceRefusedAdviceFailureWords(err, { runPath, spent, callsPaid })   -> the sentence an ADVICE call that failed whole reads (A-DRAFT; Muad 18 Okt 2026: "judge refused for its price should fail the whole call and tell the user about it, instead of sending half a call"). It names the refused seat(s), what was spent, and the run folder where the paid answers sit (not delivered).
-//   setSeatSkips(list) / seatSkipChoice(seat)   run.json `seatChoices` entries { seat, choice: 'skip', via: 'cli', at } (no actor is recorded: nothing checks that a person typed the flag, as for roundChoices): a recorded skip makes the seat abstain for the REST of the run (the stage's own catch counts it as an unreachable seat).
+//   setSeatSkips(list) / seatSkipChoice(seat)   run.json `seatChoices` entries { seat, choice: 'skip', via: 'cli', at, label } (no actor is recorded: nothing checks that a person typed the flag, as for roundChoices): a recorded skip makes the seat abstain from the stage that was refused (`label`, the call label of the refusal) to the END of the run (the stage's own catch counts it as an unreachable seat); the stages before it replay from disk as they ran, so what they cost stays counted. An entry without a `label` (written before this field) skips from the start.
+//   seatSkipActive(seat, labels)                 the skip choice when the seat is skipped AT THIS POINT of the run (the replay has reached the recorded label, one of `labels` being the labels of the call about to be made, and stays armed after), else null.
 //   skipKeyOf(seat)                         the key a choice names: lab/provider/model.
 import { SHIPPED_PRICES, isUserPriced } from './price-table.js';
 
@@ -153,5 +154,15 @@ export function priceRefusedAdviceFailureWords(err, { runPath, spent, callsPaid 
 }
 
 let skips = [];
-export function setSeatSkips(list) { skips = Array.isArray(list) ? list.filter(c => c && c.choice === 'skip' && typeof c.seat === 'string') : []; }
+let armed = new Set();   // the skip keys whose recorded stage the replay has reached (module state like `skips`, reset by setSeatSkips: a test runs many runs in one process)
+export function setSeatSkips(list) { skips = Array.isArray(list) ? list.filter(c => c && c.choice === 'skip' && typeof c.seat === 'string') : []; armed = new Set(); }
 export function seatSkipChoice(seat) { const k = skipKeyOf(seat); return skips.find(c => c.seat === k) ?? null; }
+export function seatSkipActive(seat, labels) {
+  const c = seatSkipChoice(seat);
+  if (!c) return null;
+  if (!armed.has(c.seat)) {
+    if (typeof c.label === 'string' && c.label !== '' && !(labels ?? []).includes(c.label)) return null;   // CR-1B-002: a stage BEFORE the refused one replays from disk, paid as it ran
+    armed.add(c.seat);
+  }
+  return c;
+}

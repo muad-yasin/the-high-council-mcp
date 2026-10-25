@@ -10,7 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PriceRefused, priceRefusedWords, markSkippable, recommendationOf, canSkip, setSeatSkips, seatSkipChoice, skipKeyOf } from '../src/price-refused.js';
+import { PriceRefused, priceRefusedWords, markSkippable, recommendationOf, canSkip, setSeatSkips, seatSkipChoice, seatSkipActive, skipKeyOf } from '../src/price-refused.js';
 import { runSingleStage, runChain, setCache, setBudget } from '../src/chain.js';
 import { call as mockCall } from '../src/providers.js';
 import { setUserPrices, resetUserPrices } from '../src/price-table.js';
@@ -39,6 +39,13 @@ const serveOnceThenRefuse = () => stub(async (n, raw) => {
   const req = JSON.parse(raw); const system = req.messages.filter(m => m.role === 'system').map(m => m.content).join('\n'); const user = req.messages.filter(m => m.role === 'user').at(-1)?.content ?? '';
   const r = await mockCall('mock', { model: 'mock-proposer-a', system, messages: [{ role: 'user', content: user }], maxTokens: req.max_tokens ?? req.max_completion_tokens });
   return { status: 200, body: { id: 'stub-1', model: req.model, provider: 'StubHost', choices: [{ index: 0, message: { role: 'assistant', content: r.text }, finish_reason: 'stop' }], usage: { prompt_tokens: r.usage.input, completion_tokens: r.usage.output } } };
+});
+// The same, serving the first `served` requests (the proposal, the debate post...) and refusing every later one.
+const serveThenRefuse = served => stub(async (n, raw) => {
+  if (n > served) return { status: 404, body: PROBE_BODY };
+  const req = JSON.parse(raw); const system = req.messages.filter(m => m.role === 'system').map(m => m.content).join('\n'); const user = req.messages.filter(m => m.role === 'user').at(-1)?.content ?? '';
+  const r = await mockCall('mock', { model: 'mock-proposer-a', system, messages: [{ role: 'user', content: user }], maxTokens: req.max_tokens ?? req.max_completion_tokens });
+  return { status: 200, body: { id: `stub-${n}`, model: req.model, provider: 'StubHost', choices: [{ index: 0, message: { role: 'assistant', content: r.text }, finish_reason: 'stop' }], usage: { prompt_tokens: r.usage.input, completion_tokens: r.usage.output } } };
 });
 const orSeat = (url, extra = {}) => ({ provider: 'openrouter', model: MODEL, lab: 'orx', maxTokens: 500, baseUrl: url, ...extra });
 function workspace(chain) {
@@ -199,7 +206,8 @@ test('PR-8 (source scan, C&C C2): every catch in src/chain.js around a provider 
   assert.deepEqual(unguarded.map(s => s.at), [], 'every site except invoke()\'s own catch rethrows control flow first');
   const src = lines.join('\n');
   assert.equal((src.match(/^\s+offerSkip\(err, /gm) ?? []).length, 4, 'four skippable stages: alternatives debate and reply, proposal debate and reply (never a panel judge)');
-  assert.equal((src.match(/^\s+skipChosen\(/gm) ?? []).length, 4, 'each of the four opens its try with skipChosen');
+  // CHANGED ACCEPTED (CR-1B-002, 25 Okt 2026). OLD: 4. NEW: 5. WHY: the retry call inside onceMoreIfIncomplete is its own point of the skip (a refusal AT the retry is recorded under `<label>-retry`; the first, paid call must replay), so it asks skipChosen too; the four stages still open their try with it.
+  assert.equal((src.match(/^\s+skipChosen\(/gm) ?? []).length, 5, 'each of the four opens its try with skipChosen, and the retry inside onceMoreIfIncomplete asks it once more');
   assert.equal((src.match(/offerSkip\(err, [^\n]*\n\s*rethrowControlFlow\(err\);/g) ?? []).length, 4, 'each offer comes right before the rethrow');
 });
 
@@ -268,6 +276,8 @@ test('PR-12 (real verbs): a refused DEBATE seat recommends the skip; --skip-seat
     assert.ok([0, 22].includes(done.code), done.out);
     assert.equal(s.hits.length, hits, 'the skipped seat was never asked again, in the debate or the reply round');
     assert.deepEqual(JSON.parse(readFileSync(join(rd, 'run.json'), 'utf8')).seatChoices.map(c => [c.seat, c.choice, c.via, 'by' in c]), [[`orx/openrouter/${MODEL}`, 'skip', 'cli', false]], 'recorded with the channel, no actor claimed');
+    assert.deepEqual(stop.labels, ['debate-orx'], 'the stop names the call label of each refused seat');
+    assert.equal(JSON.parse(readFileSync(join(rd, 'run.json'), 'utf8')).seatChoices[0].label, 'debate-orx', 'CR-1B-002: the choice records the stage it was refused on');
     assert.ok(existsSync(join(rd, 'report.json')) && !existsSync(join(rd, 'STOPPED-price_refused.json')), 'the run finished and the stale stop file is gone');
     assert.match(readFileSync(join(rd, 'run.log'), 'utf8'), /skipped by a --skip-seat flag/);
   } finally { await s.close(); }
@@ -276,4 +286,84 @@ test('PR-12 (real verbs): a refused DEBATE seat recommends the skip; --skip-seat
 test('PR-13: the README Known limits no longer carry the tree-member price-refusal bullet - the tree words landed (C4b; test/tree-resume-lines.test.js drives the sitting line)', () => {
   const readme = readFileSync(join(root, 'README.md'), 'utf8');
   assert.equal(readme.includes('A tree member stopped by a price refusal is described wrongly'), false);
+});
+
+// CR-1B-002 (25 Okt 2026): --skip-seat dropped a stage the seat had ALREADY PAID for. The choice named only the seat, so the replay threw at the seat's FIRST skippable stage (an alternatives or debate post), the paid
+// stage file was never replayed (never charged into the resumed sitting's cap, missing from stages[] and the board) and the other seats' later prompts changed, so their cached answers went stale and were paid again.
+// Now the choice records the call label of the refusal and the skip starts there: the stages before it replay from disk as they ran.
+const skipRun = async (skip, { cache = null, onStage } = {}) => {
+  const base = JSON.parse(readFileSync(join(root, 'chains', 'mock-debate.json'), 'utf8'));
+  const config = { ...base, alternatives: { enabled: true } };
+  const seat = config.seats.proposers[0];   // lab mock-a
+  setSeatSkips(skip ? [{ seat: skipKeyOf(seat), choice: 'skip', via: 'cli', at: 'x', ...(skip.label ? { label: skip.label } : {}) }] : []);
+  setCache(cache); setBudget(null);
+  try { return await runChain({ config, request: 'A mock task.', log: () => {}, onStage }); } finally { setSeatSkips([]); setCache(null); }
+};
+const paidDisk = async () => {
+  const disk = new Map();
+  await skipRun(null, { onStage: s => disk.set(s.label, { text: s.text, usage: s.usage, usd: s.usd, provider: s.provider, model: s.model }) });
+  return disk;
+};
+
+test('PR-14 (CR-1B-002, the stages): a skip recorded at the reply round starts there: the alternatives posts, the alternatives reply and the debate post the seat already paid for replay from disk, in stages[] and on the board', async () => {
+  const disk = await paidDisk();
+  for (const l of ['alt-debate-mock-a', 'alt-reply-mock-a', 'debate-mock-a', 'reply-mock-a']) assert.ok(disk.has(l), `the first run paid ${l}`);
+  const replayed = [];
+  const r = await skipRun({ label: 'reply-mock-a' }, { cache: { get: l => disk.get(l) || null }, onStage: s => { if (s.cached) replayed.push(s.label); } });
+  const L = r.stages.map(s => s.label);
+  for (const l of ['alt-debate-mock-a', 'alt-reply-mock-a', 'debate-mock-a']) { assert.ok(L.includes(l), `${l} is in stages[] (its cost is counted)`); assert.ok(replayed.includes(l), `${l} replayed from disk, was not paid again`); }
+  assert.ok(!L.includes('reply-mock-a'), 'the refused stage itself is skipped');
+  assert.ok(r.debate.posts.some(p => p.by === 'mock-a'), 'the posts the seat paid for stay on the board');
+  // R01b, the cascade: the other seat's answers do not change, so they replay from disk and are not paid again (the old skip changed the prompts that follow, and these went stale)
+  for (const l of ['alternative-mock-b', 'alt-debate-mock-b', 'alt-reply-mock-b', 'skeleton', 'debate-mock-b']) assert.ok(replayed.includes(l), `${l} replayed from disk, not paid again`);
+});
+
+test('PR-14b (CR-1B-002): a skip recorded at the alternatives reply starts there (earlier stages replay); a choice without a label skips from the start, as before; setSeatSkips resets the armed state', async () => {
+  const disk = await paidDisk(); const cache = { get: l => disk.get(l) || null };
+  const at = await skipRun({ label: 'alt-reply-mock-a' }, { cache });
+  const L = at.stages.map(s => s.label);
+  assert.ok(L.includes('alternative-mock-a') && L.includes('alt-debate-mock-a'), 'before the refused stage: replayed');
+  assert.ok(!L.includes('alt-reply-mock-a') && !L.includes('debate-mock-a') && !L.includes('reply-mock-a'), 'from the refused stage to the end of the run: skipped');
+  const old = await skipRun({}, { cache });   // an entry written before the label field
+  assert.ok(!old.stages.some(s => ['alt-debate-mock-a', 'alt-reply-mock-a', 'debate-mock-a', 'reply-mock-a'].includes(s.label)), 'no label: skipped from its first skippable stage');
+  const again = await skipRun({ label: 'reply-mock-a' }, { cache });   // a fresh run in the same process: the earlier run's armed state is gone
+  assert.ok(again.stages.some(s => s.label === 'alt-debate-mock-a'), 'armed state does not leak between runs');
+});
+
+test('PR-14c (CR-1B-002): the retry call is its own point: a skip recorded at `debate-<lab>-retry` lets the first call replay and stops before the retry', () => {
+  const seat = { provider: 'mock', model: 'm', lab: 'x' };
+  try {
+    setSeatSkips([{ seat: skipKeyOf(seat), choice: 'skip', via: 'cli', at: 'x', label: 'debate-x-retry' }]);
+    assert.equal(seatSkipActive(seat, ['debate-x']), null, 'the first call is not skipped');
+    assert.ok(seatSkipActive(seat, ['debate-x-retry']), 'the retry is');
+    assert.ok(seatSkipActive(seat, ['reply-x']), 'and so is everything after it');
+    setSeatSkips([{ seat: skipKeyOf(seat), choice: 'skip', via: 'cli', at: 'x' }]);
+    assert.ok(seatSkipActive(seat, ['debate-x']), 'no label: active at once');
+    setSeatSkips([{ seat: skipKeyOf(seat), choice: 'skip', via: 'cli', at: 'x', label: 'reply-x' }]);
+    assert.equal(seatSkipActive(seat, ['debate-x']), null); assert.ok(seatSkipActive(seat, ['reply-x']));
+    setSeatSkips([{ seat: skipKeyOf(seat), choice: 'skip', via: 'cli', at: 'x', label: 'reply-x' }]);
+    assert.equal(seatSkipActive(seat, ['debate-x']), null, 'setSeatSkips reset what the last run armed');
+  } finally { setSeatSkips([]); }
+});
+
+test('PR-15 (real verbs, CR-1B-002): a seat refused at the REPLY round and skipped keeps the debate post it already paid for: the post is replayed from disk, counted in the report, and on the board; the seat is not asked again', async () => {
+  const s = await serveThenRefuse(2);   // the proposal and the debate post are served, the reply is refused
+  try {
+    const dir = workspace(debateChainWith('refuse-replier', orSeat(s.url))); const run = spawnCli(dir);
+    const first = await startTyped(run, startArgs('refuse-replier'), runDirOf(dir));
+    assert.equal(first.code, EXIT_PRICE_REFUSED, first.out);
+    const rd = runDirOf(dir);
+    const stop = JSON.parse(readFileSync(join(rd, 'report-partial.json'), 'utf8')).stop;
+    assert.equal(stop.label, 'reply-orx'); assert.deepEqual(stop.labels, ['reply-orx']); assert.equal(stop.skippable, true);
+    const hits = s.hits.length; assert.equal(hits, 3, 'proposal and debate post served, the reply refused');
+    assert.ok(existsSync(join(rd, 'debate-orx.md')), 'the debate post was paid for and is on disk');
+    const done = await run(['--resume', rd, '--skip-seat']);
+    assert.ok([0, 22].includes(done.code), done.out);
+    assert.equal(s.hits.length, hits, 'the skipped seat was not asked again');
+    assert.equal(JSON.parse(readFileSync(join(rd, 'run.json'), 'utf8')).seatChoices[0].label, 'reply-orx');
+    const report = JSON.parse(readFileSync(join(rd, 'report.json'), 'utf8'));
+    assert.ok(report.stages.some(x => x.label === 'debate-orx'), 'the paid debate stage is in stages[]');
+    assert.ok(!report.stages.some(x => x.label === 'reply-orx'), 'the refused reply is not');
+    assert.ok(report.debate.posts.some(p => p.by === 'orx'), 'the paid post is on the board');
+  } finally { await s.close(); }
 });

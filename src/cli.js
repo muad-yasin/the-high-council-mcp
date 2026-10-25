@@ -2933,8 +2933,10 @@ if (treeLineage && resumeRun) roundChoices = backedRoundChoices(join(dirname(res
   }
 }
 // A3a commit 2 (18 Okt 2026; src/price-refused.js, gate note A3a_Refusal_Pause_Gate_Note.md): a run that STOPPED at exit 24 (STOPPED-price_refused.json, report-partial.json `stop`) waits for the person. A plain --resume goes on
-// (after a pricing.user.json row, or a newer table) and re-asks only the refused stage. --skip-seat records the person's choice to do without that seat for the REST of the run: run.json `seatChoices` { seat, choice: 'skip', via: 'cli', at },
-// applied on every replay (src/chain.js skipChosen; the stage's own catch counts the seat as unreachable). It is refused, with nothing run, where the stage cannot do without the seat or is not stopped this way.
+// (after a pricing.user.json row, or a newer table) and re-asks only the refused stage. --skip-seat records the person's choice to do without that seat for the REST of the run: run.json `seatChoices` { seat, choice: 'skip', via: 'cli', at, label },
+// applied from the refused stage on in every replay (src/chain.js skipChosen; the stage's own catch counts the seat as unreachable). It is refused, with nothing run, where the stage cannot do without the seat or is not stopped this way.
+// CR-1B-002: the skip starts at the stage that was refused (the call label of that seat's own refusal), so the stages it already finished replay from disk and stay counted. A stop record from before `labels` names one label for the whole stop: it is only that seat's own when the stop names one seat; else no label is recorded and the skip starts at the beginning, as it did.
+const skipLabelOf = (stop, i) => (Array.isArray(stop.labels) && typeof stop.labels[i] === 'string' ? stop.labels[i] : stop.seatKeys.length === 1 && typeof stop.label === 'string' ? stop.label : null);
 let seatChoices = Array.isArray(resumeMeta?.seatChoices) ? resumeMeta.seatChoices : [];
 if (treeLineage) seatChoices = [];   // D-013: nothing writes a seat choice for a tree member (--skip-seat is refused for one, below), so an entry in a member's run.json is forged: it must not drop a seat
 {
@@ -2946,7 +2948,7 @@ if (treeLineage) seatChoices = [];   // D-013: nothing writes a seat choice for 
     if (marker?.stoppedBy !== 'price_refused' || !stop || stop.kind !== 'price_refused') { console.error(`--skip-seat: ${runDir} is not stopped because a seat was refused at its price limit, so there is nothing to skip. Nothing was run and nothing was spent.`); process.exit(2); }
     if (memberNotice) { console.error(`--skip-seat: ${runDir} is a member of a tree; a seat is not skipped from a tree member in 0.8.3. Fix the price (pricing.user.json) and run \`council tree resume\`. Nothing was run and nothing was spent.`); process.exit(2); }
     if (!stop.skippable || !Array.isArray(stop.seatKeys) || !stop.seatKeys.length) { console.error(`--skip-seat: ${stop.seat} cannot be skipped here: its stage (${stop.label}) cannot do without it (${stop.noSkip ?? 'no seat to spare'}). Add its price to pricing.user.json and resume. Nothing was run and nothing was spent.`); process.exit(2); }
-    seatChoices = [...seatChoices.filter(c => !stop.seatKeys.includes(c.seat)), ...stop.seatKeys.map(k => ({ seat: k, choice: 'skip', via: 'cli', at: new Date().toISOString() }))];   // `via`, not `by`: the CLI cannot tell a person from an agent with a shell, so no actor is claimed (like roundChoices)
+    seatChoices = [...seatChoices.filter(c => !stop.seatKeys.includes(c.seat)), ...stop.seatKeys.map((k, i) => ({ seat: k, choice: 'skip', via: 'cli', at: new Date().toISOString(), ...(skipLabelOf(stop, i) ? { label: skipLabelOf(stop, i) } : {}) }))];   // `via`, not `by`: the CLI cannot tell a person from an agent with a shell, so no actor is claimed (like roundChoices)
     const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
     writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, seatChoices }, null, 2));
     resumeMeta.seatChoices = seatChoices;   // the resume branch below rewrites run.json from resumeMeta: without this the choice would be overwritten by the stale copy
@@ -3644,7 +3646,7 @@ try {
     // The refused call cost nothing and nothing is sent after it. An advice call has no resume: it takes the generic failed-call path below with the same sentence.
     const spentUsd = recordedSpentOf();
     const set = refusedSet(err);   // the first refusal and the seats of the same stage that rode along (chain.js settleAll)
-    const stop = { kind: 'price_refused', seat: set.map(e => e.seat).join(', '), seatKeys: set.map(e => `${e.lab}/${e.seat}`), label: err.label, skippable: canSkip(err), noSkip: err.noSkip, voices: err.voices, recognised: set.every(e => e.recognised), ownPin: set.some(e => e.ownPin), pin: err.pin };
+    const stop = { kind: 'price_refused', seat: set.map(e => e.seat).join(', '), seatKeys: set.map(e => `${e.lab}/${e.seat}`), labels: set.map(e => e.label), label: err.label, skippable: canSkip(err), noSkip: err.noSkip, voices: err.voices, recognised: set.every(e => e.recognised), ownPin: set.some(e => e.ownPin), pin: err.pin };
     const sentence = priceRefusedWords(err, { runPath: join('runs', basename(runDir)), command: councilCommand() });
     try { writeStoppedMarker(runDir, { stoppedBy: 'price_refused', beforeFirstCall: false, spentUsd, resumeAfterStop: true, reason: sentence }); }
     catch (e) { log(`  (${stoppedFileOf('price_refused')} not written: ${e?.message || e})`); }

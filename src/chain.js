@@ -7,7 +7,7 @@ import { handoffPrompt } from './handoff-prompt.js';
 import { extraWithHighDefault, retryCapFor, retryCeilingOf } from './reasoning.js';
 import { pinnedExtra, ownPinOf } from './price-pin.js';
 import { effectiveRow } from './price-table.js';
-import { PriceRefused, isMaxPriceRefusal, markSkippable, seatSkipChoice, skipKeyOf } from './price-refused.js';
+import { PriceRefused, isMaxPriceRefusal, markSkippable, seatSkipChoice, seatSkipActive, skipKeyOf } from './price-refused.js';
 import { collectNoteLines, parseDisputes } from './draft-disputes.js';
 import { readNotes, budgetLeft, parseNoteAnswers, notesView, fitNotes, lastRoundOf, sinceLastRevise } from './review-notes.js';
 import { notesConfigOf, reviewNotesActive, splitNotes } from './review-notes-lane.js';
@@ -1256,11 +1256,12 @@ export function rethrowControlFlow(err) {
   if (err instanceof BudgetExceeded || err instanceof ExternalPause || err?.controlFlow) throw err;
 }
 
-// A3a commit 2 (18 Okt 2026; src/price-refused.js): the two helpers of the seat-skip choice. `skipChosen(seat)` goes first INSIDE the try of a stage that can do without a seat (a debate post, a reply round; never a panel judge, see the panel catch): a seat
-// the person chose to skip (run.json seatChoices, src/price-refused.js setSeatSkips) throws a plain error there, which the stage's own catch counts as an unreachable seat, an abstention, exactly as a down lab is. `offerSkip` goes first
+// A3a commit 2 (18 Okt 2026; src/price-refused.js): the two helpers of the seat-skip choice. `skipChosen(seat, labels)` goes first INSIDE the try of a stage that can do without a seat (a debate post, a reply round; never a panel judge, see the panel catch): a seat
+// the person chose to skip (run.json seatChoices, src/price-refused.js setSeatSkips) throws a plain error there, which the stage's own catch counts as an unreachable seat, an abstention, exactly as a down lab is. CR-1B-002: only from the stage that was refused on
+// (the choice's recorded call label is one of `labels`, the labels of the call about to be made) to the end of the run; a stage the seat already finished before it replays from disk, so its cost stays counted. `offerSkip` goes first
 // INSIDE that catch, before rethrowControlFlow: it tells a PriceRefused that this stage could do without the seat, and how many OTHER seats of its group (not already skipped) would stay.
-function skipChosen(seat) {
-  const c = seatSkipChoice(seat);
+function skipChosen(seat, labels) {
+  const c = seatSkipActive(seat, labels);
   if (c) throw new Error(`skipped by a --skip-seat flag (price refused; recorded ${c.at ?? 'earlier'})`);
 }
 function offerSkip(err, seat, group) {
@@ -2265,6 +2266,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   // if that one is incomplete too.
   const onceMoreIfIncomplete = async (st, seat, opts, say) => {
     if (!draftIncomplete(st.usage)) return st;
+    skipChosen(seat, [opts.label]);   // CR-1B-002: a skip recorded at the retry's refusal starts here, after the first (paid) call replayed
     say(`  ${opts.label.replace(/-retry$/, '')}: the provider ended the reply with stop "${st.usage.stop}" - retrying once.`);
     return record(await invoke(seat, opts));
   };
@@ -2710,7 +2712,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       const postResults = await settleAll(posterLabs.map(async lab => {
         const lines = []; const say = m => lines.push(m);
         try {
-          skipChosen(seatOf(lab));
+          skipChosen(seatOf(lab), [`alt-debate-${lab}`]);
           const st = record(await invoke(seatOf(lab), {
             // No persona here: seat roles apply at exactly one call site, the proposal debate
             // (test/stage-isolation.test.js guards that boundary). Widening it to this stage is a
@@ -2742,7 +2744,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const mine = items.filter(a => a.lab === lab && posts.some(x => x.on === a.id));
         if (!mine.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
         try {
-          skipChosen(seatOf(lab));
+          skipChosen(seatOf(lab), [`alt-reply-${lab}`]);
           const st = record(await invoke(seatOf(lab), {
             system: withHeldNote(config, R.altReplySystem(guard), 'noQuoteGloss'),
             user: altReplyUserFor(config)({ request, alternatives: altViewOf(lab).items, posts: altPostsFor(lab), lab, maps: altViewOf(lab).maps, guard }),
@@ -2984,7 +2986,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         let posts = [], revisions = [], toolResults = [], toolWarnings = [];
         const dropped = [];
         try {
-          skipChosen(seatOf(lab));
+          skipChosen(seatOf(lab), [`debate-${lab}`]);
           // v6 §1/§3: role augmentation applies only here, the debate-stage
           // system prompt - never to the panel/critique stage. A seat with
           // no role gets R.DEBATE_SYSTEM back unchanged (applySeatRole is a
@@ -3075,7 +3077,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const mineWithPosts = proposals.filter(p => p.lab === lab && posts.some(x => x.on === p.id));
         if (!mineWithPosts.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
         try {
-          skipChosen(seatOf(lab));
+          skipChosen(seatOf(lab), [`reply-${lab}`]);
           const st = await onceMoreIfIncomplete(record(await invoke(seatOf(lab), {
             system: withHeldNote(config, R.replySystem(guard), 'noQuoteGloss'),
             user: replyUserFor(config)({ request, proposals: viewOf(lab).proposals, posts: postsFor(lab), lab, maps: viewOf(lab).maps, guard }),
