@@ -1328,6 +1328,7 @@ function armSideRun(what, dir, config, fingerprint) {
   countEarlierSpend(supersededSpendOf(dir));
   countEarlierSpend(unsettledReservations(dir).reduce((n, r) => n + r.usd, 0));
   setReservationSink(openReservations(dir));
+  setChargeHook(c => recordLostCharge(dir, c.label, c));   // CR-1D-001: a call that fails after it was sent (billed, unreadable) or a discarded thinking attempt leaves its charge in THIS folder, as on a run and on --resume: the next sitting and --spend count it
   const unverified = [];
   setCache(makeStageCache({ dir, fingerprint, unverified }));
   const envelope = sideEnvelopeFlag(dir, !!unfinished, !!held('verdictEnvelopeSection')); // E3b unit three: src/verdict-envelope.js
