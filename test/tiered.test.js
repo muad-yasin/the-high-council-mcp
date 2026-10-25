@@ -22,9 +22,10 @@ import * as R from '../src/roles.js';
 import { estimateChainRows, projectStage } from '../src/cost.js';
 import { lintChain } from '../src/chain-lint.js';
 import { chunkSource, planDeepDive } from '../src/deep-dive.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+const chain = name => readChainFile(root, name);
 const labels = r => r.stages.map(s => s.label);
 const TASK = Array.from({ length: 30 }, (_, i) => `- R${i + 1}. A requirement line that is long enough to fill a chunk: number ${i + 1}.`).join('\n');
 
@@ -40,10 +41,14 @@ async function run(config, request = TASK) {
 // plan-daily-7 (2026-09-27, Muad's request relayed by the C&C session): a new chain built on
 // plan-highest-7's design, guard on as there.
 // 0.8.2 (owner decision 2, 5 Oct 2026, "Yes x3"): the existing majority guard is also on in plan-premium-7, plan-open-7 and cheap-7-v2.
-const GUARDED = new Set(['mock-tiered.json', 'plan-highest-7.json', 'plan-daily-7.json', 'plan-premium-7.json', 'plan-open-7.json', 'cheap-7-v2.json']);
-test('tiered: no chain but mock-tiered, the two tiered chains and the three the owner added turns the majority guard on (it changes prompts)', () => {
-  for (const f of readdirSync(join(root, 'chains')).filter(x => x.endsWith('.json'))) {
-    const c = JSON.parse(readFileSync(join(root, 'chains', f), 'utf8'));
+// 0.8.3 M0 (owner decision 7, 8 Oct 2026; PLAN 11.1): daily7-sub-a, the recursive-councils child chain, is committed with daily7's majority guard on (pack B, as priced).
+// 0.8.3 E5 (15 Oct 2026): plan-high-council is plan-daily-7's stages with a layered panel, so it keeps daily7's majority guard (as drafted; Muad's yes on the chain at M7).
+// R1 (18 Okt 2026), CHANGED ACCEPTED TEST: old bar = GUARDED without the two Chinese chains; new bar = GUARDED plus plan-china-mini-council and plan-china-medium-council (majority_guard {enabled:true}, the same key their tier siblings carry); why = picks 59-62 added plan-china-mini-council and plan-china-medium-council as 'the same machinery' as their tier siblings (m6-closing/China_Chains_Gate_Note.md lines 8, 12; Muad 15 Okt 22:34 'additional and advertised', 23:09 '4: all three'); each carries exactly the sibling's value, so the typed list names them; the lists stay hand-typed. The two Chinese chains are listed as their siblings are (China_Chains_Gate_Note, picks 59-62, 16 Okt 2026); Muad's yes on the chain at M7.
+// 0.8.3 (lane B, commit 2): plan-default-opro-council carries majority_guard {enabled:true} like its tier siblings (CHANGED ACCEPTED: the set grows by the new shipped chain).
+const GUARDED = new Set(['mock-tiered.json', 'plan-highest-7.json', 'plan-daily-7.json', 'plan-premium-7.json', 'plan-open-7.json', 'cheap-7-v2.json', 'daily7-sub-a.json', 'plan-high-council.json', 'plan-medium-council.json', 'plan-mini-council.json', 'plan-claude-council.json', 'plan-default-opro-council.json', 'plan-china-high-council.json', 'plan-mini-council-sol-session.json', 'plan-china-mini-council.json', 'plan-china-medium-council.json']);
+test('tiered: no chain but mock-tiered, the two tiered chains, the three the owner added in 0.8.2 and daily7-sub-a turns the majority guard on (it changes prompts)', () => {
+  // 0.8.3 (lane B): the retired chains in chains/outdated/ are scanned too (the same set; their names stay in GUARDED).
+  for (const [f, c] of ['chains', join('chains', 'outdated')].flatMap(d => readdirSync(join(root, d)).filter(x => x.endsWith('.json')).map(x => [x, JSON.parse(readFileSync(join(root, d, x), 'utf8'))]))) {
     if (GUARDED.has(f)) assert.equal(c.majority_guard?.enabled, true, `${f} has the guard on`);
     else assert.notEqual(c.majority_guard?.enabled, true, `${f} turns the majority guard on`);
   }

@@ -23,12 +23,15 @@
 // Privacy: chain name, cost and state only. Never the task path or any run
 // content - what a run was about is not spend data.
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { supersededSpendOf, supersededStagesOf } from './superseded.js';
+import { supersededSpendOf, supersededStagesOf, supersededUnknownFilesOf } from './superseded.js';
 import { unsettledUsd } from './spend-reservations.js';
+import { usdFigure } from './usd-figure.js';
 import { deriveRunStatus, APPROVAL_STATUSES, stoppedShortFile, waitingStages } from './run-status.js';
-import { readStoppedMarker } from './stop-files.js';
+import { readStoppedMarker, waitsForPerson, ROUND_STOPPED_STATE } from './stop-files.js';
+import { runFolderKind } from './run-files.js';
+import { readTreeRecord, stateOf as treeStateOf } from './tree-record.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 
@@ -52,6 +55,8 @@ export function runIdToDate(runId) {
 // separate run - so spend has its own reader. The timestamp in the name is the ORIGINAL run's, not
 // when the rematch/replay ran and paid, so the date comes from the folder's own files instead.
 const SIDE_RUN = /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2})$/;
+/** A name the spend readers treat as a run folder's: a run id or a --rematch / --replay side folder. Asked before anything is read (the kind check comes first, then the date). */
+const looksLikeRunName = id => runIdToDate(id) !== null || SIDE_RUN.test(id);
 export function spendDateOf(runsDir, id) {
   const strict = runIdToDate(id);
   if (strict) return strict;
@@ -68,39 +73,82 @@ export function spendDateOf(runsDir, id) {
 // <label>.usage.json behind, so the spend is still on disk.
 // `council handoff --from-run` pays for a call after the run is over. Since 0.8.1 (FX-1) each call is its own file in
 // superseded/; a 0.8.0 run folder may still hold the single handoff-from-run.usage.json, read here for old folders only.
-const handoffFromRunUsd = dir => readJson(join(dir, 'handoff-from-run.usage.json'))?.usd ?? 0;
+// 0.8.3 M6 (Builder D; Batch 1 audit item 10 and Batch 3 entry 14): ONE rule for a dollar figure read out of a run folder (the rule is src/cost.js readUsd's: a finite number of zero or more). An ABSENT
+// figure is $0 on purpose (an external stage records 0 itself; a file from before costs were recorded). A figure that is PRESENT and not a number of that kind is UNKNOWN: null (what JSON.stringify writes for a NaN),
+// a string (it used to be concatenated: "0.5" + 1 = "0.51"), a negative number (it used to lower the total), NaN, Infinity, an object. Unknown is never read as 0 and never added. The returned `usd` stays a finite
+// number - the sum of the figures that DO read, a floor (the tree's unreadable-member acceptance route already treats it so, and nothing here may become null or Infinity in a record or an answer) - and the count
+// of unknown figures travels beside it as `unknownFigures` (0 when every figure read), so the places that decide or show money can say "at least". No real writer writes a null (Review/Build_0.8.3/d-scratch/null-usd-writers.md).
+export { usdFigure };   // the rule lives in src/usd-figure.js (shared with superseded.js)
+const isRecord = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+/**
+ * The sum of a folder's top-level `<label>.usage.json` figures: { usd (the readable part), stages (files), unknownFigures, unknownFiles }. A file that does not parse is an unknown figure too (its cost
+ * cannot be read). `unknownFiles` names them (file names inside the run folder, never content) so a person can find and repair them: the monthly policy check lists them.
+ */
+export function usageSpendOf(dir) {
+  let usd = 0;
+  let stages = 0;
+  const unknownFiles = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.usage.json')) continue;
+    const u = readJson(join(dir, f));
+    const n = isRecord(u) ? usdFigure(u.usd) : null;
+    if (n === null) unknownFiles.push(f); else usd += n;
+    stages += 1;
+  }
+  return { usd, stages, unknownFigures: unknownFiles.length, unknownFiles };
+}
 
 // 0.8.2 item 8b (src/spend-reservations.js): a call that was in flight when its process ended stays charged at its worst case, here and in a resume's cap. The one recorded figure in this derivation.
 function costOfRun(dir) {
   const r = costOfRunSettled(dir);
+  // 0.8.3 M2e: when STOPPED-budget.json supplied the figure (no stage finished), that figure is the TOTAL at the stop and already holds the earlier superseded records and the earlier unsettled reservations
+  // (budgetState().spent, countEarlierSpend in src/cli.js). Adding them again counted an in-flight call twice: W became 2W. The larger of the stop file's total and what is on disk now is the figure: spend that
+  // arrived AFTER the stop (a later superseded record) is on disk and wins; nothing is added twice.
+  if (r.stoppedUsd !== undefined) return { ...r, usd: Math.max(r.stoppedUsd, r.usd + unsettledUsd(dir)) };
   return { ...r, usd: r.usd + unsettledUsd(dir) };
 }
 
 function costOfRunSettled(dir) {
   const report = readJson(join(dir, 'report.json'));
+  const unknownFiles = [];
   if (report?.totals?.usd !== undefined && report?.totals?.usd !== null) {
-    // report.json's total already holds the superseded spend it saw (totals.supersededUsd); what superseded/ gained after
-    // the report was written (a handoff --from-run call, FX-1) is added, so nothing is counted twice.
-    const later = Math.max(0, supersededSpendOf(dir) - (Number(report.totals.supersededUsd) || 0));
-    return { usd: report.totals.usd + handoffFromRunUsd(dir) + later, chain: report.chain ?? null, complete: true };
+    const total = usdFigure(report.totals.usd);
+    if (total !== null) {
+      // report.json's total already holds the superseded spend it saw (totals.supersededUsd); what superseded/ gained after
+      // the report was written (a handoff --from-run call, FX-1) is added, so nothing is counted twice.
+      const later = Math.max(0, supersededSpendOf(dir) - (Number(report.totals.supersededUsd) || 0));
+      const handoff = usdFigure(readJson(join(dir, 'handoff-from-run.usage.json'))?.usd);
+      if (handoff === null) unknownFiles.push('handoff-from-run.usage.json');
+      unknownFiles.push(...supersededUnknownFilesOf(dir));
+      return { usd: total + (handoff ?? 0) + later, chain: report.chain ?? null, complete: true, unknownFigures: unknownFiles.length, unknownFiles };
+    }
+    // a total that is there and is not a number (a string, a negative): the report cannot be trusted for the figure; the stage files below give a floor and the count says so
+    unknownFiles.push('report.json');
   }
-  let usd = 0;
-  let stages = 0;
-  for (const f of readdirSync(dir)) {
-    if (!f.endsWith('.usage.json')) continue;
-    usd += readJson(join(dir, f))?.usd ?? 0;
-    stages += 1;
-  }
+  const files = usageSpendOf(dir);
+  let usd = files.usd;
+  const stages = files.stages;
+  unknownFiles.push(...files.unknownFiles);
   // A capped --rematch/--replay has no stage cache, so no usage files - its STOPPED-budget.json
   // carries what the sitting spent. A normal stopped run has usage files, which win.
-  if (!stages) usd = readJson(join(dir, 'STOPPED-budget.json'))?.spentUsd ?? 0;
+  let stoppedUsd;
+  if (!stages) {
+    stoppedUsd = usdFigure(readJson(join(dir, 'STOPPED-budget.json'))?.spentUsd);
+    if (stoppedUsd === null) { unknownFiles.push('STOPPED-budget.json'); stoppedUsd = 0; }
+  }
+  if (!stages) usd = 0;                 // the stop file's figure is applied in costOfRun, which also knows the unsettled reservations
   // Money path #2: stages a resume found stale and re-ran keep their first payment in superseded/.
   usd += supersededSpendOf(dir);
-  return { usd, chain: readJson(join(dir, 'run.json'))?.chain ?? null, complete: false, stages };
+  unknownFiles.push(...supersededUnknownFilesOf(dir));
+  return { usd, ...(stoppedUsd !== undefined ? { stoppedUsd } : {}), chain: readJson(join(dir, 'run.json'))?.chain ?? null, complete: false, stages, unknownFigures: unknownFiles.length, unknownFiles };
 }
 
 /** What one run folder has cost so far, in USD (report.json's total, else its usage files), handoff-from-run included. */
 export const runSpentUsd = dir => costOfRun(dir).usd;
+/** The same, with the count of figures that did not read and the files they are in: { usd (a floor when unknownFigures > 0), unknownFigures, unknownFiles }. */
+export const runSpendOf = dir => { const r = costOfRun(dir); return { usd: r.usd, unknownFigures: r.unknownFigures, unknownFiles: r.unknownFiles }; };
+/** Did every figure of this run folder read? false = `runSpentUsd` is a floor (see usdFigure): a caller that enforces a limit must not treat it as the whole spend. */
+export const runSpendIsKnown = dir => runSpendOf(dir).unknownFigures === 0;
 
 // v2 plan §8 (~/Projects/relay/runs/2026-09-11T12-19-34-184Z/deliverable.md), narrowed per
 // decision in maintainers/DECISIONS.md: §8 proposed a new ledger file to get per-call cost granularity
@@ -113,17 +161,22 @@ function stagesOfRun(dir) {
   const report = readJson(join(dir, 'report.json'));
   if (Array.isArray(report?.stages)) {
     const extra = readJson(join(dir, 'handoff-from-run.usage.json'));
-    return [...report.stages.map(s => ({ label: s.label, provider: s.provider ?? null, model: s.model ?? null, usd: s.usd ?? 0 })),
-      ...(extra ? [{ label: 'handoff-from-run', provider: extra.provider ?? null, model: extra.model ?? null, usd: extra.usd ?? 0 }] : []), ...supersededStagesOf(dir)];
+    return [...report.stages.map(s => stageRow(s.label, s.provider, s.model, s.usd)),
+      ...(extra ? [stageRow('handoff-from-run', extra.provider, extra.model, extra.usd)] : []), ...supersededStagesOf(dir)];
   }
   const stages = [];
   for (const f of readdirSync(dir)) {
     if (!f.endsWith('.usage.json')) continue;
     const u = readJson(join(dir, f));
     if (!u) continue;
-    stages.push({ label: f.replace(/\.usage\.json$/, ''), provider: u.provider ?? null, model: u.model ?? null, usd: u.usd ?? 0 });
+    stages.push(stageRow(f.replace(/\.usage\.json$/, ''), u.provider, u.model, u.usd));
   }
   return [...stages, ...supersededStagesOf(dir)];
+}
+// one stage's row: the figure is the readable part (0 when it does not read) and `unknown` says so
+function stageRow(label, provider, model, rawUsd) {
+  const n = usdFigure(rawUsd);
+  return { label, provider: provider ?? null, model: model ?? null, usd: n ?? 0, ...(n === null ? { unknown: true } : {}) };
 }
 
 // Aggregate per-model spend across a list of run directories - the "per-call granularity"
@@ -134,11 +187,14 @@ function perModelBreakdown(dirs) {
   for (const dir of dirs) {
     for (const s of stagesOfRun(dir)) {
       const key = `${s.provider ?? '?'}/${s.model ?? '?'}`;
-      byModel.set(key, (byModel.get(key) ?? 0) + s.usd);
+      const row = byModel.get(key) ?? { usd: 0, unknownFigures: 0 };
+      row.usd += s.usd;
+      if (s.unknown) row.unknownFigures += 1;
+      byModel.set(key, row);
     }
   }
   return [...byModel.entries()]
-    .map(([model, usd]) => ({ model, usd }))
+    .map(([model, r]) => ({ model, usd: r.usd, ...(r.unknownFigures ? { unknownFigures: r.unknownFigures } : {}) }))
     .sort((a, b) => b.usd - a.usd);
 }
 
@@ -151,6 +207,7 @@ function stateOf(dir) {
   if (existsSync(join(dir, 'STOPPED-budget.json'))) return 'stopped: spend cap';
   // 0.8.1 M6: an advice call a person, its client or its wall clock stopped (exit 18); what it paid for is counted like any run's.
   const stop = readStoppedMarker(dir);
+  if (stop && waitsForPerson(stop.stoppedBy)) return ROUND_STOPPED_STATE;   // a layered run stopped at an overseer limit (exit 23) or a run whose seat was price-refused (exit 24), waiting for the person's choice
   if (stop) return `stopped: ${({ user: 'by a person', client_cancel: 'by its client', wall_clock: 'at its wall clock' })[stop.stoppedBy]}`;
   const short = stoppedShortFile(dir);
   if (short) return `stopped: ${({ 'STOPPED-preflight.md': 'task refused before any stage', 'STOPPED-secret.md': 'a key-shaped string in the prompt' })[short] ?? 'a draft did not complete'}`;
@@ -167,8 +224,49 @@ function stateOf(dir) {
 
 // One row of either report. A folder an advice call made before its start names its chain only in advice.meta.json.
 function runRow(id, when, dir) {
-  const { usd, chain, complete } = costOfRun(dir);
-  return { id, when, chain: chain ?? readJson(join(dir, 'advice.meta.json'))?.chain ?? null, usd, state: stateOf(dir), complete };
+  const { usd, chain, complete, unknownFigures, unknownFiles } = costOfRun(dir);
+  return { id, when, chain: chain ?? readJson(join(dir, 'advice.meta.json'))?.chain ?? null, usd, state: stateOf(dir), complete, unknownFigures, unknownFiles };
+}
+
+// 0.8.3 M6 S7 (d), PLAN 10.2: the per-tree subtotal of a spend report. ADDITIVE: the rows and `totalUsd` are untouched, and a subtotal is a part of that total, never added to it again. A tree's members are the
+// rows of runs that the tree's OWN record lists (a node_registered with their run id): run.json is project-writable text, so its `tree.treeId` only says which record to ask, never what counts. The root folder must be
+// a real folder (a symbolic link gives no subtotal). Each figure is the row's usd, i.e. runSpentUsd, the same number tree/report.json sums as memberSpend. `memberRuns` is the number of members INSIDE the report's
+// window (a window can cut a tree). Output: a tree id (a run id) and amounts only. Never throws: a tree whose record cannot be read has no subtotal (its runs are still in the rows and the total).
+const TREE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+/**
+ * ROADMAP 57 (c3): did a person abandon this tree? READ-ONLY and for the CLI's `--spend` line only: the MCP `spend_report` `trees` entry stays as it was (Q11), so the flag is NOT part of treeSubtotals' output.
+ * Never throws (a tree whose record cannot be read is not reported as abandoned); a link is not a folder.
+ */
+export function treeIsAbandoned(runsDir, treeId) {
+  try {
+    if (typeof treeId !== 'string' || !TREE_ID.test(treeId)) return false;
+    const rootDir = join(runsDir, treeId);
+    if (!lstatSync(rootDir).isDirectory()) return false;
+    const record = readTreeRecord(rootDir);
+    return record.exists && !record.corrupt.length && treeStateOf(record).abandoned !== null;
+  } catch { return false; }
+}
+function treeSubtotals(runsDir, rows) {
+  const claimed = new Map();
+  for (const row of rows) {
+    const treeId = readJson(join(runsDir, row.id, 'run.json'))?.tree?.treeId;
+    if (typeof treeId !== 'string' || !TREE_ID.test(treeId)) continue;
+    if (!claimed.has(treeId)) claimed.set(treeId, []);
+    claimed.get(treeId).push(row);
+  }
+  const out = [];
+  for (const [treeId, claimants] of [...claimed].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    try {
+      const rootDir = join(runsDir, treeId);
+      if (!lstatSync(rootDir).isDirectory()) continue;                       // lstat: a link is not a folder
+      const record = readTreeRecord(rootDir);
+      if (!record.exists) continue;
+      const listed = new Set(record.events.filter(e => e.event === 'node_registered' && typeof e.runId === 'string').map(e => e.runId));
+      const members = claimants.filter(r => listed.has(r.id));
+      if (members.length) { const unknown = members.reduce((s, r) => s + r.unknownFigures, 0); out.push({ treeId, memberRuns: members.length, usd: members.reduce((s, r) => s + r.usd, 0), ...(unknown ? { unknownFigures: unknown } : {}) }); }
+    } catch { /* an unreadable tree has no subtotal; its runs stay in the rows and the total (this report never throws) */ }
+  }
+  return out;
 }
 
 /**
@@ -181,21 +279,27 @@ export function spendReport(runsDir, { days = 1, now = Date.now() } = {}) {
   const cutoff = now - days * 24 * 3600 * 1000;
   const runs = [];
   let unreadable = 0;
+  let symbolicLinksNotCounted = 0;
 
   let ids = [];
   try {
     ids = existsSync(runsDir) ? readdirSync(runsDir) : [];
   } catch {
-    return { runsDir, days, since: new Date(cutoff), runs: [], totalUsd: 0, count: 0,
-             unreadable: 0, note: 'runs directory could not be read' };
+    return { runsDir, days, since: new Date(cutoff), runs: [], trees: [], totalUsd: 0, count: 0,
+             unreadable: 0, symbolicLinksNotCounted: 0, unknownFigures: 0, note: 'runs directory could not be read' };
   }
 
   for (const id of ids) {
+    if (!looksLikeRunName(id)) continue;
+    // a symbolic link in runs/ is never a run (the harness never makes one): asked FIRST (before the date and the window, so a dangling link and a link outside the window are counted too), counted apart, never read as a second run (src/run-files.js runFolderKind, the one predicate every reader of runs/ asks)
+    const kind = runFolderKind(join(runsDir, id));
+    if (kind === 'link') { symbolicLinksNotCounted += 1; continue; }
     const when = spendDateOf(runsDir, id);
     if (!when || when.getTime() < cutoff) continue;
     const dir = join(runsDir, id);
+    if (kind === 'missing') { unreadable += 1; continue; }
+    if (kind !== 'folder') continue;
     try {
-      if (!statSync(dir).isDirectory()) continue;
       runs.push(runRow(id, when, dir));
     } catch {
       unreadable += 1;   // a run folder we cannot read is reported, not fatal
@@ -207,9 +311,12 @@ export function spendReport(runsDir, { days = 1, now = Date.now() } = {}) {
     runsDir, days,
     since: new Date(cutoff),
     runs,
+    trees: treeSubtotals(runsDir, runs),
     totalUsd: runs.reduce((s, r) => s + r.usd, 0),
+    unknownFigures: runs.reduce((s, r) => s + r.unknownFigures, 0),   // 0 when every figure read; otherwise totalUsd is a floor (usdFigure)
     count: runs.length,
     unreadable,
+    symbolicLinksNotCounted,
   };
 }
 
@@ -231,21 +338,27 @@ export function costToday(runsDir, { date = new Date(), now = Date.now() } = {})
   const runs = [];
   const countedDirs = [];
   let unreadable = 0;
+  let symbolicLinksNotCounted = 0;
 
   let ids = [];
   try {
     ids = existsSync(runsDir) ? readdirSync(runsDir) : [];
   } catch {
     return { runsDir, date: new Date(startOfDay), runs: [], totalUsd: 0, count: 0,
-             unreadable: 0, perModel: [], note: 'runs directory could not be read' };
+             unreadable: 0, symbolicLinksNotCounted: 0, unknownFigures: 0, perModel: [], note: 'runs directory could not be read' };
   }
 
   for (const id of ids) {
+    if (!looksLikeRunName(id)) continue;
+    // a symbolic link in runs/ is never a run (the harness never makes one): asked FIRST (before the date and the window, so a dangling link and a link outside the window are counted too), counted apart, never read as a second run (src/run-files.js runFolderKind, the one predicate every reader of runs/ asks)
+    const kind = runFolderKind(join(runsDir, id));
+    if (kind === 'link') { symbolicLinksNotCounted += 1; continue; }
     const when = spendDateOf(runsDir, id);
     if (!when || when.getTime() < startOfDay || when.getTime() >= endOfDay) continue;
     const dir = join(runsDir, id);
+    if (kind === 'missing') { unreadable += 1; continue; }
+    if (kind !== 'folder') continue;
     try {
-      if (!statSync(dir).isDirectory()) continue;
       runs.push(runRow(id, when, dir));
       countedDirs.push(dir);
     } catch {
@@ -259,8 +372,10 @@ export function costToday(runsDir, { date = new Date(), now = Date.now() } = {})
     date: new Date(startOfDay),
     runs,
     totalUsd: runs.reduce((s, r) => s + r.usd, 0),
+    unknownFigures: runs.reduce((s, r) => s + r.unknownFigures, 0),
     count: runs.length,
     perModel: perModelBreakdown(countedDirs),
     unreadable,
+    symbolicLinksNotCounted,
   };
 }

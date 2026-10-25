@@ -17,6 +17,7 @@ import { retentionRowOf } from '../src/advice-tier.js';
 import { SEAT_CHAINS } from '../src/send-profiles.js';
 import { cutOffRetryCap } from '../src/chain.js';
 import { ADVICE_RETRY_MAX_TOKENS } from '../src/advise.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const chain = n => JSON.parse(readFileSync(join(root, 'chains', `${n}.json`), 'utf8'));
@@ -61,7 +62,7 @@ function quote(floor, sensitivity, advisor) {
     options_considered: [{ name: 'Drop it now', summary: 'Run the migration before the release.' }, { name: 'Do less', summary: 'Keep the column and add a new one beside it.' }],
     tried: [{ what: 'Ran the migration on a copy of the data', result: 'It passed in 3 seconds.' }], sensitivity, not_included: ['the conversation', 'environment variables'] };
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [join(root, 'src/cli.js'), '--mcp'], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, ...(floor ? { COUNCIL_ADVICE_SENSITIVITY_FLOOR: floor } : {}) } });
+    const child = spawn(process.execPath, [join(root, 'src/cli.js'), '--mcp'], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, ...malformedProviderKeys(), ...(floor ? { COUNCIL_ADVICE_SENSITIVITY_FLOOR: floor } : {}) } });
     let buf = '';
     const timer = setTimeout(() => { child.kill(); fail(new Error('quote timed out')); }, 30_000);
     child.stdout.on('data', d => {
@@ -79,12 +80,12 @@ function quote(floor, sensitivity, advisor) {
 }
 const textOf = r => r?.content?.[0]?.text ?? '';
 
-test('council_quote advisor "glm-flash": quoted at the default floor, with its own retention wording and a $0.42 ceiling (was $0.07 before the cap went to 360,000, owner decision of 6 Oct 2026)', async () => {
+test('council_quote advisor "glm-flash": quoted at the default floor, with its own retention wording and a $0.16 ceiling (was $0.07 before the cap went to 360,000, owner decision of 6 Oct 2026, then $0.42; $0.16 since the cap is the lab\'s 131,072, owner decision of 23 Oct 2026)', async () => {
   const r = await quote(null, 'internal', 'glm-flash');
   assert.ok(!r.isError, textOf(r));
   assert.match(textOf(r), /GLM-5\.3 Flash via OpenRouter/);
   assert.match(textOf(r), /\[class B\]/);
-  assert.match(textOf(r), /cannot spend more than \$0\.4200/);
+  assert.match(textOf(r), /cannot spend more than \$0\.1600/);
 });
 
 test('council_quote advisor "qwen": refused for an internal brief at the default floor (no zero-retention endpoint), quoted for a public brief when the operator set the floor to public', async () => {
@@ -97,9 +98,10 @@ test('council_quote advisor "qwen": refused for an internal brief at the default
 });
 
 // Owner decisions of 6 Oct 2026 (plan "Decided 6 Oct evening"): GLM-5.3 Flash and DeepSeek V4.1 Flash answer up to 360,000 tokens (Gemini, Qwen, Sol, Astra, Opus unchanged); and no advice chain carries a wall clock.
-test('output caps: GLM Flash and DeepSeek Flash at 360,000, the others as before; no shipped advice chain sets a wall clock', () => {
+// CHANGED ACCEPTED TEST (the GLM lab-limit unit, 23 Okt 2026; Muad: "2: yes", GLM-5.3 and GLM-5.3 Flash take the lab's limit 131,072, not the router's 943,718): OLD = GLM Flash and DeepSeek Flash at 360,000 (owner, 6 Oct); NEW = GLM Flash at 131,072, DeepSeek Flash unchanged.
+test('output caps: GLM Flash at the lab\'s 131,072, DeepSeek Flash at 360,000, the others as before; no shipped advice chain sets a wall clock', () => {
   const cap = n => chain(n).seats.critics[0].maxTokens;
-  assert.equal(cap('advise-single-glm-flash'), 360000);
+  assert.equal(cap('advise-single-glm-flash'), 131072);
   assert.equal(cap('advise-single-deepseek'), 360000);
   assert.equal(cap('advise-single-gemini'), 12000, 'Gemini stays (owner: not as cheap)');
   const wall = readdirSync(join(root, 'chains')).filter(f => /^(mock-)?advise-.*\.json$/.test(f)).filter(f => chain(f.slice(0, -5)).advise.max_wall_ms !== undefined);

@@ -15,16 +15,16 @@
 // improves what a coding agent does. It binds the advice tools, not every way the harness can spend (see
 // src/advice-guards.js), and the ZDR wording in the preview is OpenRouter's routing tag, not a guarantee.
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { readRunJson, trustedRunDir } from '../run-files.js';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { BRIEF_MAX_CHARS } from '../advice-brief.js';
 import { unmask } from '../advice-mask.js';
 import { ADVISE_LOG_FILE, DISPOSITION_DECISIONS, DISPOSITION_MIN_REASON_CHARS } from '../advice-guards.js';
-import { writeStopRequest, readStoppedMarker, stopSpendNote, STOP_STATUS } from '../stop-files.js';
-import { hiddenCharacterReport, stripHidden, TRUST_META_KEY } from '../return-path.js';
-import { createSendPath, previewText, QUOTE_TTL_MS, MAX_LIVE_QUOTES } from '../send-path.js';
+import { readStoppedMarker, stopSpendNote, STOP_STATUS } from '../stop-files.js';
+import { hiddenCharacterReport, stripHidden, markUntrustedFields, TRUST_META_KEY } from '../return-path.js';
+import { previewText, QUOTE_TTL_MS, MAX_LIVE_QUOTES } from '../send-path.js';
+import { createAdviceSendContext } from '../advice-send-context.js';
 import { admitChain, priceOfChain, money } from '../send-path-refusals.js';
 import { profileFor, chainNameFor, SEAT_CHAINS, DEFAULT_SEAT, COUNCIL_CHAIN, MOCK_CHAINS } from '../send-profiles.js';
 
@@ -159,7 +159,7 @@ const round2 = n => (n >= 1 ? `$${n.toFixed(2)}` : n >= 0.1 ? `$${n.toFixed(2)}`
 const priceLine = config => {
   if (!config) return '';
   const p = priceOfChain(config, 'x'.repeat(BRIEF_MAX_CHARS));
-  return `about ${round2(p.expected)} expected and at most ${round2(p.ceiling)} with a brief at the ${BRIEF_MAX_CHARS.toLocaleString('en-US')}-character limit`;
+  return `about ${round2(p.expected)} expected and an upper estimate of ${round2(p.ceiling)} with a brief at the ${BRIEF_MAX_CHARS.toLocaleString('en-US')}-character limit`;
 };
 
 export const QUOTE_DESCRIPTION = `Preview and price a request for advice from other AI labs, before anything is sent. Nothing is sent, written or spent. Put the decision in \`brief\` (at most ${BRIEF_MAX_CHARS.toLocaleString('en-US')} characters in all; over the limit is refused, never cut; no invisible characters; no transcript, tool output, environment or file listing; \`not_included\` says what you left out). \`sensitivity\` can only tighten the operator's policy, \`unknown\` counts as confidential, and personal data or secret-adjacent material is never sent. Returns who would receive the text (lab, model, the endpoint's retention wording), its exact size and sha256 after emails, IBANs, cards, IPs, internal hosts and home paths are masked, the worst-case and expected price, and a quote_id valid for ten minutes to pass to council_advise. mode "single" asks one non-Anthropic model, chosen by \`advisor\` (the shipped default is GPT-6.1 Sol; Claude, the usual caller, and /advisor are not asked); mode "council" asks several labs and is for decisions that are hard to undo. A refusal says what to change and is final for that brief: do not retry it unchanged.`;
@@ -169,24 +169,13 @@ export const advisorDescription = ({ single, council }) => `Ask other AI labs fo
 
 /** Everything a stdio server needs to keep between the two tools, in memory: live quotes and the masking of live runs. */
 export function registerAdviceTools(server, ctx) {
-  const { work, runsDir, loadChain, spawnRun, waitForProgress, statusOf, nextRunId, env = process.env, usdLimit = null } = ctx;
-  const masks = new Map();
-  const maskAt = new Map();
-  const ownRuns = new Set();
+  const { work, runsDir, loadChain, spawnRun, waitForProgress, statusOf, nextRunId, env = process.env, usdLimit = null, priceProblem = () => null } = ctx;
+  // An unreadable pricing.user.json refuses BEFORE any pricing: the shipped figures alone could be lower than a raised row of the project's, and a cap must never be projected with less than the person's own file says.
+  const priceFileRefusal = () => { const p = priceProblem(); return p ? refusal('price_file_unreadable', p.message, 'The file is read once at server start: a person fixes or removes pricing.user.json in the project folder and restarts the server; a new quote can then be asked for.') : null; };
+  const { masks, maskAt, ownRuns, ttlMs, stopRun, sendPath } = createAdviceSendContext({ work, runsDir, env, loadChain, spawnRun, nextRunId, usdLimit });
   const resultFor = makeResultFor({ runsDir, masks, statusOf });
-  // Ten minutes; the environment can shorten it (a test seam, not a setting anyone needs).
-  const ttlMs = Number(env.COUNCIL_ADVISE_QUOTE_TTL_MS) > 0 ? Number(env.COUNCIL_ADVISE_QUOTE_TTL_MS) : QUOTE_TTL_MS;
-  const sendPath = createSendPath({ work, runsDir, env, loadChain, spawnRun, nextRunId, usdLimit, masks, maskAt, ownRuns, ttlMs });
   const kind = profileFor('advice').kind; // chosen here, by the server; never a tool argument (DR-5)
 
-  // A client that cancels, or leaves, stops the advice runs this server started and that are still going: a run whose
-  // client is gone otherwise spends to its own ceiling and nobody collects it. The calls in flight finish (they are billed either
-  // way) and the optional stages are skipped; what was paid for stays on disk. Brief 29, step 6.
-  const stopRun = (id, why) => {
-    // A STOP request (src/stop-files.js), by the client: the run ends at exit 18 with what it paid for (0.8.1 M6). Silent on failure on
-    // purpose: this also runs while the process exits, and a run that cannot be told to stop still ends at its own ceiling (advise.usd) or, when its chain sets one, its wall clock.
-    try { if (existsSync(join(runsDir, id)) && !existsSync(join(runsDir, id, 'report.json'))) writeStopRequest(join(runsDir, id), { by: 'client_cancel', run: id, note: why }); } catch { /* the run folder is the truth */ }
-  };
   let left = false;
   const leave = () => { if (left) return; left = true; for (const id of ownRuns) stopRun(id, 'client_cancel'); };
   const prevClose = server.server.onclose;
@@ -212,6 +201,7 @@ export function registerAdviceTools(server, ctx) {
     },
     annotations: { readOnlyHint: true, openWorldHint: false, idempotentHint: true },
   }, async ({ brief, mode, advisor, max_usd }) => {
+    const pf = priceFileRefusal(); if (pf) return pf;
     const r = sendPath.runQuote(kind, { brief, mode, advisor, max_usd });
     if (r.refusal) return asRefusal(r);
     return { content: [{ type: 'text', text: `${previewText(r.quote)}\nNext: ${r.out.next}` }], structuredContent: r.out };
@@ -236,6 +226,7 @@ export function registerAdviceTools(server, ctx) {
     // unknown _meta key is not established (brief 28, open question 3); the server does not rely on it (see approval below).
     _meta: { 'anthropic/requiresUserInteraction': true },
   }, async ({ quote_id, confirm_sha256, wait_seconds, dispositions }, extra) => {
+    const pf = priceFileRefusal(); if (pf) return pf;
     // One hold, from the start of the call, for the person's approval and the run's answer together (DR-6).
     const hold = holdSecondsFor(server.server.getClientVersion?.()?.name, wait_seconds);
     const budgetS = Math.min(MAX_HOLD_S, Math.max(hold, DEFAULT_HOLD_S));
@@ -267,20 +258,22 @@ export function registerAdviceTools(server, ctx) {
       return { isError: true, content: [{ type: 'text', text: `The run did not start (exit ${res.exitCode ?? '?'}). Nothing was sent.\n${stripHidden(res.logTail || '')}` }], structuredContent: { refused: true, code: 'start_failed', nothing_spent: true, run: res.run ?? null, log: res.log } };
     }
     const id = started.startedRun;
-    // A cancel that arrived while the run was starting: the run is told to stop (calls in flight finish and are billed), and the
-    // caller still learns its id.
-    if (extra?.signal?.aborted) {
-      stopRun(id, 'client_cancel (during the start)');
-      return asText({ run: id, status: 'cancelled', note: `The client cancelled while the run was starting. It was told to stop: calls already in flight finish and are billed, nothing new starts, and what was paid for stays in runs/${id}. run_status(run) shows it.` });
-    }
-    // Hold for the answer with what is left of the hold; a client's cancel stops the run (cooperatively: calls in flight finish and are billed).
-    const left = Math.max(0, Math.round((heldFrom + hold * 1000 - Date.now()) / 1000));
-    const progress = left > 0 ? await waitForProgress(id, { seconds: left, since: undefined, until: 'settled' }, extra) : null;
-    if (progress?.cancelled) {
-      stopRun(id, `client_cancel (after ${Math.round((Date.now() - heldFrom) / 1000)} s of a ${hold} s hold)`);
-      return asText({ run: id, status: 'cancelled', note: `The client cancelled (a client that times out and cancels stops the run the same way). The run was told to stop: calls already in flight finish and are billed, nothing new starts, and what was paid for stays in runs/${id}. run_status(run) shows it.`, usdSoFar: progress.usdSoFar, heldSeconds: Math.round((Date.now() - heldFrom) / 1000), holdSeconds: hold });
-    }
-    return resultFor(id, progress);
+    try {
+      // A cancel that arrived while the run was starting: the run is told to stop (calls in flight finish and are billed), and the
+      // caller still learns its id.
+      if (extra?.signal?.aborted) {
+        stopRun(id, 'client_cancel (during the start)');
+        return asText({ run: id, status: 'cancelled', note: `The client cancelled while the run was starting. It was told to stop: calls already in flight finish and are billed, nothing new starts, and what was paid for stays in runs/${id}. run_status(run) shows it.` });
+      }
+      // Hold for the answer with what is left of the hold; a client's cancel stops the run (cooperatively: calls in flight finish and are billed).
+      const left = Math.max(0, Math.round((heldFrom + hold * 1000 - Date.now()) / 1000));
+      const progress = left > 0 ? await waitForProgress(id, { seconds: left, since: undefined, until: 'settled' }, extra) : null;
+      if (progress?.cancelled) {
+        stopRun(id, `client_cancel (after ${Math.round((Date.now() - heldFrom) / 1000)} s of a ${hold} s hold)`);
+        return asText({ run: id, status: 'cancelled', note: `The client cancelled (a client that times out and cancels stops the run the same way). The run was told to stop: calls already in flight finish and are billed, nothing new starts, and what was paid for stays in runs/${id}. run_status(run) shows it.`, usdSoFar: progress.usdSoFar, heldSeconds: Math.round((Date.now() - heldFrom) / 1000), holdSeconds: hold });
+      }
+      return resultFor(id, progress);
+    } finally { started.disarm?.(); } // the late-window listener (src/send-path.js) stays armed until the call ends
   });
 
   return { quotes: sendPath.quotes, masks, ownRuns, stopRun, resultFor };
@@ -307,6 +300,15 @@ export function makeResultFor({ runsDir, masks, statusOf }) {
     }
     if (status === 'running' || progress?.timedOut) {
       return asText({ run, status: 'running', usdSoFar: progress?.usdSoFar ?? null, next: `run_status(run: "${run}", wait_seconds: 25, until: "settled") holds the call until it finishes; the answer comes back the same way.` });
+    }
+    // 18 Okt 2026 (gate note m7/A_Advice_Refusal_Fails_Whole_Call_Gate_Note.md; C&C condition 1): an advice call that failed whole because a seat was refused at its price pin says so, with the seats, what was spent and the folder where the
+    // paid answers sit (the relative runs/<id>, as the sentence names it; read_run_file reads from it). NO opinion text is returned: a failed call delivers nothing. `note` quotes OpenRouter's text, so it is labelled untrusted.
+    if (status === 'failed') {
+      const e = runJson('STOPPED-error.json');
+      if (e?.kind === 'price_refused' && typeof e.message === 'string') {
+        const answer = markUntrustedFields({ run, status, cause: 'price_refused', seats: Array.isArray(e.seats) ? e.seats : [], spent_usd: typeof e.spentUsd === 'number' ? e.spentUsd : null, calls_paid: Number.isInteger(e.callsPaid) ? e.callsPaid : null, run_folder: `runs/${run}`, delivered: false, note: e.message }, ['note'], { run });
+        return { ...asText(answer), _meta: { [TRUST_META_KEY]: { trust: 'untrusted_model_output', run, fields: ['note'] } } };
+      }
     }
     const why = {
       failed: 'the run failed; STOPPED-error.md in the run folder says why. Calls already made were billed.',

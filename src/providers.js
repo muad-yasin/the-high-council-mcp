@@ -6,7 +6,10 @@
 // Anthropic uses its own Messages API. Everything else here speaks the
 // OpenAI chat-completions shape, which is why they share one adapter.
 
+import { existsSync } from 'node:fs'; // only for the COUNCIL_MOCK_HOLD_FILE test seam (holdMockCall)
 import { objectionId } from './objection-ids.js';
+import { idsFromPrompt } from './verdict-envelope.js';
+import { maskUrlUserinfo } from './secret-patterns.js';
 import { demoReply } from './mock-demo.js';
 
 const OPENAI_COMPAT = {
@@ -109,6 +112,39 @@ export function resolveVendorSeat(seat, transport) {
 // branch, including the early stop.
 // mock-draft-error-once: prompts it has already failed once (M4 tests).
 const MOCK_DRAFT_ERROR_SEEN = new Set();
+
+// 0.8.3 M6 S5b (C&C ruling 3, 12 Oct; test/mock-plan-placeholder.test.js): TEST-ONLY seats whose builder AND reviser text carries a placeholder an input scan reads, under the `## Overview` heading the shared split fixture's provider_refs name, so a
+// provider child's plan can reach a consumer's bundle and the registration pre-check of a tree can be shown the same text a run's input scan reads. `-url`: a password in a URL on a real-looking host (refused); `-url-localhost`: the same on a
+// reserved placeholder host (registers); `-url-lookalike`: on a look-alike of one (refused); `-email`: an address on a real-looking domain (the PII gate). The text is ASSEMBLED HERE FROM PARTS and never held as one literal: this repo is public and its
+// own scanners read it (the test scans this file). Only a chain that names one of these models gets the section; every other mock reply is unchanged.
+const PLACEHOLDER_URL = host => ['postgres', '://user:', 'pass', '@', host, '/db'].join('');
+const PLACEHOLDER_PLAN = Object.freeze({
+  'mock-plan-placeholder-url': `The service reads its settings from ${PLACEHOLDER_URL(['db', 'internal'].join('.'))}.`,
+  'mock-plan-placeholder-url-localhost': `The service reads its settings from ${PLACEHOLDER_URL(['local', 'host'].join(''))}.`,
+  'mock-plan-placeholder-url-lookalike': `The service reads its settings from ${PLACEHOLDER_URL(['local', 'host', 'evil', 'com'].join('.'))}.`,
+  'mock-plan-placeholder-email': `Questions about this plan go to ${['jane.doe', '@', 'mail-corp', '.de'].join('')}.`,
+});
+
+// Asks so far per scripted-judge model string (`mock-critic-script-<pattern>[-suffix]`, below), in this process only.
+const scriptedAsks = new Map();
+const envelopeLastIds = new Map(); // the ids a scripted envelope judge saw on its previous ask (mode `p`), per model string
+/**
+ * E3b unit three, commit 1 (C&C ruling, 14 Oct 2026): once the "Reply identity" sentence is live, every critic prompt of a CLI run carries a review_id and a draft_id and a reply without them is unreadable. A mock
+ * critic returns fixed JSON, so without this every offline mock chain (the shipped ones, `council init`, rematch/replay of them, the CLI tests) would read as unheard at M7. So a critic's reply that is ONE whole JSON
+ * object gets the two ids added when its prompt carries them (idsFromPrompt, unit one's last-match rule: the only reader of the ids). INERT today: prompts carry no ids until the sentence is live, so every reply is
+ * byte-identical. NOT touched: a reply that is not one whole object (the cut-off families), one the provider ended with an error or the cap (`stop` error / length), the other roles, and the scripted envelope seats
+ * (mock-critic-envelope-*), which decide for themselves and stay the ONLY way to drive "no ids" through the real path.
+ */
+function echoEnvelopeIds(res, { model, system, messages }) {
+  if (!res || typeof res.text !== 'string' || !String(system).startsWith('You are an independent critic')) return res;
+  if (model.startsWith('mock-critic-envelope-') || res.usage?.stop === 'length' || res.usage?.stop === 'error') return res;
+  const ids = idsFromPrompt(messages.map(m => m.content).join('\n'));
+  if (!ids) return res;
+  let obj;
+  try { obj = JSON.parse(res.text); } catch { return res; }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return res;
+  return { ...res, text: JSON.stringify({ ...ids, ...obj }) };
+}
 
 async function callMock({ model, system, messages, maxTokens }) {
   const user = messages.map(m => m.content).join('\n');
@@ -439,6 +475,36 @@ async function callMock({ model, system, messages, maxTokens }) {
       const ids = [...user.matchAll(/^(C\d+)\. /gm)].map(m => m[1]);
       return { text: `Status: ready_for_build\n\n## What this is\nA fixture plan.\n\n## Milestones\n### M0 - walking skeleton\nEntry: the repo exists.\nWork: 1. build the plan (plan section 1).\nExit:\n- check: ${ids.join(', ')} | run the plan by hand => it works\n\n## Final checklist\n- [ ] every criterion is discharged\n`, usage: { input: 30, output: 60 }, provider: 'mock', model };
     }
+    // 0.8.3 M3 (test/tree-split.test.js, PLAN 5.5 item 3): handoff seats that reproduce the plan's split block. `mock-handoff-split` copies the marked fence out of the plan in its prompt, byte for byte;
+    // `mock-handoff-split-drift` copies it with one child's scope reworded. Only that test names them (through chains of its own); the default reply below is unchanged.
+    // 0.8.3 M5e (test/tree-detect.test.js): `mock-handoff-needs-decision` is `mock-handoff-split` with Status needs_decision (a node that ends needs_decision, PLAN 8.4); like mock-priced it carries a fixture price row.
+    // 0.8.3 M6 (the mock for S2, PLAN M6 exit 1 and 2 end to end): `mock-handoff-split-milestones` writes a Status, a `## Milestones` section that discharges every criterion it was shown, AND the plan's split block, when the
+    // system prompt asks for the milestone format (a chain with handoff_contract.milestones); a prompt that does not ask is answered exactly as `mock-handoff-split` does below, so a chain without the flag behaves as before.
+    // Like the other named handoff mocks it carries a fixture price row (the same as mock-priced), so a chain with it has a dry-run figure.
+    // 0.8.3 M6 fixtures: `mock-handoff-milestones-nofence` (C&C, 12 Oct) takes it as well: the same reply WITHOUT the plan's split block (a handoff that writes its milestones and forgets the fence: PLAN 5.5 item 3, the real case);
+    // asked for nothing it answers the default reply below. `mock-handoff-needs-decision` (C&C, 11 Oct) takes this branch too, ONLY when the prompt asks for milestones (a chain with handoff_contract.milestones): the same reply with Status needs_decision, so a needs-decision
+    // fixture child records a lint like a real one (the real lint then finds `status_not_ready` alone, the one finding statusPolicyOk allows for that Status). A chain without the flag is answered exactly as before.
+    if ((model === 'mock-handoff-split-milestones' || model === 'mock-handoff-needs-decision' || model === 'mock-handoff-milestones-nofence') && system.includes('## Milestones') && /^C\d+\. /m.test(user)) {
+      // the criteria are the `# Acceptance criteria` list at the END of the prompt (handoffUserMilestones): a tree child's request can itself hold `C<n>.` lines (its inherited obligations, numbered by the parent), and a check that
+      // names a criterion the run does not have is an `unknown_criterion` finding (found by the end-to-end tree of M6 S2: R/M2 and R/M3 had two criteria and the check named C1-C3)
+      const tail = user.lastIndexOf('\n# Acceptance criteria\n');
+      const ids = [...new Set([...(tail >= 0 ? user.slice(tail) : user).matchAll(/^(C\d+)\. /gm)].map(m => m[1]))];
+      const fence = user.match(/^```the-high-council:tree-split\n[\s\S]*?\n```$/m)?.[0] ?? '(the plan holds no split block)';
+      const text = `Status: ${model === 'mock-handoff-needs-decision' ? 'needs_decision' : 'ready_for_build'}\n\n## What this is\nA fixture handoff.\n\n## Milestones\n### M0 - walking skeleton\nEntry: the repo exists.\nWork: 1. build the plan (plan section 1).\nExit:\n- check: ${ids.join(', ')} | run the plan by hand => it works\n\n## Final checklist\n- [ ] every criterion is discharged${model === 'mock-handoff-milestones-nofence' ? '' : `\n\n## The split\n\n${fence}`}\n`;
+      return { text, usage: { input: 30, output: 10 }, provider: 'mock', model };      // the SAME usage as mock-priced's default reply: swapping a fixture chain's handoff seat for this model moves no spent figure (measured: a length-based usage cost $0.109 against $0.04 per priced-debate child)
+    }
+    if (model === 'mock-handoff-split' || model === 'mock-handoff-split-drift' || model === 'mock-handoff-needs-decision' || model === 'mock-handoff-split-milestones') {
+      const fence = user.match(/^```the-high-council:tree-split\n[\s\S]*?\n```$/m)?.[0];
+      let copy = fence ?? '(the plan holds no split block)';
+      if (fence && model === 'mock-handoff-split-drift') {
+        const b = JSON.parse(fence.split('\n').slice(1, -1).join('\n'));
+        const i = b.children.length > 1 ? 1 : 0;
+        b.children[i].scope += ' (reworded by the handoff)';
+        copy = `\`\`\`the-high-council:tree-split\n${JSON.stringify(b, null, 1)}\n\`\`\``;
+      }
+      const text = `Status: ${model === 'mock-handoff-needs-decision' ? 'needs_decision' : 'ready_for_build'}\n\n## What this is\nA fixture handoff.\n\n## The split\n\n${copy}\n`;
+      return { text, usage: model === 'mock-handoff-split-milestones' ? { input: 30, output: 10 } : { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+    }
     return { text: 'MOCK HANDOFF\n\nRead the plan. Start with "begin".', usage: { input: 30, output: 10 }, provider: 'mock', model };
   }
   // Item 5's ambiguity-union stage. Three fixed model names, each returning two
@@ -683,6 +749,42 @@ async function callMock({ model, system, messages, maxTokens }) {
       'It adds no scope the request did not ask for.',
     ]});
   } else if (isCritic) {
+    // 0.8.3 (layered review panel; test/layered-panel.test.js): `mock-critic-script-<pattern>[-suffix]` is a judge scripted by how many times it has been ASKED in this process, not by its prompt: the pattern is
+    // a string of `x` (objects) and `o` (signs off), one character per ask of this exact model string, the last character repeating. A carried verdict or a replayed stage makes no ask, so only a real call
+    // advances it. The counter lives in the process (the tests and the real-verb probe are single-process); give each test its own suffix so counters never mix. Its objection is the default mock's.
+    // E3b (gate page section 11.4): `mock-critic-envelope-<pattern>[-suffix]` is a judge that signs off every ask and answers the Reply-identity section, one character per ask of this exact model string, the last
+    // repeating: `e` echoes the ids it finds in its prompt, `m` leaves them out (missing), `w` echoes a wrong review_id, `q` echoes AND quotes a clean sign-off without ids first (an example), `c` echoes but is
+    // CUT OFF at the cap (stop length; the chain's one bigger-cap retry follows), `p` echoes the PREVIOUS ask's pair (a retry reply that carries the first attempt's ids), `b` echoes and asks a blocking question, `t` is cut off at the cap right after a complete object that has NO ids. The ids are found
+    // with idsFromPrompt (src/verdict-envelope.js), never by reading the held sentence, so the mock does not depend on its wording. Counters live in the process; give each test its own suffix.
+    const envelopeScript = /^mock-critic-envelope-([emwqcpbt]+)(?:-.+)?$/.exec(model)?.[1];
+    if (envelopeScript) {
+      const asked = scriptedAsks.get(model) ?? 0;
+      scriptedAsks.set(model, asked + 1);
+      const mode = envelopeScript[Math.min(asked, envelopeScript.length - 1)];
+      const ids = idsFromPrompt(user);
+      const before = envelopeLastIds.get(model); // the pair of this model's PREVIOUS ask (for `p`)
+      if (ids) envelopeLastIds.set(model, ids);
+      const body = { meets: true, criteria: [], failures: [], verdict_line: 'All criteria met.' };
+      const wire = o => ({ text: o, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(o.length / 4) }, provider: 'mock', model });
+      if (mode === 'm' || !ids) return wire(JSON.stringify(body));
+      if (mode === 'w') return wire(JSON.stringify({ review_id: 'ffffffffffff', draft_id: ids.draft_id, ...body }));
+      if (mode === 'q') return wire(`Example from the draft: {"meets": true, "failures": []}\n${JSON.stringify({ ...ids, ...body })}`);
+      if (mode === 'c') { const t = `${JSON.stringify({ ...ids, ...body })}\n\nNotes on the remaining sections: the rollout order in sect`; return { text: t, usage: { input: 10, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model }; }
+      if (mode === 'b') return wire(JSON.stringify({ ...ids, blocking_question: 'Which region does this cover?' })); // echoes the ids and asks a blocking question (the proposer answers it; that call is not a critic call)
+      if (mode === 't') { const t = `${JSON.stringify(body)}\n\nNotes on the remaining sections: the rollout order in sect`; return { text: t, usage: { input: 10, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model }; } // a complete object WITHOUT the ids, then cut off at the cap: the truncation is the reason, not the envelope
+      if (mode === 'p') return wire(JSON.stringify({ ...(before ?? ids), ...body })); // echoes the PREVIOUS ask's pair: right for no one but that ask
+      return wire(JSON.stringify({ ...ids, ...body }));
+    }
+    const script = /^mock-critic-script-([xo]+)(?:-.+)?$/.exec(model)?.[1];
+    if (script) {
+      const asked = scriptedAsks.get(model) ?? 0;
+      scriptedAsks.set(model, asked + 1);
+      const objects = script[Math.min(asked, script.length - 1)] === 'x';
+      const text = JSON.stringify(objects
+        ? { meets: false, criteria: [], failures: [{ criterion: 'It states the assumptions it was written under.', problem: 'No assumptions section.', fix: 'Add one.' }], verdict_line: 'One criterion failed.' }
+        : { meets: true, criteria: [], failures: [], verdict_line: 'All criteria met.' });
+      return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+    }
     // The scripted critic fails the first draft and passes the revision, so a
     // test run exercises the revise path and then the early stop.
     // `mock-critic-holdout` never passes, so a panel seated with it always ends
@@ -772,7 +874,7 @@ async function callMock({ model, system, messages, maxTokens }) {
         return { text, usage: { input: 10, output: 10 }, provider: 'mock', model };
       }
     }
-    text = `${isReviser ? 'REVISED ' : ''}MOCK DELIVERABLE for model ${model}\n\nBody text.${isReviser ? '\n\nAssumptions: none.' : ''}${ledger}${declineTrailer}${declineWithId}${allocatorFix}`;
+    text = `${isReviser ? 'REVISED ' : ''}MOCK DELIVERABLE for model ${model}\n\nBody text.${isReviser ? '\n\nAssumptions: none.' : ''}${ledger}${declineTrailer}${declineWithId}${allocatorFix}${Object.hasOwn(PLACEHOLDER_PLAN, model) ? `\n\n## Overview\n${PLACEHOLDER_PLAN[model]}` : ''}`;
   }
   await new Promise(r => setTimeout(r, 10));
   return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
@@ -796,6 +898,12 @@ export function keyFor(provider) {
 // ordinary-looking seat at a denied lab's API).
 export function knownProviderHosts() {
   return new Set([...Object.values(OPENAI_COMPAT), ANTHROPIC].map(p => new URL(p.base).hostname.toLowerCase()));
+}
+
+// The providers whose own API host is `host` (any case): ['openrouter'] for openrouter.ai. Used to name the right provider when a free, key-less seat is pointed at a paid provider's host (src/denied-models.js baseUrlReasons).
+export function providersAtHost(host) {
+  const h = String(host ?? '').toLowerCase();
+  return [...Object.entries(OPENAI_COMPAT), ['anthropic', ANTHROPIC]].filter(([, p]) => new URL(p.base).hostname.toLowerCase() === h).map(([name]) => name);
 }
 
 // Where a seat's API key may go (security scan 2026-09-26, THC #6). callOpenAICompat sends the
@@ -908,9 +1016,7 @@ export function requestTimeoutNow(now = Date.now()) {
 
 // Providers audit #6: Node's fetch quotes the whole URL in its errors, and withRetry prints each
 // error, so a baseUrl with user:pass@ in it went to stderr and the run log in clear.
-export function redactUrlCredentials(text) {
-  return String(text).replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, '$1[redacted]@');
-}
+export const redactUrlCredentials = maskUrlUserinfo;   // the one rule lives in src/secret-patterns.js (0.8.3 key-scan unit: the copy here stopped at the first "@" and knew no "/" in a password)
 
 // The HTTP statuses that mean "your account", not "the model": said in words, with the env var the
 // key came from, because a raw `HTTP 401 {"error":...}` was all a first-time user saw (walked
@@ -1032,6 +1138,12 @@ function explainFetchFailure(err, label, url = null) {
   return out;
 }
 
+// BUG-C-032: the mark post() puts on a failure after a 200 (see there), for an adapter's own parsing of that 200. Never throws itself: a thrown non-object is returned as it is.
+function markBilled(err) {
+  if (err !== null && typeof err === 'object') { try { err.maybeBilled = true; } catch { /* a frozen error object keeps its own flags */ } }
+  return err;
+}
+
 async function callAnthropic({ model, system, messages, maxTokens, temperature, extra }) {
   const key = keyFor('anthropic');
   if (!key) throw new Error(keyProblem('ANTHROPIC_API_KEY') ? `ANTHROPIC_API_KEY is set but not usable: ${MALFORMED_KEY_HINT}` : 'ANTHROPIC_API_KEY not set');
@@ -1053,22 +1165,25 @@ async function callAnthropic({ model, system, messages, maxTokens, temperature, 
     },
     `anthropic/${model}`
   );
-  const text = (json.content || [])
-    .filter(b => b.type === 'text')
-    .map(b => b.text)
-    .join('');
-  return {
-    text,
-    usage: {
-      ...usageGap(json.usage, 'input_tokens', 'output_tokens'),
-      input: json.usage?.input_tokens ?? 0,
-      output: json.usage?.output_tokens ?? 0,
-      thinking: json.usage?.output_tokens_details?.thinking_tokens ?? 0,
-      stop: normaliseStop(json.stop_reason),
-    },
-    provider: 'anthropic',
-    model,
-  };
+  // BUG-C-032: post() returned a 200, so the generation was billed whatever this parsing does. A throw here (a body of `null`, `content` that is not an array) is marked like post()'s own post-200 failures.
+  try {
+    const text = (json.content || [])
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('');
+    return {
+      text,
+      usage: {
+        ...usageGap(json.usage, 'input_tokens', 'output_tokens'),
+        input: json.usage?.input_tokens ?? 0,
+        output: json.usage?.output_tokens ?? 0,
+        thinking: json.usage?.output_tokens_details?.thinking_tokens ?? 0,
+        stop: normaliseStop(json.stop_reason),
+      },
+      provider: 'anthropic',
+      model,
+    };
+  } catch (err) { throw markBilled(err); }
 }
 
 async function callOpenAICompat(provider, { model, system, messages, maxTokens, temperature, extra, baseUrl }) {
@@ -1099,29 +1214,32 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
     },
     `${provider}/${model}`
   );
-  // Pre-release audit, providers #2: a 200 whose body is `{ "error": ... }` and no choices (seen from
-  // routers and some self-hosted servers) read as an empty, $0 reply and was diagnosed downstream as
-  // malformed JSON. It is the provider's own error, and says so.
-  if (json && json.error && !Array.isArray(json.choices)) {
-    const detail = typeof json.error === 'string' ? json.error : (json.error.message || JSON.stringify(json.error));
-    const err = new Error(redactUrlCredentials(`${provider}/${model}: HTTP 200 carrying an error instead of a reply - ${String(detail).slice(0, 600)}`));
-    if (json.error.code !== undefined) err.providerCode = json.error.code;
-    throw err;
-  }
-  return {
-    text: json.choices?.[0]?.message?.content ?? '',
-    usage: { ...usageOfOpenAICompat(json.usage), stop: normaliseStop(json.choices?.[0]?.finish_reason), ...usageGap(json.usage, 'prompt_tokens', 'completion_tokens') },
-    provider,
-    // v3 §Item 3: a provider-array fallback (`extra.models`) can answer with a model other
-    // than the one requested - `json.model` is the response's own record of which model
-    // actually answered, and takes priority. Falls back to the requested `model` only when
-    // the response carries none, so a response shape lacking `model` is byte-identical to
-    // today.
-    model: json.model ?? model,
-    // OpenRouter names the host that served the call in the response's `provider` field (brief 29: the audit
-    // line and the run record say where a brief went). Absent on every other OpenAI-compatible API.
-    ...(typeof json.provider === 'string' && json.provider ? { endpoint: json.provider } : {}),
-  };
+  // BUG-C-032: post() returned a 200, so the generation was billed whatever this parsing does; every throw below is marked like post()'s own post-200 failures.
+  try {
+    // Pre-release audit, providers #2: a 200 whose body is `{ "error": ... }` and no choices (seen from
+    // routers and some self-hosted servers) read as an empty, $0 reply and was diagnosed downstream as
+    // malformed JSON. It is the provider's own error, and says so.
+    if (json && json.error && !Array.isArray(json.choices)) {
+      const detail = typeof json.error === 'string' ? json.error : (json.error.message || JSON.stringify(json.error));
+      const err = new Error(redactUrlCredentials(`${provider}/${model}: HTTP 200 carrying an error instead of a reply - ${String(detail).slice(0, 600)}`));
+      if (json.error.code !== undefined) err.providerCode = json.error.code;
+      throw err;
+    }
+    return {
+      text: json.choices?.[0]?.message?.content ?? '',
+      usage: { ...usageOfOpenAICompat(json.usage), stop: normaliseStop(json.choices?.[0]?.finish_reason), ...usageGap(json.usage, 'prompt_tokens', 'completion_tokens') },
+      provider,
+      // v3 §Item 3: a provider-array fallback (`extra.models`) can answer with a model other
+      // than the one requested - `json.model` is the response's own record of which model
+      // actually answered, and takes priority. Falls back to the requested `model` only when
+      // the response carries none, so a response shape lacking `model` is byte-identical to
+      // today.
+      model: json.model ?? model,
+      // OpenRouter names the host that served the call in the response's `provider` field (brief 29: the audit
+      // line and the run record say where a brief went). Absent on every other OpenAI-compatible API.
+      ...(typeof json.provider === 'string' && json.provider ? { endpoint: json.provider } : {}),
+    };
+  } catch (err) { throw markBilled(err); }
 }
 
 // Providers audit #5: the chain recognises only `length`/`max_tokens` as "cut off", so a cut
@@ -1166,6 +1284,18 @@ export function usageOfOpenAICompat(u = {}) {
 // changes nothing. Never applies to a real provider.
 const mockDelayMs = () => { const v = Number(process.env.COUNCIL_MOCK_DELAY_MS); return Number.isFinite(v) && v > 0 ? Math.min(v, 60_000) : 0; };
 
+// COUNCIL_MOCK_HOLD_FILE=<path> (13 Oct 2026, the load-dependent tests): the same seam as a CONDITION instead of a duration. A `mock` call waits, after any
+// COUNCIL_MOCK_DELAY_MS, until that file exists (polled every 50 ms), so a test that must stop or inspect a call while it is in flight holds it there and releases
+// it by creating the file: the order no longer depends on how fast the machine is. Never applies to a real provider; unset it changes nothing. The 60 s is a hang guard like
+// the delay cap above (nothing in a test waits that long): when it is reached the call says so on stderr and goes on, so a hold that timed out is never mistaken for the old
+// race. That ceiling line is not exercised by a test (it would cost 60 s). The hold writes no file and ignores the request deadline (a test that sets both waits at most 60 s).
+const mockHoldFile = () => { const v = process.env.COUNCIL_MOCK_HOLD_FILE; return typeof v === 'string' && v ? v : null; };
+async function holdMockCall(path) {
+  const from = Date.now();
+  while (!existsSync(path) && Date.now() - from < 60_000) await new Promise(r => setTimeout(r, 50));
+  if (!existsSync(path)) process.stderr.write(`mock hold: ceiling reached after 60000 ms without ${path}; going on\n`);
+}
+
 export async function call(provider, opts) {
   if (provider === 'mock') {
     const d = mockDelayMs();
@@ -1179,7 +1309,9 @@ export async function call(provider, opts) {
       }
       await new Promise(r => setTimeout(r, d));
     }
-    return callMock(opts);
+    const hold = mockHoldFile();
+    if (hold) await holdMockCall(hold);
+    return echoEnvelopeIds(await callMock(opts), opts);
   }
   if (provider === 'external') throw new Error('external seats are answered by writing <label>.md into the run folder, never called');
   if (provider === 'anthropic') return callAnthropic(opts);

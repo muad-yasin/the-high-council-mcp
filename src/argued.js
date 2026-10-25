@@ -108,11 +108,15 @@ export function buildArguedFacts({ proposals = [], scoreRows = [], debate = null
     ...props.map(p => p.lab), ...(alt?.items || []).map(a => a.lab), ...(alt?.dropouts || []).map(d => d.lab),
     ...posts.map(p => p.by), ...(signoff || []).map(s => s.provider), ...(panelVerdicts || []).map(v => v.lab),
   ].filter(l => l && l !== 'canary'))];
-  const lastVerdict = new Map(); for (const v of panelVerdicts || []) lastVerdict.set(v.lab, v);
+  // A lab with a model on two layers writes two seat records under the one lab (lab identity, 20 Okt 2026): each seat's LAST verdict is kept, and the lab stands on the strictest of them (D7: a lab signed only if every seat did).
+  const lastBySeat = new Map(); for (const v of panelVerdicts || []) lastBySeat.set(v.seat ?? v.lab, v);
+  const VERDICT_RANK = { objected: 0, unheard: 1, passed: 2, signed_off: 3 };
+  const lastVerdict = new Map(); for (const v of lastBySeat.values()) { const had = lastVerdict.get(v.lab); if (!had || (VERDICT_RANK[v.verdict] ?? 1) < (VERDICT_RANK[had.verdict] ?? 1)) lastVerdict.set(v.lab, v); }
+  const SIGNOFF_RANK = { objected: 0, 'not heard': 1, 'passed (declined to give a verdict)': 2, 'signed off': 3 };
   const stances = labs.map(lab => {
     const mine = props.filter(p => p.lab === lab);
     const n = st => mine.filter(p => p.in_plan === st).length;
-    const so = (signoff || []).find(s => s.provider === lab);
+    const so = (signoff || []).filter(s => s.provider === lab).sort((a, b) => SIGNOFF_RANK[signoffWord(a)] - SIGNOFF_RANK[signoffWord(b)])[0];   // several seats of one lab: the strictest
     const altMine = alt?.items.find(a => a.lab === lab);
     return {
       lab,

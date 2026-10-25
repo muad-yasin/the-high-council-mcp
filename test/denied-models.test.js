@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { lintChain } from '../src/chain-lint.js';
 import { runChain, runDescendingChain, rethrowControlFlow, setCache, setBudget, DeniedModel } from '../src/chain.js';
 import { deniedSeatsOf, deniedReasonsOf } from '../src/denied-models.js';
+import { everyChainFile } from './helpers/chain-file.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const chains = readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json'));
@@ -18,9 +19,12 @@ const withCritic = seat => ({ name: 'x', seats: { builder: { provider: 'mock', m
 
 test('every shipped chain is free of denied models and router seats', () => {
   assert.ok(chains.length > 10);
-  for (const f of chains) {
-    const cfg = JSON.parse(readFileSync(join(root, 'chains', f), 'utf8'));
-    assert.deepEqual(denied(cfg).map(x => x.message), [], f);
+  // 0.8.3 (lane B): the retired chains in chains/outdated/ are scanned too (no Grok, ever, in any folder of the repository).
+  const files = everyChainFile(root);
+  assert.ok(files.some(x => x.dir.endsWith('outdated')) && files.length > chains.length, 'the check can fail: chains/outdated/ is part of the scan');
+  for (const { file, path } of files) {
+    const cfg = JSON.parse(readFileSync(path, 'utf8'));
+    assert.deepEqual(denied(cfg).map(x => x.message), [], file);
   }
 });
 

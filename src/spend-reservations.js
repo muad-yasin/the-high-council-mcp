@@ -49,12 +49,16 @@ export const unsettledUsd = runDir => unsettledReservations(runDir).reduce((n, r
  * The sink invoke() writes through for one run folder: reserve({ label, seat, usd }) -> id (throws when the line cannot be written), settle(id, { outcome, usd }) (never throws: an unsettled
  * reservation is the safe side). Ids continue after the ones already in the file, so a resume never reuses one.
  */
-export function openReservations(runDir, { now = () => Date.now() } = {}) {
+export function openReservations(runDir, { now = () => Date.now(), mirror = null } = {}) {
   const path = join(runDir, RESERVATIONS_FILE);
   // Ids continue after the highest one in the file, torn or corrupt lines included (a repeated id would read as settled by the older line).
   let n = 0;
   try { for (const m of readFileSync(path, 'utf8').matchAll(/"id":"r(\d+)"/g)) n = Math.max(n, Number(m[1])); } catch { /* no file yet */ }
   const write = obj => {
+    // 0.8.3 M2 (PLAN 7.2 item 6): the line is built ONCE, so a tree member's mirror (`mirror(line)`, called right after the run-file write, synchronously) receives exactly the object that was written, `at` included.
+    // A mirror that throws makes `reserve()` throw (the call is not sent; the run-file line stays and is charged at its worst case, the safe side) and is swallowed by `settle()` (the mirror then stays unsettled
+    // and the gate rejects the settlement). Without a `mirror` nothing changes.
+    let line;
     // A --rematch or --replay folder is created when the side run first needs it, which can be this call: the folder is made here rather than the call going out unrecorded.
     let fd;
     try { fd = openSync(path, 'a'); } catch (e) { if (e.code !== 'ENOENT') throw e; mkdirSync(runDir, { recursive: true }); fd = openSync(path, 'a'); }
@@ -62,9 +66,11 @@ export function openReservations(runDir, { now = () => Date.now() } = {}) {
       // A file that ends in a torn line (a write a crash cut short) gets a newline first, so this line is not glued onto the fragment and stays readable.
       let lead = '';
       try { const raw = readFileSync(path); if (raw.length && raw[raw.length - 1] !== 0x0a) lead = '\n'; } catch { /* unreadable: append as is */ }
-      writeSync(fd, `${lead}${JSON.stringify({ schema: RESERVATIONS_SCHEMA, ...obj, at: new Date(now()).toISOString() })}\n`);
+      line = { schema: RESERVATIONS_SCHEMA, ...obj, at: new Date(now()).toISOString() };
+      writeSync(fd, `${lead}${JSON.stringify(line)}\n`);
       fsyncSync(fd);
     } finally { closeSync(fd); }
+    if (mirror) mirror(line);
   };
   return {
     reserve({ label, seat, usd }) {

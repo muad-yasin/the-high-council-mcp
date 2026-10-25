@@ -9,6 +9,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { previewText, dialogMessage } from '../src/send-path.js';
 import { evaluatePolicy } from '../src/policy.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -22,7 +23,7 @@ const BRIEF = () => ({
   sensitivity: 'internal', not_included: ['the conversation', 'environment variables'], excerpts: [],
 });
 function session(cwd, { person = null } = {}) {
-  const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_ADVISE_MOCK: '0', COUNCIL_ADVISE_COOLDOWN_MS: '0' } }); // the shipped Sol advice chain, priced (nothing is sent: the dialog is declined)
+  const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_ADVISE_MOCK: '0', COUNCIL_ADVISE_COOLDOWN_MS: '0', ...malformedProviderKeys() } }); // the shipped Sol advice chain, priced (nothing is sent: the dialog is declined)
   const pending = new Map(); let buf = ''; let n = 0;
   child.stdout.on('data', d => {
     buf += d; let nl;

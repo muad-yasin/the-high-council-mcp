@@ -36,7 +36,8 @@ test('unpricedSeats lists each unpriced provider/model once with the roles it fi
   }
 });
 import { readFileSync } from 'node:fs';
-function require_json(name) { return readFileSync(join(root, 'chains', `${name}.json`), 'utf8'); }
+import { chainFilePath } from './helpers/chain-file.js';
+function require_json(name) { return readFileSync(chainFilePath(root, name), 'utf8'); }
 
 test('the CLI refuses a chain with an unpriced seat under the default cap: exit 5, the seat and BOTH ways out are named, nothing is sent, no run folder is made', () => {
   const dir = mkdtempSync(join(tmpdir(), 'thc-unpriced-'));
@@ -50,7 +51,7 @@ test('the CLI refuses a chain with an unpriced seat under the default cap: exit 
   assert.match(r.stderr, /openrouter\/vendor\/not-in-the-price-table/);
   assert.match(r.stderr, /spend cap of \$7\.00 cannot hold it/);
   assert.match(r.stderr, /Nothing was sent and nothing was spent/);
-  assert.match(r.stderr, /src\/pricing\.json/); assert.match(r.stderr, /--max-usd none/);
+  assert.match(r.stderr, /pricing\.user\.json in your project folder/); assert.doesNotMatch(r.stderr, /--max-usd none/, '`none` is no way out of an unpriced seat any more (a paid start always ends at a typed limit)');
   assert.equal(existsSync(join(dir, 'runs')) && readdirSync(join(dir, 'runs')).length > 0, false, 'refused before a run folder exists');
   // a cap given on the command line is the cap named
   const r2 = spawnSync(process.execPath, [cli, '--chain', 'up', '--task', 'tasks/t.md', '--max-usd', '2'], { cwd: dir, encoding: 'utf8', env, timeout: 60_000 });

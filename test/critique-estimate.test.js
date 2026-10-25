@@ -9,9 +9,10 @@ import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { critiqueTokensFor, estimateChainRows, worstCaseOf, priceOf } from '../src/cost.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const chain = name => JSON.parse(readFileSync(resolve(here, `../chains/${name}.json`), 'utf8'));
+const chain = name => readChainFile(resolve(here, '..'), name);
 const pricing = JSON.parse(readFileSync(resolve(here, '../src/pricing.json'), 'utf8'));
 const fable = { provider: 'openrouter', model: 'anthropic/claude-fable-5.1', maxTokens: 36000, lab: 'fable5.1' };
 const astra = { provider: 'openrouter', model: 'openai/gpt-6-astra', maxTokens: 36000 };

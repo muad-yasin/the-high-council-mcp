@@ -10,6 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -19,7 +20,7 @@ const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).ver
 // so async tools (start_run waits on its child) get to reply.
 function mcpSession(cwd, calls, { timeoutMs = 60_000, env = {} } = {}) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...env } });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys(), ...env } });
     const want = new Set([1, ...calls.map((_, i) => i + 2)]);
     const byId = new Map();
     let buf = '';

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { generateModelCaps, OUT_FILE } from '../scripts/model-caps-report.mjs';
+import { generateModelCaps, maxOutputCell, OUT_FILE } from '../scripts/model-caps-report.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -27,6 +27,17 @@ test('every real model seated in a shipped chain has a row; a seat with no price
   assert.ok(seen.size > 10, 'found the shipped seats');
   for (const k of seen) assert.ok(text.includes(`| \`${k}\` |`), `${k} has no row`);
   // the seats the 0.8.2 chains rely on carry real figures
-  assert.match(text, /\| `openrouter\/deepseek\/deepseek-v4\.1-flash` \|[^\n]*360,000/);
-  assert.match(text, /\| `openrouter\/z-ai\/glm-5\.3-flash` \|[^\n]*360,000/);
+  // 0.8.3 (the 1017 unit, 23 Okt 2026; Muad: "Make sure DeepSeek V4.1 Flash is updated to version 1017 on our chains as well"): the 360,000 of advise-single-deepseek now sits on the row of the 1017 id; no shipped chain seats the undated id any more, so it has no row. CHANGED ACCEPTED (a): same check, the id that is seated.
+  assert.match(text, /\| `openrouter\/deepseek\/deepseek-v4\.1-flash-1017` \|[^\n]*360,000/);
+  // 23 Okt 2026 (the GLM lab-limit unit): the advice cap of GLM-5.3 Flash is the lab's 131,072 now; the check still pins that the advice chain is on the row with its cap.
+  assert.match(text, /\| `openrouter\/z-ai\/glm-5\.3-flash` \|[^\n]*131,072 \(advice\): advise-single-glm-flash/);
+});
+
+test('the output-limit cell: a number prints as a number; a number WITH a note is marked as the owner\'s pick; null WITH a dated note says "no published limit"; null without a note stays "-" (the router listed none)', () => {
+  assert.equal(maxOutputCell({ maxOutput: 131072 }), '131,072');
+  assert.equal(maxOutputCell({ maxOutput: null, maxOutputNote: 'no output limit found on example.org; read 2026-10-23' }), 'no published limit found');
+  assert.equal(maxOutputCell({ maxOutput: null }), '-');
+  assert.equal(maxOutputCell({ maxOutput: 384000, maxOutputNote: "the owner's pick (2026-10-24), not a lab figure" }), "384,000 (owner's pick)");
+  assert.ok(generateModelCaps(root).includes("| 384,000 (owner's pick) |"), 'the seated 0813 row shows the mark in MODEL-CAPS');
+  assert.ok(generateModelCaps(root).includes('"no published limit found"'), 'the notes explain the wording');
 });

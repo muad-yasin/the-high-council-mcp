@@ -23,6 +23,7 @@ import { isAdviceFolder } from './stop-files.js';
 import { readCriteria } from './handoff-from-run.js';
 import { criterionIds } from './criteria-ledger.js';
 import { terminalSafe } from './terminal-safe.js';
+import { stripLeadingBom } from './hidden-chars.js';
 import {
   CONTRACT_DIR, GATE_KIND_LOCK, GATE_KIND_AMEND, prepareLock, ensureGate, approvalOf, commitLock, prepareAmendment, commitAmendment, declineAmendment, showContract, loadCurrent, renderContractMd, contractState,
 } from './contract-record.js';
@@ -77,7 +78,7 @@ export async function contractCommand(args, { work = process.cwd(), stdin = proc
     let draft;
     try {
       if (statSync(draftPath).size > DRAFT_MAX_BYTES) { err(`contract lock: ${draftPath} is over ${DRAFT_MAX_BYTES} bytes; a draft is a short list`); return 2; }
-      draft = JSON.parse(readFileSync(draftPath, 'utf8'));
+      draft = JSON.parse(stripLeadingBom(readFileSync(draftPath, 'utf8')));   // a draft saved with a byte-order mark is still a draft
     } catch (e) {
       err(e.code === 'ENOENT' ? `contract lock: no draft at ${draftPath} (write one with council contract draft --from-run ${p.pos[0]}, or pass --draft <file>)` : `contract lock: ${draftPath} is not readable JSON`);
       return 2;

@@ -10,7 +10,7 @@
   "additionalProperties": false,
   "patternProperties": {
     "^_": {
-      "description": "A leading-underscore top-level key is a free-form human note, not engine-read config - real precedent: archive/chains/gp-judge-v1.json's \"_maxTokensNote\". Left unconstrained in type/shape on purpose (it's prose, not data any code parses) rather than special-cased to one exact field name, so the next author adding a similarly-named note doesn't retrigger this exact validation failure."
+      "description": "A leading-underscore top-level key is a free-form human note, not engine-read config - real precedent: chains/outdated/gp-judge-v1.json's \"_maxTokensNote\". Left unconstrained in type/shape on purpose (it's prose, not data any code parses) rather than special-cased to one exact field name, so the next author adding a similarly-named note doesn't retrigger this exact validation failure."
     }
   },
   "properties": {
@@ -40,6 +40,35 @@
     "maxRounds": {
       "type": "integer",
       "minimum": 1
+    },
+    "maxOverseerRounds": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Round semantics (0.8.3). A round ends only when the top (overseer) layer of a three-layer panel gives a verdict; this is the number of such rounds, after which the run stops and the person chooses. Goes with layerRevisions; a chain that has it carries no maxRounds (the pass limit is derived)."
+    },
+    "layerRevisions": {
+      "type": "object",
+      "properties": {
+        "1": { "type": "integer", "minimum": 1 },
+        "2": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["1", "2"],
+      "additionalProperties": false,
+      "description": "Round semantics (0.8.3). The most revisions layer 1 and layer 2 may each trigger inside one overseer round before the run stops for the person. A layer-3 objection ends the overseer round, so it needs no bound."
+    },
+    "reviewNotes": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "perKind": { "type": "integer", "minimum": 1 },
+        "itemChars": { "type": "integer", "minimum": 1 },
+        "aboutChars": { "type": "integer", "minimum": 1 },
+        "textMax": { "type": "integer", "minimum": 1 },
+        "aboutMax": { "type": "integer", "minimum": 1 }
+      },
+      "required": ["enabled", "perKind"],
+      "additionalProperties": false,
+      "description": "Notes lane (0.8.3). When enabled, each judge may add up to perKind proposals and up to perKind improvement ideas per overseer round, in the same reply as its verdict; the harness reads the verdict without them. Allowed only on a chain whose signoff is unanimous. itemChars and aboutChars are the length limits the judge is asked to keep (defaults 400 and 200); textMax and aboutMax (defaults 8000 and 400) are the read caps that cut anything longer."
     },
     "signoff": {
       "type": "string",
@@ -94,6 +123,46 @@
         "critiqueTokens": {
           "type": "integer",
           "minimum": 0
+        },
+        "notesAnswerOutTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The output size in tokens the dry run assumes for the standalone notes-answer call (the writer answering the review judges' proposals and improvement ideas), for the EXPECTED figure only (never above the call's cap; the maximum always uses the cap). Absent: the writer seat's whole cap. Priced only on a chain with the review notes lane active whose handoff does not carry the answers; an external writer is priced at $0 (its cost is the subscription)."
+        },
+        "alternativeOutTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Typical output of one alternative-architecture call, for the EXPECTED figure only (never above the call's cap; the maximum always uses the cap). Absent: today's figure (the whole cap)."
+        },
+        "proposalOutTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Typical output of one proposal call, for the EXPECTED figure only (never above the call's cap). Absent: today's figure (the whole cap)."
+        },
+        "deepDiveOutTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Typical output of one deep-dive call, for the EXPECTED figure only (never above the seat's cap). Absent: today's figure (the whole cap)."
+        },
+        "debateOutTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Typical output of one debate post, for the EXPECTED figure only (never above the seat's cap; the maximum always uses the cap). Absent: today's figure (1500 tokens)."
+        },
+        "replyOutTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Typical output of one reply to the debate, for the EXPECTED figure only (never above the seat's cap; the maximum always uses the cap). Absent: today's figure (800 tokens)."
+        },
+        "altDebateOutTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Typical output of one post in the alternatives debate, for the EXPECTED figure only (never above the seat's cap; the maximum always uses the cap). Absent: today's figure (1500 tokens)."
+        },
+        "altReplyOutTokens": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Typical output of one reply in the alternatives debate, for the EXPECTED figure only (never above the seat's cap; the maximum always uses the cap). Absent: today's figure (800 tokens)."
         }
       }
     },
@@ -120,10 +189,20 @@
             "keep": {
               "type": "integer",
               "minimum": 1
+            },
+            "maxProposalsPerSeat": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The older spelling of the top-level max_proposals_per_seat (kept working in 0.8.3; no shipped chain uses it). Setting both with different values is refused."
             }
           }
         }
       ]
+    },
+    "max_proposals_per_seat": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Opt-in, no default (v5 candidate 10). One seat's own proposals above this are folded down by one merge prompt before the debate board sees them. 0.8.3: the code reads this documented key (it read only proposals.maxProposalsPerSeat before, so this one was silently ignored)."
     },
     "debate": {
       "type": "boolean"

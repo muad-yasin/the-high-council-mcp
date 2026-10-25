@@ -38,9 +38,22 @@ test('doctor: a Start here block, one schemaVersion line instead of one per chai
   assert.equal(out.match(/no schemaVersion declared/g)?.length ?? 0, 1);
   // Derived from chains/, not typed in: every chain named on a one-key line needs only that key.
   const line = out.split('\n').find(l => l.includes('OPENROUTER_API_KEY alone runs'));
+  // 0.8.3 (lane B), CHANGED ACCEPTED TEST (Muad 23 Okt 2026: cheap-7-v2 retires; the new one-key chain for the quick start was C&C's proposal and Muad gave his OK on 23 Okt 2026; his words of 24 Okt 2026: "no, it was you that asked for this new chain. I gave you my OK"): commit 1 relaxed the old bar (at least one shipped chain runs on an OpenRouter key alone) to "today there is none"; commit 2 adds plan-default-opro-council and RESTORES the old bar.
   assert.ok(line, 'at least one shipped chain runs on an OpenRouter key alone');
-  assert.doesNotMatch(line, /plan-open-7/, 'a chain with external seats waits for a person, so it is not a one-key chain');
+  assert.match(line, /alone runs plan-default-opro-council \(/, 'the one-key chain is the quick start chain');
+  assert.doesNotMatch(line, /plan-mini-council|plan-medium-council|plan-high-council|plan-china-/, 'a chain with external seats other than a decider waits for a person, so it is not a one-key chain');
   assert.match(out, /local-ollama\s+runnable.*needs Ollama running locally/);
+});
+
+// 0.8.3 decider-readiness unit (24 Okt 2026; Muad: "B sounds fine to me"). The pin holds in BOTH states (C&C thcmcp-cd): doctor's one-key line carries the caveat exactly while the conflict decider's three prompt functions are recorded in
+// src/roles.js, and not before; plan-default-opro-council names the session as its decider, so the line says so when the decider can pause the run. Today the functions are held, so the line has no caveat; after the apply it must have one.
+test('doctor: the one-key line for plan-default-opro-council carries the pause caveat exactly while the decider\'s prompt is recorded', async () => {
+  const R = await import('../src/roles.js');
+  const recorded = ['conflictDeciderSystem', 'conflictDeciderUser', 'reviserDecisionNote'].every(n => typeof R[n] === 'function');
+  const out = execFileSync('node', [cli, 'doctor'], { encoding: 'utf8', env: noKeys });
+  const line = out.split('\n').find(l => l.includes('OPENROUTER_API_KEY alone runs'));
+  assert.ok(line && /alone runs plan-default-opro-council \(/.test(line), 'the chain is on the line');
+  assert.equal(line.includes('a swing between judge layers pauses the run and leaves a file to answer'), recorded, `caveat present iff recorded (recorded: ${recorded})`);
 });
 
 test('unignoredEnvFile: warns only when git would commit .env', () => {
@@ -121,15 +134,17 @@ test('a run whose expected cost is above the cap says so before spending, and st
 });
 
 test('doctor: the one-key line counts a chain\'s panel labs by labOf, critics only', () => {
-  // Every seat by model-id prefix called cheap-7-v2 a 9-lab chain; its panel is seven labs.
-  const cheap7 = JSON.parse(readFileSync(join(root, 'chains', 'cheap-7-v2.json'), 'utf8'));
-  assert.equal(panelLabCount(cheap7), 7);
+  // Every seat by model-id prefix called cheap-7-v2 a 9-lab chain; its panel was seven labs. 0.8.3 (lane B, commit 2): cheap-7-v2 is retired, so the check reads its successor: the writer stages are one model, Luna proposes AND judges, and the panel is the nine judges, nine labs.
+  const oneKey = JSON.parse(readFileSync(join(root, 'chains', 'plan-default-opro-council.json'), 'utf8'));
+  assert.equal(panelLabCount(oneKey), 9);
   const seat = (lab, model = 'm') => ({ provider: 'openrouter', model: `vendor/${model}`, ...(lab ? { lab } : {}) });
   assert.equal(panelLabCount({ seats: { builder: seat('x'), critics: [seat('a'), seat('a', 'n'), seat('b')] } }), 2, 'a seat\'s own lab wins; the builder is not on the panel');
   assert.equal(panelLabCount({ seats: { critics: [seat(null), seat(null, 'n')] } }), 1, 'no lab: the provider is the lab');
   assert.equal(panelLabCount({ seats: {} }), 0);
   const out = execFileSync('node', [cli, 'doctor'], { encoding: 'utf8', env: noKeys });
   const line = out.split('\n').find(l => l.includes('OPENROUTER_API_KEY alone runs'));
-  if (line.includes('cheap-7-v2')) assert.match(line, /cheap-7-v2 \(expected [^,]+, at most [^,]+, 7-lab panel\)/);
+  // CHANGED ACCEPTED (label rename, 20 Okt 2026, Muad 18 Okt: "upper estimate" replaces "at most" and "maximum"). OLD: the old label. NEW: "upper estimate". WHY: the printed figure's label moved; nothing else in the sentence.
+  // CHANGED ACCEPTED (decider-readiness unit, 24 Okt 2026): the line may now end with the pause caveat, `9 judges; a swing between judge layers pauses the run and leaves a file to answer)`, once the conflict decider's prompt is recorded; both forms pass. The box showed this test red when the caveat was always printed.
+  assert.match(line, /plan-default-opro-council \(expected [^,]+, upper estimate [^,]+, 9 judges(; a swing between judge layers pauses the run and leaves a file to answer)?\)/);
   assert.doesNotMatch(line, /\d+ labs?\)/, 'the old every-seat count is gone');
 });

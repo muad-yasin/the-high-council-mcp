@@ -84,7 +84,8 @@ test('a run paused on an external seat, after --resume, still reviews the --from
   writeFileSync(join(dir, 'runs', run2Id, 'handoff.md'), 'External handoff reply text.');
   const resumed = run(['--resume', `runs/${run2Id}`], dir);
 
-  assert.equal(resumed.code, 0, `resume should complete cleanly, not pause again: ${resumed.out}`);
+  // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so it accepts the two finished exits.
+  assert.ok([0, 22].includes(resumed.code), `resume should complete cleanly, not pause again: ${resumed.out}`);
   assert.match(resumed.out, /Round 1: build \(skipped - reviewing a draft handed in\)/,
     'the RESUMED process must also skip build - this is the line the bug removed');
   assert.ok(!existsSync(join(dir, 'runs', run2Id, 'NEEDS-build.md')),
@@ -104,6 +105,7 @@ test('regression guard: a resumed run with an explicit --draft (not --from-run a
 
   writeFileSync(join(dir, 'runs', run2Id, 'handoff.md'), 'External handoff reply text.');
   const resumed = run(['--resume', `runs/${run2Id}`], dir);
-  assert.equal(resumed.code, 0, `resume should complete cleanly: ${resumed.out}`);
+  // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so it accepts the two finished exits.
+  assert.ok([0, 22].includes(resumed.code), `resume should complete cleanly: ${resumed.out}`);
   assert.match(resumed.out, /Round 1: build \(skipped - reviewing a draft handed in\)/);
 });

@@ -2,6 +2,7 @@
 // run's reasoning - a CLI-native complement to the HTML export (candidate
 // 8): CLI-stepped replay for a maintainer debugging a run, vs. a
 // shareable artifact for a stranger. Read-only, derived from report.json.
+import { verdictHeadline } from './verdict-headline.js';
 
 /**
  * An ordered list of transcript steps from a run's report.json: proposals,
@@ -30,7 +31,7 @@ export function buildTranscript(report) {
     push('signoff', 1, `${s.provider}: ${s.signedOff === null ? 'abstained' : s.signedOff ? 'signed off' : 'objected'}`);
   }
 
-  push('verdict', 0, report.passed ? 'Verdict: PASSED - every lab signed off' : 'Verdict: OPEN OBJECTIONS');
+  push('verdict', 0, `${verdictHeadline(report).heading}: ${verdictHeadline(report).text}`);
 
   return steps;
 }

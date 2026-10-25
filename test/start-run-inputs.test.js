@@ -12,6 +12,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, symlinkSync,
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -19,7 +20,7 @@ const SECRET = 'sk-or-v1-CANARY0123456789';
 
 function mcpSession(cwd, calls, { timeoutMs = 60_000 } = {}) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd } });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys() } });
     const want = new Set([1, ...calls.map((_, i) => i + 2)]);
     const byId = new Map();
     let buf = '';

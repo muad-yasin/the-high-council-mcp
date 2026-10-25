@@ -20,25 +20,31 @@
 //     carries the trust marker are returned unchanged.
 // The file on disk is never changed. This is a cue and a hygiene step, never a filter: see src/return-path.js.
 import { untrustedFileResult, markUntrustedFields, TRUST_META_KEY } from '../return-path.js';
+import { treeStatusTrustRule } from './tree-status.js';
+import { treeDecideTrustRule } from './tree-decide.js';
 
 // run.log and a CLI child's log can carry a provider's error body or a seat's reply quoted in an error, so log text is
 // treated as run-folder text wherever a tool returns it.
 export const TOOL_TRUST = Object.freeze({
   list_chains: { wrap: false, reason: 'chain names, descriptions and flags from chain files (the package\'s or the user\'s own), not run-folder output' },
   dry_run: { wrap: false, reason: 'prices and seat names computed by the harness from a chain file; no model has written anything' },
-  start_run: { wrap: 'fields', fields: ['logTail'] },
+  start_run: { wrap: 'fields', fields: ['logTail', 'stop'] },   // 'stop': the stop sentence read from STOPPED-<cause>.json (exit 23), a project-writable file
   external_prompt: { wrap: 'fields', fields: ['prompt'] },
   prepare_stage_prompt: { wrap: false, reason: 'returns the path of the bundle it wrote and the stage label, never the bundle\'s text' },
-  submit_stage: { wrap: 'fields', fields: ['logTail'] },
-  resume_run: { wrap: 'fields', fields: ['logTail'] },
+  submit_stage: { wrap: 'fields', fields: ['logTail', 'stop'] },
+  resume_run: { wrap: 'fields', fields: ['logTail', 'stop'] },
   spend_report: { wrap: false, reason: 'run ids, chain names and dollar sums derived from usage files; no run text' },
   verdict_stats: { wrap: false, reason: 'counts and rates per chain and lab derived from report.json; no run text' },
   metrics_report: { wrap: false, reason: 'rates and counts derived from report.json and HANDOFF.md; no run text' },
   // signoff: each critic's objections and pass reason, model-written (M5 review D2).
   // Audit fix cnc-mcp-security F3: every other string a run folder lends the summary is named too (label from run.json, chain and task from report.json or the log, the state sentence, the security gate, waitingFor
   // and the progress events from stage-log.jsonl): hidden characters are removed from them and they are named untrusted, like the log lines.
-  list_runs: { wrap: 'fields', fields: ['lastLogLines', 'signoff', 'label', 'chain', 'task', 'state', 'securityGate', 'waitingFor'] },
-  run_status: { wrap: 'fields', fields: ['lastLogLines', 'keyLines', 'signoff', 'label', 'chain', 'task', 'state', 'securityGate', 'waitingFor', 'progress'] },
+  list_runs: { wrap: 'fields', fields: ['lastLogLines', 'signoff', 'label', 'chain', 'task', 'state', 'securityGate', 'waitingFor', 'tree', 'resumable'] },   // 'resumable': its stoppedAt carries the stop marker, whose reason can quote a provider's refusal (exit 24)
+  run_status: { wrap: 'fields', fields: ['lastLogLines', 'keyLines', 'signoff', 'label', 'chain', 'task', 'state', 'securityGate', 'waitingFor', 'progress', 'tree', 'resumable'] },
+  // the field list is the output builder's own (src/mcp/tree-status.js), so the builder and its classification cannot drift
+  tree_status: treeStatusTrustRule(),
+  tree_decide: treeDecideTrustRule(),
+  price_raise: { wrap: 'fields', fields: ['text', 'refusal'] },   // the quote carries a host name from OpenRouter's public list (cleaned of control characters, cut at 60) and a refusal can carry a file error
   read_run_file: { wrap: 'text' },
   plan_outline: { wrap: 'fields', fields: ['sections', 'ledger'] },
   write_task: { wrap: false, reason: 'returns the path written and a word count of the caller\'s own text' },
@@ -46,7 +52,7 @@ export const TOOL_TRUST = Object.freeze({
   // 0.8.2 item 6d: the obligations are model-drafted words and the requests are the words of whoever filed them; both are returned as untrusted fields.
   contract_read: { wrap: 'fields', fields: ['obligations', 'requests'] },
   contract_amend: { wrap: false, reason: 'returns the request number, the version and the obligation id the caller named, and a harness sentence; the caller\'s own words are not echoed, and no model has written anything' },
-  council_advise: { wrap: 'own', reason: 'a settled answer is wrapped by adviceResult (notice, random-id markers, untrusted_fields); every other outcome is harness text, except a failed start\'s CLI log tail, from which hidden characters are removed' },
+  council_advise: { wrap: 'own', reason: 'a settled answer is wrapped by adviceResult (notice, random-id markers, untrusted_fields); every other outcome is harness text, except a failed start\'s CLI log tail, from which hidden characters are removed, and the `note` of a call that failed because a seat was refused at its price limit (it quotes OpenRouter; marked by markUntrustedFields)' },
 });
 
 const marked = result => !!result?._meta?.[TRUST_META_KEY];

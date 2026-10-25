@@ -7,7 +7,7 @@
 // table an abstention (src/chain.js), and signoffTableGap below says what was missing. Pure and $0; the
 // harness reads the table the reply already has.
 
-import { isReadableVerdict } from './criteria-kinds.js';
+import { isReadableVerdict, isMetVerdict } from './criteria-kinds.js';
 
 /** Positional ids for a criteria list: C1, C2, ... (the list order is the run's, and fixed for it). */
 export const criterionIds = criteria => (Array.isArray(criteria) ? criteria : []).map((_, i) => `C${i + 1}`);
@@ -58,6 +58,24 @@ export function missingCriteriaRows(critique, criteria) {
 }
 
 const rowsOf = critique => (Array.isArray(critique?.criteria) ? critique.criteria.filter(r => r && typeof r === 'object' && !Array.isArray(r)) : []);
+
+// ROADMAP 84 (E84, gate page Review/Build_0.8.3/m6-closing/E84_Gate_Page.md section 3.2): what another judge's table says about the criterion an objection is about. Two small readers over the matching the sign-off gate already uses.
+/** The index into `criteria` of the criterion a free-text criterion string names, or -1 when it names none or several (identical texts included): fail closed, so no peer evidence is shown for it. */
+export function criterionIndexOf(text, criteria) {
+  const list = Array.isArray(criteria) ? criteria : [];
+  const ids = criterionIds(list);
+  const exact = ids.map((id, i) => (exactly(text, list[i], id) ? i : -1)).filter(i => i >= 0);
+  if (exact.length) return exact.length === 1 ? exact[0] : -1;
+  const loose = ids.map((id, i) => (names(text, list[i], id) ? i : -1)).filter(i => i >= 0);
+  return loose.length === 1 ? loose[0] : -1;
+}
+
+/** The MET rows of `critique`'s table that the gate assigns to criterion number `index` (src/criteria-ledger.js rowsPerCriterion, the assignment signoffTableGap reads): `evidence` text only, in table order. */
+export function metEvidenceFor(critique, criteria, index) {
+  const list = Array.isArray(criteria) ? criteria : [];
+  if (!(index >= 0 && index < list.length)) return [];
+  return (rowsPerCriterion(rowsOf(critique), list, criterionIds(list))[index] || []).filter(r => isMetVerdict(r.verdict)).map(r => String(r.evidence ?? '').trim()).filter(Boolean);
+}
 
 /**
  * What a sign-off's table lacks for it to count under `signoff_table.required` (owner decision 1, 5 Oct 2026: "a judge's sign-off without a full per-criterion

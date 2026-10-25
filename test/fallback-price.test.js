@@ -46,6 +46,6 @@ test('lint: an unpriced extra.models fallback on a priced seat is a finding; cod
   const f = lintChain(cfg, 'x.json').filter(x => x.kind === 'extra-models-unpriced');
   assert.equal(f.length, 1);
   assert.match(f[0].message, /seats\.critics\.0: fallback model "some-lab\/unpriced-fallback"/);
-  const cg = JSON.parse(readFileSync(new URL('../chains/coder-gate-v2.json', import.meta.url), 'utf8'));
+  const cg = JSON.parse(readFileSync(new URL('../chains/outdated/coder-gate-v2.json', import.meta.url), 'utf8'));
   assert.deepEqual(lintChain(cg, 'coder-gate-v2.json').filter(x => x.kind === 'extra-models-unpriced'), []);
 });

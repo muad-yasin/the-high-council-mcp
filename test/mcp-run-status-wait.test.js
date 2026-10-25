@@ -8,6 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -16,7 +17,7 @@ const cli = join(root, 'src/cli.js');
 // earlier one started. Notifications are collected next to the answers.
 function session(cwd, calls, { delay = 0, timeoutMs = 60_000 } = {}) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_MOCK_DELAY_MS: String(delay) } });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys(), COUNCIL_MOCK_DELAY_MS: String(delay) } });
     const answers = new Map(); const notes = [];
     let buf = ''; let next = 0;
     const timer = setTimeout(() => { child.kill(); fail(new Error(`timed out; got ${[...answers.keys()]}`)); }, timeoutMs);
@@ -117,7 +118,7 @@ test('run_status with a progressToken sends notifications/progress whose progres
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('until=settled holds across finished calls, sends several rising progress notifications during the hold, and returns once', async () => {
+test('until=settled holds across finished calls, sends several rising progress notifications during the hold, and returns once', async t => {
   const dir = workdir();
   try {
     const r = await session(dir, [{ name: 'start_run', arguments: { chain: 'mock', task: 'tasks/t.md' } }], { delay: 300 });
@@ -128,8 +129,14 @@ test('until=settled holds across finished calls, sends several rising progress n
     assert.equal(a.body.progress.status, 'done');
     assert.ok(a.body.progress.events.length >= 4, 'every stage-log line since 0 came back in one answer');
     assert.equal(a.body.progress.cursor, a.body.progress.events.length);
-    assert.ok(s.notes.length >= 2, `several notifications during one hold (got ${s.notes.length})`);
+    // RECORDED AMENDMENT (13 Oct 2026, C&C's Flaky gate): this was `s.notes.length >= 2`. OLD BAR: at least two notifications through two live processes. NEW BAR: at least
+    // one, rising, and the LAST one equals the final cursor. WHY: the server sends one notification per 200 ms poll in which the log GREW; under the CPU cap several stage lines land
+    // between two polls, or the run finishes before the second MCP server's first poll, so the count of notifications measures the machine and not the code (the full suite at 4ae1354
+    // got 1). The property "several rising notifications during one hold, once each" is now pinned deterministically in test/progress-wait.test.js (scripted log, injected clock).
+    t.diagnostic(`notifications during the hold: ${s.notes.length} (old bar >= 2, new bar >= 1)`); // printed on every run, so a suite log shows the real count against both bars
+    assert.ok(s.notes.length >= 1, `at least one notification during the hold (got ${s.notes.length})`);
     for (let i = 1; i < s.notes.length; i++) assert.ok(s.notes[i].progress > s.notes[i - 1].progress, 'progress rises');
+    assert.equal(s.notes.at(-1).progress, a.body.progress.cursor, 'the last notification carries the final line count');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

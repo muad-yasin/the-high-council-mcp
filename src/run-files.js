@@ -12,8 +12,17 @@
 //      platform without it (Windows) the lstat in step 2 and in writeRunFile is the check.
 //
 // Reads return { text } | { missing: true } | { refusal }, never a throw; a refusal carries the words a person reads.
-import { lstatSync, realpathSync, readdirSync, openSync, closeSync, fstatSync, readFileSync, writeFileSync, constants } from 'node:fs';
+import { lstatSync, realpathSync, readdirSync, openSync, closeSync, fstatSync, readFileSync, writeFileSync, renameSync, unlinkSync, constants } from 'node:fs';
 import { join, resolve, relative, isAbsolute, sep } from 'node:path';
+
+// The run id generator: the ONE copy (0.8.3 M6; it had three identical ones, in src/api.js, src/mcp/server.js and src/tree-start.js). Run ids stay plain ISO timestamps with ":" and "." turned into "-"
+// (YYYY-MM-DDTHH-MM-SS-mmmZ; spend.js and the secret scanner key off that exact shape). Uniqueness within a process comes from never handing out the same millisecond twice; ONE module-level counter is now shared by
+// every caller in the process (the intended improvement: the three entry points can no longer hand out the same id), and a clash with a run started elsewhere is refused by the CLI (a new run never reuses a folder).
+let lastRunMs = 0;
+export function nextRunId() {
+  lastRunMs = Math.max(Date.now(), lastRunMs + 1);
+  return new Date(lastRunMs).toISOString().replace(/[:.]/g, '-');
+}
 
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 // O_NONBLOCK: opening a FIFO for reading blocks until a writer appears (and for writing until a reader does), which would hang the server; with it the open returns at once and the
@@ -37,13 +46,22 @@ export function firstSymlink(dir, depth = 0) {
   return null;
 }
 
+/**
+ * What `dir` is, by lstat (a link is NEVER followed): 'folder' (a real directory), 'link' (a symbolic link, dangling or not), 'other' (a file...), 'missing'. THE one run-folder check: trustedRunDir below and every reader
+ * that walks runs/ (spendReport, costToday, metricsReport, verdictStats, forecastCost) ask it, so a link is never read as a second run (found 11 Oct 2026; the spend report had followed links since 11 Sep).
+ */
+export function runFolderKind(dir) {
+  let st;
+  try { st = lstatSync(dir); } catch { return 'missing'; }
+  return st.isSymbolicLink() ? 'link' : st.isDirectory() ? 'folder' : 'other';
+}
+
 /** { dir } for a run folder the server may touch, or { refusal } saying why not ("no such run" when there is none). `dir` is runsDir/run, as callers already build it. */
 export function trustedRunDir(runsDir, run) {
   const dir = join(runsDir, run);
-  let st;
-  try { st = lstatSync(dir); } catch { return { refusal: 'no such run' }; }
-  if (st.isSymbolicLink()) return { refusal: `refused: runs/${run} is a symbolic link, and the harness never creates one` };
-  if (!st.isDirectory()) return { refusal: 'no such run' };
+  const kind = runFolderKind(dir);
+  if (kind === 'link') return { refusal: `refused: runs/${run} is a symbolic link, and the harness never creates one` };
+  if (kind !== 'folder') return { refusal: 'no such run' };
   try {
     if (!strictlyInside(realpathSync(runsDir), realpathSync(dir))) return { refusal: `refused: runs/${run} is outside runs/` };
   } catch { return { refusal: 'no such run' }; }
@@ -90,6 +108,55 @@ export function writeRunFile(dir, name, content) {
     return { refusal: e.code === 'ELOOP' || e.code === 'EMLINK' ? `refused: ${name} is a symbolic link, and nothing was written` : `could not write ${name} (${e.code})` };
   }
   try { writeFileSync(fd, content); return {}; } catch (e) { return { refusal: `could not write ${name} (${e.code || e.message})` }; } finally { closeSync(fd); }
+}
+
+let atomicSeq = 0;
+/**
+ * Like writeRunFile, but ATOMIC: the text goes to a temp file in the same folder (`<name>.tmp-<pid>-<n>`, created exclusively, never through a link) and is renamed over `<name>`, so a reader sees the old file or the whole
+ * new one, never a truncated one; a failed write removes the temp file and leaves `<name>` as it was. A symbolic link at `<name>` is refused and nothing is written (as writeRunFile). Returns {} or { refusal }; every refusal names `name`.
+ */
+export function writeRunFileAtomic(dir, name, content) {
+  if (typeof name !== 'string' || !SAFE_NAME.test(name) || name === '.' || name === '..') return { refusal: 'bad file name' };
+  const p = join(dir, name);
+  try { if (lstatSync(p).isSymbolicLink()) return { refusal: `refused: ${name} is a symbolic link, and nothing was written` }; } catch { /* absent: created below */ }
+  const tmp = `${p}.tmp-${process.pid}-${atomicSeq++}`;
+  let fd;
+  try { fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NOFOLLOW | NONBLOCK, 0o666); } catch (e) {
+    return { refusal: `could not write ${name} (${e.code})` };
+  }
+  try {
+    try { writeFileSync(fd, content); } finally { closeSync(fd); }
+    renameSync(tmp, p);
+    return {};
+  } catch (e) {
+    try { unlinkSync(tmp); } catch { /* already gone */ }
+    return { refusal: `could not write ${name} (${e.code || e.message})` };
+  }
+}
+
+/**
+ * The context files a run.json names, for a reader that must not trust the run folder (MCP; R16): every entry (a comma list, as `--context`) is resolved against `workDir`, must resolve by its real path to a regular file
+ * (or, for a folder, to the *.md files in it other than README.md) INSIDE `workDir`, and must not be on the secret denylist (`isDenied`). -> [{ path, title }]: `path` is the REAL path that was checked (what is read is what was
+ * checked: a link swapped afterwards is not followed), `title` the name the file was NAMED with (the heading `contextBundleText` gives its section, so the text matches what the run was sealed with, links included).
+ * Throws an Error with a plain message for anything else. A context file that is gone throws from realpathSync: deliberate, the caller reads any throw as "not readable from here".
+ */
+export function contextFilesInside(entries, workDir, isDenied) {
+  const root = realpathSync(workDir);
+  const out = [];
+  const take = (title, real) => {
+    if (!strictlyInside(root, real)) throw new Error('a context path in run.json is outside the working folder');
+    if (isDenied(relative(root, real)) || isDenied(real)) throw new Error('a context path in run.json matches the secret denylist');
+    if (!lstatSync(real).isFile()) throw new Error('a context path in run.json is not a regular file');
+    out.push({ path: real, title });
+  };
+  for (const entry of String(entries).split(',').map(x => x.trim()).filter(Boolean)) {
+    const path = resolve(workDir, entry);
+    const real = realpathSync(path);
+    if (!strictlyInside(root, real)) throw new Error('a context path in run.json is outside the working folder');
+    if (lstatSync(real).isDirectory()) { for (const f of readdirSync(real).sort()) if (f.endsWith('.md') && f !== 'README.md') take(f, realpathSync(join(real, f))); }
+    else take(path.split('/').pop(), real);
+  }
+  return out;
 }
 
 /**

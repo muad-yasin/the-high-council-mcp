@@ -3,11 +3,15 @@
 // disk right now. One module so src/cli.js (item 3's state.json writer) and src/mcp/server.js
 // (list_runs, run_status) can't drift on what "running" means.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
-import { listGates, readGateAnswer } from './gate.js';
+import { hostname } from 'node:os';
+import { join, basename } from 'node:path';
+import { listGates, readGateAnswer, runCapAuthority, RUN_CAP_KIND } from './gate.js';
 import { readStoppedMarker, STOP_STATUS, isAdviceFolder } from './stop-files.js';
 import { changedByWords } from './text-labels.js';
+import { lockHolder } from './run-lock.js';
+import { readRunJson } from './run-files.js';
+import { resumeCeilingUsd } from './resume-ceiling.js';
+import { verdictWords, adviceWords, gateWords, earlyFinishWords } from './verdict-headline.js';
 
 // A run's unanswered external-pause label, if any - the same NEEDS-<label>.md-without-a-
 // matching-<label>.md convention src/mcp/server.js's own `waiting()` already used before this
@@ -58,16 +62,26 @@ export function isAlivePid(pid) {
   }
 }
 
-// Pre-v5 fallback for run folders whose run.json (if any) has no `pid` field: any live cli.js
-// process at all, the same "cheap approximation" the pre-v5 code used - kept only for folders
-// this version cannot do better on, never for a folder that does carry a real pid.
-export function isAliveByGrep() {
-  try {
-    const out = execFileSync('pgrep', ['-af', process.pkg ? process.execPath : 'src/cli.js'], { encoding: 'utf8' });
-    return out.trim().length > 0;
-  } catch {
-    return false;
-  }
+// The file the SERVER writes into a run folder at every spawn it makes (start_run, an advice start, resume_run): the child's pid, host and the time. It exists because
+// "no live lock holder" must not read as "stopped" for a child that was just spawned and has not taken the lock yet (the advice path's folder already exists at the spawn; a
+// resume's old run.json pid is dead): `until: settled` settles on anything that is not `running`, so a starting run reading `stopped` would settle early. Written fresh on every spawn.
+export const SPAWN_FILE = '.spawn.json';
+export function readSpawn(dir) {
+  const r = readRunJson(dir, SPAWN_FILE);
+  return r && typeof r === 'object' && Number.isInteger(r.pid) && typeof r.host === 'string' ? r : null;
+}
+
+// Is a process working on this run folder right now? READ ORDER (13 Oct 2026, stated once): (1) a LIVE LOCK HOLDER on this host (src/run-lock.js: the run takes the lock
+// right after it makes its folder); (2) a live SPAWN pid on this host (.spawn.json, the window between the server's spawn and the child's lock); (3) the pid in run.json
+// (a run older than its lock); otherwise NOT alive. `running` is only ever said about a pid that is alive on this host. There is no machine-wide search for "any council
+// process": that answered `running` for a dead run whenever anything else was running (a parallel test, another session; in the packaged binary the server's own process),
+// and then `run_status until: settled` held to its limit. A holder on another host or an unreadable lock file is not a pid we can check, so it does not count.
+export function isRunAlive(dir, runMeta) {
+  const h = lockHolder(dir);
+  if (h && h.host === hostname() && isAlivePid(h.pid)) return true;
+  const sp = readSpawn(dir);
+  if (sp && sp.host === hostname() && isAlivePid(sp.pid)) return true;
+  return !!(runMeta && runMeta.pid && isAlivePid(runMeta.pid));
 }
 
 // dir: the run folder. runMeta: parsed run.json, or null/undefined if absent/unreadable.
@@ -77,6 +91,24 @@ export function isAliveByGrep() {
 // person, a client or its wall clock stopped it (STOPPED-<cause>.json), before or after paid calls.
 // 'blocked' (added 2026-09-23, additive): the artifact gate stopped it before any call; fix the
 // task (fence the named files), then resume - resuming alone re-runs the gate and stops again.
+/**
+ * 0.8.3 M6 typed cap T4a (typed-cap gate page section 8): a paid run that exited 21 is waiting for a limit that a person types. -> { gate } of its newest `run_cap` gate that is pending, or approved and not yet used, requested after the last limit consumed for the run (or the first, when none was); null otherwise (a run that has consumed its limit is a normal run, a run with no limit gate is a free or an older one). A READ: it writes nothing.
+ */
+export function awaitingUserCap(dir) {
+  const gates = listGates(dir);
+  if (!gates) return null;
+  // T4b2: a run may carry several consumptions; what it waits for is a pending (or approved, unused) limit gate REQUESTED AFTER the last consumption (a raise or an amendment), or the first one when nothing was consumed yet.
+  const auth = runCapAuthority(dir);
+  if (auth.status === 'invalid') return null;
+  const since = auth.status === 'ok' ? auth.seq : 0;
+  let waiting = null;
+  for (const g of gates) {
+    const st = readGateAnswer(dir, g.id);
+    if (st.gate?.kind === RUN_CAP_KIND && st.gate.seq > since && (st.status === 'pending' || (st.status === 'approved' && st.usable))) waiting = g.id;
+  }
+  return waiting ? { gate: waiting } : null;
+}
+
 export function deriveRunStatus(dir, runMeta) {
   if (existsSync(join(dir, 'report.json'))) return 'done';
   if (existsSync(join(dir, 'STOPPED-budget.json'))) return 'budget_stopped';
@@ -90,12 +122,12 @@ export function deriveRunStatus(dir, runMeta) {
   if (stoppedShortFile(dir)) return 'stopped';
   if (artifactsBlocked(dir)) return 'blocked';
   if (waitingStage(dir)) return 'paused';
+  if (awaitingUserCap(dir)) return 'awaiting_user_cap';
   // 0.8.1 DR-15: an advice call's folder exists before anyone approves it. With no run.json yet, its gate says where it stands;
   // without this it read as a crashed run, resumable.
   const beforeStart = !existsSync(join(dir, 'run.json')) && approvalStatus(dir);
   if (beforeStart) return beforeStart;
-  const alive = runMeta && runMeta.pid ? isAlivePid(runMeta.pid) : isAliveByGrep();
-  return alive ? 'running' : 'stopped';
+  return isRunAlive(dir, runMeta) ? 'running' : 'stopped';
 }
 
 // The `state` text for a run that has a report.json. Bug-audit fix, 2026-09-23
@@ -103,20 +135,17 @@ export function deriveRunStatus(dir, runMeta) {
 // or could not judge (exit 8) still carries passed:true from the panel, and a detached run's exit
 // code never reaches the MCP server - so it read "every lab signed off". The gate outranks the panel.
 export function finishedRunState(report) {
-  const gate = report?.security_review?.gate;
-  if (gate && gate !== 'pass') {
-    return `done: security gate ${gate} - not a pass${report.passed ? ' (the panel signed off, the security review did not)' : ''}`;
-  }
+  const gate = gateWords(report);
+  if (gate) return `done: ${gate}`;
   // An advice call (src/advise.js) has no sign-off: say what it is (brief 29).
   if (report?.advise?.status === 'answered') {
-    const a = report.advise;
-    return `done: advice from ${a.seats_answered} of ${a.seats_asked} seat(s), leaning ${String(a.verdict).replace('_', ' ')}${a.stopped_by ? ` (stopped early: ${a.stopped_by})` : ''}`;
+    return `done: ${adviceWords(report.advise)}`;
   }
-  if (!report?.passed) return 'done: open objections';
+  if (!report?.passed) return earlyFinishWords(report) ? 'done: open objections; finished early by the session (not agreed)' : 'done: open objections';
   // 0.8.2 item 4: the panel signed one draft and a later model stage changed what is delivered. ADDITIVE (C&C ruling, 6 Oct 2026): the old sentence stays the start, so a matcher on it still matches.
   const d = report.delivered_text;
-  if (d && d.same_as_signed === false) { const by = changedByWords(d); return `done: every lab signed off, on the signed draft; the delivered text differs${by ? ` (changed by ${by})` : ''}`; }
-  return 'done: every lab signed off';
+  if (d && d.same_as_signed === false) { const by = changedByWords(d); return `done: ${verdictWords(report)}, on the signed draft; the delivered text differs${by ? ` (changed by ${by})` : ''}`; }
+  return `done: ${verdictWords(report)}`;
 }
 
 // Can this run be continued, and what does that take? 0.8.0 WM0 item 4. Derived from the marker files
@@ -126,7 +155,8 @@ export function finishedRunState(report) {
 // has to happen before --resume can get further:
 //   nothing            resume as is (a process that died)
 //   answer             write the answer file for each stage in `waiting`, then resume
-//   higher_cap         resume with a --max-usd above what was spent (it is a total, not extra)
+//   higher_cap         resume with a --max-usd above what was spent (it is a total, not extra); `suggestedMaxUsd` is a ceiling that gets past the stop
+//   person_choice      the run stopped because the conflict decider asked for the person (E4b unit 3): `--resume <run> --prevail n=<id>|neither` (a tree MEMBER: its stop sentence, stoppedAt.reason, names the tree's `tree decide --prevail-node` command instead; cli.js refuses `--prevail` on a member's folder); a plain resume only says so again at $0; MCP has no verb for the choice
 //   fix_cause          the run stopped at an error, or on a key-shaped prompt (secret_blocked: fix the cause, or resume
 //                      with --allow-secret-shaped); a transient error may pass on its own next time
 //   raise_max_tokens   a draft was cut off; raise that seat's maxTokens in the chain, then resume
@@ -151,14 +181,34 @@ function approvalStatus(dir) {
   return 'approval_invalid';
 }
 
+/** The folder names a --rematch / --replay makes (`<run id>.rematch-<seed>`, `<run id>.replay-<date>`): the folders --resume refuses. */
+export const SIDE_FOLDER_NAME = /\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2})$/;
 export function runResumability(dir, runMeta) {
   const status = deriveRunStatus(dir, runMeta);
   const out = (resumable, reason, needs, extra = {}) => ({ status, resumable, reason, needs, ...extra });
   if (status === 'done') return out(false, 'finished', null);
   if (status === 'running') return out(false, 'running', null);
+  // 0.8.3 M6 typed cap T4a: a paid run that exited 21 waits for a limit a person types; `council gate answer`, then --resume, is the way on (never a plain resume: it would ask again).
+  // T5a: a --rematch / --replay folder waits for its limit too, but --resume refuses those folders (cli.js, src/mcp/server.js): the way on is to answer the gate and run the SAME rematch / replay command again, so it is not 'resumable'.
+  if (status === 'awaiting_user_cap' && SIDE_FOLDER_NAME.test(basename(dir))) return out(false, 'side_command_awaiting_limit', 'type_limit_and_rerun', { gate: awaitingUserCap(dir)?.gate ?? null });
+  if (status === 'awaiting_user_cap') return out(true, 'awaiting_user_cap', 'type_limit', { gate: awaitingUserCap(dir)?.gate ?? null });
   // 0.8.1 M6: whether a stopped run resumes belongs to its chain (decided rule 6). The run recorded its chain's resumeAfterStop in the
   // marker; no chain file is read here. Every shipped advice chain says false. An unreadable marker reads not resumable (the only
   // runs that can be stopped in 0.8.1 are advice runs, which do not resume).
+  // A3a commit 2 (18 Okt 2026, C&C ruling F3): a run stopped because OpenRouter refused a seat at its price pin is resumable, but not before the cause is fixed (a pricing.user.json row; the stop sentence in stoppedAt.reason says so),
+  // so it reads `fix_cause` like an error stop, not the round stop's 'nothing' (an MCP agent would resume at once and meet the same refusal). No new enum value.
+  if (status === STOP_STATUS.price_refused && readStoppedMarker(dir)?.stoppedBy === 'price_refused') {
+    const m = readStoppedMarker(dir);
+    const again = m?.data?.resumeAfterStop === true;
+    return out(again, status, again ? 'fix_cause' : null, { stoppedAt: m?.data ?? null, stoppedBy: 'price_refused' });
+  }
+  // E4b unit 3: a run stopped because the conflict decider asked for the person is resumable only with a choice (`--resume --prevail ...`, or for a tree member the tree's own verb, named in the marker's sentence that `stoppedAt` carries; a plain resume says so again at $0), so it reads `person_choice`: ONE additive word (no existing word means
+  // "a person chooses at a terminal"; `nothing` is what let an MCP agent loop on the round stop). MCP has no verb for the choice.
+  if (status === STOP_STATUS.conflict && readStoppedMarker(dir)?.stoppedBy === 'conflict') {
+    const m = readStoppedMarker(dir);
+    const again = m?.data?.resumeAfterStop === true;
+    return out(again, status, again ? 'person_choice' : null, { stoppedAt: m?.data ?? null, stoppedBy: 'conflict' });
+  }
   if (Object.values(STOP_STATUS).includes(status)) {
     const m = readStoppedMarker(dir);
     const again = m?.data?.resumeAfterStop === true;
@@ -170,7 +220,13 @@ export function runResumability(dir, runMeta) {
   // 0.8.1 decided rule 6 (M6 review D3): an advice call is never resumed, whatever ended it (a crash, its cap, an error); it is asked
   // again. resume_run and `council --resume` refuse it; this says the same instead of offering a resume they would refuse.
   if (isAdviceFolder(dir)) return out(false, 'advice_call', null);
-  if (status === 'budget_stopped') return out(true, 'budget', 'higher_cap', { stoppedAt: readJsonSafe(join(dir, 'STOPPED-budget.json')) });
+  if (status === 'budget_stopped') {
+    const stoppedAt = readJsonSafe(join(dir, 'STOPPED-budget.json'));
+    // Cost-unit U1 split (14 Oct 2026): `spentUsd` in that file is the RECORDED spend; the cap also counted a worst case for replayed stages with no recorded figure (`assumedAtWorstCase.usd`). `suggestedMaxUsd` is the ceiling that gets past this stop, computed
+    // exactly as the CLI's printed resume command is (src/cost.js resumeCeilingUsd), so "above what was spent" cannot under-shoot. Additive; null when the file does not hold the figures.
+    const suggestedMaxUsd = stoppedAt ? resumeCeilingUsd({ cap: stoppedAt.capUsd, spent: stoppedAt.spentUsd + (stoppedAt.assumedAtWorstCase?.usd || 0), projected: stoppedAt.projectedStageUsd }) : null;
+    return out(true, 'budget', 'higher_cap', { stoppedAt, suggestedMaxUsd });
+  }
   if (status === 'paused') return out(true, 'external_pause', 'answer', { waiting: waitingStages(dir) });
   if (status === 'blocked') return out(true, 'artifacts_blocked', 'fix_task');
   if (status === 'failed') {

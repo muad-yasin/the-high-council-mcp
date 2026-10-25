@@ -27,11 +27,12 @@ import { sentToOf } from '../src/advice-run.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 // The question fingerprint is salted with a file in the home directory: point it at a scratch one, never the real one.
 process.env.HOME = mkdtempSync(join(tmpdir(), 'thc-units-home-'));
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+const chain = name => readChainFile(root, name);
 
 const BRIEF = () => ({
   schema_version: 'advice-brief/1', moment: 'before_commit',
@@ -122,7 +123,7 @@ test('a key-shaped string is found by the same scan the run uses, on the whole r
   const b = { ...BRIEF(), excerpts: [{ label: 'env', kind: 'config', why_needed: 'The question is about this config.', text: `x=1\nOPENROUTER=sk-or-v1-${'a1b2c3d4'.repeat(8)}\n` }] };
   const hits = secretShapesIn(renderBriefText(b));
   assert.ok(hits.length >= 1 && hits.every(h => typeof h.line === 'number' && h.name), JSON.stringify(hits));
-  assert.ok(scanForPii(mask(renderBriefText({ ...BRIEF(), question: 'Does max@example.com own the invoices table?  ' })).text).findings.length === 0, 'after masking, the pii gate finds no email');
+  assert.ok(scanForPii(mask(renderBriefText({ ...BRIEF(), question: 'Does max@acme-corp.de own the invoices table?  ' })).text).findings.length === 0, 'after masking, the pii gate finds no email');   // old: max@example.com - exempt from the PII scan, so the scan found nothing whether or not mask() had hidden it
 });
 
 // ---- tiers ---------------------------------------------------------------------------------------------------------
@@ -606,5 +607,6 @@ test('the reports schema documents the additive fields as experimental', () => {
   // 0.8.1 DR-13: the patch's root copies are gone (the brief's hash is task_sha256; stopped_by lives in advise).
   for (const k of ['brief_sha256', 'sent_to', 'dispositions', 'stopped_by']) assert.equal(k in schema.properties, false, k);
   // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): 21 chains moved to archive/chains/ and two advise chains were added, so chains/ holds 45; the floor was 61.
-  assert.ok(readdirSync(join(root, 'chains')).length >= 45);
+  // 0.8.3 (lane B), CHANGED ACCEPTED TEST: old bar = 45 entries in chains/; new bar = 41 .json configs (15 more chains retired to chains/outdated/, a directory entry that is not a chain) (Muad 18 Okt 2026, "Your pick sounds good").
+  assert.ok(readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json')).length >= 41);
 });

@@ -33,7 +33,7 @@ async function load(id) {
   run = await (await fetch(`/api/runs/${encodeURIComponent(id)}`)).json();
   const rep = run.report;
   $('#runmeta').textContent = rep
-    ? `${rep.chain} on ${rep.task} - ${rep.passed ? 'every lab signed off' : 'open objections'} - ${usd(rep.totals?.usd)} - ${run.drafts.length} draft(s)`
+    ? `${rep.chain} on ${rep.task} - ${run.verdict || 'open objections'} - ${usd(rep.totals?.usd)} - ${run.drafts.length} draft(s)`
     : `unfinished or crashed run - ${run.drafts.length} draft(s) on disk`;
   renderOutline(); renderRevisions(); renderProposals(); renderPanel(); renderCost(); renderFiles();
 }
@@ -124,7 +124,7 @@ function renderPanel() {
     rounds.map(r => `<div class="card"><h3>Round ${esc(r)}</h3>` + run.panels[r].map(p => {
       if (!p.parsed) return `<div><b>${esc(p.lab)}</b> <span class="tag abs">unreadable</span> <span class="small">${esc(p.file)}</span></div>`;
       const fails = (p.parsed.failures || []).filter(f => f && f.criterion && !/^(none|n\/?a)$/i.test(f.criterion));
-      return `<details><summary><b>${esc(p.lab)}</b> <span class="tag ${fails.length ? 'bad' : 'ok'}">${fails.length ? esc(fails.length) + ' objection(s)' : 'signed off'}</span> <span class="small">${esc(p.parsed.verdict_line || '')}</span></summary>
+      return `<details><summary><b>${esc(p.lab)}</b> ${p.early ? '<span class="tag abs">answer to the session\'s proposal to finish early</span> ' : ''}<span class="tag ${fails.length ? 'bad' : 'ok'}">${fails.length ? esc(fails.length) + ' objection(s)' : p.early ? 'yes, finish early (not a sign-off of the plan)' : 'signed off'}</span> <span class="small">${esc(p.parsed.verdict_line || '')}</span></summary>
         <table><thead><tr><th>criterion</th><th>verdict</th><th>evidence</th></tr></thead><tbody>${(p.parsed.criteria || []).map(c => `<tr><td>${esc(c.criterion)}</td><td class="${/fail/i.test(c.verdict) ? 'down' : 'up'}">${esc(c.verdict)}</td><td class="small">${esc(c.evidence)}</td></tr>`).join('')}</tbody></table></details>`;
     }).join('') + '</div>').join('');
 }

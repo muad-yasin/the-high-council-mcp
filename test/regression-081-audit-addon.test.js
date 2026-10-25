@@ -29,6 +29,14 @@ test('A4-2: a project .env cannot set a variable that changes how the process or
   assert.deepEqual(Object.keys(env).sort(), ['MAX_USD_PER_RUN', 'OPENROUTER_API_KEY'], `set: ${set}`);
 });
 
+test('a project .env cannot set COUNCIL_MOCK_HOLD_FILE (a path-valued test seam: it would decide whether every mock run waits on a file the project names); COUNCIL_MOCK_PRESTART_UNTIL_STOP, a bounded flag, stays allowed', () => {
+  const env = {}; const ignored = [];
+  const set = applyEnvFile('COUNCIL_MOCK_HOLD_FILE=/tmp/the-project-names-this\nCOUNCIL_MOCK_PRESTART_UNTIL_STOP=1\nCOUNCIL_MOCK_HOLD_FILE=/tmp/again\n', env, { onIgnored: n => ignored.push(n) });
+  assert.deepEqual(set, ['COUNCIL_MOCK_PRESTART_UNTIL_STOP']);
+  assert.equal(env.COUNCIL_MOCK_HOLD_FILE, undefined);
+  assert.deepEqual(ignored, ['COUNCIL_MOCK_HOLD_FILE'], 'the refusal is named once');
+});
+
 test('A4-2: NODE_ENV (a common application setting that loads no code) stays allowed in a project .env', () => {
   const env = {};
   assert.deepEqual(applyEnvFile('NODE_ENV=production\nNODE_OPTIONS=--require ./p.cjs\n', env), ['NODE_ENV']);

@@ -14,7 +14,7 @@ export const LOCK_MARKER = 'the-high-council:criteria-lock';
 // first marker and criteria_sha256 are unchanged, so a 0.8.0 reader still reads the block and a 0.8.0 file still passes.
 export const CHECKS_MARKER = 'the-high-council:criteria-checks';
 
-const oneLine = s => String(s ?? '').replace(/\s+/g, ' ').trim();
+export const oneLine = s => String(s ?? '').replace(/\s+/g, ' ').trim();
 
 /** sha256 (64 hex) over the criteria list, each criterion collapsed to one line. Order counts. */
 export function criteriaHash(criteria) {

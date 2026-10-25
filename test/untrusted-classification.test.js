@@ -66,15 +66,15 @@ const isWrappedText = r => {
   return !!m && r.content[r.content.length - 1].text === `<<<END THC-UNTRUSTED-TEXT ${m[1]}>>>` && r._meta?.[TRUST_META_KEY]?.trust === 'untrusted_model_output';
 };
 
-test('tools/list: every tool the server registers is classified, and there are 19', async () => {
+test('tools/list: every tool the server registers is classified, and there are 21', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'thc-untrusted-list-'));
   try {
     const res = await mcpSession(dir, [{ method: 'tools/list', params: {} }]);
     const names = res.get(2).result.tools.map(t => t.name).sort();
     assert.deepEqual(names.filter(n => !Object.hasOwn(TOOL_TRUST, n)), [], 'unclassified tools');
     assert.deepEqual(Object.keys(TOOL_TRUST).filter(n => !names.includes(n)), [], 'classified tools the server does not register');
-    // Changed by the owner's decision of 7 Oct 2026 (0.8.2 item 6d): contract_read and contract_amend, 17 -> 19.
-    assert.equal(names.length, 19);
+    // Changed by the owner's decision of 7 Oct 2026 (0.8.2 item 6d): contract_read and contract_amend, 17 -> 19; 0.8.3 M6 S7: tree_status, 19 -> 20; 0.8.3 M7 session channel: tree_decide, 20 -> 21 (EDITED, disclosed).
+    assert.equal(names.length, 22);       // 0.8.3 price_raise, 21 -> 22 (EDITED, disclosed)
     for (const [name, rule] of Object.entries(TOOL_TRUST)) {
       assert.ok(['text', 'fields', 'own', false].includes(rule.wrap), name);
       if (rule.wrap === false || rule.wrap === 'own') assert.ok(rule.reason && rule.reason.length > 20, `${name} needs a stated reason`);
@@ -131,14 +131,14 @@ test('a fixture run holding model text: read_run_file, run_status, list_runs, pl
     // run_status (summary): JSON stays parseable; the log fields are named untrusted and cleaned.
     const st = JSON.parse(res.get(4).result.content[0].text);
     // Superseded by the audit decision cnc-mcp-security F3 (every run-folder string the summary returns is named untrusted and cleaned): the list grew.
-    assert.deepEqual(st.untrusted_fields, ['lastLogLines', 'keyLines', 'signoff', 'chain', 'task', 'state', 'waitingFor']); // the fields present in this fixture, in the rule's order
+    assert.deepEqual(st.untrusted_fields, ['lastLogLines', 'keyLines', 'signoff', 'chain', 'task', 'state', 'waitingFor', 'resumable']); // the fields present in this fixture, in the rule's order. OLD: no 'resumable'. NEW: 'resumable' (its stoppedAt carries the stop marker's reason, which can quote a provider's refusal at exit 24). WHY: A3a commit 2, 18 Okt 2026, provider text now reaches a record that run_status returns
     assert.match(st.untrusted_notice, /written by AI models/);
     assert.ok(!JSON.stringify(st).includes(HIDDEN));
     assert.equal(res.get(4).result._meta[TRUST_META_KEY].trust, 'untrusted_model_output');
     // list_runs: every run's log line is named untrusted; the array shape is kept.
     const runs = JSON.parse(res.get(5).result.content[0].text);
     assert.ok(Array.isArray(runs) && runs.length === 2);
-    assert.deepEqual(runs.find(r => r.id === plan).untrusted_fields, ['lastLogLines', 'signoff', 'chain', 'task', 'state', 'waitingFor']); // audit fix cnc-mcp-security F3: the fields present in this fixture
+    assert.deepEqual(runs.find(r => r.id === plan).untrusted_fields, ['lastLogLines', 'signoff', 'chain', 'task', 'state', 'waitingFor', 'resumable']);   // OLD/NEW/WHY: as the run_status line above // audit fix cnc-mcp-security F3: the fields present in this fixture
     assert.ok(!JSON.stringify(runs).includes(HIDDEN));
     for (const r of runs) assert.ok(r.untrusted_fields.includes('lastLogLines'));
     // plan_outline: the headings are the deliverable's own words.

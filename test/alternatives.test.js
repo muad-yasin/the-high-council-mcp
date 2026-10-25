@@ -16,7 +16,7 @@ import { estimateChainRows } from '../src/cost.js';
 import { lintChain } from '../src/chain-lint.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+const chain = name => readChainFile(root, name);
 const EXTERNAL = { provider: 'external', model: 'claude-code-session' };
 const withAlternatives = (extra = {}) => ({ ...chain('mock-debate'), alternatives: { enabled: true }, ...extra });
 const withProposers = (config, proposers) => ({ ...config, seats: { ...config.seats, proposers } });
@@ -214,6 +214,7 @@ test('alternatives: the stage contract knows the new labels, so an external seat
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { readChainFile } from './helpers/chain-file.js';
 
 const cli = join(root, 'src', 'cli.js');
 function cliDir(config) {

@@ -17,6 +17,7 @@
 // patterns, which already follow this rule) carry no echo at all, only a location and a pattern
 // name.
 import { scanText as scanSecretText } from './key-redaction.js';
+import { isReservedPlaceholderHost } from './secret-patterns.js';
 
 // Masks a matched string for any output (log line, error message, WARNINGS.md entry). Never
 // returns the original substring, and the result is always <= 40 characters, per the deliverable's
@@ -83,7 +84,7 @@ export const IBAN_SPACED_RE = /\b[A-Z]{2}\d{2}(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{
 // stripped - Luhn-validated below, same false-positive discipline as IBAN.
 const CARD_SHAPE_RE = /\b(?:\d[ -]?){12,18}\d\b/g;
 
-const PII_TYPES = ['email', 'iban', 'card', 'secret'];
+export const PII_TYPES = ['email', 'iban', 'card', 'secret'];
 
 /**
  * Scan `text` for PII-shaped and secret-shaped content. Returns
@@ -113,7 +114,8 @@ export function scanForPii(text, { allow = [] } = {}) {
     }
   };
 
-  addLineFindings(EMAIL_RE, 'email');
+  // an address on a reserved example domain (admin@example.com) is an example, not personal data: the SAME list the key scan uses for URL hosts (src/secret-patterns.js)
+  addLineFindings(EMAIL_RE, 'email', raw => !isReservedPlaceholderHost(raw.slice(raw.lastIndexOf('@') + 1)));
   addLineFindings(IBAN_SHAPE_RE, 'iban', raw => ibanChecksumValid(raw));
   addLineFindings(IBAN_SPACED_RE, 'iban', raw => ibanChecksumValid(raw));
   addLineFindings(CARD_SHAPE_RE, 'card', raw => luhnValid(raw.replace(/[ -]/g, '')));
@@ -121,7 +123,7 @@ export function scanForPii(text, { allow = [] } = {}) {
   // Secret detection reuses src/key-redaction.js's own patterns (sk-/AWS/PEM/bearer/etc, plus
   // its KNOWN_SAFE exclusions for run-folder timestamps and git SHAs) rather than duplicating
   // them - prior art already tuned for this codebase's own false-positive shape.
-  for (const hit of scanSecretText(body)) {
+  for (const hit of scanSecretText(body, '', { exemptReservedHosts: true })) {   // a refusal scan: a placeholder on a reserved host (src/secret-patterns.js) is not a finding
     findings.push({ type: 'secret', line: hit.line, column: hit.column, pattern: hit.pattern });
   }
 
@@ -149,6 +151,6 @@ export function applyPiiGate(scanResult, mode) {
       : `looks like a ${f.type} (masked: ${f.masked})`;
     messages.push(`line ${f.line}, col ${f.column}: ${detail}`);
   }
-  const block = mode === 'hard-stop' && findings.length > 0;
+  const block = mode !== 'warn' && findings.length > 0;   // BUG-D-012 (a): anything but the literal 'warn' is strict (a junk or missing mode never loosens the stop)
   return { block, messages };
 }

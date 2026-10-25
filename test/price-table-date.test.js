@@ -14,11 +14,22 @@ const cli = resolve(here, '../src/cli.js');
 const table = JSON.parse(readFileSync(resolve(here, '../src/pricing.json'), 'utf8'));
 const at = d => new Date(`${d}T12:00:00Z`);
 
-test('pricing.json carries a machine-readable asOf that is never newer than any entry\'s own check date', () => {
+// CHANGED (lane E, 24 Okt 2026; C&C thcmcp-cd's option A, a dated checker change). OLD BAR (0.7.8): asOf <= EVERY date found anywhere in any row's `_source`. NEW BAR: asOf <= the date each row was really checked:
+// an openrouter/ row by `_openrouterCheckedAt` (the date scripts/refresh-openrouter-prices.mjs stamps, and refuses to stamp while a row is off the list), a direct row (not openrouter/, not mock/) by the NEWEST
+// "read YYYY-MM-DD" in its `_source`, and every direct row MUST carry one. WHY: the old bar counted history dates inside 41 openrouter rows' `_source` (the oldest 2026-09-17), so asOf could never pass 2026-09-17,
+// while 22 of 23 direct rows had no date at all and README's "carry their own dates in `_source`" was false. The new bar is stricter on what it requires (a read date on every direct row) and looser only on
+// dates that were history, not checks. What each bar allows asOf to be today: old <= 2026-09-17; new <= the oldest of _openrouterCheckedAt and the newest read date of every direct row.
+test('pricing.json carries a machine-readable asOf that is never newer than the date any row was really checked', () => {
   assert.match(table.asOf, /^\d{4}-\d{2}-\d{2}$/);
-  const dates = Object.entries(table).filter(([k]) => k.includes('/'))
-    .flatMap(([, v]) => String(v._source || '').match(/\d{4}-\d{2}-\d{2}/g) || []);
-  for (const d of dates) assert.ok(table.asOf <= d, `asOf ${table.asOf} is newer than an entry checked ${d}`);
+  assert.match(table._openrouterCheckedAt, /^\d{4}-\d{2}-\d{2}$/);
+  assert.ok(table.asOf <= table._openrouterCheckedAt, `asOf ${table.asOf} is newer than the openrouter/ rows' last comparison ${table._openrouterCheckedAt}`);
+  const direct = Object.entries(table).filter(([k, v]) => k.includes('/') && !k.startsWith('openrouter/') && !k.startsWith('mock/') && v && typeof v === 'object');
+  assert.ok(direct.length >= 23, `the table has ${direct.length} direct rows: the filter read too few`);
+  for (const [k, v] of direct) {
+    const reads = [...String(v._source || '').matchAll(/\bread (\d{4}-\d{2}-\d{2})\b/g)].map(m => m[1]).sort();
+    assert.ok(reads.length, `${k}: its _source holds no "read YYYY-MM-DD": a direct row must carry the date its provider's page was read`);
+    assert.ok(table.asOf <= reads.at(-1), `asOf ${table.asOf} is newer than ${k}'s last read ${reads.at(-1)}`);
+  }
   assert.equal(priceOf('x', 'asOf'), null, 'asOf is not a price entry');
 });
 

@@ -10,6 +10,7 @@ import { join, dirname, resolve, extname, relative, isAbsolute, sep } from 'node
 import { fileURLToPath } from 'node:url';
 import { parseSections, compareDrafts, parseLedger, words } from './parse.js';
 import { RUN_FOLDER } from '../run-status.js';
+import { verdictHeadline } from '../verdict-headline.js';
 import { createGuard, SECURITY_HEADERS, refusalBody } from './guard.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -46,10 +47,17 @@ function listRuns() {
     });
 }
 
-// Drafts in the order they were written: build, revise-1, revise-2, ..., final.
+// Drafts in the order they were written: build, revise-1, revise-2, ..., final. Only the draft
+// files themselves: the stage labels are `revise-<N>` and `revise-<N>-full`, and every stage also
+// leaves `<label>.usage.json` / `<label>.prompt.json` beside its .md, which are not drafts.
 function draftFiles(dir) {
   const names = readdirSync(dir);
-  const order = n => n === 'build.md' ? 0 : n.startsWith('revise-') ? 1 + Number(n.match(/\d+/)[0]) : n === 'final.md' ? 900 : -1;
+  const order = n => {
+    if (n === 'build.md') return 0;
+    if (n === 'final.md') return Infinity;
+    const m = n.match(/^revise-(\d+)(-full)?\.md$/);
+    return m ? 1 + Number(m[1]) * 2 + (m[2] ? 1 : 0) : -1;
+  };
   return names.filter(n => order(n) >= 0).sort((a, b) => order(a) - order(b));
 }
 
@@ -81,22 +89,35 @@ function runDetail(id) {
   for (const f of files) if (f.endsWith('.md') || f === 'run.log') texts[f] = readText(join(dir, f));
   // Panel verdicts per round, from the saved critic replies.
   const panels = {};
+  const stageRecords = new Map(((report || readJson(join(dir, 'report-partial.json')))?.stages || []).filter(x => x && typeof x.label === 'string').map(x => [x.label, x]));
+  const liveRows = (readJson(join(dir, 'state.json'))?.seats || []).filter(r => r && typeof r.lab === 'string' && (r.seat === undefined || typeof r.seat === 'string'));
   for (const f of files) {
-    const m = f.match(/^panel-(\d+)-([a-z0-9]+)\.md$/) || f.match(/^critique-(\d+)\.md$/);
+    // A lab may hold a hyphen or a dot ("deepseek-v4.1-flash"), and a seat of a model repeated on another layer is "<lab>-l<layer>" (lab identity, 20 Okt 2026): the old [a-z0-9] pattern dropped both from the panel view. A re-ask file (-reaskN) is the same seat's second reply, not a row.
+    const m = (/-reask\d+\.md$/.test(f) ? null : f.match(/^panel-(\d+)-([a-z0-9][a-z0-9._-]*)\.md$/)) || f.match(/^critique-(\d+)\.md$/);
     if (!m) continue;
     const round = m[1];
-    const lab = m[2] || 'critic';
+    // The lab shown is the bare lab the run RECORDED for that stage (report.json, or report-partial.json for a stopped run), never the seat key in the file name; only a run with neither yet (still going) falls back to the file-name part.
+    const st0 = stageRecords.get(f.replace(/\.md$/, ''));
+    const st = st0 && typeof st0.lab === 'string' ? { lab: st0.lab, ...(typeof st0.seat === 'string' ? { seat: st0.seat } : {}) } : null;   // report.json is a file anyone's model output can shape: only strings pass
+    // A run with no report yet: state.json holds one row per seat (bare lab + `seat`); a file with no row there gets NO lab and the file-name part in `seat` (the seat key is never shown as a lab).
+    const live = st ? null : liveRows.find(r => (r.seat ?? r.lab) === m[2]);
+    const lab = st?.lab || live?.lab || (m[2] && !st ? '' : 'critic');
+    const seatPart = st?.seat || live?.seat || (st || live || !m[2] ? null : m[2]);
     let parsed = null;
     try {
       const t = texts[f];
       const first = t.indexOf('{'), last = t.lastIndexOf('}');
       parsed = JSON.parse(t.slice(first, last + 1));
     } catch { /* unreadable, shown as such */ }
-    (panels[round] ||= []).push({ lab, file: f, parsed });
+    // ROADMAP 83: the top layer's reply in the pass after a session's early-finish proposal answers a different question (finish now?), not the plan's sign-off: labelled, never hidden
+    const es = report?.stop;
+    const early = es?.kind === 'early_finish' && String(es.pass) === round && Array.isArray(es.overseer) && es.overseer.includes(lab);
+    (panels[round] ||= []).push({ lab, ...(seatPart ? { seat: seatPart } : {}), file: f, parsed, ...(early ? { early: true } : {}) });
   }
   return {
     id,
     report,
+    verdict: verdictHeadline(report).words, // how the run passed, or why it is not a pass (null: open objections); the viewer prints it, one source with the board and run_status
     files,
     drafts: drafts.map(d => ({ label: d.label, name: d.name, words: d.words, tree: d.tree })),
     comparison: compareDrafts(drafts),

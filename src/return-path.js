@@ -13,6 +13,7 @@
 // The file on disk is never changed. This is a cue and a hygiene step, not a filter: it does not
 // block, rewrite or score anything, and it must never be described as making a plan safe.
 import { randomBytes } from 'node:crypto';
+import { HIDDEN_CLASS_SOURCE, isHiddenPoint, isQuietPoint } from './hidden-chars.js';
 
 export const TRUST_META_KEY = 'io.github.muad-yasin/the-high-council';
 
@@ -31,12 +32,19 @@ const FLAG_SEQUENCE = new RegExp(`\u{1F3F4}(?:${FLAG_BODIES.map(tagRun).join('|'
 // the zero-width space and word joiner (U+200B, U+2060) and the variation-selector supplement U+E0100-E01EF, which carry hidden text the way tag characters do. NOT the zero-width
 // joiner (U+200D) and the emoji variation selector (U+FE0F), which a real emoji sequence needs.
 const BIDI = /[\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/g;
-const INVISIBLE = /[\u200B\u2060\u{E0100}-\u{E01EF}]/gu;
+// Audit item 7 (0.8.3): the third class is no longer a hand-written list of three ranges. It is src/hidden-chars.js's class (everything that renders as nothing: variation selectors,
+// fillers, the combining grapheme joiner, the braille blank, invisible operators ...) minus the tag characters and bidi controls above (counted apart) and minus the QUIET joiners
+// (ZWNJ, ZWJ, the emoji selector, Mongolian and Khmer joiners), which real text needs and which stay as they were: not stripped, not counted.
+const HIDDEN_STRIP = new RegExp(`[${HIDDEN_CLASS_SOURCE}]`, 'gu');
+const keepQuiet = m => (isQuietPoint(m.codePointAt(0)) ? m : '');
+const TAG_ONE = new RegExp(TAG_CHARS.source, 'u');
+const BIDI_ONE = new RegExp(BIDI.source);
+const invisibleCount = s => [...s].filter(ch => { const c = ch.codePointAt(0); return isHiddenPoint(c) && !isQuietPoint(c) && !TAG_ONE.test(ch) && !BIDI_ONE.test(ch); }).length;
 
 export function hiddenCharacterReport(text) {
   const s = String(text);
   const flagged = s.replace(FLAG_SEQUENCE, '');
-  const invisible = (s.match(INVISIBLE) || []).length;
+  const invisible = invisibleCount(s);
   return { tag_characters: (flagged.match(TAG_CHARS) || []).length, bidi_controls: (s.match(BIDI) || []).length, ...(invisible ? { invisible_characters: invisible } : {}) };
 }
 
@@ -45,7 +53,7 @@ export function stripHidden(text) {
   // Protect flag sequences, strip the rest, put the flags back.
   const flags = [];
   const held = s.replace(FLAG_SEQUENCE, m => { flags.push(m); return `\u0000FLAG${flags.length - 1}\u0000`; });
-  return held.replace(TAG_CHARS, '').replace(BIDI, '').replace(INVISIBLE, '').replace(/\u0000FLAG(\d+)\u0000/g, (_, i) => flags[Number(i)]);
+  return held.replace(TAG_CHARS, '').replace(BIDI, '').replace(HIDDEN_STRIP, keepQuiet).replace(/\u0000FLAG(\d+)\u0000/g, (_, i) => flags[Number(i)]);
 }
 
 const MARKER = 'THC-UNTRUSTED-TEXT';

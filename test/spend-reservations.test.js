@@ -103,8 +103,10 @@ test('a process killed while a paid call is in flight leaves the reservation, an
   `);
   const child = spawn(process.execPath, [script], { env: { PATH: process.env.PATH, OPENROUTER_API_KEY: 'sk-or-v1-' + 'e'.repeat(40) } });
   try {
-    for (let i = 0; i < 100 && !existsSync(join(run, RESERVATIONS_FILE)); i++) await new Promise(r => setTimeout(r, 50));
-    assert.ok(existsSync(join(run, RESERVATIONS_FILE)), 'the reservation was written before the call went out');
+    // wait for the LINE, not only the file: openReservations creates the file (openSync 'a') a moment before the reserved line is appended, and a kill in that gap left nothing to read (seen once in 1 of ~100 suites, 14 Oct 2026)
+    const reserved = () => existsSync(join(run, RESERVATIONS_FILE)) && readFileSync(join(run, RESERVATIONS_FILE), 'utf8').includes('"reserved"');
+    for (let i = 0; i < 100 && !reserved(); i++) await new Promise(r => setTimeout(r, 50));
+    assert.ok(reserved(), 'the reservation was written before the call went out');
     child.kill('SIGKILL');
     await new Promise(r => child.on('exit', r));
   } finally { srv.close(); }
@@ -177,4 +179,104 @@ test('review fixes (item 8): a torn last line is not glued onto, ids continue pa
   writeFileSync(join(d, 'run.json'), JSON.stringify({ chain: 'x', maxUsd: 10 }));
   const b = budgetOf(d, null);
   assert.equal(b.spentUsd, 3); assert.equal(b.remainingUsd, 7);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------------- 0.8.3 M2 (D18): a charge is tied to its reservation by id
+import { recordLostCharge, supersededStagesOf } from '../src/superseded.js';
+import { setChargeHook } from '../src/chain.js';
+
+test('reservationId (0.8.3 M2, D18): every paid call\'s usage file, its report.json stage and its cached replay carry the id of the reserved line written before it; a mock run writes no id and no reservation', () => {
+  const dir = tmp(); mkdirSync(join(dir, 'tasks'));
+  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a habit tracker.\n');
+  const env = { PATH: process.env.PATH, HOME: dir };
+  const first = spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '9'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 });
+  assert.equal(first.status, 4, 'mock-budget (fixture prices) stops at a $9 cap, four stages in');
+  const id = readdirSync(join(dir, 'runs'))[0]; const run = join(dir, 'runs', id);
+  const reserved = lines(run).filter(l => l.event === 'reserved');
+  const settled = lines(run).filter(l => l.event === 'settled');
+  const usageFiles = readdirSync(run).filter(f => f.endsWith('.usage.json') && !f.startsWith('handoff-from-run'));
+  assert.ok(usageFiles.length >= 2, 'the run paid for stages before the cap stopped it');
+  const paidBy = {};
+  for (const f of usageFiles) {
+    const u = JSON.parse(readFileSync(join(run, f), 'utf8')); const label = f.replace(/\.usage\.json$/, '');
+    const r = reserved.find(x => x.id === u.reservationId);
+    assert.ok(r, `${f} carries the id of a reserved line (${u.reservationId})`);
+    assert.equal(r.label, label, 'the reserved line is that stage\'s own');
+    const s = settled.find(x => x.id === u.reservationId);
+    assert.equal(s.outcome, 'recorded'); assert.equal(s.usd, u.usd, 'the settlement and the usage file read one value');
+    paidBy[label] = u.reservationId;
+  }
+  // resume to the end: replayed stages keep the id of the sitting that paid; new ones carry their own
+  const resumed = spawnSync(process.execPath, [cli, '--resume', `runs/${id}`, '--max-usd', '1000000'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 });
+  assert.equal(resumed.status, 0, resumed.stdout + resumed.stderr);
+  const report = JSON.parse(readFileSync(join(run, 'report.json'), 'utf8'));
+  const replayed = report.stages.filter(s => s.cached);
+  assert.ok(replayed.length >= 2);
+  for (const s of replayed) assert.equal(s.reservationId, paidBy[s.label], `${s.label}: the replay names the sitting that paid`);
+  for (const s of report.stages.filter(x => !x.cached && x.usd > 0)) assert.match(s.reservationId, /^r\d+$/, `${s.label} was paid this sitting`);
+  const all = new Set(lines(run).filter(l => l.event === 'reserved').map(l => l.id));
+  for (const s of report.stages.filter(x => x.usd > 0)) assert.ok(all.has(s.reservationId), `${s.label}'s id is a reserved line of this run`);
+  // the unpriced all-mock chain: no id anywhere, no reservations file
+  const plain = tmp(); mkdirSync(join(plain, 'tasks')); writeFileSync(join(plain, 'tasks', 't.md'), 'Plan a habit tracker.\n');
+  assert.equal(spawnSync(process.execPath, [cli, '--chain', 'mock', '--task', 'tasks/t.md'], { cwd: plain, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: plain }, timeout: 120_000 }).status, 0);
+  const prun = join(plain, 'runs', readdirSync(join(plain, 'runs'))[0]);
+  assert.equal(existsSync(join(prun, RESERVATIONS_FILE)), false);
+  for (const f of readdirSync(prun).filter(x => x.endsWith('.usage.json'))) assert.equal('reservationId' in JSON.parse(readFileSync(join(prun, f), 'utf8')), false, f);
+  assert.equal(JSON.parse(readFileSync(join(prun, 'report.json'), 'utf8')).stages.some(s => 'reservationId' in s), false);
+});
+
+test('reservationId: a billed_unreadable charge record carries its id and kind `billed`; a call that leaves BOTH a discarded attempt\'s waste and a billed charge gives two records with one id and two kinds, and superseded stages are matched by id', async () => {
+  const d = tmp();
+  const env0 = process.env.OPENROUTER_API_KEY; process.env.OPENROUTER_API_KEY = 'sk-or-v1-' + 'f'.repeat(40);
+  // a dropped 200 body: the request went out, so the call may be billed and its usage is unreadable
+  const srv = http.createServer((req, res) => { req.resume(); req.on('end', () => { res.statusCode = 200; res.setHeader('content-type', 'application/json'); res.end('this is not json'); }); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const baseUrl = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    setBudget(50); setReservationSink(openReservations(d)); setChargeHook(c => recordLostCharge(d, c.label, c));
+    await assert.rejects(() => runSingleStage({ ...PRICED, baseUrl }, { system: 's', user: 'u', label: 'billed' }));
+    const sl = lines(d).find(l => l.event === 'settled'); assert.equal(sl.outcome, 'billed_unreadable');
+    const charges = supersededStagesOf(d);
+    assert.equal(charges.length, 1);
+    assert.deepEqual([charges[0].reservationId, charges[0].kind, charges[0].usd], [sl.id, 'billed', sl.usd]);
+  } finally { srv.close(); }
+  // the thinking retry: first answer cut off at its cap with all tokens spent on thinking (waste), the retry then drops its body (billed)
+  const d2 = tmp(); let hits = 0;
+  const srv2 = http.createServer((req, res) => { req.resume(); req.on('end', () => { hits += 1; res.statusCode = 200; res.setHeader('content-type', 'application/json');
+    if (hits === 1) res.end(JSON.stringify({ choices: [{ message: { content: '' }, finish_reason: 'length' }], usage: { prompt_tokens: 100, completion_tokens: 500, completion_tokens_details: { reasoning_tokens: 500 } } }));
+    else res.end('not json'); }); });
+  await new Promise(r => srv2.listen(0, '127.0.0.1', r));
+  try {
+    setBudget(50); setReservationSink(openReservations(d2)); setChargeHook(c => recordLostCharge(d2, c.label, c));
+    await assert.rejects(() => runSingleStage({ ...PRICED, baseUrl: `http://127.0.0.1:${srv2.address().port}` }, { system: 's', user: 'u', label: 'both' }));
+    assert.equal(hits, 2, 'the retry was sent');
+    const sl = lines(d2).find(l => l.event === 'settled'); assert.equal(sl.outcome, 'billed_unreadable');
+    const both = supersededStagesOf(d2);
+    assert.equal(both.length, 2);
+    assert.deepEqual(both.map(c => c.kind).sort(), ['billed', 'waste']);
+    assert.ok(both.every(c => c.reservationId === sl.id), 'one reservation, two charge records, told apart by kind');
+    assert.equal(both.find(c => c.kind === 'billed').usd, sl.usd, 'the settlement equals the billed record only');
+  } finally { srv2.close(); setReservationSink(null); setBudget(null); setChargeHook(null); if (env0 === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = env0; }
+});
+
+test('reservationId: `superseded[]` in report.json attributes the superseded records its total absorbed, by label, amount and reservation id', () => {
+  const dir = tmp(); mkdirSync(join(dir, 'tasks'));
+  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a habit tracker.\n');
+  const env = { PATH: process.env.PATH, HOME: dir };
+  assert.equal(spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '9'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 }).status, 4);
+  const id = readdirSync(join(dir, 'runs'))[0]; const run = join(dir, 'runs', id);
+  // a stage set aside and paid for again: plant a superseded record with a known id and amount, then finish the run
+  mkdirSync(join(run, 'superseded'), { recursive: true });
+  writeFileSync(join(run, 'superseded', 'build.1.usage.json'), JSON.stringify({ provider: 'mock', model: 'mock-priced', usage: { input: 1, output: 1 }, usd: 0.25, reservationId: 'r77' }));
+  const done = spawnSync(process.execPath, [cli, '--resume', `runs/${id}`, '--max-usd', '1000000'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 });
+  assert.equal(done.status, 0, done.stdout + done.stderr);
+  const report = JSON.parse(readFileSync(join(run, 'report.json'), 'utf8'));
+  assert.deepEqual(report.superseded, [{ label: 'superseded/build.1', usd: 0.25, reservationId: 'r77' }]);
+  assert.equal(report.totals.supersededUsd, 0.25);
+  const sum = report.stages.reduce((n, s) => n + s.usd, 0) + report.totals.supersededUsd;
+  assert.ok(Math.abs(sum - report.totals.usd) < 1e-9, 'the identity totals.usd = sum of stages + supersededUsd holds');
+  // a run with nothing superseded has no `superseded` key
+  const dir2 = tmp(); mkdirSync(join(dir2, 'tasks')); writeFileSync(join(dir2, 'tasks', 't.md'), 'Plan.\n');
+  assert.equal(spawnSync(process.execPath, [cli, '--chain', 'mock', '--task', 'tasks/t.md'], { cwd: dir2, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir2 }, timeout: 120_000 }).status, 0);
+  assert.equal('superseded' in JSON.parse(readFileSync(join(dir2, 'runs', readdirSync(join(dir2, 'runs'))[0], 'report.json'), 'utf8')), false);
 });

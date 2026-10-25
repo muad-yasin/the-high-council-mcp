@@ -47,7 +47,8 @@ test('money #1: a capped rematch records what its in-flight panel siblings spent
     name: 'mb3', maxRounds: 1, signoff: 'unanimous', estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 },
     seats: { criteria: seat(100), builder: seat(400), reviser: seat(400), critics: ['a', 'b', 'c'].map(lab => ({ ...seat(400), lab })) },
   }));
-  assert.equal(cliRun(dir, ['--chain', 'mb3', '--task', 'tasks/s.md', '--max-usd', 'none']).status, 0);
+  // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so it accepts the two finished exits.
+  assert.ok([0, 22].includes(cliRun(dir, ['--chain', 'mb3', '--task', 'tasks/s.md', '--max-usd', 'none']).status));
   const id = readdirSync(join(dir, 'runs'))[0];
   const stages = JSON.parse(readFileSync(join(dir, 'runs', id, 'report.json'), 'utf8')).stages;
   const cost = l => stages.find(s => s.label === l).usd;

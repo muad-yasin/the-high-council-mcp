@@ -7,8 +7,8 @@
 // offline mock chain.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -90,4 +90,73 @@ test('a bare --signoff with no name is a usage error, never read as signed', () 
   const r = run(AUTH_CHANGE, POLICY, ['--signoff']);
   assert.equal(r.status, 2);
   assert.match(r.stderr, /--signoff: needs a name/);
+});
+
+// Bug audit 2026-10-24 C-025: on a plain `--resume` (every MCP resume_run) `--task` is absent, so cli.js read the policy's task text as '' and `required_signoff_paths` found no target_file and passed: a resume skipped the sign-off check that a start refuses (exit 12). A resume now reads the task
+// file the run recorded, and the sign-off name typed at the start (run.json `signoff`) counts on a resume, then one typed on the resume, then the task file's own `signoff:` line. Real CLI, real pause at the external stage (mock-external, exit 3), real resume.
+const EXTERNAL_CHAIN = readFileSync(resolve(here, '../chains/mock-external.json'), 'utf8');
+function pausedRun(taskText, { policyAtStart = null, startArgs = [] } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-signoff-resume-'));
+  mkdirSync(join(dir, 'chains'));
+  writeFileSync(join(dir, 'chains', 'mock-external.json'), EXTERNAL_CHAIN);
+  writeFileSync(join(dir, 'task.md'), taskText);
+  if (policyAtStart) writeFileSync(join(dir, 'policy.json'), JSON.stringify(policyAtStart));
+  const go = args => spawnSync(process.execPath, [cli, ...args], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir }, encoding: 'utf8' });
+  const started = go(['--chain', 'mock-external', '--task', 'task.md', '--allow-unfenced', '--max-usd', 'none', ...startArgs]);
+  assert.equal(started.status, 3, `fixture: the run paused at its external stage: ${started.stdout}${started.stderr}`);
+  const runDir = join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
+  return { dir, runDir, setPolicy: policy => writeFileSync(join(dir, 'policy.json'), JSON.stringify(policy)), saved: () => JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')), edit: fn => { const m = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')); fn(m); writeFileSync(join(runDir, 'run.json'), JSON.stringify(m, null, 2)); }, resume: (extra = []) => go(['--resume', runDir, '--allow-unfenced', ...extra]) };
+}
+
+test('C-025: a run started before the sign-off rule existed is refused on resume (exit 12, the same E005 text a start gets); a resume used to pass', () => {
+  const f = pausedRun(AUTH_CHANGE);
+  try {
+    f.setPolicy(POLICY);
+    const r = f.resume();
+    assert.equal(r.status, 12, r.stdout + r.stderr);
+    assert.match(r.stderr, /COUNCIL-E005/);
+    assert.match(r.stderr, /required_signoff_paths/);
+  } finally { rmSync(f.dir, { recursive: true, force: true }); }
+});
+
+test('C-025: a run started with --signoff (name saved in run.json) and a run whose task file carries a signoff: line both continue on a plain resume', () => {
+  const typed = pausedRun(AUTH_CHANGE, { policyAtStart: POLICY, startArgs: ['--signoff', 'alice'] });
+  const inFile = pausedRun(`${AUTH_CHANGE}signoff: alice\n`, { policyAtStart: POLICY });
+  try {
+    assert.equal(typed.saved().signoff, 'alice', 'the typed name is saved with the run');
+    const a = typed.resume(); assert.equal(a.status, 3, a.stdout + a.stderr); assert.doesNotMatch(a.stderr, /COUNCIL-E005/);
+    const b = inFile.resume(); assert.equal(b.status, 3, b.stdout + b.stderr); assert.doesNotMatch(b.stderr, /COUNCIL-E005/);
+  } finally { rmSync(typed.dir, { recursive: true, force: true }); rmSync(inFile.dir, { recursive: true, force: true }); }
+});
+
+test('C-025: a sign-off typed on the resume passes it and is saved, so the next plain resume passes too', () => {
+  const f = pausedRun(AUTH_CHANGE);
+  try {
+    f.setPolicy(POLICY);
+    const typed = f.resume(['--signoff', 'bob']);
+    assert.equal(typed.status, 3, typed.stdout + typed.stderr);
+    assert.equal(f.saved().signoff, 'bob', 'saved for the next sitting');
+    const again = f.resume();
+    assert.equal(again.status, 3, again.stdout + again.stderr);
+    assert.doesNotMatch(again.stderr, /COUNCIL-E005/);
+  } finally { rmSync(f.dir, { recursive: true, force: true }); }
+});
+
+// C-025 fix-up (C&C, owner choice A: an agent's resume trusts what run.json saved, after strict checks): the saved sign-off counts only as a non-empty string. A junk value (an object, a number, blanks) in the project-writable run.json is ignored: it used to be handed to the policy as it was, where it shadowed the task file's own `signoff:` line (`flag || saved || line`) and, being no string, was refused.
+test('C-025: a junk sign-off saved in run.json is ignored: it does not shadow the task file\'s own signoff: line, and without such a line the resume is still refused (exit 12)', () => {
+  const withLine = pausedRun(`${AUTH_CHANGE}signoff: alice\n`, { policyAtStart: POLICY });
+  const noLine = pausedRun(AUTH_CHANGE);
+  try {
+    for (const junk of [{ name: 'alice' }, 42, '   ']) {
+      withLine.edit(m => { m.signoff = junk; });
+      const ok = withLine.resume();
+      assert.equal(ok.status, 3, `${JSON.stringify(junk)} is ignored and the task file's line counts: ${ok.stdout}${ok.stderr}`);
+      assert.doesNotMatch(ok.stderr, /COUNCIL-E005/);
+    }
+    noLine.setPolicy(POLICY);
+    noLine.edit(m => { m.signoff = { name: 'alice' }; });
+    const refused = noLine.resume();
+    assert.equal(refused.status, 12, refused.stdout + refused.stderr);
+    assert.match(refused.stderr, /required_signoff_paths/);
+  } finally { rmSync(withLine.dir, { recursive: true, force: true }); rmSync(noLine.dir, { recursive: true, force: true }); }
 });

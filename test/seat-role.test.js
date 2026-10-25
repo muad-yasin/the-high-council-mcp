@@ -159,10 +159,10 @@ test('test_role_compat, golden hash across every shipped chain: no seat in any n
 });
 
 test('plan-debate-roles-c1.json: every critic seat declares a valid role, and applying it changes the debate-stage prompt away from the golden hash', () => {
-  const cfg = JSON.parse(readFileSync(join(chainsDir, 'plan-debate-roles-c1.json'), 'utf8'));
+  const cfg = JSON.parse(readFileSync(join(chainsDir, 'outdated', 'plan-debate-roles-c1.json'), 'utf8'));
   const critics = cfg.seats.critics;
   assert.equal(critics.length, 5, 'one critic seat per lens/persona, no more, no fewer');
-  const findings = lintChain(cfg, 'chains/plan-debate-roles-c1.json');
+  const findings = lintChain(cfg, 'chains/outdated/plan-debate-roles-c1.json');
   assert.equal(findings.filter(f => f.kind === 'invalid-seat-role').length, 0);
   for (const seat of critics) {
     assert.notEqual(seat.role, undefined, `${seat.lab}: this chain exists specifically to give every critic seat a role`);

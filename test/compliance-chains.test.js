@@ -17,7 +17,8 @@ import { priceOf } from '../src/cost.js';
 import { providerNames } from '../src/providers.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const chainsDir = join(here, '../chains');
+// 0.8.3 (lane B): the four compliance chains were retired to chains/outdated/ (Muad 18 Okt 2026); the compliance LINT stays, these files are its fixtures.
+const chainsDir = join(here, '../chains/outdated');
 const knownProviders = new Set(providerNames());
 
 const COMPLIANCE_CHAINS = ['eu-only', 'us-only', 'single-vendor-anthropic', 'single-vendor-openai'];
@@ -26,12 +27,16 @@ function loadChain(name) {
   return JSON.parse(readFileSync(join(chainsDir, `${name}.json`), 'utf8'));
 }
 
-test('all four shipped compliance chains exist and lint clean', () => {
-  for (const name of COMPLIANCE_CHAINS) {
+test('the compliance chains exist and lint clean, except us-only, whose "US" region no check reads (refused, like any unknown region)', () => {
+  for (const name of COMPLIANCE_CHAINS.filter(n => n !== 'us-only')) {
     const config = loadChain(name);
-    const findings = lintChain(config, `chains/${name}.json`);
+    const findings = lintChain(config, `chains/outdated/${name}.json`);
     assert.deepEqual(findings, [], `${name}.json should lint clean, got: ${JSON.stringify(findings)}`);
   }
+  // 0.8.3 (lane B, C&C order 23 Okt 2026): us-only is retired and the lint does not bind chains/outdated/; a user who copies it back gets this one finding from `council doctor --chain`, not a pass for a region claim nothing checks.
+  const usOnly = lintChain(loadChain('us-only'), 'chains/outdated/us-only.json');
+  assert.equal(usOnly.length, 1, `us-only.json: exactly the region finding, got: ${JSON.stringify(usOnly)}`);
+  assert.match(usOnly[0].message, /names "US", which is not a region this check knows/);
 });
 
 test('every seat in every compliance chain uses a known provider (src/providers.js)', () => {
@@ -154,6 +159,20 @@ test('chain-lint: compliance.regions claiming EU with a deepseek/zai seat fails 
   assert.ok(kinds.includes('invalid-compliance-config'));
 });
 
+// 0.8.3 (lane B, C&C order 23 Okt 2026; A-DRAFT message): only the exact string "EU" earns a region check ("US" has none, so it is refused too). "eu" used to skip the routing check (only the description was compared), so a chain claiming it with a deepseek seat passed.
+test('chain-lint: a compliance region spelled any other way is refused (fail closed), never checked less; a regions value that is not a list of strings is refused', () => {
+  const chain = regions => ({ description: 'eu europe anthropic deepseek', compliance: { regions, providers: ['anthropic', 'deepseek'] }, seats: { criteria: { provider: 'anthropic', model: 'claude-sonnet-5' }, builder: { provider: 'anthropic', model: 'claude-sonnet-5' }, critics: [{ provider: 'deepseek', model: 'deepseek-chat' }] } });
+  const hits = regions => lintChain(chain(regions), 'chains/fixture.json').filter(f => f.kind === 'invalid-compliance-config');
+  for (const spelled of ['eu', 'Eu', 'europe', ' EU', 'EU ', 'us', 'US']) {
+    const found = hits([spelled]);
+    assert.ok(found.some(f => f.message.includes(`names "${spelled}", which is not a region this check knows`)), `"${spelled}" is refused: ${found.map(f => f.message).join(' | ')}`);
+  }
+  assert.ok(hits('EU').some(f => /must be a list of region names/.test(f.message)), 'a string where a list belongs is refused (it used to become the letters E and U, which no check read)');
+  assert.ok(hits([1]).some(f => /must be a list of region names/.test(f.message)));
+  assert.ok(!hits(['EU']).some(f => /not a region this check knows|must be a list/.test(f.message)), 'control: the exact spelling is not refused for its spelling (it still fails the routing check for the deepseek seat)');
+  assert.ok(hits(['EU']).some(f => /not an EU-based lab/.test(f.message)), 'control: "EU" with a deepseek seat still gets the routing finding');
+});
+
 test('chain-lint: a compliance chain with an unpriced model fails validation', () => {
   const findings = lintChain({
     description: 'anthropic only',
@@ -179,7 +198,7 @@ test('chain-lint: a chain with no compliance field at all is unaffected (no-op)'
   assert.deepEqual(findings, []);
 });
 
-test('the shipped chains directory count includes the four new compliance chains', () => {
+test('the four compliance chains sit in chains/outdated/ (retired in 0.8.3)', () => {
   const count = readdirSync(chainsDir).filter(f => f.endsWith('.json')).length;
   for (const name of COMPLIANCE_CHAINS) {
     assert.ok(readdirSync(chainsDir).includes(`${name}.json`));

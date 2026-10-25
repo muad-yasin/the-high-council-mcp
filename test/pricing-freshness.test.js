@@ -2,7 +2,7 @@
 // DeepSeek V4.1 Flash, a third less than the list's output price of GLM-5.3, a third of GLM-5.2's). The rows are re-read by scripts/refresh-openrouter-prices.mjs, which records
 // the date; this test turns red a fixed number of days after it, so the next release cannot ship a table nobody compared with the list.
 // Red on the date printed in the failure message: run the script (it needs the network), commit the changed rows, and the test is green for another 45 days.
-// The date is also in the README's Known limits and in MAN-7 (the release checklist). The retention table has its own, earlier date (2026-10-31).
+// The date is also in the README's Known limits and in MAN-7 (the release checklist). The retention table has its own, later date (2026-11-23).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';

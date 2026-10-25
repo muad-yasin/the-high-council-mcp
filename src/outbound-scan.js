@@ -13,7 +13,7 @@
 // A key written as plain prose ("the password is hunter2") has no shape and is not detectable.
 //
 // The one override is `--allow-secret-shaped` (saved in run.json, so a resume keeps it; MCP
-// start_run `allow_secret_shaped`).
+// a person's typed flag only: the MCP parameter was removed in 0.8.3).
 //
 // Split by source (C&C, 2026-09-28, after verify pass F1): the leak guarded against is the user's
 // own secret, and it enters through the inputs. The up-front input scan (cli.js: task, --context,
@@ -29,12 +29,18 @@ import { findSecrets } from './secret-patterns.js';
 // [{ line, name }] for every credential-shaped span in `text`, 1-based lines. `distinctiveOnly`
 // leaves out the generic shapes (see above).
 // `everyContext` (the advice brief only): also the context-only shapes, with no context word needed (see findSecrets).
-export function secretShapesIn(text, { distinctiveOnly = false, everyContext = false } = {}) {
+// `exemptReservedHosts` (the input scans only, 0.8.3 Part E): a password in a URL on a reserved placeholder host is no finding (see findSecrets); off by default, so the advice send path and every other caller keep refusing it.
+export function secretShapesIn(text, { distinctiveOnly = false, everyContext = false, exemptReservedHosts = false } = {}) {
   if (typeof text !== 'string' || !text) return [];
-  return findSecrets(text, { redactable: true, distinctiveOnly, everyContext }).map(s => ({
+  return findSecrets(text, { redactable: true, distinctiveOnly, everyContext, exemptReservedHosts }).map(s => ({
     line: text.slice(0, s.start).split('\n').length,
     name: s.name,
   }));
+}
+
+// The outbound key scan's refusal lines (src/cli.js, src/run-preflight.js): pattern name and line, never the value.
+export function secretRefusalLines(found) {
+  return found.map(f => `  ${f.where}:${f.line}  ${f.name}`);
 }
 
 // A prompt was about to go out with a credential shape in it. Control flow like BudgetExceeded:

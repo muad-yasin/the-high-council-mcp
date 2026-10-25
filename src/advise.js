@@ -307,6 +307,9 @@ export async function runAdvise(config, deps) {
         }
       }
     } catch (err) {
+      // A3a commit 2 (18 Okt 2026), REVERSED the same day by Muad ("judge refused for its price should fail the whole call and tell the user about it, instead of sending half a call"): a seat OpenRouter refused at its price pin is
+      // NOT a dropout here. PriceRefused is control flow, so it passes up from this catch; settleAll (chain.js) then lets every sibling of the wave finish and be recorded and throws the first refusal (the others ride along as `also`).
+      // The advice call fails whole (cli.js: exit 16, no report, nothing delivered); the voices already paid for stay in the run folder. A run (chain.js) still stops at exit 24.
       rethrowControlFlow(err);
       failure = `no reply (${String(err.message).slice(0, 100)})`;
       say(`  ${e.lab}/${e.seat.model}: ${failure}.`);
@@ -352,7 +355,7 @@ export async function runAdvise(config, deps) {
         settle(projectStage(seatOf(p.o.lab), p), st.usd || 0);
         return { p, lines, reply: applyDebateReply(p.o.final, parseJson(st.text), opinions.filter(x => x !== p.o).map(x => x.final), capField, brief) };
       } catch (err) {
-        rethrowControlFlow(err);
+        rethrowControlFlow(err);   // a price refusal fails the whole call, as in the opinions catch above
         say(`  ${p.o.lab}: no debate reply (${String(err.message).slice(0, 100)}); its position stands.`);
         return { p, lines, reply: { unreadable: true } };
       }
@@ -402,7 +405,7 @@ export async function runAdvise(config, deps) {
         else { headline = said; headlineSource = 'synthesis'; verdictText = capField(parsed.verdict_text); nextStep = typeof parsed.next_step === 'string' ? capField(parsed.next_step) : ''; }
         if (synthesis.flag) log(`  !! synthesis ${synthesis.flag}: the harness's roll-up stands (${roll.verdict}).`);
       } catch (err) {
-        rethrowControlFlow(err);
+        rethrowControlFlow(err);   // a price refusal fails the whole call, as in the opinions catch above
         synthesis.flag = 'no_reply';
         log(`  !! synthesis gave no reply (${String(err.message).slice(0, 100)}): the harness's roll-up stands (${roll.verdict}).`);
       }

@@ -18,11 +18,13 @@
 // `<run-dir>.replay-*` sibling folders exist on disk.
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, dirname, basename, resolve } from 'node:path';
-import { runChain } from './chain.js';
+import { runChain, setCache } from './chain.js';
+import { fingerprintInputs } from './cache-integrity.js';
+import { foldSupersededInto } from './stage-cache.js';
 import { reportJsonShape, renderBoardMd } from './report-shape.js';
 import { taskHashOf } from './scope-freeze.js';
 import { computeVerdictDiff } from './verdict-diff.js';
-import { archivedChainHint } from './chain-name.js';
+import { outdatedChainHint } from './chain-name.js';
 
 const readJson = p => JSON.parse(readFileSync(p, 'utf8'));
 
@@ -36,7 +38,7 @@ const readJson = p => JSON.parse(readFileSync(p, 'utf8'));
  */
 function loadChainConfig(chainsDir, name) {
   const p = join(chainsDir, `${name}.json`);
-  if (!existsSync(p)) throw new Error(`council-replay: no chain config "${name}" at ${p}.${archivedChainHint(name)}`);
+  if (!existsSync(p)) throw new Error(`council-replay: no chain config "${name}" at ${p}.${outdatedChainHint(name)}`);
   return readJson(p);
 }
 
@@ -63,6 +65,9 @@ export function replayDirFor(runDir, date = new Date()) {
  *   process.cwd()). Defaults to process.cwd().
  * @param {Date} [opts.date] - for reproducible tests; defaults to now.
  * @param {(msg: string) => void} [opts.log]
+ * @param {(info: { dir: string, config: object, fingerprint: string, taskText: string }) => ({ onStage: Function, unverified: object[] } | void)} [opts.onReady] - the SIDE-RUN hook (T2-1): called once, AFTER every refusal below (task
+ *   missing, task drift, chain load) and BEFORE the first stage, with the replay folder. The CLI makes the folder, takes the run lock, arms the stage cache and returns the stage writer; a caller that passes none (every
+ *   in-process test) gets the old behaviour: nothing is written until the run is over, and a refusal leaves nothing behind.
  * @param {boolean} [opts.allowTaskDrift=false] - conservative default: if the task file on disk
  *   no longer matches the hash the original run recorded, replay refuses rather than silently
  *   running a different input under the name of the original task (see the module-level note
@@ -78,6 +83,7 @@ export async function runCouncilReplay(runDir, {
   date = new Date(),
   log = () => {},
   allowTaskDrift = false,
+  onReady = null,
 } = {}) {
   const runMeta = readJson(join(runDir, 'run.json'));
   const originalReport = readJson(join(runDir, 'report.json'));
@@ -102,16 +108,21 @@ export async function runCouncilReplay(runDir, {
 
   const startedAt = new Date().toISOString();
   const replayRunId = basename(replayDirFor(runDir, date));
+  const side = onReady ? await onReady({ dir: replayDirFor(runDir, date), config, fingerprint: fingerprintInputs(taskText, config), taskText }) : null;
   let result;
   try {
-    result = await runChain({ request: taskText, config, log });
+    result = await runChain({ request: taskText, config, log, ...(side?.onStage ? { onStage: side.onStage } : {}) });
+    if (side?.unverified?.length) result.unverifiedReplays = side.unverified;
+    if (side) foldSupersededInto(result, replayDirFor(runDir, date));
   } catch (err) {
     // A spend-cap stop carries the run so far (err.partial); these are the rest of what the CLI
     // needs to write it as report-partial.json in the replay folder.
-    if (err?.partial) err.partialReportArgs = { runId: replayRunId, chain: config.name, task: runMeta.task, taskCwd: runMeta.cwd || workDir, taskText, startedAt, config };
+    if (err?.partial) err.partialReportArgs = { runId: replayRunId, chain: config.name, task: runMeta.task, taskCwd: runMeta.cwd || workDir, taskText, startedAt, config, verdictEnvelope: side?.envelope === true };
     throw err;
+  } finally {
+    if (side) setCache(null);
   }
-  const newReport = reportJsonShape({ runId: replayRunId, chain: config.name, task: runMeta.task, taskCwd: runMeta.cwd || workDir, taskText, startedAt, result, config });
+  const newReport = reportJsonShape({ runId: replayRunId, chain: config.name, task: runMeta.task, taskCwd: runMeta.cwd || workDir, taskText, startedAt, result, config, verdictEnvelope: side?.envelope === true });
 
   const diff = computeVerdictDiff(originalReport, newReport);
 

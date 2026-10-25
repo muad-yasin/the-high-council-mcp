@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { runGit } from './git.js';
 
 // How the person at the terminal can type this CLI again. A hint that says `council doctor` is a
 // dead end for someone who started with `npx the-high-council demo`, as the README's first
@@ -17,7 +18,7 @@ export function councilCommand(env = process.env) {
 export function unignoredEnvFile(dir, { exec } = {}) {
   if (!existsSync(join(dir, '.env'))) return false;
   try {
-    (exec || execFileSync)('git', ['check-ignore', '-q', '.env'], { cwd: dir, stdio: 'ignore' });
+    runGit(['check-ignore', '-q', '.env'], { cwd: dir, stdio: 'ignore' }, exec || execFileSync);
     return false;
   } catch (err) {
     return err?.status === 1;

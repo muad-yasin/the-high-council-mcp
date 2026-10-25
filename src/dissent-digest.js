@@ -19,7 +19,10 @@
 //     importing providers.js directly, so a test can pass the mock provider and the mechanism is
 //     fully offline-verifiable independent of any real call. Falls back to
 //     renderDigestTemplate(summary) verbatim if `call` is omitted or the model reply is empty -
-//     never throws, never leaves digest.md unwritten for a formatting failure alone.
+//     never throws for a plain failure, never leaves digest.md unwritten for a formatting failure alone.
+//     A control-flow refusal (err.controlFlow: the spend cap, an unpriced or denied seat, a key-shaped prompt) is NOT
+//     a plain failure: it passes through (T1-14). `note({ kind: 'secret_shaped' | 'empty' | 'failed', message? })`
+//     is told why the template was written instead of a model paragraph.
 //   writeDigest(runDir, text, { now = () => new Date() } = {}) -> { path, mtime }
 //     Writes digest.md into the given completed run folder. Caller (the CLI's --digest flag) is
 //     responsible for calling this only after report.json exists on disk - see the acceptance
@@ -62,7 +65,7 @@ export function renderDigestTemplate({ topics, objections, verdict }) {
   return `The panel disagreed on: ${topicsText}. Objections raised: ${objectionsText}. Final verdict: ${verdict}.`;
 }
 
-export async function generateDigestText({ report, call, model, provider, maxTokens = 300 }) {
+export async function generateDigestText({ report, call, model, provider, maxTokens = 300, note = () => {} }) {
   const summary = deriveDissentSummary(report);
   const fallback = renderDigestTemplate(summary);
   if (!call) return fallback;
@@ -74,7 +77,7 @@ export async function generateDigestText({ report, call, model, provider, maxTok
   if (denied.length) throw new DeniedModel([{ path: 'digest', reasons: denied }]);
   // 0.7.9 outbound key scan (src/outbound-scan.js): a key-shaped string in the summary is never
   // sent; the local template is written instead.
-  if (secretShapesIn(JSON.stringify(summary), { distinctiveOnly: true }).length) return fallback;
+  if (secretShapesIn(JSON.stringify(summary), { distinctiveOnly: true }).length) { note({ kind: 'secret_shaped' }); return fallback; }
   try {
     const reply = await call(provider, {
       model,
@@ -86,10 +89,14 @@ export async function generateDigestText({ report, call, model, provider, maxTok
       maxTokens,
     });
     const text = (reply?.text || '').trim();
+    if (!text) note({ kind: 'empty' });
     return text || fallback;
-  } catch {
-    // A model-call failure degrades to the deterministic template rather than leaving no digest
-    // at all - same "read-only, never blocking" spirit as the rest of this module.
+  } catch (err) {
+    // T1-14 (13 Oct 2026): a refusal is not a failure. BudgetExceeded, UnpricedSeat, DeniedModel and SecretShapedPrompt carry `controlFlow` ("read by modules that cannot import" chain.js): they pass through, so a
+    // digest the person asked for and paid for never silently becomes the free template. Any other failure degrades to the deterministic template rather than leaving no digest at all - same "read-only,
+    // never blocking" spirit as the rest of this module - and `note` says a call was attempted, so the caller can tell the person (its usage record shows any spend).
+    if (err?.controlFlow) throw err;
+    note({ kind: 'failed', message: String(err?.message || err) });
     return fallback;
   }
 }

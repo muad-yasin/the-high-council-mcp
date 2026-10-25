@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE } from '../src/report-shape.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -84,7 +85,7 @@ test('scenario 1, over MCP: submit_stage resumes such a run (it cannot pass --al
       { jsonrpc: '2.0', method: 'notifications/initialized' },
       { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'submit_stage', arguments: { run: runId, stage, content: '# Plan\n\nRead PORT from the environment, default 8080.\n' } } },
     ];
-    const r = spawnSync(process.execPath, [server], { cwd: dir, input: requests.map(x => JSON.stringify(x)).join('\n') + '\n', encoding: 'utf8', timeout: 90_000, env: { PATH: process.env.PATH } });
+    const r = spawnSync(process.execPath, [server], { cwd: dir, input: requests.map(x => JSON.stringify(x)).join('\n') + '\n', encoding: 'utf8', timeout: 90_000, env: { PATH: process.env.PATH, ...malformedProviderKeys() } });
     const reply = (r.stdout || '').split('\n').map(l => { try { return JSON.parse(l); } catch { return null; } }).find(m => m?.id === 2);
     const out = JSON.parse(reply?.result?.content?.[0]?.text ?? 'null');
     assert.equal(out?.resumed, true, `submit_stage did not resume the run: ${JSON.stringify(out)}`);
@@ -120,7 +121,8 @@ test('scenario 2: a capped run whose resume the gate blocks keeps its STOPPED ma
     for (const f of kept) assert.ok(existsSync(join(runDir, f)), `${f} was deleted by a resume the gate refused`);
     // Given the waiver on this resume, it goes on, finishes, and the stop's record makes way for report.json.
     const resumed = run(dir, ['--resume', runDir, '--max-usd', 'none', '--allow-unfenced']);
-    assert.equal(resumed.status, 0, `${resumed.stdout.slice(-400)}${resumed.stderr}`);
+  // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so it accepts the two finished exits.
+    assert.ok([0, 22].includes(resumed.status), `${resumed.stdout.slice(-400)}${resumed.stderr}`);
     for (const f of kept) assert.ok(!existsSync(join(runDir, f)), `${f} must not outlive the stop it describes`);
     assert.ok(existsSync(join(runDir, 'report.json')));
     assert.equal(runJson(runDir).allowUnfenced, true, 'a waiver given on a resume is saved too');

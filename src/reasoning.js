@@ -13,6 +13,7 @@
 // Nothing here ever writes a lower setting. A seat's OWN explicit setting (even a lowering one) is never overwritten: a user
 // who wrote it meant it, and the shipped chains are held to "high" by the chain-lint rule `reasoning-not-high`, not by rewriting.
 import { readFileSync } from 'node:fs';
+import { NOT_ON_ROUTER_PREFIX, notOnRouterReason } from './table-reasons.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,15 +31,51 @@ const LOW_WORDS = new Set(['none', 'minimal', 'low', 'medium']);
 // The order of the effort words, lowest first (the table's defaultEffort and supportedEfforts use these words). One place: the above-high-default check reads it.
 const EFFORT_RANK = { none: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
 
+// An INTEGER effort (a model whose engine takes 1-100, e.g. DeepSeek V4.1 Flash on its chat template) is "high or above" only when the model's table row says from which number: `highAtLeast`. A row without it has no such number, so every integer on it stays a lowering (fails closed).
+export const isHighInteger = (value, row) => Number.isInteger(value) && value <= 100 && Number.isFinite(row?.highAtLeast) && value >= row.highAtLeast;
+
 // A seat's wire identity: the provider the request really goes to and the model id that provider is asked for. Under single-vendor
 // mode (src/providers.js resolveVendorSeat) `provider` is already the vendor and `model` its own id, so one lookup serves both.
 export const keyOf = seat => `${seat.provider}/${seat.model}`;
 export const rowOf = seat => REASONING_TABLE.models[keyOf(seat)] ?? null;
 
+// The two kinds of `unlisted` entry (deliberate / auto) and the auto entries' wording: src/table-reasons.js (a module that reads no file; the regenerator uses it too).
+export { NOT_ON_ROUTER_PREFIX, notOnRouterReason };
+
+/**
+ * The table's reason for leaving a model out of `models`: its `unlisted` section. The exact key `<provider>/<model>`, or an entry ending in "/*" read as a prefix (`ollama/*`).
+ * Null when the table gives no reason. No provider is named here: the table is the list. `deliberateOnly` skips the auto entries (see NOT_ON_ROUTER_PREFIX).
+ * (Two other readers look this section up their own way: test/reasoning-table.test.js handles only `ollama/`, scripts/model-caps-report.mjs also tries the key without its provider.)
+ */
+export function unlistedReasonOf(seat, { deliberateOnly = false } = {}) {
+  const key = keyOf(seat);
+  const unlisted = REASONING_TABLE.unlisted && typeof REASONING_TABLE.unlisted === 'object' ? REASONING_TABLE.unlisted : {};
+  const usable = why => typeof why === 'string' && !(deliberateOnly && why.startsWith(NOT_ON_ROUTER_PREFIX));
+  if (usable(unlisted[key])) return unlisted[key];
+  for (const [entry, why] of Object.entries(unlisted)) if (entry.endsWith('/*') && key.startsWith(entry.slice(0, -1)) && usable(why)) return why;
+  return null;
+}
+
 // Thinking budget for a seat on a model with no effort levels (Haiku 4.5): half the seat's cap, at least 1,024 (Anthropic's
 // minimum), and always below the cap. The caller must give the seat a cap of at least 2,048.
 export const HAIKU_MIN_BUDGET = 1024;
 export const haikuBudgetFor = maxTokens => Math.max(HAIKU_MIN_BUDGET, Math.floor(maxTokens / 2));
+
+// ONE table of every spelling of a reasoning EFFORT WORD (a level named by a word). loweringReasons reads it to report a word below high (and, on a model whose own default is above high, a high that
+// is below that default); statesHighEffort reads it to see that a seat states a level of high or above. A spelling added here is read by both (0.8.3, C&C ruling 23 Oct 2026: unify the two lists;
+// test/reasoning-unknown-model.test.js UM-9 names every path of this table). `holder` finds the object that carries the key; `defaultCheck` marks the spellings the "below the model's own default" rule reads.
+const thinkingConfigOf = e => e.thinking_config ?? e.thinkingConfig ?? e.google?.thinking_config ?? e.google?.thinkingConfig;
+export const EFFORT_WORD_SPELLINGS = Object.freeze([
+  Object.freeze({ path: 'output_config.effort', holder: e => e.output_config, key: 'effort', below: 'an Anthropic effort below high', defaultCheck: true }),
+  Object.freeze({ path: 'reasoning.effort', holder: e => e.reasoning, key: 'effort', below: v => (LOW_WORDS.has(v) ? 'an effort below high' : 'an effort the harness does not know'), defaultCheck: true }),
+  Object.freeze({ path: 'reasoning_effort', holder: e => e, key: 'reasoning_effort', below: 'an effort below high', defaultCheck: true }),
+  Object.freeze({ path: 'chat_template_kwargs.reasoning_effort', holder: e => e.chat_template_kwargs, key: 'reasoning_effort', below: 'an effort below high', integerOk: true, defaultCheck: true }),
+  Object.freeze({ path: 'thinking_config.thinking_level', holder: thinkingConfigOf, key: 'thinking_level', below: 'a thinking level below high' }),
+  Object.freeze({ path: 'thinking_config.thinkingLevel', holder: thinkingConfigOf, key: 'thinkingLevel', below: 'a thinking level below high' }),
+  Object.freeze({ path: 'thinking_level', holder: e => e, key: 'thinking_level', below: 'a thinking level below high' }),
+]);
+/** The effort-word fields present in ONE layer of `extra` (not its extra_body): [{ ...spelling, value }]. */
+const effortWordsIn = e => EFFORT_WORD_SPELLINGS.flatMap(sp => { const h = sp.holder(e); return h && typeof h === 'object' && sp.key in h ? [{ ...sp, value: h[sp.key] }] : []; });
 
 /**
  * Every setting in `extra` that runs a seat below "high". The ONE list: the chain-lint rule, the never-lower test and the source
@@ -58,37 +95,36 @@ export function loweringReasons(extra, seat = null) {
       else if (typeof cap === 'number' && th.budget_tokens < haikuBudgetFor(cap)) add('thinking.budget_tokens', th.budget_tokens, `a thinking budget under half the seat's cap (${haikuBudgetFor(cap)})`);
     }
   }
-  const oc = e.output_config;
-  if (oc && typeof oc === 'object' && 'effort' in oc && !HIGH_OR_ABOVE.has(oc.effort)) add('output_config.effort', oc.effort, 'an Anthropic effort below high');
+  // every effort WORD below high, in any spelling (EFFORT_WORD_SPELLINGS, the one table)
+  for (const w of effortWordsIn(e)) {
+    if (HIGH_OR_ABOVE.has(w.value)) continue;
+    if (w.integerOk && isHighInteger(w.value, seat ? rowOf(seat) : null)) continue;
+    add(w.path, w.value, typeof w.below === 'function' ? w.below(w.value) : w.below);
+  }
   const r = e.reasoning;
   if (r && typeof r === 'object') {
-    if ('effort' in r && !HIGH_OR_ABOVE.has(r.effort)) add('reasoning.effort', r.effort, LOW_WORDS.has(r.effort) ? 'an effort below high' : 'an effort the harness does not know');
     if (r.enabled === false) add('reasoning.enabled', false, 'reasoning switched off');
     if (r.exclude === true) add('reasoning.exclude', true, 'reasoning hidden from the reply (a different thing from lower effort, refused so a shipped seat never hides it)');
     if ('max_tokens' in r) add('reasoning.max_tokens', r.max_tokens, 'a reasoning token cap below the model default');
   }
-  if ('reasoning_effort' in e && !HIGH_OR_ABOVE.has(e.reasoning_effort)) add('reasoning_effort', e.reasoning_effort, 'an effort below high');
   if (e.enable_thinking === false) add('enable_thinking', false, 'thinking switched off');
   if (e.chat_template_kwargs && e.chat_template_kwargs.enable_thinking === false) add('chat_template_kwargs.enable_thinking', false, 'thinking switched off');
   if (e.chat_template_kwargs && e.chat_template_kwargs.thinking === false) add('chat_template_kwargs.thinking', false, 'thinking switched off (the DeepSeek V4 chat-template switch)');
-  if (e.chat_template_kwargs && 'reasoning_effort' in e.chat_template_kwargs && !HIGH_OR_ABOVE.has(e.chat_template_kwargs.reasoning_effort)) add('chat_template_kwargs.reasoning_effort', e.chat_template_kwargs.reasoning_effort, 'an effort below high');
-  const tc = e.thinking_config ?? e.thinkingConfig ?? e.google?.thinking_config ?? e.google?.thinkingConfig;
+  const tc = thinkingConfigOf(e);
   if (tc && typeof tc === 'object') {
-    for (const k of ['thinking_level', 'thinkingLevel']) if (k in tc && !HIGH_OR_ABOVE.has(tc[k])) add(`thinking_config.${k}`, tc[k], 'a thinking level below high');
     for (const k of ['thinking_budget', 'thinkingBudget']) if (k in tc) add(`thinking_config.${k}`, tc[k], 'a fixed thinking budget');
   }
   // Audit A2-5 (0.8.1): spellings the first list missed. `extra_body` is how Google's own REST examples carry the same fields; `include_reasoning: false` is OpenRouter's
   // spelling of `reasoning.exclude`; the thinking level/budget also exist at the top level.
   if (e.include_reasoning === false) add('include_reasoning', false, 'reasoning hidden from the reply (OpenRouter\'s spelling of reasoning.exclude)');
-  if ('thinking_level' in e && !HIGH_OR_ABOVE.has(e.thinking_level)) add('thinking_level', e.thinking_level, 'a thinking level below high');
   if ('thinking_budget' in e) add('thinking_budget', e.thinking_budget, 'a fixed thinking budget');
   // 0.8.2 (owner, 7 Oct 2026, "Yes" to the never-lower check): on a model whose own default is ABOVE high (the table's defaultAboveHigh), an explicit
   // "high" is a lowering too. Only the words the checks above let through are read here (a word below high is already reported once).
   const row = seat ? rowOf(seat) : null;
   const defaultRank = row?.defaultAboveHigh ? EFFORT_RANK[row.defaultEffort] : undefined;
   if (defaultRank !== undefined) {
-    for (const [path, value] of [['reasoning.effort', r?.effort], ['reasoning_effort', e.reasoning_effort], ['output_config.effort', oc?.effort], ['chat_template_kwargs.reasoning_effort', e.chat_template_kwargs?.reasoning_effort]]) {
-      if (HIGH_OR_ABOVE.has(value) && EFFORT_RANK[value] < defaultRank) add(path, value, `an effort below the model's own default (${row.defaultEffort})`);
+    for (const w of effortWordsIn(e)) {
+      if (w.defaultCheck && HIGH_OR_ABOVE.has(w.value) && EFFORT_RANK[w.value] < defaultRank) add(w.path, w.value, `an effort below the model's own default (${row.defaultEffort})`);
     }
   }
   if (e.extra_body && typeof e.extra_body === 'object' && !Array.isArray(e.extra_body)) {
@@ -160,8 +196,28 @@ export function retryCeilingOf(seat, fallback = 64_000) {
   return Math.min(model ?? Infinity, transport ?? Infinity);
 }
 
+// True when `extra` itself STATES a level of high or above, in a field the harness knows (also under `extra_body`, as loweringReasons reads it), or an Anthropic thinking budget that
+// meets the Haiku rule. A bare switch states no level: reasoning.enabled: true, enable_thinking: true and thinking.type "enabled" with no budget do not count (the router reads
+// `enabled` alone as medium effort, openrouter.ai/docs/guides/best-practices/reasoning-tokens, read 23 Oct 2026).
+function statesHighEffort(extra, cap) {
+  const top = extra && typeof extra === 'object' ? extra : {};
+  const layers = [top, ...(top.extra_body && typeof top.extra_body === 'object' && !Array.isArray(top.extra_body) ? [top.extra_body] : [])];
+  // The effort-word spellings are EFFORT_WORD_SPELLINGS, the table loweringReasons reads too.
+  return layers.some(e => effortWordsIn(e).some(w => HIGH_OR_ABOVE.has(w.value)) || hasHighForm('anthropic-budget', e, cap));
+}
+
+/**
+ * The ONE list of what lets a seat on a model be left to the table: each way is a test and the sentence the chain-lint finding says for it, so the check and the fix text cannot
+ * disagree (C&C ruling 23 Oct 2026). A seat needs one of them to pass `reasoning-not-high` when the table has no `models` row for it. "High" is this file's (HIGH_OR_ABOVE).
+ */
+export const TABLE_KNOWN_WAYS = Object.freeze([
+  Object.freeze({ id: 'row', holds: seat => rowOf(seat) !== null, say: 'a row for it in src/reasoning-table.json (scripts/refresh-reasoning-table.mjs writes the rows of the OpenRouter ids a chain in chains/ seats, refreshes the rows it already has from OpenRouter\'s public list and never drops one, and keeps the other providers\' rows in its own DIRECT map)' }),
+  Object.freeze({ id: 'unlisted', holds: seat => unlistedReasonOf(seat, { deliberateOnly: true }) !== null, say: 'a deliberate "unlisted" entry in that table, kept in the UNLISTED map of the same script, for a model that takes no reasoning setting' }),
+  Object.freeze({ id: 'effort', holds: (seat, extra, cap) => statesHighEffort(extra, cap), say: 'an effort of its own at high or above in the seat\'s extra (a bare enabled: true does not count)' }),
+]);
+
 // True when `extra` carries the "high" setting this form writes (or a higher one, or a budget that meets the Haiku rule).
-function hasHighForm(formName, extra, cap) {
+function hasHighForm(formName, extra, cap, row = null) {
   const e = extra && typeof extra === 'object' ? extra : {};
   switch (formName) {
     case 'anthropic-effort': return HIGH_OR_ABOVE.has(e.output_config?.effort);
@@ -171,6 +227,7 @@ function hasHighForm(formName, extra, cap) {
     case 'google-reasoning-effort': return HIGH_OR_ABOVE.has(e.reasoning_effort);
     case 'qwen-template-thinking': return e.chat_template_kwargs?.enable_thinking === true;
     case 'deepseek-template-thinking': return e.chat_template_kwargs?.thinking === true && HIGH_OR_ABOVE.has(e.chat_template_kwargs?.reasoning_effort);
+    case 'deepseek-v41-template-thinking': return e.chat_template_kwargs?.thinking === true && (HIGH_OR_ABOVE.has(e.chat_template_kwargs?.reasoning_effort) || isHighInteger(e.chat_template_kwargs?.reasoning_effort, row));
     case 'zai-thinking': return e.thinking?.type === 'enabled';
     default: return false;
   }
@@ -178,15 +235,20 @@ function hasHighForm(formName, extra, cap) {
 
 /**
  * Why a seat, as it will be SENT (after any transport rewrite and the harness default), does not reason at high: its own lowering
- * settings, or no high setting where the table knows one. A model the table has no field for, or whose own default is above
- * high, has nothing to be missing. Empty array = fine. This is what the chain-lint rule `reasoning-not-high` reports.
+ * settings, or no high setting where the table knows one. A model whose own default is above high has nothing to be missing. A model
+ * the table knows NOTHING about (no `models` row, no `unlisted` reason) with no high effort stated in the seat's own extra fails
+ * CLOSED (0.8.3, C&C ruling 23 Oct 2026): nothing then says it reasons at high. Empty array = fine. This is what the chain-lint rule
+ * `reasoning-not-high` reports.
  */
 export function reasoningProblems(seat, cap = seat.maxTokens) {
   const effective = extraWithHighDefault(seat, cap);
   const problems = loweringReasons(effective, { ...seat, maxTokens: cap });
   const row = rowOf(seat);
-  if (!problems.length && row?.form && !row.defaultAboveHigh && !hasHighForm(row.form, effective, cap)) {
+  if (!problems.length && row?.form && !row.defaultAboveHigh && !hasHighForm(row.form, effective, cap, row)) {
     problems.push({ path: row.form, value: null, why: `no "high" setting for ${keyOf(seat)} (the table's field for it is ${row.form}) and the seat's own extra blocks the default` });
+  }
+  if (!problems.length && !TABLE_KNOWN_WAYS.some(w => w.holds(seat, effective, cap))) {
+    problems.push({ kind: 'table-unknown', path: 'src/reasoning-table.json', value: null, ways: TABLE_KNOWN_WAYS.map(w => w.say), why: `the reasoning table has no row and no deliberate unlisted reason for ${keyOf(seat)}, and the seat states no effort of its own at high or above, so nothing says it reasons at high` });
   }
   return problems;
 }

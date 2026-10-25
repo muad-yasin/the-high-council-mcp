@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -75,13 +75,13 @@ test('maskMatch: empty/undefined input never throws', () => {
 // ---- scanForPii ----
 
 test('scanForPii: detects a real email address by line/column, never echoing the address itself', () => {
-  const text = 'line one\ncontact me at muad.yasin@example.com please\n';
+  const text = 'line one\ncontact me at muad.yasin@mail-corp.de please\n';
   const { findings } = scanForPii(text);
   assert.equal(findings.length, 1);
   assert.equal(findings[0].type, 'email');
   assert.equal(findings[0].line, 2);
   const serialised = JSON.stringify(findings);
-  assert.equal(serialised.includes('muad.yasin@example.com'), false);
+  assert.equal(serialised.includes('muad.yasin@mail-corp.de'), false);
 });
 
 test('scanForPii: a checksum-valid IBAN is flagged; a checksum-invalid IBAN-shaped string is not', () => {
@@ -118,14 +118,14 @@ test('scanForPii: clean text with no matches returns an empty findings array', (
 });
 
 test('scanForPii: --allow-pii suppresses the named type and reports the suppression', () => {
-  const text = 'contact me at muad.yasin@example.com\n';
+  const text = 'contact me at muad.yasin@mail-corp.de\n';
   const { findings, suppressed } = scanForPii(text, { allow: ['email'] });
   assert.deepEqual(findings, []);
   assert.deepEqual(suppressed, ['email']);
 });
 
 test('scanForPii: an unknown allow-pii type is ignored, not silently accepted as a real suppression', () => {
-  const text = 'contact me at muad.yasin@example.com\n';
+  const text = 'contact me at muad.yasin@mail-corp.de\n';
   const { findings, suppressed } = scanForPii(text, { allow: ['not-a-real-type'] });
   assert.equal(findings.length, 1);
   assert.deepEqual(suppressed, []);
@@ -163,17 +163,19 @@ function setupDir() {
   return dir;
 }
 
-test('CLI: with no --pii-gate flag, a task file with a fake email runs to completion exactly as before (gate never invoked)', () => {
+test('CLI: with no --pii-gate flag, a task file with a fake email STOPS (the default), makes no run folder; `--pii-gate warn` runs it', () => {
+  // CHANGED ACCEPTED (owner 18 Okt 2026 16:45). OLD title: "... runs to completion exactly as before (gate never invoked)"; OLD body: the run completed with no PII line. NEW: the default stop (exit 11, no folder); the typed warn goes on. WHY: "The warning has to stop the plan from running, unless the user explicitly chooses to continue".
   const dir = setupDir();
-  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan something for muad.yasin@example.com.\n');
-  const out = execFileSync('node', [cli, '--chain', 'mock', '--task', 'tasks/t.md'], { encoding: 'utf8', cwd: dir });
-  assert.equal(out.includes('PII-GATE'), false);
-  assert.equal(readdirSync(join(dir, 'runs')).length, 1);
+  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan something for muad.yasin@mail-corp.de.\n');
+  assert.throws(() => execFileSync('node', [cli, '--chain', 'mock', '--task', 'tasks/t.md'], { encoding: 'utf8', cwd: dir, stdio: 'pipe' }), e => e.status === 11);
+  assert.equal(existsSync(join(dir, 'runs')) && readdirSync(join(dir, 'runs')).length > 0, false);
+  const out = execFileSync('node', [cli, '--chain', 'mock', '--task', 'tasks/t.md', '--pii-gate', 'warn'], { encoding: 'utf8', cwd: dir, stdio: 'pipe' });
+  assert.equal(readdirSync(join(dir, 'runs')).length, 1); void out;
 });
 
 test('CLI: --pii-gate hard-stop refuses the run before any run folder is created, on a real match', () => {
   const dir = setupDir();
-  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan something for muad.yasin@example.com.\n');
+  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan something for muad.yasin@mail-corp.de.\n');
   assert.throws(() => execFileSync('node', [cli, '--chain', 'mock', '--task', 'tasks/t.md', '--pii-gate', 'hard-stop'], { encoding: 'utf8', cwd: dir }));
   try {
     execFileSync('node', [cli, '--chain', 'mock', '--task', 'tasks/t.md', '--pii-gate', 'hard-stop'], { encoding: 'utf8', cwd: dir });
@@ -181,7 +183,7 @@ test('CLI: --pii-gate hard-stop refuses the run before any run folder is created
     assert.equal(err.status, 11, 'the PII gate has its own exit code (bug audit 2026-09-23, CLI #7)');
     assert.match(err.stderr, /PII-GATE/);
     assert.match(err.stderr, /email/);
-    assert.equal(err.stderr.includes('muad.yasin@example.com'), false);
+    assert.equal(err.stderr.includes('muad.yasin@mail-corp.de'), false);
   }
   // No run folder was ever created - the gate fired before any provider call site.
   assert.equal(readdirSync(dir).includes('runs'), false);
@@ -189,13 +191,13 @@ test('CLI: --pii-gate hard-stop refuses the run before any run folder is created
 
 test('CLI: --pii-gate warn logs the match, never echoes it, and still lets the (mock) run proceed', () => {
   const dir = setupDir();
-  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan something for muad.yasin@example.com.\n');
+  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan something for muad.yasin@mail-corp.de.\n');
   const proc = spawnSync('node', [cli, '--chain', 'mock', '--task', 'tasks/t.md', '--pii-gate', 'warn'], { encoding: 'utf8', cwd: dir });
   assert.equal(proc.status, 0);
   assert.match(proc.stderr, /PII-GATE \(warn\)/);
   assert.match(proc.stderr, /email/);
-  assert.equal(proc.stderr.includes('muad.yasin@example.com'), false);
-  assert.equal(proc.stdout.includes('muad.yasin@example.com'), false);
+  assert.equal(proc.stderr.includes('muad.yasin@mail-corp.de'), false);
+  assert.equal(proc.stdout.includes('muad.yasin@mail-corp.de'), false);
   assert.equal(readdirSync(join(dir, 'runs')).length, 1);
 });
 
@@ -209,7 +211,7 @@ test('CLI: --pii-gate hard-stop on a clean task file (no matches) runs to comple
 
 test('CLI: --allow-pii suppresses the named type under hard-stop, and the suppression is printed', () => {
   const dir = setupDir();
-  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan something for muad.yasin@example.com.\n');
+  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan something for muad.yasin@mail-corp.de.\n');
   const proc = spawnSync('node', [cli, '--chain', 'mock', '--task', 'tasks/t.md', '--pii-gate', 'hard-stop', '--allow-pii', 'email'], { encoding: 'utf8', cwd: dir });
   assert.equal(proc.status, 0);
   assert.match(proc.stderr, /suppressed pattern class 'email'/);
@@ -234,11 +236,11 @@ test('CLI: --pii-gate hard-stop also refuses PII that arrives via --context or -
   for (const [flagName, file] of [['--context', 'ctx.md'], ['--draft', 'draft.md']]) {
     const dir = setupDir();
     writeFileSync(join(dir, 'tasks', 't.md'), 'Plan something plain.\n');
-    writeFileSync(join(dir, file), 'Contact muad.yasin@example.com, card 4111 1111 1111 1111.\n');
+    writeFileSync(join(dir, file), 'Contact muad.yasin@mail-corp.de, card 4111 1111 1111 1111.\n');
     const proc = spawnSync('node', [cli, '--chain', 'mock', '--task', 'tasks/t.md', flagName, file, '--pii-gate', 'hard-stop'], { encoding: 'utf8', cwd: dir });
     assert.equal(proc.status, 11, `${flagName}: expected a refusal, got ${proc.status}\n${proc.stderr.slice(-300)}`);
     assert.match(proc.stderr, /PII-GATE/);
-    assert.equal(proc.stderr.includes('muad.yasin@example.com'), false, 'the match is never echoed');
+    assert.equal(proc.stderr.includes('muad.yasin@mail-corp.de'), false, 'the match is never echoed');
     assert.equal(readdirSync(dir).includes('runs'), false, `${flagName}: refused before any run folder exists`);
   }
 });

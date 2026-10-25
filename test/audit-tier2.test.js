@@ -179,7 +179,7 @@ import { lintChain } from '../src/chain-lint.js';
 
 test('cnc-chains-lint F1: rule 12 (self-review) sees an external writer on the panel: plan-daily-7 and plan-highest-7 pass only because of "selfReview": "allowed"; without the key the rule fires', () => {
   for (const name of ['plan-daily-7', 'plan-highest-7']) {
-    const cfg = JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+    const cfg = readChainFile(root, `${name}`);
     assert.equal(cfg.selfReview, 'allowed', `${name} says so in writing`);
     assert.deepEqual(lintChain(cfg, `${name}.json`).filter(f => f.kind === 'self-review'), [], `${name}: the key is meaningful and keeps it passing`);
     const { selfReview, ...without } = cfg;
@@ -238,6 +238,7 @@ test('73-verdicts 4: a criterion that drifts in trimming, case or a closing full
 });
 
 import { evaluatePolicy } from '../src/policy.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 test('cnc-money F1 (superseded by the owner\'s "Terminal rule only, no cap change", 7 Oct 2026; test/audit-advice-policy.test.js): the advice send path hands in the chain\'s expected cost and the call\'s ceiling and says so (figure "call"); the CLI wording is unchanged', () => {
   const config = JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8'));

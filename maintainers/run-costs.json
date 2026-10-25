@@ -1,0 +1,22 @@
+{
+  "_note": "Real run costs behind the README's Pricing table (scripts/pricing-table.mjs). `chains` is the table's row order. `tested` holds only figures from real, paid runs: the count, the cheapest and dearest total (report.json totals.usd, priced by the table of that day), the version and the dates. A chain with no entry prints \"not run yet\". Aggregated figures only: no task text, run ids or paths.",
+  "chains": [
+    "plan-mini-council",
+    "plan-default-opro-council",
+    "plan-mini-council-sol-session",
+    "plan-medium-council",
+    "plan-high-council",
+    "plan-china-mini-council",
+    "plan-china-medium-council",
+    "plan-china-high-council",
+    "daily7-sub-a",
+    "plan-claude-council",
+    "advise-standard",
+    "advise-single",
+    "verify",
+    "local-ollama"
+  ],
+  "tested": {
+    "advise-single": { "runs": 3, "minUsd": 0.03, "maxUsd": 0.15, "version": "0.8.2", "dates": "2026-10-07 to 2026-10-08" }
+  }
+}

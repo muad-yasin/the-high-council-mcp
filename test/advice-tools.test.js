@@ -1,3 +1,4 @@
+// CHANGED ACCEPTED (label rename part 2, 20 Okt 2026; Muad 18 Okt: "upper estimate" replaces "at most" and "maximum"): OLD "expected and at most $Y" in the council_advise description; NEW "expected and an upper estimate of $Y". WHY: the same figure, one name (src/mcp/advice.js:162).
 // test/advice-tools.test.js
 //
 // council_quote and council_advise, end to end over stdio against mock chains (thc-research brief 29). Offline, $0, no keys: every seat is
@@ -10,12 +11,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { verifyAuditLog, parseAuditLog } from '../src/audit.js';
+import { writeStopRequest } from '../src/stop-files.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -25,6 +27,8 @@ ajv.addKeyword({ keyword: 'x-stability', schemaType: 'string' });
 const validateReport = ajv.compile(schema);
 const sha = t => createHash('sha256').update(t).digest('hex');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// Wait for a condition (an EVENT) instead of a time: the same helper as test/stop-rule.test.js, 20 s being a hang guard that only a broken run reaches.
+async function until(pred, ms = 20_000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (pred()) return true; await sleep(50); } return false; }
 
 // The operator's advice-chain folder for a test's work folder: a sibling, outside the work folder, as COUNCIL_ADVICE_CHAINS_DIR must be
 // (0.8.1 decided rule 5d: an advice chain never comes from the project's chains/). A Session passes it when it exists.
@@ -62,7 +66,13 @@ class Session {
   async start(name, args, progressToken) { await this.ready; const p = this.rpc('tools/call', { name, arguments: args, ...(progressToken ? { _meta: { progressToken } } : {}) }); return { id: p.id, promise: p }; }
   cancel(id) { this.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id, reason: 'test' } })}\n`); }
   async list() { await this.ready; return (await this.rpc('tools/list', {})).result.tools; }
-  async close() { try { this.child.stdin.end(); } catch { /* gone */ } await Promise.race([this.exited, sleep(3000)]); this.child.kill(); }
+  // The exit is awaited AFTER the kill too (bounded; 24f2216): leave() writes a client-cancel STOP request into every advice run this server started, on stdin end, SIGTERM and exit, so a folder removed right after close() raced it when the server took longer than 3 s to go.
+  async close() {
+    try { this.child.stdin.end(); } catch { /* gone */ }
+    await Promise.race([this.exited, sleep(3000)]); this.child.kill();
+    let ended = false; await Promise.race([this.exited.then(() => { ended = true; }), sleep(10_000)]);
+    if (!ended) { this.child.kill('SIGKILL'); console.error(`close: the MCP server (pid ${this.child.pid}) was still running 10 s after it was told to stop; killed`); }
+  }
 }
 
 const workdir = () => { const d = mkdtempSync(join(tmpdir(), 'thc-advice-')); return d; };
@@ -126,8 +136,8 @@ test('the two tools are listed with the right annotations, the host-prompt key o
   const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
   try {
     const tools = await s.list();
-    // Changed by the owner's decision of 7 Oct 2026 (0.8.2 item 6d, the full Slice A): the contract record adds contract_read and contract_amend, 17 -> 19.
-    assert.equal(tools.length, 19, '15 tools, the two of the add-on and the two of the contract record');
+    // Changed by the owner's decision of 7 Oct 2026 (0.8.2 item 6d, the full Slice A): the contract record adds contract_read and contract_amend, 17 -> 19; 0.8.3 M6 S7: tree_status, 19 -> 20; 0.8.3 M7 session channel: tree_decide, 20 -> 21 (5d4d3f0 added the tool and missed this pin; OLD 20, NEW 21, WHY: the real count: server.js registers 17 with tree_decide, advice.js 2, contract.js 2; docs/index.html already says 21 and test/landing-page.test.js derives it).
+    assert.equal(tools.length, 22, '17 tools in server.js (with tree_status, tree_decide and price_raise), the two of the add-on and the two of the contract record');
     const q = tools.find(t => t.name === 'council_quote'), a = tools.find(t => t.name === 'council_advise');
     assert.deepEqual(q.annotations, { readOnlyHint: true, openWorldHint: false, idempotentHint: true });
     assert.deepEqual(a.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
@@ -321,8 +331,8 @@ test('the default single seat at the real brief cap: GPT-6.1 Sol, priced from th
     // 2026-10-06 audit: GLM-5.3's output row 4.4 -> 7.0 (the live list), so the council's worst case is about $1.14 at this brief (was $0.87).
     assert.ok(sc(c).price.worst_usd > 1.05 && sc(c).price.worst_usd < 1.2, `council worst ${sc(c).price.worst_usd}`);
     const tools = await s.list();
-    assert.match(tools.find(t => t.name === 'council_advise').description, /about \$0\.08\d expected and at most \$1\.32 with a brief at the 48,000-character limit/);
-    assert.match(tools.find(t => t.name === 'council_advise').description, /about \$0\.75 expected and at most \$1\.40/);
+    assert.match(tools.find(t => t.name === 'council_advise').description, /about \$0\.08\d expected and an upper estimate of \$1\.32 with a brief at the 48,000-character limit/);
+    assert.match(tools.find(t => t.name === 'council_advise').description, /about \$0\.75 expected and an upper estimate of \$1\.40/);
   } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -609,7 +619,7 @@ test('invisible characters and look-alike alphabets cannot hide a key or an emai
     const wide = [...key].map(c => (c >= '!' && c <= '~' ? String.fromCodePoint(c.codePointAt(0) + 0xFEE0) : c)).join('');
     const full = BRIEF({ excerpts: [{ label: 'env', kind: 'config', why_needed: 'The question is about this config.', text: `K=${wide}` }] });
     assert.equal(sc(await s.call('council_quote', { brief: full, mode: 'single' })).code, 'secret_shaped', 'a full-width key is found on the normalised copy');
-    const fw = BRIEF({ question: 'Does ｍａｘ＠ｅｘａｍｐｌｅ．ｃｏｍ own the invoices table?' });
+    const fw = BRIEF({ question: 'Does ｍａｘ＠ｍａｉｌ－ｃｏｒｐ．ｄｅ own the invoices table?' });
     assert.equal(sc(await s.call('council_quote', { brief: fw, mode: 'single' })).code, 'pii_left', 'a full-width email the masker does not match is caught after masking');
     assert.equal(existsSync(join(dir, 'runs')), false);
     assert.equal(existsSync(join(dir, 'tasks')), false);
@@ -753,7 +763,7 @@ test('two servers in one working folder cannot pass a one-call cap together', as
 
 test('a stop asked for before the first call ends the run with exit 18 and nothing spent: the wall clock, and a client cancel during start-up', async () => {
   const dir = workdir(); userChain(dir, 'mock-wall1', 'mock-advise-single', { wall: 1000 });
-  const s = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_SINGLE: 'mock-wall1', COUNCIL_MOCK_PRESTART_MS: '1500' }, ...PERSON });
+  const s = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_SINGLE: 'mock-wall1', COUNCIL_MOCK_PRESTART_UNTIL_STOP: '1' }, ...PERSON });
   try {
     const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
     const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 0 });
@@ -768,17 +778,262 @@ test('a stop asked for before the first call ends the run with exit 18 and nothi
     assert.equal(JSON.parse(readFileSync(join(dir, 'runs', run, 'advise-log.json'), 'utf8')).status, 'stopped');
     assert.equal(JSON.parse(readFileSync(join(dir, 'runs', run, 'advise-log.json'), 'utf8')).spent_usd, 0);
   } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-  const dir2 = workdir(); const s2 = new Session(dir2, { env: { ...MOCK, COUNCIL_MOCK_PRESTART_MS: '3000' }, ...PERSON });
+  // 13 Oct 2026 (Flaky): both halves used COUNCIL_MOCK_PRESTART_MS (1500 / 3000), a window the wall clock or the cancel's STOP file had to land inside, and a
+  // 5 s folder poll; under the CPU cap either could miss. The run now holds before its first call until a stop request exists (the wall clock passing counts).
+  // FIX-UP (C&C's U1 verdict, same day): the run FOLDER exists from the moment the server asks the person (the gate's folder), so "the folder exists" did not
+  // mean "the run started". A cancel that arrives while the person is being asked (or before the spawn) is honoured by NOT starting the run (send-path.js:
+  // 'the client cancelled this call while the person was being asked; nothing was approved or started'), so no STOP file is written and nothing is spent. The cancel
+  // below therefore waits for the run to have STARTED: state.json, one half of the server's own 'past start-up' condition (untilPastStartup: the child holds the run lock AND
+  // has written state.json). The person answers slowly (500 ms), which gives the old trigger (the folder) a wide window inside the dialog: the test is then an order, not a race.
+  const slowPerson = { ...PERSON, onRequest: async () => { await sleep(500); return { action: 'accept', content: { send: true } }; } };
+  const dir2 = workdir(); const s2 = new Session(dir2, { env: { ...MOCK, COUNCIL_MOCK_PRESTART_UNTIL_STOP: '1' }, ...slowPerson });
   try {
     const q = await s2.call('council_quote', { brief: BRIEF(), mode: 'single' });
     const call = await s2.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    for (let i = 0; i < 100 && !folders(dir2).length; i++) await sleep(50);
+    assert.ok(await until(() => folders(dir2).length > 0), 'the run folder was made');
     const run = folders(dir2)[0];
+    assert.ok(await until(() => existsSync(join(dir2, 'runs', run, 'state.json'))), 'the run started (past its start-up: state.json written)');
     s2.cancel(call.id);
+    assert.ok(await until(() => existsSync(join(dir2, 'runs', run, 'STOP'))), 'the cancel wrote its STOP file');
     await finish(dir2, run);
     assert.ok(existsSync(join(dir2, 'runs', run, 'STOPPED-client_cancel.json')), 'the cancel became a stop before the first call');
     assert.equal(JSON.parse(readFileSync(join(dir2, 'runs', run, 'STOPPED-client_cancel.json'), 'utf8')).beforeFirstCall, true);
   } finally { await s2.close(); rmSync(dir2, { recursive: true, force: true }); }
+});
+
+// ---- the late-window cancel (C&C's contract Review/Build_0.8.3/m6-closing/LateWindow_Cancel_Contract.md, 13 Oct 2026) ----------------------------------------------
+// A cancel that fires after the last cancel check and before the child's own first stop check used to be read only after spawnRun returned, so a real seat could take its first paid call after a
+// cancel that came before every call. Now, from the point the start is irrevocable (inside the start lock, listener armed before `q.used`, one synchronous re-read of `signal.aborted`), the cancel
+// puts the STOP request on disk the moment it fires. The tests are ORDERS: COUNCIL_TEST_SPAWN_HOLD_FILE holds the server inside the start (mock-advice servers only) and writes `<file>.entered` so a
+// test cancels INSIDE the window; COUNCIL_MOCK_HOLD_FILE holds the mock call in flight; a `ping` after the cancel is a barrier (the SDK handles messages in order, runs the cancel handler, whose
+// abort listeners and the synchronous STOP write finish, before it answers the ping).
+const holdsDir = () => mkdtempSync(join(tmpdir(), 'thc-hold-'));
+const usageFiles = (dir, run) => readdirSync(join(dir, 'runs', run)).filter(f => f.endsWith('.usage.json')).length;
+const stopFile = (dir, run) => join(dir, 'runs', run, 'STOP');
+
+test('late window: a cancel that fires while the server is inside the start puts the STOP on disk at once, and the run takes no call', async t => {
+  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn'), callHold = join(h, 'call');
+  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold, COUNCIL_MOCK_HOLD_FILE: callHold }, ...PERSON });
+  try {
+    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
+    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(await until(() => existsSync(`${spawnHold}.entered`)), 'the server is inside the start: the spawn is held');
+    const run = folders(dir)[0];
+    s.cancel(call.id);
+    await s.ready; await s.rpc('ping', {}); // the barrier: the cancel was handled before this answer
+    assert.ok(existsSync(stopFile(dir, run)), 'the cancel put the STOP on disk the moment it fired, before the child exists');
+    writeFileSync(spawnHold, ''); // the spawn goes on; the child starts and finds the STOP before its first call
+    await finish(dir, run);
+    assert.equal(usageFiles(dir, run), 0, 'no call was taken: nothing was spent'); // the money property first, observed before any cleanup
+    const marker = JSON.parse(readFileSync(join(dir, 'runs', run, 'STOPPED-client_cancel.json'), 'utf8'));
+    assert.equal(marker.beforeFirstCall, true, 'stopped before the first call');
+    t.diagnostic(`late window facts: STOP on disk after the ping barrier = true; STOPPED-client_cancel.json ${JSON.stringify({ stoppedBy: marker.stoppedBy, beforeFirstCall: marker.beforeFirstCall, spentUsd: marker.spentUsd })}; usage files = ${usageFiles(dir, run)}`);
+  } finally { writeFileSync(spawnHold, ''); writeFileSync(callHold, ''); await s.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('late window R1: a cancel that arrives while the call waits for the start lock starts no run, writes no STOP and leaves the quote reusable', async () => {
+  const dir = workdir(); const h = holdsDir(); const answer = join(h, 'answer');
+  const lockDir = join(dir, '.council-advice-lock'); const heldLock = join(lockDir, '.council.lock');
+  const slowPerson = { capabilities: { elicitation: {} }, onRequest: async () => { await until(() => existsSync(answer), 30_000); return { action: 'accept', content: { send: true } }; } };
+  const s = new Session(dir, { env: MOCK, ...slowPerson });
+  try {
+    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
+    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(await until(() => s.requests.length > 0), 'the person is being asked: the first lock section is over and the dialog is open');
+    mkdirSync(lockDir, { recursive: true });
+    writeFileSync(heldLock, JSON.stringify({ pid: process.pid, host: hostname() })); // this test process now holds the START lock (a live pid on this host)
+    writeFileSync(answer, ''); // the person approves: the call goes on to the start section and waits for the lock
+    await sleep(700); // a pause, never asserted on: longer than the lock's 150 ms poll, so the call is waiting for the lock and not still before it
+    const run = folders(dir)[0];
+    s.cancel(call.id);
+    await s.ready; await s.rpc('ping', {});
+    rmSync(heldLock); // the test's own lock file: the server may now enter the start section, with the signal already aborted
+    // A cancelled call gets no response, so the ORDER comes from the in-process queue: the quote sent again enters its own start section only after the first one is over.
+    const again = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(again.content && !/already used/i.test(textOf(again)), `the quote was reusable: ${textOf(again).slice(0, 200)}`);
+    await finish(dir, run);
+    assert.equal(existsSync(join(dir, 'runs', run, 'report.json')), true, 'the second send ran to its report');
+    assert.equal(existsSync(join(dir, 'runs', run, 'STOPPED-client_cancel.json')), false, 'the cancelled first call started nothing that a late STOP had to stop');
+  } finally { writeFileSync(answer, ''); try { rmSync(heldLock); } catch { /* released above */ } await s.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('late window R3: a cancel during the person dialog leaves no STOP in the gate folder, so the same quote sent again starts and runs to its end', async () => {
+  const dir = workdir(); const h = holdsDir(); const answer = join(h, 'answer');
+  const slowPerson = { capabilities: { elicitation: {} }, onRequest: async () => { await until(() => existsSync(answer), 30_000); return { action: 'accept', content: { send: true } }; } };
+  const s = new Session(dir, { env: MOCK, ...slowPerson });
+  try {
+    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
+    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(await until(() => s.requests.length > 0), 'the person is being asked: the dialog is open');
+    const run = folders(dir)[0];
+    s.cancel(call.id);
+    await s.ready; await s.rpc('ping', {});
+    assert.equal(existsSync(stopFile(dir, run)), false, 'a cancel during the dialog writes no STOP: the run has not started and its gate folder is reused');
+    writeFileSync(answer, ''); // the person answers the open dialog; the cancelled call is long gone (a cancelled call gets no response)
+    const again = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(again.content, JSON.stringify(again).slice(0, 200));
+    await finish(dir, run);
+    assert.equal(existsSync(join(dir, 'runs', run, 'report.json')), true, 'the second send ran to its report');
+    assert.equal(existsSync(join(dir, 'runs', run, 'STOPPED-client_cancel.json')), false, 'and was not stopped by a stale STOP');
+  } finally { writeFileSync(answer, ''); await s.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('late window R3(c): when the start fails after a cancel wrote its STOP, that STOP is removed and the quote is reusable', async () => {
+  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn');
+  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold }, ...PERSON });
+  try {
+    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
+    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(await until(() => existsSync(`${spawnHold}.entered`)), 'the server is inside the start');
+    const run = folders(dir)[0];
+    const briefPath = join(dir, 'runs', run, 'advice-brief.md'); const original = readFileSync(briefPath, 'utf8');
+    s.cancel(call.id);
+    await s.ready; await s.rpc('ping', {});
+    assert.ok(existsSync(stopFile(dir, run)), 'the cancel wrote its STOP');
+    writeFileSync(briefPath, `${original}\nTAMPERED`); // the text no longer matches what the person approved: the adopted start is refused and the spawn reports started: false
+    writeFileSync(spawnHold, '');
+    // A cancelled call gets no response: the observable is the STOP going away once the start has failed (the child refused the tampered text).
+    assert.ok(await until(() => !existsSync(stopFile(dir, run))), 'the STOP this cancel wrote did not stay behind to stop a later re-send');
+    writeFileSync(briefPath, original); // the text is the approved one again: the same quote, sent again, starts
+    const again = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(again.content, JSON.stringify(again).slice(0, 200));
+    await finish(dir, run);
+    assert.equal(existsSync(join(dir, 'runs', run, 'report.json')), true, 'the re-send ran to its report');
+  } finally { writeFileSync(spawnHold, ''); await s.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the spawn hold is inert without the mock-advice mode switch: start_run is not held, whatever the variable says', async () => {
+  const dir = workdir(); const h = holdsDir(); const never = join(h, 'never-created');
+  mkdirSync(join(dir, 'tasks')); writeFileSync(join(dir, 'tasks', 't.md'), 'A test task.');
+  const s = new Session(dir, { env: { COUNCIL_TEST_SPAWN_HOLD_FILE: never } }); // no COUNCIL_ADVISE_MOCK
+  try {
+    let answered = null;
+    s.call('start_run', { chain: 'mock', task: 'tasks/t.md' }).then(r => { answered = r; });
+    assert.ok(await until(() => answered !== null), 'start_run answered without the hold file (a hold would keep it waiting up to 60 s)');
+    assert.equal(existsSync(`${never}.entered`), false, 'and the hold never started');
+    assert.equal(existsSync(`${never}.returned`), false, 'and no after-marker was written');
+    await finish(dir, folders(dir)[0]);
+  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the spawn hold is armed only by the advice start: even in mock-advice mode with the variable set, start_run of a chain the client names (an ollama seat) is not held', async () => {
+  const dir = workdir(); const h = holdsDir(); const never = join(h, 'never-created');
+  mkdirSync(join(dir, 'tasks')); mkdirSync(join(dir, 'chains')); writeFileSync(join(dir, 'tasks', 't.md'), 'A test task.');
+  const seat = { provider: 'ollama', model: 'llama3.3', baseUrl: 'http://127.0.0.1:1/v1' }; // a closed port: the run ends at once, the start only has to be ANSWERED
+  writeFileSync(join(dir, 'chains', 'realchain.json'), JSON.stringify({ name: 'realchain', maxRounds: 1, seats: { criteria: seat, builder: seat, critics: [{ ...seat, lab: 'x' }] } }));
+  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: never } }); // mock-advice mode ON, the variable set
+  try {
+    let answered = null;
+    s.call('start_run', { chain: 'realchain', task: 'tasks/t.md' }).then(r => { answered = r; });
+    assert.ok(await until(() => answered !== null), 'start_run answered without the hold file (a hold would keep it waiting up to 60 s)');
+    assert.equal(existsSync(`${never}.entered`), false, 'and the hold never started');
+    assert.equal(existsSync(`${never}.returned`), false, 'and no after-marker was written');
+  } finally { await s.close(); await sleep(300); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the spawn-hold seam writes <path>.returned when the advice start hands its answer back (armed: mock-advice mode, the advice start, the variable set), and the entered marker before it', async () => {
+  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn'); writeFileSync(spawnHold, ''); // the hold passes at once; the markers are still written
+  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold }, ...PERSON });
+  try {
+    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
+    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(a.content, JSON.stringify(a).slice(0, 200));
+    assert.ok(existsSync(`${spawnHold}.entered`) && existsSync(`${spawnHold}.returned`), 'both markers are there once the start has returned');
+    await finish(dir, folders(dir)[0]);
+  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ---- J1-13-1 (Haiku batch 3, 13 Oct 2026): the late-window listener used to be removed when spawnRun returned ------------------------------------------------
+// From then until the child's first stop check a cancel was seen only at the next progress poll (200 ms), so the child's first paid call could still go out after a cancel. The listener now stays armed for the whole call
+// (send-path.js returns `disarm`, council_advise calls it in a finally). ORDER: `<hold>.returned` says the start has returned (the old listener is gone); COUNCIL_MOCK_PRESTART_UNTIL_STOP keeps the child in its start-up until a STOP
+// exists; the ping after the cancel is the barrier. The RED on the old code depends on timing (its poll could land between the cancel and the ping); the green depends only on order.
+test('late window J1-13-1: a cancel AFTER the start returned and BEFORE the child\'s first stop check puts the STOP on disk at once, and the run takes no call', async t => {
+  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn'); writeFileSync(spawnHold, '');
+  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold, COUNCIL_MOCK_PRESTART_UNTIL_STOP: '1' }, ...PERSON });
+  try {
+    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
+    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(await until(() => existsSync(`${spawnHold}.returned`)), 'the start has returned: the child is up and waits in its start-up hold');
+    const run = folders(dir)[0];
+    assert.equal(existsSync(stopFile(dir, run)), false, 'nothing has cancelled yet, so no STOP');
+    s.cancel(call.id);
+    await s.ready; await s.rpc('ping', {}); // the barrier
+    assert.ok(existsSync(stopFile(dir, run)), 'the cancel put the STOP on disk the moment it fired, not at the next poll');
+    assert.match(JSON.parse(readFileSync(stopFile(dir, run), 'utf8')).note, /after the run started/, 'and the record names the phase it fired in');
+    await finish(dir, run);
+    assert.equal(usageFiles(dir, run), 0, 'no call was taken: nothing was spent');
+    const marker = JSON.parse(readFileSync(join(dir, 'runs', run, 'STOPPED-client_cancel.json'), 'utf8'));
+    assert.equal(marker.beforeFirstCall, true);
+    t.diagnostic(`J1-13-1 facts: STOP on disk after the ping barrier = true; STOPPED-client_cancel.json ${JSON.stringify({ stoppedBy: marker.stoppedBy, beforeFirstCall: marker.beforeFirstCall, spentUsd: marker.spentUsd })}`);
+  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('late window: a person\'s own STOP (by user) is not replaced by the client\'s cancel: the first STOP written stays', async () => {
+  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn');
+  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold }, ...PERSON });
+  try {
+    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
+    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(await until(() => existsSync(`${spawnHold}.entered`)), 'the server is inside the start');
+    const run = folders(dir)[0];
+    writeStopRequest(join(dir, 'runs', run), { by: 'user', run, note: 'council stop' }); // the person ran `council stop` (the real writer)
+    s.cancel(call.id);
+    await s.ready; await s.rpc('ping', {});
+    assert.equal(JSON.parse(readFileSync(stopFile(dir, run), 'utf8')).by, 'user', 'the person\'s STOP stays; the cancel did not take over the record');
+    writeFileSync(spawnHold, '');
+    await finish(dir, run);
+  } finally { writeFileSync(spawnHold, ''); await s.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('late window: a STOP left in the gate folder for ANOTHER run is stale (the child ignores it), so the cancel replaces it and the run still stops', async () => {
+  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn');
+  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold }, ...PERSON });
+  try {
+    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
+    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(await until(() => existsSync(`${spawnHold}.entered`)), 'the server is inside the start');
+    const run = folders(dir)[0];
+    writeStopRequest(join(dir, 'runs', run), { by: 'user', run: '2026-01-01T00-00-00-000Z', note: 'a stale request for another run' });
+    s.cancel(call.id);
+    await s.ready; await s.rpc('ping', {});
+    const now = JSON.parse(readFileSync(stopFile(dir, run), 'utf8'));
+    assert.deepEqual([now.by, now.run], ['client_cancel', run], 'the stale request was replaced by this run\'s own cancel (the reader would have ignored the stale one)');
+    writeFileSync(spawnHold, '');
+    await finish(dir, run);
+  } finally { writeFileSync(spawnHold, ''); await s.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('send path: a policy.json that stopped reading between the quote and the send refuses the send (policy_unreadable), starts nothing and leaves the quote reusable', async () => {
+  const dir = workdir(); const policy = join(dir, 'policy.json');
+  const s = new Session(dir, { env: MOCK, ...PERSON });
+  try {
+    writeFileSync(policy, JSON.stringify({ max_usd_per_run: 100 }));
+    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
+    assert.equal(sc(q).code, undefined, `the quote passed with a readable policy: ${JSON.stringify(sc(q)).slice(0, 200)}`);
+    writeFileSync(policy, '{ broken'); // the file is project-writable: it changed after the quote
+    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 20 });
+    assert.equal(sc(a).code, 'policy_unreadable', `refused (the old send path ignored the error and ran with NO policy): ${JSON.stringify(sc(a)).slice(0, 300)}`);
+    assert.match(sc(a).reason, /policy\.json cannot be read/);
+    assert.equal(started(dir).length, 0, 'no run started');
+    writeFileSync(policy, JSON.stringify({ max_usd_per_run: 100 })); // repaired
+    const again = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
+    assert.ok(!/already used/i.test(textOf(again)) && sc(again)?.code !== 'quote_used', `the quote was reusable: ${textOf(again).slice(0, 200)}`);
+    await finish(dir, started(dir)[0] ?? folders(dir)[0]);
+  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('liveness: the server records the pid of the child it spawned in the run folder (.spawn.json), and it is the pid run.json carries once the child writes it', async () => {
+  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
+  try {
+    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
+    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 25 }); // held until the run settles: the answer arrives after the child has written run.json (an order, not a race)
+    const run = sc(a).run;
+    await finish(dir, run);
+    const spawned = JSON.parse(readFileSync(join(dir, 'runs', run, '.spawn.json'), 'utf8'));
+    assert.ok(Number.isInteger(spawned.pid) && spawned.pid > 0, `a pid: ${JSON.stringify(spawned)}`);
+    assert.equal(spawned.host, hostname());
+    assert.equal(spawned.pid, JSON.parse(readFileSync(join(dir, 'runs', run, 'run.json'), 'utf8')).pid, 'the spawned child IS the process that wrote run.json');
+  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('refusals after dispositions were written say so, and a dispositions write leaves no torn file', async () => {

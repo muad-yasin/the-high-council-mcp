@@ -7,12 +7,8 @@
 // assumptions, this answers the blunt question: if each seat chews through
 // N tokens over a whole run, what does the run cost?
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { effectiveRowByKey } from './price-table.js';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const PRICES = JSON.parse(readFileSync(join(here, 'pricing.json'), 'utf8'));
 
 export const ROSTERS = {
   // Six labs, top model from each - the seven-frontier-lab harness as first asked for, minus xAI
@@ -67,7 +63,7 @@ const CACHE_READ_MULTIPLIER = 0.1;
 
 export function priceRoster({ perModel, roster, inputShare, cacheHitRate = 0 }) {
   const rows = roster.map(key => {
-    const p = PRICES[key];
+    const p = effectiveRowByKey(key);   // the one price source (src/price-table.js)
     const input = perModel * inputShare;
     const output = perModel * (1 - inputShare);
     if (!p) return { key, input, output, usd: null };

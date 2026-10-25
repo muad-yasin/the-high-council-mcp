@@ -10,11 +10,13 @@ import Ajv from 'ajv';
 import { lintChain } from '../src/chain-lint.js';
 import { fingerprintInputs } from '../src/cache-integrity.js';
 import { dryRunReport } from '../src/dry-run.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const load = n => JSON.parse(readFileSync(join(root, 'chains', `${n}.json`), 'utf8'));
+const load = n => readChainFile(root, n);
 const validate = new Ajv({ allErrors: true }).compile(JSON.parse(readFileSync(join(root, 'config', 'chain-schema.json'), 'utf8')));
-const RECOMMENDED = ['cheap-7-v2', 'plan-premium-7', 'plan-highest-7', 'plan-daily-7', 'local-ollama'];
+// 0.8.3 (lane B), CHANGED ACCEPTED TEST: old bar = cheap-7-v2, plan-premium-7, plan-highest-7, plan-daily-7, local-ollama; new bar = the three tiers, local-ollama (the four retired ones moved to chains/outdated/; the tiers are the chains the README recommends).
+const RECOMMENDED = ['plan-mini-council', 'plan-medium-council', 'plan-high-council', 'local-ollama'];
 
 test('every recommended chain has a one-line summary, and it says what the chain is, not how well it works', () => {
   for (const name of RECOMMENDED) {

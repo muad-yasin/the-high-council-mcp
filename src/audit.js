@@ -74,16 +74,37 @@ export function shouldEnableAudit({ config, policyPath }) {
 // A signing key kept inside the run folder it signs gives no real tamper-evidence - anyone who
 // can edit the log can edit the key next to it. Checked, not just documented: AUDIT_HMAC_KEY_FILE
 // resolving under `runDir` is refused outright rather than silently accepted.
+//
+// 0.8.3 T1-8 (Batch 2 audit item 8): a key variable that is PRESENT must yield a key, or this throws (cli.js turns a throw
+// into `audit: <message>` and a fatal exit before anything is spent). An empty key used to read as "no key": the log was
+// written unsigned and verified without checking a signature, with no word to the person who had set one. Only "neither
+// variable present" is the unsigned case (null; the CLI prints its notice). An empty AUDIT_HMAC_KEY next to a usable key
+// file uses the file (nothing fails open). AUDIT_HMAC_KEY='' is reachable through the process environment only (env-file.js
+// reads a blank .env value as absent). The key itself is never named in a message.
+const blank = v => typeof v !== 'string' || v.trim() === '';
 export function loadHmacKey({ runDir } = {}) {
-  if (process.env.AUDIT_HMAC_KEY) return process.env.AUDIT_HMAC_KEY;
+  const inline = process.env.AUDIT_HMAC_KEY;
+  if (!blank(inline)) return inline;
   const keyFile = process.env.AUDIT_HMAC_KEY_FILE;
-  if (!keyFile) return null;
+  if (keyFile === undefined) {
+    if (inline === undefined) return null;
+    throw new Error('AUDIT_HMAC_KEY is set but empty. A signing key cannot be empty. Give it a value, or unset it to write an unsigned log.');
+  }
+  if (keyFile === '') throw new Error('AUDIT_HMAC_KEY_FILE is set but empty. Give it the path of the key file, or unset it to write an unsigned log.');
   const resolvedKeyFile = resolve(keyFile);
   const resolvedRunDir = runDir ? resolve(runDir) + sep : null;
   if (resolvedRunDir && resolvedKeyFile.startsWith(resolvedRunDir)) {
     throw new Error(`AUDIT_HMAC_KEY_FILE (${resolvedKeyFile}) resolves inside the run folder it would sign (${runDir}) - keep the signing key outside any run folder.`);
   }
-  return readFileSync(resolvedKeyFile, 'utf8').trim();
+  const key = readFileSync(resolvedKeyFile, 'utf8').trim();
+  if (!key) throw new Error(`AUDIT_HMAC_KEY_FILE (${resolvedKeyFile}) is empty. A signing key cannot be empty. Put the key in the file, or unset AUDIT_HMAC_KEY_FILE to write an unsigned log.`);
+  return key;
+}
+
+// null / undefined = "no key" (unsigned, hash-chained). A string that is empty or blank is a mistake, never "no key" (T1-8): it is refused here so no caller reaches "falsy key = signing off" with it.
+function assertKeyOrNone(who, key) {
+  if (key === null || key === undefined) return;
+  if (typeof key !== 'string' || key.trim() === '') throw new Error(`${who}: the signing key is empty. Pass a key, or null for an unsigned log.`);
 }
 
 /**
@@ -92,6 +113,7 @@ export function loadHmacKey({ runDir } = {}) {
  * half-written line on a crash mid-call - each recordStage()/close() call is one atomic append.
  */
 export function createAuditWriter({ runDir, run, chain, user = userIdentity(), hmacKey = null }) {
+  assertKeyOrNone('createAuditWriter', hmacKey);
   const path = auditFilePath(runDir);
   let seq = 0;
   let prevHash = GENESIS_HASH;
@@ -117,6 +139,7 @@ export function createAuditWriter({ runDir, run, chain, user = userIdentity(), h
 
   function recordStage(stage) {
     if (closed) throw new Error('audit writer already closed for this run');
+    if (stage?.provider === 'harness') return; // a zero-cost harness record (handoff-notes), not one provider call: this log is one line per call
     const line = {
       seq, ts: new Date().toISOString(), run, chain, user,
       stage: stage.label, provider: stage.provider, model: stage.model, lab: stage.lab ?? null,
@@ -171,6 +194,7 @@ export function validateAuditLine(line) {
  * crashed); a truncated log is then indistinguishable from an unfinished one.
  */
 export function verifyAuditLog(lines, { hmacKey, allowUnclosed = false } = {}) {
+  assertKeyOrNone('verifyAuditLog', hmacKey);
   let prevHash = GENESIS_HASH;
   let runningChainHash = GENESIS_HASH;
   let dataLines = 0;

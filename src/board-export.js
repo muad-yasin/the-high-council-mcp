@@ -3,6 +3,7 @@
 // dependency, no server. Same "interactivity without JavaScript" discipline
 // docs/demo.html already uses: collapsible sections are plain
 // <details>/<summary>, inline CSS only.
+import { verdictHeadline } from './verdict-headline.js';
 const esc = s => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -103,8 +104,8 @@ ${alt.items.length ? alt.items.map(a => alternativeSection(a, alt.posts || [], a
 <body>
 <h1>Debate board${report.runId ? ` - ${esc(report.runId)}` : ''}</h1>
 <p>Chain: ${esc(report.chain || 'unknown')}</p>
-<h2>Verdict</h2>
-<p>${report.passed ? 'PASSED - every lab signed off' : 'OPEN OBJECTIONS'}</p>
+<h2>${verdictHeadline(report).heading}</h2>
+<p>${esc(verdictHeadline(report).text)}</p>
 <ul>
 ${verdictItems}
 </ul>

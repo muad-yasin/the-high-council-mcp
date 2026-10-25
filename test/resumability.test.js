@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runResumability } from '../src/run-status.js';
+import { withMalformedKeysInProcess } from './helpers/no-real-keys.js';
+import { startTyped } from './helpers/typed-cap.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -75,8 +77,9 @@ test('a provider that kept answering 503: the error stop is marked transient, so
     const dir = workspace();
     const seat = { provider: 'openrouter', model: 'deepseek/deepseek-v4-pro', maxTokens: 500, baseUrl: `http://127.0.0.1:${srv.address().port}/v1`, lab: 'a' };
     writeFileSync(join(dir, 'chains', 'down.json'), JSON.stringify({ name: 'down', maxRounds: 1, criteria: ['It exists.'], seats: { builder: seat, critics: [{ ...seat, lab: 'b' }] } }));
-    const child = spawn(process.execPath, [cli, '--chain', 'down', '--task', 'tasks/t.md', '--run-id', RUN], { cwd: dir, env: env({ OPENROUTER_API_KEY: 'test-key-not-real', COUNCIL_ALLOW_LOOPBACK_KEY_HOST: '1' }), stdio: 'ignore' });
-    const code = await new Promise(done => child.on('exit', done));
+    const spawnCli = args => new Promise(done => spawn(process.execPath, [cli, ...args], { cwd: dir, env: env({ OPENROUTER_API_KEY: 'test-key-not-real', COUNCIL_ALLOW_LOOPBACK_KEY_HOST: '1' }), stdio: 'ignore' }).on('exit', code => done({ code })));
+    // 0.8.3 M6 typed cap T4a: a paid start waits for a typed limit (exit 21); startTyped types one and resumes the same run.
+    const { code } = await startTyped(spawnCli, ['--chain', 'down', '--task', 'tasks/t.md', '--run-id', RUN], join(dir, 'runs', RUN));
     assert.equal(code, 16);
     const e = readJson(dir, 'STOPPED-error.json');
     assert.equal(e.httpStatus, 503);
@@ -134,10 +137,11 @@ test('0.8.1 M6: a stopped run resumes only if its chain said resumeAfterStop: tr
 test('0.8.1 decided rule 6 (M6 review D3): an advice call is never offered a resume, whatever ended it: an error, its cap, a crash', () => {
   for (const marker of ['STOPPED-error.json', 'STOPPED-budget.json', null]) {
     const dir = mkdtempSync(join(tmpdir(), 'thc-resumable-advice-'));
+    // zero-spend-ok: runResumability runs in THIS process on a folder naming a real chain; it sends nothing, and the call below runs under withMalformedKeysInProcess so no usable key is reachable even if that stopped being true
     writeFileSync(join(dir, 'run.json'), JSON.stringify({ chain: 'advise-single', pid: 999999 }));
     writeFileSync(join(dir, 'advise-log.json'), JSON.stringify({ schema: 'advise-log/1' }));
     if (marker) { writeFileSync(join(dir, marker), '{}'); if (marker === 'STOPPED-error.json') writeFileSync(join(dir, 'STOPPED-error.md'), '# x\n'); }
-    const s = runResumability(dir, { chain: 'advise-single', pid: 999999 });
+    const s = withMalformedKeysInProcess(() => runResumability(dir, { chain: 'advise-single', pid: 999999 }));
     assert.deepEqual([s.resumable, s.reason], [false, 'advice_call'], String(marker));
   }
 });

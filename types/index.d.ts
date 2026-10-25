@@ -79,7 +79,8 @@ export interface RunResult {
   /** The CLI's exit code; the README's exit-code table says what each means. */
   exitCode: number | null;
   signal: string | null;
-  status: RunStatus | 'not_started';
+  /** 'tree_refused' (since 0.8.3) when exitCode is 19: a recursive-councils tree refused to start or resume the run (nothing was run, nothing was spent). Exit 4 stays the spend cap. */
+  status: RunStatus | 'not_started' | 'tree_refused';
   report: Report | null;
   /** The last lines the CLI printed. Never contains a key value. */
   outputTail: string;
@@ -106,16 +107,18 @@ export interface RunOptions extends CommonRunOptions {
   /** Reuse an earlier run's criteria. */
   fromRun?: string;
   context?: string;
+  /** The acceptance list, as a file (--criteria): one criterion per line, or a JSON array. The run uses it instead of asking a criteria seat. */
+  criteria?: string;
+  /** The run's folder name (digits, T, Z and "-", the form of the default). The folder must not already hold a run. Default: the start time. */
+  runId?: string;
+  /** Makes the run a member of a recursive-councils tree: a JSON file naming its tree, node and generation (--tree-node). The tree record must have registered the node; otherwise the run is refused (exit 19). */
+  treeNode?: string;
+  /** The personal-data gate. Default 'hard-stop': a finding stops the run (exit 11). 'warn' (print and go on) is the developer's own typed choice, the same act as `--pii-gate warn`. */
   piiGate?: 'warn' | 'hard-stop';
-  /** Send key-shaped text anyway. Every prompt is scanned for the key formats in
-   *  src/secret-patterns.js by default, and a match stops the run (exit 11). */
-  allowSecretShaped?: boolean;
 }
 
 export interface ResumeOptions extends CommonRunOptions {
   runDir: string;
-  /** Continue a run the outbound key scan stopped (STOPPED-secret.md), sending the text anyway. */
-  allowSecretShaped?: boolean;
 }
 
 export declare function version(): string;

@@ -34,7 +34,8 @@
 // Privacy: chain name, counts and rates only. Never task content, proposal
 // text, debate text or HANDOFF prose beyond the tool names it lists.
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { runFolderKind } from './run-files.js';
 import { join } from 'node:path';
 import { runIdToDate } from './spend.js';
 import { withoutCanary } from './canary.js';
@@ -300,6 +301,7 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
   // sign-off; they are skipped and counted, so the skip is never silent.
   let adviceRunsSkipped = 0;
   let unreadable = 0;
+  let symbolicLinksNotCounted = 0;
   let totalProposals = 0, totalAmended = 0, totalWithdrawn = 0;
   let totalObjected = 0, totalObjectedFollowedThrough = 0;
   let runsWithHandoff = 0, runsWithToolsSection = 0, runsWithoutToolsSection = 0;
@@ -310,12 +312,15 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
   const cirExcluded = [];
 
   for (const id of ids) {
+    if (!runIdToDate(id)) continue;
+    // a symbolic link in runs/ is never a run (the harness never makes one): asked FIRST (before the date and the window, so a dangling link and a link outside the window are counted too), counted apart, never read as a second run (src/run-files.js runFolderKind, the one predicate every reader of runs/ asks)
+    const kind = runFolderKind(join(runsDir, id));
+    if (kind === 'link') { symbolicLinksNotCounted += 1; continue; }
     const when = runIdToDate(id);
-    if (!when || when.getTime() < cutoff) continue;
+    if (when.getTime() < cutoff) continue;
     const dir = join(runsDir, id);
-    try {
-      if (!statSync(dir).isDirectory()) continue;
-    } catch { unreadable += 1; continue; }
+    if (kind === 'missing') { unreadable += 1; continue; }
+    if (kind !== 'folder') continue;
 
     const report = readJson(join(dir, 'report.json'));
     if (report?.advise) { adviceRunsSkipped += 1; continue; }
@@ -367,6 +372,7 @@ export function metricsReport(runsDir, { days = 30, now = Date.now() } = {}) {
     since: new Date(cutoff),
     runsSeen,
     unreadable,
+    symbolicLinksNotCounted,
     adviceRunsSkipped,
     amendmentRate: rate(totalAmended, totalProposals),
     withdrawalRate: rate(totalWithdrawn, totalProposals),
@@ -413,7 +419,7 @@ function emptyReport(runsDir, days, cutoff, note) {
   return {
     label: 'descriptive telemetry',
     runsDir, days, since: new Date(cutoff),
-    runsSeen: 0, unreadable: 0,
+    runsSeen: 0, unreadable: 0, symbolicLinksNotCounted: 0,
     amendmentRate: null, withdrawalRate: null, objectionFollowThroughRate: null, toolCallUsageRate: null,
     allocatorRubberStampRate: null,
     consensusInducedRegressionCount: 0,

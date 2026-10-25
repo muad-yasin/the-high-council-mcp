@@ -1,3 +1,4 @@
+// CHANGED ACCEPTED (label rename part 2, 20 Okt 2026; Muad 18 Okt: "upper estimate" replaces "at most" and "maximum"): OLD the sentence's words "its maximum cost"; NEW "its upper estimate". WHY: the same figure, one name (src/policy.js).
 // A policy's max_usd_per_run (0.8.2 item 8c; owner, 7 Oct 2026: "make it a warning, not a refusal"): still REFUSES when the expected cost is over the limit, now names both figures, and WARNS (the run starts)
 // when only the maximum is over it. Offline, $0.
 import { test } from 'node:test';
@@ -9,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { evaluatePolicy } from '../src/policy.js';
 import { dryRunReport } from '../src/dry-run.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -22,7 +24,7 @@ test('evaluatePolicy: expected over the limit refuses and names both figures; ex
   const warn = evaluatePolicy(policy, ctx(0.5, 3));
   assert.equal(warn.ok, true, 'the run is not refused');
   assert.equal(warn.warnings.length, 1);
-  assert.match(warn.warnings[0], /expected cost is \$0\.5000, within the \$1\.0000 limit, but its maximum cost .* is \$3\.0000, over it/);
+  assert.match(warn.warnings[0], /expected cost is \$0\.5000, within the \$1\.0000 limit, but its upper estimate .* is \$3\.0000, over it/);
   assert.deepEqual(warn.checks.map(c => [c.field, c.ok]), [['max_usd_per_run', true]], 'a warning is not a failed check');
   const quiet = evaluatePolicy(policy, ctx(0.5, 0.9));
   assert.deepEqual([quiet.ok, quiet.warnings], [true, []]);
@@ -35,7 +37,7 @@ function workspace(limit) {
   writeFileSync(join(dir, 'policy.json'), JSON.stringify({ allowed_providers: ['mock'], max_usd_per_run: limit }));
   return dir;
 }
-const env = dir => ({ PATH: process.env.PATH, HOME: dir });
+const env = dir => ({ PATH: process.env.PATH, HOME: dir, ...malformedProviderKeys() });
 
 test('through the CLI on a chain with fixture prices: expected over the limit is refused (exit 12); expected under and maximum over starts with a warning in the dry run, the log and WARNINGS.md', () => {
   const r = dryRunReport(JSON.parse(readFileSync(join(root, 'chains', 'mock-budget.json'), 'utf8')), {}).estimate;
@@ -51,7 +53,7 @@ test('through the CLI on a chain with fixture prices: expected over the limit is
   const d2 = workspace(between);
   const dry = spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--dry-run'], { cwd: d2, encoding: 'utf8', env: env(d2) });
   assert.equal(dry.status, 0, dry.stdout + dry.stderr);
-  assert.match(dry.stdout, /policy warning - max_usd_per_run: this chain's expected cost is .* within the .* limit, but its maximum cost/);
+  assert.match(dry.stdout, /policy warning - max_usd_per_run: this chain's expected cost is .* within the .* limit, but its upper estimate/);
   const json = JSON.parse(spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--dry-run', '--json'], { cwd: d2, encoding: 'utf8', env: env(d2) }).stdout);
   assert.equal(json.policyWarnings.length, 1);
   const run = spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '1000'], { cwd: d2, encoding: 'utf8', env: env(d2), timeout: 120_000 });
@@ -83,7 +85,7 @@ test('through MCP start_run: the warning is in the tool\'s RESULT (a detached ru
     const body = JSON.parse(res.result.content[0].text);
     assert.equal(body.started, true, JSON.stringify(body));
     assert.equal(body.policy_warnings.length, 1);
-    assert.match(body.policy_warnings[0], /expected cost is .* within the .* limit, but its maximum cost/);
+    assert.match(body.policy_warnings[0], /expected cost is .* within the .* limit, but its upper estimate/);
     // no policy file: no field
     const plain = mkdtempSync(join(tmpdir(), 'thc-polmax-')); mkdirSync(join(plain, 'tasks')); writeFileSync(join(plain, 'tasks', 't.md'), 'x\n');
     // (the same server cannot be pointed at another folder; the CLI's own no-warning case is covered above)

@@ -35,6 +35,9 @@ test('landing page: chain config count matches chains/', { skip: !page && 'no do
   // The prose repeats it further down the page; that copy drifts too.
   assert.match(page, new RegExp(`${real} chain configs live in`),
     `the chains section prose disagrees with the real count (${real})`);
+  // The README's Chains section repeats it too; nothing derived that copy, so adding a chain file (0.8.3 M0) would have left it one short.
+  assert.match(readFileSync(join(root, 'README.md'), 'utf8'), new RegExp(`^${real} chain configs live in`, 'm'),
+    `the README's Chains section disagrees with the real count (${real})`);
 });
 
 test('landing page: MCP tool count matches the registered tools', { skip: !page && 'no docs/index.html' }, () => {
@@ -55,8 +58,8 @@ test('landing page: provider count matches providers.js', { skip: !page && 'no d
 });
 
 test('landing page: default spend cap matches the CLI default', { skip: !page && 'no docs/index.html' }, () => {
-  const cli = readFileSync(join(root, 'src', 'cli.js'), 'utf8');
-  const real = cli.match(/const DEFAULT_MAX_USD = (\d+)/)[1];
+  const cap = readFileSync(join(root, 'src', 'default-cap.js'), 'utf8');      // M7 apply: the one module cli.js and the MCP server import
+  const real = cap.match(/export const DEFAULT_MAX_USD = (\d+)/)[1];
   assert.equal(statFor('default spend cap'), `$${real}`);
 });
 

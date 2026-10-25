@@ -43,17 +43,21 @@ test('test_stage_split: applySeatRole has exactly one call site in the whole cod
   };
   walk(join(repoRoot, 'src'));
   assert.equal(callSites.length, 1, `applySeatRole must be called from exactly one place; found ${callSites.length}: ${callSites.map(c => c.file).join(', ')}`);
-  assert.ok(callSites[0].file.endsWith(join('src', 'chain.js')), 'the one call site must be in src/chain.js');
+  // CHECKER CHANGE (0.8.3 estimator unit, C&C thcmcp-6d): OLD "the one call site must be in src/chain.js"; NEW "in src/stage-system.js, inside debateSystemFor". WHY: the debate system text is now composed in ONE function that both chain.js (the
+  // debate stage) and the estimator (src/cost.js, the debate rows) call, so the estimate counts the persona text the seat is really sent; the next test pins who may call that function.
+  assert.ok(callSites[0].file.endsWith(join('src', 'stage-system.js')), 'the one call site must be in src/stage-system.js');
+  const sys = readFileSync(callSites[0].file, 'utf8');
+  assert.match(sys.slice(sys.lastIndexOf('export const debateSystemFor'), sys.indexOf('applySeatRole(', sys.lastIndexOf('export const debateSystemFor')) + 20), /export const debateSystemFor = \(config, seat\) => withHeldNote\(config, applySeatRole\(/, 'and it is the body of debateSystemFor');
 });
 
-test('test_stage_split: the one call site sits inside the debate stage, not the panel/critique stage', () => {
-  const idx = chainSrc.indexOf('applySeatRole(');
-  assert.notEqual(idx, -1);
+test('test_stage_split: debateSystemFor (the one applySeatRole call site) is called from the debate stage of chain.js only, not from a panel/critique block', () => {
+  // CHECKER CHANGE (see the test above): OLD scanned chain.js for `applySeatRole(` inside the debate-${lab} block; NEW scans chain.js for `debateSystemFor(`, the function that holds the call. The estimator's debate row
+  // (src/stage-system.js RULES) is the only other caller and prices a debate row only.
+  const sites = [...chainSrc.matchAll(/\bdebateSystemFor\(/g)].map(m => m.index);
+  assert.equal(sites.length, 1, 'chain.js calls debateSystemFor exactly once');
+  const idx = sites[0];
   const before = chainSrc.slice(Math.max(0, idx - 800), idx);
   const after = chainSrc.slice(idx, idx + 400);
-  // The surrounding code must be the debate stage's own invoke block
-  // (the stage label literal that appears nowhere else) and must NOT be
-  // inside a panel/critique-labeled block.
   assert.match(before + after, /label:\s*`debate-\$\{lab\}`/, 'the call site must be inside the debate-${lab} stage block');
   assert.doesNotMatch(before, /label:\s*`panel-/, 'the call site must not be reachable from a panel-labeled block');
   assert.doesNotMatch(before, /label:\s*`critique-/, 'the call site must not be reachable from a critique-labeled block');

@@ -1,0 +1,161 @@
+{
+  "name": "daily7-sub-a",
+  "description": "Child chain for recursive councils (0.8.3; the owner's decision of 8 Oct 2026, build plan §11). Criteria are handed in with --criteria (no criteria seat). Writer = an external Claude Code session on Sonnet 5.5 with its own lab (skeleton, build, revise, handoff), which also judges ('judging': 'all-roles', 'selfReview': 'allowed', as in daily7), so one of the judges reviews its own plan. 3 blind proposers (DeepSeek V4.1 Flash, MiMo V2.6 Pro, GLM-5.3 Flash), 4 judges (3 API + the writer), unanimous, milestones on, at most 3 rounds, no alternatives, no deep dive. Every API seat's cap is the largest reply the harness knows for its model, and it reasons at high, or at the model's own default where that is higher (the harness sends these no effort setting: GLM-5.3 Flash at max).",
+  "summary": "Child chain: 4 judges, 3 rounds, Sonnet 5.5 writer, criteria handed in.",
+  "maxRounds": 3,
+  "signoff": "unanimous",
+  "signoff_table": {
+    "required": true
+  },
+  "answer_back": {
+    "enabled": true
+  },
+  "debate_hygiene": {
+    "shuffle": true,
+    "noQuoteMarks": true
+  },
+  "handoff_contract": {
+    "milestones": true
+  },
+  "judging": "all-roles",
+  "selfReview": "allowed",
+  "dispute": {
+    "enabled": true,
+    "stall_rounds": 2
+  },
+  "proposals": {
+    "parts": 3,
+    "maxTokens": 393216
+  },
+  "debate": true,
+  "majority_guard": {
+    "enabled": true
+  },
+  "canary": {
+    "enabled": true,
+    "sampleRate": 0.1
+  },
+  "handoff": true,
+  "estimate": {
+    "promptTokens": 12000,
+    "draftTokens": 8000,
+    "critiqueTokens": 4000
+  },
+  "seats": {
+    "skeleton": {
+      "provider": "external",
+      "model": "subscription:sonnet-5.5",
+      "lab": "sonnet5.5-sub",
+      "maxTokens": 128000,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "builder": {
+      "provider": "external",
+      "model": "subscription:sonnet-5.5",
+      "lab": "sonnet5.5-sub",
+      "maxTokens": 128000,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "reviser": {
+      "provider": "external",
+      "model": "subscription:sonnet-5.5",
+      "lab": "sonnet5.5-sub",
+      "maxTokens": 128000,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "handoff": {
+      "provider": "external",
+      "model": "subscription:sonnet-5.5",
+      "lab": "sonnet5.5-sub",
+      "maxTokens": 128000,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "proposers": [
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4.1-flash-1017",
+        "lab": "deepseek-v4.1-flash",
+        "maxTokens": 393216,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "xiaomi/mimo-v2.6-pro",
+        "lab": "mimo-v2.6-pro",
+        "maxTokens": 131072,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "lab": "glm5.3-flash",
+        "maxTokens": 131072
+      }
+    ],
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4.1-flash-1017",
+        "lab": "deepseek-v4.1-flash",
+        "maxTokens": 393216,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "xiaomi/mimo-v2.6-pro",
+        "lab": "mimo-v2.6-pro",
+        "maxTokens": 131072,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "lab": "glm5.3-flash",
+        "maxTokens": 131072
+      },
+      {
+        "provider": "external",
+        "model": "subscription:sonnet-5.5",
+        "lab": "sonnet5.5-sub",
+        "maxTokens": 128000,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      }
+    ]
+  }
+}

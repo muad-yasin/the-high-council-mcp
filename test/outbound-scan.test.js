@@ -57,7 +57,10 @@ function workspace(taskText) {
   writeFileSync(join(dir, 'tasks', 'x.md'), taskText);
   return dir;
 }
-const council = (dir, args) => spawnSync(process.execPath, [cli, ...args], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir } });
+// CHANGED ACCEPTED (19 Okt 2026, PII stop unit): OLD no setting = the gate warned, so the key scan refused first. NEW the default is the stop and the PII gate also reads user:pass@host as an e-mail and comes first; this file tests the KEY SCAN, so its spawns run under the user-set `COUNCIL_PII_GATE=warn` (the user's own shell env: the one place a standing warn may come from).
+const council = (dir, args) => spawnSync(process.execPath, [cli, ...args], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir, COUNCIL_PII_GATE: 'warn' } });
+// the same child with the verdict envelope's review_id fixed (test/helpers/fixed-envelope-id-preload.js), for the one test that compares prompt hashes between two runs
+const councilFixedId = (dir, args) => spawnSync(process.execPath, ['--import', join(root, 'test', 'helpers', 'fixed-envelope-id-preload.js'), cli, ...args], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir, COUNCIL_PII_GATE: 'warn' } });
 
 for (const [name, text, secret] of FORMATS) {
   test(`CLI: a ${name} key in the task stops the mock chain before stage 1 (exit 11), named but never printed`, () => {
@@ -101,7 +104,8 @@ test('CLI: a resume keeps --allow-secret-shaped from run.json (mock-external pau
 test('CLI: a clean task gives byte-identical prompts with the scan on and waived', () => {
   const hashes = args => {
     const dir = workspace('# Plan\n\nPlan a small note-taking app.\n');
-    const r = council(dir, ['--chain', 'mock', '--task', 'tasks/x.md', ...args]);
+    // CHANGED ACCEPTED TEST (decider-readiness apply patch fix-up, 24 Okt 2026; the full suite on fad02049 listed it, #1926). OLD: `council(...)`: the two runs' critic prompts were identical because nothing in them was random. NEW: `councilFixedId(...)`: once src/roles.js records the verdict-envelope sentence every critic prompt carries a review_id drawn from randomBytes, so two runs differ in their critique prompt hashes whatever the scan does; the child fixes that id (the envelope stays ON, so the recorded state is what is compared). WHY: the property under test is that the SCAN changes no prompt byte; a random id in the prompt hid it.
+    const r = councilFixedId(dir, ['--chain', 'mock', '--task', 'tasks/x.md', ...args]);
     assert.equal(r.status, 0, r.stdout + r.stderr);
     const [id] = readdirSync(join(dir, 'runs'));
     const run = join(dir, 'runs', id);
@@ -154,12 +158,14 @@ test('scan: pattern name and line only; prose passwords and context-only shapes 
 // env-style assignment, a Bearer header) are checked in the user's inputs before the run; prompts
 // that carry model output are checked for distinctive key formats only.
 const PLACEHOLDER = 'DATABASE_URL=postgres://postgres:postgres@localhost:5432/notes\nSESSION_SECRET=change-me-in-production';
+// The CLI pair below runs on the same text with a REAL-looking host: on `localhost` (reserved) the URL password is exempt from the input scan, so only the SESSION_SECRET line stopped the run and the test no longer pinned the URL shape (old: PLACEHOLDER, regexp /URL credentials|credential assignment/).
+const PLACEHOLDER_REAL_HOST = PLACEHOLDER.replace('@localhost', '@db.internal');
 
 test('split: a placeholder URL in the task stops the run up front', () => {
-  const dir = workspace(`Plan a small app.\n${PLACEHOLDER}\n`);
+  const dir = workspace(`Plan a small app.\n${PLACEHOLDER_REAL_HOST}\n`);
   const r = council(dir, ['--chain', 'mock', '--task', 'tasks/x.md']);
   assert.equal(r.status, 11, r.stdout + r.stderr);
-  assert.match(r.stderr, /URL credentials|credential assignment/);
+  assert.match(r.stderr, /URL credentials/);
 });
 
 test('split: the same placeholder in model output (an external build answer) does not stop the run', () => {
@@ -168,7 +174,7 @@ test('split: the same placeholder in model output (an external build answer) doe
   assert.equal(first.status, 3, first.stdout + first.stderr);
   const [id] = readdirSync(join(dir, 'runs'));
   const pending = readdirSync(join(dir, 'runs', id)).find(f => f.startsWith('NEEDS-')).slice('NEEDS-'.length, -'.md'.length);
-  writeFileSync(join(dir, 'runs', id, `${pending}.md`), `# Plan\n\nConfig:\n\n${PLACEHOLDER}\n`);
+  writeFileSync(join(dir, 'runs', id, `${pending}.md`), `# Plan\n\nConfig:\n\n${PLACEHOLDER_REAL_HOST}\n`);
   const again = council(dir, ['--resume', join('runs', id)]);
   assert.notEqual(again.status, 11, again.stdout + again.stderr);
   assert.equal(existsSync(join(dir, 'runs', id, 'STOPPED-secret.md')), false);
@@ -187,14 +193,18 @@ test('split: a distinctive key in model output still stops the run, and resume c
   const stopped = readFileSync(join(run, 'STOPPED-secret.md'), 'utf8');
   assert.match(stopped, /Anthropic/);
   assert.equal(stopped.includes(FORMATS[3][2]), false);
-  assert.match(stopped, /allow_secret_shaped: true/);
+  assert.match(stopped, /--resume runs\/\S+ --allow-secret-shaped/, 'the stop text gives the person the terminal command');
+  assert.doesNotMatch(stopped, /allow_secret_shaped|Over MCP/, 'and no longer names an MCP parameter (removed in 0.8.3)');
   const allowed = council(dir, ['--resume', join('runs', id), '--allow-secret-shaped']);
   assert.notEqual(allowed.status, 11, allowed.stdout + allowed.stderr);
 });
 
 test('split: assertOutboundClean skips generic shapes; secretShapesIn keeps them for inputs', () => {
   assert.doesNotThrow(() => assertOutboundClean('x', { system: '', user: PLACEHOLDER }));
-  assert.ok(secretShapesIn(PLACEHOLDER).length >= 2);
+  assert.ok(secretShapesIn(PLACEHOLDER).length >= 2);   // restored in the Part E fix-up (e2d329f had changed it to `equal 1`): the default scan has no reserved-host exemption
+  // the input scans ask for it (src/run-preflight.js inputSecretFindings): the URL password on `localhost` is a reserved placeholder host there, so the block holds ONE finding (the SESSION_SECRET assignment); the same URL on another host is still the second
+  assert.equal(secretShapesIn(PLACEHOLDER, { exemptReservedHosts: true }).length, 1);
+  assert.ok(secretShapesIn(PLACEHOLDER.replace('@localhost', '@db.internal'), { exemptReservedHosts: true }).length >= 2);
   assert.throws(() => assertOutboundClean('x', { system: '', user: FORMATS[0][1] }), SecretShapedPrompt);
 });
 
@@ -208,10 +218,12 @@ test('F4: a key in a --criteria file is refused up front, named by file and line
   assert.equal(existsSync(join(dir, 'runs')), false);
 });
 
-test('F1(b): MCP resume_run and api.resume can pass the override', () => {
+test('F1(b), revised in 0.8.3 and again by T7: the MCP server no longer takes or passes the override, and the JS API takes none either (only a person\'s typed flag remains)', () => {
+  // CHANGED ACCEPTED PIN (T7, 18 Okt 2026). OLD: api.js `resume({... allowSecretShaped ...})` had to exist ('the JS API option remains'). NEW: neither run() nor resume() builds the flag; the name survives only in the migration guard that throws. WHY: owner, to C&C: "Remove it, so nobody can send a task that contains a key" (the CLI flag stays for a person at a terminal).
   const server = readFileSync(join(root, 'src/mcp/server.js'), 'utf8');
-  assert.match(server, /allow_secret_shaped: z\.boolean\(\)\.optional\(\)[^\n]*STOPPED-secret/);
-  assert.match(server, /\.\.\.\(allowSecretShaped \? \['--allow-secret-shaped'\] : \[\]\)/);
+  assert.doesNotMatch(server, /allow_secret_shaped/, 'no MCP parameter');
+  assert.doesNotMatch(server, /--allow-secret-shaped/, 'and no spawn of the flag');
   const api = readFileSync(join(root, 'src/api.js'), 'utf8');
-  assert.match(api, /export async function resume\(\{[^}]*allowSecretShaped/);
+  assert.doesNotMatch(api, /args\.push\('--allow-secret-shaped'\)|\['--allow-secret-shaped'\]/, 'the API never builds the flag');
+  assert.doesNotMatch(readFileSync(join(root, 'types/index.d.ts'), 'utf8'), /allowSecretShaped/, 'and the shipped declarations do not offer it');
 });

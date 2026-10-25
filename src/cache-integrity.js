@@ -12,6 +12,7 @@
 // context-doc edit and defeat the point of caching (this was an explicit board decision,
 // not an oversight - see maintainers/DECISIONS.md).
 import { createHash } from 'node:crypto';
+import { withoutPriceLimits } from './price-limits.js';
 
 /** A short fingerprint of the inputs a cached stage's validity depends on. */
 export function fingerprintInputs(taskText, config) {
@@ -19,6 +20,9 @@ export function fingerprintInputs(taskText, config) {
   // resumed run read every finished stage as stale. A config without one hashes exactly as before.
   let forHash = config;
   if (config && typeof config === 'object' && 'summary' in config) { const { summary: _display, ...rest } = config; forHash = rest; }
+  // A seat's own price limit (extra.provider.max_price prompt/completion) filters hosts by price and changes nothing a finished stage said: raising it keeps the stages, like raising a pricing.user.json row.
+  // A config with no limit hashes exactly as before (src/price-limits.js returns it unchanged). 0.8.3: a stage an older build wrote for a config that carries a limit reads as stale once.
+  forHash = withoutPriceLimits(forHash);
   return createHash('sha256').update(JSON.stringify({ taskText, config: forHash })).digest('hex').slice(0, 12);
 }
 

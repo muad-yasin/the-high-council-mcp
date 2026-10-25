@@ -55,7 +55,8 @@ test('cli #3 / resume-cache #5: a relative --draft is found again when the run i
   const elsewhere = mkdtempSync(join(tmpdir(), 'batch2-elsewhere-'));
   writeFileSync(join(elsewhere, 'draft.md'), 'A DIFFERENT FILE THAT HAPPENS TO SHARE THE NAME');
   const second = run(['--resume', rd], elsewhere);
-  assert.equal(second.code, 0, second.out);
+  // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so it accepts the two finished exits.
+  assert.ok([0, 22].includes(second.code), second.out);
   assert.match(readFileSync(join(rd, 'deliverable.md'), 'utf8'), /THE HANDED DRAFT/);
 });
 

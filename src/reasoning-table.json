@@ -1,6 +1,6 @@
 {
   "schema": "reasoning-table/1",
-  "asOf": "2026-10-07",
+  "asOf": "2026-10-23",
   "staleDays": 60,
   "_note": "Written by scripts/refresh-reasoning-table.mjs (0.8.1 milestone R). Fields were set from the documents named in `sources` and OpenRouter's public model list, NOT exercised in a live call; the first real run of each changed chain is the live test. A date lives in asOf; test/reasoning-table.test.js fails when it is older than staleDays (a release step, MAN-7).",
   "transportCeilings": {
@@ -10,11 +10,12 @@
   "sources": {
     "anthropic-effort": "https://platform.claude.com/docs/en/build-with-claude/effort (supportedModels list; per-model defaults; Opus 5.5 default medium)",
     "anthropic-thinking": "https://platform.claude.com/docs/en/build-with-claude/thinking (Haiku 4.5 keeps thinking: {type: enabled, budget_tokens}, minimum 1,024, below max_tokens; effort is not listed for it)",
-    "openrouter-models": "https://openrouter.ai/api/v1/models (public list: supported_parameters, reasoning.supported_efforts, reasoning.default_effort, top_provider.max_completion_tokens; the max is the router's number, which for some models is 0.9 x the context window and not the lab's own limit)",
+    "openrouter-models": "https://openrouter.ai/api/v1/models (public list: supported_parameters, reasoning.supported_efforts, reasoning.default_effort, top_provider.max_completion_tokens; the max is the router's number, which for some models is 0.9 x the context window and not the lab's own limit; for the ids in the LAB_OUTPUT_LIMITS map of scripts/refresh-reasoning-table.mjs it is the lab's own published limit (or, where the id's note says so, the owner's pick) instead: GLM-5.3 and GLM-5.3 Flash 131,072, the schema maximum on https://docs.z.ai/api-reference/llm/chat-completion beside the guides https://docs.z.ai/guides/llm/glm-5.3 and https://docs.z.ai/guides/llm/glm-5.3-flash (\"128K\"), read 2026-10-18, spot-checked 2026-10-23; the ids of the same map that carry a note instead of a number are models for which no output limit was found on the lab pages named in their note: their row holds maxOutput null and a dated maxOutputNote, and the router's number is not used; one id of the map, deepseek-v4-pro-0813, carries a number AND a note: that figure is the owner's pick, not a lab figure, and its maxOutputNote says so)",
     "openrouter-reasoning": "https://openrouter.ai/docs/guides/best-practices/reasoning-tokens (reasoning: {effort}; models that only take a token budget get the effort turned into a share of max_tokens)",
     "openai-reasoning": "https://developers.openai.com/api/docs/guides/reasoning (Chat Completions field reasoning_effort)",
     "google-openai-compat": "https://ai.google.dev/gemini-api/docs/openai (reasoning_effort minimal/low/medium/high/none; Gemini 2.5 Pro and 3 cannot be turned off)",
     "qwen-model-card": "https://huggingface.co/Qwen/Qwen3.5-9B (thinking is the default; chat_template_kwargs {enable_thinking: false} turns it off; 32,768 output tokens recommended for most queries, 81,920 for the hardest)",
+    "deepseek-v41-model-card": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash (its chat template, read 2026-10-14: kwargs thinking_mode \"thinking\"|\"chat\" default \"thinking\" (enable_thinking is an alias); reasoning_effort an integer 1-100 or low/medium/high/max, default \"high\", the template's own map low 50 / medium 62 / high 75 / max 100) and https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4.1-Flash (read 2026-10-14: chat_template_kwargs {thinking, reasoning_effort}; low 25 / high 50 / xhigh 75 / max 100 or an integer 1-100; \"medium\" and \"minimal\" rejected; the page says the DeepSeek API maps low/high/max to 50/75/100 while the open-source encoder, and so vLLM, maps low/high/xhigh/max to 25/50/75/100, so \"high\" runs at 50 there, with both keys unset thinking is ON at effort 50). THE TWO SOURCES DISAGREE on what \"high\" is (75 vs 50) and on the default, and Together's own reasoning page (docs.together.ai/docs/inference/chat/reasoning.md, read 2026-10-14) does NOT list V4.1 Flash (it shows chat_template_kwargs {thinking: true} passed through for Qwen3.5), so which map Together applies, and that it passes these kwargs for this id, is NOT established; the form is inferred from the model's template, defaultEffort is left null on purpose DECISION (C&C 14 Oct 2026): the shipped seat sends the INTEGER 75 inside chat_template_kwargs, not the word: 75 is \"high\" on the template's map and on the DeepSeek API's map and equals vLLM's \"xhigh\", so it is high or above on every map read here; Together's API reference types the TOP-LEVEL reasoning_effort as an enum of low/medium/high and types chat_template_kwargs as an untyped object, so the integer goes inside chat_template_kwargs. `highAtLeast` (75) on the row is the number from which an integer counts as high; a row without it treats every integer as a lowering.",
     "deepseek-v4-recipe": "https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4-Flash (chat_template_kwargs {thinking: true, reasoning_effort: \"high\"|\"max\"}; the same `thinking` switch the shipped chains used, set to false, on Together; the page is vLLM's serving recipe, Together's own page was not found, so the on-value is not confirmed on Together)",
     "zai-thinking": "https://docs.z.ai/guides/capabilities/thinking-mode (thinking: {type: enabled|disabled}, no levels; GLM-5.3 and GLM-5.3-FLASH forced on)"
   },
@@ -68,6 +69,16 @@
       },
       "source": "qwen-model-card",
       "note": "Together serves Qwen3.5 with the model's own chat-template switch; on is the model default, written out so a chain says it"
+    },
+    "deepseek-v41-template-thinking": {
+      "extra": {
+        "chat_template_kwargs": {
+          "thinking": true,
+          "reasoning_effort": 75
+        }
+      },
+      "source": "deepseek-v41-model-card",
+      "note": "DeepSeek V4.1 chat-template switch with an INTEGER effort (1-100): 75 is \"high\" on the template's and the DeepSeek API's maps and \"xhigh\" on vLLM's; the row's highAtLeast says from which number an integer counts as high"
     },
     "deepseek-template-thinking": {
       "extra": {
@@ -160,6 +171,14 @@
       "source": "deepseek-v4-recipe",
       "defaultAboveHigh": false
     },
+    "together/deepseek-ai/DeepSeek-V4.1-Flash": {
+      "form": "deepseek-v41-template-thinking",
+      "maxOutput": null,
+      "defaultEffort": null,
+      "highAtLeast": 75,
+      "source": "deepseek-v41-model-card",
+      "defaultAboveHigh": false
+    },
     "anthropic/claude-fable-5-1": {
       "form": "anthropic-effort",
       "maxOutput": 128000,
@@ -212,6 +231,22 @@
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
+    "openrouter/anthropic/claude-haiku-5.5": {
+      "form": "openrouter-effort",
+      "maxOutput": 128000,
+      "defaultEffort": "medium",
+      "supportedEfforts": [
+        "max",
+        "xhigh",
+        "high",
+        "medium",
+        "low",
+        "none"
+      ],
+      "mandatory": false,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
     "openrouter/anthropic/claude-opus-5": {
       "form": "openrouter-effort",
       "maxOutput": 128000,
@@ -221,7 +256,8 @@
         "xhigh",
         "high",
         "medium",
-        "low"
+        "low",
+        "none"
       ],
       "mandatory": false,
       "source": "openrouter-models",
@@ -251,7 +287,8 @@
         "xhigh",
         "high",
         "medium",
-        "low"
+        "low",
+        "none"
       ],
       "mandatory": false,
       "source": "openrouter-models",
@@ -296,7 +333,23 @@
       "defaultEffort": "high",
       "supportedEfforts": [
         "xhigh",
-        "high"
+        "high",
+        "none"
+      ],
+      "mandatory": false,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
+    "openrouter/deepseek/deepseek-v4-pro-0813": {
+      "form": "openrouter-effort",
+      "maxOutput": 384000,
+      "maxOutputNote": "the owner's pick (2026-10-24), not a lab figure: no output limit found on api-docs.deepseek.com (quick_start/pricing and quick_start/models); read 2026-10-24; the router declares 393,216 for the 0813 build and 384,000 for deepseek-v4-pro",
+      "defaultEffort": "high",
+      "supportedEfforts": [
+        "max",
+        "high",
+        "low",
+        "none"
       ],
       "mandatory": false,
       "source": "openrouter-models",
@@ -304,12 +357,28 @@
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
       "form": "openrouter-effort",
-      "maxOutput": 943718,
+      "maxOutput": null,
+      "maxOutputNote": "no output limit found on api-docs.deepseek.com (quick_start/pricing and quick_start/models; they name deepseek-flash, served by the 1017 build, and do not name this build); read 2026-10-24",
       "defaultEffort": "high",
       "supportedEfforts": [
         "max",
         "high",
-        "low"
+        "low",
+        "none"
+      ],
+      "mandatory": false,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash-1017": {
+      "form": "openrouter-effort",
+      "maxOutput": 393216,
+      "defaultEffort": "high",
+      "supportedEfforts": [
+        "max",
+        "high",
+        "low",
+        "none"
       ],
       "mandatory": false,
       "source": "openrouter-models",
@@ -353,7 +422,8 @@
     },
     "openrouter/meta-llama/llama-4-maverick": {
       "form": null,
-      "maxOutput": 16384,
+      "maxOutput": null,
+      "maxOutputNote": "no output limit found on Meta's Llama 4 model card (dev.meta.ai/llama/docs/model-cards-and-prompt-formats/llama4); read 2026-10-23",
       "defaultEffort": null,
       "supportedEfforts": null,
       "mandatory": null,
@@ -362,7 +432,8 @@
     },
     "openrouter/meta/muse-spark-1.2": {
       "form": "openrouter-effort",
-      "maxOutput": 943718,
+      "maxOutput": null,
+      "maxOutputNote": "no output limit found on dev.meta.ai (models, pricing-rate-limits, reasoning); its chat-completions parameter page did not load; read 2026-10-18",
       "defaultEffort": "medium",
       "supportedEfforts": [
         "xhigh",
@@ -377,7 +448,8 @@
     },
     "openrouter/meta/muse-spark-1.3": {
       "form": "openrouter-effort",
-      "maxOutput": 943718,
+      "maxOutput": null,
+      "maxOutputNote": "no output limit found on dev.meta.ai (models, pricing-rate-limits, reasoning); its chat-completions parameter page did not load; read 2026-10-18",
       "defaultEffort": "medium",
       "supportedEfforts": [
         "max",
@@ -393,7 +465,8 @@
     },
     "openrouter/minimax/minimax-m3": {
       "form": "openrouter-effort",
-      "maxOutput": 512000,
+      "maxOutput": null,
+      "maxOutputNote": "no output limit found on platform.minimax.io (text-openai-api, text-anthropic-api, text-generation) or the Hugging Face model card; read 2026-10-18",
       "defaultEffort": null,
       "supportedEfforts": null,
       "mandatory": false,
@@ -409,9 +482,23 @@
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
+    "openrouter/mistralai/mistral-large-4-0": {
+      "form": "openrouter-effort",
+      "maxOutput": null,
+      "maxOutputNote": "no output limit found on the docs.mistral.ai models overview, the only page of this model that was read (its own page was not found at the URL tried); read 2026-10-23",
+      "defaultEffort": "high",
+      "supportedEfforts": [
+        "high",
+        "none"
+      ],
+      "mandatory": false,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
     "openrouter/mistralai/mistral-medium-3-5": {
       "form": "openrouter-effort",
-      "maxOutput": 209715,
+      "maxOutput": null,
+      "maxOutputNote": "no output limit found on docs.mistral.ai (the models overview and the mistral-medium-3-5-26-04 page); read 2026-10-23",
       "defaultEffort": "high",
       "supportedEfforts": [
         "high",
@@ -527,7 +614,8 @@
     },
     "openrouter/qwen/qwen3.5-9b": {
       "form": "openrouter-effort",
-      "maxOutput": 32768,
+      "maxOutput": null,
+      "maxOutputNote": "no maximum output limit found on Qwen's Hugging Face model card (huggingface.co/Qwen/Qwen3.5-9B; it gives recommendations only: 32,768 tokens for most queries and 81,920 for hard benchmarks); read 2026-10-24",
       "defaultEffort": null,
       "supportedEfforts": null,
       "mandatory": false,
@@ -552,6 +640,15 @@
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
+    "openrouter/qwen/qwen3.8-flash": {
+      "form": "openrouter-effort",
+      "maxOutput": 131072,
+      "defaultEffort": null,
+      "supportedEfforts": null,
+      "mandatory": false,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
     "openrouter/qwen/qwen3.8-max-0902": {
       "form": "openrouter-effort",
       "maxOutput": 131072,
@@ -567,6 +664,19 @@
       "source": "openrouter-models",
       "defaultAboveHigh": true
     },
+    "openrouter/stepfun/step-5-preview": {
+      "form": "openrouter-effort",
+      "maxOutput": 64000,
+      "defaultEffort": "medium",
+      "supportedEfforts": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "mandatory": true,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
     "openrouter/tencent/hy4-preview": {
       "form": "openrouter-effort",
       "maxOutput": 64000,
@@ -580,12 +690,21 @@
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
+    "openrouter/xiaomi/mimo-v2.6-flash": {
+      "form": "openrouter-effort",
+      "maxOutput": 131072,
+      "defaultEffort": null,
+      "supportedEfforts": null,
+      "mandatory": false,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
     "openrouter/xiaomi/mimo-v2.6-pro": {
       "form": "openrouter-effort",
       "maxOutput": 131072,
       "defaultEffort": null,
       "supportedEfforts": null,
-      "mandatory": null,
+      "mandatory": false,
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
@@ -598,21 +717,9 @@
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
-    "openrouter/z-ai/glm-5.2": {
-      "form": "openrouter-effort",
-      "maxOutput": 131072,
-      "defaultEffort": "high",
-      "supportedEfforts": [
-        "xhigh",
-        "high"
-      ],
-      "mandatory": false,
-      "source": "openrouter-models",
-      "defaultAboveHigh": false
-    },
     "openrouter/z-ai/glm-5.3": {
       "form": "openrouter-effort",
-      "maxOutput": 943718,
+      "maxOutput": 131072,
       "defaultEffort": "max",
       "supportedEfforts": [
         "max",
@@ -625,7 +732,7 @@
     },
     "openrouter/z-ai/glm-5.3-flash": {
       "form": "openrouter-effort",
-      "maxOutput": 943717,
+      "maxOutput": 131072,
       "defaultEffort": "max",
       "supportedEfforts": [
         "max",
@@ -643,6 +750,6 @@
     "groq/llama-3.3-70b-versatile": "not a reasoning model; no reasoning field",
     "mistral/mistral-large-latest": "not a reasoning model on this id; no reasoning field",
     "ollama/*": "local models; the harness sends nothing",
-    "openrouter/mistralai/mistral-small": "not in OpenRouter's public list on 2026-10-07; no shipped seat uses it"
+    "openrouter/mistralai/mistral-small": "not in OpenRouter's public list on 2026-10-23; no shipped chain seats it"
   }
 }

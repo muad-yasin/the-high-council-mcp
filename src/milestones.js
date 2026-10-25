@@ -22,7 +22,7 @@ const MILESTONES_HEADING = /^##\s+Milestones\s*$/im;
 const NEXT_H2 = /^##\s+\S/m;
 
 /** Blank out fenced code blocks (``` ... ```), so an example of the format inside one is neither read as the section nor allowed to end it. */
-function maskFences(text) {
+export function maskFences(text) {
   let inside = false;
   return text.split('\n').map(line => {
     if (/^\s*```/.test(line)) { inside = !inside; return ''; }

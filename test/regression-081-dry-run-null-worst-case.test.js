@@ -7,10 +7,11 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dryRunReport } from '../src/dry-run.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): cheap and plan-debate moved to archive/chains/; cheap-7-v2 and plan-daily-7 stand in below.
-const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+const chain = name => readChainFile(root, name);
 
 test('FX-3: a chain with no estimate and an 80,000-character task gets a finite worst case, and a $0.01 cap reads as exceeded', () => {
   const c = chain('cheap-7-v2');

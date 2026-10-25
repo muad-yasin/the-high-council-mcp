@@ -1,9 +1,11 @@
 // The stop rule (0.8.1 plan M6, decided rule 6, DR-10, persistence P8, P9, P17, P20): exit 18 means "stopped before finishing" by a
 // person, a client or a wall clock; the run writes report-partial.json, BOARD-partial.md where there is a board, STOPPED-<cause>.json
-// and state.json; an advice call is not resumed. Mock seats only, $0: the stops are STOP files the test writes and mock calls slowed
-// with COUNCIL_MOCK_DELAY_MS / COUNCIL_MOCK_PRESTART_MS, so each case is deterministic.
+// and state.json; an advice call is not resumed. Mock seats only, $0: the stops are STOP files the test writes. Where a case needs the stop to land before the
+// first call or while a call is in flight, the run is HELD there by a condition (COUNCIL_MOCK_PRESTART_UNTIL_STOP, COUNCIL_MOCK_HOLD_FILE: an order, not a
+// window); the wall-clock cases still slow the mock with COUNCIL_MOCK_DELAY_MS / COUNCIL_MOCK_PRESTART_MS, because the clock itself is what they test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -20,6 +22,7 @@ import { readLedger } from '../src/gate-ledger.js';
 import { requestGate } from '../src/gate.js';
 import { gateSeatsOf } from '../src/send-path-refusals.js';
 import { renderPartialBoardMd } from '../src/report-shape.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -38,7 +41,7 @@ function start(dir, id, { chain = 'mock-advise-standard', env = {} } = {}) {
   const child = spawn(process.execPath, [cli, '--chain', chain, '--task', 'tasks/t.md', '--run-id', id], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, ...env } });
   let out = '';
   child.stdout.on('data', d => { out += d; }); child.stderr.on('data', d => { out += d; });
-  return { runDir: join(dir, 'runs', id), done: new Promise(r => child.on('exit', code => r({ code, out }))) };
+  return { child, runDir: join(dir, 'runs', id), done: new Promise(r => child.on('exit', code => r({ code, out }))) };
 }
 async function until(pred, ms = 20_000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (pred()) return true; await sleep(50); } return false; }
 const logOf = runDir => { try { return readFileSync(join(runDir, 'run.log'), 'utf8'); } catch { return ''; } };
@@ -112,7 +115,9 @@ test('review D1: a stop that leaves no readable answer still ends at exit 18, no
 
 test('a stop before the first call: exit 18, nothing spent, a partial report with no paid results, STOPPED-user.json with beforeFirstCall: true (council stop)', async () => {
   const dir = project(); const id = '2026-10-03T07-00-00-001Z';
-  const s = start(dir, id, { chain: 'mock-advise-single', env: { COUNCIL_MOCK_PRESTART_MS: '3000' } });
+  // 13 Oct 2026 (Flaky): this was COUNCIL_MOCK_PRESTART_MS 3000, a window the `council stop` process (a node start-up, stretched by the CPU cap) had to land
+  // inside. The run now holds before its first call until a stop request exists, so every assertion below is an order, not a race. Same assertions.
+  const s = start(dir, id, { chain: 'mock-advise-single', env: { COUNCIL_MOCK_PRESTART_UNTIL_STOP: '1' } });
   assert.ok(await until(() => has(s.runDir, 'run.json')));
   const asked = spawnSync(process.execPath, [cli, 'stop', `runs/${id}`], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir } });
   assert.equal(asked.status, 0, asked.stderr);
@@ -132,6 +137,34 @@ test('a stop before the first call: exit 18, nothing spent, a partial report wit
   assert.equal(again.status, 2); assert.match(again.stderr, /already ended/);
 });
 
+// COUNCIL_MOCK_PRESTART_UNTIL_STOP is a seam for mock seats only. A real seat (an ollama-shaped loopback stub that answers at once, $0, no key, through the
+// real OPENAI_COMPAT adapter) must not hold: the run ends on its own and writes no hold line. A hold with no stop would otherwise sit for its 60 s ceiling.
+for (const [provider, holds] of [['ollama', false], ['mock', true]]) {
+  test(`COUNCIL_MOCK_PRESTART_UNTIL_STOP with ${provider === 'mock' ? 'a mock' : 'a real (ollama)'} seat: ${holds ? 'the run holds (the seam is live for mock seats)' : 'inert, the run goes on to its first call and ends on its own'}`, async () => {
+    let asked = 0;
+    const srv = http.createServer((req, res) => { asked++; req.resume(); req.on('end', () => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } })); }); });
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    const dir = project(); const id = '2026-10-13T07-00-00-001Z';
+    try {
+      const c = JSON.parse(readFileSync(join(root, 'chains', 'mock-advise-single.json'), 'utf8'));
+      c.name = 'seam-seat';
+      if (provider === 'ollama') c.seats.critics = [{ provider: 'ollama', model: 'llama3.3', lab: 'solo', baseUrl: `http://127.0.0.1:${srv.address().port}/v1` }];
+      writeFileSync(join(dir, 'chains', 'seam-seat.json'), JSON.stringify(c));
+      const s = start(dir, id, { chain: 'seam-seat', env: { COUNCIL_MOCK_PRESTART_UNTIL_STOP: '1' } });
+      try {
+        if (holds) {
+          assert.ok(await until(() => /mock hold: waiting/.test(logOf(s.runDir))), 'the mock seat run reached its hold');
+        } else {
+          // 20 s: the hang guard of `until`; a held run would sit for the seam's 60 s ceiling.
+          assert.ok(await until(() => s.child.exitCode !== null), 'the real-seat run ended on its own (a hold would have kept it waiting)');
+          assert.ok(asked >= 1, 'the run reached its first call: the stub was asked');
+          assert.ok(!/mock hold/.test(logOf(s.runDir)), logOf(s.runDir));
+        }
+      } finally { if (s.child.exitCode === null) s.child.kill(); }
+    } finally { srv.closeAllConnections?.(); srv.close(); }
+  });
+}
+
 test('a stopped advice run is not resumed: --resume refuses it (resumeAfterStop false), runResumability says not resumable, resume_run refuses it', async () => {
   const r = await stoppedRun('user');
   const st = runResumability(r.runDir, readJson(join(r.runDir, 'run.json')));
@@ -142,7 +175,7 @@ test('a stopped advice run is not resumed: --resume refuses it (resumeAfterStop 
   assert.match(resumed.stderr, /resumeAfterStop: false/);
   assert.ok(has(r.runDir, 'report-partial.json') && has(r.runDir, 'STOPPED-user.json'), 'a refused resume removes nothing');
   // over MCP
-  const mcp = spawnSync(process.execPath, [cli, '--mcp'], { cwd: r.dir, encoding: 'utf8', timeout: 20_000, env: { PATH: process.env.PATH, HOME: r.dir },
+  const mcp = spawnSync(process.execPath, [cli, '--mcp'], { cwd: r.dir, encoding: 'utf8', timeout: 20_000, env: { PATH: process.env.PATH, HOME: r.dir, ...malformedProviderKeys() },
     input: [{ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } } }, { jsonrpc: '2.0', method: 'notifications/initialized' }, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'resume_run', arguments: { run: r.runDir.split('/').pop() } } }].map(x => JSON.stringify(x)).join('\n') + '\n' });
   assert.match(mcp.stdout, /this is an advice run, which is not resumed over MCP/);
 });
@@ -198,7 +231,7 @@ test('every reader gives a stopped advice run the right answer: run status, the 
   assert.match(stopState(r.runDir).reason, /stopped by its client/);
   const row = spendReport(join(r.dir, 'runs'), { days: 3650, now: Date.parse('2026-10-04T00:00:00Z') }).runs.find(x => x.id === id);
   assert.equal(row.state, 'stopped: by its client');
-  const mcp = spawnSync(process.execPath, [cli, '--mcp'], { cwd: r.dir, encoding: 'utf8', timeout: 20_000, env: { PATH: process.env.PATH, HOME: r.dir },
+  const mcp = spawnSync(process.execPath, [cli, '--mcp'], { cwd: r.dir, encoding: 'utf8', timeout: 20_000, env: { PATH: process.env.PATH, HOME: r.dir, ...malformedProviderKeys() },
     input: [{ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '0' } } }, { jsonrpc: '2.0', method: 'notifications/initialized' },
       { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'run_status', arguments: { run: id } } }, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_runs', arguments: {} } }].map(x => JSON.stringify(x)).join('\n') + '\n' });
   const byId = Object.fromEntries(mcp.stdout.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(m => m?.id).map(m => [m.id, m]));
@@ -240,10 +273,15 @@ test('an adopted call that is stopped records `stopped` in its gate ledger after
   const early = spawnSync(process.execPath, [cli, 'stop', `runs/${id}`], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir } });
   assert.equal(early.status, 2); assert.match(early.stderr, /has not started .* --decline/);
   // The adopted call runs; a person stops it while its call is in flight.
-  const child = spawn(process.execPath, [cli, '--advice-adopt', `runs/${id}`], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, COUNCIL_ADVISE_COOLDOWN_MS: '0', COUNCIL_MOCK_DELAY_MS: '1500' } });
+  // 13 Oct 2026 (Flaky): this was COUNCIL_MOCK_DELAY_MS 1500 plus a wait for 'Stage: advice' in run.log, a window the `council stop` process had to land inside (and that
+  // line is logged BEFORE the call is sent). The call is now held in flight by COUNCIL_MOCK_HOLD_FILE until the test creates the release file, and the test waits for the
+  // gate ledger's LAST event to be `sent` (the call is then in flight) before it stops the run. Same final assertions.
+  const release = join(dir, 'release');
+  const child = spawn(process.execPath, [cli, '--advice-adopt', `runs/${id}`], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, COUNCIL_ADVISE_COOLDOWN_MS: '0', COUNCIL_MOCK_HOLD_FILE: release } });
   const code = new Promise(res => child.on('exit', res));
-  assert.ok(await until(() => /Stage: advice/.test(logOf(run))));
+  assert.ok(await until(() => { try { return readLedger(run).lines.at(-1)?.event === 'sent'; } catch { return false; } }), 'the call is in flight: the ledger\'s last event is `sent`');
   assert.equal(spawnSync(process.execPath, [cli, 'stop', `runs/${id}`], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir } }).status, 0);
+  writeFileSync(release, ''); // the stop is accepted; now the held call may finish and be recorded
   assert.equal(await code, 18);
   const events = readLedger(run).lines.map(l => l.event);
   assert.deepEqual(events.slice(-2), ['sent', 'stopped']);

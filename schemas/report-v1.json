@@ -94,7 +94,7 @@
       "x-stability": "stable",
       "type": ["array", "null"],
       "items": { "$ref": "#/$defs/signoffEntry" },
-      "description": "One entry per critic seat for the final unanimous round. null on chains whose sign-off is `first` (see panelVerdicts for those)."
+      "description": "One entry per critic seat ASKED in the final unanimous round (all of them on a flat panel). On a layered run (see `layers`) a seat whose layer was not asked in that round has no entry here: read `layers` for the layers that were never asked, and never infer a pass from this array alone. null on chains whose sign-off is `first` (see panelVerdicts for those)."
     },
     "proposals": {
       "x-stability": "stable",
@@ -107,6 +107,32 @@
       "type": "array",
       "items": { "$ref": "#/$defs/dropout" },
       "description": "Seats that were on the roster but produced nothing usable (unreadable proposals after a retry, a provider failure in review). Count labs from here plus proposals, never from proposals alone."
+    },
+    "roster_answers": {
+      "x-stability": "experimental",
+      "type": "object",
+      "description": "Present only when the run had a session-seat stage (provider external). Who answered those stages, AS DECLARED by the MCP client and the session, never verified, and the review panel's company count as recorded beside the count the chain was designed for. A seat answered by a different model is not a dropout and does not change outcome. Added 0.8.3.",
+      "properties": {
+        "design_companies": { "type": "integer", "description": "Companies on the review panel by what the chain asks for." },
+        "recorded_companies": { "type": "integer", "description": "Companies on the review panel by what was recorded: model-API seats by their model, session seats by the model their answer declared." },
+        "unverified_seats": { "type": "integer", "description": "Session seats on the panel whose answer declared no model, or one this version has no company for." },
+        "seats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string" },
+              "seat_lab": { "type": ["string", "null"] },
+              "asked_for": { "type": ["string", "null"] },
+              "answered_by": { "type": ["object", "null"] },
+              "company": { "type": ["string", "null"], "description": "The company of the declared model, or null when none was declared or this version has no row for it." },
+              "panel": { "type": "boolean", "description": "True for a stage of the review panel (a judge): only these count in the company tally. Writer stages (build, revise, handoff) are listed but counted nowhere." },
+              "status": { "enum": ["as-seated", "different", "not-declared", "not-in-table", "no-model-asked"], "description": "no-model-asked: the seat asks for no particular model (claude-code-session); never 'different' and never 'not-declared'." }
+            }
+          }
+        },
+        "note": { "type": "string" }
+      }
     },
     "debate": {
       "x-stability": "stable",
@@ -122,6 +148,16 @@
       "x-stability": "stable",
       "$ref": "#/$defs/totals",
       "description": "Token and cost totals over every stage in `stages`, plus any superseded stages paid for earlier."
+    },
+    "superseded": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "Optional. Present only when stages were set aside and paid for again: the superseded records `totals.supersededUsd` absorbed when this report was written, one { label, usd, reservationId } each (label is the file under superseded/; reservationId is null for a record written before 0.8.3), so the share of the total stays attributable if a file is later lost. Added in 0.8.3.",
+      "items": {
+        "type": "object",
+        "required": ["label", "usd"],
+        "properties": { "label": { "type": "string" }, "usd": { "type": "number", "minimum": 0 }, "reservationId": { "type": ["string", "null"] }, "kind": { "enum": ["waste", "billed"], "description": "Present on a charge record: waste (a discarded attempt) or billed (a call that was sent and may have been billed)." } }
+      }
     },
     "maxUsd": {
       "x-stability": "stable",
@@ -274,10 +310,13 @@
           "verdict": { "enum": ["signed_off", "objected", "passed", "unheard"] },
           "lane": { "enum": ["correctness_interfaces", "security_failure", "implementation_verification"], "description": "0.8.2 (item 7): the review lane of this seat, present only when the seat has one (the optional plan-lanes-4 chain)." },
           "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] },
+          "envelope": { "enum": ["missing", "wrong_id"], "description": "Present only on an unheard row of a run that used the verdict envelope (see `verdict_envelope`), and only when the reply was a complete JSON object that carried no review_id and draft_id for this call (`missing`) or ids that were not this call's (`wrong_id`). A reply that was cut off, ended by an error, ran out of reasoning or was not a JSON object at all keeps its `reason_code` and has no `envelope`: its absence never means the ids were fine. `reason_code` keeps its own value." },
           "no_answer": { "type": "string", "description": "Present only on an unheard seat whose reply was cut off at its cap after spending its tokens on thinking and carried no text: \"no answer: thinking used the whole cap\". The seat is unheard (an unreadable non-pass), never a pass. Added in 0.8.1." },
           "table_gap": { "type": "object", "description": "Present only on an unheard seat refused for an incomplete sign-off table (reason_code INCOMPLETE_TABLE, chains with signoff_table.required): what the table lacked. Added in 0.8.2.", "required": ["kind", "criterion_ids"], "properties": { "kind": { "enum": ["no_table", "missing_rows", "no_evidence", "unreadable_verdict"] }, "criterion_ids": { "type": "array", "items": { "type": "string" } }, "table_rows": { "type": "integer" }, "criteria_total": { "type": "integer" } } },
-          "reasked": { "type": "boolean", "description": "True if the seat was unheard once and asked again this round." },
-          "carried": { "type": "boolean", "description": "Present and true when the seat was not asked this round: the draft was byte-identical to the last round's, where this seat was heard and clean, and only the unheard seat(s) were asked again (0.7.9). Absent otherwise." }
+          "reasked": { "type": "boolean", "description": "True if a re-ask call was made for this seat this round. False otherwise, even when its first reply was not counted." },
+          "carried": { "type": "boolean", "description": "Present and true when the seat was not asked this round: the draft was byte-identical to the last round's, where this seat was heard and clean, and only the unheard seat(s) were asked again (0.7.9). Absent otherwise." },
+          "layer": { "type": "integer", "minimum": 1, "description": "0.8.3: the layer the seat sits in. Present only on a layered chain. A seat whose layer was not asked in a round has NO row here for that round; `layers` records it as not_asked." },
+          "from_round": { "type": "integer", "description": "0.8.3: on a carried verdict of a layered chain, the round in which the verdict was given (no new call, no new charge)." }
         }
       },
       "description": "Every critic's verdict in every review round, both sign-off modes. The per-round history that signoff[] (final round only) does not keep."
@@ -302,7 +341,7 @@
       "required": ["ran", "reason"],
       "properties": {
         "ran": { "type": "boolean" },
-        "reason": { "enum": ["stalled", "round_cap", "no_heard_reviewer", "not_quorate", "panel_signed_off", "no_open_objections"] },
+        "reason": { "enum": ["stalled", "round_cap", "no_heard_reviewer", "not_quorate", "panel_signed_off", "no_open_objections", "layer_not_signed_off", "early_finish", "finish_chosen"], "description": "early_finish (0.8.3, a closed enum widened: a reader that validates `reason` strictly must accept it): the run finished early at the session's proposal with the overseer layer's yes (see `stop`); no round cap was reached. layer_not_signed_off (0.8.3): a layered run stopped because a layer gave no usable verdict or the top layer did not sign off explicitly (see layerStop). finish_chosen (0.8.3): the person chose to finish after the run stopped at an overseer or layer limit (see `stop`)." },
         "stall_rounds": { "type": ["integer", "null"] },
         "stopped_at_round": { "type": ["integer", "null"] },
         "open_objections": {
@@ -316,6 +355,7 @@
               "problem": { "type": ["string", "null"] },
               "id": { "type": "string", "pattern": "^O-[0-9a-f]{8}$" }, "first_raised_round": { "type": ["integer", "null"] },
               "unheard_in_final_round": { "type": "boolean" },
+              "not_asked_in_final_round": { "type": "boolean", "description": "0.8.3, layered chains: the lab raised this in last_raised_round and its layer was not asked in the final round, so it may already be fixed in the final draft." },
               "last_raised_round": { "type": ["integer", "null"] }
             }
           }
@@ -506,9 +546,121 @@
       "properties": {
         "round": { "type": "integer" },
         "unheard": { "type": "integer" },
-        "passedOnly": { "type": "integer" }
+        "passedOnly": { "type": "integer" },
+        "layer": { "type": "integer", "minimum": 1, "description": "0.8.3: on a layered chain, the layer in which nobody was heard." }
       },
       "description": "Present only when a review round heard no reviewer at all and the loop stopped there. Makes outcome 'degraded'."
+    },
+    "layers": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["round", "layer", "labs", "state"],
+        "properties": {
+          "round": { "type": "integer" },
+          "layer": { "type": "integer", "minimum": 1 },
+          "overseer_round": { "type": "integer", "minimum": 1, "description": "0.8.3, present only on a chain with overseer rounds (maxOverseerRounds): the overseer round this pass belongs to. A round ends only when the top layer gives a verdict; `round` stays the pass number and the stage labels never change." },
+          "labs": { "type": "array", "items": { "type": "string" } },
+          "state": { "enum": ["signed_off", "objected", "unheard", "abstained", "not_asked", "unfinished"], "description": "signed_off: every seat of the layer was heard and clear. objected: a seat objected. unheard: nobody objected but a seat was not heard. abstained: asked, but no usable verdict (only stated passes, or in the top layer a seat that did not sign off explicitly). not_asked: a layer below did not sign off, so this one was not started. unfinished: asked and interrupted (a stop, a cap, a wall clock) before it finished." },
+          "ledger": { "type": "object", "required": ["rows", "active", "closed_cut", "chars", "tokens_est"], "properties": { "rows": { "type": "integer" }, "active": { "type": "integer" }, "closed_cut": { "type": "integer" }, "chars": { "type": "integer" }, "tokens_est": { "type": "integer" } }, "description": "Present only on a row of the TOP layer that was shown the objection ledger (a layered chain with answer_back): how many objection rows the section held (rows), how many were open (active), how many closed ones were left out (closed_cut), and the size of the section as sent (chars, and tokens_est = an estimate from UTF-8 bytes / 4 that under-counts non-Latin text). Counts only: the text is in the stage prompt, never copied here." },
+          "carried": { "type": "array", "items": { "type": "object", "required": ["lab", "from_round"], "properties": { "lab": { "type": "string" }, "from_round": { "type": "integer" } } }, "description": "Seats of this layer whose verdict is carried from an earlier round on the same unchanged draft (no new call, no new charge)." }
+        }
+      },
+      "description": "0.8.3, present only on a layered chain (seats.critics[].layer): one row per round per layer, in layer order. A layer that was not asked in a round is a row with state not_asked, never an absent row. signoff[] and panelVerdicts[] list asked seats only; this is where the layers that were not asked are recorded."
+    },
+    "review_notes": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["enabled", "per_kind", "item_chars", "about_chars", "items", "cut", "dropped", "long"],
+      "properties": {
+        "enabled": { "const": true },
+        "per_kind": { "type": "integer", "minimum": 1 },
+        "item_chars": { "type": "integer", "minimum": 1 },
+        "about_chars": { "type": "integer", "minimum": 1 },
+        "items": { "type": "array", "items": { "type": "object", "required": ["id", "kind", "lab", "overseer_round", "pass", "text", "raised_by"], "properties": {
+          "id": { "type": "string", "pattern": "^N-[0-9a-f]{8}$" }, "kind": { "enum": ["proposal", "idea"] }, "lab": { "type": "string" }, "layer": { "type": ["integer", "null"] },
+          "overseer_round": { "type": "integer" }, "pass": { "type": "integer" }, "text": { "type": "string" }, "about": { "type": "string" }, "attempt": { "type": "string" }, "answer": { "type": "object", "required": ["status"], "properties": { "status": { "enum": ["taken", "declined", "same", "unanswered", "conflicting", "builder_task"] }, "reason": { "type": ["string", "null"] }, "same_as": { "type": "string" }, "from": { "type": "string" }, "ending": { "type": "string" } } },
+          "raised_by": { "type": "array", "items": { "type": "string" } } } } },
+        "cut": { "type": "array", "items": { "type": "object", "required": ["lab", "overseer_round", "pass", "kind", "count"], "properties": { "lab": { "type": "string" }, "overseer_round": { "type": "integer" }, "pass": { "type": "integer" }, "kind": { "enum": ["proposal", "idea"] }, "count": { "type": "integer" } } } },
+        "dropped": { "type": "array", "items": { "type": "object", "required": ["lab", "pass", "why"], "properties": { "lab": { "type": "string" }, "pass": { "type": "integer" }, "why": { "type": "string" }, "kind": { "enum": ["proposal", "idea"] } } } },
+        "long": { "type": "integer", "minimum": 0 },
+        "answers_from": { "type": "array", "items": { "type": "string" } },
+        "answer_counts": { "type": "object", "properties": { "unknown_answer_ids": { "type": "integer" }, "bad_same": { "type": "integer" }, "malformed": { "type": "integer" }, "repeated": { "type": "integer" }, "reasonless": { "type": "integer" }, "answered_again": { "type": "integer" } } }
+      },
+      "description": "0.8.3 notes lane, present only when the chain's reviewNotes switch was on and the lane ran. Each judge's capped proposals and improvement ideas, as the judge wrote them (quoted model text; they decide nothing in the plan): the items kept within the per-round cap with who raised the same exact text in the same overseer round (raised_by), what was cut for the per-round cap (cut), the replies whose notes were not read and why (dropped), and how many items were longer than the length the judge was asked to keep (long). Each item's attempt names the stage file that holds the reply it came from: an empty string for the judge's first reply of the pass, otherwise the suffix of that file's label (for example reask1, reask2, answered, retry). A seat's items from every reply of a pass are read when the seat ends the pass with a verdict; counted in dropped instead are the replies of a seat that ends it unheard (verdict_not_recorded), replies a provider cut off or ended early (reply_cut_off, reply_incomplete) and an id the judge already gave in an earlier reply of the same pass (duplicate_of_earlier_reply). Each item's answer is what the writer replied, recorded as it was given (status taken, declined, same, unanswered, conflicting or builder_task) and the stage that carried it (from); the writer's claim is not checked. answers_from lists the stages that carried answers, as stage labels (revise-N, revise-N-full, handoff, notes-answer); answer.ending, on an answer given after the panel ended (handoff, notes-answer), names how the panel ended (signed_off, finish_chosen, layer_stop, no_reviewer_heard, not_quorate, not_signed_off); answer_counts counts what the writer wrote that did not become an answer (a line naming no item, a SAME with no valid target, malformed, repeated or reasonless lines, and a later different answer for an id already answered)."
+    },
+    "decisions": {
+      "x-stability": "experimental",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pass", "kind", "ids", "labs", "layers", "decided"],
+        "properties": {
+          "pass": { "type": "integer", "minimum": 1, "description": "The review pass in which the conflict was found." },
+          "label": { "type": "string", "description": "The decider stage's label (conflict-<pass>), absent when no call was made." },
+          "kind": { "enum": ["external", "seat", "none"], "description": "external: the decider is the person's session (the run pauses for its answer); seat: a paid seat; none: the chain names no decider." },
+          "decider_lab": { "type": "string" },
+          "shares_lab_with": { "type": "array", "items": { "type": "string" }, "description": "The labs of the conflict that the decider's own lab equals: a ruling by one of the two sides is visible." },
+          "ids": { "type": "array", "items": { "type": "string" }, "description": "The objection that came back first, then the objections fixed in between." },
+          "labs": { "type": "array", "items": { "type": "string" } },
+          "layers": { "type": "array", "items": { "type": "integer" } },
+          "overseer_round": { "type": "integer", "minimum": 1, "description": "Present only on a chain with overseer rounds: the overseer round this pass belongs to." },
+          "rounds": { "type": "array", "items": { "type": "integer" }, "description": "Parallel to ids: the pass each objection was raised in." },
+          "silent_round": { "type": "integer", "description": "The pass in which the first objection's judge was asked and did not list it (the evidence for the swing)." },
+          "decided": { "type": "boolean" },
+          "prevail": { "type": "string", "description": "An id from ids, or \"neither\". A ruling annotates; it never closes an objection." },
+          "reason": { "type": "string" },
+          "ask_person": { "type": "boolean" },
+          "why": { "enum": ["no_decider_seat", "prompt_held", "last_round", "loop_ended", "over_limit", "unreadable_ruling", "decider_unreachable", "person_asked", "tree_member"], "description": "Present when decided is false: why nobody ruled; person_asked: the decider asked for the person and the run stopped for the answer. Present with decided true on tree_member: the ask is not offered to a tree member, so the applied side is neither." },
+          "via": { "type": "string", "description": "Present when the person chose (the channel: cli); no actor is claimed." },
+          "decider_prevail": { "type": "string", "description": "What the decider leaned to when it asked for the person (or when the applied side is not its own)." },
+          "decider_reason": { "type": "string" }
+        }
+      },
+      "description": "0.8.3 E4b, additive, present only when the layered panel found a conflict (an objection from a judge of one layer came back after the writer revised the plan in response to an objection from another layer): one row per conflict, with the ruling or the reason nobody ruled."
+    },
+    "overseer_rounds": {
+      "x-stability": "experimental",
+      "type": "integer",
+      "minimum": 0,
+      "description": "0.8.3, present only on a chain with overseer rounds: how many overseer rounds are complete (the top layer gave a verdict in each)."
+    },
+    "stop": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["kind", "pass", "overseer_round"],
+      "properties": {
+        "kind": { "enum": ["overseer_cap", "layer_bound", "early_finish"], "description": "overseer_cap and layer_bound: a limit the run stopped at. early_finish (added in 0.8.3, a closed enum widened: a reader that validates kind strictly must accept it): the run FINISHED early at the session's proposal with the overseer layer's yes; it is NOT agreement (passed false, outcome not widened, exit 22)." },
+        "why": { "enum": ["revisions", "unheard"], "description": "layer_bound only: the layer used all the revisions it is allowed in one overseer round, or a seat of it stayed silent for too many passes in a row." },
+        "layer": { "type": "integer", "minimum": 1 },
+        "used": { "type": "integer" },
+        "bound": { "type": "integer" },
+        "passes": { "type": "integer" },
+        "reasks": { "type": "integer" },
+        "rounds": { "type": "integer" },
+        "cap": { "type": "integer" },
+        "pass": { "type": "integer", "minimum": 1 },
+        "overseer_round": { "type": "integer", "minimum": 0 },
+        "reason": { "type": "string", "description": "early_finish only. MODEL-SUPPLIED: the session's own written reason, as it wrote it (cut at 1000 characters). A claim, not a finding." },
+        "items": { "type": "array", "items": { "type": "object", "required": ["id", "lab", "handled"], "properties": { "id": { "type": "string" }, "lab": { "type": "string" }, "handled": { "enum": ["declined", "changed", "unchanged", "open"] }, "declined_reason": { "type": "string", "description": "Present only when handled is declined: the reason the reviser gave for declining this objection, as it wrote it (cut at 600 characters). MODEL-SUPPLIED: a claim, not a finding." } } }, "description": "early_finish only. Every objection of the pass that triggered the revise, derived from the record (never from the session's words), with what the revise did: declined with a reason, changed, unchanged, or open (the chain records no objection ids). They are handed to the builder." },
+        "overseer": { "type": "array", "items": { "type": "string" }, "description": "early_finish only: the labs of the overseer layer that said yes." },
+        "chosen": { "enum": ["finish", "early"], "description": "`early` (kind early_finish only): the run ended at the session's proposal and the overseer layer's yes, nobody chose it at a limit. `finish`: Present only when the person ended the stopped run with --finish: the run then finished as not agreed and the stop is kept in report.json with this field. A stop that is still waiting for the person's choice has no `chosen`." }
+      },
+      "description": "0.8.3. Two shapes, both NOT agreement. (1) kind overseer_cap or layer_bound: present in report-partial.json of a layered run that stopped at the overseer-round cap or at a layer's bound (`why` says which: the layer used all the revisions it is allowed in one overseer round, or a seat of it stayed silent for too many passes in a row); the run is resumable and the person chooses to continue or to finish; present in report.json of such a run once the person finished it with --finish (then with `chosen: finish`). (2) kind early_finish: report.json ONLY (never report-partial; the run is not resumable, it finished) of a layered run whose session reviser proposed to finish early and whose overseer layer said yes (`chosen: early`); passed is false and exit 22 follows. Never in report.json of a run that neither stopped nor finished early."
+    },
+    "layerStop": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["round", "layer", "reason", "labs"],
+      "properties": {
+        "round": { "type": "integer" },
+        "layer": { "type": "integer", "minimum": 1 },
+        "reason": { "enum": ["only_stated_passes", "top_layer_not_explicit", "no_objection_to_revise", "ledger_overflow"] },
+        "ledger": { "type": "object", "required": ["rows", "active", "closed_cut", "chars", "tokens_est"], "properties": { "rows": { "type": "integer" }, "active": { "type": "integer" }, "closed_cut": { "type": "integer" }, "chars": { "type": "integer" }, "tokens_est": { "type": "integer" } }, "description": "With reason ledger_overflow: the size of the objection ledger that did not fit (the open objections alone exceeded the budget), so nothing was sent to the top layer." },
+        "labs": { "type": "array", "items": { "type": "string" } }
+      },
+      "description": "0.8.3, present only when a layered run stopped because a layer ended it with no objection and no usable vote: nobody in the layer gave a verdict (only_stated_passes), a seat of the top layer stated a pass instead of signing off (top_layer_not_explicit; labs names them), or there was nothing to revise against (no_objection_to_revise). Not agreement: passed is false."
     },
     "notQuorate": {
       "x-stability": "experimental",
@@ -604,8 +756,8 @@
     "answer_back": {
       "x-stability": "experimental",
       "type": "array",
-      "description": "With answer_back.enabled: for each judge that had objections in the previous round, the round it will see them in, their ids, how many DECLINED reasons the writer gave and how many passages of the draft changed. Summary only. Present only on such chains. Added in 0.8.2 (src/answer-back.js).",
-      "items": { "type": "object", "required": ["round", "lab", "objection_ids"], "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "objection_ids": { "type": "array", "items": { "type": "string" } }, "declined": { "type": "integer" }, "changed_passages": { "type": "integer" } } }
+      "description": "With answer_back.enabled: for each judge that had objections in the previous round, the round it will see them in, their ids, how many DECLINED reasons the writer gave and how many passages of the draft changed. Summary only. Present only on such chains. Added in 0.8.2 (src/answer-back.js). On a layered chain a judge keeps its open objections until it is next asked, so a row is written in the round the judge is shown them (not the round after the revise) and `raised_round` names the round it first raised them (0.8.3).",
+      "items": { "type": "object", "required": ["round", "lab", "objection_ids"], "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "objection_ids": { "type": "array", "items": { "type": "string" } }, "declined": { "type": "integer" }, "changed_passages": { "type": "integer" }, "raised_round": { "type": "integer" } } }
     },
     "signed_text": {
       "x-stability": "experimental",
@@ -631,6 +783,40 @@
         "status": { "type": ["string", "null"] },
         "milestones": { "type": "integer", "minimum": 0 },
         "findings": { "type": "array", "items": { "type": "object", "required": ["kind", "message"], "additionalProperties": false, "properties": { "kind": { "type": "string" }, "message": { "type": "string" } } } }
+      }
+    },
+    "split_contract": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["sha256", "valid", "findings"],
+      "additionalProperties": false,
+      "description": "0.8.3 (M3): present only when the plan holds a block marked the-high-council:tree-split. What the $0 block-local checks of the split contract found: the sha256 of the block as canonical JSON (null when it does not parse), whether every check passed, and the findings (the check number, a stable rule name and the words). It never changes `passed`; the tree applies the checks that need it (an ancestor's obligations and questions) again at expansion.",
+      "properties": {
+        "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "valid": { "type": "boolean" },
+        "findings": { "type": "array", "items": { "type": "object", "required": ["check", "rule", "message"], "additionalProperties": false, "properties": { "check": { "type": "integer", "minimum": 1, "maximum": 8 }, "rule": { "type": "string" }, "message": { "type": "string" } } } }
+      }
+    },
+    "verdict_envelope": {
+      "x-stability": "experimental",
+      "const": true,
+      "description": "Present (true) only on a run that used the verdict envelope: each critic call carried a fresh review_id and draft_id, recorded in `<label>.envelope.json`, and a reply without them was not read as a verdict. Absent means the run did not use it."
+    },
+    "tree": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["treeId", "node", "generation", "attempt", "parentNode", "depth", "splitSha256", "bundleSha256"],
+      "additionalProperties": false,
+      "description": "0.8.3 (M6): present only on a member run of a recursive-councils tree: the member's lineage, copied unchanged from the `tree` field of its run.json. treeId is the run id of the tree's root run (the folder that holds `tree/`); node is the logical position, a path of milestone ids from the root (R, R/M2, ...); generation counts how often a decision has replaced that node (1 = the first); attempt counts starts of the same node and generation; parentNode and depth place it in the tree (null for the root); splitSha256 is the hash of the split block the node was derived from and bundleSha256 the hash of its input bundle (null where the tree has not computed them). A run that is no tree member has no `tree` key.",
+      "properties": {
+        "treeId": { "type": "string" },
+        "node": { "type": "string" },
+        "generation": { "type": "integer", "minimum": 1 },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "parentNode": { "type": ["string", "null"] },
+        "depth": { "type": ["integer", "null"], "minimum": 0 },
+        "splitSha256": { "type": ["string", "null"] },
+        "bundleSha256": { "type": ["string", "null"] }
       }
     },
     "thin_contract": {
@@ -659,8 +845,8 @@
     "answer_back_replies": {
       "x-stability": "experimental",
       "type": "array",
-      "description": "With answer_back.enabled: what each judge said about its own earlier objections (the `answers` array of its reply) and what the harness did with it: withdrawn (a quote from the draft was given), withdrawal_refused (no quote found in the draft: the objection stays open), sustained, unknown_id, unreadable_answer (a status that is neither sustained nor withdrawn: the objection stays open), unanswered (no answer at all: since the release after 0.8.2 the judge is asked once more when it signed off clean, and an objection still unanswered stays open, in signoff[].objections with carried_from_round). Present only when there were answers or own objections to answer. Added in 0.8.2.",
-      "items": { "type": "object", "required": ["round", "lab", "id", "effect"], "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "id": { "type": "string" }, "status": { "type": ["string", "null"] }, "quoted": { "type": "boolean" }, "effect": { "enum": ["withdrawn", "withdrawal_refused", "sustained", "unknown_id", "unreadable_answer", "unanswered"] } } }
+      "description": "With answer_back.enabled: what each judge said about its own earlier objections (the `answers` array of its reply) and what the harness did with it: withdrawn (a quote from the draft was given), withdrawal_refused (no quote found in the draft: the objection stays open), sustained, unknown_id, unreadable_answer (a status that is neither sustained nor withdrawn: the objection stays open), unanswered (no answer at all: since the release after 0.8.2 the judge is asked once more when it signed off clean, and an objection still unanswered stays open, in signoff[].objections with carried_from_round). Present only when there were answers or own objections to answer. Added in 0.8.2. stated_pass_open (0.8.3, layered chains): the judge stated a pass while it still held this objection; a pass is not a withdrawal, so the objection stays open and that pass does not count as sign-off. quoted_from, quoted_ref, quoted_layer (0.8.3, layered chains with answer_back): on a withdrawn row, no quoted_from means the quote was found in the current draft; quoted_from \"reviewer\" means it was found in another judge's recorded row, named by quoted_ref (the lab) and quoted_layer (that row's layer), and the three appear together or not at all.",
+      "items": { "type": "object", "required": ["round", "lab", "id", "effect"], "dependentRequired": { "quoted_from": ["quoted_ref", "quoted_layer"], "quoted_ref": ["quoted_from"], "quoted_layer": ["quoted_from"] }, "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "id": { "type": "string" }, "status": { "type": ["string", "null"] }, "quoted": { "type": "boolean" }, "effect": { "enum": ["withdrawn", "withdrawal_refused", "sustained", "unknown_id", "unreadable_answer", "unanswered", "stated_pass_open"] }, "quoted_from": { "enum": ["reviewer"] }, "quoted_ref": { "type": "string" }, "quoted_layer": { "type": "integer" }, "ask": { "enum": ["asked", "reask_spent", "own_verdict_objects", "layer_objected", "words_not_recorded", "run_stopped"] } } }
     },
     "debate_orders": {
       "x-stability": "experimental",
@@ -835,8 +1021,8 @@
     },
     "stoppedBy": {
       "x-stability": "experimental",
-      "enum": ["budget", "user", "client_cancel", "wall_clock"],
-      "description": "report-partial.json only: what stopped the run. `budget` is the per-run spend cap (--max-usd; exit 4). Since 0.8.1 an advice call also writes a partial report when it is stopped (exit 18): `user` (a person, `council stop`), `client_cancel` (the MCP client cancelled the call or went away) or `wall_clock` (the chain's advise.max_wall_ms passed); its `advise` holds the answers that were paid for. A reader must ignore a value it does not know. Added in 0.7.7; values added in 0.8.1."
+      "enum": ["budget", "user", "client_cancel", "wall_clock", "overseer_cap", "layer_bound"],
+      "description": "report-partial.json only: what stopped the run. `overseer_cap` and `layer_bound` (0.8.3): a layered run used all its allowed overseer rounds and the top layer still objected, or a layer needed more than its allowed revisions, or a seat of a layer stayed silent for too many passes in a row; it is resumable, NOT agreed, and exits 23 (the `stop` object says which). `budget` is the per-run spend cap (--max-usd; exit 4). Since 0.8.1 an advice call also writes a partial report when it is stopped (exit 18): `user` (a person, `council stop`), `client_cancel` (the MCP client cancelled the call or went away) or `wall_clock` (the chain's advise.max_wall_ms passed); its `advise` holds the answers that were paid for. A reader must ignore a value it does not know. Added in 0.7.7; values added in 0.8.1."
     },
     "stoppedAtStage": {
       "x-stability": "experimental",
@@ -898,7 +1084,8 @@
         "passed": { "type": "boolean", "description": "True if the seat stated a pass (declined to give a verdict, with a reason). Not the same as the top-level `passed`." },
         "passReason": { "type": ["string", "null"] },
         "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] },
-        "seat_index": { "type": "integer", "description": "The seat's index in the chain's seats.critics (0.7.9). A relay panel lists signoff[] in its review order, so array position is not the seat; replay and rematch diffs key on this. Absent on earlier reports." }
+        "seat_index": { "type": "integer", "description": "The seat's index in the chain's seats.critics (0.7.9). A relay panel lists signoff[] in its review order, so array position is not the seat; replay and rematch diffs key on this. Absent on earlier reports." },
+        "layer": { "type": "integer", "minimum": 1, "description": "0.8.3: the layer the seat sits in (seats.critics[].layer). Present only on a layered chain." }
       }
     },
     "proposal": {
@@ -1046,6 +1233,7 @@
       "properties": {
         "cappedAt": { "type": "integer", "description": "Optional. The output cap this reply was asked at: the seat's own cap, or the bigger one an Anthropic seat was retried at after its thinking used the whole cap. Present on every stage that went through a call. Added in 0.8.1." },
         "noAnswer": { "const": "no answer: thinking used the whole cap", "description": "Optional. Present when the reply was cut off at its cap after spending its tokens on thinking and carried no text: the seat has no answer (an unreadable non-pass, never a pass). Added in 0.8.1." },
+        "reservationId": { "type": "string", "description": "Optional. The id (r1, r2, ...) of the spend reservation written before the call that paid for this stage was sent (spend-reservations.jsonl), so a charge can be matched to its reservation even when a label was run twice. Absent when the stage wrote no reservation (a mock stage, or a call projected at $0). A cached replay carries the id of the sitting that paid. Added in 0.8.3." },
         "label": { "type": "string", "description": "Stable stage label; <label>.md in the run folder holds the reply text." },
         "provider": { "type": "string" },
         "model": { "type": "string" },
@@ -1055,7 +1243,17 @@
         "priced": { "type": "boolean", "description": "False when the model has no price in pricing.json: usd is then 0 and means 'unknown', not 'free'." },
         "ms": { "type": "integer", "minimum": 0 },
         "promptHash": { "type": "string" },
-        "cached": { "type": "boolean", "description": "True when replayed from <label>.md on disk at no cost." }
+        "cached": { "type": "boolean", "description": "True when replayed from <label>.md on disk at no cost." },
+        "asked_for": { "type": ["string", "null"], "description": "Session-seat stages only (provider external): the model the chain's seat asks for (for example subscription:opus-5.5), or claude-code-session when it asks for none. Added 0.8.3, additive." },
+        "answered_by": {
+          "type": "object",
+          "description": "Session-seat stages only, when the answer arrived through submit_stage: who answered, AS DECLARED by the MCP client and by the session. Never verified: a client can say anything. Absent when the answer was written as a file by hand. Added 0.8.3, additive.",
+          "properties": {
+            "client": { "type": ["object", "null"], "properties": { "name": { "type": ["string", "null"] }, "version": { "type": ["string", "null"] } } },
+            "model": { "type": ["string", "null"], "description": "The model the session said wrote the answer, or null when it did not say." },
+            "declared_by": { "enum": ["caller", "client", "none"], "description": "caller: a model was passed; client: only the client's name; none: neither." }
+          }
+        }
       }
     },
     "totals": {

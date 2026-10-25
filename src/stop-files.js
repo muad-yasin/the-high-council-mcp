@@ -12,15 +12,25 @@
 //     project's chains/, M5 review D1). readStoppedMarker(dir) -> null | { stoppedBy, file, data } (data null when unreadable).
 //   STOP_CAUSES, STOP_STATUS (cause -> run status, mirroring budget_stopped), stoppedFileOf(cause).
 // No imports beyond node: every reader (run-status, spend, the MCP server, the CLI) may import this.
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 export const STOP_FILE = 'STOP';
 export const STOP_SCHEMA = 'stop/1';
 export const STOPPED_SCHEMA = 'stopped/1';
 // Decided rule 6: a person, a client that cancelled or left, a wall clock. `budget` is the older stop with its own files.
-export const STOP_CAUSES = Object.freeze(['user', 'client_cancel', 'wall_clock']);
-export const STOP_STATUS = Object.freeze({ user: 'user_stopped', client_cancel: 'client_cancel_stopped', wall_clock: 'wall_clock_stopped' });
+// Round semantics 2b: `overseer_cap` and `layer_bound` end a layered run RESUMABLY at exit 23 (the person chooses to continue or finish); only the two built causes are listed.
+export const STOP_CAUSES = Object.freeze(['user', 'client_cancel', 'wall_clock', 'overseer_cap', 'layer_bound', 'price_refused', 'conflict']);
+// The two causes that end a layered run RESUMABLY at exit 23 (round semantics 2b); every other cause is an advice call's stop (exit 18). EVERY reader that words a stop marker asks isRoundStop first, so a new cause
+// cannot read "stopped by undefined" (exit-22 unit; test/stop-cause-words.test.js loops over STOP_CAUSES for each reader). The state words are an E item.
+export const ROUND_STOP_CAUSES = Object.freeze(['overseer_cap', 'layer_bound']);
+export const isRoundStop = cause => ROUND_STOP_CAUSES.includes(cause);
+// A3a commit 2 (18 Okt 2026): a SIBLING of the round stop, not inside it. `price_refused` ends a run RESUMABLY at exit 24 and waits for the person (src/price-refused.js), but it has no --continue / --finish choice, so
+// the choice code (cli.js round branch, the MCP resume's stop-id logic, the tree member's round-stop kind) stays round-only (`isRoundStop`). The pure word readers (state words, the stop sentence) use `waitsForPerson`.
+export const PERSON_STOP_CAUSES = Object.freeze(['price_refused', 'conflict']);
+export const waitsForPerson = cause => ROUND_STOP_CAUSES.includes(cause) || PERSON_STOP_CAUSES.includes(cause);
+export const ROUND_STOPPED_STATE = "stopped, waiting for the person's choice";
+export const STOP_STATUS = Object.freeze({ user: 'user_stopped', client_cancel: 'client_cancel_stopped', wall_clock: 'wall_clock_stopped', overseer_cap: 'awaiting_choice', layer_bound: 'awaiting_choice', price_refused: 'awaiting_choice', conflict: 'awaiting_choice' });
 export const stoppedFileOf = cause => `STOPPED-${cause}.json`;
 
 /** Temp file in the same folder, fsync, rename, then sync the folder (plan section 4, "Atomic"; P8, P20). */
@@ -44,6 +54,15 @@ export const isAdviceFolder = dir => existsSync(join(dir, 'advice.meta.json')) |
 export function writeStopRequest(dir, { by, run, note = null, now = Date.now() }) {
   if (!['client_cancel', 'user'].includes(by)) throw new Error(`a STOP request is by client_cancel or user, not ${by}`);
   writeAtomic(join(dir, STOP_FILE), `${JSON.stringify({ schema: STOP_SCHEMA, by, run, at: new Date(now).toISOString(), ...(note ? { note } : {}) })}\n`);
+}
+
+/** Removes the STOP request in `dir` only if it is the one `by` wrote for `run` (the late-window listener's own file, src/send-path.js); a person's `council stop` (by `user`) or another run's request stays. Returns whether a file was removed. */
+export function removeStopRequestBy(dir, { by, run }) {
+  const p = join(dir, STOP_FILE);
+  let r;
+  try { r = JSON.parse(readFileSync(p, 'utf8')); } catch { return false; } // absent or unreadable: nothing of ours to remove
+  if (!r || r.schema !== STOP_SCHEMA || r.by !== by || r.run !== run) return false;
+  try { unlinkSync(p); return true; } catch { return false; }
 }
 
 export function readStopRequest(dir, runId) {

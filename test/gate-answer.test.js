@@ -12,6 +12,7 @@ import { spawnSync, spawn } from 'node:child_process';
 import { requestGate, answerGate, readGateAnswer, readGateText, listGates, PERSON_CHANNELS, GATE_TTL_MS, textSha256 } from '../src/gate.js';
 import { readLedger, verifyLedger, appendEvent, LEDGER_FILE } from '../src/gate-ledger.js';
 import { submitStageAnswer } from '../src/stage-submission.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -215,16 +216,21 @@ const srcFiles = (dir = src) => readdirSync(dir).flatMap(e => {
 const rel = p => relative(repo, p).split('\\').join('/');
 const realSources = () => new Map(srcFiles().map(p => [rel(p), readFileSync(p, 'utf8')]));
 
-const GATE_MODULES = ['src/gate.js', 'src/gate-ledger.js', 'src/gate-cli.js'];
+const GATE_MODULES = ['src/gate.js', 'src/gate-ledger.js', 'src/gate-cli.js', 'src/tree-gate.js'];   // 0.8.3 M5b: the tree's gate wrapper obeys R1 (no environment, no command line) too
 // Who may import each gate module, on purpose and in this list, so every addition is visible in review. M4 (plan DR-15)
 // added: src/send-path.js (requests the gate, answers it with the client's dialog), src/cli.js (--advice-adopt records
 // the send), src/advice-run.js (the adoption check) and src/run-status.js (a folder awaiting approval).
 const IMPORTERS = {
   // 0.8.2 item 6d (owner, 7 Oct 2026: "we go with the full one"): src/contract-record.js asks the gate for the contract's lock and amendment approvals, through gate.js only.
-  'gate.js': ['src/gate-cli.js', 'src/send-path.js', 'src/cli.js', 'src/advice-run.js', 'src/run-status.js', 'src/contract-record.js'],
+  // 0.8.3 M5b (C&C, 8 Oct 2026; DECISIONS Q3): src/tree-gate.js is the ONE module of the recursive-councils tree that talks to the gate. It requests the tree's gates on the root run folder (gate.js requestGate), reads the answer
+  // back with the tree's extra rules (channel cli at a terminal only, unused, unexpired: readGateAnswer) and spends it once (recordUse), and it takes the person's answer ONLY through gate-cli.js's answerAtTerminal.
+  // It never imports answerGate itself (ANSWERERS below is unchanged) and reads no environment or argv (R1 below scans for that). Every other tree module goes through it, so this is the single added importer.
+  // 0.8.3 M6 typed cap T4a (14 Oct 2026): src/start-cap.js is the ONE module of the start path that talks to the gate (find the run's typed limit, request the limit screen's gate, consume the answer once), like src/tree-gate.js for the tree. It never imports answerGate (ANSWERERS is unchanged: the person's
+  // answer comes through gate-cli.js's answerAtTerminal, passed in by cli.js), reads no environment or argv (R1) and is called only by src/cli.js.
+  'gate.js': ['src/gate-cli.js', 'src/send-path.js', 'src/cli.js', 'src/advice-run.js', 'src/run-status.js', 'src/contract-record.js', 'src/tree-gate.js', 'src/start-cap.js'],
   'gate-ledger.js': ['src/gate.js', 'src/gate-cli.js'],
-  // 0.8.2 item 6d: src/contract-cli.js answers its lock and amendment gates through gate-cli.js's terminal answer (answerAtTerminal), never through answerGate itself.
-  'gate-cli.js': ['src/cli.js', 'src/contract-cli.js'],
+  // 0.8.2 item 6d: src/contract-cli.js answers its lock and amendment gates through gate-cli.js's terminal answer (answerAtTerminal), never through answerGate itself. 0.8.3 M5b: so does src/tree-gate.js (above).
+  'gate-cli.js': ['src/cli.js', 'src/contract-cli.js', 'src/tree-gate.js'],
 };
 const PERSON_LITERALS = ["'cli'", "'elicitation'"];
 // Who may import answerGate itself: the terminal command and the client's dialog. Each passes its channel as a literal.
@@ -358,7 +364,7 @@ test('scan: submit_stage cannot reach the gate: its module closure holds no gate
 // The real tool, over the real server: a run that pauses at stages named like the gate, answered with the
 // gate's id and hash. Whatever submit_stage returns, the gate stays pending and the ledger untouched.
 function mcpSession(cwd) {
-  const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd } });
+  const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys() } });   // the variable is UNSET (real mode, by design): no usable key may be reachable (C&C, 14 Oct 2026)
   const pending = new Map(); let buf = ''; let n = 0;
   child.stdout.on('data', d => {
     buf += d; let nl;
@@ -592,6 +598,15 @@ test('review M3: gate show prints no escape sequence from the gate file and coun
   const s = spawnSync(process.execPath, [cli, 'gate', 'show', d, 'g1'], { encoding: 'utf8' });
   assert.equal(s.status, 0, s.stderr);
   assert.doesNotMatch(s.stdout, /\u001b|\u0007/);
+  assert.match(s.stdout, /holds 3 invisible character/);
+});
+
+test('item 7: gate show counts the whole hidden class (a variation selector, a filler, a bare joiner), not an emoji family, with the module\'s number', () => {
+  const cp = (...a) => String.fromCodePoint(...a);
+  const text = `Visible${cp(0xFE00)} and${cp(0x3164)} words${cp(0x200D)} here ${cp(0x1F468, 0x200D, 0x1F469)} ${cp(0x1F600, 0xFE0F)}\n`;
+  const { d } = freshGate(text, { expiresAt: Date.now() + 60_000 });
+  const s = spawnSync(process.execPath, [cli, 'gate', 'show', d, 'g1'], { encoding: 'utf8' });
+  assert.equal(s.status, 0, s.stderr);
   assert.match(s.stdout, /holds 3 invisible character/);
 });
 

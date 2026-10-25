@@ -35,8 +35,8 @@ test('unsupported shape: `model` as a real array (not a string) does NOT validat
   assert.ok(validate.errors.some(e => e.instancePath === '/model'));
 });
 
-test('every seat in chains/coder-gate-v2.json validates against the schema', () => {
-  const cfg = JSON.parse(readFileSync(join(root, 'chains', 'coder-gate-v2.json'), 'utf8'));
+test('every seat in chains/outdated/coder-gate-v2.json validates against the schema', () => {
+  const cfg = JSON.parse(readFileSync(join(root, 'chains', 'outdated', 'coder-gate-v2.json'), 'utf8'));
   const seats = [cfg.seats.criteria, cfg.seats.skeleton, cfg.seats.builder, ...cfg.seats.proposers, ...cfg.seats.critics].filter(Boolean);
   for (const seat of seats) {
     if (seat.provider === 'external') continue; // no `model` routing shape applies to an external seat

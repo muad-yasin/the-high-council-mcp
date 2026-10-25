@@ -157,7 +157,11 @@ test('a missing ledger reads as an empty, valid one; an unreadable one fails clo
 test('appendEvent writes only the public events; the ledger sets schema, seq, prev, ts and event itself', () => {
   // Changed by the owner's decision of 7 Oct 2026 ("we go with the full one", 0.8.2 item 6d): the contract record adds contract_locked, amend_requested and amend_decided; only amend_requested is public.
   assert.deepEqual([...PUBLIC_EVENTS].sort(), ['amend_requested', 'more_material_requested', 'sent', 'stopped']);
-  assert.deepEqual([...EVENTS].sort(), ['amend_decided', 'amend_requested', 'contract_locked', 'gate_answered', 'gate_requested', 'more_material_requested', 'sent', 'stopped']);
+  // Changed by C&C's ruling of 8 Oct 2026 (0.8.3 M5b): a recursive-councils tree reuses the gate for its approvals and uses each approval once, so the ledger's list gains `tree_frontier_approved` and `tree_decided`
+  // (and src/gate.js USE_EVENTS the same two); M6 S2 (C&C, 11 Oct 2026) adds `tree_checked`, the use event of the new `tree_check` gate kind (`council tree check`), to both. The list stays CLOSED: any other event is still refused, asserted just below and in test/tree-approve.test.js.
+  assert.deepEqual([...EVENTS].sort(), ['amend_decided', 'amend_requested', 'cap_consumed', 'contract_locked', 'gate_answered', 'gate_requested', 'more_material_requested', 'sent', 'stopped', 'tree_checked', 'tree_decided', 'tree_frontier_approved'], `the ledger's closed event list: ${JSON.stringify([...EVENTS].sort())}`);   // 14 Oct 2026 (typed cap T3): `cap_consumed`, the use event of the run_cap gate
+  assert.throws(() => appendEvent(tmp(), 'tree_frontier_approved', { gate: 'g1' }), /not an event this function writes/, 'the tree events are written only through src/gate.js recordUse, like the contract events');
+  assert.throws(() => appendEvent(tmp(), 'tree_made_up', {}), /not an event this function writes/, 'and any OTHER unknown event is refused');
   assert.throws(() => appendEvent(tmp(), 'contract_locked', { version: 1 }), /not an event this function writes/);
   assert.throws(() => appendEvent(tmp(), 'amend_decided', { decision: 'approved' }), /not an event this function writes/);
   const d = tmp();

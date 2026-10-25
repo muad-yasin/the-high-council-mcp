@@ -17,14 +17,17 @@ test('no shipped price row is past its expires date today (the release test)', (
   assert.deepEqual(expiredPriceRows(), [], 'a price row has expired: re-read the lab\'s page and update src/pricing.json');
 });
 
-test('the dated rows the research found: gpt-5.6-sol (promotional, until 2026-11-21) and Gemini 3.8 Flash (doubles 2027-01-01)', () => {
+// Direct-price re-check (24 Okt 2026): google/gemini-3.6-flash (a direct row) joins the dated rows, because Google's page doubles it on 2027-01-01. Old bar: exactly two rows expire by
+// 2027-01-02; new bar: three. The set is still pinned exactly, so a row that gains or loses an `expires` date turns this red until the list here moves with it.
+test('the dated rows the research found: gpt-5.6-sol (promotional, until 2026-11-21), Gemini 3.8 Flash and Gemini 3.6 Flash (both double 2027-01-01)', () => {
   assert.equal(table['openrouter/openai/gpt-5.6-sol'].expires, '2026-11-21');
   assert.match(table['openrouter/openai/gpt-5.6-sol']._promotional, /list price is 4 \/ 20/);
   assert.equal(table['openrouter/google/gemini-3.8-flash'].expires, '2027-01-01');
+  assert.equal(table['google/gemini-3.6-flash'].expires, '2027-01-01');
   const at = d => expiredPriceRows(Date.parse(d)).map(r => r.key);
   assert.deepEqual(at('2026-11-20T23:59:59Z'), []);
   assert.deepEqual(at('2026-11-21T00:00:00Z'), ['openrouter/openai/gpt-5.6-sol']);
-  assert.deepEqual(at('2027-01-02T00:00:00Z').sort(), ['openrouter/google/gemini-3.8-flash', 'openrouter/openai/gpt-5.6-sol']);
+  assert.deepEqual(at('2027-01-02T00:00:00Z').sort(), ['google/gemini-3.6-flash', 'openrouter/google/gemini-3.8-flash', 'openrouter/openai/gpt-5.6-sol']);
 });
 
 test('an expired row warns in the dry run\'s price lines; the price itself does not change on the date', () => {
@@ -48,7 +51,7 @@ test('a malformed expiry is reported, never skipped; a row with an expiry still 
 test('the JSON dry run (and MCP dry_run json) carries the expired rows too', () => {
   const config = JSON.parse(readFileSync(join(root, 'chains', 'advise-single-gemini.json'), 'utf8'));
   assert.deepEqual(dryRunReport(config, { now: Date.parse('2026-10-03T00:00:00Z') }).priceTable.expired, []);
-  assert.deepEqual(dryRunReport(config, { now: Date.parse('2027-01-02T00:00:00Z') }).priceTable.expired.map(r => r.key).sort(), ['openrouter/google/gemini-3.8-flash', 'openrouter/openai/gpt-5.6-sol']);
+  assert.deepEqual(dryRunReport(config, { now: Date.parse('2027-01-02T00:00:00Z') }).priceTable.expired.map(r => r.key).sort(), ['google/gemini-3.6-flash', 'openrouter/google/gemini-3.8-flash', 'openrouter/openai/gpt-5.6-sol']);
 });
 
 test('Qwen3.7 Plus is priced at its list price, not the 20%-off promotion (M7 Work 1)', () => {

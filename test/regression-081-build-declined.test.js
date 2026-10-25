@@ -86,7 +86,7 @@ test('source scan: every read of build.md / a revise-N.md in src/ (recursively, 
   }
   assert.deepEqual(offenders, []);
   // pickDraft reads its candidates through one `read(join(runDir, name))` line; that line has no name literal, so it is checked on its own.
-  assert.match(readFileSync(join(root, 'src', 'handoff-from-run.js'), 'utf8'), /stripDeclined\(raw\)/);
+  assert.match(readFileSync(join(root, 'src', 'handoff-from-run.js'), 'utf8'), /stripDeclined(WithNotes)?\(raw\)/); // notes lane unit 2 (2a): CHANGED ACCEPTED TEST: the reader may be the sibling that also returns the NOTE answer lines it removed (same strip, with a count)
   assert.ok(readFileSync(join(root, 'src', 'draft-disputes.js'), 'utf8').includes('export function parseDisputes'), 'parseDisputes lives in the shared module');
 });
 
@@ -97,10 +97,12 @@ test('--from-run (the first reader in src/cli.js): the draft handed to a panel-o
   writeFileSync(join(dir, 'chains', 'fx.json'), JSON.stringify({ name: 'fx', maxRounds: 1, seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'mock', model: 'mock-builder' }, reviser: { provider: 'mock', model: 'mock-builder' }, critics: [{ provider: 'mock', model: 'mock-critic-a' }] } }));
   const env = { ...process.env }; for (const k of Object.keys(env)) if (/API_KEY/.test(k)) delete env[k];
   const cli = join(root, 'src', 'cli.js');
-  execFileSync('node', [cli, '--task', 'tasks/t.md', '--chain', 'fx'], { cwd: dir, env, encoding: 'utf8', stdio: 'pipe' });
+  // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so a finished 22 is not a failure here.
+  const runFx = args => { try { return execFileSync('node', [cli, ...args], { cwd: dir, env, encoding: 'utf8', stdio: 'pipe' }); } catch (e) { if (e.status === 22) return String(e.stdout ?? ''); throw e; } };
+  runFx(['--task', 'tasks/t.md', '--chain', 'fx']);
   const first = join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
   appendFileSync(join(first, 'build.md'), '\nDECLINED: leaked one\nDECLINED: leaked two\n');
-  execFileSync('node', [cli, '--task', 'tasks/t.md', '--from-run', first, '--rounds', '1', '--chain', 'fx'], { cwd: dir, env, encoding: 'utf8', stdio: 'pipe' });
+  runFx(['--task', 'tasks/t.md', '--from-run', first, '--rounds', '1', '--chain', 'fx']);
   const second = join(dir, 'runs', readdirSync(join(dir, 'runs')).filter(d => join(dir, 'runs', d) !== first).sort().pop());
   const deliverable = readFileSync(join(second, 'deliverable.md'), 'utf8');
   assert.match(deliverable, /MOCK DELIVERABLE/, 'fixture: the handed draft is what the panel pass shipped');

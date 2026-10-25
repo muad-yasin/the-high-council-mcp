@@ -1,6 +1,6 @@
 // test/security-review-only.test.js
 //
-// F9 (relay/Docs/SophiA-Seat-Families-Plan.md §5, §2.9): chains/security-review-only.json - a
+// F9 (relay/Docs/SophiA-Seat-Families-Plan.md §5, §2.9): chains/outdated/security-review-only.json - a
 // tiny chain whose only real content is a human/orchestrator-supplied artifact plus the final
 // security-review gate (515439a). This test is the F9 acceptance test named in the plan: the
 // chain lints, a mock run pauses at build, resumes after the file is written, and exits 7 with
@@ -17,9 +17,9 @@ import { lintChain } from '../src/chain-lint.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
 const cli = join(root, 'src', 'cli.js');
-const chainPath = join(root, 'chains', 'security-review-only.json');
+const chainPath = join(root, 'chains', 'outdated', 'security-review-only.json');
 
-test('1. chains/security-review-only.json lints clean', () => {
+test('1. chains/outdated/security-review-only.json lints clean', () => {
   const cfg = JSON.parse(readFileSync(chainPath, 'utf8'));
   assert.deepEqual(lintChain(cfg, chainPath), []);
 });
@@ -94,7 +94,7 @@ test('4. a run resumes and exits 0 (pass) with a non-blocking mock reviewer', ()
     artifactText: 'A clean artifact with nothing to flag.',
   });
   try {
-    assert.equal(exitStatus, 0);
+    assert.ok([0, 22].includes(exitStatus), `exit ${exitStatus}`);   // 22: finished, mock panel not agreed (0.8.3; exit-not-agreed.test.js pins the rule); the security gate (7/8) is this test's subject
     const report = JSON.parse(readFileSync(join(runDir, 'report.json'), 'utf8'));
     assert.equal(report.security_review.gate, 'pass');
     assert.equal(report.security_review.blocking_count, 0);

@@ -71,7 +71,7 @@ test('every mock chain, paused at an external reviser and resumed, replays its f
       writeFileSync(join(dir, 'chains', `${variant}.json`), JSON.stringify({ ...c, name: variant, seats: { ...c.seats, reviser: EXT } }));
       const out = runToEnd(dir, variant, { first: ['--max-usd', '1000'] });
       assert.deepEqual(out.stale, [], `${variant}: ${out.log.join(', ')}\n${out.stale.join('\n')}`);
-      assert.ok([0, 7].includes(out.status), `${variant} reaches its end: ${out.log.join(', ')}\n${out.stderr.slice(-800)}`);
+      assert.ok([0, 7, 22].includes(out.status), `${variant} reaches its end (22: finished, mock panel not agreed, 0.8.3): ${out.log.join(', ')}\n${out.stderr.slice(-800)}`);
       if (c.panel === 'relay') relayResumed += out.resumes;
     }
     assert.ok(relayResumed > 0, 'the relay chain paused and resumed at least once, so the relay order was replayed');
@@ -81,10 +81,10 @@ test('every mock chain, paused at an external reviser and resumed, replays its f
     const six = [...'abcdef'].map(x => ({ provider: 'mock', model: `mock-critic-${x}`, lab: `mock-${x}` }));
     writeFileSync(join(dir, 'chains', 'relay-six.json'), JSON.stringify({ ...relay, name: 'relay-six', seats: { ...relay.seats, reviser: EXT, critics: six } }));
     const wide = runToEnd(dir, 'relay-six');
-    assert.ok(wide.resumes > 0 && wide.status === 0, wide.log.join(', '));
+    assert.ok(wide.resumes > 0 && [0, 22].includes(wide.status), wide.log.join(', '));   // 22: finished, mock panel not agreed (0.8.3; exit-not-agreed.test.js pins the rule)
     assert.deepEqual(wide.stale, [], wide.stale.join('\n'));
     const shipped = runToEnd(dir, 'mock-external');
-    assert.ok(shipped.resumes > 0 && shipped.status === 0, shipped.log.join(', '));
+    assert.ok(shipped.resumes > 0 && [0, 22].includes(shipped.status), shipped.log.join(', '));
     assert.deepEqual(shipped.stale, []);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

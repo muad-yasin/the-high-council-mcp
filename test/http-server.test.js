@@ -12,7 +12,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { createRelayHttpServer, dailyUsage, requiredEnvForChain } from '../src/http-server.js';
 
@@ -259,4 +260,54 @@ test('GET /runs/:id/attachments for an unknown run id -> 404', async () => {
   } finally {
     await close();
   }
+});
+
+// Exit 22 (0.8.3, C&C review of the exit-22 unit): a run that FINISHED but whose panel did not agree exits 22, and its deliverable and report.json are written. src/http-server.js read every non-zero code as an error
+// (500 nonzero_exit), a false record for a finished run. 22 is read like 0 (body unchanged); 7 and 8 (security gate) were errors before and stay errors.
+test('HT-1 POST /runs: a child that exits 22 (finished, panel not agreed) is a completed run, not a 500', async () => {
+  const relayRoot = mkdtempSync(join(tmpdir(), 'relay-e22-'));
+  const { base, close } = await startServer({ relayRoot, spawnFn: () => fakeChildProcess(22) });
+  try {
+    const res = await fetch(`${base}/runs`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth() }, body: JSON.stringify({ chain: 'mock', taskContent: 'x', idempotencyKey: 'e22-start' }) });
+    const body = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(body));
+    assert.equal(body.outcome, 'completed');
+  } finally { await close(); rmSync(relayRoot, { recursive: true, force: true }); }
+});
+
+// The resume route accepts only an id whose folder exists under THIS repo's own runs/ (safeRunId), but works in the server's relayRoot: the next two rows plant an empty marker folder with a far-future id in the repo (removed after) and the real one in relayRoot.
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+function plantRun(id, relayRoot, files = ['PLAN.md', 'BOARD.md', 'HANDOFF.md']) {
+  const marker = join(REPO_ROOT, 'runs', id);
+  mkdirSync(marker, { recursive: true });
+  const runDir = join(relayRoot, 'runs', id);
+  mkdirSync(runDir, { recursive: true });
+  for (const f of files) writeFileSync(join(runDir, f), 'x\n');
+  return () => rmSync(marker, { recursive: true, force: true });
+}
+
+test('HT-2 POST /runs/:id/resume: a child that exits 22 is a completed resume ({ success: true }) when the output files are there', async () => {
+  const id = '2099-10-15T10-00-00-022Z';
+  const relayRoot = mkdtempSync(join(tmpdir(), 'relay-e22-'));
+  const unplant = plantRun(id, relayRoot);
+  const { base, close } = await startServer({ relayRoot, spawnFn: () => fakeChildProcess(22) });
+  try {
+    const res = await fetch(`${base}/runs/${id}/resume`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth() }, body: JSON.stringify({ answersText: '1. default' }) });
+    const body = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(body));
+    assert.deepEqual(body, { success: true });
+  } finally { await close(); unplant(); rmSync(relayRoot, { recursive: true, force: true }); }
+});
+
+test('HT-3 control: exit 7 (the security gate blocked the deliverable) stays a 500 nonzero_exit on both routes', async () => {
+  const id = '2099-10-15T10-00-00-007Z';
+  const relayRoot = mkdtempSync(join(tmpdir(), 'relay-e22-'));
+  const unplant = plantRun(id, relayRoot, []);
+  const { base, close } = await startServer({ relayRoot, spawnFn: () => fakeChildProcess(7) });
+  try {
+    const start = await fetch(`${base}/runs`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth() }, body: JSON.stringify({ chain: 'mock', taskContent: 'x', idempotencyKey: 'e22-seven' }) });
+    assert.equal(start.status, 500); assert.equal((await start.json()).reason, 'nonzero_exit');
+    const resume = await fetch(`${base}/runs/${id}/resume`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth() }, body: JSON.stringify({ answersText: '1. default' }) });
+    assert.equal(resume.status, 500); assert.equal((await resume.json()).error, 'nonzero_exit');
+  } finally { await close(); unplant(); rmSync(relayRoot, { recursive: true, force: true }); }
 });

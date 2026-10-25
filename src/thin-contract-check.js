@@ -9,7 +9,7 @@ import { RECORD_LINE_RE } from './handoff-contract-text.js';
 
 const short = h => String(h || '').slice(0, 12);
 
-export function checkThinContract({ report, deliverableText, handoffText, taskText, contextBundle, hasContext, handoffCopyText }) {
+export function checkThinContract({ report, deliverableText, handoffText, taskText, contextBundle, hasContext, handoffCopyText, accepted = null }) {
   const t = report?.thin_contract;
   if (!t || typeof t !== 'object') return { items: [], exit: 2, note: 'this report.json has no thin_contract (a run from before 0.8.2, an advice run, or a run that had nothing to seal): there is nothing to check' };
   const items = [];
@@ -46,7 +46,13 @@ export function checkThinContract({ report, deliverableText, handoffText, taskTe
   const s = report.signed_text; const d = report.delivered_text; const hnd = report.handoff_text;
   if (s?.sha256 !== undefined) same('signed text', s.sha256, t.signed_text_sha256, 'report.json signed_text.sha256 equals the record', 'report.json signed_text.sha256 differs from the record');
   else add('unchecked', 'signed text', 'report.json has no signed_text');
-  if (d?.sha256 !== undefined) {
+  if (accepted && d?.sha256 !== undefined) {
+    // gate page 12.3 (2b): the tree's two callers pass the body hash the RECORD accepts for this node. The two delivered-text comparisons (the file the run wrote, the text the panel signed) are replaced by ONE comparison against the record: the body of deliverable.md
+    // against the accepted hash. It is a comparison against a file outside report.json that held (or drifted), so it counts as a held outside comparison and cannot flip a run to exit 2; every other item below is unchanged. The person's own `council contract check` passes none.
+    if (typeof deliverableText !== 'string') add('unchecked', 'accepted text', 'deliverable.md is not readable');
+    else if ((d.harness_notes || []).length) add('drift', 'accepted text', 'a harness note sits above the plan, so the file is not exactly the plan that was accepted');
+    else same('accepted text', sha256Of(deliverableText), accepted, `deliverable.md is the text that was accepted (${short(accepted)}), not the text the panel signed`, `deliverable.md is not the text that was accepted (${short(sha256Of(deliverableText))} vs ${short(accepted)})`, true);
+  } else if (d?.sha256 !== undefined) {
     if (typeof deliverableText === 'string') same('delivered text', sha256Of(deliverableText), d.sha256, `deliverable.md is the file the run wrote (${short(d.sha256)})`, `deliverable.md was changed after the run wrote it (${short(sha256Of(deliverableText))} vs ${short(d.sha256)})`, true);
     else add('unchecked', 'delivered text', 'deliverable.md is not readable');
     if (d.same_as_signed === true && !(d.harness_notes || []).length && typeof deliverableText === 'string') same('signed text is the delivered text', sha256Of(deliverableText), t.signed_text_sha256, 'the delivered file is the text the panel signed', 'the delivered file is not the text the panel signed', true);

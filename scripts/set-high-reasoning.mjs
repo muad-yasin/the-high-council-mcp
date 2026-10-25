@@ -47,7 +47,7 @@ function stripLowering(extra) {
 const CAP_REASONING_WAS_OFF = SEAT_DEFAULT_MAX_TOKENS;
 const CAP_DEFAULT_ABOVE_HIGH = 360_000;
 const CAP_CHEAP_SEAT = 360_000;
-const CHEAP_SEAT_MODELS = new Set(['openrouter/deepseek/deepseek-v4.1-flash']);
+const CHEAP_SEAT_MODELS = new Set(['openrouter/deepseek/deepseek-v4.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash-1017']);
 
 // Rebuilds a seat keeping its key order, so a changed seat reads like the original with only its own lines changed.
 function rebuild(seat, extra, maxTokens, panelMaxTokens) {

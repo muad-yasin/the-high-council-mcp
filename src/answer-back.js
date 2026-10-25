@@ -67,7 +67,7 @@ export const answerBackSummary = (round, byLab) => Object.entries(byLab).map(([l
  *   whatever is still unanswered, once the re-ask sentence is recorded).
  * Returns { carried: [failure...], unanswered: [failure...], records: [{ id, status, effect }] }; `carried` entries are failures the caller adds to the judge's own, `records` go to report.json (`answer_back_replies`).
  */
-export function applyAnswers({ lab, critique, own, shownDraft, round }) {
+export function applyAnswers({ lab, critique, own, shownDraft, round, sources = null }) {
   const answers = Array.isArray(critique?.answers) ? critique.answers.filter(a => a && typeof a === 'object' && !Array.isArray(a)) : [];
   const listed = new Set((critique?.failures || []).map(f => objectionId(lab, f)));
   const idKey = v => String(v ?? '').trim().toLowerCase(); // a padded or re-cased id is the same id (an exact match would turn a refused withdrawal into a dropped objection)
@@ -75,7 +75,7 @@ export function applyAnswers({ lab, critique, own, shownDraft, round }) {
   const draftText = normQuote(shownDraft); // the quote check normalises quotes and apostrophes on both sides; the paragraph diff above keeps its own norm
   const records = []; const carried = [];
   const seen = new Set();
-  const asFailure = o => ({ criterion: o.criterion, problem: o.problem, fix: '', ...(o.quote ? { quote: o.quote } : {}), id: o.id, carried_from_round: round - 1 });
+  const asFailure = o => ({ criterion: o.criterion, problem: o.problem, fix: '', ...(o.quote ? { quote: o.quote } : {}), id: o.id, carried_from_round: o.raised_round ?? round - 1 });
   const carry = o => { if (!listed.has(o.id) && !carried.some(c => c.id === o.id)) carried.push(asFailure(o)); };
   for (const a of answers) {
     const id = typeof a.id === 'string' ? a.id : '';
@@ -85,8 +85,13 @@ export function applyAnswers({ lab, critique, own, shownDraft, round }) {
     if (!o) { records.push({ id, status, effect: 'unknown_id' }); continue; }
     seen.add(o.id);
     if (status === 'withdrawn') {
-      const quoted = evidenceSpans(a.evidence).some(q => draftText.includes(normQuote(q)));
+      const spans = evidenceSpans(a.evidence);
+      const quoted = spans.some(q => draftText.includes(normQuote(q)));
+      // ROADMAP 84 (E84): when the judge was SHOWN other judges' evidence (`sources[o.id]`: [{ lab, layer?, text }] in the order shown, built by the one function that built the prompt block), a quoted span found there also counts, and the
+      // record says whose it was. The draft is checked first: a quote found in both is the draft's. Without `sources` nothing here differs from before.
+      const peer = quoted || !sources ? null : (sources[o.id] || []).find(s => spans.some(q => normQuote(s.text).includes(normQuote(q))));
       if (quoted) records.push({ id, status, quoted: true, effect: 'withdrawn' });
+      else if (peer) records.push({ id, status, quoted: true, effect: 'withdrawn', quoted_from: 'reviewer', quoted_ref: peer.lab, ...(peer.layer !== undefined ? { quoted_layer: peer.layer } : {}) });
       else { records.push({ id, status, quoted: false, effect: 'withdrawal_refused' }); carry(o); }
     } else if (status === 'sustained') { records.push({ id, status, effect: 'sustained' }); carry(o); }
     else { records.push({ id, status, effect: 'unreadable_answer' }); carry(o); } // 3b: a word that is neither (fixed, resolved, open, "") must not drop an objection the judge did not list again

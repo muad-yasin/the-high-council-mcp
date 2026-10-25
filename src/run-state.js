@@ -29,6 +29,7 @@ export function classifyStageCompletion(label) {
 export function classifyVerdictEvent(event, currentStatus) {
   if (event.dropped) return 'dropped';
   if (event.passStated) return 'posted';
+  if (event.earlyAnswer === true) return event.passed ? 'early_yes' : 'objected';   // ROADMAP 83: the overseer's yes to a proposal to finish early is its own status, not 'signed'
   if (event.passed !== undefined) return event.passed ? 'signed' : 'objected';
   if (event.decisions) return event.decisions.keep > 0 ? 'held' : (currentStatus || 'posted');
   return null;

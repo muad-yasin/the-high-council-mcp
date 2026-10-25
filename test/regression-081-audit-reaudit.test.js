@@ -47,6 +47,18 @@ test('RA-3: the .env deny list also refuses the variables that change how the ch
   assert.deepEqual(ignored, ['NODE_OPTIONS'], 'a refused name is reported once even when it appears twice');
 });
 
+test('RA-15: the .env deny list also refuses where the machine\'s tools look for their configuration (XDG_*, the Windows profile and temp names, PATHEXT, the C library\'s loader paths) and the persona file; each name by name, so a dropped one goes red', () => {
+  const refused = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR', 'XDG_ANYTHING', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'TEMP', 'TMP', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'PATHEXT', 'GCONV_PATH', 'LOCPATH', 'NLSPATH', 'COUNCIL_PERSONAS_FILE', 'COUNCIL_MOCK_HOLD_FILE', 'COUNCIL_TEST_SPAWN_HOLD_FILE', 'COUNCIL_WORKDIR'];
+  const allowed = ['XDG', 'XDGX_HOME', 'TEMPLATE', 'TMPFILE', 'MY_TMP', 'APPDATA_X', 'COUNCIL_PERSONAS', 'MAX_USD_PER_RUN', 'OPENROUTER_API_KEY', 'COUNCIL_ADVISE_MOCK', 'COUNCIL_MOCK_DELAY_MS', 'COUNCIL_MOCK_PRESTART_UNTIL_STOP'];
+  const text = [...refused, ...allowed].map(n => `${n}=/x`).join('\n');
+  const ignored = [];
+  const env = {};
+  const set = applyEnvFile(`${text}\nXDG_CONFIG_HOME=/y\n`, env, { onIgnored: n => ignored.push(n) });
+  assert.deepEqual(ignored.sort(), [...refused].sort(), 'every one of them is reported once (XDG_CONFIG_HOME is written twice and named once)');
+  assert.deepEqual(set.sort(), [...allowed].sort(), 'and nothing else near their names is lost');
+  for (const n of refused) assert.equal(env[n], undefined, `${n} was not set`);
+});
+
 test('RA-4: advise-single-deepseek\'s ceiling covers its first call and ONE retry at the dearest brief (the rule behind every advise.usd), at the refreshed price row', () => {
   const c = chain('advise-single-deepseek');
   const seat = c.seats.critics[0]; const cap = seat.maxTokens ?? 36000;
@@ -83,7 +95,8 @@ test('RA-6: calls_at_most is a bound that fails on the old row count: three seat
 });
 
 test('RA-7: every advice seat whose price row was not raised in the audit pins max_price EQUAL to its row (a lower max_price could leave no endpoint to route to)', () => {
-  const RAISED = new Set(['deepseek/deepseek-v4.1-flash', 'z-ai/glm-5.3', 'z-ai/glm-5.2', 'meta-llama/llama-3.3-70b-instruct']);
+  // 1017 unit (23 Okt 2026): advise-single-deepseek seats the 1017 build, whose price row (lane D, 477c30a) is the dearest endpoint ($0.30 / $1.20) like the undated row's, while the chain pins the cheapest ($0.15 / $0.60); the endpoint list read 2026-10-23 has 9 providers with a zero-data-retention endpoint inside that pin, so the pin leaves endpoints to route to.
+  const RAISED = new Set(['deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash-1017', 'z-ai/glm-5.3', 'z-ai/glm-5.2', 'meta-llama/llama-3.3-70b-instruct']);
   const pricing = JSON.parse(readFileSync(join(root, 'src', 'pricing.json'), 'utf8'));
   const bad = [];
   for (const f of readdirSync(join(root, 'chains')).filter(f => /^advise-/.test(f))) for (const s of chain(f.slice(0, -5)).seats.critics) {

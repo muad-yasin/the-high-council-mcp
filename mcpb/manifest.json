@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "the-high-council",
   "display_name": "The High Council",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "A planning council: models from different labs propose, debate and review one plan. Bring your own keys.",
   "long_description": "The High Council runs one request past seats filled by models from different labs. Each lab proposes blind, the proposals are debated on the record, one plan is built and reviewed under a round cap, and the run folder keeps every stage.\n\n**Bring your own keys.** Nothing is hosted and there is no default key: add a key only for the labs you want to seat. The `mock` chains run offline, free, with no key at all, so you can try the tools first.\n\n**Spend ceiling.** Every run stops before any stage that could pass the ceiling you set here. Claude cannot lift it from a conversation.\n\nNo claim is made that a council produces better plans than one model; nothing has measured that yet.",
   "author": {
@@ -30,6 +30,7 @@
         "COUNCIL_WORKDIR": "${user_config.workdir}",
         "MAX_USD_PER_RUN": "${user_config.max_usd}",
         "COUNCIL_MAX_USD_LIMIT": "${user_config.max_usd}",
+        "COUNCIL_PII_GATE": "${user_config.pii_gate}",
         "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}",
         "OPENAI_API_KEY": "${user_config.openai_api_key}",
         "GOOGLE_API_KEY": "${user_config.google_api_key}",
@@ -103,6 +104,34 @@
     {
       "name": "metrics_report",
       "description": "Descriptive telemetry from run logs. Not an evaluation or benchmark."
+    },
+    {
+      "name": "tree_status",
+      "description": "Read-only status of a recursive-councils tree: verdict, nodes, stops, limits, money."
+    },
+    {
+      "name": "tree_decide",
+      "description": "Answer a stopped recursive-councils sub-plan as the session: quote first, then answer with a written reason."
+    },
+    {
+      "name": "price_raise",
+      "description": "Raise a model's recorded price after a price refusal stopped a run: quote first, then confirm with the user's own yes."
+    },
+    {
+      "name": "council_quote",
+      "description": "Preview and price a request for advice from other AI labs. Nothing is sent, written or spent."
+    },
+    {
+      "name": "council_advise",
+      "description": "Ask other AI labs for advice on one decision, after a quote. It spends the user's own API money, and the user approves the exact text first."
+    },
+    {
+      "name": "contract_read",
+      "description": "Read the locked contract of a run: its obligations and the amendment requests filed against it."
+    },
+    {
+      "name": "contract_amend",
+      "description": "File a request to change an obligation of a run's locked contract. It decides nothing; a person decides at a terminal."
     }
   ],
   "tools_generated": false,
@@ -135,11 +164,18 @@
     "max_usd": {
       "type": "number",
       "title": "Spend ceiling per run (USD)",
-      "description": "A run stops before any stage that could take it past this, billed to your own keys. Claude cannot raise or remove it from a chat; change it here.",
+      "description": "The most one run may cost, billed to your own keys. The limit dialog suggests this figure, or a lower one Claude asks for, before each paid run; you type your limit there, up to this figure, and a run stops before any stage that could take it past that. Claude cannot raise or remove this ceiling from a chat; change it here.",
       "required": true,
-      "default": 7,
+      "default": 10,
       "min": 0.5,
       "max": 200
+    },
+    "pii_gate": {
+      "type": "string",
+      "title": "When a task holds personal data",
+      "description": "Every run is checked for email addresses, IBANs, card numbers and key-shaped text before anything is sent. By default a finding stops the run and you decide whether to send it. Leave this alone to keep that; type warn only if you want to be told and carried on without being asked. Anything else refuses the run. Names and addresses are not recognised.",
+      "required": false,
+      "default": "hard-stop"
     },
     "anthropic_api_key": {
       "type": "string",

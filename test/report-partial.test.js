@@ -96,7 +96,8 @@ test('report-partial: a resume that finishes removes report-partial.json and BOA
   assert.ok(existsSync(join(runDir, PARTIAL_REPORT_FILE)));
   assert.ok(existsSync(join(runDir, PARTIAL_BOARD_FILE)), 'the debate ran before the stop, so there is a board');
   const r = run(dir, ['--resume', runDir, '--max-usd', 'none']);
-  assert.equal(r.status, 0, `resume failed: ${r.stdout.slice(-400)}${r.stderr}`);
+  // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so it accepts the two finished exits.
+  assert.ok([0, 22].includes(r.status), `resume failed: ${r.stdout.slice(-400)}${r.stderr}`);
   for (const f of [PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, 'STOPPED-budget.json', 'STOPPED-budget.md']) {
     assert.ok(!existsSync(join(runDir, f)), `${f} must not outlive the stop it describes`);
   }

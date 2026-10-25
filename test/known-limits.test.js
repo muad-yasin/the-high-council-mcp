@@ -35,27 +35,31 @@ test('one phrase per unverified item U1-U7, and per limit plan section 7 names',
     ['a headless client waits for a terminal answer', /headless Claude Code, a script\) gets `awaiting_approval`/],
     ['advise-single ceiling', /`advise-single`'s ceiling is \$1\.32/],
     ['untested on case-insensitive file systems', /Untested on case-insensitive file systems \(macOS, Windows\)/],
-    ['the dry run does not price every cap', /dry run does not price every cap/],
+    ['the dry run does not price every cap', /dry run's expected figure does not price every cap/],
     // owner decision 6 Oct 2026 ("2h is OK"): the request deadline went from 45 minutes to 2 hours, so the pinned sentence changed with it.
-    ['a retry past the request deadline', /close to the 2-hour request deadline/],
+    ['a retry past the request deadline', /whether a reply that long fits inside the 2-hour request deadline is not known/],
     // Moved to the current version by the audit finding cnc-cli-resume F1 (a run paused under 0.8.1 is re-paid on 0.8.2): the sentence names both causes.
     ['a run paused under 0.8.1 is re-paid', /paused under 0\.8\.1 on a chain or a prompt that 0\.8\.2 changed/],
     // 0.8.2 item 2 (ChatGPT review 1 F12/F13, owner: all of it in 0.8.2): the run_tests limit is pinned so it cannot be deleted without the test saying so.
     ['run_tests is trusted code', /`run_tests` runs a repository's own test files as trusted code, with no sandbox/],
     ['symlink containment untested on Windows', /symbolic-link containment of the MCP tools is untested on Windows/],
     // 0.8.2 item 7: the reasoning table was regenerated on 2026-10-07 (to add Sonnet 5.5's row), so its date moved from 2026-12-05 to 2026-12-06; the README line moved with it.
-    ['the red-test dates', /2026-10-31.*2026-11-21.*2026-12-06/s],
+    // 0.8.3 step (g): the README line named 2026-11-21 for the price rows (true for a stamp of 2026-10-06) and 2026-12-06 for the reasoning table (regenerated 2026-10-07); the files say 2026-12-08 (stamp 2026-10-23) and, after the table was regenerated on 2026-10-23, 2026-12-23. The dates are now in date order.
+    ['the red-test dates', /2026-11-21.*2026-11-23.*2026-12-08.*2026-12-23/s],
     ['DeepSeek on Together unconfirmed', /DeepSeek V4 Flash on Together/],
     ['reasoning fields not exercised live', /not exercised in a live call/],
     ['a failed start after approval is counted', /A failed start after approval is counted at the full ceiling/],
     ['one approval, two runs', /One approval can start two runs if the approved run folder is copied/],
     // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): four of the six moved to archive/chains/, so the sentence says Two; the next test derives the count.
-    ['Gemini 2.5 closed to new projects', /Two shipped chains seat Gemini 2\.5/],
+    // 0.8.3 (lane B, B-DRAFT): us-only retired to chains/outdated/, so only verify seats Gemini 2.5 in chains/; the sentence says One (the next test derives the count).
+    ['Gemini 2.5 closed to new projects', /One shipped chain seats Gemini 2\.5/],
     ['the direct-Anthropic retry may never fire', /retry of a direct Anthropic seat whose thinking used the whole cap may never fire/],
     ['run-folder fields not marked untrusted', /Some fields an agent reads about a run are not marked as untrusted text/],
     ['the terminal approval command under .mcpb', /terminal command for approving a call was not run under the `\.mcpb` route/],
     // Changed by the owner's decision of 7 Oct 2026 (0.8.2 item 8b, the reservation record): a killed process no longer records nothing; the limit now says it stays charged at its worst case.
     ['a killed process leaves the call charged at its worst case', /A process killed in the middle of a paid call leaves that call charged at its worst case/],
+    // 0.8.3 harness (a): the answerer of a session seat is the session's own statement.
+    ['the answerer of a session seat is declared, never checked', /Who answered a seat that a coding-agent session fills is the session's own statement and is never checked/],
     ['plugin strict validation warning', /claude plugin validate --strict \.` fails on it: "CLAUDE\.md at the plugin root is not loaded as project context"/],
   ];
   const missing = must.filter(([, re]) => !re.test(limits)).map(([name]) => name);
@@ -79,7 +83,7 @@ test('none of the phrases of the fixed 0.8.0 defects, nor the "Known defects in 
 
 test('the Gemini 2.5 limit counts exactly the shipped chains that seat Gemini 2.5, by name (0.8.2: derived, not typed)', () => {
   const seating = readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json') && /gemini-2\.5/.test(readFileSync(join(root, 'chains', f), 'utf8'))).map(f => f.slice(0, -5)).sort();
-  const m = limits.match(/(\w+) shipped chains seat Gemini 2\.5\*{0,2} \(([^)]*)\)/);
+  const m = limits.match(/(\w+) shipped chains? seats? Gemini 2\.5\*{0,2} \(([^)]*)\)/);
   assert.ok(m, 'the limit sentence has the form "<Count> shipped chains seat Gemini 2.5 (`a`, `b` ...)"');
   assert.equal(['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight'].indexOf(m[1]), seating.length, `README says ${m[1]}, chains/ has ${seating.length}: ${seating}`);
   const named = [...m[2].matchAll(/`([^`]+)`/g)].map(x => x[1]).filter(n => seating.includes(n)).sort();

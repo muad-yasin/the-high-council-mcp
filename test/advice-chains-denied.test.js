@@ -14,15 +14,17 @@ import { lintChain } from '../src/chain-lint.js';
 import { everySeatOf } from '../src/chain.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const ADVICE = readdirSync(join(root, 'chains')).filter(f => /^advise-.*\.json$/.test(f)).sort();
-const chain = f => JSON.parse(readFileSync(join(root, 'chains', f), 'utf8'));
+const ADVICE_SHIPPED = readdirSync(join(root, 'chains')).filter(f => /^advise-.*\.json$/.test(f)).sort();
+// 0.8.3 (lane B): the checks below also scan the retired advice chains in chains/outdated/ (the ruling: the denied-model and price checks still scan the folder).
+const ADVICE = [...ADVICE_SHIPPED, ...readdirSync(join(root, 'chains', 'outdated')).filter(f => /^advise-.*\.json$/.test(f))].sort();
+const chain = f => JSON.parse(readFileSync(join(root, ADVICE_SHIPPED.includes(f) ? 'chains' : join('chains', 'outdated'), f), 'utf8'));
 // Every seat the engine can call, by the engine's own walk (M7 review: a fixed list would miss a seat key added later).
 const seatsOf = c => everySeatOf(c).filter(Boolean);
 // Every id a seat can name: its model, and the model lists and routing order `extra` can carry.
 const idsOf = s => [s.model, ...(s.extra?.models || []), ...(s.extra?.provider?.order || []), s.extra?.model].filter(x => typeof x === 'string');
 
 // 0.8.2 (owner, 6 Oct 2026, "yes" to two new single seats): advise-single-glm-flash and advise-single-qwen join the seven of 0.8.1.
-test('the shipped advice chains are the nine the release ships (a new one is checked here too)', () => {
+test('the advice chains (eight in chains/, advise-premium retired to chains/outdated/ in 0.8.3) are the nine the release ships (a new one is checked here too)', () => {
   assert.deepEqual(ADVICE, ['advise-premium.json', 'advise-single-astra.json', 'advise-single-deepseek.json', 'advise-single-gemini.json', 'advise-single-glm-flash.json', 'advise-single-opus.json', 'advise-single-qwen.json', 'advise-single.json', 'advise-standard.json']);
 });
 

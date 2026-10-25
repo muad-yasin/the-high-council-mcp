@@ -104,16 +104,19 @@ test('finishedRunState: a blocked or unjudged security gate is never reported as
   const { finishedRunState } = await import('../src/run-status.js');
   assert.match(finishedRunState({ passed: true, security_review: { gate: 'blocked' } }), /security gate blocked - not a pass/);
   assert.match(finishedRunState({ passed: true, security_review: { gate: 'not_judged' } }), /security gate not_judged - not a pass/);
-  assert.equal(finishedRunState({ passed: true, security_review: { gate: 'pass' } }), 'done: every lab signed off');
-  assert.equal(finishedRunState({ passed: true }), 'done: every lab signed off');
+  // T2-4 (14 Oct 2026, C&C ruling, dated old bar -> new bar): a bare `{ passed: true }` has no signoff field, so the mode cannot be read from the record. It used to read 'done: every lab signed off'
+  // (a claim the record could not show); it now reads the neutral 'done: passed'. A record whose signoff is an array (a unanimous run) keeps the old sentence.
+  assert.equal(finishedRunState({ passed: true, signoff: [], security_review: { gate: 'pass' } }), 'done: every lab signed off');
+  assert.equal(finishedRunState({ passed: true, security_review: { gate: 'pass' } }), 'done: passed');
+  assert.equal(finishedRunState({ passed: true }), 'done: passed');
   assert.equal(finishedRunState({ passed: false }), 'done: open objections');
   // 0.8.2 item 5 first commit (C&C ruling on item 4, 6 Oct 2026): ADDITIVE, so an old matcher on "every lab signed off" still matches.
-  const changed = { passed: true, delivered_text: { same_as_signed: false, changed_by: ['final_edit', 'challenge'] } };
+  const changed = { passed: true, signoff: [], delivered_text: { same_as_signed: false, changed_by: ['final_edit', 'challenge'] } };
   assert.match(finishedRunState(changed), /^done: every lab signed off/);
   assert.equal(finishedRunState(changed), 'done: every lab signed off, on the signed draft; the delivered text differs (changed by the final edit and the post-signoff challenge)');
-  assert.equal(finishedRunState({ passed: true, delivered_text: { same_as_signed: true, changed_by: [] } }), 'done: every lab signed off');
+  assert.equal(finishedRunState({ passed: true, signoff: [], delivered_text: { same_as_signed: true, changed_by: [] } }), 'done: every lab signed off');
   assert.equal(finishedRunState({ passed: false, delivered_text: { same_as_signed: false, changed_by: ['dispute'] } }), 'done: open objections', 'an unsigned run keeps its sentence');
-  assert.equal(finishedRunState({ passed: true, delivered_text: { same_as_signed: false } }), 'done: every lab signed off, on the signed draft; the delivered text differs', 'a damaged record does not throw');
+  assert.equal(finishedRunState({ passed: true, signoff: [], delivered_text: { same_as_signed: false } }), 'done: every lab signed off, on the signed draft; the delivered text differs', 'a damaged record does not throw');
 });
 
 test('deriveRunStatus (0.8.1 M6): an advice run stopped at exit 18 reads <cause>_stopped from its STOPPED-<cause>.json, after a budget stop and an error', () => {

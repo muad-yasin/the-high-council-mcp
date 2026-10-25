@@ -64,6 +64,23 @@ export function lockHolder(runDir, { file = LOCK_FILE, unreadableStaleMs } = {})
 // lock is still stale before replacing it (atomically, by rename). Everyone else backs off as locked.
 // No timing is involved, so a loaded machine cannot reopen the race. A claim left by a dead process
 // is cleared, and that attempt reports the run as locked; the next attempt succeeds.
+// What the lock file ITSELF says right now, for the takeover (8 Oct 2026, found by the ledger concurrency test "two processes appending at once": 2 red of ~26 whole-file runs, a LOST ledger line with a valid chain):
+//   'absent'  there is no lock file (its holder released it a moment ago);
+//   'held'    a live holder, a holder on another host, or a file that cannot be read yet (its writer is between creating it and writing it);
+//   'stale'   a holder on this host whose pid is dead, or an unreadable file older than `unreadableStaleMs` (opt-in, the gate ledger's lock): a crashed writer.
+// lockHolder() above answers null for ALL of 'absent' and 'stale', which is why the takeover must not branch on it alone: an absent lock is not a stale one.
+function lockFileState(lockPath, unreadableStaleMs) {
+  let text;
+  try { text = readFileSync(lockPath, 'utf8'); } catch (err) { return err.code === 'ENOENT' ? 'absent' : 'held'; }
+  let holder = null;
+  try { holder = JSON.parse(text); } catch { /* unreadable: below */ }
+  if (!holder || typeof holder !== 'object') {
+    if (!(unreadableStaleMs > 0)) return 'held';
+    try { return Date.now() - statSync(lockPath).mtimeMs > unreadableStaleMs ? 'stale' : 'held'; } catch (err) { return err.code === 'ENOENT' ? 'absent' : 'held'; }
+  }
+  return holder.host === hostname() && !isPidAlive(holder.pid) ? 'stale' : 'held';
+}
+
 const isMine = (lockPath, mine) => {
   try {
     const now = JSON.parse(readFileSync(lockPath, 'utf8'));
@@ -75,7 +92,12 @@ const isMine = (lockPath, mine) => {
 // 0.8.1 (plan M3): `file` names a different lock in the same folder (the approvals record of plan DR-4 takes one),
 // with the same O_EXCL take and stale-pid takeover. release() also drops its exit listener, since a
 // long-lived MCP server takes the ledger lock once per append and the listeners would otherwise pile up.
-export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, unreadableStaleMs } = {}) {
+//
+// `_seam` (TEST ONLY, a no-op unless a test passes one; it is not reachable from the environment or the command line, like chain.js's setPromptSpy): called as _seam(stage, lockPath) at the two points where another
+// process can change the lock file between our looking and our acting: 'after-exists' (our create failed because the file existed, before we read it), 'after-claim' (the claim is ours, before we read the
+// file's state) and 'before-take' (we have decided what the file's state is, before we act on it). test/run-lock.test.js uses it to make the interleaving that lost an update deterministic.
+export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, unreadableStaleMs, _seam = null } = {}) {
+  const seam = stage => { if (_seam) _seam(stage, join(runDir, file)); };
   const lockPath = join(runDir, file);
   const mine = { pid, host: hostname(), at: new Date().toISOString(), nonce: Math.random().toString(36).slice(2) };
   const release = () => {
@@ -90,6 +112,7 @@ export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, un
     fd = openSync(lockPath, 'wx');
   } catch (err) {
     if (err.code !== 'EEXIST') throw err;
+    seam('after-exists');
     const holder = holderNow();
     if (holder) throw new RunLockedError(holder, lockPath);
     const claimPath = `${lockPath}.claim`;
@@ -105,10 +128,26 @@ export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, un
     writeSync(cfd, JSON.stringify({ pid, host: mine.host }));
     closeSync(cfd);
     try {
-      if (holderNow()) throw locked(); // another contender finished a takeover first
-      const tmp = `${lockPath}.${pid}.${mine.nonce}.tmp`;
-      writeFileSync(tmp, JSON.stringify(mine));
-      renameSync(tmp, lockPath);
+      // Branch on the lock file's ACTUAL state, never on "no holder" (that is also what an ABSENT lock looks like, and renaming over an absent lock overwrites one another process created in the meantime):
+      //   absent -> create it exclusively, the way the fast path does (a lock that appeared since is then EEXIST = locked); the content is written after the create, so a reader that sees the young empty file
+      //             reads it as 'held', never as stale;
+      //   stale  -> rename over it. That is safe ONLY because (1) our claim file keeps every other claimant out, (2) the fast path cannot create a lock while the stale file exists (its create is EEXIST) and
+      //             (3) a dead holder cannot release it: nothing but this rename can change the file between our check and the rename.
+      //   held   -> locked.
+      seam('after-claim');
+      const state = lockFileState(lockPath, unreadableStaleMs);
+      seam('before-take');
+      if (state === 'held') throw locked();
+      if (state === 'absent') {
+        let nfd;
+        try { nfd = openSync(lockPath, 'wx'); } catch (e) { if (e.code === 'EEXIST') throw locked(); throw e; }
+        writeSync(nfd, JSON.stringify(mine));
+        closeSync(nfd);
+      } else {
+        const tmp = `${lockPath}.${pid}.${mine.nonce}.tmp`;
+        writeFileSync(tmp, JSON.stringify(mine));
+        renameSync(tmp, lockPath);
+      }
     } finally {
       try { unlinkSync(claimPath); } catch { /* gone */ }
     }

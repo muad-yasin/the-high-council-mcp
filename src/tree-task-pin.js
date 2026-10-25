@@ -1,0 +1,47 @@
+// The root task pin of a recursive-councils tree (0.8.3 M6 S5 commit 3; C&C ruling 12 Oct): which task the tree's root answers, recorded in tree.json by `council tree start` as
+//   rootTask: { task, cwd, taskHash }
+// the same three values run.json carries for a run - the task file's path as the run recorded it (absolute when `start` writes it), the folder the run was started from (a relative path resolves against it,
+// as rootTaskPathOf does for run.json), and the hash src/scope-freeze.js taskHashOf makes of the file's text (the one hash function: run.json's `taskHash` is made by it). With it a root that never ran
+// (no run.json) still has its task on record; the sitting that starts such a root and S8's re-plan of a root both read it from here.
+// Persistence (backend-developer checklist): tree.json stays schema `tree/1` - the field is additive and optional; a tree.json written before it (frozen at 35a9b38: test/fixtures/tree-json/) has no `rootTask` and
+// reads as "unknown", never a throw; a damaged field reads as "unusable" with a reason. Extra keys inside the field are not damage (the record is additive). A task outside the working folder is accepted: a normal
+// run accepts one, and the pin must not refuse what the run accepts. This file reads no environment variable; it reads the task file only in makeRootTaskPin and checkRootTaskPin.
+import { readFileSync, statSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
+import { taskHashOf } from './scope-freeze.js';
+
+// src/integrity.js fingerprint(): the first 12 hex characters of the text's sha256 - the one `taskHash` run.json carries (a change detector for the frozen-scope check, not a tamper seal)
+const HEX12 = /^[0-9a-f]{12}$/;
+
+/** The reason a value is not a usable pin, or null. Pure. */
+export function rootTaskProblem(x) {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return 'rootTask is not an object';
+  if (typeof x.task !== 'string' || !x.task) return 'rootTask.task is not a non-empty string';
+  if (typeof x.cwd !== 'string' || !x.cwd) return 'rootTask.cwd is not a non-empty string';
+  if (typeof x.taskHash !== 'string' || !HEX12.test(x.taskHash)) return 'rootTask.taskHash is not 12 lower-case hex characters (the hash run.json carries)';
+  return null;
+}
+
+/** What tree.json says about the root task: { status: 'unknown' } (no field: a tree written before the pin), { status: 'ok', pin }, or { status: 'unusable', reason }. Never throws. */
+export function rootTaskPinFrom(tree) {
+  if (!tree || typeof tree !== 'object' || Array.isArray(tree) || !Object.hasOwn(tree, 'rootTask')) return { status: 'unknown' };
+  const reason = rootTaskProblem(tree.rootTask);
+  if (reason) return { status: 'unusable', reason };
+  const { task, cwd, taskHash } = tree.rootTask;
+  return { status: 'ok', pin: { task, cwd, taskHash } };
+}
+
+/** The pin for a task file about to be run from `cwd`: the path as given (absolute for `start`), the folder, the hash of the file's text. Throws like readFileSync when the file cannot be read. */
+export function makeRootTaskPin(taskFile, cwd) {
+  return { task: taskFile, cwd, taskHash: taskHashOf(readFileSync(taskFile, 'utf8')) };
+}
+
+/** Does the file the pin names still hold the text it was pinned with? -> { ok: true, path } | { ok: false, reason }. Never throws. */
+export function checkRootTaskPin(pin) {
+  if (rootTaskProblem(pin)) return { ok: false, reason: `the pin is damaged (${rootTaskProblem(pin)})` };
+  const path = isAbsolute(pin.task) ? pin.task : resolve(pin.cwd, pin.task);
+  let text;
+  try { if (!statSync(path).isFile()) throw new Error('not a file'); text = readFileSync(path, 'utf8'); } catch { return { ok: false, reason: `the task file ${path} cannot be read` }; }
+  if (taskHashOf(text) !== pin.taskHash) return { ok: false, reason: `the task file ${path} has changed since the tree was started (its hash differs from the pinned one)` };
+  return { ok: true, path };
+}

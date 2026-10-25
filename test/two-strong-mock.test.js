@@ -16,17 +16,18 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { runChain } from '../src/chain.js';
 import { lintChain } from '../src/chain-lint.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = resolve(root, 'src/cli.js');
-const twoStrongConfig = JSON.parse(readFileSync(join(root, 'archive', 'chains', 'plan-two-strong.json'), 'utf8'));
+const twoStrongConfig = JSON.parse(readFileSync(join(root, 'chains', 'outdated', 'plan-two-strong.json'), 'utf8'));
 
-test('archive/chains/plan-two-strong.json passes chain-lint', () => {
-  const findings = lintChain(twoStrongConfig, 'archive/chains/plan-two-strong.json');
+test('chains/outdated/plan-two-strong.json passes chain-lint', () => {
+  const findings = lintChain(twoStrongConfig, 'chains/outdated/plan-two-strong.json');
   assert.deepEqual(findings, []);
 });
 
-test('archive/chains/plan-two-strong.json sets roster.minimal_two_strong and stays under a five-seat critic roster', () => {
+test('chains/outdated/plan-two-strong.json sets roster.minimal_two_strong and stays under a five-seat critic roster', () => {
   assert.equal(twoStrongConfig.roster.minimal_two_strong, true);
   assert.ok(twoStrongConfig.seats.critics.length < 5);
   assert.equal(twoStrongConfig.seats.proposers.length, 2);
@@ -35,14 +36,15 @@ test('archive/chains/plan-two-strong.json sets roster.minimal_two_strong and sta
   assert.equal(labs.size, 2);
 });
 
-test('"council doctor --chain archive/chains/plan-two-strong.json" (the shipped chain) exits 0', () => {
-  const out = execFileSync('node', [cli, 'doctor', '--chain', 'archive/chains/plan-two-strong.json'], { encoding: 'utf8', cwd: root });
+test('"council doctor --chain chains/outdated/plan-two-strong.json" (the shipped chain) exits 0', () => {
+  const out = execFileSync('node', [cli, 'doctor', '--chain', 'chains/outdated/plan-two-strong.json'], { encoding: 'utf8', cwd: root });
   assert.match(out, /no lint problems/);
 });
 
+// zero-spend-ok: --dry-run prices the chain and calls nothing; every provider key in the child is the malformed value, so nothing usable could be sent (0.8.3: the retired chain is now counted as a real chain by the scan)
 test('"npm run dry -- --chain plan-two-strong" prices the chain without calling any real provider', () => {
   const dir = mkTmpTaskDir();
-  const out = execFileSync('node', [cli, '--task', 'tasks/probe.md', '--chain', 'plan-two-strong', '--dry-run'], { encoding: 'utf8', cwd: dir.cwd });
+  const out = execFileSync('node', [cli, '--task', 'tasks/probe.md', '--chain', 'plan-two-strong', '--dry-run'], { encoding: 'utf8', cwd: dir.cwd, env: { PATH: process.env.PATH, HOME: dir.cwd, ...malformedProviderKeys() } });
   assert.match(out, /Chain: plan-two-strong/);
   dir.cleanup();
 });
@@ -79,7 +81,7 @@ function mkTmpTaskDir() {
   mkdirSync(join(cwd, 'tasks'));
   // A project's own chains/ is searched before the package's, so the archived chain runs from here.
   mkdirSync(join(cwd, 'chains'));
-  writeFileSync(join(cwd, 'chains', 'plan-two-strong.json'), readFileSync(join(root, 'archive', 'chains', 'plan-two-strong.json')));
+  writeFileSync(join(cwd, 'chains', 'plan-two-strong.json'), readFileSync(join(root, 'chains', 'outdated', 'plan-two-strong.json')));
   writeFileSync(join(cwd, 'tasks', 'probe.md'), 'A one-line fixture task for dry-run pricing tests.');
   return { cwd, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
 }

@@ -77,7 +77,7 @@ export function lintContractDraft(draft, { criteriaIds = null } = {}) {
     if (typeof text !== 'string' || !text.trim()) problems.push(`${at}.text: must be a non-empty string`);
     else {
       if (text.length > MAX_TEXT_CHARS) problems.push(`${at}.text: ${text.length} characters, at most ${MAX_TEXT_CHARS}`);
-      if (hidden(text)) problems.push(`${at}.text: holds hidden characters (tag, bidi or zero-width): the person approves what they can read`);
+      if (hidden(text)) problems.push(`${at}.text: holds invisible characters (such as tag, bidi, zero-width, variation-selector or filler characters): the person approves what they can read`);
       if (!text.isWellFormed()) problems.push(`${at}.text: holds a lone surrogate (not well-formed UTF-16): it would be saved as a replacement character and the contract would never check (never normalised silently)`); // audit fix cnc-contract F2
     }
     if (criterion !== undefined && criterion !== null) {
@@ -89,7 +89,7 @@ export function lintContractDraft(draft, { criteriaIds = null } = {}) {
       else {
         if (check.length > MAX_CHECK_CHARS) problems.push(`${at}.check: ${check.length} characters, at most ${MAX_CHECK_CHARS}`);
         if (/[\r\n]/.test(check)) problems.push(`${at}.check: must be one line (a command or a sentence): a line break could start a heading of the contract text a person approves`);
-        if (hidden(check)) problems.push(`${at}.check: holds hidden characters`);
+        if (hidden(check)) problems.push(`${at}.check: holds invisible characters`);
         if (!check.isWellFormed()) problems.push(`${at}.check: holds a lone surrogate (not well-formed UTF-16)`); // audit fix cnc-contract F2
       }
     }

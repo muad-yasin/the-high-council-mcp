@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { runChain, setBudget, setCache, budgetState, NO_ANSWER_THINKING, BudgetExceeded } from '../src/chain.js';
 import { wouldBreach, projectStage } from '../src/cost.js';
 import * as R from '../src/roles.js';
+import { TREE_VERBS, TREE_VALUE_FLAGS } from '../src/tree-cli.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = resolve(here, '../src/cli.js');
@@ -138,5 +139,18 @@ test('A1-1 (guard): every flag read with flag(\'name\') in src/cli.js is in VALU
   const listed = new Set([...(/const VALUE_FLAGS = new Set\(\[([^\]]*)\]\)/.exec(src)?.[1] ?? '').matchAll(/'([a-z0-9-]+)'/g)].map(m => m[1]));
   assert.ok(read.size >= 20 && listed.size >= 20, `fixture: found ${read.size} read flags, ${listed.size} listed`);
   assert.deepEqual([...read].filter(n => !listed.has(n)), [], 'a flag read with flag() is missing from VALUE_FLAGS');
-  assert.deepEqual([...listed].filter(n => !read.has(n)), [], 'a name in VALUE_FLAGS that no flag() call reads');
+  // 0.8.3 (C&C's ruling, 9 Oct 2026, a DELIBERATE edit of this guard): the value options of `council tree decide` are listed here but read by src/tree-cli.js, not by flag(); they are the one exception, taken from
+  // TREE_VALUE_FLAGS (derived from TREE_VERBS) and pinned by the next test. The first direction above is unchanged.
+  assert.deepEqual([...listed].filter(n => !read.has(n) && !TREE_VALUE_FLAGS.includes(n)), [], 'a name in VALUE_FLAGS that no flag() call reads');
+});
+
+test('A1-1 (guard, 0.8.3): the only names VALUE_FLAGS lists without a flag() read are the value options of the tree verbs, each of them listed, and TREE_VALUE_FLAGS is exactly those options', () => {
+  const src = readFileSync(resolve(here, '../src/cli.js'), 'utf8');
+  const read = new Set([...src.matchAll(/\bflag\('([a-z][a-z0-9-]*)'/g)].map(m => m[1]));
+  const listed = new Set([...(/const VALUE_FLAGS = new Set\(\[([^\]]*)\]\)/.exec(src)?.[1] ?? '').matchAll(/'([a-z0-9-]+)'/g)].map(m => m[1]));
+  const verbOptions = [...new Set(Object.values(TREE_VERBS).flatMap(v => v.value).map(f => f.replace(/^--/, '')))].sort();
+  assert.ok(verbOptions.length >= 10, `fixture: found ${verbOptions.length} tree value options`);
+  assert.deepEqual([...TREE_VALUE_FLAGS].sort(), verbOptions, 'TREE_VALUE_FLAGS is the tree verbs\' value options, no more, no fewer');
+  assert.deepEqual(verbOptions.filter(n => !listed.has(n)), [], 'a tree value option is missing from VALUE_FLAGS (its --name=value form would not split)');
+  assert.deepEqual([...listed].filter(n => !read.has(n)).sort(), verbOptions.filter(n => !read.has(n)), 'VALUE_FLAGS lists a name that nothing reads and no tree verb takes');
 });

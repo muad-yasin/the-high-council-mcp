@@ -13,9 +13,10 @@ import * as SP from '../src/send-path.js';
 import { priceOfChain } from '../src/send-path-refusals.js';
 import { requestGate, textSha256 } from '../src/gate.js';
 import { runChain, setBudget, setCache } from '../src/chain.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+const chain = name => readChainFile(root, name);
 
 test('A3-3: the terminal command works from any folder and without `council` on PATH: node + the absolute cli path + the absolute run folder', () => {
   const d = mkdtempSync(join(tmpdir(), 'thc-a33-'));

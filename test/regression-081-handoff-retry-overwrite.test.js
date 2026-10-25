@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spendReport } from '../src/spend.js';
+import { typeCap } from './helpers/typed-cap.js';
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'cli.js');
 let mode = 'ok';
@@ -38,7 +39,15 @@ function stoppedRun(port) {
   writeFileSync(join(rd, 'build.md'), '# Plan\n\nRename photos by date.\n');
   return { dir, id, rd };
 }
-const handoff = (dir, id) => new Promise(done => {
+// T5b (old: the handoff ran straight away under the run's saved cap): a paid handoff waits for a typed limit, so the first call exits 21 with a screen in the gate folder; the helper types a limit that covers every call of these tests, then runs the SAME command again (the later calls continue under it, no second screen).
+const handoff = async (dir, id) => {
+  const first = await handoffOnce(dir, id);
+  if (first.code !== 21) return first;
+  const side = join(dir, 'runs', id, 'side');
+  typeCap(join(side, readdirSync(side)[0]), '100');
+  return handoffOnce(dir, id);
+};
+const handoffOnce = (dir, id) => new Promise(done => {
   const c = spawn(process.execPath, [cli, 'handoff', '--from-run', join('runs', id)], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, OPENROUTER_API_KEY: 'test-not-a-key', COUNCIL_ALLOW_LOOPBACK_KEY_HOST: '1' } });
   let out = ''; c.stdout.on('data', b => { out += b; }); c.stderr.on('data', b => { out += b; });
   c.on('close', code => done({ code, out }));

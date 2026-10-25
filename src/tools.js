@@ -8,6 +8,8 @@
 // there is no path by which a seat (or a chain config) can name an arbitrary
 // shell command.
 import { spawnSync } from 'node:child_process';
+import { Worker, MessageChannel, receiveMessageOnPort } from 'node:worker_threads';
+import { runGit } from './git.js';
 import { readFileSync, existsSync, statSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, sep, dirname, join } from 'node:path';
 import { redactText, PRIVATE_KEY_BLOCK } from './secret-patterns.js';
@@ -108,7 +110,7 @@ export function gitIgnoredSet(root, relPaths) {
   // "not a git repository" test reads git's message, which is translated otherwise
   // (a German git says "Kein Git-Repository" and would fail every non-git workspace).
   const env = { ...process.env, LC_ALL: 'C' };
-  const probe = spawnSync('git', ['-C', root, 'rev-parse', '--is-inside-work-tree'], { encoding: 'utf8', timeout: 20_000, shell: false, env });
+  const probe = runGit(['-C', root, 'rev-parse', '--is-inside-work-tree'], { encoding: 'utf8', timeout: 20_000, shell: false, env });
   if (probe.error) {
     // 7 Oct 2026 (the Wine smoke of the packaged .exe): with no git binary at all, every folder used to be refused, repository or not. A missing
     // binary now reads as "not a repository" only where nothing marks a checkout (no `.git` entry at the root or above, no GIT_DIR / GIT_WORK_TREE):
@@ -121,7 +123,7 @@ export function gitIgnoredSet(root, relPaths) {
   }
   if (probe.status === 128 && /not a git repository/i.test(probe.stderr || '')) return new Set();
   if (probe.status !== 0) throw failed(probe.signal ? `git killed by ${probe.signal}` : `git exit ${probe.status}`);
-  const res = spawnSync('git', ['-C', root, 'check-ignore', '-z', '--stdin'], {
+  const res = runGit(['-C', root, 'check-ignore', '-z', '--stdin'], {
     input: relPaths.join('\0'), encoding: 'utf8', timeout: 20_000, shell: false, maxBuffer: 64 * 1024 * 1024, env,
   });
   if (res.error) throw failed(String(res.error.code || res.error.message || res.error));
@@ -290,6 +292,42 @@ function check_versions(_args, { cwd }) {
   };
 }
 
+// The search itself runs in a WORKER THREAD (see grep_repo): this is its code, its time limit and the most matches it returns. Plain CommonJS in a string, so it needs no file and no `node` on PATH (it also runs in the packaged binary).
+// 10 s: a literal search of a repository takes well under a second (a few files: about 100 ms), so 10 s is ~100 times the normal need and still shorter than the 20 s the git calls and the 60 s run_tests (which runs a whole test file) are given; a pattern still running then is catastrophic, not slow.
+export const GREP_TIMEOUT_MS = 10_000;
+export const GREP_LIMITS = { timeoutMs: GREP_TIMEOUT_MS };   // the seam: a test lowers timeoutMs so the red and the set do not wait 10 s
+const GREP_MAX_MATCHES = 500;
+const GREP_WORKER = `
+const { workerData } = require('node:worker_threads');
+const { readFileSync } = require('node:fs');
+const { port, flag, input } = workerData;
+let out;
+try {
+  const re = new RegExp(input.pattern);
+  const pem = new RegExp(input.pem.source, input.pem.flags);
+  const matches = [];
+  let pemBlocks = 0;
+  for (const { path, rel } of input.files) {
+    let text;
+    try { text = readFileSync(path, 'utf8'); } catch { continue; }
+    // A PEM block spans lines, and the per-line scan never sees a whole one: blank each block line by line first, so line numbers still point at the real lines.
+    text = text.replace(pem, block => { pemBlocks += 1; return block.split('\\n').map(() => '[redacted: possible secret]').join('\\n'); });
+    const lines = text.split('\\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (!re.test(lines[i])) continue;
+      // a matched line is cut here at the prompt cap plus a margin longer than any secret pattern, so 500 minified lines stay small; the parent redacts, then applies the exact cap
+      matches.push({ rel, line: i + 1, text: lines[i].length > input.lineMax ? lines[i].slice(0, input.lineMax) : lines[i] });
+      if (matches.length >= input.max) break;
+    }
+    if (matches.length >= input.max) break;
+  }
+  out = { matches, pemBlocks };
+} catch (e) { out = { error: String((e && e.message) || e) }; }
+port.postMessage(out);
+Atomics.store(flag, 0, 1);
+Atomics.notify(flag, 0);
+`;
+
 // grep_repo: { pattern, file? } - a literal/regex text search confined to one
 // sandboxed file, or (no file given) every regular file under the workspace
 // root, skipping .git and node_modules. No shelling out to `grep`; matching
@@ -304,9 +342,7 @@ function grep_repo({ pattern, file } = {}, { cwd }) {
   // walk always begins from a real directory, not a link to one.
   let root = resolve(cwd);
   if (existsSync(root)) root = realpathSync(root);
-  let re;
-  try { re = new RegExp(pattern); } catch (err) { return { ok: false, error: `bad pattern: ${err.message}` }; }
-  const matches = [];
+  try { new RegExp(pattern); } catch (err) { return { ok: false, error: `bad pattern: ${err.message}` }; }
   const skip = new Set(['.git', 'node_modules']);
   const walk = path => {
     // Bug-audit fix, 2026-09-16: statSync() follows symlinks, so a symlink inside the workspace
@@ -340,28 +376,31 @@ function grep_repo({ pattern, file } = {}, { cwd }) {
   // Gitignored files are not part of the repo the author is asking about, and are where
   // local keys, build output and scratch notes live. Previously walked in full.
   const ignored = gitIgnoredSet(root, candidates.map(c => c.rel));
-  let redactedCount = 0;
-  for (const { path, rel } of candidates) {
-    if (ignored.has(rel)) continue;
-    let text;
-    try { text = readFileSync(path, 'utf8'); } catch { continue; }
-    // A PEM block spans lines, and the per-line scan below never sees a whole one: its body
-    // lines came back in clear (2026-09-23 audit). Blank each block line by line first, so
-    // line numbers still point at the real lines.
-    text = text.replace(PRIVATE_KEY_BLOCK, (block) => {
-      redactedCount += 1;
-      return block.split('\n').map(() => '[redacted: possible secret]').join('\n');
-    });
-    text.split('\n').forEach((line, i) => {
-      if (!re.test(line)) return;
-      const { text: safe, redacted } = redactSecrets(line);
-      redactedCount += redacted;
-      matches.push({ file: rel, line: i + 1, text: capForPrompt(safe).text });
-    });
-  }
+  // BUG-D-016: the pattern is MODEL output (a seat's tool request) and a nested-quantifier pattern backtracks exponentially on one long line, blocking the whole process with no way to interrupt it. The reading and
+  // matching run in a WORKER THREAD that is terminated after a time limit (V8 interrupts a regular expression when its isolate is terminated); this thread waits with Atomics.wait, so the tool stays synchronous. The parent
+  // keeps the walk, the denylist, the git-ignore filter, the redaction and the cap.
+  const files = candidates.filter(c => !ignored.has(c.rel));
+  const flag = new Int32Array(new SharedArrayBuffer(4));
+  const { port1, port2 } = new MessageChannel();
+  const input = { pattern, pem: { source: PRIVATE_KEY_BLOCK.source, flags: PRIVATE_KEY_BLOCK.flags }, files, max: GREP_MAX_MATCHES, lineMax: PROMPT_INSERT_MAX_BYTES + 4096 };
+  const worker = new Worker(GREP_WORKER, { eval: true, execArgv: [], workerData: { port: port2, flag, input }, transferList: [port2] });
+  worker.unref();
+  const waited = Atomics.wait(flag, 0, 0, GREP_LIMITS.timeoutMs);
+  const reply = waited === 'timed-out' ? null : receiveMessageOnPort(port1)?.message;
+  worker.terminate().catch(() => {});
+  port1.close();
+  if (waited === 'timed-out') return { ok: false, error: `grep_repo stopped after ${GREP_LIMITS.timeoutMs / 1000} seconds: the pattern is too slow on this repository. Use a simpler pattern.` };
+  const found = reply;
+  if (!found || found.error || !Array.isArray(found.matches)) return { ok: false, error: 'grep_repo could not read its search result' };
+  let redactedCount = found.pemBlocks ?? 0;
+  const matches = found.matches.map(m => {
+    const { text: safe, redacted } = redactSecrets(m.text);
+    redactedCount += redacted;
+    return { file: m.rel, line: m.line, text: capForPrompt(safe).text };
+  });
   return {
     ok: true,
-    matches: matches.slice(0, 500),
+    matches: matches.slice(0, GREP_MAX_MATCHES),
     ...(denied.length ? { deniedPaths: denied.length } : {}),
     ...(ignored.size ? { gitIgnoredSkipped: ignored.size } : {}),
     ...(redactedCount ? { redacted: redactedCount } : {}),

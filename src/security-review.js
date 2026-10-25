@@ -28,6 +28,8 @@
 //   - otherwise                                          -> "pass"
 // "not_judged" is never a pass. The CLI exits non-zero for both "blocked" and "not_judged".
 
+import { containerText } from './container-text.js';
+
 export const SECURITY_REVIEW_LABEL = 'security-review';
 
 // Default seat, per the dispatch that asked for this gate: Anthropic's Claude Fable 5.1, BYOK
@@ -88,11 +90,12 @@ Reply as JSON only:
  "reason": "one sentence, required when verdict is could_not_judge",
  "findings": [{"severity": "critical|high|medium|low|info", "category": "${CATEGORIES.join('|')}", "file": "path or null", "line": 123 or null, "evidence": "exact quote from the deliverable", "problem": "one sentence"}]}`;
 
+// T2-6: the deliverable is escaped by containerText, so a literal </deliverable> inside it (a diff that quotes this very prompt, an injection attempt) cannot close the container; the reviewer still reads the span, as "&lt;/deliverable>".
 export function securityReviewUser({ request, deliverable, groundTruthPost }) {
   const facts = groundTruthPost && groundTruthPost.length
     ? `\n\n# Post-build verification facts (from the harness's own read-only tools)\n\n${JSON.stringify(groundTruthPost, null, 2)}`
     : '';
-  return `# The request the build answered\n\n${request}${facts}\n\n# Final deliverable under review\n\n<deliverable>\n${deliverable}\n</deliverable>`;
+  return `# The request the build answered\n\n${request}${facts}\n\n# Final deliverable under review\n\n<deliverable>\n${containerText(deliverable)}\n</deliverable>`;
 }
 
 // A string, or a list of strings joined - a reviewer that quotes two lines as an array still quoted.
@@ -113,10 +116,11 @@ function normaliseFinding(raw) {
     // and says so, rather than defaulting to a level that would let it through unread.
     severity: SEVERITIES.includes(sev) ? sev : 'high',
     category: CATEGORIES.includes(cat) ? cat : 'other',
-    file: cap(raw.file),
+    // BUG-D-025: the published schema types file, evidence and problem as strings only, so a missing one is left out (a finding is kept when EITHER evidence or problem exists, and the prompt asks for "file": "path or null").
+    ...(cap(raw.file) !== null ? { file: cap(raw.file) } : {}),
     line,
-    evidence,
-    problem,
+    ...(evidence ? { evidence } : {}),
+    ...(problem ? { problem } : {}),
   };
   if (!SEVERITIES.includes(sev)) finding.severity_assumed = true;
   return finding;

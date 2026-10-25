@@ -1,0 +1,5 @@
+{
+  "chain": "lint-bad",
+  "status": 1,
+  "stderr": "\nchain lint: <WORK>/chains/lint-bad.json has 1 problem(s) and will not run:\n\n  [missing-stage-contract] seats.critic is not a recognized stage seat and will never run.\n    fix: Rename \"seats.critic\" to one of: criteria, builder, reviser, finalist, skeleton, handoff, questions, judge, proposers, critics, challenger, ambiguity, coldRead, claims, descending, security_reviewer, alternatives, deep_dive, decider in <WORK>/chains/lint-bad.json, or remove it if it isn't meant to run.\n\n"
+}

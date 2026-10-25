@@ -15,10 +15,12 @@ test('A6-2: `council doctor`\'s "Start here" one-key line names planning chains,
   const env = { ...process.env }; for (const k of Object.keys(env)) if (/API_KEY/.test(k)) delete env[k];
   const out = execFileSync(process.execPath, [cli, 'doctor'], { cwd: mkdtempSync(join(tmpdir(), 'thc-a62-')), env, encoding: 'utf8', stdio: 'pipe' });
   const line = out.split('\n').find(l => /^\s*one key:/.test(l));
+  // 0.8.3 (lane B), CHANGED ACCEPTED TEST (Muad 23 Okt 2026: cheap-7-v2 retires; the new one-key chain was C&C's proposal and Muad gave his OK on 23 Okt 2026; his words of 24 Okt 2026: "no, it was you that asked for this new chain. I gave you my OK"): commit 1 let the check skip while no chain ran on one key; commit 2 adds plan-default-opro-council, so the line exists again and the skip is gone (t is unused now).
   assert.ok(line, 'doctor prints a one-key line');
   assert.doesNotMatch(line, /advise-/, line);
   // 0.8.2 item 8c (owner, 7 Oct 2026): the line names the expected figure and the maximum, no longer a "worst case".
-  assert.match(line, /OPENROUTER_API_KEY alone runs [a-z0-9-]+ \(expected \$[\d.]+, at most \$[\d.]+/);
+  // CHANGED ACCEPTED (label rename, 20 Okt 2026, Muad 18 Okt: "upper estimate" replaces "at most" and "maximum"). OLD: the old label. NEW: "upper estimate". WHY: the printed figure's label moved; nothing else in the sentence.
+  assert.match(line, /OPENROUTER_API_KEY alone runs [a-z0-9-]+ \(expected \$[\d.]+, upper estimate \$[\d.]+/);
 });
 
 test('A6-10: no user-visible string in src/ or a chain description names a private project or a home path', () => {
@@ -39,12 +41,12 @@ test('A6-6/A6-9: advise-single\'s description names the reasoning high and the 4
   assert.doesNotMatch(single, /reasoning medium/);
   assert.doesNotMatch(single, /12,000-character limit/);
   // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): cheap-7 moved to archive/chains/ and is still checked there.
-  for (const n of ['archive/chains/cheap-7', 'chains/cheap-7-v2']) assert.doesNotMatch(JSON.parse(read(`${n}.json`)).description, /Every seat gets a 36000-token ceiling/);
+  for (const n of ['chains/outdated/cheap-7', 'chains/outdated/cheap-7-v2']) assert.doesNotMatch(JSON.parse(read(`${n}.json`)).description, /Every seat gets a 36000-token ceiling/);
   assert.doesNotMatch(read('CHANGELOG.md'), /reasoning medium/);
 });
 
 test('A6-4/A6-7/A6-8: counts and dates in the docs follow the code', () => {
-  assert.match(read('TROUBLESHOOTING.md'), /cheap-7-v2/);
+  assert.match(read('TROUBLESHOOTING.md'), /plan-default-opro-council/);   // names the first-run chain (0.8.3 lane B, commit 2)
   assert.doesNotMatch(read('README.md'), /2026-12-04/);
   assert.doesNotMatch(read('docs/index.html'), /doubled for Anthropic seats/);
   assert.match(read('docs/skills.html'), /Last updated 2026-10-0[56]/);

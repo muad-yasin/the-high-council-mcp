@@ -12,6 +12,7 @@
 // `formatCouncilError` enforces this shape mechanically so no call site
 // can drift from it by writing its own message.
 
+import { formatUsd } from './cost.js';   // E142 (C&C ruling 18 Okt 2026): the ONE money formatter; a cap that is not a finite number reads 'an unknown amount' (cost-unit gate page U1), never "$NaN". cost.js imports nothing that reaches this file.
 export const ERROR_CATALOG = {
   'COUNCIL-E001': {
     kind: 'degradable',
@@ -26,16 +27,22 @@ export const ERROR_CATALOG = {
   'COUNCIL-E002': {
     kind: 'degradable',
     title: 'Unpriced model',
-    render: ctx => (ctx.capUsd !== undefined && ctx.capUsd !== null ? {
-      // 0.8.2 item 8a: under a spend cap an unpriced seat is refused, because the cap projects it at $0 and could not stop what a call to it costs.
-      what: `"${ctx.provider}/${ctx.model}"${ctx.roles ? ` (${ctx.roles})` : ''} has no listed price, so the spend cap of $${Number(ctx.capUsd).toFixed(2)} cannot hold it: the cap would count every call to it as $0. Nothing was sent and nothing was spent.`,
+    render: ctx => (ctx.capUsd !== undefined && ctx.capUsd !== null && ctx.problem === 'unusable' ? {
+      // Cost-unit gate page U1 (14 Oct 2026): a price row that is not two finite numbers >= 0 is refused like a missing one, and says so.
+      what: `"${ctx.provider}/${ctx.model}"${ctx.roles ? ` (${ctx.roles})` : ''} has an entry in src/pricing.json, but its price cannot be used (it must be two numbers, in and out, each zero or more), so its cost cannot be projected against the spend cap of ${formatUsd(ctx.capUsd)}. Nothing was sent and nothing was spent.`,
       concept: `A price is the per-token rate this program uses to add up what a run costs; the spend cap is only as good as the prices it projects with.`,
-      fix: `Add an entry for "${ctx.provider}/${ctx.model}" to src/pricing.json (USD per million tokens in and out), or run with --max-usd none, which sets no spend ceiling at all.`,
+      fix: `Add a row for "${ctx.provider}/${ctx.model}" to pricing.user.json in your project folder, for example { "${ctx.provider}/${ctx.model}": { "in": 1.0, "out": 4.0 } } (USD per million tokens; the figures are an example, not this model's price: check the lab's own price page). Your row can add a missing price or raise a shipped one; it can never lower a shipped price. A row of yours replaces the unusable shipped entry.`,
+      doc: 'README.md#the-spend-cap',
+    } : ctx.capUsd !== undefined && ctx.capUsd !== null ? {
+      // 0.8.2 item 8a: under a spend cap an unpriced seat is refused, because the cap projects it at $0 and could not stop what a call to it costs.
+      what: `"${ctx.provider}/${ctx.model}"${ctx.roles ? ` (${ctx.roles})` : ''} has no listed price, so the spend cap of ${formatUsd(ctx.capUsd)} cannot hold it: the cap would count every call to it as $0. Nothing was sent and nothing was spent.`,
+      concept: `A price is the per-token rate this program uses to add up what a run costs; the spend cap is only as good as the prices it projects with.`,
+      fix: `Add a row for "${ctx.provider}/${ctx.model}" to pricing.user.json in your project folder, for example { "${ctx.provider}/${ctx.model}": { "in": 1.0, "out": 4.0 } } (USD per million tokens; the figures are an example, not this model's price: check the lab's own price page). Your row can add a missing price or raise a shipped one; it can never lower a shipped price.`,
       doc: 'README.md#the-spend-cap',
     } : {
       what: `"${ctx.provider}/${ctx.model}" has no listed price, so its cost can't be shown or added to your spend total.`,
       concept: `A price is the per-token rate this program uses to add up what a run will cost before you pay for it.`,
-      fix: `Add an entry for "${ctx.provider}/${ctx.model}" to src/pricing.json.`,
+      fix: `Add a row for "${ctx.provider}/${ctx.model}" to pricing.user.json in your project folder, for example { "${ctx.provider}/${ctx.model}": { "in": 1.0, "out": 4.0 } } (USD per million tokens; the figures are an example, not this model's price: check the lab's own price page). Your row can add a missing price or raise a shipped one; it can never lower a shipped price.`,
       doc: 'README.md#the-spend-cap',
     }),
   },
@@ -62,16 +69,24 @@ export const ERROR_CATALOG = {
   'COUNCIL-E005': {
     kind: 'fatal',
     title: 'Policy refusal',
-    render: ctx => ({
-      what: ctx.parseError
-        ? `The policy file "${ctx.path}" isn't valid JSON, so it can't be enforced at all.`
-        : `Chain "${ctx.chain}" was refused by the policy file at "${ctx.path}": ${Array.isArray(ctx.reasons) ? ctx.reasons.join(' ') : ctx.reasons}`,
-      concept: `A policy file is a locked, operator-set set of limits (allowed providers, regions, spend, required tags) checked before any provider is called - a run that would violate it never starts.`,
-      fix: ctx.parseError
-        ? `Fix the JSON syntax in ${ctx.path}.`
-        : `Change the chain, or the policy file at ${ctx.path}, so this run no longer violates it.`,
-      doc: 'docs/policy.md',
-    }),
+    // 0.8.3 T1-10: a file that parses but whose top level is not an object has its own sentence (src/policy.js NOT_AN_OBJECT starts that error); a real syntax error keeps the old one.
+    render: ctx => {
+      const notObject = typeof ctx.parseError === 'string' && ctx.parseError.startsWith('the top level must be a JSON object');
+      return {
+        what: notObject
+          ? `The policy file "${ctx.path}" is valid JSON but not a policy: ${ctx.parseError}.`
+          : ctx.parseError
+            ? `The policy file "${ctx.path}" isn't valid JSON, so it can't be enforced at all.`
+            : `Chain "${ctx.chain}" was refused by the policy file at "${ctx.path}": ${Array.isArray(ctx.reasons) ? ctx.reasons.join(' ') : ctx.reasons}`,
+        concept: `A policy file is a locked, operator-set set of limits (allowed providers, regions, spend, required tags) checked before any provider is called - a run that would violate it never starts.`,
+        fix: notObject
+          ? `Make ${ctx.path} a JSON object with the keys docs/policy.md lists.`
+          : ctx.parseError
+            ? `Fix the JSON syntax in ${ctx.path}.`
+            : `Change the chain, or the policy file at ${ctx.path}, so this run no longer violates it.`,
+        doc: 'docs/policy.md',
+      };
+    },
   },
 };
 

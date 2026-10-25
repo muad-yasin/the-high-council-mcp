@@ -10,9 +10,10 @@ import { LANE_IDS, withLane, laneTextOf, setLaneTextsForTest } from '../src/lane
 import { lintChain } from '../src/chain-lint.js';
 import { runChain, ExternalPause } from '../src/chain.js';
 import * as R from '../src/roles.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const chainFile = n => JSON.parse(readFileSync(join(root, 'chains', `${n}.json`), 'utf8'));
+const chainFile = n => readChainFile(root, n);
 const mockDebate = () => chainFile('mock-debate');
 
 test('withLane adds NOTHING (not even a newline) when the seat has no lane or the lane has no text, and appends the paragraph after a blank line when it has', () => {
@@ -73,12 +74,18 @@ test('wiring, first mode (the single rotating critic): the same door', async () 
   } finally { setLaneTextsForTest(null); }
 });
 
-test('source scan: chain.js builds a critic system prompt in ONE place; a bare R.criticSystem( anywhere else is a call site a lane would miss', () => {
-  const src = readFileSync(join(root, 'src', 'chain.js'), 'utf8').split('\n');
-  const bare = src.map((l, i) => [i + 1, l]).filter(([, l]) => /R\.criticSystem\(/.test(l) && !/^\s*\/\//.test(l));
-  assert.equal(bare.length, 1, `bare uses: ${bare.map(([n]) => n)}`);
-  assert.match(bare[0][1], /withLane\(seat,/, 'and that one is inside criticPromptFor, which applies the lane');
-  assert.equal(src.filter(l => /criticPromptFor\(/.test(l)).length, 5, 'the helper (1) and the four call sites');
+test('source scan: a critic system prompt is built in ONE place (src/stage-system.js criticPromptFor); a bare R.criticSystem( anywhere else is a call site a lane would miss', () => {
+  // CHECKER CHANGE (0.8.3 estimator unit, C&C thcmcp-6d). OLD: chain.js holds exactly one bare R.criticSystem( (inside criticPromptFor, which applies the lane) and 5 `criticPromptFor(` lines (the helper and four call sites).
+  // NEW: criticPromptFor moved to src/stage-system.js (chain.js re-exports it), so the scan covers BOTH files and every other src file: stage-system.js holds the one bare use; chain.js holds none and 4 call sites.
+  // WHY: the estimator prices a panel row with the same function the run sends (src/cost.js -> systemTextsFor); a scan aimed only at chain.js would pass with nothing left to check.
+  const read = f => readFileSync(join(root, 'src', f), 'utf8').split('\n');
+  const bareIn = lines => lines.map((l, i) => [i + 1, l]).filter(([, l]) => /R\.criticSystem\(/.test(l) && !/^\s*\/\//.test(l));
+  const sys = bareIn(read('stage-system.js'));
+  assert.equal(sys.length, 1, `bare uses in stage-system.js: ${sys.map(([n]) => n)}`);
+  assert.match(sys[0][1], /withLane\(seat,/, 'and that one is inside criticPromptFor, which applies the lane');
+  const others = readdirSync(join(root, 'src')).filter(f => f.endsWith('.js') && !['stage-system.js', 'roles.js'].includes(f)).flatMap(f => bareIn(read(f)).map(([n]) => `${f}:${n}`));
+  assert.deepEqual(others, [], 'no other src file builds a critic system prompt bare (roles.js defines it)');
+  assert.equal(read('chain.js').filter(l => /criticPromptFor\(/.test(l)).length, 4, 'chain.js: the four call sites (the helper moved)');
 });
 
 test('report.json panelVerdicts carry the lane, only for a seat that has one', async () => {
@@ -149,7 +156,7 @@ test('plan-lanes-4: the chain file exists and validates against the chain schema
   const validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
   const c = chainFile('plan-lanes-4');
   assert.equal(validate(c), true, JSON.stringify(validate.errors));
-  assert.ok(readdirSync(join(root, 'chains')).includes('plan-lanes-4.json'));
+  assert.ok(readdirSync(join(root, 'chains', 'outdated')).includes('plan-lanes-4.json'));
   assert.equal(c.seats.skeleton, undefined);
   assert.doesNotMatch(c.description, /writes the skeleton/);
 });
