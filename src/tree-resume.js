@@ -31,6 +31,9 @@ import { formatUsd } from './cost.js';
 import { applyChoice, pendingChoiceOf, replacedOf } from './tree-choice.js';
 import { finalSentenceOf } from './tree-abandon.js';
 
+/** D2 F18 S13 (A-DRAFT): the way on when a child chain file is not the one the tree registered. ONE copy: the sitting's refusal here and the status view (src/tree-status.js, G7 item 4). */
+export const chainWayOn = rootId => `put the chain file back as the tree registered it, or end the tree with \`council tree decide ${rootId} --abandon\``;
+
 export { SITTING_LOCK_FILE, apiResumer };
 
 /** How many times this node was resumed so far: the `node_resumed` records of purpose `resume` (a post-run call is not a resume). Derived, never stored. */
@@ -151,7 +154,7 @@ function sittingBody(res, rootId) {
     case 'start_failed': L.push(`${at} could not be started: ${res.error}`); break;
     case 'interrupted': L.push(`${at} was interrupted (its process is gone, its run did not end). Run \`council tree resume ${rootId}\` to resume it once.`); break;
     case 'running_elsewhere': L.push(`${at} is running in another process. Nothing was started.`); break;
-    case 'refused': L.push(`${res.node} was not registered (${res.check}): ${res.detail}`); if (res.check === 'chain') L.push(`Nothing was started: put the chain file back as the tree registered it, or end the tree with \`council tree decide ${rootId} --abandon\`.`); break;     // D2 F18 S13 (A-DRAFT)
+    case 'refused': L.push(`${res.node} was not registered (${res.check}): ${res.detail}`); if (res.check === 'chain') L.push(`Nothing was started: ${chainWayOn(rootId)}.`); break;     // D2 F18 S13 (A-DRAFT)
     case 'blocked':
       L.push(`The tree is blocked: ${(res.reasons ?? []).join(', ')}. Nothing was started.`);
       if (res.rootAffected) {

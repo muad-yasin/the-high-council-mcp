@@ -22,6 +22,8 @@ const quoted = text => indent(String(text).replace(/\s+$/, ''), '      | ');
  */
 export const quotedReason = text => terminalSafe(text).replace(/\s+$/, '').split('\n').map(l => `      | ${l}`).join('\n');
 /** A refused child's reason already begins "not admitted: " (tree-frontier.js, tree-budget.js); a line that carries its own NOT ADMITTED label prints the rest, so the label appears once. A reason without the prefix (and a null) comes back as it was. */
+/** The way on for a child a LIMIT refused (R17): a raise is the person's, at the limit stop. ONE copy: this screen and the session route's refusal (src/tree-approve-session.js). */
+export const limitRaiseLine = root => `A limit can be raised only by you, after seeing this: council tree decide ${root} --max-runs|--max-depth|--max-children <n> (a raise never changes the root cap).`;
 export const notAdmittedWords = reason => (typeof reason === 'string' ? reason.replace(/^not admitted: /, '') : reason);
 
 // (The three choices PLAN 6.3 words for a held item are NOT printed: two of them had no command behind them. C&C ruling, 8 Oct 2026, accepted as a deviation: the text says only what exists. ROADMAP 43.)
@@ -108,7 +110,7 @@ export function renderFrontierText(view) {
     L.push('', 'Not admitted, and why');
     for (const c of refused) L.push(`  ${c.node} generation ${c.generation}: ${c.notAdmittedReason}`);
     // R17: a raise is accepted only at a limit stop, so the hint names it only when a refused child was refused BY a limit (a stale, budget or price refusal has no limit to raise)
-    if (refused.some(c => c.refusedLimit)) L.push(`  A limit can be raised only by you, after seeing this: council tree decide ${root} --max-runs|--max-depth|--max-children <n> (a raise never changes the root cap).`);
+    if (refused.some(c => c.refusedLimit)) L.push(`  ${limitRaiseLine(root)}`);
   }
   if (view.unexpanded?.length) L.push('', `Milestones still to expand later: ${view.unexpanded.join(', ')}`);
   // what the approval authorizes in total: the sum of the grants printed above (the same numbers the approval's hash binds)

@@ -379,7 +379,8 @@ export function gatherHandoffFacts(rootDir, { work, deny = null } = {}) {
   // Fail closed, never a silent guess: a root task that does not read against its pin gives `unread` (why) and the references as the splits wrote them.
   const refs = new Map(); const wholeUsers = new Set(); const written = new Map(); const globals = new Set();
   const root = rootTaskOf(rootDir, { work });
-  // the reason in fixed words by the refusal's code, never its detail: the detail of an unreadable file carries its absolute path, and the handoff names no path outside the runs folder (byte-identical from a copy, M6 exit 7)
+  // the reason in fixed words by the refusal's code, never its detail: since ea6f4ab7 the detail names the task file by its name only (src/tree-task-pin.js), but its words can still change with the file's name, and this section
+  // stays byte-identical from a copy (M6 exit 7)
   const rootWhy = root.refusal ? (root.refusal.code === 'root_task_changed' ? 'the root task is not the one the tree was started with' : 'the root task file does not read') : null;
   let unread = null;
   const add = (map, k, user) => { if (!map.has(k)) map.set(k, new Set()); map.get(k).add(user); };

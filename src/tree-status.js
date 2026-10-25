@@ -34,7 +34,8 @@ import { splitChangedOf } from './tree-split-changed.js';
 import { describeFrontier, findPendingFrontier } from './tree-frontier.js';
 import { accountingAcceptLines, effectiveLimits } from './tree-budget.js';
 import { stopRequested } from './tree-run.js';
-import { sittingLines } from './tree-resume.js';
+import { chainWayOn, sittingLines } from './tree-resume.js';
+import { cannotExpandWords } from './tree-approve.js';
 import { rootUnstartedOf } from './tree-root-unstarted.js';
 import { renderDerivedNotAdmitted, renderHeldChildren, renderParentChanged, renderSplitChanged, money, prefixOf } from './tree-stop.js';
 
@@ -75,7 +76,25 @@ function gatherOnce(rootDir, work, readRecord, deny) {
   // RULE 1c (C&C's ruling on F12: status prints approve ONLY where `council tree approve` takes the frontier): nor is a frontier listed that describeFrontier refuses (the verb's second read, refused there with exit 19: a split_changed
   // (B)/(C), a check of items 1-4, a root re-plan that cannot be put yet). The live read is read-only, as D2 F13b's limitStopView (src/tree-decide.js) reads it; a throw is not listed either (the verb meets the same throw; D3 F13 note).
   // The state's own way out is printed all the same: a split_changed parent is `blocked` at its own scope, so `stopToOpen` names `council tree resume` (stopToOpenLine) and, once the stop is open, its `decide` route.
-  { const pending = findPendingFrontier({ rootDir, record, state }); if (pending?.key && !awaitingApproval.includes(pending.key) && !(report.readiness?.reasons ?? []).some(r => r.code === 'derivation_refused' && r.scope === nodeKey(pending.parent.node, pending.parent.generation))) { let takes = true; try { takes = !describeFrontier({ rootDir, work, deny, pending }).refusal; } catch { takes = false; } if (takes) awaitingApproval.push(pending.key); } }
+  // G7 item 4 (C&C 25 Okt 2026, T's trace): the same gate for a PREVIEWED frontier. awaitingApprovalOf lists it without asking describeFrontier, so a frontier the verb now refuses (a child chain file edited after the preview,
+  // tree-approve.js) printed `council tree approve` as the only way on. Now a children frontier is listed only where describeFrontier takes it; where it refuses, the approve verb's own words are printed (approveRefusal),
+  // and for a chain file S13's way on (src/tree-resume.js chainWayOn). A root re-plan keeps its F12 treatment (listed once previewed; the verdict's generation_pending line is T's, G7 item 1).
+  // G7 item 2c: the catch. Since F18a/F18b a missing chain and an unreadable root task refuse rather than throw. What can still throw is anything else describeFrontier meets (its derivation loop rethrows what it does not
+  // recognise; on the MCP route a NotExpandable from a derivation that read without the denylist did, until G7 item 3): an unpreviewed frontier is then not listed and a previewed one stays listed as before, with nothing printed
+  // for it, because the approve verb meets the same throw.
+  let approveRefusal = null;
+  { const pending = findPendingFrontier({ rootDir, record, state });
+    const held = pending?.key && (report.readiness?.reasons ?? []).some(r => r.code === 'derivation_refused' && r.scope === nodeKey(pending.parent.node, pending.parent.generation));
+    const previewed = pending?.key && awaitingApproval.includes(pending.key);
+    if (pending?.key && !held && !(previewed && pending.kind === 'root_replan')) {
+      let described = null; try { described = describeFrontier({ rootDir, work, deny, pending }); } catch { described = null; }
+      if (described && !described.refusal) { if (!previewed) awaitingApproval.push(pending.key); }
+      else if (described?.refusal) {
+        awaitingApproval.splice(0, awaitingApproval.length, ...awaitingApproval.filter(k => k !== pending.key));
+        if (pending.kind !== 'root_replan') approveRefusal = { frontierKey: pending.key, check: described.refusal.check, words: cannotExpandWords(pending, described.refusal) };
+      }
+    }
+  }
   awaitingApproval.sort(byText);
   // an approved frontier whose admitted child is not registered yet: the next sitting registers it (`council tree resume`); nothing the record holds says so otherwise (BUG-B-010)
   const nextChild = choice.kind === 'child' && !state.sticky.size && state.active === null ? choice.node : null;       // a registered node is ACTIVE: resume retries it first (the registered-child line says so), it registers nobody
@@ -88,13 +107,13 @@ function gatherOnce(rootDir, work, readRecord, deny) {
   const dead = deadPaths.map(path => ({ node: path, why: providerEligibility({ record, state, runsDir, work }, path).why }));
   const openStops = state.openStops.map(id => record.events.find(e => e.id === id)).filter(Boolean).sort((a, b) => idNum(a.id) - idNum(b.id)).map(e => ({ id: e.id, node: e.node ?? null, generation: e.generation ?? null, child: childKeyOf(e), text: needsDecisionStopText(rootDir, e) }));
   const limits = { ...effectiveLimits(record.tree, record.events), runs: state.nodes.size, raised: record.events.filter(e => e.event === 'limit_raised').sort((a, b) => idNum(a.id) - idNum(b.id)).map(e => ({ id: e.id, at: e.at ?? null, limit: e.limit, from: e.from, to: e.to })) };
-  const facts = { ...base, stopMarker: stopRequested(rootDir), nodes, waiting, awaitingApproval, nextChild, held: { registeredNotStarted: held.registeredNotStarted ?? [], parentChanged: held.parentChanged ?? [], guardRefusals: held.guardRefusals ?? [] }, rootUnstarted: !state.sticky.size && rootUnstartedOf(state, runsDir), stopToOpen: state.sticky.size ? [] : pendingBlockedChildren(record, state, report.readiness).map(p => nodeKey(p.node, p.generation)), heldNodes: heldNodesOf(state), keptNodes: keptNodesOf(state), ...(adoptedNodesOf(state).length ? { adoptedNodes: adoptedNodesOf(state) } : {}), ...(acceptedNodesOf(state).length ? { acceptedNodes: acceptedNodesOf(state) } : {}), ...(deferredStopsOf(state).length ? { deferredStops: deferredStopsOf(state) } : {}), ...(draftedStopsOf(state).length ? { draftedStops: draftedStopsOf(state) } : {}), splitChanged: splitChangedOf(record), dead, openStops, limits, money: report.money };
+  const facts = { ...base, stopMarker: stopRequested(rootDir), nodes, waiting, awaitingApproval, approveRefusal, nextChild, held: { registeredNotStarted: held.registeredNotStarted ?? [], parentChanged: held.parentChanged ?? [], guardRefusals: held.guardRefusals ?? [] }, rootUnstarted: !state.sticky.size && rootUnstartedOf(state, runsDir), stopToOpen: state.sticky.size ? [] : pendingBlockedChildren(record, state, report.readiness).map(p => nodeKey(p.node, p.generation)), heldNodes: heldNodesOf(state), keptNodes: keptNodesOf(state), ...(adoptedNodesOf(state).length ? { adoptedNodes: adoptedNodesOf(state) } : {}), ...(acceptedNodesOf(state).length ? { acceptedNodes: acceptedNodesOf(state) } : {}), ...(deferredStopsOf(state).length ? { deferredStops: deferredStopsOf(state) } : {}), ...(draftedStopsOf(state).length ? { draftedStops: draftedStopsOf(state) } : {}), splitChanged: splitChangedOf(record), dead, openStops, limits, money: report.money };
   // already-false unit (L3): a refused member start of a node whose plan was REPLACED stays in `memberRefusals` (the history is true), but the `next` line that says "close it" is not: a dead node holds nothing and `--close` refuses it
   { const deadNow = deadKeys(state); facts.memberRefusalsDead = (base.memberRefusals ?? []).map(m => nodeKey(m.node, m.generation)).filter(k => deadNow.has(k)); }
   // ROADMAP 57 (c3): a final tree has nothing waiting and nothing to open, answer or start. The FACTS are emptied here (not only the text), so the view and the `tree_status` payload cannot disagree: a stranded abandoned root would
   // otherwise say "start the root plan with `council tree resume`".
   if (!state.abandoned) return facts;
-  return { ...facts, abandonedText: abandonedTextOf(state), retiredStops: retiredStopsOf(state), stopMarker: false, waiting: [], awaitingApproval: [], nextChild: null, held: { registeredNotStarted: [], parentChanged: [], guardRefusals: [] }, rootUnstarted: false, stopToOpen: [], heldNodes: [], keptNodes: [], splitChanged: [], openStops: [], memberRefusals: [], closedUnstarted: [] };
+  return { ...facts, abandonedText: abandonedTextOf(state), retiredStops: retiredStopsOf(state), stopMarker: false, waiting: [], awaitingApproval: [], approveRefusal: null, nextChild: null, held: { registeredNotStarted: [], parentChanged: [], guardRefusals: [] }, rootUnstarted: false, stopToOpen: [], heldNodes: [], keptNodes: [], splitChanged: [], openStops: [], memberRefusals: [], closedUnstarted: [] };
 }
 
 /** The view's text for a facts object. Pure: no clock, no file. */
@@ -135,7 +154,7 @@ export function renderTreeStatus(f) {
   if (f.dead.length) { L.push('', 'Dead with a replaced parent'); for (const d of f.dead) L.push(...d.why.map(w => `  ${w}`)); }
 
   if (!ab) {
-    const waits = [...f.waiting.map(w => `${w.node} waits: ${w.why.join('; ')}`), ...f.awaitingApproval.map(k => `A frontier (${prefixOf(k)}) waits for your approval: run \`council tree approve ${id}\`.`)];
+    const waits = [...f.waiting.map(w => `${w.node} waits: ${w.why.join('; ')}`), ...f.awaitingApproval.map(k => `A frontier (${prefixOf(k)}) waits for your approval: run \`council tree approve ${id}\`.`), ...(f.approveRefusal ? [f.approveRefusal.words] : [])];
     L.push('', 'Waiting', ...(waits.length ? waits.map(w => `  ${w}`) : ['  (nothing is waiting)']));
 
     // the held nodes of a root re-plan (S8-6a2): the handoff's own title and sentence (src/tree-handoff.js), only while something is held
@@ -175,6 +194,7 @@ export function renderTreeStatus(f) {
   // the command is named only where a stop's own text names it: a root stop with no needs-decision milestone is answered by a new root run, and `decide` would refuse it
   if (f.openStops.length) next.push(f.openStops.some(s => /council tree decide/.test(s.text ?? '')) ? `answer the open stop${f.openStops.length === 1 ? '' : 's'} with \`council tree decide ${id}\` (the stop text above says how)` : `an open stop needs your answer: the stop text above names the route`);
   if (f.awaitingApproval.length) next.push(`approve the frontier with \`council tree approve ${id}\``);
+  if (f.approveRefusal?.check === 'chain') next.push(chainWayOn(id));       // G7 item 4: S13's way on, the one copy (src/tree-resume.js)
   // S8-6b part 2a: the next step is named only where the tree would take it. A tree whose personal-data mode reads `unusable` starts nothing (beginRoot step 3, the member's check): no resume line. A registered child that a HAND start already refused
   // (exit 19) has a run.json, so the next sitting resumes it with its saved mode and is refused again: its way out is `decide --close`. One whose refusal left no run.json is started afresh by `resume`, and stays on the resume line.
   const unusable = f.piiGate === 'unusable';

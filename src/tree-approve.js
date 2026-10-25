@@ -36,6 +36,9 @@ export function recordFrontierRefusal(rootDir, pending, r, clock = {}) {
   } catch (e) { if (!(e instanceof TreeRefusal)) throw e; }
 }
 
+/** What `tree approve` says when describeFrontier refuses a children frontier. ONE copy: this verb and the status view (src/tree-status.js, G7 item 4). */
+export const cannotExpandWords = (pending, r) => `${pending.parent.node} cannot be expanded yet. ${refusalWords(r)}`;
+
 const EXIT_REFUSED = 19;                    // the same exit the member commands use when the tree refuses (src/cli.js EXIT_TREE_REFUSED)
 
 /** The handler src/tree-cli.js calls for `approve`. Returns the exit code: 0 approved, 1 not confirmed or the approval could not be used (nothing recorded as approved), 2 nothing waits / no terminal, 19 the tree refuses. */
@@ -59,7 +62,7 @@ export async function approveHandler({ rootDir, rootId, work, stdin, stdout, std
   if (described.refusal) {
     const r = described.refusal;
     recordFrontierRefusal(rootDir, pending, r, clock);
-    err(`tree approve: ${pending.parent.node} cannot be expanded yet. ${refusalWords(r)}`);
+    err(`tree approve: ${cannotExpandWords(pending, r)}`);
     if (!r.derivationRefusals?.some(d => d.owner)) { err(`This is not held against the plan: once it is fixed, run \`council tree approve ${rootId}\` again.`); return EXIT_REFUSED; }     // D2 F3 S3 (A-DRAFT)
     // D2 F2(d): a refusal of a plan's OWN text opens its stop NOW, through the sitting's own trio (computeReadiness -> openBlockedChildStops -> recordReadinessAfter, as src/tree-run.js afterStep), so no window is left where
     // status prints approve again; the stop sits on the plan whose text failed (the owner), never on the child. A busy lock or a refused write leaves it to the next sitting, which opens it the same way.
