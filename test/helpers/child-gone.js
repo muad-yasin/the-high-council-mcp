@@ -14,13 +14,16 @@ export function childPid(runDir) {
   }
   return null;
 }
-/** Waits until the run's child has exited, polling every 100 ms, with a guard that only a broken run reaches. No pid to read: nothing to wait for. -> true when it has exited, false on the guard (the caller asserts, naming the pid). */
+/** Waits until the run's child has exited, polling every 100 ms, with a guard that only a broken run reaches. An UNREADABLE pid is not an exit (verification rule 6, unreadable is not a pass): the spawn record or run.json appears within the
+ *  window, so the wait goes on until a readable pid is gone. -> true when a readable pid is gone, false on the guard (the caller asserts, naming the pid or that none could be read). */
 export async function childGone(runDir, ms = 60_000) {
-  const pid = childPid(runDir);
-  if (pid === null) return true;
   const t0 = Date.now();
-  while (!pidGone(pid) && Date.now() - t0 < ms) await sleep(100);
-  return pidGone(pid);
+  for (;;) {
+    const pid = childPid(runDir);
+    if (pid !== null && pidGone(pid)) return true;
+    if (Date.now() - t0 >= ms) return false;
+    await sleep(100);
+  }
 }
 /** The criterion for "the run is over and nothing writes to its folder any more": report.json exists (the run finished) AND its child has exited. Fails loudly (a thrown Error naming the pid) instead of falling through to a cleanup
  *  that would race a child still writing. -> the run folder's report.json path. */
@@ -28,6 +31,6 @@ export async function waitForRunEnd(runDir, { ms = 60_000 } = {}) {
   const report = join(runDir, 'report.json');
   for (let i = 0; i < ms / 250 && !existsSync(report); i++) await sleep(250);
   if (!existsSync(report)) throw new Error(`the run did not finish: no report.json in ${runDir} after ${ms} ms`);
-  if (!(await childGone(runDir, ms))) throw new Error(`the run's child (pid ${childPid(runDir)}) was still running ${ms} ms after report.json appeared in ${runDir}`);
+  if (!(await childGone(runDir, ms))) throw new Error(`the run's child (${childPid(runDir) === null ? 'no pid could be read from .spawn.json or run.json' : `pid ${childPid(runDir)}`}) had not exited ${ms} ms after report.json appeared in ${runDir}`);
   return report;
 }
