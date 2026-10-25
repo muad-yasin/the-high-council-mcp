@@ -72,6 +72,19 @@ test('RM-1: an edited task is refused (exit 2, nothing made); the unedited task 
   assert.equal(existsSync(join(dir, 'runs', `${id}.rematch-4`)), false, 'no folder was made');
 });
 
+test('RM-1 (moved in): a run folder copied into ANOTHER project\'s runs/ while its own project still exists is rematched with the ORIGINAL run\'s task bytes (the recorded task path is absolute), not the same-path file in the folder it is typed from', () => {
+  // The guard the removed "from another working folder" call used to hold (the placement rule, CR-RC-003, refuses that call now): this is the case where the recorded folder exists and differs from the folder the command is typed in.
+  const { dir, id } = original();
+  const originalSha = JSON.parse(readFileSync(join(dir, 'runs', id, 'report.json'), 'utf8')).task_sha256;
+  const other = mkdtempSync(join(tmpdir(), 'thc-rematch-moved-in-')); mkdirSync(join(other, 'tasks')); mkdirSync(join(other, 'runs'));
+  writeFileSync(join(other, 'tasks', 'smoke.md'), 'A different task that must not be sent.\n');
+  cpSync(join(dir, 'runs', id), join(other, 'runs', id), { recursive: true });
+  const r = sh(other, ['--rematch', join('runs', id), '--rematch-seed', '4']);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const rematchReport = JSON.parse(readFileSync(join(other, 'runs', `${id}.rematch-4`, 'report.json'), 'utf8'));
+  assert.equal(rematchReport.task_sha256, originalSha, 'the rematch sent the original run\'s task bytes');
+});
+
 test('RM-1 (moved project): when the recorded folder no longer exists the task is looked up where the command runs; the same bytes rematch, a changed file is still refused', () => {
   const { dir, id } = original();
   const moved = `${dir}-moved`; renameSync(dir, moved);          // the project folder was renamed: run.json `cwd` names a folder that is gone
