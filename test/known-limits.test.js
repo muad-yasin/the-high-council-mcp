@@ -62,6 +62,8 @@ test('one phrase per unverified item U1-U7, and per limit plan section 7 names',
     // 0.8.3 harness (a): the answerer of a session seat is the session's own statement.
     ['the answerer of a session seat is declared, never checked', /Who answered a seat that a coding-agent session fills is the session's own statement and is never checked/],
     ['plugin strict validation warning', /claude plugin validate --strict \.` fails on it: "CLAUDE\.md at the plugin root is not loaded as project context"/],
+    // 0.8.3 (lane T, LB group, READ-B LB-2, C&C ruling (ii) 25 Okt 2026): a smaller plan of a tree gets the goal only from a heading of the task, and a task with no heading that can hold the goal (none at all, or only exclusions headings) is given whole.
+    ['a smaller plan gets the goal only from a heading; a task with no goal heading is given whole', /A task with no headings at all, or whose only headings are exclusions headings, is given whole\./],
   ];
   const missing = must.filter(([, re]) => !re.test(limits)).map(([name]) => name);
   assert.deepEqual(missing, []);

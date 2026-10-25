@@ -111,3 +111,23 @@ test('D2 F2(a) + D3 F2-3: a refusal caused by a plan\'s own text names the node 
   const unpinned = { K1: { ...PROVIDERS.K1, pin: null } };
   assert.equal(ownerOf(() => derive(parentWith(null), 'K2', ROOT_TASK, unpinned)), null, 'a record cause (no pin) has no owner: no plan text can fix it');
 });
+
+test('LB-2 (ii) (C&C ruling, 25 Okt 2026): a root task whose ONLY headings are exclusions headings is given whole, like a headingless one; each of the reader\'s three variants derives (root-task: Non-goals, a plan section only, a bare "Non-goals") and the label names the case', () => {
+  const onlyExcl = doc('task.md', 'Build X.\n\n## Non-goals\nNo Android.\n');
+  const label = `----- root task task.md (sha256 ${onlyExcl.sha256}), the whole file: its only headings are exclusions headings`;
+  const named = part2(derive(parentWith(['root-task: Non-goals', 'parent-plan: Overview']), 'K1', onlyExcl));
+  assert.ok(named.includes(`${label} (context_refs "root-task: Non-goals" resolve to it) -----\n${onlyExcl.text}----- end -----`), named);
+  for (const refs of [['parent-plan: Overview'], ['Non-goals', 'parent-plan: Overview']]) {
+    const p = part2(derive(parentWith(refs), 'K1', onlyExcl));
+    assert.ok(p.includes(`${label} -----\n${onlyExcl.text}----- end -----`), `${JSON.stringify(refs)}: ${p}`);
+  }
+  assert.match(refusal(() => derive(parentWith(['Goal', 'parent-plan: Overview']), 'K1', onlyExcl)).detail, /the root task holds that heading 0 times and this plan 0 times/, 'a bare reference that names no exclusions heading is looked up in the plan only, as for a headingless task');
+});
+
+test('LB-8: a heading whose own text starts with "#" is addressable ("# #hashtags" is "#hashtags"); heading marks followed by a space are still dropped, and "#Goal" with no space is not the heading "Goal"', () => {
+  const tagged = doc('task.md', '# Goal\nBuild a small reading-list app.\n\n# #hashtags\nTag every entry.\n');      // sibling headings: a nested one would sit inside Goal's range and share its copy
+  const p = part2(derive(parentWith(['root-task: Goal', 'root-task: #hashtags', 'parent-plan: Overview']), 'K1', tagged));
+  assert.match(p, /heading "#hashtags" -----\n# #hashtags\nTag every entry\.\n/, p);
+  assert.match(part2(derive(parentWith(['root-task: ## Goal', 'parent-plan: Overview']), 'K1', tagged)), /heading "Goal" -----\n# Goal\n/);
+  assert.match(refusal(() => derive(parentWith(['root-task: #Goal', 'parent-plan: Overview']), 'K1', tagged)).detail, /the heading "#Goal" must exist exactly once, found 0/);
+});

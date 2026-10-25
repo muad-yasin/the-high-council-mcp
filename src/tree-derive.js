@@ -154,7 +154,7 @@ export function deriveChild({ treeId, generation = 1, parent, childId, rootTask,
   ctx.push('\n## 2. The root task: its goal and exclusions\n\n');
   if (resolved.whole) {
     const named = resolved.whole.refs.length ? ` (context_refs ${resolved.whole.refs.map(r => JSON.stringify(r)).join(', ')} resolve to it)` : '';
-    rootPush(`root task ${rootTask.name} (sha256 ${rootTask.sha256}), the whole file: it has no addressable headings${named}`, rootTask.text);
+    rootPush(`root task ${rootTask.name} (sha256 ${rootTask.sha256}), the whole file: ${resolved.whole.onlyExclusions ? 'its only headings are exclusions headings' : 'it has no addressable headings'}${named}`, rootTask.text);     // the first variant: LB-2 (ii) (A-DRAFT)
   } else for (const p of resolved.root) rootPush(p.label, p.text);
   ctx.push('## 3. What the providers settled\n\n');
   const provided = preview ? { text: '(the providers have not finished: what they settled is added when they have)\n\n', dependsOn: [] } : providerPieces({ block, child, providers });

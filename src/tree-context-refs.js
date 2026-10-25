@@ -17,10 +17,11 @@ export const EXCLUSION_HEADINGS = Object.freeze(['non-goals', 'non-goal', 'exclu
 const norm = s => String(s ?? '').replace(/\s+/g, ' ').trim();
 const missing = (detail, owner = null) => new DeriveRefusal('missing_context', detail, owner);
 
-/** "root-task: Goal" -> { source: 'root-task', heading: 'Goal' }; a reference without a known source document is BARE (source null). Leading Markdown `#` marks are dropped from the heading text. */
+/** "root-task: Goal" -> { source: 'root-task', heading: 'Goal' }; a reference without a known source document is BARE (source null). Leading Markdown heading marks (`#` followed by a space) are dropped from the heading text; a `#` that
+ *  is part of the heading's own text stays (READ-B LB-8: `## #hashtags` is addressed as `#hashtags`). */
 function parseRef(ref) {
   const m = String(ref).match(/^(root-task|parent-plan):\s*(\S[\s\S]*)$/);
-  const strip = h => norm(String(h).replace(/^\s*#+\s*/, ''));
+  const strip = h => norm(String(h).replace(/^\s*#+\s+/, ''));
   return m ? { source: m[1], heading: strip(m[2]) } : { source: null, heading: strip(ref) };
 }
 
@@ -45,18 +46,20 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
  *   - X: every section of the root task under an exclusions heading (EXCLUSION_HEADINGS) is supplied whether or not the split names it, by POSITION (a heading twice is two sections), verbatim; a reference to an exclusions heading
  *     of the root task is covered by that copy and is never looked up on its own (so a doubled "Out of scope" never refuses).
  *   - the goal (CR-AST-001): a root task WITH headings needs at least one named section that is not an exclusions section; the supplied exclusions never count. No parser can tell what a section means: this is mechanical.
- *   - a root task with NO headings (C&C ruling, 25 Okt 2026): the whole file is supplied; a "root-task:" reference resolves to it and is named in its label; a bare reference is looked up in the plan only.
+ *   - a root task with NO headings (C&C ruling, 25 Okt 2026), or whose ONLY headings are exclusions headings (READ-B LB-2, C&C ruling (ii), 25 Okt 2026: no section can hold the goal, so nothing is chosen): the whole file is
+ *     supplied; a "root-task:" reference resolves to it and is named in its label; a bare reference that names only an exclusions heading of the root task is covered by that copy; any other bare reference is looked up in the
+ *     plan only. `whole.onlyExclusions` says which of the two cases it is (the label names it).
  *   - a range already inside another copied range is not copied again (Astra (d): overlapping selections share one copy). Order: the named sections in reference order, then the supplied exclusions in document order, so a split
  *     that was valid before (prefixed, every exclusions heading named once) gives byte-identical pieces.
  * `sha256` hashes what each reference resolved to (document, range and the bytes), recorded per child at verification (split_verified resolvedRefs).
  */
 export function resolveContextRefs({ refs, rootTask, parentPlan, owner = null }) {
   const rootSecs = sectionsOf(rootTask.text); const planSecs = sectionsOf(parentPlan.text);
-  const headed = rootSecs.length > 0;
+  const headed = rootSecs.some(x => !isExclusion(x));      // a heading that can hold the goal; a task with none is supplied whole (LB-2 (ii))
   const rootPicked = []; const planPicked = []; const wholeRefs = []; let exclusionNamed = false;
   for (const ref of refs) {
     const { source, heading } = parseRef(ref);
-    const inRoot = headed ? rootSecs.filter(x => x.text === heading) : []; const inPlan = planSecs.filter(x => x.text === heading);
+    const inRoot = rootSecs.filter(x => x.text === heading); const inPlan = planSecs.filter(x => x.text === heading); const rootCount = headed ? inRoot.length : 0;     // a whole-file task picks no section of its own
     if (source === 'root-task') {
       if (!headed) { wholeRefs.push(String(ref)); continue; }
       if (inRoot.length && inRoot.every(isExclusion)) { exclusionNamed = true; continue; }
@@ -67,8 +70,8 @@ export function resolveContextRefs({ refs, rootTask, parentPlan, owner = null })
       planPicked.push(inPlan[0]);
     } else {
       if (inRoot.length && !inPlan.length && inRoot.every(isExclusion)) { exclusionNamed = true; continue; }
-      if (inRoot.length + inPlan.length !== 1) throw missing(`the reference ${JSON.stringify(String(ref).slice(0, 80))} is not addressable: the root task holds that heading ${plural(inRoot.length, 'time')} and this plan ${plural(inPlan.length, 'time')}; a reference without "root-task:" or "parent-plan:" is read only when exactly one heading of that text exists in the two`, owner);
-      (inRoot.length ? rootPicked : planPicked).push(inRoot[0] ?? inPlan[0]);
+      if (rootCount + inPlan.length !== 1) throw missing(`the reference ${JSON.stringify(String(ref).slice(0, 80))} is not addressable: the root task holds that heading ${plural(inRoot.length, 'time')} and this plan ${plural(inPlan.length, 'time')}; a reference without "root-task:" or "parent-plan:" is read only when exactly one heading of that text exists in the two`, owner);
+      (rootCount ? rootPicked : planPicked).push(rootCount ? inRoot[0] : inPlan[0]);
     }
   }
   if (headed && !rootPicked.length) {
@@ -80,7 +83,7 @@ export function resolveContextRefs({ refs, rootTask, parentPlan, owner = null })
   const pieceOf = (what, d, secs) => x => ({ start: x.start, end: x.end, heading: x.text, label: `${what} ${d.name} (sha256 ${d.sha256}), heading "${x.text}"${occurrence(secs, x)}`, text: String(d.text).slice(x.start, x.end) });
   const root = headed ? once([...rootPicked, ...rootSecs.filter(isExclusion)]).map(pieceOf('root task', rootTask, rootSecs)) : [];
   const plan = once(planPicked).map(pieceOf('parent plan', parentPlan, planSecs));
-  const whole = headed ? null : { refs: wholeRefs };
+  const whole = headed ? null : { refs: wholeRefs, onlyExclusions: rootSecs.length > 0 };
   const sha256 = sha256Of(canonicalJson({ whole: whole ? sha256Of(String(rootTask.text)) : null, root: root.map(x => [x.start, x.end, sha256Of(x.text)]), plan: plan.map(x => [x.start, x.end, sha256Of(x.text)]) }));
   return { whole, root, plan, sha256 };
 }
