@@ -302,7 +302,7 @@ function runSummary(id) {
   return {
     id,
     label: runMeta?.label ?? null,
-    // v5 item 2: the derived status enum (done/budget_stopped/blocked/paused/running/stopped),
+    // v5 item 2: the derived status enum (every value deriveRunStatus returns; the list is the RunStatus union in types/index.d.ts),
     // alongside the existing free-text `state` string below - additive, `state`'s own shape
     // and every existing reader of it are unchanged.
     status,

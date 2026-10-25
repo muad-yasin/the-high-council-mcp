@@ -32,8 +32,8 @@ export async function waitForProgress({ readStatus, readLog, sleep, now = Date.n
     if ((until === 'event' && fresh.length) || !running || over || aborted) {
       return {
         cursor: log.length, events: fresh.map(stageEvent), waitedMs: now() - t0,
-        // settled: the run is no longer running. `status` says why: done, paused (an external seat needs the
-        // caller), budget_stopped, failed, blocked or stopped. Only 'done' means there is a result.
+        // settled: the run is no longer running. `status` says why (a RunStatus value, listed in types/index.d.ts:
+        // 'paused' is an external seat that needs the caller). Only 'done' means there is a result.
         settled: !running, status, timedOut: running && !aborted && !fresh.length && over, cancelled: aborted,
         usdSoFar: Math.round(log.reduce((t, e) => t + (Number(e.usd) || 0), 0) * 1e4) / 1e4,
       };
