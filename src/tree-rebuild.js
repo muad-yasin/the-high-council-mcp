@@ -27,6 +27,7 @@ import { MAX_CONTEXT_FILE_BYTES, contextBundleText, contextFileList } from './co
 import { contextHashOf } from './scope-freeze.js';
 import { runSpendOf } from './spend.js';
 import { bundleDirOf } from './tree-continuation.js';
+import { ROOT_TASK_UNREADABLE_TEXT } from './tree-ready.js';
 
 export function rebuildRegisteredBundle(rootDir, { work, rootTaskPath = rootTaskPathOf(rootDir, work), facts, now, deps = {} } = {}) {
   return withTreeLock(rootDir, () => {
@@ -58,6 +59,8 @@ export function rebuildRegisteredBundle(rootDir, { work, rootTaskPath = rootTask
       args = loadDerivation({ rootDir, parentRef: { node: parent.node, generation: parent.generation }, childId, generation: n.generation, rootTaskPath, work });
       derived = deriveChild(args);
     } catch (e) {
+      // G7 (2b): a root task that does not read is not answered by closing the sub-plan: the way on is the file, in readiness' own words (one copy)
+      if (e instanceof DeriveRefusal && e.code === 'root_task_unreadable') return refuse('rebuild_refused', `the input of ${scope} cannot be rebuilt: ${ROOT_TASK_UNREADABLE_TEXT}.`);
       if (e instanceof DeriveRefusal) return refuse('rebuild_refused', `the input of ${scope} cannot be rebuilt from the plan as it stands (${e.code}: ${e.detail}).${way}`);
       if (e instanceof NotExpandable) return refuse('rebuild_refused', `the input of ${scope} cannot be rebuilt: ${e.message}.${way}`);
       throw e;

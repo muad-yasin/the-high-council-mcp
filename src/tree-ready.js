@@ -56,6 +56,7 @@ import { extractSplitBlocks, splitSha256 } from './tree-split.js';
 import { DeriveRefusal, deriveChild, itemText } from './tree-derive.js';
 import { rootTaskOf, rootTaskPathOf } from './tree-root-task.js';
 import { budgetOf, capFactsOf, effectiveLimits, gateTree } from './tree-budget.js';
+import { describeFrontier, findPendingFrontier } from './tree-frontier.js';
 
 export const VERDICTS = Object.freeze(['ready', 'incomplete', 'blocked']);
 
@@ -295,6 +296,9 @@ export function gatherReadinessFacts(rootDir, { work, deny = null } = {}) {
     // only a task file that does not READ is root_task_unreadable here: a root run that has not written its run.json yet (an interrupted `tree start`: tree_started with no R, or R registered and refused before its run.json) records
     // no task to read, and root_missing / not_started already say what that state needs (the fresh-eyes review of G5+6: the put-back words would be false there)
     ...(t => ({ rootTaskChanged: t.refusal?.code === 'root_task_changed' ? t.refusal.detail : null, rootTaskUnreadable: t.refusal?.code === 'root_task_unreadable' && (() => { try { rootTaskPathOf(rootDir, work); return true; } catch { return false; } })() }))(rootTaskOf(rootDir, { work })),
+    // G7 item 1 (RULE 1c): a pending root re-plan that `council tree approve` cannot offer now (describeFrontier, the verb's own read, refuses it: the task, the accounting gate, the root chain) must not be named as approve's.
+    // The read is read-only and derives no child (describeRootReplan); `deny` is readiness' own (R16), passed through. A throw is a refusal too (fail closed: the line then names no verb that would meet it), in fixed words.
+    rootReplanRefusal: (() => { try { const pending = findPendingFrontier({ rootDir, record, state }); if (pending?.kind !== 'root_replan') return null; const d = describeFrontier({ rootDir, work, deny, pending }); return d.refusal ? { check: d.refusal.check, detail: String(d.refusal.detail) } : null; } catch { return { check: 'unreadable', detail: 'what it is described from could not be read this time' }; } })(),       // fixed words, never the throw's message: readiness reaches TREE_HANDOFF.md, which names no path outside the runs folder (CR-G2-002)
     openStops: state.openStops.map(id => { const e = record.events.find(x => x.id === id); return { id, node: e?.node ?? null, generation: e?.generation ?? null }; }),
     limits: { ...effectiveLimits(record.tree, record.events), runs: state.nodes.size }, nodes, integrations,
     // c3b: children a person closed before they were ever registered (no nodes row, no run): the newest generation of a live path only, like a node
@@ -375,6 +379,9 @@ function providersOf(parentNode, block, child) {
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------- the rules
 
 
+/** The root_task_unreadable reason's words (D2 F18 fold, A-DRAFT); exported so the rebuild refusal prints the same way on (src/tree-rebuild.js, G7: one copy). */
+export const ROOT_TASK_UNREADABLE_TEXT = 'the root task file does not read: put it back as the tree was started with; a different goal is a new tree, started with `council tree start`';
+
 /** The verdict of a facts object (pure). */
 export function verdictOf(facts) {
   const reasons = [];
@@ -391,7 +398,7 @@ export function verdictOf(facts) {
   if (!byPath.has('R')) incomplete('root_missing', 'tree', 'the root is not registered yet');
   for (const r of facts.sticky) blocked('sticky_block', 'tree', `the tree is blocked: ${r}`);
   if (facts.rootTaskChanged) blocked('root_task_changed', 'tree', `the root task is not the one the tree was started with: ${facts.rootTaskChanged}`);     // A-DRAFT; clears itself when the bytes match again
-  if (facts.rootTaskUnreadable) blocked('root_task_unreadable', 'tree', 'the root task file does not read: put it back as the tree was started with; a different goal is a new tree, started with `council tree start`');     // D2 F18 fold (A-DRAFT); clears itself when the file reads with the pinned bytes
+  if (facts.rootTaskUnreadable) blocked('root_task_unreadable', 'tree', ROOT_TASK_UNREADABLE_TEXT);     // D2 F18 fold (A-DRAFT); clears itself when the file reads with the pinned bytes
   if (!facts.accounting.ok) blocked('accounting_blocked', 'tree', `the accounting gate fails: ${facts.accounting.problems.slice(0, 3).map(p => `${p.code} (${p.detail})`).join('; ') || 'no detail'}`);
   for (const c of facts.closedUnstarted ?? []) incomplete('closed_incomplete', nodeKey(c.node, c.generation), `${nodeKey(c.node, c.generation)} was closed before it started, by a person: nothing ran; what waits for it starts only if it is replaced`);
   for (const s of facts.openStops) incomplete('open_stop', s.node ? nodeKey(s.node, s.generation) : 'tree', `a needs_decision stop (${s.id}) is open`);
@@ -421,6 +428,8 @@ export function verdictOf(facts) {
     // S8 (C&C 12 Oct: one mechanism, no second code): the same reason for the ROOT, with wording that names the way on - a person decided a new root plan and its run is not registered yet (valid once S8-5 builds `council tree approve` for it)
     // D2 F9c S8 (A-DRAFT): a new root plan an approved preview did NOT admit for budget waits for money, not for an approval ("Nothing waits" until money comes back): name the way out
     if (n.nextGeneration && n.node === 'R' && refusedForBudget(facts, `R@g${n.nextGeneration}`)) { incomplete('generation_pending', k, `R: the new root plan (R@g${n.nextGeneration}) was approved but not admitted for budget: raise the tree's cap with \`council tree decide ${facts.treeId ?? '<root>'} --amend-cap <total>\`, then \`council tree approve ${facts.treeId ?? '<root>'}\` offers it again`); return; }
+    // G7 item 1 (A-DRAFT): the root re-plan that approve cannot offer names its cause, and the chain's way on in S13's words (the task's put-back words are in its detail; the accounting gate's acceptance is printed with the gate)
+    if (n.nextGeneration && n.node === 'R' && facts.rootReplanRefusal) { const r = facts.rootReplanRefusal; incomplete('generation_pending', k, `R: a new root plan (R@g${n.nextGeneration}) was decided and its run is not registered yet; \`council tree approve ${facts.treeId ?? '<root>'}\` cannot offer it now (${r.check}: ${r.detail})${r.check === 'chain' ? ': put the chain file back as the tree registered it' : ''}`); return; }
     if (n.nextGeneration) { incomplete('generation_pending', k, n.node === 'R' ? `R: a new root plan (R@g${n.nextGeneration}) was decided and its run is not registered yet: run \`council tree approve ${facts.treeId ?? '<root>'}\`` : `${n.node}: generation ${n.nextGeneration} was opened and is not registered yet`); return; }
     // staleness is about the record (a provider moved, a stop put the node in question), so it is read whatever state the node's own run is in
     for (const p of n.providers) {
