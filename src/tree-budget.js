@@ -335,7 +335,7 @@ export const problemCover = p => ({ code: p.code, keys: [...p.keys].sort(), deta
  */
 export function accountingAcceptLines(problems, rootId) {
   const nodes = [...new Set((problems ?? []).filter(p => Array.isArray(p?.keys) && p.keys.length && typeof p.node === 'string' && /^R(\/[^@\s]+)*@g\d+$/.test(p.node)).map(p => p.node))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return nodes.map(k => `For ${k}: \`council tree decide ${rootId} --accounting ${k}\` lets you accept, as a typed decision, the charges the accounting gate cannot prove for it (no number changes).`);       // D2 F13a S9 (A-DRAFT)
+  return nodes.map(k => `For ${k}: \`council tree decide ${rootId} --accounting ${k}\` lets you accept, as a typed decision, the charges the accounting gate cannot prove for it; it changes no figure.`);       // D2 F13a S9 (the wording signed in Fable chunk 02, G-07)
 }
 
 /**

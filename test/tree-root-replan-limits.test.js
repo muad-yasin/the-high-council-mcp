@@ -48,6 +48,7 @@ test('T8 (F8, CR-2D-004): a limit raised after the root re-plan was approved -> 
   const raise = await decide(r, { 'max-children': '3' }, ['3', 'y']); assert.equal(raise.code, 0, raise.text);
   const first = await resume(r, start);
   assert.match(first.text, /limits_changed/, first.text);
+  assert.ok(first.text.includes('the decision, the task bytes or a limit changed since the approval, so what would be registered is not what was approved; run `council tree approve` again'), `the refusal's words (Fable chunk 02 G-01): ${first.text}`);
   assert.ok(eventsOf(r).some(e => e.event === 'blocked' && e.check === 'limits_changed' && e.scope === 'R@g2' && e.frontierKey), 'the refusal carries its frontier: a reopen check');
   a = await approve(r); assert.equal(a.pending?.kind, 'root_replan', `the frontier offered again is the root re-plan: ${JSON.stringify(a.pending)}`); assert.equal(a.code, 0, `the root frontier waits for approval again: ${a.text}`);
   await resume(r, start);

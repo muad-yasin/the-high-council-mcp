@@ -14,7 +14,7 @@ import { renderNeedsDecisionStop } from '../src/tree-stop.js';
 import { IDS, ROOT_ID, approveFrontier, claim, closedRootTree, hostnameOf, registerKid, reservedLine, root as repoRoot, settledLine, syntheticRun, writeLines } from './helpers/tree-fixture.js';
 import { track } from './helpers/temp-trees.js';
 
-const S9 = (root, k) => `For ${k}: \`council tree decide ${root} --accounting ${k}\` lets you accept, as a typed decision, the charges the accounting gate cannot prove for it (no number changes).`;
+const S9 = (root, k) => `For ${k}: \`council tree decide ${root} --accounting ${k}\` lets you accept, as a typed decision, the charges the accounting gate cannot prove for it; it changes no figure.`;       // CHANGED ACCEPTED (G7, Fable chunk 02 G-07): OLD tail "for it (no number changes)."
 const S10 = (root, k) => `Nothing is left of its grant: give it up with \`council tree decide ${root} --close ${k}\`.`;
 const S11 = root => `To end the tree instead: \`council tree decide ${root} --abandon\`.`;
 const S14 = (p, node) => `  Put the run files of ${p} back as its run wrote them: the next \`council tree resume\` closes this stop by itself when its thin contract reads as the one ${node} was registered against.`;
@@ -113,6 +113,7 @@ test('F13c S10: a member start refused for "no live grant" names `--close <node>
   assert.ok(e instanceof TreeRefusal, String(e));
   assert.equal(lastBlocked(t).check, 'grant', e.message);
   assert.match(e.reason, /^R\/M1@g1 has no live grant: min\(grant 1\.0000 - spent /, 'the existing words stay first');
+  assert.match(e.reason, /, root cap \d+\.\d{4} - tree spent \d+\.\d{4} - /, `the five figures share one shape (Fable chunk 02 G-08): ${e.reason}`);
   // RED at f7ccc764: the detail ends at the room figure ("= 0.0000") and names no way out
   assert.match(e.reason, /\) = -?\d+\.\d{4}\. Nothing is left of its grant: /, e.reason); assert.ok(e.reason.endsWith(`. ${S10(ROOT_ID, 'R/M1@g1')}`), e.reason);
   assert.equal(lastBlocked(t).detail, e.reason);
