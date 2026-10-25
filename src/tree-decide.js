@@ -9,6 +9,7 @@
 // --accounting <node>; --close <node>; --milestone <id> / no option (regenerate) with --obligation and --stop. The limit raises never touch tree.json or the root dollar cap.
 // This file reads no environment variable and parses no argument (src/tree-cli.js hands it the parsed flags).
 import { fanOutOf } from './tree-fan-out.js';
+import { describeFrontier, findPendingFrontier } from './tree-frontier.js';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { sha256Of } from './thin-contract.js';
@@ -85,6 +86,19 @@ function limitStopView({ rootDir, work, record, limit, flag, to }) {
       open.push({ node: c.node, scope: entry?.scope ?? '(the scope could not be read)', depth: c.node.split('/').length - 1 });
     }
     for (const m of block?.milestones ?? []) if (m.status === 'decompose' && !(block.children ?? []).some(k => k.milestone === m.id)) unexpanded.add(`${preview.parentNode}/${m.id}`);
+  }
+  // D2 F13b: the PENDING frontier's live preview too (findPendingFrontier + describeFrontier, read-only), so the hint its screen prints (src/tree-stop.js) is accepted before any preview is recorded. A throw is caught by the caller and
+  // becomes a refusal (D3 F13 note); a frontier that cannot be described adds nothing.
+  const pending = findPendingFrontier({ rootDir, record, state });
+  if (pending && pending.kind !== 'root_replan') {
+    const live = describeFrontier({ rootDir, work, pending });
+    if (!live.refusal) {
+      siblings = Math.max(siblings, live.view.limits?.find(l => l.limit === 'children per split')?.count ?? 0);
+      for (const c of live.view.children ?? []) {     // the view's children carry the scope from the parent's verified block (describeFrontier read it), so no second plan read here
+        if (c.admitted === true || c.registered || registered.has(`${c.node}@g${c.generation}`) || c.refusedLimit !== limit || open.some(o => o.node === c.node)) continue;
+        open.push({ node: c.node, scope: c.scope, depth: c.node.split('/').length - 1 });
+      }
+    }
   }
   const effective = limits[limit];
   const count = limit === 'maxRuns' ? state.nodes.size : limit === 'maxDepth' ? Math.max(0, ...[...state.nodes.values()].map(n => n.depth ?? 0)) : siblings;
