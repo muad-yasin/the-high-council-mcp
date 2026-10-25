@@ -102,6 +102,23 @@ export function isDeadNode(rootDir, node, generation) {
   return deadKeys(stateOf(readTreeRecord(rootDir))).has(`${node}@g${generation}`);
 }
 
+/**
+ * THE RECORD-ONLY PHASE of a sitting step (D2 F5a/F5b; Q3, Muad 25 Okt 2026 14:45 "Yes to all" on Astra's list: ONE centralized, whitelisted reconciliation phase before the block check). In order: recovery's record-only completions
+ * (src/tree-recovery.js: a finished run's end, a dead post-run claim released, a recorded decision's opening; no start, resume or registration function is given, so none runs), the verification of finished splits (split_verified or a
+ * refusal line), and the sitting's close test of blocked stops (stop_restored). Each event passes the table as always; none is paid, so a sticky block refuses none of them (tree-transitions.js: only paid events are refused under a block).
+ * The sitting runs it at the top of every step; `tree resume` runs it before its blocked branch, so a block whose way out needs one of these facts is no longer a loop. -> { verified, restored, unchecked }.
+ */
+export async function recordOnlyPhase(rootDir, { work, facts, now, afterSnapshot = null } = {}) {
+  const runsDir = dirname(rootDir);
+  await recoverTree(rootDir, { runFactsOf: runFactsOfIn(runsDir), facts, now });     // record-only appends: no start, no resume function is given
+  const verified = verifyClosedNodes(rootDir, { work, facts, now });
+  // RESTORE GAP (gate page sections 3, 8-10; C&C 14 Oct 2026). WHY THE SITTING MAY CLOSE EVEN THE ROOT'S STOP, and why that is never the sitting answering the root: (a) Muad 14 Oct 2026 00:02: "byte-identical to a recorded hash = closed automatically and recorded" - a byte-identical file is the RUN'S OWN file back, nobody's decision, node or root alike; (b) where a DECISION is made the root stays the PERSON's: a CHANGED plan (packet 3 #4, commits 2b/2c) and the repaired approach of a re-plan (11 Oct). Lock order: this sitting holds the SITTING lock (outermost); restoreClosedStops takes the TREE lock inside it and releases it before afterStep takes it again: always sitting -> tree, never nested the other way (nothing takes the sitting lock while holding the tree lock: grep acquireRunLock). BEFORE detectStops and afterStep, so the verdict afterStep records already reflects the closed stop. It appends only `stop_restored` (actor 'sitting') for a blocked stop whose files are back byte for byte;
+  // a node that still has another reason gets a NEW stop from the sitting's afterStep. A lock held elsewhere never replaces the sitting's real result: the next step asks again.
+  let restored = []; let unchecked = [];
+  try { const rs = restoreClosedStops(rootDir, { runsDir, now, facts, work, afterSnapshot }); restored = rs.filter(r => r.restored); unchecked = rs.filter(r => UNCHECKED_WHY.includes(r.why)); } catch (e) { if (!(e instanceof RunLockedError)) throw e; }     // ONLY a busy lock is skipped (the next step asks again); a TreeRefusal here is the library and the table DISAGREEING, a defect that must surface, not a step to skip (and a refused append also writes a blocked line)
+  return { verified, restored, unchecked };
+}
+
 async function sitting(rootDir, { work, startRun, resumeRun, facts, now, rootTaskPath, maxStarts, hooks }) {
   const runsDir = dirname(rootDir);
   const restored = [];       // the stops the SITTING closed this time (restore gap: a damaged file put back exactly as the run produced it); shown by sittingLines
@@ -163,11 +180,9 @@ async function sitting(rootDir, { work, startRun, resumeRun, facts, now, rootTas
     const finalSentence = finalSentenceOf(rootDir);
     if (finalSentence) return { status: 'abandoned', started, verified, stops: [], rootBlocked, fileProblems: [...fileProblems], sentence: finalSentence };
     if (stopRequested(rootDir)) return result('stopped_by_person');
-    await recoverTree(rootDir, { runFactsOf: runFactsOfIn(runsDir), facts, now });     // record-only appends: no start, no resume function is given
-    verified.push(...verifyClosedNodes(rootDir, { work, facts, now }));
-    // RESTORE GAP (gate page sections 3, 8-10; C&C 14 Oct 2026). WHY THE SITTING MAY CLOSE EVEN THE ROOT'S STOP, and why that is never the sitting answering the root: (a) Muad 14 Oct 2026 00:02: "byte-identical to a recorded hash = closed automatically and recorded" - a byte-identical file is the RUN'S OWN file back, nobody's decision, node or root alike; (b) where a DECISION is made the root stays the PERSON's: a CHANGED plan (packet 3 #4, commits 2b/2c) and the repaired approach of a re-plan (11 Oct). Lock order: this sitting holds the SITTING lock (outermost); restoreClosedStops takes the TREE lock inside it and releases it before afterStep takes it again: always sitting -> tree, never nested the other way (nothing takes the sitting lock while holding the tree lock: grep acquireRunLock). BEFORE detectStops and afterStep, so the verdict afterStep records already reflects the closed stop. It appends only `stop_restored` (actor 'sitting') for a blocked stop whose files are back byte for byte;
-    // a node that still has another reason gets a NEW stop from afterStep below. A lock held elsewhere never replaces the sitting's real result: the next step asks again.
-    try { const rs = restoreClosedStops(rootDir, { runsDir, now, facts, work, afterSnapshot: hooks.afterRestoreSnapshot }); restored.push(...rs.filter(r => r.restored)); unchecked = rs.filter(r => UNCHECKED_WHY.includes(r.why)); } catch (e) { if (!(e instanceof RunLockedError)) throw e; }     // ONLY a busy lock is skipped (the next step asks again); a TreeRefusal here is the library and the table DISAGREEING, a defect that must surface, not a step to skip (and a refused append also writes a blocked line)
+    // THE RECORD-ONLY PHASE (D2 F5a/F5b, Q3): recovery's completions, the verification of finished splits, the sitting's close test; `tree resume` runs the SAME phase before its blocked branch (one rule, not a copy)
+    const phase = await recordOnlyPhase(rootDir, { work, facts, now, afterSnapshot: hooks.afterRestoreSnapshot });
+    verified.push(...phase.verified); restored.push(...phase.restored); unchecked = phase.unchecked;
     stops.push(...detectStops(rootDir, { facts, now }).map(e => ({ id: e.id, node: e.node, generation: e.generation, affected: e.affected, text: needsDecisionStopText(rootDir, e) })));
     // a failed integration check whose stop was never written (the process ended between the verb's two records) gets its stop now; when the files that decide it do not read, nothing is written and the gap is named (fail closed)
     const gap = detectIntegrationStops(rootDir, { facts, now });

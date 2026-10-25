@@ -816,6 +816,16 @@ function retiredObligationOf(state, answeringStopId) {
   for (const id of state.openStops) consider(id);
   return { stops, decisions, origins };
 }
+/**
+ * CR-2G-004 with D3 F5-2 (ONE predicate for two readers): the obligation decisions a root re-plan supersedes (every open root stop with an origin, the answered one included: retiredObligationOf). Recovery's opening skips exactly these while
+ * root_affected stands (src/tree-recovery.js, D2 F5a), and a root re-plan does not wait for them (unopenedBeforeReplan below), so the printed "run `council tree resume` first" can never point at a decision the resume will not open.
+ */
+export function supersededByRootReplan(state, answeringStopId = null) { return retiredObligationOf(state, answeringStopId).decisions; }
+/** CR-2G-004: the recorded decisions a root re-plan must wait for: not in place, not opened, not a root re-plan (its own guard), not superseded by this re-plan. Opening one into the NEW era would feed its text to a child of a plan the person chose without it. -> [decision id]. */
+export function unopenedBeforeReplan(state, answeringStopId = null) {
+  const superseded = supersededByRootReplan(state, answeringStopId);
+  return [...state.decisions].filter(([id, d]) => !d.generated && d.replansRoot !== true && !superseded.has(id)).map(([id]) => id);
+}
 /** The child stop and the obligation decision a ROOT obligation stop came from: { originStopId, decisionId } | null. null for any other stop, for a stop with no `originStopId`, and for one whose origin names no decision (a
  *  hand-written record): the F2 allowance and the supersede then do nothing - they fail closed. Events only (`state` may be the fold's own locals: it reads `stopMeta` and `decisions`). */
 export function obligationOriginOf(state, stopId) {
@@ -1499,6 +1509,7 @@ export function transitionRefusal(state, event, facts = {}) {
         if (event.form !== 'regenerate') return refuse(event, 'only the regenerate form re-plans the root (replansRoot)');
         if (stopNode !== 'R') return refuse(event, `stop ${event.stopId} belongs to ${stopNode ?? 'no node'}, not to the root: replansRoot answers a stop of the root`);
         if (state.active !== null) return refuse(event, `node ${state.active} is active: a root re-plan never races a running node`);
+        { const waiting = unopenedBeforeReplan(state, event.stopId); if (waiting.length) return refuse(event, `decision ${waiting.join(', ')} is recorded and its new generation is not opened yet: a root re-plan waits for it (run \`council tree resume\` first)`); }     // CR-2G-004
         if ([...state.decisions.values()].some(d => d.replansRoot && !d.opened) || latestGenerationOf(state, 'R') > Math.max(...[...state.nodes.values()].filter(s => s.node === 'R').map(s => s.generation))) return refuse(event, 'a root re-plan is already pending: its new root is not registered yet');
         const newest = [...state.nodes.values()].filter(s => s.node === 'R').sort((a, b) => b.generation - a.generation)[0];
         if (!newest || newest.phase !== PHASES.closed) return refuse(event, `the root plan ${newest ? `R@g${newest.generation} is ${newest.phase}` : 'is not registered'}: a root plan is replaced only once it is closed`);

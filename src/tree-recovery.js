@@ -2,7 +2,8 @@
 // ALREADY recorded, never a new one. `planRecovery` is pure: it takes the record and facts about each run folder and returns the actions, in the order PLAN 8.3 gives them; `recoverTree` applies the ones that are
 // only record writes and hands the rest (start, resume, register the next child) to the caller's functions. It spawns nothing itself: the orchestrator (M5) owns that.
 //
-// Order (one group per pass; the caller plans again after the appends):
+// Order (one group per pass; the caller plans again after the appends). A STICKY block (parent_changed, root_affected) returns `blocked` only AFTER groups 1-3 (D2 F5a, Q3): they are record-only and use an authorization already
+// recorded, so a block never hides them; everything from group 4 on waits behind it.
 //   1. completed outcomes first: a run whose report.json or cap-stop record exists but whose node_closed / node_stopped is missing gets it appended;
 //   2. a dead post-run execution (a node_resumed with purpose post_run, no node_released after, its process gone on this host): node_released, which releases only that claim. The purpose is on the record so an
 //      ordinary execution is never released as though it were a post-run call;
@@ -16,7 +17,7 @@
 //      registration, so the next one waits for the one before to end).
 // A corrupt record is not recovered: the only action is `blocked`.
 import { hostname } from 'node:os';
-import { approvalValid, claimAlive, foldRecord, unansweredAdviceOf } from './tree-transitions.js';
+import { approvalValid, claimAlive, foldRecord, supersededByRootReplan, unansweredAdviceOf } from './tree-transitions.js';
 import { TreeRefusal, appendTreeEvent, readTreeRecord } from './tree-record.js';
 import { returnedUsdOf, unreadableFloorOf } from './tree-budget.js';
 import { keepPlanCopy, waitsForChoice } from './tree-member.js';
@@ -89,7 +90,10 @@ export function planRecovery(record, { runFactsOf, facts = {}, now = () => Date.
   // reconcileAdvice's (a call may outlive the process that registered it, and its folder says whether it ended).
   const unanswered = unansweredAdviceOf(state, { ...facts, nowMs: nowOf() });
   if (unanswered.length) return unanswered.map(x => ({ action: 'append', event: { event: 'advice_ended', ...x } }));
-  if (state.sticky.size) return [{ action: 'blocked', reason: [...state.sticky.keys()].join(', ') }];
+  // D2 F5a (CR-2G-001, CR-2G-002; Q3, Muad 25 Okt 2026 14:45 "Yes to all" on Astra's list: "allow narrowly defined free reconciliation under a block; keep execution blocked"): the RECORD-ONLY completions below (a finished run's end
+  // from its own files, the release of a post-run claim proven dead on THIS host, the opening a recorded decision already authorized) run AHEAD of the sticky return, so a block can no longer hide the very facts its printed way
+  // out needs (the replaced parent's opening that lifts parent_changed; the node_closed the root re-plan preflight reads). Each is one event the table checks as it always does; nothing here starts, resumes or registers, and
+  // the run actions stay behind the sticky return below.
   const nodes = [...state.nodes.values()];
   const factsOf = n => runFactsOf(n.runId);
 
@@ -105,8 +109,14 @@ export function planRecovery(record, { runFactsOf, facts = {}, now = () => Date.
   const released = nodes.filter(n => n.postRun && !claimAlive(n.postRun, facts)).map(n => ({ action: 'append', event: { event: 'node_released', node: n.node, generation: n.generation, runId: n.runId, reason: 'dead_post_run' } }));
   if (released.length) return released;
 
-  const opening = [...state.decisions].filter(([, d]) => !d.generated).map(openingOf(state));
+  // the opening skips a decision the block holds BY DESIGN: while root_affected stands, an obligation decision whose stop opened a root obligation stop waits for the root's answer (its milestone resolution, or a root re-plan that
+  // supersedes it: tree-transitions.js retiredObligationOf), as before F5a
+  // (the SAME predicate a root re-plan's CR-2G-004 guard exempts: tree-transitions.js supersededByRootReplan, D3 F5-2)
+  const heldByRoot = state.sticky.has('root_affected') ? supersededByRootReplan(state) : new Set();
+  const opening = [...state.decisions].filter(([id, d]) => !d.generated && !heldByRoot.has(id)).map(openingOf(state));
   if (opening.length) return opening;
+
+  if (state.sticky.size) return [{ action: 'blocked', reason: [...state.sticky.keys()].join(', ') }];
 
   if (!nodes.some(n => n.node === 'R')) return [{ action: 'register_root' }];
 

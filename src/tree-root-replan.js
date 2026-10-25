@@ -19,7 +19,7 @@ import { sha256Of } from './thin-contract.js';
 import { taskHashOf } from './scope-freeze.js';
 import { nextRunId } from './run-files.js';
 import { readTreeRecord, stateOf } from './tree-record.js';
-import { latestGenerationOf } from './tree-transitions.js';
+import { latestGenerationOf, unopenedBeforeReplan } from './tree-transitions.js';
 import { activeNodeWords } from './tree-close.js';
 import { nodeKey } from './tree-identity.js';
 import { MONEY_EPS, bundleAllowanceBytesOf, budgetOf, ceilCents, chainFigures, floorCents, gateTree } from './tree-budget.js';
@@ -79,6 +79,9 @@ export function rootReplanPreflight(rootDir, { work, stopId, sittingHeld, allowa
   if (root.phase !== 'closed') return refusal('root_not_closed', `the root plan ${nodeKey(root.node, root.generation)} is not closed (it is ${root.phase}): it must end first (answer its pause, raise its cap, or close it with \`council tree decide --close\`)`);
   // 2.6 no earlier root re-plan is still pending: a decision that re-plans the root whose generation is not registered yet
   if (gen > root.generation || [...state.decisions.values()].some(d => d.replansRoot && !d.opened)) return refusal('replan_pending', `a root re-plan is already pending (R@g${gen} is opened and not registered): run \`council tree approve\` for it`);
+  // CR-2G-004 (A-DRAFT words): a recorded decision whose new generation is not opened yet would open into the NEW era and feed its text to a child of a plan chosen without it; the resume opens it (recovery runs its openings under a block
+  // too, D2 F5a), so the way out printed here is real. Decisions this re-plan supersedes are not waited for (the same predicate recovery skips: supersededByRootReplan)
+  { const waiting = unopenedBeforeReplan(state, stop.id); if (waiting.length) return refusal('decision_unopened', `decision ${waiting.join(', ')} is recorded but the new plan it asked for is not opened yet: run \`council tree resume ${record.tree?.treeId ?? '<rootId>'}\` first, then decide`); }
   // 2.3 nothing is active, no sitting runs
   if (state.active !== null) return refusal('node_active', activeSentenceOf({ state, record, rootDir, key: state.active }));
   if (sittingHeld()) return refusal('sitting_running', 'a sitting of this tree is running: nothing was changed; wait for it to end');

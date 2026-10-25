@@ -34,7 +34,7 @@ const UNSIGNED = '# A draft the mock critics do not sign\n\nIt carries no marker
 const quiet = () => { const stdout = new PassThrough(); const stderr = new PassThrough(); const buf = []; stdout.on('data', d => buf.push(String(d))); stderr.on('data', d => buf.push(String(d))); return { stdout, stderr, text: () => buf.join('') }; };
 
 /** -> { work, rootDir, rootId, childStop, rootStop, decision, opened, kinds(), state(), nodeOf(node, generation), sit(), approve() }. Every assertion names the leg that failed. */
-export async function driveToDepthTwoReplan({ taskText = 'Plan a tiny change.\n', startFlags = {}, stopBeforeReplan = false, stopAtChildStop = false } = {}) {
+export async function driveToDepthTwoReplan({ taskText = 'Plan a tiny change.\n', startFlags = {}, stopBeforeReplan = false, stopAtChildStop = false, stopAfterChildFrontier = false } = {}) {
   const work = track(mkdtempSync(join(tmpdir(), 'thc-depth2-')));
   mkdirSync(join(work, 'tasks')); mkdirSync(join(work, 'chains'));
   writeFileSync(join(work, 'tasks', 'x.md'), taskText);
@@ -80,6 +80,8 @@ export async function driveToDepthTwoReplan({ taskText = 'Plan a tiny change.\n'
   assert.deepEqual([S.nodeOf('R/M1', 1)?.phase, S.nodeOf('R/M1', 1)?.outcome], ['closed', 'passed'], `leg 4: R/M1 must close passed with a split. ${r.text}`);
   // leg 5
   r = await S.approve(); assert.equal(r.code, 0, `leg 5: ${r.text}`);
+  S.decide = decide;
+  if (stopAfterChildFrontier) return S;       // D2 T5 (lane T, G2): R/M1's children frontier is approved, none of them registered yet
   // leg 6
   r = await S.sit(); assert.equal(r.code, 20, `leg 6: ${r.text} || nodes: ${[...S.state().nodes.values()].map(x => `${x.node}@g${x.generation} ${x.phase}/${x.outcome}/${x.closedStatus}`).join('; ')}`);
   const stops = kinds('needs_decision_opened'); assert.equal(stops.length, 1, `leg 6: one blocked-child stop expected: ${JSON.stringify(stops)} ${r.text}`);

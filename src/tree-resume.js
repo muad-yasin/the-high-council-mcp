@@ -21,9 +21,8 @@ import { DEAD_REASON, HELD_PHRASE, KEPT_PHRASE, claimAlive, deadKeys } from './t
 import { readTreeRecord, stateOf, treeDirOf } from './tree-record.js';
 import { MONEY_EPS } from './tree-budget.js';
 import { pausedAtExternalSeat, runEndOf, waitsForChoice } from './tree-member.js';
-import { recoverTree } from './tree-recovery.js';
 import { renderDerivedNotAdmitted, renderHeldChildren, renderParentChanged } from './tree-stop.js';
-import { SITTING_LOCK_FILE, apiResumer, apiStarter, blockedFacts, clearStop, isDeadNode, runFactsOfIn, runTree } from './tree-run.js';
+import { SITTING_LOCK_FILE, apiResumer, apiStarter, blockedFacts, clearStop, isDeadNode, recordOnlyPhase, runTree } from './tree-run.js';
 import { sittingFacts } from './tree-stop-view.js';
 import { beginRoot } from './tree-start.js';
 import { rootUnstartedOf } from './tree-root-unstarted.js';
@@ -201,16 +200,19 @@ export async function resumeHandler({ rootDir, rootId, work, stdout, stderr, now
   try {
     { const final = finalSentenceOf(rootDir); if (final) { out(final); return EXIT_OF.abandoned; } }
     if (clearStop(rootDir)) out('The stop was removed.');
-    // record-only reconciliation first (a run that ended and left no end event), so what is described below is what the record says
-    await recoverTree(rootDir, { runFactsOf: runFactsOfIn(runsDir), facts, now });
+    // the RECORD-ONLY PHASE first (D2 F5b, Q3; the sitting's own: src/tree-run.js recordOnlyPhase): a run that ended and left no end event, a dead post-run claim, a recorded decision's opening, a finished split's verification, a stop
+    // whose cause is gone. So what is described below is what the record says, and a block whose way out needs one of these facts is not a loop
+    const phase = await recordOnlyPhase(rootDir, { work, facts, now });
     const record = readTreeRecord(rootDir);
     if (record.corrupt.length) { err(`council tree resume: the tree record is corrupt (${record.corrupt.map(c => c.reason).join('; ')}). Nothing was started.`); return 1; }
     const state = stateOf(record);
     // a standing block ends the sitting BEFORE any resume of an active node (a paid resume never starts under a block): runTree's own blocked branch prints the reasons and the remedy (root_affected: answer the root stop in place;
     // parent_changed: approve again) and exitCodeOf gives 20 for a block a person can act on (R6, Opus 4-1 / Fable Q4-3)
     if (state.sticky.size) {
-      // nothing is verified, detected or recovered here: the old early return wrote nothing, and a person asking "what now?" under a block must not change the record
-      const blocked = { status: 'blocked', started: [], verified: [], stops: [], ...sittingFacts(rootDir), ...blockedFacts(record, state, runsDir) };
+      // REVERSED by Q3 (Muad 25 Okt 2026 14:45 "Yes to all" on Astra's list: "allow narrowly defined free reconciliation under a block; keep execution blocked"; D2 F5b): the old rule here was "nothing is verified, detected or recovered:
+      // a person asking 'what now?' under a block must not change the record". The record-only phase above now runs under a block too (its writes are facts already true, each checked by the table); nothing is started, resumed or
+      // registered here, and nothing that authorizes spend is written.
+      const blocked = { status: 'blocked', started: [], verified: phase.verified, stops: [], restored: phase.restored, unchecked: phase.unchecked, ...sittingFacts(rootDir), ...blockedFacts(record, state, runsDir) };
       for (const l of sittingLines(blocked, rootId)) out(l);
       return exitCodeOf(blocked);
     }
