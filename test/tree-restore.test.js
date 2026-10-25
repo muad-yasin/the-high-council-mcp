@@ -10,6 +10,7 @@ import { appendTreeEvent, readTreeRecord, stateOf } from '../src/tree-record.js'
 import { EVENT_NAMES, RESTORABLE_CODES, eventShapeError, transitionRefusal } from '../src/tree-transitions.js';
 import { restoreClosedStops, restoreDecision, snapshotOfRun } from '../src/tree-restore.js';
 import { runTree } from '../src/tree-run.js';
+import { needsDecisionStopText } from '../src/tree-stop-view.js';
 import { presenceProblems } from './helpers/event-presence.js';
 import { trackedRealRoot } from './helpers/temp-trees.js';
 import { splitMilestoneChildren } from './helpers/child-chains.js';
@@ -64,6 +65,10 @@ test('R6 + R11 (REAL): two damaged nodes, two stops (R/M2 depends on R/M1, so it
   await sitting(r, start);
   const stops = Object.fromEntries(blockedStops(r).map(e => [e.node, e.id]));
   assert.deepEqual(blockedStops(r).map(e => [e.node, e.blockedBy.map(b => b.code)]), [['R/M1', ['report_unreadable']], ['R/M2', ['provider_pin', 'report_unreadable']]]);
+  // D2 F13j S14 (A-DRAFT; lane T, G5+6; B3c): the dependent's stop names the free restore of its provider's files, through the real gather (src/tree-stop-view.js pinProviders from the registration's pins). RED at f7ccc764: no such line
+  // (the provider_pin restore was not printed, D1a B3c); R/M1's own stop names no provider_pin, so it gets none
+  assert.ok(needsDecisionStopText(r.t.rootDir, blockedStops(r).find(e => e.node === 'R/M2')).split('\n').includes('  Put the run files of R/M1@g1 back as its run wrote them: the next `council tree resume` closes this stop by itself when its thin contract reads as the one R/M2 was registered against.'));
+  assert.equal(needsDecisionStopText(r.t.rootDir, blockedStops(r).find(e => e.node === 'R/M1')).includes('Put the run files of'), false);
   restore(r, 'R/M1', o1);
   const out = run(r);
   assert.deepEqual(out.map(x => [x.node, x.restored, x.why ?? null]), [['R/M1', true, null], ['R/M2', false, 'still_unreadable']]);

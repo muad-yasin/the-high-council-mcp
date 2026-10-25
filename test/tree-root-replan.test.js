@@ -11,6 +11,7 @@ import { rootBundle, rootReplanPreflight, rootTaskRefOf, registerRootReplan, wri
 import { bundleSha256Of, bundleDirOf } from '../src/tree-continuation.js';
 import { floorCents } from '../src/tree-budget.js';
 import { registerNextChild } from '../src/tree-loop.js';
+import { rootRemedies } from '../src/tree-decide-stop.js';
 import { trackedRealRoot } from './helpers/temp-trees.js';
 import { approvePending } from './helpers/sitting.js';
 import { GATE_FIELDS, FIXTURE_BOUND, ROOT_ID, claim, hostnameOf, newTree } from './helpers/tree-fixture.js';
@@ -173,6 +174,24 @@ test('stop_dead: an open stop of a root generation that was already replaced is 
   const named = pre(r, { stopId: line.id });
   assert.equal(named.refusal.code, 'stop_dead', JSON.stringify(named.refusal));
   assert.match(named.refusal.text, /R@g1, a root plan that was already replaced \(the root now is R@g2\)/);
+});
+
+test('D2 F13e (B22a / CR-2B-001): once R@g2 is REGISTERED, rootRemedies offers no milestone of R@g1 (its stop is no longer the one to answer, so `--milestone R@g1:<id>` beside the new root\'s stop would refuse); while R@g2 is only opened, R@g1\'s stay', async () => {
+  const { r, stop } = await withStop();
+  const p = pre(r); assert.equal(p.ok, true);
+  const remedies = () => { const rec = readTreeRecord(r.t.rootDir); return rootRemedies(rec, stateOf(rec), r.t.runsDir); };
+  // control (passes at both heads): the real root's split marks M5 needs-decision (test/helpers/split-fixture.js block3), so R@g1:M5 answers the root stop in place
+  assert.deepEqual(remedies(), ['R@g1:M5']);
+  const dec = appendTreeEvent(r.t.rootDir, { event: 'decision_recorded', text: 'again', form: 'regenerate', stopId: stop.id, replansRoot: true, affected: [{ node: 'R', generation: 1 }], ...GATE_FIELDS });
+  appendTreeEvent(r.t.rootDir, { event: 'generation_opened', decisionId: dec.id, nodes: [{ node: 'R', generation: 2 }] });
+  assert.deepEqual(remedies(), ['R@g1:M5'], 'an opened, unregistered R@g2 is not the newest REGISTERED root generation (control: passes at both heads)');
+  const bundle = rootBundle({ treeId: ROOT_ID, generation: 2, decisions: [{ id: dec.id, text: 'again' }], taskText: p.task.text }); writeRootBundle(r.t.rootDir, bundle);
+  appendTreeEvent(r.t.rootDir, { event: 'frontier_previewed', kind: 'root_replan', openedBy: dec.id, frontierKey: 'kRoot', parentNode: null, parentGeneration: null, parentRunId: null, splitSha256: null, children: [{ node: 'R', generation: 2 }], boundSha256: FIXTURE_BOUND });
+  appendTreeEvent(r.t.rootDir, { event: 'frontier_approved', ...GATE_FIELDS, boundSha256: FIXTURE_BOUND, frontierKey: 'kRoot', revision: 1 });
+  registerRootReplan(r.t.rootDir, { generation: 2, frontierKey: 'kRoot', bundle, chain: p.chain, previous: p.previous, taskSha256: p.task.taskSha256, capUsd: p.chain.figures.atMostUsd });
+  assert.equal(stateOf(readTreeRecord(r.t.rootDir)).nodes.has('R@g2'), true, 'precondition: R@g2 is registered');
+  // RED at f7ccc764: ['R@g1:M5'] (rootRemedies walked every root generation)
+  assert.deepEqual(remedies(), [], 'R@g2 has no closed plan yet, so nothing answers a root stop in place; R@g1:M5 is not offered');
 });
 
 test('rootBundle (Draft A): task.md is the task bytes; context.md is the existing part-7 shape around the person\'s text and NOTHING else; node.json carries the bundle hash and is not part of it; a different text is a different hash; no criteria.json', () => {

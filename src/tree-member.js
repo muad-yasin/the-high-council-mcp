@@ -23,7 +23,7 @@ import { TreeRefusal, appendTreeEvent, appendTreeEventLocked, readTreeRecord, st
 import { treePiiAllowFrom, treePiiModeFrom } from './tree-pii-mode.js';
 import { nodeKey } from './tree-identity.js';
 import { isNodePath, transitionRefusal } from './tree-transitions.js';
-import { budgetOf, gateTree, lifetimeCapOf, returnedUsdOf, unreadableFloorOf } from './tree-budget.js';
+import { accountingAcceptLines, budgetOf, gateTree, lifetimeCapOf, returnedUsdOf, unreadableFloorOf } from './tree-budget.js';
 import { memberCeilingRefusal } from './tree-ceiling.js';
 import { bundleIdentityRefusal, continuationRefusal, deadRefusal, parentChangedEvent, rebuildDueRefusal, wayOutOf } from './tree-continuation.js';
 
@@ -196,7 +196,8 @@ export function memberStart({ runDir, runId, lineage, purpose = 'run', capAskedU
     // an unreadable or placeholder ceiling at a PAID member start refuses (fail closed): exit 19 and ONE `blocked`, nothing claimed
     { const bad = memberCeilingRefusal({ key, tree: record.tree, capUsd: Infinity, committedUsd: 0, ceiling }); if (bad?.check === 'ceiling_unreadable') refuse('continuation_refused', bad.check, bad.detail); }
     const gate = gateTree(rootDir, { record });
-    if (!gate.ok) refuse('accounting_blocked', null, `the accounting gate fails: ${gate.problems.slice(0, 3).map(p => `${p.code} (${p.detail})`).join('; ')}${gate.problems.length > 3 ? `; and ${gate.problems.length - 3} more` : ''}`);
+    // D2 F13a S9 (A-DRAFT; B20a): the typed acceptance for each node with a KEYED problem (all of them, not only the three named), each on its own line: the sitting quotes the LAST lines of a refused member (src/tree-run.js tree_refused, src/tree-resume.js)
+    if (!gate.ok) refuse('accounting_blocked', null, [`the accounting gate fails: ${gate.problems.slice(0, 3).map(p => `${p.code} (${p.detail})`).join('; ')}${gate.problems.length > 3 ? `; and ${gate.problems.length - 3} more` : ''}`, ...accountingAcceptLines(gate.problems, lineage.treeId)].join('\n'));
     const registered = record.events.find(e => e.event === 'node_registered' && e.node === lineage.node && e.generation === lineage.generation);
     const why = continuationRefusal({ rootDir, record, state, node: n, registered, lineage, inputs, chainPath, purpose, work, deps });
     if (why?.check === 'ancestor' && typeof why.frontierKey === 'string') {
@@ -209,7 +210,7 @@ export function memberStart({ runDir, runId, lineage, purpose = 'run', capAskedU
     // the tree's cap in force against the ceiling (Q1, gate note): a cap set before the variable was set or lowered is refused at every paid member start, with the way down
     { const over = memberCeilingRefusal({ key, tree: record.tree, capUsd: budget.rootCapUsd, committedUsd: budget.treeSpentUsd + budget.unknownSpendHeldUsd + budget.heldUsd, ceiling }); if (over) refuse('continuation_refused', over.check, over.detail); }
     const life = lifetimeCapOf(budget, key);
-    if (!life.live) refuse('continuation_refused', 'grant', `${key} has no live grant: min(grant ${life.grantUsd.toFixed(4)} - spent ${life.spentUsd.toFixed(4)}, root cap ${budget.rootCapUsd} - tree spent ${budget.treeSpentUsd.toFixed(4)} - held by others ${life.heldByOthersUsd.toFixed(4)}) = ${life.roomUsd.toFixed(4)}`);
+    if (!life.live) refuse('continuation_refused', 'grant', `${key} has no live grant: min(grant ${life.grantUsd.toFixed(4)} - spent ${life.spentUsd.toFixed(4)}, root cap ${budget.rootCapUsd} - tree spent ${budget.treeSpentUsd.toFixed(4)} - held by others ${life.heldByOthersUsd.toFixed(4)}) = ${life.roomUsd.toFixed(4)}${n.node !== 'R' && n.phase !== 'closed' && purpose !== 'post_run' ? `. Nothing is left of its grant: give it up with \`council tree decide ${lineage.treeId} --close ${key}\`.` : ''}`);       // D2 F13c S10 (A-DRAFT; B21b, the LOOP of an interrupted node whose spend reached its grant): named only where `--close` takes the node (src/tree-close.js closeRefusal refuses the root and a closed node; a post-run call is on an ended run)
     const capUsd = Math.min(capAskedUsd, life.lifetimeCapUsd);
     const claim = appendTreeEventLocked(rootDir, { ...plain, capUsd, lifetimeCapUsd: life.lifetimeCapUsd, capAskedUsd }, { facts, now });
     // PLAN 7.2 item 6: each line of the member's own reservations file is copied into the record by the same call that writes it (src/spend-reservations.js `mirror`), synchronously.

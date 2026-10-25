@@ -46,7 +46,7 @@ export function rebuildRegisteredBundle(rootDir, { work, rootTaskPath = rootTask
       if (!record.events.some(e => e.event === 'blocked' && e.scope === scope && e.check === check && e.detail === detail)) appendTreeEventLocked(rootDir, { event: 'blocked', reason: 'expansion_refused', ...fields }, { facts, now });
       return { kind: 'refused', node: n.node, generation: n.generation, check, detail };
     };
-    const way = ` The sub-plan is not started. Close it (\`council tree decide ${basename(rootDir)} --close ${scope}\`) or answer the plan it quotes with a new plan.`;
+    const way = ` The sub-plan is not started. Close it (\`council tree decide ${basename(rootDir)} --close ${scope}\`).`;       // D2 F13g S12 (A-DRAFT): the clause "or answer the plan it quotes with a new plan" named no command, and is dropped
     // the parent is the generation the node's FRONTIER names, never the newest (after a regenerate the old child belongs to the old parent)
     const parent = state.nodes.get(`${n.parentNode}@g${state.frontiers.get(n.frontierKey)?.parentGeneration}`);
     if (!parent) return refuse('rebuild_parent', `${scope}'s parent ${n.parentNode} is not in the record, so its input cannot be rebuilt.${way}`);

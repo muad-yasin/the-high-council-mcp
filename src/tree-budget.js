@@ -328,6 +328,15 @@ const strip = l => { const { _at, ...rest } = l; return rest; };
 const coverSig = (code, keys, detailSha256) => `${code}\u0000${[...keys].sort().join(',')}\u0000${detailSha256}`;
 /** What an acceptance records about ONE problem it covers: its code, its reservation keys and the hash of its detail text (which carries the figures as the gate saw them). */
 export const problemCover = p => ({ code: p.code, keys: [...p.keys].sort(), detailSha256: sha256Of(p.detail) });
+/**
+ * D2 F13a S9 (A-DRAFT; D3 F13-1 corrected it; B20a): the typed acceptance `council tree decide --accounting` takes, named ONCE per node that has a KEYED gate problem (a problem with reservation keys, the only kind an acceptance
+ * covers: buildAccounting in src/tree-decide.js, acceptAccounting below). A member node only: `advice:<id>` and the node-less over_committed are no node `--accounting` reads. Unkeyed problems (B20b) get nothing here: their record
+ * is restored by hand. ONE copy for `tree status` (src/tree-status.js) and the member's refusal (src/tree-member.js). `problems`: gateTree's, or the report's copy of them (both carry `node` and `keys`). -> [sentence] in node order.
+ */
+export function accountingAcceptLines(problems, rootId) {
+  const nodes = [...new Set((problems ?? []).filter(p => Array.isArray(p?.keys) && p.keys.length && typeof p.node === 'string' && /^R(\/[^@\s]+)*@g\d+$/.test(p.node)).map(p => p.node))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return nodes.map(k => `For ${k}: \`council tree decide ${rootId} --accounting ${k}\` lets you accept, as a typed decision, the charges the accounting gate cannot prove for it (no number changes).`);       // D2 F13a S9 (A-DRAFT)
+}
 
 /**
  * What a node's close gives back to the pool (PLAN 7.5): its grant (first grant plus every top-up) minus `runSpentUsd`, which counts an unsettled reservation at its worst case (the figure the cap uses), never below zero.

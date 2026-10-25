@@ -142,8 +142,11 @@ export function milestoneKeysOf(record, state, runsDir, node, generation) {
 }
 
 /** What can answer a ROOT stop IN PLACE (a resolution; a new root plan answers it too, S8-4): the root's unresolved needs-decision milestones, as qualified ids; empty means only a new root plan can answer it. */
+// D2 F13e (B22a / CR-2B-001; the planned gap G2, M6_Root_Regenerate_Design_Note.md): only the NEWEST REGISTERED root generation's milestones. After a root re-plan an older generation's milestone is answered through ITS stop only, and
+// that stop is no longer open (chooseStop refuses "that is the stop of R@g2"), so offering `--milestone R@g1:<id>` beside the new root's stop named a route that refuses.
 export function rootRemedies(record, state, runsDir) {
-  return openMilestones(record, state, runsDir).filter(m => m.node === 'R' && !m.resolved).map(m => m.key);
+  const newest = Math.max(0, ...[...state.nodes.values()].filter(n => n.node === 'R').map(n => n.generation));
+  return openMilestones(record, state, runsDir).filter(m => m.node === 'R' && m.generation === newest && !m.resolved).map(m => m.key);
 }
 
 /**

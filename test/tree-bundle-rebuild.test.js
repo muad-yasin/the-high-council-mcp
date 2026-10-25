@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appendTreeEvent, readTreeRecord, stateOf } from '../src/tree-record.js';
 import { clearStop, requestStop, runTree } from '../src/tree-run.js';
@@ -237,6 +237,9 @@ test('[REBUILD] THE WRITE ORDER: the table is asked about the event BEFORE any f
   assert.equal(rebuilds(r).length, 0);
   assert.equal(out.kind, 'refused', JSON.stringify(out));
   assert.match(out.detail, /the tree is blocked/);
+  // D2 F13g S12 (A-DRAFT; lane T, G5+6): the way out names the close and nothing without a command. RED at f7ccc764: the detail ended "... --close <scope>`) or answer the plan it quotes with a new plan."
+  assert.ok(out.detail.endsWith(` The sub-plan is not started. Close it (\`council tree decide ${basename(r.t.rootDir)} --close ${first.node}@g${first.generation}\`).`), out.detail);
+  assert.doesNotMatch(out.detail, /answer the plan it quotes/);
 });
 
 test('[REBUILD] THE LOCKED BACKSTOP: `continuationRefusal` (the locked start) refuses with rebuild_due when a plan the input quotes changed since it was built, reading the record only, and not after the rebuild', { timeout: 900_000 }, async () => {

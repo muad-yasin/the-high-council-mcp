@@ -31,7 +31,7 @@ import { nodeKey } from './tree-identity.js';
 import { chooseNextChild, providerEligibility } from './tree-loop.js';
 import { sittingFacts, needsDecisionStopText } from './tree-stop-view.js';
 import { splitChangedOf } from './tree-split-changed.js';
-import { effectiveLimits } from './tree-budget.js';
+import { accountingAcceptLines, effectiveLimits } from './tree-budget.js';
 import { stopRequested } from './tree-run.js';
 import { sittingLines } from './tree-resume.js';
 import { rootUnstartedOf } from './tree-root-unstarted.js';
@@ -113,6 +113,7 @@ export function renderTreeStatus(f) {
     // 2b (gate page 12.4, C&C condition 2): an aggregate never reads as a pass over text no panel read
     if (rd.verdict === 'ready' && rd.reasons.some(r => r.severity === 'info')) L.push('  "Ready" here means no rule of readiness fails; it does not say the run\'s review panel signed every plan: the plans marked above were accepted by a person or the session after the run.');
     if (f.gate && f.gate.ok === false) L.push(`  The accounting gate does not trust the record (${f.gate.problems.length} problem${f.gate.problems.length === 1 ? '' : 's'}: ${[...new Set(f.gate.problems.map(p => p.code))].join(', ')}): no paid start or resume is made until it does.`);
+    if (f.gate && f.gate.ok === false) L.push(...accountingAcceptLines(f.gate.problems, id).map(s => `  ${s}`));       // D2 F13a S9 (A-DRAFT; B20a): the typed acceptance, one line per node with a keyed problem (unkeyed ones, B20b, are restored by hand)
     if (f.stopMarker) L.push('', ...sittingLines({ status: 'stopped_by_person', started: [] }, id));
 
   }
@@ -179,7 +180,9 @@ export function renderTreeStatus(f) {
   }
   for (const m of f.memberRefusals ?? []) if (m.runJson && !deadRefused.has(nodeKey(m.node, m.generation))) next.push(closeRefusedLine(m.node, id));
   if (!unusable && (f.stopToOpen ?? []).length) next.push(stopToOpenLine(f.stopToOpen, id));
-  L.push('', 'What you can do', ...(ab ? ['  Nothing: the tree is final.'] : next.length ? next.map(n => `  ${n}`) : ['  Nothing is asked of you right now.']));
+  // F13 status line (owed; Review/Build_0.8.3/m8/cr-fixes/M_F14_status_before_after.txt, the second block): under a `council tree stop` marker with nothing else to do, "Nothing is asked" hid the one step that goes on: `tree resume`
+  // removes the marker at its start (src/tree-resume.js, clearStop under the sitting lock), so it is named instead (A-DRAFT)
+  L.push('', 'What you can do', ...(ab ? ['  Nothing: the tree is final.'] : next.length ? next.map(n => `  ${n}`) : f.stopMarker ? [`  go on with \`council tree resume ${id}\`: it lifts the stop that \`council tree stop\` set`] : ['  Nothing is asked of you right now.']));
   return `${L.join('\n')}\n`;
 }
 
