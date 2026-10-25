@@ -138,6 +138,30 @@ test('CW-5 (real verbs): the typed-limit WAIT (exit 21: no call, the next step i
   } finally { await f.s.close(); }
 });
 
+const metaOf = rd => JSON.parse(readFileSync(join(rd, 'run.json'), 'utf8'));
+const withoutPid = m => { const { pid, ...rest } = m; return rest; };
+
+test('CW-6 (real verbs): a resume REFUSED by the artifact gate (exit 9) changes nothing in run.json but the pid: the waiver, the limit and the other settings typed on it are not saved', async () => {
+  const f = await fixture('Plan a change to src/app.js so it reads its port from the environment.\n', ['--allow-unfenced']);   // started with the whole-gate waiver
+  try {
+    const before = metaOf(f.rd);
+    assert.equal(before.allowUnfenced, true, 'the start saved its whole-gate waiver');
+    const blocked = await f.run(['--resume', f.rd, '--allow-unfenced', 'other.js', '--max-usd', '3', '--signoff', 'first']);   // a narrower list: refused
+    assert.equal(blocked.code, EXIT_ARTIFACTS_BLOCKED, blocked.out);
+    assert.deepEqual(withoutPid(metaOf(f.rd)), withoutPid(before), 'run.json is as it was (the saved waiver stands; nothing typed on the refused command was saved)');
+  } finally { await f.s.close(); }
+});
+
+test('CW-7 (real verbs): a resume that passes every refusal saves what was typed on it (here --allow-unfenced), before the first call', async () => {
+  const f = await fixture('Plan a small reading list app.\n');
+  try {
+    assert.equal(metaOf(f.rd).allowUnfenced, undefined);
+    const again = await f.run(['--resume', f.rd, '--allow-unfenced']);
+    assert.equal(again.code, EXIT_PRICE_REFUSED, again.out);
+    assert.equal(metaOf(f.rd).allowUnfenced, true, 'saved for the next plain resume');
+  } finally { await f.s.close(); }
+});
+
 test('CW-2 (source order): no choice is assigned into resumeMeta, and ONE flushChoices() follows the last refusal of the start (and the typed-limit wait)', () => {
   const src = readFileSync(cli, 'utf8');
   assert.deepEqual([...src.matchAll(/resumeMeta\.(roundChoices|seatChoices|conflictChoices) = (?!roundChoices;)/g)].map(m => m[1]), [], 'a new choice is held in pendingChoices, never assigned into resumeMeta (whose run.json writes come before the changed-task refusal)');

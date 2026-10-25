@@ -138,9 +138,11 @@ test('a narrower --allow-unfenced <files> on resume replaces the saved whole-gat
     const runDir = onlyRun(dir);
     const r = run(dir, ['--resume', runDir, '--allow-unfenced', 'src/other.js']);
     assert.equal(r.status, EXIT_ARTIFACTS_BLOCKED, 'app.js is no longer waived');
+    // CHANGED ACCEPTED TEST (CR-1E-006 same class, 25 Okt 2026; C&C ruled): a REFUSED command leaves nothing it typed on disk. OLD: after this blocked resume (exit 9) run.json already held the narrower list (allowUnfenced undefined, unfencedAllowList
+    // ['src/other.js']). NEW: the refused command saves nothing, so the whole-gate waiver the run started with stands; the narrower list replaces it only once a resume gets past the gate (below).
     const meta = runJson(runDir);
-    assert.equal(meta.allowUnfenced, undefined);
-    assert.deepEqual(meta.unfencedAllowList, ['src/other.js']);
+    assert.equal(meta.allowUnfenced, true);
+    assert.equal(meta.unfencedAllowList, undefined);
     // A file list is saved and applied on the next flagless resume the same way. (The gate reports and
     // matches the file name the task's prose names as a token, `app.js` here, not `src/app.js`.)
     assert.equal(run(dir, ['--resume', runDir, '--allow-unfenced', 'app.js']).status, 3, 'back to the external pause');

@@ -2933,11 +2933,16 @@ if (resumeMeta && existsSync(join(runDir, 'report.json'))) {
 // hash) carries it. flushChoices() writes it once, from the file as it is on disk, after the last refusal of the start (the changed-task and changed-context checks, and the typed-limit gate's refusal). The gate's WAIT (exit 21: "No call was started")
 // is not a refusal: the person's next step is a plain --resume after `gate answer`, so the choice is written before that exit too.
 const pendingChoices = {};
+const pendingSettings = { set: null, drop: [] };   // the settings typed on a RESUME (see the resume branch below); null for a start
 function flushChoices() {
-  if (!Object.keys(pendingChoices).length) return;
+  if (!Object.keys(pendingChoices).length && !pendingSettings.set) return;
   const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, ...pendingChoices }, null, 2));
+  for (const k of pendingSettings.drop) delete onDisk[k];
+  const { maxUsd: typedMaxUsd, ...settings } = pendingSettings.set ?? {};
+  // a paid chain's run.json carries the TYPED limit (the gate's own write, which comes first); the flag value is only a suggestion there
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, ...settings, ...(typedMaxUsd !== undefined && !capGateApplies ? { maxUsd: typedMaxUsd } : {}), ...pendingChoices }, null, 2));
   for (const k of Object.keys(pendingChoices)) delete pendingChoices[k];
+  pendingSettings.set = null; pendingSettings.drop = [];
 }
 // Round semantics 2b-ii (Muad 15 Oct 2026: after the cap or a bound the PERSON chooses; C&C ruling): --continue / --finish answer a run that STOPPED at an overseer limit (STOPPED-overseer_cap/layer_bound.json, report-partial.json, no report.json).
 // The choice is recorded in run.json `roundChoices` keyed by the stop (so typing it again after the limit screen counts once) and applied on the replay (chain.js effectiveLimits). A resume WITHOUT a choice
@@ -3107,9 +3112,15 @@ if (!resumeMeta) {
   // back past it (audit finding 6).
   // The unfenced-gate waiver is rewritten from the effective values, so a flag given on this resume
   // (a narrower list, or none at all over a saved whole-gate waiver) is what the next sitting reads.
+  // CR-1E-006 (same class): the settings typed on THIS command (--max-usd, --pii-gate / --allow-pii, --signoff, --allow-unfenced, --allow-secret-shaped, the policy checks) are what this sitting runs with, so `resumeMeta` carries them in memory; but they reach run.json
+  // only through flushChoices(), after the last refusal, so a refused command cannot weaken what the NEXT plain resume reads (a refused `--resume --allow-unfenced` used to leave the waiver behind for the next artifact gate). Only the pid and the span root
+  // are written now (run_status needs the pid at once). A waiver saved earlier is replaced at the flush by the effective values, as before.
   const { allowUnfenced: _savedAllow, unfencedAllowList: _savedList, ...resumeRest } = resumeMeta;
-  resumeMeta = { ...resumeRest, pid: process.pid, rootSpanId, ...(argv.includes('--max-usd') ? { maxUsd } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(policyChecks ? { policyChecks } : {}), ...(signoffFlag ? { signoff: signoffFlag } : {}), ...unfencedMeta, ...secretScanMeta };
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify(resumeMeta, null, 2));
+  const typedSettings = { ...(argv.includes('--max-usd') ? { maxUsd } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(policyChecks ? { policyChecks } : {}), ...(signoffFlag ? { signoff: signoffFlag } : {}), ...unfencedMeta, ...secretScanMeta };
+  pendingSettings.set = typedSettings; pendingSettings.drop = ['allowUnfenced', 'unfencedAllowList'];
+  const savedOnDisk = { ...resumeMeta };
+  resumeMeta = { ...resumeRest, pid: process.pid, rootSpanId, ...typedSettings };
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...savedOnDisk, pid: process.pid, rootSpanId }, null, 2));
 }
 
 // v3 §2: refuse to silently resume past a changed task file. A stored taskHash on an older
@@ -3127,7 +3138,7 @@ if (resumeMeta) {
   }
   if (scopeCheck.amended) {
     // The new hash becomes this run's baseline going forward.
-    writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...resumeMeta, taskHash }, null, 2));
+    writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')), taskHash }, null, 2));   // from the file as it is: the typed settings are not on it yet
     console.log(`task hash mismatch covered by a recorded amendment in ${amendmentsPath} - proceeding.`);
   }
   // The same rule for the --context documents (roadmap item 10). A run from before this check has no
