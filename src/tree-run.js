@@ -29,7 +29,7 @@ import { registerNextChild, verifyClosedNodes } from './tree-loop.js';
 import { detectIntegrationStops, detectStops } from './tree-detect.js';
 import { computeReadiness, recordReadinessAfter } from './tree-readiness.js';
 import { openBlockedChildStops } from './tree-blocked-child.js';
-import { restoreClosedStops } from './tree-restore.js';
+import { UNCHECKED_WHY, restoreClosedStops } from './tree-restore.js';
 import { rootRemedies } from './tree-decide-stop.js';
 import { findPendingFrontier } from './tree-frontier.js';
 import { needsDecisionStopText, sittingFacts } from './tree-stop-view.js';
@@ -105,6 +105,7 @@ export function isDeadNode(rootDir, node, generation) {
 async function sitting(rootDir, { work, startRun, resumeRun, facts, now, rootTaskPath, maxStarts, hooks }) {
   const runsDir = dirname(rootDir);
   const restored = [];       // the stops the SITTING closed this time (restore gap: a damaged file put back exactly as the run produced it); shown by sittingLines
+  let unchecked = [];       // (Astra (a), D2 F4c) the stops whose check could NOT RUN at the last step (not a check that ran and failed): said apart, so nobody reads them as failures; replaced at each step
   const started = []; const verified = []; const stops = []; const fileProblems = []; const integrationGaps = [];
   // M6 S3 (PLAN 9.2): after every tree step the verdict is recorded when it (or what it rests on) changed. A step is one pass of the loop below; the state a start leaves behind is recorded at the next pass or, when a start ends the
   // sitting, when the result is built. Skipped when the record has not moved since the last call (nothing a step could have changed is outside the record except run files, which only a person edits).
@@ -128,7 +129,7 @@ async function sitting(rootDir, { work, startRun, resumeRun, facts, now, rootTas
     try { problems = (hooks.writeFiles ?? writeTreeFiles)(rootDir, { work }); } catch (e) { problems = [{ file: 'tree files', error: String(e?.message ?? e).split('\n')[0].slice(0, 300) }]; }
     for (const p of problems ?? []) if (!fileProblems.some(x => x.file === p.file && x.error === p.error)) fileProblems.push(p);
   };
-  const result = (status, extra = {}) => { afterStep(); return { status, started, verified, stops, restored: [...restored], rootBlocked, fileProblems: [...fileProblems], integrationGaps: [...integrationGaps], ...sittingFacts(rootDir), ...extra }; };
+  const result = (status, extra = {}) => { afterStep(); return { status, started, verified, stops, restored: [...restored], unchecked: [...unchecked], rootBlocked, fileProblems: [...fileProblems], integrationGaps: [...integrationGaps], ...sittingFacts(rootDir), ...extra }; };
   const runIt = async ({ node, generation, runId, chain, grantUsd }) => {
     const bundleDir = bundleDirOf(rootDir, node, generation);
     let res;
@@ -166,7 +167,7 @@ async function sitting(rootDir, { work, startRun, resumeRun, facts, now, rootTas
     verified.push(...verifyClosedNodes(rootDir, { work, facts, now }));
     // RESTORE GAP (gate page sections 3, 8-10; C&C 14 Oct 2026). WHY THE SITTING MAY CLOSE EVEN THE ROOT'S STOP, and why that is never the sitting answering the root: (a) Muad 14 Oct 2026 00:02: "byte-identical to a recorded hash = closed automatically and recorded" - a byte-identical file is the RUN'S OWN file back, nobody's decision, node or root alike; (b) where a DECISION is made the root stays the PERSON's: a CHANGED plan (packet 3 #4, commits 2b/2c) and the repaired approach of a re-plan (11 Oct). Lock order: this sitting holds the SITTING lock (outermost); restoreClosedStops takes the TREE lock inside it and releases it before afterStep takes it again: always sitting -> tree, never nested the other way (nothing takes the sitting lock while holding the tree lock: grep acquireRunLock). BEFORE detectStops and afterStep, so the verdict afterStep records already reflects the closed stop. It appends only `stop_restored` (actor 'sitting') for a blocked stop whose files are back byte for byte;
     // a node that still has another reason gets a NEW stop from afterStep below. A lock held elsewhere never replaces the sitting's real result: the next step asks again.
-    try { restored.push(...restoreClosedStops(rootDir, { runsDir, now, facts, work, afterSnapshot: hooks.afterRestoreSnapshot }).filter(r => r.restored)); } catch (e) { if (!(e instanceof RunLockedError)) throw e; }     // ONLY a busy lock is skipped (the next step asks again); a TreeRefusal here is the library and the table DISAGREEING, a defect that must surface, not a step to skip (and a refused append also writes a blocked line)
+    try { const rs = restoreClosedStops(rootDir, { runsDir, now, facts, work, afterSnapshot: hooks.afterRestoreSnapshot }); restored.push(...rs.filter(r => r.restored)); unchecked = rs.filter(r => UNCHECKED_WHY.includes(r.why)); } catch (e) { if (!(e instanceof RunLockedError)) throw e; }     // ONLY a busy lock is skipped (the next step asks again); a TreeRefusal here is the library and the table DISAGREEING, a defect that must surface, not a step to skip (and a refused append also writes a blocked line)
     stops.push(...detectStops(rootDir, { facts, now }).map(e => ({ id: e.id, node: e.node, generation: e.generation, affected: e.affected, text: needsDecisionStopText(rootDir, e) })));
     // a failed integration check whose stop was never written (the process ended between the verb's two records) gets its stop now; when the files that decide it do not read, nothing is written and the gap is named (fail closed)
     const gap = detectIntegrationStops(rootDir, { facts, now });

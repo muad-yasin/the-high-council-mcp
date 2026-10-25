@@ -3,7 +3,8 @@
 //
 // Three functions, in the order a sitting uses them:
 //   verifyClosedNodes   a node that closed and passed and whose plan holds a split block is checked (PLAN 5.5 items 1-4) with the tree's REAL inheritedGlobal / ancestorQuestions (src/tree-frontier.js treeInputsFor):
-//                       `split_verified` on success, a `blocked: expansion_refused` record naming the item and the field on a refusal. No folder either way. Once per node: a verified or refused node is not asked again.
+//                       `split_verified` on success, a `blocked: expansion_refused` record naming the item and the field on a refusal. No folder either way. Once per node: a verified or refused node is not asked again,
+//                       EXCEPT a node refused only for a file cause (RECHECKED, D2 F4a), which is asked again at every sitting; each such refusal is written once.
 //   chooseNextChild     THE one function that picks the next child of an approved frontier: providers before consumers (src/tree-frontier.js dependencyOrder), and a consumer only when every provider's WHOLE
 //                       subtree is eligible (PLAN 8.1: closed, passed, Status not needs_decision, no open stop, not stale, PLAN 5.5 items 1-2 hold and, if it split, item 3). Recovery
 //                       (src/tree-recovery.js) names a frontier with children left and steps aside to this function; src/tree-register.js `runFrontier` is a fixture helper (a test scans src/ for any other user).
@@ -62,10 +63,21 @@ function recordBlockedOnce(rootDir, record, fields, { facts, now } = {}) {
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------- verifying closed nodes
 
-/** The closed, passed nodes whose plan holds a split block that no `split_verified` and no expansion refusal names yet. (A leaf has no block: nothing to verify, nothing recorded.) */
-export function nodesToVerify({ record, state, runsDir, holdsSplit = holdsSplitFence }) {
+// D2 F4a (2C-1, B15 ordering (i)): the verify-time refusals whose cause is a FILE outside the plan's own output, asked again at every sitting until the split verifies. An ancestor's plan that did not read; a sealed file that differed
+// (the run-folder refusal included); a root task that could not be read (G1's no-route refusal, C&C's G1 obligation); a reference that did not resolve (`context_refs`, C&C 25 Okt 2026, Q1 of T's G2 plan: below the root the root task is
+// read live, so an edited root task refuses there too; a reference the plan's own text got wrong gives the same answer again and writes nothing new, recordExpansionRefusal `once`). Every other check is the plan's own output: a
+// byte-identical plan gives the same answer, so it is asked once.
+export const RECHECKED = Object.freeze(['ancestor_questions', 'contract_check', 'root_task_unreadable', 'context_refs']);
+
+/**
+ * The closed, passed nodes whose plan holds a split block that no `split_verified` and no expansion refusal names yet. (A leaf has no block: nothing to verify, nothing recorded.)
+ * `recheck` (D2 F4a): a node whose only verify-time refusals are RECHECKED checks is named again. Only the SITTING asks for it (verifyClosedNodes). The default stays "any refusal is final" because the root re-plan form's
+ * unverified-split guard (src/tree-decide-stop.js) reads this list: a node refused for a file that still differs must not hold a re-plan, or the printed route ("run `council tree resume`, then decide") loops while the file
+ * differs (D3 F4-2). A node never attempted still holds it.
+ */
+export function nodesToVerify({ record, state, runsDir, holdsSplit = holdsSplitFence, recheck = false }) {
   const verified = new Set(record.events.filter(e => e.event === 'split_verified').map(e => `${nodeKey(e.node, e.generation)}:${e.runId}`));
-  const refused = new Set(record.events.filter(e => e.event === 'blocked' && e.reason === 'expansion_refused' && e.transition === 'expansion').map(e => e.scope));
+  const refused = new Set(record.events.filter(e => e.event === 'blocked' && e.reason === 'expansion_refused' && e.transition === 'expansion' && !(recheck && RECHECKED.includes(e.check))).map(e => e.scope));
   const out = [];
   for (const n of [...state.nodes.values()].sort(byPath)) {
     if (n.phase !== 'closed') continue;
@@ -85,12 +97,12 @@ export function verifyClosedNodes(rootDir, { work, facts, now, deps = {} } = {})
   const state = stateOf(record);
   const runsDir = dirname(rootDir);
   const out = [];
-  for (const n of nodesToVerify({ record, state, runsDir, holdsSplit: deps.holdsSplit })) {
+  for (const n of nodesToVerify({ record, state, runsDir, holdsSplit: deps.holdsSplit, recheck: true })) {
     // PLAN 5.3 checks 3 and 8 never run "by silence": the lists are the tree's own, and a path whose ancestor plan cannot be read is refused rather than checked against less
     const inputs = treeInputsFor({ record, state, runsDir, node: n.node });
     if (inputs.unreadable.length) {
       const refusal = { item: 4, check: 'ancestor_questions', field: 'ancestors', detail: `the plan of ${inputs.unreadable.join(', ')} cannot be read, so PLAN 5.3 check 8 cannot be applied` };
-      recordExpansionRefusal(rootDir, n, refusal, { facts, now });
+      recordExpansionRefusal(rootDir, n, refusal, { facts, now, once: true });                  // asked again at every sitting (RECHECKED): the same refusal is written once
       out.push({ node: n.node, generation: n.generation, refusal, sha256: null });
       continue;
     }

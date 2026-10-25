@@ -133,8 +133,9 @@ test('R3 (REAL): a closure WITHOUT the recorded body hash (an older closure) is 
   assert.deepEqual(openStopIds(r), [stop.id]); assert.equal(restored(r).length, 0);
 });
 
-test('R5 (REAL): a stop with a code beside (or instead of) the file code is untouched - a lint finding (status_policy) and a hand-opened split_unreadable stop on a body that matches the record stay open, the restorable set is report_unreadable ONLY', { timeout: 400_000 }, async () => {
-  assert.deepEqual([...RESTORABLE_CODES], ['report_unreadable', 'plan_unreadable', 'provider_pin']);
+test('R5 (REAL): a stop with a code beside (or instead of) the file code is untouched - a lint finding (status_policy) and a hand-opened split_unreadable stop on a body that matches the record stay open; the restorable set is pinned (each code with its own live test)', { timeout: 400_000 }, async () => {
+  // CHANGED ACCEPTED TEST (lane T, G2, D2 F4c; Q2 "Yes to all"): the restorable set grows by four codes, each with its own live test (src/tree-restore.js); the two codes this test is about (status_policy, split_unreadable) stay out, unchanged
+  assert.deepEqual([...RESTORABLE_CODES], ['report_unreadable', 'plan_unreadable', 'provider_pin', 'split_changed', 'contract_check', 'expansion_refused', 'derivation_refused']);
   const { r, start } = await finished();
   const f = fileOf(r, 'R/M2', 'report.json'); const original = readFileSync(f, 'utf8');
   const rep = JSON.parse(original); rep.handoff_milestones = { ...rep.handoff_milestones, findings: [{ kind: 'unknown_criterion', message: 'M0 names C3' }] }; writeFileSync(f, JSON.stringify(rep));

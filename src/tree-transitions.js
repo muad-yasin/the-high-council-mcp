@@ -142,7 +142,7 @@ export const EVENT_OPTIONAL = Object.freeze({
   milestone_resolved: { decisionId: isStr, changesProvides: v => typeof v === 'boolean', remaining: v => Array.isArray(v) && v.every(isStr) },                         // M4: the decision_recorded whose text resolved the milestone (M5 writes it; one source of truth for the text)
   guard_refused: { origin: isStr },
   plan_accepted: { via: ANSWERED_BY.via, reason: isStr, gateId: isStr, shownSha256: isSha, thinContractSha256: isStr, revert: v => typeof v === 'boolean' },
-  stop_restored: { thinContractSha256: isStr, contractExit: v => v === 0, providerPins: v => Array.isArray(v) && v.length > 0 && v.every(p => isObj(p) && isNodePath(p.node) && isGen(p.generation) && isSha(p.boundThinContractSha256) && isSha(p.observedThinContractSha256)) },   // the closure's thin-contract pin the snapshot was compared to (present only when the closure held one)
+  stop_restored: { rechecked: v => Array.isArray(v) && v.length > 0 && v.every(c => RECHECKED_BY_SITTING.includes(c)) && new Set(v).size === v.length, thinContractSha256: isStr, contractExit: v => v === 0, providerPins: v => Array.isArray(v) && v.length > 0 && v.every(p => isObj(p) && isNodePath(p.node) && isGen(p.generation) && isSha(p.boundThinContractSha256) && isSha(p.observedThinContractSha256)) },   // the closure's thin-contract pin the snapshot was compared to (present only when the closure held one)
   // M6 S2 (design note 1.5): a result COUNTS only when complete - the gate whose approval authorized it, the hash of the text read, and `bound` (the versions it was recorded against, built by ONE function, bindingOf in
   // src/tree-ready.js). Like grant_issued they are optional in the SHAPE (a bare event is well formed and is ignored by the reader, S1's bare-pass test), and required to count.
   integration_recorded: { gateId: isStr, shownSha256: isStr, bound: isObj, ...ANSWERED_BY },
@@ -200,8 +200,15 @@ export function eventShapeError(line) {
 // `record_corrupt` is derived the same way (the file does not read) and is listed here because it also stops every writer.
 export const STICKY_REASONS = Object.freeze(['record_corrupt', 'parent_changed', 'root_affected']);
 export const RECORD_REASONS = Object.freeze(['transition_refused', 'continuation_refused', 'expansion_refused', 'accounting_blocked', 'pii_mode_mismatch']);   // continuation_refused: PLAN 7.6 steps 2-5; expansion_refused: PLAN 5.5 (M3); pii_mode_mismatch: S5b, a member started under another personal-data mode than the tree's (src/tree-member.js)
-/** The readiness codes a restored file can close (gate page sections 8 and 9.2; C&C rulings 9.1-9.3, 14 Oct 2026): an unreadable report.json, an unreadable plan (the same body-hash test), and a provider pin that the re-read shows equal to what the dependent registered against (providerPins). NOT split_unreadable: a body that hashes to the recorded one parses its fence the same way, so that code could never legitimately close. */
-export const RESTORABLE_CODES = Object.freeze(['report_unreadable', 'plan_unreadable', 'provider_pin']);
+// The readiness codes a restored file can close (gate page sections 8 and 9.2; C&C rulings 9.1-9.3, 14 Oct 2026): an unreadable report.json, an unreadable plan (the same body-hash test), and a provider pin that the re-read shows equal to
+// what the dependent registered against (providerPins). NOT split_unreadable: a body that hashes to the recorded one parses its fence the same way, so that code could never legitimately close.
+// D2 F4c (Q2, Muad 25 Okt 2026 14:45 "Yes to all"; Astra's Q2): every code a stop may close by the SITTING's own live test, each with its own test (src/tree-restore.js restoreDecision): the body hash (report_unreadable, plan_unreadable,
+// split_changed: with the recorded body back the block is the verified one), the providers' pins (provider_pin), the sitting's re-run of the contract check exiting 0 (contract_check, now also alone: the task, context and
+// HANDOFF files are read live, so a file put back changes the check), a split_verified on record (expansion_refused: the table checks that itself), the live re-derivation RETURNING (derivation_refused, the event carries
+// `rechecked`). Every other code is the run's own output or a person's act and has no close test.
+export const RESTORABLE_CODES = Object.freeze(['report_unreadable', 'plan_unreadable', 'provider_pin', 'split_changed', 'contract_check', 'expansion_refused', 'derivation_refused']);
+/** The codes a stop_restored records as re-checked by the sitting live, where the table cannot repeat the test (D2 F4c: the sitting's evidence, as contractExit is for contract_check). */
+export const RECHECKED_BY_SITTING = Object.freeze(['derivation_refused']);
 /** The codes a stop may hold when a person or the session ACCEPTS a changed plan file (gate page 12): the plan no longer reads against report.json's hash (plan_unreadable), and an edited sealed file also fails `contract check` (contract_check, 12.3b). Anything else is a different cause. */
 export const PLAN_ACCEPT_CODES = Object.freeze(['plan_unreadable', 'contract_check']);
 /** The ONE answer to "which body hash is accepted for this node@generation" (gate page 12.1): the hash a `plan_accepted` folded onto the node entry, or null (every node today: the readers then check report.json's own hash exactly as before). */
@@ -1542,14 +1549,16 @@ export function transitionRefusal(state, event, facts = {}) {
       if (meta.source !== 'blocked') return refuse(event, `stop ${event.stopId} is a ${meta.source ?? 'no'}-source stop, not a blocked-child stop: only that kind is closed by a restored file`);
       if (meta.node !== event.node || meta.generation !== event.generation || meta.runId !== event.runId) return refuse(event, `stop ${event.stopId} is about ${meta.node}@g${meta.generation} (run ${meta.runId ?? 'none'}), not ${event.node}@g${event.generation} (run ${event.runId})`);
       const codes = meta.blockedCodes ?? [];
-      // contract_check is closable ONLY beside plan_unreadable (an edited sealed plan raises both); alone it is its own refusal, with its own sentence
-      if (codes.includes('contract_check') && !codes.includes('plan_unreadable')) return refuse(event, `stop ${event.stopId} names contract_check without plan_unreadable beside it: a restored file does not change a failed contract check on its own`);
-      const other = codes.filter(c => !RESTORABLE_CODES.includes(c) && c !== 'contract_check');
-      if (!codes.length || other.length) return refuse(event, `stop ${event.stopId} names ${other.length ? other.join(', ') : 'no reason'}: a restored file closes a stop only for ${RESTORABLE_CODES.join(', ')} (and contract_check beside plan_unreadable)`);
+      // D2 F4c: every code needs its own live test; contract_check closes alone too (the files it reads are read live: a file put back changes the check), on the sitting's own re-run exiting 0
+      const other = codes.filter(c => !RESTORABLE_CODES.includes(c));
+      if (!codes.length || other.length) return refuse(event, `stop ${event.stopId} names ${other.length ? other.join(', ') : 'no reason'}: a restored file closes a stop only for ${RESTORABLE_CODES.join(', ')}`);
       if (codes.includes('contract_check') && event.contractExit !== 0) return refuse(event, `stop ${event.stopId} names contract_check: the event must carry the contract check's exit (0), re-run by the sitting on the restored files`);
       if (!codes.includes('contract_check') && event.contractExit !== undefined) return refuse(event, `stop ${event.stopId} names no contract_check, so it carries no contract check exit`);
+      const wantRechecked = RECHECKED_BY_SITTING.filter(c => codes.includes(c));
+      if (JSON.stringify([...(event.rechecked ?? [])].sort()) !== JSON.stringify([...wantRechecked].sort())) return refuse(event, `stop ${event.stopId} names ${wantRechecked.length ? wantRechecked.join(', ') : 'no code the sitting re-checks live'}: the event's rechecked list must name exactly ${wantRechecked.length ? 'that' : 'none (leave it out)'}`);
       const n = state.nodes.get(`${event.node}@g${event.generation}`);
       if (!n || n.phase !== PHASES.closed || n.runId !== event.runId) return refuse(event, `${event.node}@g${event.generation} is not closed with run ${event.runId}`);
+      if (codes.includes('expansion_refused') && !(n.verifiedSplit && n.verifiedSplit.runId === event.runId)) return refuse(event, `stop ${event.stopId} names expansion_refused: ${event.node}@g${event.generation} holds no split_verified for run ${event.runId}, so its split is still not verified`);
       if (!n.deliveredBodySha256) return refuse(event, `${event.node}@g${event.generation} closed without a recorded hash of its plan body (an older closure, or a file that did not match its report): only a person answers its stop`);
       if (event.deliveredBodySha256 !== n.deliveredBodySha256) return refuse(event, `the event names plan body hash ${event.deliveredBodySha256.slice(0, 12)}, the record holds hash ${n.deliveredBodySha256.slice(0, 12)}`);
       if (event.observedBodySha256 !== n.deliveredBodySha256) return refuse(event, `the file on disk hashes to ${event.observedBodySha256.slice(0, 12)}, not to the ${n.deliveredBodySha256.slice(0, 12)} the node closed with: a changed file is not closed by the sitting`);

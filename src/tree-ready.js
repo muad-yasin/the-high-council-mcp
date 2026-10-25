@@ -50,7 +50,7 @@ import { readTreeRecord, stateOf } from './tree-record.js';
 import { approvalValid, deadKeys, isSupersededGeneration, latestByPath, latestGenerationOf, liveNodesOf, orphansOf, placeOf, planAuthorityOf } from './tree-transitions.js';
 import { childNode, depthOf, nodeKey, obligationKey } from './tree-identity.js';
 import { qualify } from './tree-qid.js';
-import { isWithin, statusPolicyOk } from './tree-deps.js';
+import { blockEdges, isWithin, statusPolicyOk } from './tree-deps.js';
 import { loadDerivation, readNodePlan, readPlanOf } from './tree-derive-load.js';
 import { extractSplitBlocks, splitSha256 } from './tree-split.js';
 import { DeriveRefusal, deriveChild, itemText } from './tree-derive.js';
@@ -302,7 +302,17 @@ export function gatherReadinessFacts(rootDir, { work, deny = null } = {}) {
  * and only a DeriveRefusal that names an owner becomes a fact { owner, child, check, detail }. Anything else - it derives now (a code change, a file back), an owner-less refusal, an unreadable file, a moved chain - gives no fact: the
  * other reasons speak for files and drift (D3 F2-1: every throw is caught here, so no reader of readiness can be broken by it). File reads only: no model, no network; bounded by the refused, unregistered children (usually none).
  */
-function derivationRefusalsOf({ rootDir, record, state, runsDir, work, liveNodes }) {
+function derivationRefusalsOf(args) {
+  return rederivedTriggers(args).filter(t => t.outcome === 'owned').map(t => ({ owner: t.owner, child: t.child, check: t.check, detail: t.detail }));
+}
+
+/**
+ * The live re-derivation itself, one entry per trigger child (D2 F2(b)'s filters): { child: 'node@gN', parent: { node, generation }, outcome } where outcome is 'derives' (it returned), 'owned' (a refusal of a plan's own text: + owner, check,
+ * detail) or 'unable' (anything else: an owner-less refusal, a file, the record, a chain; + detail). ONE rule for its two readers: readiness (derivationRefusalsOf: the owned ones) and the sitting's close test of a derivation_refused
+ * stop (src/tree-restore.js, D2 F4c as D3 F4-1 amends it: it closes only when every derivation that reads the stopped node's plan RETURNS). `liveNodes` defaults to the record's live nodes. Takes no lock (file reads only), so the
+ * close test may call it inside the tree lock.
+ */
+export function rederivedTriggers({ rootDir, record, state, runsDir, work, liveNodes = liveNodesOf(state, [...state.nodes.values()].filter(n => !orphansOf(state).has(nodeKey(n.node, n.generation)))) }) {
   const out = []; const seen = new Set();
   let rootTaskPath;
   for (const e of record.events) {
@@ -315,18 +325,28 @@ function derivationRefusalsOf({ rootDir, record, state, runsDir, work, liveNodes
     const parentPath = child.slice(0, child.lastIndexOf('/'));
     const parent = liveNodes.find(n => n.node === parentPath && n.phase === 'closed' && n.verifiedSplit && !isSupersededGeneration(state, n.node, n.generation));       // the live generation of the parent path (adopted-aware)
     if (!parent) continue;
+    const where = { child: e.scope, parent: { node: parent.node, generation: parent.generation } };
+    let block;
     try {
-      const entry = (readPlanOf(runsDir, parent).block?.children ?? []).find(c => childNode(parent.node, c.milestone) === child);
+      block = readPlanOf(runsDir, parent).block;
+      const entry = (block?.children ?? []).find(c => childNode(parent.node, c.milestone) === child);
       if (!entry) continue;
       const approved = [...state.frontiers.values()].some(f => f.parentNode === parent.node && f.parentGeneration === parent.generation && f.revisions?.length && approvalValid(f) && (f.children ?? []).some(c => c.node === child));
       rootTaskPath ??= rootTaskPathOf(rootDir, work);
       deriveChild(loadDerivation({ rootDir, parentRef: { node: parent.node, generation: parent.generation }, childId: entry.id, generation, rootTaskPath, work, preview: !approved, record }));
+      out.push({ ...where, providers: providersOf(parent.node, block, child), outcome: 'derives' });
     } catch (err) {
       // only a refusal of a plan's own text is a fact; every other throw (a file, the record, a chain, a defect elsewhere) is left to the reasons that read those things live
-      if (err instanceof DeriveRefusal && err.owner) out.push({ owner: { node: err.owner.node, generation: err.owner.generation }, child: e.scope, check: err.code, detail: err.detail });
+      if (err instanceof DeriveRefusal && err.owner) out.push({ ...where, providers: providersOf(parent.node, block, child), outcome: 'owned', owner: { node: err.owner.node, generation: err.owner.generation }, check: err.code, detail: err.detail });
+      else out.push({ ...where, providers: providersOf(parent.node, block, child), outcome: 'unable', detail: String(err?.detail ?? err?.message ?? err).split('\n')[0].slice(0, 300) });
     }
   }
   return out;
+}
+
+/** The provider paths of `child` in its parent's block (src/tree-deps.js blockEdges); [] when the block did not read. */
+function providersOf(parentNode, block, child) {
+  return block ? blockEdges(parentNode, block).edges.filter(x => x.consumer === child).map(x => x.provider) : [];
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------- the rules

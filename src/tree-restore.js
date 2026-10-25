@@ -16,7 +16,9 @@
 //        Under the tree lock: for every OPEN blocked-source stop whose codes are all restorable, snapshot, decide, and append ONE `stop_restored` (actor 'sitting'). Idempotent (an answered stop is no longer open); a crash between the
 //        check and the write leaves nothing half-written (one append). The table (transitionRefusal) repeats the record-side tests; if it refuses what this decided, that is a defect and the refusal propagates (never swallowed).
 //
-// THE CLOSE TEST: the stop is open, source 'blocked', every blocked code is in RESTORABLE_CODES (report_unreadable, plan_unreadable, provider_pin: gate page sections 8, 9.2, 9.3), or is contract_check BESIDE plan_unreadable with the contract check re-run on the restored files exiting 0 (an edited sealed plan raises both codes, so a swapped-then-returned plan used to strand its stop); the node is closed with a record-held deliveredBodySha256; the snapshot reads (report.json parses to
+// THE CLOSE TEST: the stop is open, source 'blocked', every blocked code is in RESTORABLE_CODES and passes its own live test (D2 F4c, Q2: resolved / still failing / unable to check, and only EVERY cause resolved closes): report_unreadable,
+// plan_unreadable and split_changed by the body hash below, provider_pin by the providers' pins (gate page sections 8, 9.2, 9.3), contract_check by the sitting's re-run exiting 0 (alone or beside plan_unreadable), expansion_refused by a
+// split_verified on record for the run, derivation_refused by readiness' live re-derivation returning for every child that reads this node's plan (fail closed: D3 F4-1); the node is closed with a record-held deliveredBodySha256; the snapshot reads (report.json parses to
 // an object) and yields a body whose recomputed sha256 equals the record-held one; the closure's thinContractSha256 (when held) equals the snapshot's; the closure's passed/outcome equal the snapshot's `passed` and its status equals the
 // HANDOFF.md status. Anything else leaves the stop open and the answer path (a new plan / abandon, a person) untouched. A node that still has another readiness reason keeps it: the close removes only the decision point the unreadable file created.
 // No money: no file of the tree's money, no grant, no gate is touched.
@@ -28,8 +30,12 @@ import { bodyOfDelivered } from './tree-split.js';
 import { parseMilestones } from './milestones.js';
 import { appendTreeEventLocked, readTreeRecord, stateOf, withTreeLock } from './tree-record.js';
 import { RESTORABLE_CODES, isSupersededGeneration, planAuthorityOf } from './tree-transitions.js';
+import { rederivedTriggers } from './tree-ready.js';
+import { isWithin } from './tree-deps.js';
 
 const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+/** The `why` words of a close test that could NOT RUN (Astra (a): unable to check is not still failing; the sitting says them apart). */
+export const UNCHECKED_WHY = Object.freeze(['contract_check_not_run', 'derivation_not_run']);
 
 /** The three files of a finished run, read ONCE. { unreadable: <why> } when the run folder is refused or report.json does not read as a JSON object (the readiness rule's `report_unreadable`, tree-ready.js runFactsOf). */
 export function snapshotOfRun(runsDir, runId, { accepted = null } = {}) {
@@ -51,18 +57,20 @@ export function snapshotOfRun(runsDir, runId, { accepted = null } = {}) {
 }
 
 /** The close test. `state` is the fold, `stop` the open stop's event, `snapshot` snapshotOfRun's answer. -> { restore: true, event } | { restore: false, why }. `why` is a stable word, never a sentence. */
-export function restoreDecision({ state, stop, snapshot, providerSnapshots = new Map(), contractExit = null }) {
+export function restoreDecision({ state, stop, snapshot, providerSnapshots = new Map(), contractExit = null, derivation = null }) {
   const meta = state.stopMeta.get(stop.id);
   if (!meta || !state.openStops.includes(stop.id) || meta.source !== 'blocked') return { restore: false, why: 'not_a_blocked_stop' };
   const codes = meta.blockedCodes ?? [];
-  // restore-gap fix-up (found by driving the accept flow, disclosed 14 Oct 2026): an EDITED sealed plan raises `plan_unreadable` AND `contract_check` (the file hash drifts too), so a swapped-then-returned plan stopped with both codes and no sitting could
-  // close it. `contract_check` is closable ONLY beside `plan_unreadable`, and only when the contract check, re-run by the sitting itself on the same files, now exits 0 (`contractExit`, carried by the event). Alone it is not: a restored file does not change a failed check.
-  const withPlan = codes.includes('plan_unreadable');
-  if (!codes.length || codes.some(c => !RESTORABLE_CODES.includes(c) && !(c === 'contract_check' && withPlan))) return { restore: false, why: 'other_reason' };
+  // D2 F4c (Q2: each cause has its own live test with THREE outcomes, resolved / still failing / unable to check; the stop closes only when EVERY cause is resolved). `contract_check` closes alone too, CHANGED from the 14 Oct 2026
+  // fix-up's "only beside plan_unreadable": that rule's premise ("a restored file does not change a failed check") is false for the task, context and HANDOFF files, which the check reads live (src/run-contract-check.js).
+  if (!codes.length || codes.some(c => !RESTORABLE_CODES.includes(c))) return { restore: false, why: 'other_reason' };
   if (codes.includes('contract_check') && contractExit === null) return { restore: false, why: 'contract_check_not_run' };      // no working folder, a refused run folder, or a check that threw: it never ran (2b carry-over: two different conditions, two words)
   if (codes.includes('contract_check') && contractExit !== 0) return { restore: false, why: 'contract_check_still' };       // it ran and still fails
+  // derivation_refused (D3 F4-1: FAIL CLOSED): resolved only when every derivation that reads this node's plan RETURNED; one still refused for a plan's text = still; anything else, an empty set included, = not run (never "no new failure")
+  if (codes.includes('derivation_refused') && derivation !== 'resolved') return { restore: false, why: derivation === 'still' ? 'derivation_still' : 'derivation_not_run' };
   const n = state.nodes.get(`${stop.node}@g${stop.generation}`);
   if (!n || n.phase !== 'closed' || n.runId !== stop.runId) return { restore: false, why: 'not_closed' };
+  if (codes.includes('expansion_refused') && !(n.verifiedSplit && n.verifiedSplit.runId === stop.runId)) return { restore: false, why: 'split_not_verified' };     // a record fact: under F3 readiness stops raising it exactly then
   if (!n.deliveredBodySha256) return { restore: false, why: 'no_recorded_hash' };
   if (snapshot.unreadable) return { restore: false, why: 'still_unreadable' };
   if (snapshot.observedBodySha256 !== n.deliveredBodySha256) return { restore: false, why: snapshot.observedBodySha256 === null ? 'plan_unreadable' : 'body_differs' };
@@ -86,7 +94,7 @@ export function restoreDecision({ state, stop, snapshot, providerSnapshots = new
     restore: true,
     event: {
       event: 'stop_restored', actor: 'sitting', stopId: stop.id, node: stop.node, generation: stop.generation, runId: stop.runId,
-      deliveredBodySha256: n.deliveredBodySha256, observedBodySha256: snapshot.observedBodySha256, ...(n.thinContractSha256 ? { thinContractSha256: snapshot.thinContractSha256 } : {}), ...(providerPins ? { providerPins } : {}), ...(codes.includes('contract_check') ? { contractExit: 0 } : {}),
+      deliveredBodySha256: n.deliveredBodySha256, observedBodySha256: snapshot.observedBodySha256, ...(n.thinContractSha256 ? { thinContractSha256: snapshot.thinContractSha256 } : {}), ...(providerPins ? { providerPins } : {}), ...(codes.includes('contract_check') ? { contractExit: 0 } : {}), ...(codes.includes('derivation_refused') ? { rechecked: ['derivation_refused'] } : {}),
     },
   };
 }
@@ -123,11 +131,21 @@ export function restoreClosedStops(rootDir, { runsDir = dirname(rootDir), now, f
           try { const c = contractCheckOf(t.dir, { work, deny, accepted: planAuthorityOf(me) }); contractExit = Number.isInteger(c.exit) ? c.exit : null; } catch { contractExit = null; }
         }
       }
+      // the live re-derivation, when the stop holds derivation_refused (D2 F4c, D3 F4-1): the derivations that READ this node's plan (it is the child's parent, a provider of the child, or inside a provider's subtree), through readiness' own
+      // helper (one rule). FAIL CLOSED: any throw here is 'unable', never resolved
+      let derivation = null;
+      if ((state.stopMeta.get(id)?.blockedCodes ?? []).includes('derivation_refused')) {
+        try {
+          const reads = t => (t.parent.node === stop.node && t.parent.generation === stop.generation) || t.providers.some(p => isWithin(stop.node, p));
+          const mine = rederivedTriggers({ rootDir, record: readTreeRecord(rootDir), state, runsDir, work }).filter(reads);
+          derivation = !mine.length ? 'unable' : mine.every(t => t.outcome === 'derives') ? 'resolved' : mine.some(t => t.outcome === 'owned') ? 'still' : 'unable';
+        } catch { derivation = 'unable'; }
+      }
       afterSnapshot?.({ stopId: id, node: stop.node, generation: stop.generation });                 // TEST-ONLY seam (R7): a file replaced between the read and the append
-      const d = restoreDecision({ state, stop, snapshot, providerSnapshots, contractExit });
+      const d = restoreDecision({ state, stop, snapshot, providerSnapshots, contractExit, derivation });
       if (!d.restore) { results.push({ ...where, restored: false, why: d.why }); continue; }
       appendTreeEventLocked(rootDir, d.event, { ...(now ? { now } : {}), ...(facts ? { facts } : {}) });
-      results.push({ ...where, restored: true, ...(d.event.contractExit === 0 ? { contractChecked: true } : {}) });     // E164 (M7): the sitting's line names the contract re-check only when the stop held it
+      results.push({ ...where, restored: true, ...(d.event.contractExit === 0 ? { contractChecked: true } : {}), ...(d.event.rechecked ? { derivationRechecked: true } : {}), ...((state.stopMeta.get(id)?.blockedCodes ?? []).includes('expansion_refused') ? { splitVerified: true } : {}) });     // E164 (M7): the sitting's line names each live re-check only when the stop held it (D2 F4c adds two)
     }
   });
   return results;

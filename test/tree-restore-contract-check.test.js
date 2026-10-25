@@ -1,6 +1,7 @@
 // Restore gap FIX-UP (0.8.3 M6; found by Builder A while driving the accept flow, disclosed to C&C 14 Oct 2026; C&C's ruling: its own SHA-stop before unit 2b). A plan swapped and put back byte for byte stopped with BOTH `plan_unreadable` and `contract_check`
 // (an edited sealed file fails the contract check as well); only plan_unreadable was restorable, so NO sitting could close that stop. Now `contract_check` is closable ONLY beside `plan_unreadable`, when the sitting's OWN re-run of the contract check on the
 // restored files exits 0; the event carries that exit and the table refuses every other shape, each with its own sentence. Real all-mock trees, $0.
+// AMENDED (lane T, G2, D2 F4c): contract_check now also closes ALONE, on the same re-run exiting 0 (the B3d test below; the files it reads are read live).
 //
 // WHICH ACCEPTED TEST PASSED OVER THIS, AND WHAT ITS FIXTURE LACKED: test/tree-restore.test.js "plan_unreadable (REAL, gate page 9.2)" opened its stop by MOVING deliverable.md away (a MISSING file: the contract check reads it as "not readable", an `unchecked` item that
 // is neither drift nor a pass, so the stop held plan_unreadable alone) and then wrote a changed file only AFTER the stop existed. No fixture ever let a sitting READ a CHANGED deliverable.md (bytes present, different) when it opened the stop, which is the case
@@ -80,15 +81,26 @@ test('the stop stays open while the contract check still fails after the bytes a
   assert.match(sittingLines({ restored: closed }, 'ROOT').join('\n'), new RegExp(`Closed by the sitting: stop ${stop.id} on R/M2 \\(generation 1\\)\\. The plan text is the one recorded when that step finished, and its contract check passes again, so nothing needed your answer\\.`));
 });
 
-test('TABLE: a contract_check closure with NO plan_unreadable beside it is refused with its own sentence (the check alone is not changed by a restored file)', { timeout: 400_000 }, async () => {
+// CHANGED ACCEPTED TEST (lane T, G2, D2 F4c / B3d; Q2, Muad 25 Okt 2026 14:45 "Yes to all"). BEFORE: the table refused this closure ("names contract_check without plan_unreadable beside it: a restored file does not change a failed contract
+// check on its own"). The premise moved: the check reads the task, context and HANDOFF files LIVE (src/run-contract-check.js), so the file put back DOES change it. AFTER: the stop closes by the sitting's own re-run exiting 0, and only then.
+test('B3d: a contract_check stop ALONE (the task file changed, the plan reads) closes by itself once the file is back: the table takes the closure only with exit 0, a sitting while the file still differs writes nothing, and the sitting after the file is back closes it', { timeout: 400_000 }, async () => {
   const { r, start } = await finished();
   const meta = JSON.parse(readFileSync(join(r.t.runsDir, nodeOf(r, 'R/M2').runId, 'run.json'), 'utf8'));
   const task = meta.task.startsWith('/') ? meta.task : join(r.t.work, meta.task);
-  writeFileSync(task, `${readFileSync(task, 'utf8')}\nA line the run never saw.\n`);
+  const taskText = readFileSync(task, 'utf8');
+  writeFileSync(task, `${taskText}\nA line the run never saw.\n`);
   await sit(r, start);
   const stop = stopsOf(r, 'R/M2').at(-1);
   assert.deepEqual(stop.blockedBy.map(b => b.code), ['contract_check'], 'the check fails ALONE: the plan reads');
-  assert.match(refusedWith(r, candidate(r, stop, { contractExit: 0 })), /names contract_check without plan_unreadable beside it: a restored file does not change a failed contract check on its own/);
+  assert.match(refusedWith(r, candidate(r, stop)), /must carry the contract check's exit \(0\)/);
+  assert.equal(refusedWith(r, candidate(r, stop, { contractExit: 0 })), null, 'with exit 0 the table takes a lone contract_check closure');
+  await sit(r, start);
+  assert.equal(restoredEvents(r).length, 0, 'the file still differs: nothing is closed');
+  writeFileSync(task, taskText);
+  const back = await sit(r, start);
+  assert.deepEqual(restoredEvents(r).map(e => [e.stopId, e.actor, e.contractExit]), [[stop.id, 'sitting', 0]]);
+  assert.equal(openIds(r).includes(stop.id), false);
+  assert.match(sittingLines(back, 'ROOT').join('\n'), /Closed by the sitting: stop .* on R\/M2 \(generation 1\)\. The plan text is the one recorded when that step finished, and its contract check passes again, so nothing needed your answer\./);
 });
 
 test('TABLE: a closure of a stop that holds contract_check must carry exit 0; one that holds none carries none', { timeout: 400_000 }, async () => {

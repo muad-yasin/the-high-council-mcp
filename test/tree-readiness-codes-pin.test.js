@@ -12,15 +12,13 @@ import { BLOCKED_CHILD_ALSO } from '../src/tree-blocked-child.js';
 const REFUSES = {
   not_passed: 'a fact the run produced: a restored file does not change that the run did not pass',
   unsigned_change: 'the delivered text is not the signed text: restoring bytes does not make a panel read them',
-  contract_check: '`contract check` exits non-zero: on its own a restored file does not change a failed check; it is closable by the sitting ONLY beside plan_unreadable, when the check re-run by the sitting on the restored files exits 0 (src/tree-restore.js), and an edited sealed file raises it too',
   no_milestone_lint: 'the report records no milestone lint: a fact the run produced',
   status_policy: 'the handoff Status and findings are not ones a ready node may have: a fact the run produced',
   split_unreadable: 'section 8 point 1: a body that hashes to the record parses its fence the same way, so this code could never legitimately close',
-  split_changed: 'the plan now holds another split than the verified one: a change, not a restore',
-  expansion_refused: 'a recorded refusal of the node\'s expansion: not a file state',
   closed_incomplete: 'a person closed the node: only a person\'s answer replaces it',
-  // NEW CODE (lane T, G1, D2 F2): decided as refusing under ruling 9.2 as it stands; F4c (G2, Q2 "Yes to all") gives it a live re-check that keeps the stop open when the re-check cannot run (D3 F4-1)
-  derivation_refused: 'a plan\'s own text cannot give one of its children its input: a restored file does not change that text; a new plan of this node answers it',
+  // CHANGED ACCEPTED TEST (lane T, G2, D2 F4c; Q2, Muad 25 Okt 2026 14:45 "Yes to all"): contract_check, split_changed, expansion_refused and derivation_refused MOVED to RESTORABLE_CODES, each closed only by its own live test
+  // (src/tree-restore.js restoreDecision). The premises that put them here moved: contract_check reads the task, context and HANDOFF files live, so a file put back changes the check; split_changed is the body hash (the recorded body back is the
+  // verified block); expansion_refused stops being raised exactly when a split_verified exists (D2 F3), a record fact the table checks; derivation_refused is the live re-derivation returning (fail closed, D3 F4-1).
 };
 // blocked-severity codes whose scope is the TREE or an AGREEMENT, never a node key: pendingBlockedChildren (src/tree-blocked-child.js) keeps only scopes matching a node key, so they open no stop
 const NOT_NODE_SCOPED = {
@@ -88,6 +86,7 @@ test('every blocked-severity code is decided for the restore: restorable, or ref
   for (const c of BLOCKED_CHILD_ALSO) assert.ok(c in REFUSES, `${c} opens a stop and must be decided`);
   for (const c of Object.keys(REFUSES)) assert.ok(blocked.has(c) || BLOCKED_CHILD_ALSO.includes(c), `REFUSES lists ${c}, which readiness no longer raises`);
   for (const c of RESTORABLE_CODES) assert.ok(blocked.has(c), `RESTORABLE_CODES lists ${c}, which readiness no longer raises as blocked`);
+  assert.deepEqual(RESTORABLE_CODES.filter(c => c in REFUSES), [], 'a code is decided ONCE: restorable or refusing, never both');
   for (const c of Object.keys(NOT_NODE_SCOPED)) assert.ok(blocked.has(c), `NOT_NODE_SCOPED lists ${c}, which readiness no longer raises`);
   assert.equal([...Object.values(REFUSES), ...Object.values(NOT_NODE_SCOPED)].every(w => w.length > 10), true, 'each decision carries its reason');
 });

@@ -122,7 +122,7 @@ export function recordExpansionRefusal(rootDir, { node, generation }, r, { facts
  */
 export function verifySplit(rootDir, { node, generation, runId, runDir, work, inheritedGlobal, ancestorQuestions, rootTaskPath }, { facts, now } = {}) {
   const r = expansionCheck({ runDir, work, inheritedGlobal, ancestorQuestions });
-  if (r.refusal) return { refusal: r.refusal, sha256: r.sha256, event: recordExpansionRefusal(rootDir, { node, generation }, r.refusal, { facts, now }) };
+  if (r.refusal) return { refusal: r.refusal, sha256: r.sha256, event: recordExpansionRefusal(rootDir, { node, generation }, r.refusal, { facts, now, once: true }) };
   // M5f (a): the record holds ONE verified split per node@generation. The same block again is the existing record (no second event, the same return value); another block is a refusal, written as a `blocked`
   // record with check `split_changed` (the word the frontier path uses): the plan changed after it was verified, and the first verification stands.
   const had = stateOf(readTreeRecord(rootDir)).nodes.get(nodeKey(node, generation))?.verifiedSplit;
@@ -136,7 +136,7 @@ export function verifySplit(rootDir, { node, generation, runId, runDir, work, in
   // approve. A provider's headings are not checked here: the provider has not run (the derivation at registration checks them). What each child resolved to is recorded (`resolvedRefs`: the child id and the resolver's hash), so a
   // later derivation can tell a split that resolved then and fails now (a file changed) from one that never resolved.
   const refs = contextRefsCheck({ node, block: r.block, plan: r.plan, rootDir, work, rootTaskPath });
-  if (refs.refusal) return { refusal: refs.refusal, sha256: r.sha256, event: recordExpansionRefusal(rootDir, { node, generation }, refs.refusal, { facts, now }) };
+  if (refs.refusal) return { refusal: refs.refusal, sha256: r.sha256, event: recordExpansionRefusal(rootDir, { node, generation }, refs.refusal, { facts, now, once: true }) };
   // `children` (S8 held state): the paths the verified block names, so the record alone can say whether a node is half-finished (a named child never registered); the fold cannot read the plan
   return { refusal: null, sha256: r.sha256, event: appendTreeEvent(rootDir, { event: 'split_verified', node, generation, runId, splitSha256: r.sha256, children: (r.block?.children ?? []).map(c => childNode(node, c.milestone)), resolvedRefs: refs.resolved }, { facts, now }) };
 }

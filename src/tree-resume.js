@@ -67,7 +67,11 @@ function sittingTail(res, rootId) {
   const L = [];
   // the two views the sitting writes after each step (TREE_HANDOFF.md, tree/report.json): a failure is named, never silent, and never stops the sitting
   for (const p of res.fileProblems ?? []) L.push('', `  ${p.file} could not be written (${p.error}). The sitting went on; \`council tree status ${rootId}\` reads the record live and does not need the file.`);
-  for (const r of res.restored ?? []) L.push('', `  Closed by the sitting: stop ${r.stopId} on ${r.node} (generation ${r.generation}). The plan text is the one recorded when that step finished${r.contractChecked ? ', and its contract check passes again' : ''}, so nothing needed your answer.`);
+  for (const r of res.restored ?? []) L.push('', `  Closed by the sitting: stop ${r.stopId} on ${r.node} (generation ${r.generation}). The plan text is the one recorded when that step finished${r.contractChecked ? ', and its contract check passes again' : ''}${r.splitVerified ? ', and its split is verified now' : ''}${r.derivationRechecked ? ', and every child it held back can be derived from it now' : ''}, so nothing needed your answer.`);
+  // D2 F4c with Astra (a) (A-DRAFT): a stop whose check could not run is said apart from a check that ran and failed
+  for (const r of res.unchecked ?? []) L.push('', r.why === 'contract_check_not_run'
+    ? `  Stop ${r.stopId} on ${r.node} (generation ${r.generation}) stays open: its contract check could not be run this time (a file it reads did not read), which is not the same as a check that ran and failed. Once the file reads again, the next \`council tree resume ${rootId}\` runs the check and closes the stop if it passes.`
+    : `  Stop ${r.stopId} on ${r.node} (generation ${r.generation}) stays open: the children it holds back could not be derived again this time (a file, a chain or the record did not read), which is not the same as a derivation that ran and failed. The next \`council tree resume ${rootId}\` tries again; \`council tree status ${rootId}\` shows what does not read.`);
   for (const s of res.stops ?? []) if (s.text) L.push('', ...s.text.trimEnd().split('\n'));
   for (const g of res.integrationGaps ?? []) L.push('', ...g.text.trimEnd().split('\n'));
   // S8 G9 (rulings row 130): a blocked ROOT opens a stop like a blocked child, answered by a NEW ROOT plan (the root re-plan form of `council tree decide`); the old root plan, its runs and what they spent stay on disk and stay counted
