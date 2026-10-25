@@ -88,8 +88,10 @@ export function dependencyOrder(parentNode, block) {
 }
 
 /** The refusals of the loop that the person answers by approving again: what the approval was shown is no longer what would start (src/tree-loop.js registerNextChild). */
+// limits_changed (D2 F8, CR-2D-004): a root re-plan whose approval binds what registration would no longer register: the task is the pinned one (refused first otherwise) and the decision, old plan and size are on the decision, so
+// a limit raised after the approval is what differs; the root frontier waits for a new approval under the new limits (an earlier root plan's changed files stay approval_changed: its words name the way out)
 // admission_changed (D2 F9a, B14a/b): a child the approved preview admitted was refused admission at registration (a limit or the budget moved): the frontier waits for a new approval that shows it with today's numbers
-export const REOPEN_CHECKS = Object.freeze(['held_changed', 'split_changed', 'ceiling_changed', 'admission_changed']);
+export const REOPEN_CHECKS = Object.freeze(['held_changed', 'split_changed', 'ceiling_changed', 'admission_changed', 'limits_changed']);
 /**
  * Does this frontier wait for a person again? ONE function for every reason an earlier approval no longer covers what would start:
  *  - the loop refused it since its latest approval for a reason a new approval answers (held_changed, split_changed, ceiling_changed: blocked records that carry its frontierKey);

@@ -393,7 +393,7 @@ function registerRootFromFrontier(rootDir, { work, record, state, pick, facts, n
   if (task.refusal) return refuse('task_changed', task.refusal);
   const limits = effectiveLimits(record.tree, record.events);
   const payload = { frontierKey: preview.frontierKey, kind: preview.kind, openedBy: preview.openedBy, parentNode: null, parentGeneration: null, parentRunId: null, splitSha256: null, children: preview.children };       // the recorded event minus its envelope and its hash
-  if (rootReplanBound({ preview: payload, limits, decisionText: decision.text, taskText: task.text, oldPlan: decision.oldPlan ?? null, allowanceBytes: decision.allowanceBytes ?? null }) !== (state.frontiers.get(key).previewHash ?? null)) return refuse('approval_changed', 'what the approval bound (the decision, the task bytes, a limit) is not what would be registered; run `council tree approve` again');
+  if (rootReplanBound({ preview: payload, limits, decisionText: decision.text, taskText: task.text, oldPlan: decision.oldPlan ?? null, allowanceBytes: decision.allowanceBytes ?? null }) !== (state.frontiers.get(key).previewHash ?? null)) return refuse('limits_changed', 'what the approval bound (the decision, the task bytes, a limit) is not what would be registered; run `council tree approve` again');
   const chain = loadChainConfig({ tree: record.tree, depth: 0, work });
   const rootAllowance = allowanceOfDecision(record.tree, decision);       // the size the approval of THIS root plan was priced at (--allow-size), else the tree's number
   const figures = chainFigures(chain.config, { inputBytes: rootAllowance });
