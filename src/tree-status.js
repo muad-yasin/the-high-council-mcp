@@ -4,7 +4,7 @@
 // NO SECOND WORDING PATH. Every sentence about a thing the tree already knows how to say comes from the module that says it:
 //   the verdict and its reasons        src/tree-ready.js (S1) through buildTreeReport (src/tree-report.js, S4: one record position for readiness AND money)
 //   a stop is in force                 src/tree-resume.js sittingLines (the `stopped_by_person` sentence)
-//   waiting children and why           src/tree-loop.js chooseNextChild (`waiting`, `awaitingApproval`), providerEligibility (the orphan reason of M6 S0 a)
+//   waiting children and why           src/tree-loop.js chooseNextChild (`waiting`, `awaitingApproval`), plus a pending frontier no preview lists yet that `tree approve` takes (src/tree-frontier.js findPendingFrontier + describeFrontier, D2 F12), providerEligibility (the orphan reason of M6 S0 a)
 //   held nodes of a re-plan (root or sub-plan)   src/tree-handoff.js HELD_PENDING_TITLE (heldTitleOf) + HELD_PENDING_SENTENCE + heldNodesOf (the handoff says the same words; S8-6a2; one list for both routes since C2a-record commit 2)
 //   the personal-data mode             src/tree-handoff.js PII_MODE_TITLE + PII_MODE_WORDS + piiModeLine (the state word only: the reason of an unusable value is the handoff file's alone; S8-6b part 1)
 //   registered, not started + grant    src/tree-stop.js renderHeldChildren          a frontier closed under a changed parent   renderParentChanged
@@ -31,6 +31,7 @@ import { nodeKey } from './tree-identity.js';
 import { chooseNextChild, providerEligibility } from './tree-loop.js';
 import { sittingFacts, needsDecisionStopText } from './tree-stop-view.js';
 import { splitChangedOf } from './tree-split-changed.js';
+import { describeFrontier, findPendingFrontier } from './tree-frontier.js';
 import { accountingAcceptLines, effectiveLimits } from './tree-budget.js';
 import { stopRequested } from './tree-run.js';
 import { sittingLines } from './tree-resume.js';
@@ -66,7 +67,16 @@ function gatherOnce(rootDir, work, readRecord, deny) {
   const nodes = rf.nodes.map(n => ({ node: n.node, generation: n.generation, depth: n.depth, runId: n.runId, phase: n.phase, outcome: n.outcome, nextGeneration: n.nextGeneration, accepted: n.accepted ?? null })).sort((a, b) => byText(a.node, b.node) || a.generation - b.generation);
   const choice = chooseNextChild(rootDir, { work, deny });
   const waiting = (choice.waiting ?? []).map(w => ({ node: w.node, why: [...(w.why ?? [])] })).sort((a, b) => byText(a.node, b.node));
-  const awaitingApproval = [...(choice.awaitingApproval ?? [])].sort(byText);
+  const awaitingApproval = [...(choice.awaitingApproval ?? [])];
+  // D2 F12 (A1b): a frontier that was never previewed waits for the person all the same (`council tree approve` offers it: findPendingFrontier is the verb's own first read), so it is listed too, once (a previewed one is awaitingApprovalOf's),
+  // and the view and the tree_status payload name the approval instead of "Nothing is asked of you right now". Not listed: a verified node whose plan no longer reads (key null: describeFrontier refuses it), and a parent the
+  // verdict holds a `derivation_refused` at (between the approve that refused and the stop opening, `stopToOpen` names `council tree resume`, stopToOpenLine; once the stop is open findPendingFrontier skips that parent itself, D2 F2(e)).
+  // A root re-plan's frontier (kind 'root_replan') is listed under the same words as once it is previewed; the verdict's generation_pending line keeps its own words.
+  // RULE 1c (C&C's ruling on F12: status prints approve ONLY where `council tree approve` takes the frontier): nor is a frontier listed that describeFrontier refuses (the verb's second read, refused there with exit 19: a split_changed
+  // (B)/(C), a check of items 1-4, a root re-plan that cannot be put yet). The live read is read-only, as D2 F13b's limitStopView (src/tree-decide.js) reads it; a throw is not listed either (the verb meets the same throw; D3 F13 note).
+  // The state's own way out is printed all the same: a split_changed parent is `blocked` at its own scope, so `stopToOpen` names `council tree resume` (stopToOpenLine) and, once the stop is open, its `decide` route.
+  { const pending = findPendingFrontier({ rootDir, record, state }); if (pending?.key && !awaitingApproval.includes(pending.key) && !(report.readiness?.reasons ?? []).some(r => r.code === 'derivation_refused' && r.scope === nodeKey(pending.parent.node, pending.parent.generation))) { let takes = true; try { takes = !describeFrontier({ rootDir, work, pending }).refusal; } catch { takes = false; } if (takes) awaitingApproval.push(pending.key); } }
+  awaitingApproval.sort(byText);
   // an approved frontier whose admitted child is not registered yet: the next sitting registers it (`council tree resume`); nothing the record holds says so otherwise (BUG-B-010)
   const nextChild = choice.kind === 'child' && !state.sticky.size && state.active === null ? choice.node : null;       // a registered node is ACTIVE: resume retries it first (the registered-child line says so), it registers nobody
   const held = sittingFacts(rootDir);
