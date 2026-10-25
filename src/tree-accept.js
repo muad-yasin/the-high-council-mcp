@@ -23,6 +23,9 @@ import { treeInputScanModeFrom } from './tree-pii-mode.js';
 import { piiGateReport, textSecretFindings } from './run-preflight.js';
 import { snapshotOfRun } from './tree-restore.js';
 import { rederivationOutcome, rederivedTriggers } from './tree-ready.js';
+import { rootTaskOf } from './tree-root-task.js';
+import { DeriveRefusal, resolveContextRefs } from './tree-context-refs.js';
+import { childNode } from './tree-identity.js';
 
 const refuse = reason => new TreeRefusal({ code: 'transition_refused', transition: 'plan_accepted', reason });
 
@@ -97,6 +100,20 @@ export function candidatePlanAccept(rootDir, { stopId, actor, via, reason, gate,
     if (keyList.length) parts.push(`${keyList.length} key-shaped string${keyList.length === 1 ? '' : 's'} (${[...new Set(keyList.map(f => f.name))].join(', ')})`);
     if (piiList.length) parts.push(`${piiList.length} personal-data finding${piiList.length === 1 ? '' : 's'} (${[...new Set(piiList.map(f => f.type))].join(', ')})`);
     return writerRefusal(`the changed plan holds ${parts.join(' and ')}: the tree holds no plan that its own key and personal-data checks refuse. Edit the file to remove ${parts.length === 1 && keyList.length + piiList.length === 1 ? 'it' : 'them'} and ask again`);
+  }
+  // LB-3 (C&C's ruling on the fresh-eyes read, 25 Okt 2026): a plan with a verified split is accepted only when every child's context_refs still resolve against the ACCEPTED text, through the one resolver (src/tree-context-refs.js) and
+  // the one root-task reader (src/tree-root-task.js): a prose edit outside the fence that removes a heading the split names would otherwise leave a derivation stop no free route can close. The same rule the repaired-provider route
+  // applies to a derivation stop, here at every accept. A root task that does not read against its pin refuses too (fail closed: the check cannot run).
+  if (n.verifiedSplit && splitHash) {
+    const task = rootTaskOf(rootDir, { work });
+    if (task.refusal) return writerRefusal(`the root task does not read against its pin (${task.refusal.detail}), so the references of ${stop.node}'s split cannot be checked against the changed plan: nothing is accepted until it reads`);
+    const block = JSON.parse(extractSplitBlocks(snap.text)[0].text);
+    for (const c of block.children ?? []) {
+      try { resolveContextRefs({ refs: c.context_refs, rootTask: { name: task.name, text: task.text, sha256: task.sha256 }, parentPlan: { name: 'deliverable.md', text: snap.text, sha256: accepted } }); } catch (e) {
+        if (!(e instanceof DeriveRefusal)) throw e;
+        return writerRefusal(`the changed plan breaks a reference of its own split: ${childNode(stop.node, c.milestone)} (${c.id}): ${e.detail}. Put the heading back, or ask for a new plan`);
+      }
+    }
   }
   if (actor === 'session' && typeof reason === 'string' && reason) {
     const inReason = textSecretFindings(reason, 'reason').length + (pii.status === 'on' ? piiGateReport({ mode: pii.mode, sources: [['reason', reason]], forTree: 'member' }).findings.length : 0);

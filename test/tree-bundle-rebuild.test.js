@@ -267,22 +267,23 @@ test('[REBUILD] THE TABLE: a hand-written node_bundle_rebuilt is refused unless 
   assert.match(why({ ...cand(), because: [{ node: 'R/M1', generation: 1, eventId: 'e1', acceptedBodySha256: 'a'.repeat(64) }] }), /has started/);
 });
 
-test('[REBUILD] A REFUSAL: an accepted plan that no longer holds a section the child quotes writes ONE blocked record (rebuild_refused), writes NO file, starts nothing, and `decide --close` on the held sub-plan succeeds', { timeout: 900_000 }, async () => {
+// CHANGED ACCEPTED TEST (lane T, G2 commit 6, LB-3: C&C's ruling on the fresh-eyes read, 25 Okt 2026). BEFORE: the edit removing "## Overview" (which every child's context_refs name) was ACCEPTED and the rebuild then refused (ONE
+// rebuild_refused record, the child held, `decide --close` the way out). AFTER: every accept of a plan with a verified split runs the one resolver against the accepted text, so that accept is itself refused, naming the child and the
+// heading, and nothing is written: the plan the child quotes never loses the section. (The rebuild's own refusal stays for a section the accept cannot check: a provider body accepted without a heading its consumer quotes.)
+test('[REBUILD] LB-3: an edit that removes a section the child quotes is REFUSED at the accept (the one resolver against the accepted text): nothing is accepted, rebuilt or moved, and the child\'s input is unchanged', { timeout: 900_000 }, async () => {
   const { r, start, first } = await notStartedTree();
   const hashBefore = nodeOf(r, first.node).bundleSha256;
-  await editAndAccept(r, start, t => t.replace('## Overview', '## Summary'));
-  const out = await runTree(r.t.rootDir, { work: r.t.work, startRun: start }).catch(e => ({ status: 'threw', detail: e.message }));
-  assert.equal(out.status, 'refused', JSON.stringify(out).slice(0, 200));
-  const blocked = eventsOf(r).filter(e => e.event === 'blocked' && e.check === 'rebuild_refused');
-  assert.equal(blocked.length, 1);
+  writeFileSync(planFile(r, 'R/M1'), readFileSync(planFile(r, 'R/M1'), 'utf8').replace('## Overview', '## Summary'));
+  await sit(r, start);
+  const stop = stopsOf(r, 'R/M1').at(-1);
+  assert.ok(stop && stateOf(readTreeRecord(r.t.rootDir)).openStops.includes(stop.id), 'a stop is open');
+  const out = await decide(r, { 'accept-plan': true, stop: stop.id }, [stop.id, 'y']);
+  assert.notEqual(out.code, 0, out.errors);
+  assert.match(out.errors, /the changed plan breaks a reference of its own split: R\/M1\/M\d \(K\d\): .*Overview/);
+  assert.equal(eventsOf(r).filter(e => e.event === 'plan_accepted').length, 0);
   assert.equal(rebuilds(r).length, 0);
-  assert.equal(nodeOf(r, first.node).phase, 'registered');
   assert.equal(nodeOf(r, first.node).bundleSha256, hashBefore);
   assert.equal(replacedOf(r, first).length, 0, 'nothing was written or moved');
-  await runTree(r.t.rootDir, { work: r.t.work, startRun: start, maxStarts: 0 });
-  assert.equal(eventsOf(r).filter(e => e.event === 'blocked' && e.check === 'rebuild_refused').length, 1, 'said once, not written again');
-  const closed = await decide(r, { close: first.node }, [first.node, 'y']);
-  assert.equal(closed.code, 0, closed.errors);
 });
 
 test('[REBUILD] WHICH PLANS ARE WATCHED (pure, on the fold): a bundle records the plans it was built from with the body event each carried; a newer event on THAT node and generation is due, a newer generation of the parent is not; an accept before the build is not', () => {

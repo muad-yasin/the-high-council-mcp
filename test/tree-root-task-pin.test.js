@@ -5,7 +5,7 @@
 // Real verbs on all-mock chains, $0; the plans are drafts handed to each run (api.run's `draft`).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -14,6 +14,7 @@ import { startHandler } from '../src/tree-start.js';
 import { resumeHandler } from '../src/tree-resume.js';
 import { approveHandler } from '../src/tree-approve.js';
 import { findPendingFrontier } from '../src/tree-frontier.js';
+import { requestStop } from '../src/tree-run.js';
 import { readinessOf } from '../src/tree-ready.js';
 import { readTreeRecord } from '../src/tree-record.js';
 import { track } from './helpers/temp-trees.js';
@@ -78,4 +79,44 @@ test('B (b): the root task edited while R/M1 runs -> the next step does not veri
   const back = await sit();
   const v = kinds('split_verified').find(e => e.node === 'R/M1' && e.generation === 1);
   assert.ok(v && Array.isArray(v.resolvedRefs), `verified once the file is back, with what each child resolved to: ${back.text}`);
+});
+
+// LB-1 (the fresh-eyes read's missing test, 25 Okt 2026): the root task that cannot be read when a split BELOW the root is verified refuses `root_task_unreadable` (for R itself the contract check refuses first), and the split is verified
+// again once the file is back (RECHECKED, D2 F4a). The setup holds every other registration back (R/M1 is not signed and stops, so its consumer R/M2 waits; R/M3's own children wait for approval) so no derivation reads the missing file
+// in the same step; R/M3's split is left unverified by the person's `tree stop` during its run (as in tree-record-only-under-block.test.js T5c).
+test('LB-1: the root task gone when R/M3\'s split is verified -> refused root_task_unreadable, no split_verified; the file back -> the next resume verifies it', { timeout: 900_000 }, async () => {
+  const work = track(mkdtempSync(join(tmpdir(), 'thc-lb1-')));
+  mkdirSync(join(work, 'tasks')); mkdirSync(join(work, 'chains'));
+  const task = join(work, 'tasks', 'x.md'); writeFileSync(task, 'Plan a tiny change.\n');
+  writeFileSync(join(work, 'chains', 'lb1-root.json'), JSON.stringify({ ...splitRootConfig(), name: 'lb1-root' }, null, 2));
+  writeFileSync(join(work, 'chains', 'lb1-child.json'), JSON.stringify({ ...splitChild(), name: 'lb1-child' }, null, 2));
+  writeFileSync(join(work, 'plan.md'), plan3());
+  const m3Block = ownQuestions(block3()); m3Block.classes = m3Block.classes.filter(c => c.id !== 'C3'); for (const c of m3Block.children) c.inherits = c.inherits.map(x => (x === 'C3' ? 'C2' : x));
+  writeFileSync(join(work, 'child-plan.md'), plan3(m3Block));
+  writeFileSync(join(work, 'leaf-plan.md'), LEAF_PLAN);
+  writeFileSync(join(work, 'leaf-plan-unsigned.md'), '# A draft the mock critics do not sign\n\nIt carries no marker line.\n');
+  const S = {};
+  const kinds = (...names) => readTreeRecord(S.rootDir).events.filter(e => names.includes(e.event));
+  const draftFor = node => (node === 'R/M1' ? 'leaf-plan-unsigned.md' : node === 'R/M3' ? 'child-plan.md' : 'leaf-plan.md');
+  const startRun = async ({ node, chain, bundleDir, runId, grantUsd }) => {
+    const res = await api.run({ chain, task: join(bundleDir, 'task.md'), ...(existsSync(join(bundleDir, 'criteria.json')) ? { criteria: join(bundleDir, 'criteria.json') } : {}), context: join(bundleDir, 'context.md'), runId, treeNode: join(bundleDir, 'node.json'), piiGate: 'hard-stop', cwd: work, maxUsd: grantUsd, draft: draftFor(node), rounds: 1 });
+    if (node === 'R/M3') { requestStop(S.rootDir); renameSync(task, `${task}.away`); }      // the person stops the sitting and the root task goes away while R/M3 runs
+    return res;
+  };
+  const sit = async () => { const o = quiet(); const code = await resumeHandler({ rootDir: S.rootDir, rootId: S.rootId, work, stdout: o.stdout, stderr: o.stderr, deps: { startRun } }); return { code, text: o.text() }; };
+  const o = quiet();
+  assert.equal(await startHandler({ flags: { task: 'tasks/x.md', chain: 'lb1-root', 'child-chain': 'lb1-child', 'max-usd': '100' }, work, stdout: o.stdout, stderr: o.stderr, deps: { bundleAllowanceBytes: 4000, startRun: opts => api.run({ ...opts, draft: 'plan.md', rounds: 1 }) } }), 0, o.text());
+  [S.rootId] = readdirSync(join(work, 'runs')); S.rootDir = join(work, 'runs', S.rootId);
+  assert.equal((await sit()).code, 20);
+  const pending = findPendingFrontier({ rootDir: S.rootDir });
+  const t = terminal([pending.key.slice(0, 8), 'y']); const timer = setTimeout(() => t.stdin.end(), 8000);
+  assert.equal(await approveHandler({ rootDir: S.rootDir, rootId: S.rootId, work, stdin: t.stdin, stdout: t.stdout, stderr: t.stderr, now: () => Date.now() }).finally(() => clearTimeout(timer)), 0, t.shown() + t.errors());
+  const run = await sit();
+  assert.equal(kinds('split_verified').some(e => e.node === 'R/M3'), false, `the stop ended the sitting before R/M3 was verified: ${run.text}`);
+  const gone = await sit();
+  assert.ok(kinds('blocked').some(e => e.reason === 'expansion_refused' && e.scope === 'R/M3@g1' && e.check === 'root_task_unreadable'), `refused root_task_unreadable: ${gone.text}`);
+  assert.equal(kinds('split_verified').some(e => e.node === 'R/M3'), false);
+  renameSync(`${task}.away`, task);
+  const back = await sit();
+  assert.ok(kinds('split_verified').some(e => e.node === 'R/M3' && e.generation === 1), `verified once the file is back: ${back.text}`);
 });
