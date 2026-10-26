@@ -41,8 +41,8 @@
       "chains/**/*.json"
     ],
     "targets": [
-      "node22-linux-x64",
-      "node22-win-x64"
+      "node24-linux-x64",
+      "node24-win-x64"
     ],
     "outputPath": "dist"
   },
