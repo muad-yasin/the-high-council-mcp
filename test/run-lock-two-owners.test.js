@@ -165,5 +165,7 @@ test('X-1 (after the take): a take whose claim was destroyed after its check, wi
     inner = acquireRunLock(dir, { file: SITTING_LOCK_FILE });       // and a third contender took the lock in the gap
   } }), RunLockedError, 'the take that lost its claim is refused');
   assert.ok(inner, 'the third contender holds');
+  // The green end state here is the residual CR-SOL-006 (R-1), not "one owner with the file intact": the third contender holds, and the undo of the refused take has removed the lock file at the path. What the test
+  // pins is that the refused take does not come back holding.
   inner();
 });

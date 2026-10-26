@@ -216,8 +216,8 @@ export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, un
       // it is no longer ours, our lock is undone (only if it is still ours) and we hold nothing.
       if (!claimIsOurs()) { if (isMine(lockPath, mine)) { try { unlinkSync(lockPath); } catch { /* gone */ } } throw locked(); }
     } finally {
-      // Removed only if it is ours: it carries our nonce, or (a write that failed leaves it empty or partial) it is still the file we created. The inode alone is not proof (a freed inode number can be handed to the next file
-      // created), and the nonce alone would miss a claim that was put back by a link (a different inode, our content).
+      // Removed only if it is ours. A claim that reads carries its owner's nonce, and the nonce decides (the inode alone is not proof: a freed inode number can be handed to the next file created). A claim that does not read
+      // (a write that failed leaves it empty or partial) has no nonce to compare, so it is removed only if it is still the file we created (the same inode and device).
       try {
         const st = statSync(claimPath);
         let content = null;
