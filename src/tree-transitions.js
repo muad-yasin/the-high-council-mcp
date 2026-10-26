@@ -258,6 +258,8 @@ export function foldRecord(events) {
   // M5e S3 (PLAN 8.4, C&C Q2/Q4): answering a stop in place RELEASES its marks; a regenerate decision answers the stop but its marks are HELD (heldStale), not cleared: the nodes are being replaced, and the marks end only as
   // the end of the fold says. Root blocks (root_affected) carry the ROOT stop that stands for them and clear only when a root milestone resolution answers that stop.
   let heldReleasedBelow = 0; const heldReleasedKeys = new Set();       // S8 held state: root eras below this number are PASSED OVER (K2: kept, not dead; X1: the first children frontier of a later root generation is approved; abandon retires them: heldEras() is empty then); individual keys passed over by held_released (X2). There is NO release by the next root generation (X4 was removed 13 Oct 2026, see below)
+  // CR-RB-004: WHEN each generation was opened (its event's position in the record), per key and per path, so a parent's new children start above the numbers an older lineage of their path opened (childGenerationOf, generationOf)
+  let seq = 0; const openedAt = new Map(); const openingsOf = new Map();
   let maxOpenedBoundary = new Map(); const maxOpened = new Map(); const heldDecision = new Map(); const heldStale = new Map(); const rootBlocks = new Map(); const staleWhy = new Map();
   // The ROOT is never regenerated, so its mark is never HELD (it lives on the root stop and is released when a root milestone resolution answers that stop): keys of R are filtered out of what a regenerate holds.
   const notRoot = keys => new Set([...keys].filter(k => !String(k).startsWith('R@g')));
@@ -270,6 +272,7 @@ export function foldRecord(events) {
   const advice = new Map();        // ROADMAP 77: adviceId -> { adviceId, grantUsd, stopId, claim, expiresAtMs, runs: [{ runId, kind }], ended: null | { reason, returnedUsd }, id, answeredBy } (a side request, never a node)
   const keyOf = e => `${e.node}@g${e.generation}`;
   for (const e of events) {
+    seq += 1;
     lastId = Math.max(lastId, Number(String(e.id).slice(1)) || 0);
     const n = nodes.get(keyOf(e));
     switch (e.event) {
@@ -375,6 +378,7 @@ export function foldRecord(events) {
         const d = decisions.get(e.decisionId); if (d) { d.generated = true; d.opened = e.nodes ?? []; }
         if ((e.nodes ?? []).some(o => o.node === 'R')) maxOpenedBoundary = new Map(maxOpened);       // the era boundary: what was opened BEFORE the newest root opening (childGenerationOf skips only those)
         for (const o of e.nodes ?? []) maxOpened.set(o.node, Math.max(maxOpened.get(o.node) ?? 0, o.generation));
+        for (const o of e.nodes ?? []) { openedAt.set(`${o.node}@g${o.generation}`, seq); if (!openingsOf.has(o.node)) openingsOf.set(o.node, []); openingsOf.get(o.node).push({ generation: o.generation, seq }); }
         // X4 REMOVED (13 Oct 2026, C&C ruling on Muad's 12 Oct 2026 21:25 decision: every route that re-plans the root KEEPS old sub-plans for the reuse check and never sets them aside first). A root generation N >= 3 that opens used to release the held children of
         // eras below N-1 before any reuse check ran, when R@g(N-1) had offered no children. Now a held node stays held across root generations until a release that actually runs or replaces the check: X1 (the first children frontier of a later root generation
         // is approved), X2 (held_released), or abandon. A root generation that offers no frontier releases nothing.
@@ -469,7 +473,7 @@ export function foldRecord(events) {
       if (root !== undefined) { adoptedBelow.set(k, root); changed = true; }
     }
   }
-  const state = { maxOpenedBoundary, accepted, deferred, drafts, started, treeId, nodes, closedUnstarted, piiAllowed, adopted, adoptedBelow, active: activeKeys[0] ?? null, activeKeys, frontiers, decisions, openStops: [...openStops], stopMeta, restoredStops, detectedStops, maxOpened, stale, staleWhy, staleSrc, sticky, parentBlocks, heldReleasedBelow, heldReleasedKeys, abandoned, capAmendments, chainAmendments, advice, lastId };
+  const state = { maxOpenedBoundary, openedAt, openingsOf, accepted, deferred, drafts, started, treeId, nodes, closedUnstarted, piiAllowed, adopted, adoptedBelow, active: activeKeys[0] ?? null, activeKeys, frontiers, decisions, openStops: [...openStops], stopMeta, restoredStops, detectedStops, maxOpened, stale, staleWhy, staleSrc, sticky, parentBlocks, heldReleasedBelow, heldReleasedKeys, abandoned, capAmendments, chainAmendments, advice, lastId };
   // Two things are read off the FINISHED fold, so they come after the object exists (deadKeys reads nodes, frontiers, decisions, staleSrc and the held/adopted maps; never sticky, stale, parentBlocks or active).
   const dead = deadKeys(state);
   // (1) A4 (C&C thcmcp-cd, 23 Okt 2026): a parent_changed block whose frontier's PARENT is dead guards nothing, when the parent died through a SUB-PLAN regenerate. Such a frontier can neither register nor start a child (the node_registered rows approvalValid :1214,
@@ -977,6 +981,10 @@ export function childGenerationOf(state, parentGeneration, childPath) {
   // S8 (design note 5a, T9b): once a ROOT generation >= 2 is opened, a generation an OLD-era decision OPENED for this path but nobody registered would give the new child the SAME key (and the held stale mark of that old decision): the new child starts above it.
   // Era-2 unit (Era2Frontier_Plan_2026-10-19.md): only openings from BEFORE the newest root opening count. A decision of the CURRENT era opened this number for exactly this replacement, so it registers there (opened == registered; the decision's text reaches its context part 7).
   if ((state.maxOpened?.get('R') ?? 0) >= 2) g = Math.max(g, state.maxOpenedBoundary?.get(childPath) ?? 0);
+  // CR-RB-004 (the same hazard below the root): a generation of this path that an OLDER lineage opened before this parent generation was opened (a child regenerate whose replacement nobody approved, then the parent planned
+  // again) would give the new child that SAME key, and with it that decision's text as the child's own opening decision (src/tree-derive-load.js openedBy). The new child starts above it. Only openings from BEFORE the parent's
+  // opening count: a decision under THIS parent generation opened its number for exactly that replacement, which registers there (as the era rule above). A parent generation never opened (generation 1, or numbered by a split) adds nothing
+  for (const o of state.openingsOf?.get(childPath) ?? []) if (openedInReplacedLineage(state, childPath, o.generation, parentGeneration)) g = Math.max(g, o.generation);
   // never below the parent's own generation: a replaced parent's descendants are marked stale at the OLD generations (held by the decision), so its new children must not reuse those keys even when nothing was registered
   return Math.max(parentGeneration, g + 1);
 }
@@ -986,11 +994,24 @@ export function childGenerationOf(state, parentGeneration, childPath) {
  * path with neither - never registered, or only dead orphans of a replaced parent - the generation the next frontier of its parent registers it at (childGenerationOf over the parent's latest generation). The affected set
  * marks nodes stale at this generation, so the marks and the frontier's preview agree on every path, registered or not.
  */
+/**
+ * CR-RB-004, the ONE predicate of its three readers: was `node@generation` OPENED before its parent path's generation (`parentGeneration`, by default the newest) was opened? Then it belongs to a replaced lineage: the parent was
+ * planned again, the new plan numbers its children above it (childGenerationOf), the stop side does not name it (generationOf), and its replacement frontier is never offered (src/tree-frontier.js findPendingFrontier), so the
+ * decision typed for the old child never reaches a node of the new plan. A parent generation never opened (generation 1, or numbered by a split) replaces nothing: a decision under it re-forms its frontier as before.
+ */
+export function openedInReplacedLineage(state, node, generation, parentGeneration = null) {
+  const cut = node.lastIndexOf('/');
+  if (cut < 0) return false;
+  const parentAt = state.openedAt?.get(`${node.slice(0, cut)}@g${parentGeneration ?? latestGenerationOf(state, node.slice(0, cut))}`);
+  const at = state.openedAt?.get(`${node}@g${generation}`);
+  return parentAt !== undefined && at !== undefined && at < parentAt;
+}
 export function generationOf(state, path) {
   const orphans = orphansOf(state);
   // BUG-C-061 (bug audit 2026-10-24): an opened number counts only while NO registered node holds it. A number that a (now dead) node of a replaced parent consumed is not the next registration's: childGenerationOf below gives that (the preview side numbers the child the same way).
   const opened = state.maxOpened?.get(path) ?? 0;
-  let g = opened > 0 && ![...state.nodes.values()].some(n => n.node === path && n.generation === opened) ? opened : 0;
+  // CR-RB-004: nor an opening of a replaced lineage (openedInReplacedLineage): the next registration starts above it (childGenerationOf), so the stop side names what the preview names
+  let g = opened > 0 && !openedInReplacedLineage(state, path, opened) && ![...state.nodes.values()].some(n => n.node === path && n.generation === opened) ? opened : 0;
   for (const n of state.nodes.values()) if (n.node === path && !orphans.has(`${n.node}@g${n.generation}`)) g = Math.max(g, n.generation);
   if (g > 0) return g;
   const cut = path.lastIndexOf('/');

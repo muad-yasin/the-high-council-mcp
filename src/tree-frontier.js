@@ -6,7 +6,7 @@ import { canonicalJson, sha256Of } from './thin-contract.js';
 import { readTreeRecord, stateOf } from './tree-record.js';
 import { childNode, frontierKey, nodeKey } from './tree-identity.js';
 import { blockEdges } from './tree-deps.js';
-import { approvalValid, retiredNodeBy, childGenerationOf, deadKeys, foldRecord, heldKeys, isSupersededGeneration, orphansOf, planAuthorityOf, slotHeldBy } from './tree-transitions.js';
+import { approvalValid, retiredNodeBy, childGenerationOf, deadKeys, foldRecord, heldKeys, isSupersededGeneration, openedInReplacedLineage, orphansOf, planAuthorityOf, slotHeldBy } from './tree-transitions.js';
 import { checkRootTaskPin } from './tree-task-pin.js';
 import { rootTaskRefOf } from './tree-root-replan.js';
 import { expansionCheck } from './tree-expansion.js';
@@ -167,6 +167,7 @@ export function findPendingFrontier({ rootDir, record = readTreeRecord(rootDir),
     const parents = new Map();
     for (const o of d.opened) {
       if (isSupersededGeneration(state, o.node, o.generation)) continue;                  // replaced again by a later decision
+      if (openedInReplacedLineage(state, o.node, o.generation)) continue;                  // CR-RB-004: its parent was planned again after it was opened (the new plan numbers that child above it): never offered, or its approval would register the old number with the old decision's text
       const parentPath = o.node.slice(0, o.node.lastIndexOf('/'));
       if (!parentPath) continue;
       if (!parents.has(parentPath)) parents.set(parentPath, []);
