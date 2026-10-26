@@ -7,7 +7,7 @@
 // the owner's pid and host. A lock whose pid is dead on this host is stale (a crash, a kill -9)
 // and is replaced; a lock from another host is never judged stale from here, since its pid
 // means nothing on this machine.
-import { openSync, writeSync, closeSync, readFileSync, unlinkSync, writeFileSync, renameSync, statSync, fstatSync } from 'node:fs';
+import { openSync, writeSync, closeSync, readFileSync, unlinkSync, writeFileSync, renameSync, statSync, fstatSync, linkSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 
@@ -130,7 +130,7 @@ const isMine = (lockPath, mine) => {
 //
 // `_seam` (TEST ONLY, a no-op unless a test passes one; it is not reachable from the environment or the command line, like chain.js's setPromptSpy): called as _seam(stage, lockPath) at the two points where another
 // process can change the lock file between our looking and our acting: 'after-exists' (our create failed because the file existed, before we read it), 'after-claim' (the claim is ours, before we read the
-// file's state) and 'before-take' (we have decided what the file's state is, before we act on it); also 'after-create' (the fast path created the file and has not written its body) and 'after-claim-create' (our claim was created, not yet written) and 'before-clear' (an abandoned claim was judged, not yet cleared). test/run-lock.test.js and test/run-lock-two-owners.test.js use it to make the interleavings that lost an update, or gave two owners, deterministic.
+// file's state) and 'before-take' (we have decided what the file's state is, before we act on it); also 'after-create' (the fast path created the file and has not written its body) and 'after-claim-create' (our claim was created, not yet written) and 'before-clear' (an abandoned claim was judged, not yet cleared), 'before-tomb' (judged again, not yet moved aside) and 'before-rename' (the claim was confirmed, the take not yet made). test/run-lock.test.js and test/run-lock-two-owners.test.js use it to make the interleavings that lost an update, or gave two owners, deterministic.
 export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, unreadableStaleMs: givenStaleMs, _seam = null } = {}) {
   const unreadableStaleMs = staleMsOf(file, givenStaleMs);
   const seam = stage => { if (_seam) _seam(stage, join(runDir, file)); };
@@ -173,9 +173,13 @@ export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, un
         // a path is never unlinked on the strength of an earlier look. A claim that turns out to be alive was taken from its owner, who sees it is gone before it takes the lock and stops; so do we.
         seam('before-clear');
         if (!claimAbandoned()) throw locked();
+        seam('before-tomb');
         const gone = `${claimPath}.${pid}.${mine.nonce}.gone`;
         try { renameSync(claimPath, gone); } catch { continue; /* cleared by someone else meanwhile: try the create again */ }
         const wasAbandoned = claimAbandoned(gone);
+        // CR-SOL-003 (cross-read): between the second look and the rename the claim can have been replaced by a live contender's. What was taken is put BACK rather than destroyed: a link never clobbers (EEXIST leaves a newer
+        // claim alone), and its owner, who checks its claim by path before it takes, sees it is there again. Only when the path was taken meanwhile does the owner lose its claim, and it stops at its own checks.
+        if (!wasAbandoned) { try { linkSync(gone, claimPath); } catch { /* the path is taken, or the claim is gone: the owner stops at its own checks */ } }
         try { unlinkSync(gone); } catch { /* gone */ }
         if (!wasAbandoned) throw locked();
       }
@@ -197,6 +201,7 @@ export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, un
       seam('before-take');
       if (state === 'held') throw locked();
       if (!claimIsOurs()) throw locked();
+      seam('before-rename');
       if (state === 'absent') {
         let nfd;
         try { nfd = openSync(lockPath, 'wx'); } catch (e) { if (e.code === 'EEXIST') throw locked(); throw e; }
@@ -207,14 +212,19 @@ export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, un
         renameSync(tmp, lockPath);
       }
       if (!isMine(lockPath, mine)) throw locked();
+      // CR-SOL-003 (cross-read): the claim can be taken from us after the check above and before the take completes (another contender's tomb); a take made without the claim is not exclusive. Confirm it after the take: if
+      // it is no longer ours, our lock is undone (only if it is still ours) and we hold nothing.
+      if (!claimIsOurs()) { if (isMine(lockPath, mine)) { try { unlinkSync(lockPath); } catch { /* gone */ } } throw locked(); }
     } finally {
-      // Removed only if it is still the file we created: the same inode AND not another contender's claim (a freed inode number can be handed to the next file created, so the inode alone is not proof). A claim whose write
-      // failed is empty or partial and carries no one's nonce; it is ours by its inode.
+      // Removed only if it is ours: it carries our nonce, or (a write that failed leaves it empty or partial) it is still the file we created. The inode alone is not proof (a freed inode number can be handed to the next file
+      // created), and the nonce alone would miss a claim that was put back by a link (a different inode, our content).
       try {
         const st = statSync(claimPath);
-        let theirs = false;
-        try { const c = JSON.parse(readFileSync(claimPath, 'utf8')); theirs = Boolean(c) && typeof c === 'object' && c.nonce !== mine.nonce; } catch { /* unreadable or empty: not another contender's */ }
-        if (claimId && st.ino === claimId.ino && st.dev === claimId.dev && !theirs) unlinkSync(claimPath);
+        let content = null;
+        try { content = JSON.parse(readFileSync(claimPath, 'utf8')); } catch { /* unreadable or empty */ }
+        const readable = Boolean(content) && typeof content === 'object';
+        const ours = readable ? content.nonce === mine.nonce : Boolean(claimId) && st.ino === claimId.ino && st.dev === claimId.dev;
+        if (ours) unlinkSync(claimPath);
       } catch { /* gone, or no longer ours */ }
     }
     return hold();

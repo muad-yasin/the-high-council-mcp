@@ -132,3 +132,38 @@ test('S-3 (the claim has the same shape, found in the cross-read): a claimant su
     assert.equal(JSON.parse(readFileSync(lock, 'utf8')).pid, Number(holders[0].split(' ')[1]), 'and the lock on disk is that owner\'s');
   } finally { const all = [A, B].filter(Boolean); await finish(marks, ...all).catch(() => kill(...all)); kill(...all); }
 });
+
+test('X-1 / CR-SOL-003 (cross-read): a contender suspended between judging a claim abandoned and moving it aside does not destroy the LIVE claim that has replaced it, so a third contender cannot take the lock beside the owner (the base: both D and B return holding)', async () => {
+  const dir = dirOf(); const marks = dirOf(); const lock = join(dir, TREE_LOCK_FILE);
+  writeFileSync(lock, JSON.stringify({ pid: DEAD_PID, host: hostname(), at: 'then', nonce: 'dead' })); writeFileSync(`${lock}.claim`, JSON.stringify({ pid: DEAD_PID, host: hostname() }));
+  const A = contender(dir, marks, TREE_LOCK_FILE, 'A', { pause: 'before-tomb' });     // A judged the old claim abandoned, twice, and stops before it moves it aside
+  let B; let D;
+  try {
+    await A.next(/^paused before-tomb$/);
+    B = contender(dir, marks, TREE_LOCK_FILE, 'B', { pause: 'before-rename' });       // B clears the old claim, makes its own, confirms it, and stops before it takes the lock
+    await B.next(/^paused before-rename$/);
+    go(marks, 'A');
+    const a = await A.next(/^(held|locked)/);                                         // A resumes and moves aside what is now B's LIVE claim
+    assert.equal(a, 'locked');
+    D = contender(dir, marks, TREE_LOCK_FILE, 'D', {});                               // a third contender arrives while B is still before its take
+    const d = await D.next(/^(held|locked)/);
+    go(marks, 'B');
+    const b = await B.next(/^(held|locked)/);
+    const holders = [a, b, d].filter(l => l.startsWith('held'));
+    assert.equal(holders.length, 1, `exactly one owner; A said "${a}", B said "${b}", D said "${d}"`);
+    assert.equal(JSON.parse(readFileSync(lock, 'utf8')).pid, Number(holders[0].split(' ')[1]), 'and the lock on disk is that owner\'s');
+  } finally { const all = [A, B, D].filter(Boolean); await finish(marks, ...all).catch(() => kill(...all)); kill(...all); }
+});
+
+test('X-1 (after the take): a take whose claim was destroyed after its check, with another contender taking the lock in that gap, is undone: it holds nothing (the base: both return holding)', () => {
+  const dir = dirOf(); const lock = join(dir, SITTING_LOCK_FILE); const claim = `${lock}.claim`;
+  writeFileSync(lock, JSON.stringify({ pid: DEAD_PID, host: hostname(), at: 'then', nonce: 'dead' }));
+  let inner = null;
+  assert.throws(() => acquireRunLock(dir, { file: SITTING_LOCK_FILE, _seam: (stage, path) => {
+    if (stage !== 'before-rename') return;
+    unlinkSync(claim);                                              // a contender moved our claim aside and destroyed it after our check
+    inner = acquireRunLock(dir, { file: SITTING_LOCK_FILE });       // and a third contender took the lock in the gap
+  } }), RunLockedError, 'the take that lost its claim is refused');
+  assert.ok(inner, 'the third contender holds');
+  inner();
+});

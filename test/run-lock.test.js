@@ -76,7 +76,7 @@ test('a lock that is RELEASED between our failed create and our read is absent, 
     if (stage === 'before-take') writeFileSync(path, fresh, { flag: 'wx' });   // a third process takes the lock in the same gap
   };
   assert.throws(() => acquireRunLock(d, { _seam: seam }), RunLockedError);
-  assert.deepEqual(stages, ['after-exists', 'after-claim-create', 'after-claim', 'before-take']);   // CR-SOL-003 added 'after-claim-create' (the claim exists, not yet written): a changed accepted test, 26 Okt 2026
+  assert.deepEqual(stages, ['after-exists', 'after-claim-create', 'after-claim', 'before-take', 'before-rename']);   // CR-SOL-003 added 'after-claim-create' (the claim exists, not yet written) and, in the cross-read fix-up, 'before-rename' (the claim confirmed, the take not yet made): a changed accepted test, 26 Okt 2026
   assert.equal(readFileSync(lock, 'utf8'), fresh, 'the third process\'s lock is untouched');
   assert.equal(existsSync(`${lock}.claim`), false, 'and the claim is gone');
 });
