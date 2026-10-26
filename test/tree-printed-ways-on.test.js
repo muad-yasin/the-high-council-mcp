@@ -27,7 +27,8 @@ import { pricedChildren } from './helpers/child-chains.js';
 import { terminal } from './helpers/terminal.js';
 
 // the sentences, whole (they exist today; the test pins that the one copy is printed where it was missing): the frontier screen's limit line (src/tree-stop.js), S13's way on (src/tree-resume.js), the approve verb's refusal (src/tree-approve.js)
-const LIMIT_LINE = root => `A limit can be raised only by you, after seeing this: council tree decide ${root} --max-runs|--max-depth|--max-children <n> (a raise never changes the root cap).`;
+// CHANGED ACCEPTED TEST (Fable FINAL H-07, 26 Okt 2026). OLD: `A limit can be raised only by you, after seeing this: council tree decide ${root} --max-runs|--max-depth|--max-children <n> (a raise never changes the root cap).`
+const LIMIT_LINE = root => `A limit can be raised only by you, at the terminal: council tree decide ${root} --max-runs|--max-depth|--max-children <n> (a raise never changes the root cap).`;
 const CHAIN_WAY_ON = root => `put the chain file back as the tree registered it, or end the tree with \`council tree decide ${root} --abandon\``;
 const CANNOT_EXPAND = (pending, r) => `${pending.parent.node} cannot be expanded yet. ${refusalWords(r)}`;
 const nextSteps = text => text.slice(text.indexOf('What you can do')).split('\n').slice(1).map(l => l.trim()).filter(Boolean);

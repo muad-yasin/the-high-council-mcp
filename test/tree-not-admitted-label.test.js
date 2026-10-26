@@ -47,4 +47,6 @@ test('the root-replacement screen prints the label once: a limit refusal from ad
   const line = v => renderFrontierText(v).split('\n').find(l => /NOT ADMITTED/.test(l));
   assert.equal(line(view(real.reason)), '  NOT ADMITTED: run limit');
   assert.equal(line(view('run limit (12 of 12 runs are registered)')), '  NOT ADMITTED: run limit (12 of 12 runs are registered)');
+  // Fable FINAL H-07 (26 Okt 2026): the root re-plan screen prints the limit line from its one copy (src/tree-stop.js limitRaiseLine), as the children screen does
+  assert.ok(renderFrontierText(view(real.reason)).split('\n').includes('  A limit can be raised only by you, at the terminal: council tree decide rid --max-runs|--max-depth|--max-children <n> (a raise never changes the root cap).'), renderFrontierText(view(real.reason)));
 });

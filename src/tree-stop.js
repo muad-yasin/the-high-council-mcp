@@ -22,8 +22,8 @@ const quoted = text => indent(String(text).replace(/\s+$/, ''), '      | ');
  */
 export const quotedReason = text => terminalSafe(text).replace(/\s+$/, '').split('\n').map(l => `      | ${l}`).join('\n');
 /** A refused child's reason already begins "not admitted: " (tree-frontier.js, tree-budget.js); a line that carries its own NOT ADMITTED label prints the rest, so the label appears once. A reason without the prefix (and a null) comes back as it was. */
-/** The way on for a child a LIMIT refused (R17): a raise is the person's, at the limit stop. ONE copy: this screen and the session route's refusal (src/tree-approve-session.js). */
-export const limitRaiseLine = root => `A limit can be raised only by you, after seeing this: council tree decide ${root} --max-runs|--max-depth|--max-children <n> (a raise never changes the root cap).`;
+/** The way on for a child a LIMIT refused (R17): a raise is the person's, at the limit stop. ONE copy: the children screen, the root re-plan screen and the session route's refusal (src/tree-approve-session.js). */
+export const limitRaiseLine = root => `A limit can be raised only by you, at the terminal: council tree decide ${root} --max-runs|--max-depth|--max-children <n> (a raise never changes the root cap).`;
 export const notAdmittedWords = reason => (typeof reason === 'string' ? reason.replace(/^not admitted: /, '') : reason);
 
 // (The three choices PLAN 6.3 words for a held item are NOT printed: two of them had no command behind them. C&C ruling, 8 Oct 2026, accepted as a deviation: the text says only what exists. ROADMAP 43.)
@@ -159,7 +159,7 @@ function renderRootReplanText(view) {
   L.push(`  Root cap ${money(view.budget.rootCapUsd)}; spent so far ${money(view.budget.spentUsd)}; held for running children ${money(view.budget.heldUsd)}; still available ${money(view.budget.availableUsd)}.`);
   if (unknownSpendLine(view.budget)) L.push(`  ${unknownSpendLine(view.budget)}.`);
   for (const l of view.limits) L.push(`  ${l.limit}: ${l.count} of ${l.effective} (the new root counts as a run)`);
-  if (!c.admitted && c.refusedLimit) L.push(`  A limit can be raised only by you, after seeing this: council tree decide ${root} --max-runs|--max-depth|--max-children <n> (a raise never changes the root cap).`);
+  if (!c.admitted && c.refusedLimit) L.push(`  ${limitRaiseLine(root)}`);       // the one copy, as the children screen prints it
   L.push('', c.admitted ? `Approving authorizes up to ${money(c.grant)} of new paid runs (the grant above, shown rounded to the cent).` : 'Approving authorizes no new paid run (the new root run is not admitted).');
   L.push('', `To approve, type the first ${PREFIX_LEN} characters of the frontier key: ${prefixOf(view.frontierKey)}`);
   return `${L.join('\n')}\n`;
