@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.3 - 2026-10-26 (BREAKING for scripts and clients that rely on the changes listed under "Changes that can break a script or a client")
 
 ### Changes that can break a script or a client
 
