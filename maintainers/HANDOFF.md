@@ -149,6 +149,7 @@ no `npm publish`, no GitHub release and no merge into `master` until the owner s
 3. Tag `v0.8.3`. A `v*` tag push starts `.github/workflows/release-binaries.yml` ("Build binaries": it runs `npm test`,
    builds the Linux binary, the AppImage and the Windows `.exe`, smoke-tests each and uploads workflow artifacts;
    it does not publish a release).
-4. The GitHub release for the tag, with the `.mcpb` from `bash scripts/build-mcpb.sh` and its SHA-256 (and the
-   binaries, if they are to be attached).
+4. The GitHub release for the tag, with the `.mcpb` from `bash scripts/build-mcpb.sh` and its SHA-256, and the three
+   binaries from the tag's "Build binaries" run (`gh run download`) with one file of their SHA-256 sums (from 0.8.3 on;
+   the README's "Standalone binaries" section says each release carries them).
 5. The MCP registry entry from `server.json`, last, since it points at the npm version published in step 2.

@@ -389,11 +389,11 @@ In a clone, `node src/cli.js` does what `council` does, on the current source ra
 published package. `npx github:muad-yasin/the-high-council-mcp council demo` runs the current
 source without cloning.
 
-### Standalone binaries (build them yourself)
+### Standalone binaries
 
-There are no published binary downloads yet. From a clone you can build a single-file `council`
-that needs no Node install to run: a Linux binary, a Linux AppImage, and a Windows `.exe`, all
-built on Linux.
+From 0.8.3 on, each [GitHub release](https://github.com/muad-yasin/the-high-council-mcp/releases) carries a single-file
+`council` that needs no Node install to run: a Linux binary, a Linux AppImage and a Windows `.exe`, with a file of
+their SHA-256 sums. From a clone you can also build them yourself, all on Linux:
 
 ```bash
 npm run build:bin                 # dist/the-high-council-linux, dist/the-high-council-win.exe
