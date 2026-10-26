@@ -22,8 +22,9 @@ import { writeAtomic } from './stop-files.js';
 import { TreeRefusal, appendTreeEvent, appendTreeEventLocked, readTreeRecord, stateOf, withTreeLock } from './tree-record.js';
 import { treePiiAllowFrom, treePiiModeFrom } from './tree-pii-mode.js';
 import { nodeKey } from './tree-identity.js';
-import { isNodePath, transitionRefusal } from './tree-transitions.js';
-import { accountingAcceptLines, budgetOf, gateTree, lifetimeCapOf, returnedUsdOf, unreadableFloorOf } from './tree-budget.js';
+import { isNodePath, isSupersededGeneration, transitionRefusal } from './tree-transitions.js';
+import { MONEY_EPS, accountingAcceptLines, budgetOf, gateTree, lifetimeCapOf, returnedUsdOf, unreadableFloorOf } from './tree-budget.js';
+import { abandonCommand, topUpWayOn } from './tree-ways-on.js';
 import { memberCeilingRefusal } from './tree-ceiling.js';
 import { bundleIdentityRefusal, continuationRefusal, deadRefusal, parentChangedEvent, rebuildDueRefusal, wayOutOf } from './tree-continuation.js';
 
@@ -144,6 +145,18 @@ export function memberPreflight({ rootDir, lineage, purpose = 'run', inputs, pii
 }
 
 /**
+ * The way on after "has no live grant" (RULE 1c: only a step the tree takes is named). A child: give it up (D2 F13c S10, `--close` takes it). The ROOT (CR-SOL-004): `--close` refuses it, so a root STOPPED at its cap
+ * gets the top-up form (src/tree-decide.js buildTopUp takes only phase `stopped`, and not a superseded or stale node, and only money the root cap still has free); any other root (an interrupted one: its run did not end,
+ * so no top-up is taken, and a cap raise moves no grant) gets the abandon command (A-DRAFT frame). Nothing for a closed node or a post-run call (an ended run).
+ */
+function grantWayOn({ n, key, purpose, state, budget, treeId }) {
+  if (n.phase === 'closed' || purpose === 'post_run') return '';
+  if (n.node !== 'R') return `. Nothing is left of its grant: give it up with \`council tree decide ${treeId} --close ${key}\`.`;
+  if (n.phase === 'stopped' && !isSupersededGeneration(state, n.node, n.generation) && !state.stale.has(key) && budget.availableUsd > MONEY_EPS) return `. ${topUpWayOn(treeId, key)}`;
+  return `. Nothing is left of its grant: end the tree with ${abandonCommand(treeId)}.`;
+}
+
+/**
  * The member's start (see the header): PLAN 7.6 steps 1-4 in ONE hold of the tree lock. In order: the table must allow the claim (otherwise the ordinary refusal and its `blocked` record); the accounting gate must pass
  * (else a `blocked` record, reason accounting_blocked, and a refusal: the tree is accounting_blocked exactly while the gate fails); the continuation checks must pass (a `blocked` record with reason continuation_refused
  * and the failed check's name); the node must have a LIVE grant (`lifetimeCapOf(...).live`: min(grant - spent, rootCap - treeSpent - heldByOthers) above zero; "no live grant" is a refusal HERE, never a run that
@@ -210,7 +223,7 @@ export function memberStart({ runDir, runId, lineage, purpose = 'run', capAskedU
     // the tree's cap in force against the ceiling (Q1, gate note): a cap set before the variable was set or lowered is refused at every paid member start, with the way down
     { const over = memberCeilingRefusal({ key, tree: record.tree, capUsd: budget.rootCapUsd, committedUsd: budget.treeSpentUsd + budget.unknownSpendHeldUsd + budget.heldUsd, ceiling }); if (over) refuse('continuation_refused', over.check, over.detail); }
     const life = lifetimeCapOf(budget, key);
-    if (!life.live) refuse('continuation_refused', 'grant', `${key} has no live grant: min(grant ${life.grantUsd.toFixed(4)} - spent ${life.spentUsd.toFixed(4)}, root cap ${budget.rootCapUsd.toFixed(4)} - tree spent ${budget.treeSpentUsd.toFixed(4)} - held by others ${life.heldByOthersUsd.toFixed(4)}) = ${life.roomUsd.toFixed(4)}${n.node !== 'R' && n.phase !== 'closed' && purpose !== 'post_run' ? `. Nothing is left of its grant: give it up with \`council tree decide ${lineage.treeId} --close ${key}\`.` : ''}`);       // D2 F13c S10 (A-DRAFT; B21b, the LOOP of an interrupted node whose spend reached its grant): named only where `--close` takes the node (src/tree-close.js closeRefusal refuses the root and a closed node; a post-run call is on an ended run)
+    if (!life.live) refuse('continuation_refused', 'grant', `${key} has no live grant: min(grant ${life.grantUsd.toFixed(4)} - spent ${life.spentUsd.toFixed(4)}, root cap ${budget.rootCapUsd.toFixed(4)} - tree spent ${budget.treeSpentUsd.toFixed(4)} - held by others ${life.heldByOthersUsd.toFixed(4)}) = ${life.roomUsd.toFixed(4)}${grantWayOn({ n, key, purpose, state, budget, treeId: lineage.treeId })}`);       // D2 F13c S10 + CR-SOL-004: the way on, by node and phase (grantWayOn, above)
     const capUsd = Math.min(capAskedUsd, life.lifetimeCapUsd);
     const claim = appendTreeEventLocked(rootDir, { ...plain, capUsd, lifetimeCapUsd: life.lifetimeCapUsd, capAskedUsd }, { facts, now });
     // PLAN 7.2 item 6: each line of the member's own reservations file is copied into the record by the same call that writes it (src/spend-reservations.js `mirror`), synchronously.

@@ -30,9 +30,10 @@ import { fileProblemLine, writeTreeFiles } from './tree-files.js';
 import { formatUsd } from './cost.js';
 import { applyChoice, pendingChoiceOf, replacedOf } from './tree-choice.js';
 import { finalSentenceOf } from './tree-abandon.js';
+import { abandonCommand, chainWayOn, topUpWayOn } from './tree-ways-on.js';
 
-/** D2 F18 S13 (A-DRAFT): the way on when a child chain file is not the one the tree registered. ONE copy: the sitting's refusal here and the status view (src/tree-status.js, G7 item 4). */
-export const chainWayOn = rootId => `put the chain file back as the tree registered it, or end the tree with \`council tree decide ${rootId} --abandon\``;
+// D2 F18 S13 and the abandon and top-up commands live in src/tree-ways-on.js (no imports: tree-member and tree-ready read them without a cycle); chainWayOn is re-exported for its earlier importers (src/tree-status.js)
+export { chainWayOn };
 
 export { SITTING_LOCK_FILE, apiResumer };
 
@@ -122,9 +123,9 @@ function sittingBody(res, rootId) {
     case 'waiting': L.push(`${at} waits for an external answer. ${res.needs?.length ? `Write the reply the NEEDS file asks for (${res.needs.join(', ')}) into runs/${res.runId}/, then run \`council tree resume ${rootId}\`.` : `Run \`council tree resume ${rootId}\` once its answer file exists.`}`); break;
     case 'awaiting_choice': {
       // D2 F13f S11 (A-DRAFT): `--close` refuses the root (src/tree-close.js closeRefusal, kind 'root'), so for R the way out named is ending the tree; any other node keeps its close
-      const giveUp = lead => (res.node === 'R' ? `To end the tree instead: \`council tree decide ${rootId} --abandon\`.` : `${lead} \`council tree decide ${rootId} --close ${res.node}\`.`);
+      const giveUp = lead => (res.node === 'R' ? `To end the tree instead: ${abandonCommand(rootId)}.` : `${lead} \`council tree decide ${rootId} --close ${res.node}\`.`);
       L.push(res.conflict ? `${at} stopped at a conflict the decider asked you to choose, and waits for YOUR pick.` : `${at} stopped at its overseer-round limit, at a layer's revision limit, or because a seat of a layer stayed silent for too many passes in a row, and is NOT agreed: it waits for YOUR choice.`); stopped(); if (res.replaced) { L.push(`  ${res.node} cannot be given a choice: its plan was replaced (${res.replaced === 'held' ? `it is ${res.replacedPhrase ?? HELD_PHRASE}` : res.replaced === 'kept' ? `it is ${res.replacedPhrase ?? KEPT_PHRASE}` : 'it is dead'}). ${giveUp('To give the node up:')}`); break; } if (res.conflict) { L.push(`  Your pick: \`${memberPrevailCommand({ treeId: rootId, node: res.node })}\` (the stop lists the conflicts and their objection ids); then \`council tree resume ${rootId}\` applies it. ${giveUp('To give the node up instead:')}`); break; } L.push(`  Your choice: \`${memberContinueCommand({ treeId: rootId, node: res.node })}\` (more rounds, under its own grant) or \`${memberFinishCommand({ treeId: rootId, node: res.node })}\` (the dispute stage and the handoff run, the result stays not agreed); then \`council tree resume ${rootId}\` applies it. ${giveUp('To give the node up instead:')}`); break; }
-    case 'budget_stop': L.push(`${at} stopped at its budget cap.`); stopped(); L.push(`  Resuming it needs a larger grant: \`council tree decide ${rootId} --top-up ${res.node} --amount <usd>\`.`); break;
+    case 'budget_stop': L.push(`${at} stopped at its budget cap.`); stopped(); L.push(`  ${topUpWayOn(rootId, res.node)}`); break;
     case 'abandoned': L.push(res.sentence); break;
     case 'tree_refused':
       // the member's detail often ENDS with a full stop (its remedy sentences do): one is stripped, so the line does not end ".."
