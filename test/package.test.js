@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -56,6 +56,9 @@ test('the tarball ships the published report.json schema', () => {
 
 test('the archived chains stay in the repository and out of the tarball (0.8.2: owner, 6 Oct 2026, archive the unused chains)', () => {
   assert.deepEqual(packed.filter(f => f.startsWith('archive/')), [], 'archive/ must not ship');
+  // 0.8.3 (lane B): the retired chains moved from archive/chains/ to chains/outdated/ (package.json files: !chains/outdated/); chains/ itself still ships (the check above can fail).
+  assert.deepEqual(packed.filter(f => f.startsWith('chains/outdated/')), [], 'chains/outdated/ must not ship');
+  assert.ok(existsSync(join(root, 'chains', 'outdated', 'cheap-7.json')), 'the retired chains are in the repository');
   assert.ok(packed.some(f => f.startsWith('chains/')), 'the check can fail: chains/ does ship');
 });
 
@@ -78,7 +81,7 @@ test('the tarball ships everything the CLI needs at runtime', () => {
   }
   // Every chain the README names must actually ship.
   // 0.8.2 (owner, 6 Oct 2026, archive the unused chains + README promotes five): the list is now the chains the README promotes (plus verify and mock-budget).
-  for (const c of ['verify', 'cheap-7-v2', 'plan-daily-7', 'plan-premium-7', 'plan-highest-7', 'local-ollama', 'mock-budget']) {
+  for (const c of ['verify', 'plan-mini-council', 'plan-medium-council', 'plan-high-council', 'local-ollama', 'mock-budget']) {
     assert.ok(packed.includes(`chains/${c}.json`), `chains/${c}.json is missing from the tarball`);
   }
 });

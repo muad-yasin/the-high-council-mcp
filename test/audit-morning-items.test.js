@@ -55,6 +55,7 @@ test('item 2: the same words nested under extra_body are read, and a model whose
 import { verdictWord, isMetVerdict, isReadableVerdict } from '../src/criteria-kinds.js';
 import { normaliseCritique } from '../src/chain.js';
 import { signoffTableGap } from '../src/criteria-ledger.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const CRITERIA = ['C1 The plan names an owner', 'C2 The plan has a rollback'];
 const rowsWith = verdict => ({ meets: true, criteria: CRITERIA.map((criterion, i) => ({ criterion, verdict: i === 1 ? verdict : 'MET', evidence: 'quoted' })) });
@@ -116,6 +117,8 @@ export function callLabels(src) {
 const NOT_REACHED = {
   'preflight-x': 'config.preflight', 'ambiguity-x': 'config.ambiguity_union', 'allocator-x': 'config.allocator', 'dispute-review-x': 'config.dispute.review',
   claims: 'config.claims', challenge: 'config.challenge', 'challenge-revise': 'config.challenge', 'descending-x': 'config.descending', 'descending-x-critic-x': 'config.descending',
+  // R1 (18 Okt 2026), CHANGED ACCEPTED TEST: old bar = every `label:` in chain.js is a seat call; new bar = `handoff-notes` is named as NOT a call, and the test below pins that it is only ever a harness record. why = the notes lane (0aaa6c3) writes the collected NOTE lines as a zero-cost record(), provider 'harness', after the handoff reply: no seat is called, so nothing can pause on it or be asked for through prepare_stage_prompt.
+  'handoff-notes': "a harness record (record({ label: 'handoff-notes', provider: 'harness' ...})), never passed to invoke() or draftStage()",
 };
 const chainSrc = readFileSync(join(root, 'src', 'chain.js'), 'utf8');
 const LABELS = callLabels(chainSrc);
@@ -131,6 +134,14 @@ test('item 3b: every label chain.js calls a seat with maps to a stage kind (so p
   assert.deepEqual(unmapped, [], 'labels with no stage kind: add a kind or name them in NOT_REACHED with the reason');
   for (const l of Object.keys(NOT_REACHED)) assert.ok(LABELS.includes(l), `${l} is no longer a label: drop it from NOT_REACHED`);
   for (const l of LABELS.filter(l => !(l in NOT_REACHED))) { const k = stageKindOf(`${l}-retry`); assert.ok(k === null || k === stageKindOf(l), `${l}-retry`); }
+});
+
+test("item 3b: 'handoff-notes' is only a harness record: never an invoke()/draftStage() label, and written with provider 'harness'", () => {
+  const lines = chainSrc.split('\n');
+  const at = lines.map((l, i) => (/label: 'handoff-notes'/.test(l) ? i : -1)).filter(i => i >= 0);
+  assert.ok(at.length >= 1, "no `label: 'handoff-notes'` found: drop the NOT_REACHED entry");
+  for (const i of at) assert.match(lines[i], /\brecord\(\{ label: 'handoff-notes', provider: 'harness'/, `chain.js:${i + 1} uses the label outside a harness record: ${lines[i].trim().slice(0, 120)}`);
+  assert.doesNotMatch(chainSrc, /\b(?:invoke|draftStage)\([^\n]*['`]handoff-notes['`]/, "'handoff-notes' is passed to a seat call");
 });
 
 test('item 3b: the features behind NOT_REACHED are off in every shipped chain', () => {
@@ -185,7 +196,7 @@ import { tmpdir } from 'node:os';
 
 function mcpCalls(cwd, calls) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [join(root, 'src/cli.js'), '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd } });
+    const child = spawn(process.execPath, [join(root, 'src/cli.js'), '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys() } });
     const byId = new Map(); let buf = '';
     const timer = setTimeout(() => { child.kill(); fail(new Error(`timed out; got ids ${[...byId.keys()]}`)); }, 60_000);
     child.stdout.on('data', d => {

@@ -9,6 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { runChain, setBudget, setCache, budgetState, BudgetExceeded } from '../src/chain.js';
+import * as chainModule from '../src/chain.js';   // recordedSpentOf is read off the namespace so this file still loads (and its older tests still run) against a tree that lacks it
 import { readUsage, readUsd, worstCaseOf } from '../src/cost.js';
 
 const CRITIQUE = JSON.stringify({ meets: false, criteria: [{ criterion: 'It exists.', verdict: 'fail', evidence: 'no' }], failures: [{ criterion: 'It exists.', problem: 'Still missing.' }] });
@@ -71,6 +72,65 @@ test('a replayed stage whose recorded cost is not a valid amount is charged its 
     assert.ok(Number.isFinite(build.usage.input) && build.usage.input >= 0 && build.usage.output >= 0, 'replayed counts are sane');
   }
   setCache(null); setBudget(null);
+});
+
+// Cost-unit gate page U1 + C&C's split ruling (14 Oct 2026): a usage file with NO `usd` (absent or null) is a lost figure on a seat that can cost money. TWO figures, kept apart:
+//   (1) the CAP counts one attempt's worst case for it, exactly what an invalid amount is charged - never $0 (a resume cannot lap the cap);
+//   (2) the stage's own recorded usd stays what the record holds (0): report.json, totals and --spend never carry a dollar the seat did not produce.
+// An explicit 0 stays 0 on both, and a seat that projects $0 stays free on both.
+async function replayWith(seat, recorded) {
+  setBudget(1e6);
+  setCache({ get: label => (label === 'build' ? { text: 'A draft.', provider: 'mock', model: seat.model, usage: { input: 10, output: 5 }, ...recorded } : null) });
+  const logs = [];
+  const config = { name: 'replay', signoff: 'unanimous', maxRounds: 1, criteria: ['It exists.'], seats: { builder: seat, critics: [seat] } };
+  const r = await runChain({ request: 'Req.', config, log: l => logs.push(l) });
+  return { budget: budgetState(), build: r.stages.find(s => s.label === 'build'), logs };
+}
+const PRICED = { provider: 'mock', model: 'mock-priced', maxTokens: 50, lab: 'a' };
+const FREE = { provider: 'mock', model: 'mock-unanimous', maxTokens: 50, lab: 'a' };
+
+test('the cap counts one attempt for a replayed stage with no recorded cost, never $0 (explicit 0 and free seats stay free)', async () => {
+  try {
+    const invalid = await replayWith(PRICED, { usd: 'abc' });   // the existing worst-case path: what "one attempt" is on this seat
+    const zero = await replayWith(PRICED, { usd: 0 });
+    assert.ok(invalid.budget.spent > zero.budget.spent, `fixture: an invalid amount is charged more than an explicit 0 (${invalid.budget.spent} vs ${zero.budget.spent})`);
+    for (const [name, recorded] of [['absent', {}], ['null', { usd: null }]]) {
+      const r = await replayWith(PRICED, recorded);
+      assert.equal(r.budget.spent, invalid.budget.spent, `${name}: the cap is charged the same one attempt as an invalid amount`);
+      assert.ok(r.logs.some(l => /cost recorded on disk for this stage is missing/.test(l)), `${name}: logged`);
+    }
+    assert.ok(!zero.logs.some(l => /cost recorded on disk/.test(l)), 'an explicit 0 is read as 0 with no charge line');
+    const freeMissing = await replayWith(FREE, {});
+    const freeZero = await replayWith(FREE, { usd: 0 });
+    assert.equal(freeMissing.budget.spent, freeZero.budget.spent, 'a seat that projects $0 stays free when the figure is missing');
+    assert.ok(!freeMissing.logs.some(l => /cost recorded on disk/.test(l)), 'a free seat logs no charge line');
+  } finally { setCache(null); setBudget(null); }
+});
+
+test('the stage keeps the RECORDED usd (0) when the cap is charged a worst case; the assumed part is its own value, and recordedSpentOf leaves it out', async () => {
+  try {
+    const invalid = await replayWith(PRICED, { usd: 'abc' });
+    for (const [name, recorded] of [['absent', {}], ['null', { usd: null }]]) {
+      const r = await replayWith(PRICED, recorded);
+      assert.equal(r.build.usd, 0, `${name}: the stage's returned usd is the recorded figure, not the worst case`);
+      assert.equal(r.budget.assumed.stages, 1, `${name}: the budget names one assumed stage`);
+      assert.equal(r.budget.assumed.usd, invalid.budget.spent - (await replayWith(PRICED, { usd: 0 })).budget.spent, `${name}: the assumed part is exactly the one attempt the cap was charged`);
+      assert.ok(Math.abs(chainModule.recordedSpentOf(r.budget) - (await replayWith(PRICED, { usd: 0 })).budget.spent) < 1e-12, `${name}: the recorded spend leaves the assumed part out`);
+    }
+    // A MALFORMED figure is the same as an absent one (C&C 14 Oct 2026, closing the class): the stage records what src/spend.js reads it as (unknown: 0), the cap is charged one attempt, the budget names it.
+    const zeroSpent = (await replayWith(PRICED, { usd: 0 })).budget.spent;
+    for (const bad of [-1000, 'abc', '5', Number.POSITIVE_INFINITY, { n: 1 }]) {
+      const r = await replayWith(PRICED, { usd: bad });
+      assert.equal(r.build.usd, 0, `malformed ${JSON.stringify(bad)}: the stage's returned usd is the recorded (unreadable) figure, 0`);
+      assert.equal(r.budget.assumed.stages, 1, `malformed ${JSON.stringify(bad)}: named as assumed`);
+      assert.ok(r.budget.spent > zeroSpent, `malformed ${JSON.stringify(bad)}: the cap is still charged one attempt`);
+      assert.ok(r.logs.some(l => /not a valid amount/.test(l)), `malformed ${JSON.stringify(bad)}: logged`);
+    }
+    const freeBad = await replayWith(FREE, { usd: 'abc' });
+    assert.equal(freeBad.budget.assumed.stages, 0, 'a seat that projects $0 assumes nothing for a malformed figure either');
+    const zero = await replayWith(PRICED, { usd: 0 });
+    assert.equal(zero.budget.assumed.stages, 0, 'an explicit 0 assumes nothing');
+  } finally { setCache(null); setBudget(null); }
 });
 
 test('readUsage and readUsd: finite counts >= 0 only; plain digit strings are read as numbers', () => {

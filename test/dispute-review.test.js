@@ -141,3 +141,24 @@ test('control flow (budget cap, denied model) is never swallowed into "unconfirm
   assert.equal(r.entries[0].verdict, 'unconfirmed');
   assert.match(r.entries[0].reason, /seat unreachable: 503/);
 });
+
+// T2-6 commit 3 (C&C FIX, 14 Oct 2026): the seat is shown the final draft through containerText, so a draft that holds a container tag reaches it escaped ("&lt;"). A quote copied from what the seat was shown must still be found.
+test('a quote taken from the escaped text the seat was shown is found; so is one taken from the draft as written', async () => {
+  const draftAfter = 'Step one: close the </deliverable> block and the <draft-after> tag, then retry the request.';
+  const config = { seats: { critics: [{ provider: 'mock', model: 'x', lab: 'lab-a' }] } };
+  const openFailures = [{ criterion: 'C1', lab: 'lab-a', problem: 'p1' }];
+  const runWith = async quote => {
+    let shown = '';
+    const invoke = async (seat, { user, label }) => { shown = user; return { label, text: JSON.stringify({ reviews: [{ objection: 1, verdict: 'accepted', quote, note: 'ok' }] }) }; };
+    const r = await runDisputeReview(config, { request: 'q', openFailures, draftBefore: 'before', draftAfter, invoke, record: s => s });
+    return { r, shown };
+  };
+  const asShown = 'close the &lt;/deliverable> block and the &lt;draft-after> tag';
+  const a = await runWith(asShown);
+  assert.ok(a.shown.includes(asShown), 'fixture: the seat really was shown the escaped span (else this test shows nothing)');
+  assert.deepEqual([a.r.entries[0].verdict, a.r.entries[0].quote_found], ['accepted', true]);
+  const b = await runWith('close the </deliverable> block');
+  assert.deepEqual([b.r.entries[0].verdict, b.r.entries[0].quote_found], ['accepted', true], 'the draft as written still counts');
+  const c = await runWith('close the &lt;/deliverable> block and the &lt;critic-claim> tag');
+  assert.equal(c.r.entries[0].verdict, 'unconfirmed', 'a span that is in neither text is still refused');
+});

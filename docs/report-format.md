@@ -50,7 +50,7 @@ lab supported them in the debate, with supporters and objectors; only when the r
 debate); `disagreement_map[]` (one row per review round: each lab's verdict, `(carried)` when it was
 reused on an unchanged draft).
 
-Since 0.8.2, `panelVerdicts[].lane` (additive, only for a seat with a review lane, the optional `plan-lanes-4` chain). Since 0.8.1 (optional and additive, none read by any verdict, prompt or stop): `field_cuts[]` (every place a model's text was cut before other seats read it: stage, field, original and kept length; `[]` when nothing was cut), `disputes[].round` can be `"build"` (the builder's own DECLINED lines; a reply made only of them stops the run), `panelVerdicts[].no_answer` (`"no answer: thinking used the whole cap"`: an unheard seat whose reply was cut off at its cap after spending its tokens on thinking and carried no text; never a pass), `stages[].cappedAt` (the output cap a reply was asked at: the seat's own, or the bigger one an Anthropic seat's retry used) and `stages[].noAnswer` (the same mark on the stage), and `advise` (the council advisor's roll-up, only on an advice call).
+Since 0.8.2, `panelVerdicts[].lane` (additive, only for a seat with a review lane, the optional `plan-lanes-4` chain, since 0.8.3 in `chains/outdated/`). Since 0.8.1 (optional and additive, none read by any verdict, prompt or stop): `field_cuts[]` (every place a model's text was cut before other seats read it: stage, field, original and kept length; `[]` when nothing was cut), `disputes[].round` can be `"build"` (the builder's own DECLINED lines; a reply made only of them stops the run), `panelVerdicts[].no_answer` (`"no answer: thinking used the whole cap"`: an unheard seat whose reply was cut off at its cap after spending its tokens on thinking and carried no text; never a pass), `stages[].cappedAt` (the output cap a reply was asked at: the seat's own, or the bigger one a retry used) and `stages[].noAnswer` (the same mark on the stage), and `advise` (the council advisor's roll-up, only on an advice call).
 
 Most optional stages add their field only when the chain turns that stage on. When the field is
 missing, the stage did not run. It does not mean the stage found nothing.
@@ -70,6 +70,14 @@ missing, the stage did not run. It does not mean the stage found nothing.
   `totals.unpriced` too.
 - `totals.usd` is the sum of the stages' settled `usd`. It excludes an unsettled reservation (a call that was sent when the process ended and never settled): `council --spend`, `run_status` and a resume's cap count
   such a reservation at its worst case, so those figures can be higher than the report's total.
+- Since 0.8.3 a `stages[]` entry that was paid for by a call carries `reservationId` (r1, r2...): the id of the spend reservation written before that call was sent, so a charge is matched to its reservation
+  by id and not by label (a label can be run twice). A mock stage, or a call projected at $0, has none. A stage replayed from disk carries the id of the sitting that paid. `superseded[]` (experimental, present only when a
+  stage was set aside and paid for again) lists the records `totals.supersededUsd` absorbed: `{ label, usd, reservationId }` each (a charge record adds `kind`, `waste` or `billed`).
+- Since 0.8.3 a run whose plan holds a block marked `the-high-council:tree-split` carries `split_contract` (experimental): `{ sha256, valid, findings[] }`, the result of the $0 checks on that block
+  (`sha256` is of the block as canonical JSON, null when it does not parse; each finding is `{ check, rule, message }`). It never changes `passed`.
+- Since 0.8.3 a run that is a member of a recursive-councils tree carries `tree` (experimental): `{ treeId, node, generation, attempt, parentNode, depth, splitSha256, bundleSha256 }`, copied unchanged from the `tree` field
+  of its `run.json` (`treeId` is the run id of the tree's root run; `node` is a path of milestone ids such as `R/M2`). A run that is no tree member has no `tree` key.
+- Since 0.8.3 a run with a session-seat stage (`provider: external`) carries `roster_answers` (experimental): `{ design_companies, recorded_companies, unverified_seats, seats[], note }`, who answered those seats AS DECLARED by the MCP client and the session, never verified, and the review panel's company count as recorded next to the count the chain was designed for. Each `seats[]` entry is `{ label, seat_lab, asked_for, answered_by, company, status, panel }`. The stage rows gain `asked_for` (the model the seat asks for, or `claude-code-session` when it asks for none) and `answered_by` (`{ client: { name, version } | null, model | null, declared_by }`; absent when the answer was written as a file). It changes no stage, cost, approval or `outcome`; a seat answered by another model is not a dropout.
 - `task` is never absolute (since 0.7.7): it is relative to the directory the run was started in,
   or the file name alone if the task lives outside it. Reports from 0.7.6 and earlier can carry an
   absolute path after a resume, rematch, replay or `init`. `task_sha256` (experimental) is the
@@ -108,6 +116,10 @@ Read it knowing the run did not finish:
   run as it stood at that stop. If the resumed run finishes, it writes `report.json`. If the cap
   stops it again, it writes fresh partial files. A capped `--rematch` or `--replay` folder gets
   them too.
+
+### A layered run stopped at an overseer limit (0.8.3)
+
+A layered run that uses all its overseer rounds, or whose layer needs more revisions than it is allowed, exits 23 and writes the same partial files (`stoppedBy` is `overseer_cap` or `layer_bound`), plus a `stop` block in `report-partial.json` and `deliverable-partial.md`: the plan as it stands, without the declined lines. The run is resumable and not agreed. If the person ends it with `--finish`, `report.json` is written with `passed: false` and the same `stop` block, now with `chosen: "finish"`. If `report-partial.json` is damaged or missing, a plain `--resume` rebuilds the partial files from the stages already on disk (a stage file you removed is asked of its seat again, within your limit) before the choice can be given.
 
 ## An advice call (`advise`, `advise.sent_to`, `advise.dispositions`, `advise.stopped_by`)
 
@@ -151,7 +163,7 @@ validate(reportJson) || console.error(validate.errors);
 ```
 
 `test/report-schema.test.js` does the same against real offline runs of the shipped mock chains
-that finish in one sitting (18 of the 21; the other three pause for a person or stop at their cap),
+that finish in one sitting (19 of the 22; the other three pause for a person or stop at their cap),
 a resumed `mock-external` run, a descending-mode run, and one run with every optional stage turned
 on. `test/report-partial.test.js` validates the `report-partial.json` of capped `mock-budget`,
 multi-round, descending, `--rematch` and `--replay` runs against the same schema.

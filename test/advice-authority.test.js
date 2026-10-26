@@ -13,6 +13,7 @@ import { sensitivityFloorOf, sensitivityOf, sensitivityWords } from '../src/advi
 import { adviceChainDirs, loadAdviceChain } from '../src/send-profiles.js';
 import { gateSeatsOf } from '../src/send-path-refusals.js';
 import { requestGate } from '../src/gate.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -204,9 +205,10 @@ test('review D1: an advice folder is never resumed through a project chain that 
   const run = join(dir, 'runs', id);
   mkdirSync(run, { recursive: true });
   writeFileSync(join(run, 'advice-brief.md'), '# A brief\n');
+  // zero-spend-ok: the test asserts a resume of an ADVICE run is refused / never offered; nothing is started, no approval exists, and both children get malformed provider keys (never filled from .env, never sent)
   writeFileSync(join(run, 'run.json'), JSON.stringify({ chain: 'advise-single', task: join(run, 'advice-brief.md'), cwd: dir, maxUsd: 1 }));
   writeFileSync(join(run, 'advise-log.json'), JSON.stringify({ schema: 'advise-log/1', run: id, ts: Date.now(), origin: 'tool', quoted: { ceiling_usd: 1 } }));
-  const s = session(dir);
+  const s = session(dir, { env: malformedProviderKeys() });
   try {
     const r = await s.call('resume_run', { run: id });
     assert.match(r.content[0].text, /this is an advice run, which is not resumed over MCP/);
@@ -214,7 +216,7 @@ test('review D1: an advice folder is never resumed through a project chain that 
   } finally { await s.close(); }
   // The CLI's --resume of an advice folder takes the advice lookup: a bad operator folder refuses it by name, and a chain that
   // only the project has is not found.
-  const env = { PATH: process.env.PATH, HOME: dir };
+  const env = { PATH: process.env.PATH, HOME: dir, ...malformedProviderKeys() };
   const bad = spawnSync(process.execPath, [cli, '--resume', `runs/${id}`], { cwd: dir, encoding: 'utf8', env: { ...env, COUNCIL_ADVICE_CHAINS_DIR: join(dir, 'chains') }, timeout: 60_000 });
   assert.equal(bad.status, 2, bad.stderr); assert.match(bad.stderr, /--resume: COUNCIL_ADVICE_CHAINS_DIR .* inside the working folder/);
   writeFileSync(join(dir, 'chains', 'project-only.json'), JSON.stringify(shipped('mock-advise-single')));

@@ -17,6 +17,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { lintChain } from '../src/chain-lint.js';
+import { installOutdatedChain } from './helpers/chain-file.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -48,20 +49,21 @@ function withTmpTask(content, run) {
   try {
     mkdirSync(join(cwd, 'tasks'));
     writeFileSync(join(cwd, 'tasks', 'change-request.md'), content);
+    installOutdatedChain(root, cwd, 'coder-gate-v1');   // 0.8.3: retired to chains/outdated/; a project copy is what the hint tells a person to make
     return run(cwd);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
 }
 
-test('chains/coder-gate-v1.json passes chain-lint', () => {
-  const cfg = JSON.parse(readFileSync(join(root, 'chains', 'coder-gate-v1.json'), 'utf8'));
-  const findings = lintChain(cfg, 'chains/coder-gate-v1.json');
+test('chains/outdated/coder-gate-v1.json passes chain-lint', () => {
+  const cfg = JSON.parse(readFileSync(join(root, 'chains', 'outdated', 'coder-gate-v1.json'), 'utf8'));
+  const findings = lintChain(cfg, 'chains/outdated/coder-gate-v1.json');
   assert.deepEqual(findings, []);
 });
 
-test('chains/coder-gate-v1.json uses only existing stage types - external proposer/builder, debate (config), critics, unanimous signoff - and adds no new one', () => {
-  const cfg = JSON.parse(readFileSync(join(root, 'chains', 'coder-gate-v1.json'), 'utf8'));
+test('chains/outdated/coder-gate-v1.json uses only existing stage types - external proposer/builder, debate (config), critics, unanimous signoff - and adds no new one', () => {
+  const cfg = JSON.parse(readFileSync(join(root, 'chains', 'outdated', 'coder-gate-v1.json'), 'utf8'));
   assert.equal(cfg.seats.proposers[0].provider, 'external');
   assert.equal(cfg.seats.builder.provider, 'external');
   assert.equal(cfg.debate, true);
@@ -79,9 +81,9 @@ test('chains/coder-gate-v1.json uses only existing stage types - external propos
 // (e.g. adding a second proposer) is the one thing that would make this test start failing -
 // which is the correct signal that debate has gone live and the chain's own description comment
 // needs revisiting.
-test('chains/coder-gate-v1.json and v2.json: debate:true is structurally unreachable given proposers/parts', () => {
+test('chains/outdated/coder-gate-v1.json and v2.json: debate:true is structurally unreachable given proposers/parts', () => {
   for (const file of ['coder-gate-v1.json', 'coder-gate-v2.json']) {
-    const cfg = JSON.parse(readFileSync(join(root, 'chains', file), 'utf8'));
+    const cfg = JSON.parse(readFileSync(join(root, 'chains', 'outdated', file), 'utf8'));
     const maxPossibleProposals = cfg.seats.proposers.length * (cfg.proposals?.parts ?? 3);
     assert.equal(cfg.debate, true, `${file}: expected debate:true (forward-compat, currently inert)`);
     assert.ok(maxPossibleProposals <= 1, `${file}: expected debate to be unreachable (max ${maxPossibleProposals} proposal(s)) - if this now exceeds 1, debate has gone live and the description needs updating`);
@@ -92,10 +94,10 @@ test('chains/coder-gate-v1.json and v2.json: debate:true is structurally unreach
 // target file/test command into a static chain config - runVerification runs before any
 // change-request/diff exists). Pin that runVerification is therefore a real, documented no-op
 // for both chains as shipped, not a silent gap nobody noticed.
-test('chains/coder-gate-v1.json and v2.json: verify.enabled is true but verify.tools is empty, so runVerification is a documented no-op today', async () => {
+test('chains/outdated/coder-gate-v1.json and v2.json: verify.enabled is true but verify.tools is empty, so runVerification is a documented no-op today', async () => {
   const { runVerification } = await import('../src/chain.js');
   for (const file of ['coder-gate-v1.json', 'coder-gate-v2.json']) {
-    const cfg = JSON.parse(readFileSync(join(root, 'chains', file), 'utf8'));
+    const cfg = JSON.parse(readFileSync(join(root, 'chains', 'outdated', file), 'utf8'));
     assert.equal(cfg.verify.enabled, true, `${file}: expected verify.enabled true`);
     assert.deepEqual(cfg.verify.tools, [], `${file}: expected verify.tools empty (see description for why)`);
     const groundTruth = runVerification(cfg, { log: () => {} });

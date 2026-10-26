@@ -201,7 +201,7 @@ test('the run\'s own cap applies, with what it already spent counted: a run stop
 test('a password in a URL in the task is refused up front (the generic shapes run on inputs), and --allow-secret-shaped is the override', () => {
   const dir = workspace({ files: { 'build.md': BUILD } });
   try {
-    writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a small app. The database is postgres://admin:hunter2secret@db.example.com/app\n');
+    writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a small app. The database is postgres://admin:hunter2secret@db.internal/app\n');   // old: db.example.com - a RESERVED placeholder host, which the refusal scans exempt (Muad, 12 Oct: "A of course"), so the task was never refused; a non-reserved host keeps the intent
     const r = run(dir, ['--from-run', join('runs', RUN)]);
     assert.equal(r.status, 11, r.stdout + r.stderr);
     assert.ok(!(r.stdout + r.stderr).includes('hunter2secret'), 'the value is never printed');

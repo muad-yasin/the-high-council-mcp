@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { lintChain, modelIdentity } from '../src/chain-lint.js';
 
-const cheap7v2 = () => JSON.parse(readFileSync(new URL('../chains/cheap-7-v2.json', import.meta.url), 'utf8'));
+const cheap7v2 = () => JSON.parse(readFileSync(new URL('../chains/outdated/cheap-7-v2.json', import.meta.url), 'utf8'));
 const selfReview = (findings) => findings.filter((f) => f.kind === 'self-review');
 
 test('the audit repro: the builder model on the panel under another lab label is self-review', () => {

@@ -88,7 +88,8 @@ test('#3/#6: report.json carries panelVerdicts, regressions and the dispute reco
     mkdirSync(join(dir, 'tasks'));
     writeFileSync(join(dir, 'tasks', 't.md'), 'A plain task.\n');
     const r = spawnSync('node', [cli, '--chain', chain, '--task', 'tasks/t.md'], { encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH } });
-    assert.equal(r.status, 0, `${chain}: ${r.stderr.slice(-300)}`);
+    // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so it accepts the two finished exits.
+    assert.ok([0, 22].includes(r.status), `${chain}: ${r.stderr.slice(-300)}`);
     const report = JSON.parse(readFileSync(join(dir, 'runs', readdirSync(join(dir, 'runs'))[0], 'report.json'), 'utf8'));
     assert.ok(key in report, `${chain}: report.json has no "${key}"`);
     if (key === 'panelVerdicts') assert.ok(report.panelVerdicts.length > 0 && report.panelVerdicts.every(v => v.round && v.lab && v.verdict));

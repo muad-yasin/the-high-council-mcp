@@ -20,13 +20,14 @@ import { existsSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { userInfo } from 'node:os';
 import { createInterface } from 'node:readline';
-import { answerGate, listGates, readGateAnswer, readGateText, textSha256, GATES_DIR } from './gate.js';
+import { answerGate, listGates, readGateAnswer, readGateText, textSha256, GATES_DIR, RUN_CAP_KIND } from './gate.js';
 import { verifyLedger, LEDGER_FILE } from './gate-ledger.js';
 import { terminalSafe } from './terminal-safe.js';
 import { loadPolicy } from './policy.js';
 import { advicePolicyVerdict } from './send-path-refusals.js';
 import { loadAdviceChain } from './send-profiles.js';
 import { readAdviceMeta, ADVICE_META_FILE } from './advice-run.js';
+import { countHidden, stripLeadingBom } from './hidden-chars.js';
 
 const USAGE = [
   'usage: council gate show <run folder> [gate]',
@@ -38,17 +39,42 @@ const money = v => (typeof v === 'number' && Number.isFinite(v) ? `$${v.toFixed(
 
 // Every field shown before the y/N goes through terminalSafe: seats, labels and the file name come from
 // the caller and could carry escape sequences that recolour or hide what follows (M3 review M3).
-function describe(gate) {
+function describe(gate, { startsRun = false } = {}) {
   const p = gate.price && typeof gate.price === 'object' ? gate.price : {};
   const masks = gate.masks && typeof gate.masks === 'object' ? Object.entries(gate.masks).filter(([, n]) => Number(n) > 0) : [];
   const seats = Array.isArray(gate.seats) ? gate.seats : [];
-  return describeLines(gate, p, masks, seats).map(terminalSafe);
+  return describeLines(gate, p, masks, seats, startsRun).map(terminalSafe);
 }
 
 // A contract gate (0.8.2 item 6d) sends nothing to any model and spends nothing: approving records the text as the contract (or an amendment of it). Saying "price: up to unpriced" there would be false comfort.
 const isContractGate = gate => typeof gate.kind === 'string' && gate.kind.startsWith('contract_');
+// A recursive-councils tree gate (0.8.3 M5b): approving sends nothing by itself and carries no price of its own (the text shows the figures); it records the person's decision and lets the tree act on it.
+/** The `council tree` verb that asks for each tree gate kind (test/tree-gate-check-kind.test.js pins that every TREE_GATE_KINDS value has an entry and that each verb is a `council tree` verb: no fallback, so a fourth kind cannot name the wrong one). */
+export const TREE_VERB_OF = Object.freeze({ tree_frontier: 'approve', tree_decide: 'decide', tree_check: 'check' });
+const isTreeGate = gate => typeof gate.kind === 'string' && gate.kind.startsWith('tree_');
+// 0.8.3 M6 typed cap T3b: a run_cap gate asks for a TYPED limit in US dollars; answering sends nothing and spends nothing, and the answer is the number (no y/N after it). The prompt below is the only line this file adds for it.
+const isCapGate = gate => gate.kind === RUN_CAP_KIND;
+export const CAP_PROMPT = 'Type your limit in US dollars, then Enter: ';
 
-function describeLines(gate, p, masks, seats) {
+/** What approving a tree gate DOES, for the kinds whose effect is not the frontier approval's (the other kinds keep the line below). */
+const TREE_APPROVAL_LINE = Object.freeze({ tree_check: 'Approving records the result of an integration check; it starts no run and spends nothing.' });
+
+function describeLines(gate, p, masks, seats, startsRun = false) {
+  if (isCapGate(gate)) {
+    return [
+      `gate ${gate.id} (${gate.kind}): ${gate.text}, ${gate.bytes} bytes, sha256 ${gate.sha256}`,
+      // E 154 says typing sends nothing and spends nothing; that is true of `council gate answer`. When the START of a run asks (startsRun, src/cli.js through src/start-cap.js), typing begins the run: the line says so instead (E 157 g).
+      startsRun ? 'answering records the limit you type for this run; if the start\'s other checks pass, this run then starts and spends against it' : 'answering records the limit you type for this run; typing it sends nothing to any model and spends nothing',
+      `expires: ${gate.expires_at}`,
+    ];
+  }
+  if (isTreeGate(gate)) {
+    return [
+      `gate ${gate.id} (${gate.kind}): ${gate.text}, ${gate.bytes} bytes, sha256 ${gate.sha256}`,
+      TREE_APPROVAL_LINE[gate.kind] ?? 'approving records your decision on exactly this text, once; the tree then acts on it (a frontier approval lets the runs it lists start, and spend, up to the figures shown)',
+      `expires: ${gate.expires_at}`,
+    ];
+  }
   if (isContractGate(gate)) {
     return [
       `gate ${gate.id} (${gate.kind}): ${gate.text}, ${gate.bytes} bytes, sha256 ${gate.sha256}`,
@@ -73,7 +99,7 @@ function describeLines(gate, p, masks, seats) {
 // model reads) are printed but show nothing. When the text holds any of either kind, a line says how many,
 // so the person knows the bytes they approve are not all visible. They are counted, not removed: a joiner
 // inside an emoji is legitimate, and the hash covers the bytes as they are.
-const INVISIBLE = /[\p{Cf}\u2028\u2029]/gu;
+// Audit item 7 (0.8.3): the count is src/hidden-chars.js's (everything that renders as nothing; the quiet joiners ZWNJ, ZWJ, soft hyphen, the emoji selector ... are counted unless an emoji sequence explains them; a leading byte-order mark is ordinary).
 function printText(out, bytes) {
   const text = bytes.toString('utf8');
   const safe = terminalSafe(text);
@@ -82,9 +108,9 @@ function printText(out, bytes) {
   out(safe.endsWith('\n') ? safe.slice(0, -1) : safe);
   out(`${fence} the exact text (end) ${fence}`);
   const removed = [...text].length - [...safe].length;
-  const invisible = (safe.match(INVISIBLE) || []).length;
+  const invisible = countHidden(stripLeadingBom(safe));
   if (removed > 0) out(`note: the text holds ${removed} control or direction character(s) that are not shown above; they are part of what would be sent.`);
-  if (invisible > 0) out(`note: the text holds ${invisible} invisible character(s) (zero-width, format or tag characters) that show as nothing above; they are part of what would be sent.`);
+  if (invisible > 0) out(`note: the text holds ${invisible} invisible character(s) (zero-width, formatting, filler or variation-selector characters) that show as nothing above; they are part of what would be sent.`);
 }
 
 function ask(question, { input, output }) {
@@ -131,7 +157,7 @@ export async function gateCommand(args, { work = process.cwd(), stdin = process.
   if (state.status === 'invalid' && !state.gate) { err(`gate ${gateArg}: ${state.reason}`); return state.reason === 'gate_not_found' ? 2 : 1; }
 
   if (sub === 'show') {
-    const usable = state.status === 'approved' ? `; ${state.used ? (isContractGate(state.gate) ? 'already used' : 'already sent') : state.usable ? `usable until ${state.usable_until}` : 'no longer usable (expired)'}` : '';
+    const usable = state.status === 'approved' ? `; ${state.used ? (isContractGate(state.gate) || isCapGate(state.gate) ? 'already used' : 'already sent') : state.usable ? `usable until ${state.usable_until}` : 'no longer usable (expired)'}` : '';
     out(`status: ${state.status}${state.reason ? ` (${state.reason})` : ''}${usable}`);
     for (const l of describe(state.gate)) out(l);
     const bytes = readGateText(runDir, state.gate.text);
@@ -167,7 +193,7 @@ function advicePolicyAtTerminal(runDir, gate) {
  * `council contract lock` and `council contract amend --decide`, 0.8.2 item 6d, which therefore have no prompt of their own). Returns an exit code: 0 the answer was recorded, 1 refused or not confirmed
  * (nothing written), 2 no terminal.
  */
-export async function answerAtTerminal(runDir, gateArg, { decline = false, stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, now } = {}) {
+export async function answerAtTerminal(runDir, gateArg, { decline = false, typed = null, startsRun = false, stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, now, onNotApproved = null } = {}) {       // onNotApproved: called when the PERSON answered and did not approve (a wrong typed word, or no at the confirmation), never for an expired, unreadable or refused gate (GAP A: the draft screen goes on to ask what should change only then)
   const out = s => stdout.write(`${s}\n`);
   const err = s => stderr.write(`${s}\n`);
   const opts = now ? { now } : {};
@@ -181,7 +207,16 @@ export async function answerAtTerminal(runDir, gateArg, { decline = false, stdin
   const bytes = readGateText(runDir, state.gate.text);
   if (!bytes) { err(terminalSafe(`gate ${gateArg}: cannot read ${state.gate.text} inside the run folder`)); return 1; }
   const shownSha256 = textSha256(bytes);
-  for (const l of describe(state.gate)) out(l);
+  // 0.8.3 M5b1b (C&C): NO path approves a tree gate without the typed step (PLAN 8.2). `council gate answer` finds a tree gate like any other, and without this it would take a bare "y". A tree gate is approved only
+  // by the caller that supplies what must be typed (src/tree-gate.js, through `council tree approve|decide`), and what must be typed has to be NAMED IN the text's last line, so the person was told what to type. Declining stays allowed.
+  if (isTreeGate(state.gate) && !decline) {
+    const last = bytes.toString('utf8').trimEnd().split('\n').pop();
+    if (!typed || !typed.expect || !last.endsWith(String(typed.expect))) {
+      err(terminalSafe(`gate ${gateArg} is a ${state.gate.kind} gate: it is approved only by \`council tree ${TREE_VERB_OF[state.gate.kind]} ${basename(runDir)}\`, which asks you to type what its text names${typed ? ' (this text does not name what was to be typed)' : ''}. Nothing was written; the gate stays pending. Declining is always allowed: add --decline.`));
+      return 1;
+    }
+  }
+  for (const l of describe(state.gate, { startsRun })) out(l);
   const policyCheck = state.gate.kind === 'advice' ? advicePolicyAtTerminal(runDir, state.gate) : null;
   for (const w of policyCheck?.warnings ?? []) out(terminalSafe(`Policy warning: ${w}`));
   if (policyCheck?.refused) {
@@ -189,11 +224,30 @@ export async function answerAtTerminal(runDir, gateArg, { decline = false, stdin
     out(terminalSafe(`Note: ${policyCheck.refused}. Declining is always allowed.`));
   }
   printText(out, bytes);
+  // A limit is answered by TYPING it (answerGate parses the text against the ceiling bound in the gate and writes the figure itself): no y/N after it, and a bare "y" is refused there. Declining keeps its y/N.
+  if (isCapGate(state.gate) && !decline) {
+    const got = await ask(CAP_PROMPT, { input: stdin, output: stdout });
+    let actor = null;
+    try { actor = userInfo().username; } catch { /* no user name on this system; recorded as null */ }
+    const res = answerGate(runDir, gateArg, { channel: 'cli', shownSha256, decision: 'approved', actor, tty: true, typedCap: got }, opts);
+    if (!res.ok) { err(terminalSafe(`gate ${gateArg}: refused (${res.code}): ${res.message}`)); return 1; }
+    const recorded = readGateAnswer(runDir, gateArg, opts);
+    out(`gate ${gateArg}: ${res.status} (ledger line ${res.seq}); limit $${recorded.answer?.cap_usd ?? '?'}`);
+    if (res.warning) err(`gate ${gateArg}: note: ${res.warning}`);
+    return 0;
+  }
   const contract = isContractGate(state.gate);
+  const tree = isTreeGate(state.gate);
+  // 0.8.3 M5b (PLAN 8.2): a tree approval first asks the person to TYPE something the text shows (the first characters of the frontier key), so a stray "y" cannot approve what was not read. `typed` = { expect, prompt }.
+  // Declining needs no typing: declining is always allowed. A wrong or empty answer writes nothing and leaves the gate pending.
+  if (typed && !decline) {
+    const got = await ask(typed.prompt, { input: stdin, output: stdout });
+    if (String(got).trim() !== typed.expect) { out('That is not what the text asks you to type. Nothing was written; the gate stays pending.'); onNotApproved?.(); return 1; }
+  }
   const reply = await ask(decline
-    ? `Decline gate ${gateArg}: this text will not be ${contract ? 'recorded' : 'sent'}. Decline? [y/N] `
-    : `Approve ${contract ? 'recording' : 'sending'} exactly this text? [y/N] `, { input: stdin, output: stdout });
-  if (!/^\s*y(es)?\s*$/i.test(reply)) { out('Not confirmed. Nothing was written; the gate stays pending.'); return 1; }
+    ? `Decline gate ${gateArg}: ${isCapGate(state.gate) ? 'no limit will be recorded and nothing will be started' : tree ? 'nothing will be done for this text' : `this text will not be ${contract ? 'recorded' : 'sent'}`}. Decline? [y/N] `
+    : `Approve ${tree ? 'acting on' : contract ? 'recording' : 'sending'} exactly this text? [y/N] `, { input: stdin, output: stdout });
+  if (!/^\s*y(es)?\s*$/i.test(reply)) { out('Not confirmed. Nothing was written; the gate stays pending.'); onNotApproved?.(); return 1; }
   let actor = null;
   try { actor = userInfo().username; } catch { /* no user name on this system; recorded as null */ }
   const res = answerGate(runDir, gateArg, { channel: 'cli', shownSha256, decision: decline ? 'declined' : 'approved', actor, tty: true }, opts);

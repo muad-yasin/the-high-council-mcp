@@ -17,9 +17,10 @@ import { estimateChainRows } from '../src/cost.js';
 import { lintChain } from '../src/chain-lint.js';
 import { reportJsonShape } from '../src/report-shape.js';
 import { buildArguedFacts, checkArguedRefs, decisionsSection, arguedWarnings, knownRefsOf, ARGUED_SYSTEM } from '../src/argued.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+const chain = name => readChainFile(root, name);
 const EXTERNAL = { provider: 'external', model: 'claude-code-session' };
 const base = () => ({ ...chain('mock-debate'), alternatives: { enabled: true } });
 const withArgued = (extra = {}) => ({ ...base(), argued: { enabled: true }, ...extra });

@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { keyDestinationReasons } from '../src/providers.js';
+import { baseUrlReasons } from '../src/denied-models.js';
+import { costOf, needsPrice } from '../src/cost.js';
 import { lintChain } from '../src/chain-lint.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -84,4 +86,40 @@ test('CLI: the key never reaches a listener a chain names as a keyed seat\'s bas
     srv.close();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// 0.8.3 (C&C ruling 12 Oct; found by Builder C, Review/Build_0.8.3/m7/Mentat_Repos_Ideas.md section 1, check 1): an `ollama` seat (free, no key required) whose baseUrl names a KNOWN PAID provider's host passed baseUrlReasons (any known
+// provider's own host was allowed for every provider) and keyDestinationReasons (optional-key providers are exempt), priced at $0, and sent OLLAMA_API_KEY there as a bearer: a paid call outside the spend cap. The fix is in baseUrlReasons ONLY, so
+// chain-lint, the run-time check and the key-host rule inherit it with no second predicate: a free / optional-key provider's baseUrl may name only a loopback or private-network host.
+const ollama = baseUrl => ({ provider: 'ollama', model: 'm', baseUrl });
+test('baseUrlReasons: an ollama seat may name only a loopback or private-network host; a KNOWN PAID provider\'s host is refused with a reason naming the right provider; unknown public hosts stay refused', () => {
+  const paid = [['https://openrouter.ai/api/v1', 'openrouter'], ['https://api.mistral.ai/v1', 'mistral'], ['https://api.anthropic.com/v1', 'anthropic'], ['https://api.openai.com/v1', 'openai']];
+  for (const [url, name] of paid) {
+    const r = baseUrlReasons(ollama(url));
+    assert.equal(r.length, 1, `${url}: refused`);
+    assert.match(r[0], new RegExp(`is ${name}'s own API host`), `${url}: names the provider`);
+    assert.match(r[0], new RegExp(`use provider ${name} with its key, so the seat is priced and capped`), `${url}: says what to do`);
+    assert.match(r[0], /ollama/);
+  }
+  for (const url of ['http://localhost:11434/v1', 'http://127.0.0.1:11434/v1', 'http://[::1]:11434/v1', 'http://192.168.1.20:11434/v1', 'http://10.0.0.5:11434/v1', 'http://172.16.3.4:11434/v1', 'http://box.local:11434/v1']) assert.deepEqual(baseUrlReasons(ollama(url)), [], url);
+  assert.equal(baseUrlReasons(ollama('https://example.com/v1')).length, 1, 'an unknown public host stays refused');
+  assert.equal(baseUrlReasons(ollama('https://model-router.example/v1')).length, 1, 'a router-named host stays refused');
+  assert.equal(baseUrlReasons(ollama('https://api.x.ai/v1')).length, 1, 'a denied lab\'s host stays refused');
+  assert.deepEqual(baseUrlReasons({ provider: 'ollama', model: 'm' }), [], 'no baseUrl: nothing to check');
+  // the fix is not a rule for every provider: a KEYED provider's allowance of other known hosts is what it was (noted as a finding for the owner, not changed here); keyDestinationReasons is untouched
+  assert.deepEqual(keyDestinationReasons(ollama('https://openrouter.ai/api/v1')), [], 'keyDestinationReasons still exempts optional-key providers: the refusal comes from baseUrlReasons');
+});
+
+test('lint and the price: an ollama seat on a paid provider\'s host is a denied-model finding now (0 before, 1 after), the controls stay as they were, and the seat would have priced at $0 (the escape the refusal closes)', () => {
+  const c = chain('mock');
+  const lint = baseUrl => lintChain({ ...c, seats: { ...c.seats, builder: ollama(baseUrl) } }).filter(f => f.kind === 'denied-model');
+  assert.equal(lint('https://openrouter.ai/api/v1').length, 1, 'ollama -> a known paid host');
+  assert.match(lint('https://openrouter.ai/api/v1')[0].message, /seats\.builder.*openrouter's own API host/);
+  assert.equal(lint('http://192.168.1.20:11434/v1').length, 0, 'ollama -> a LAN host (control)');
+  assert.equal(lint('http://127.0.0.1:11434/v1').length, 0, 'ollama -> loopback (control)');
+  assert.equal(lint('https://example.com/v1').length, 1, 'ollama -> an unknown public host (control, refused as before)');
+  assert.deepEqual(lintChain(chain('local-ollama')).filter(f => f.kind === 'denied-model'), [], 'the shipped local chain is clean');
+  // why the refusal matters: the seat prices at $0 whatever the host, so only the host check can keep a paid call inside the cap
+  assert.equal(needsPrice(ollama('https://openrouter.ai/api/v1')), false);
+  assert.equal(costOf('ollama', 'm', { input: 1000, output: 1000 }).usd, 0);
 });

@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { runChain } from '../src/chain.js';
+import { lintChain } from '../src/chain-lint.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const mockDebate = JSON.parse(readFileSync(join(root, 'chains', 'mock-debate.json'), 'utf8'));
@@ -82,4 +83,63 @@ test('test_proposal_cap_merge: a non-positive or non-integer cap is ignored, not
   const fromA = result.proposals.filter(p => p.lab === 'mock-a');
   assert.equal(fromA.length, 4, 'a negative cap must be ignored, not slice from the end of the list');
   assert.ok(!result.stages.some(s => s.label === 'propose-mock-a-merge'));
+});
+
+// 0.8.3 (C&C ruling, 13 Oct 2026): README.md and docs/index.html document a TOP-LEVEL `max_proposals_per_seat`, but chain.js read only `proposals.maxProposalsPerSeat`, so the documented
+// key was silently ignored. The code now reads the documented key; the nested spelling keeps working; a chain that sets both to different values is refused (it would run one cap and
+// look like the other).
+const quadConfig = extra => ({
+  ...mockDebate,
+  ...extra,
+  proposals: { ...mockDebate.proposals, parts: 4, ...(extra?.proposals || {}) },
+  seats: {
+    ...mockDebate.seats,
+    proposers: [
+      { provider: 'mock', model: 'mock-proposer-quad', lab: 'mock-a' },
+      { provider: 'mock', model: 'mock-proposer-b', lab: 'mock-b' },
+    ],
+  },
+});
+
+test('max_proposals_per_seat (the documented top-level key) folds an over-cap seat', async () => {
+  const result = await runChain({ request: 'Do the thing.', config: quadConfig({ max_proposals_per_seat: 2 }), log: () => {} });
+  assert.equal(result.proposals.filter(p => p.lab === 'mock-a').length, 2, 'the documented top-level key must set the cap');
+  assert.ok(result.stages.some(s => s.label === 'propose-mock-a-merge'));
+});
+
+test('max_proposals_per_seat: the same value under both spellings is one cap, not a conflict', async () => {
+  const result = await runChain({ request: 'Do the thing.', config: quadConfig({ max_proposals_per_seat: 2, proposals: { maxProposalsPerSeat: 2 } }), log: () => {} });
+  assert.equal(result.proposals.filter(p => p.lab === 'mock-a').length, 2);
+});
+
+test('max_proposals_per_seat: two different values under the two spellings are refused before any stage runs', async () => {
+  const stages = [];
+  await assert.rejects(
+    runChain({ request: 'Do the thing.', config: quadConfig({ max_proposals_per_seat: 2, proposals: { maxProposalsPerSeat: 3 } }), log: () => {}, onStage: s => stages.push(s) }),
+    err => /max_proposals_per_seat/.test(err.message) && /proposals\.maxProposalsPerSeat/.test(err.message) && /2/.test(err.message) && /3/.test(err.message),
+  );
+  assert.deepEqual(stages, [], 'refused before anything ran');
+});
+
+test('max_proposals_per_seat: chain-lint (council doctor) names the same conflict, with the fix', () => {
+  const findings = lintChain(quadConfig({ max_proposals_per_seat: 2, proposals: { maxProposalsPerSeat: 3 } }), 'chains/x.json');
+  const f = findings.find(x => x.kind === 'proposal-cap-conflict');
+  assert.ok(f, JSON.stringify(findings.map(x => x.kind)));
+  assert.match(f.message, /max_proposals_per_seat/);
+  assert.match(f.fix, /chains\/x\.json/);
+  assert.equal(lintChain(quadConfig({ max_proposals_per_seat: 2, proposals: { maxProposalsPerSeat: 2 } }), 'chains/x.json').some(x => x.kind === 'proposal-cap-conflict'), false);
+});
+
+// 0.8.3 (C&C ruling, 13 Oct 2026): the DOCUMENTED top-level key must be a whole number of 1 or more; any other value would be ignored and the chain would run with no cap. The nested camelCase key
+// keeps its older, pinned "ignored" behaviour (the -1 test above), so it is not flagged.
+test('max_proposals_per_seat: chain-lint refuses a top-level value that is not a whole number of 1 or more', () => {
+  for (const bad of [0, -1, 1.5, '2', true, null]) {
+    const f = lintChain(quadConfig({ max_proposals_per_seat: bad }), 'chains/x.json').find(x => x.kind === 'proposal-cap-invalid');
+    assert.ok(f, `${JSON.stringify(bad)} must be refused`);
+    assert.match(f.message, /max_proposals_per_seat/);
+    assert.match(f.fix, /chains\/x\.json/);
+  }
+  assert.equal(lintChain(quadConfig({ max_proposals_per_seat: 2 }), 'chains/x.json').some(x => x.kind === 'proposal-cap-invalid'), false);
+  assert.equal(lintChain(quadConfig({}), 'chains/x.json').some(x => x.kind === 'proposal-cap-invalid'), false, 'absent is the default: no cap');
+  assert.equal(lintChain(quadConfig({ proposals: { maxProposalsPerSeat: -1 } }), 'chains/x.json').some(x => x.kind === 'proposal-cap-invalid'), false, 'the nested key keeps its pinned ignored behaviour');
 });

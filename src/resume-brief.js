@@ -14,6 +14,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { stageKindOf, stageKindsFor } from './stage-contract.js';
 import { checkClaimStaleness } from './peer-claim.js';
+import { memberResumeCommand, memberWho } from './tree-redirect.js';
+import { outdatedChainHint } from './chain-name.js';
 
 // Mirrors src/mcp/server.js's waiting(dir), duplicated rather than imported: server.js is
 // the MCP entrypoint (constructs and owns the server instance as a side effect of import),
@@ -64,7 +66,7 @@ function completedKinds(dir, chainConfig) {
  * Build the resume brief for one run. Pure given its inputs: same run.json + same files on
  * disk always produce the same text (aside from being able to note new files appearing).
  */
-export function generateResumeBrief({ runId, dir, runMeta, chainConfig, readTask = null }) {
+export function generateResumeBrief({ runId, dir, runMeta, chainConfig, readTask = null, member = null }) {
   const kindsInOrder = chainConfig ? stageKindsFor(chainConfig) : [];
   const done = chainConfig ? completedKinds(dir, chainConfig) : [];
   const pending = pendingStage(dir);
@@ -73,6 +75,10 @@ export function generateResumeBrief({ runId, dir, runMeta, chainConfig, readTask
   const lines = [];
   lines.push(`# RESUME BRIEF — run ${runId}`);
   lines.push(`Task: ${oneLineTaskSummary(runMeta?.task, readTask)}`);
+  // 0.8.3 lane B (B-DRAFT): a run recorded on a retired chain says where its chain went.
+  if (!chainConfig && outdatedChainHint(runMeta?.chain)) lines.push(`Chain: ${outdatedChainHint(runMeta.chain).trim()}`);
+  // 0.8.3 M5f: a recursive-councils tree member names its tree; it is resumed by the tree, never alone (src/tree-redirect.js)
+  if (member) lines.push(`Tree member: ${memberWho(member, null)}. Resumed only by its tree: \`${memberResumeCommand(member)}\` in a terminal.`);
   lines.push(`Status: ${deliverableDone ? kindsInOrder.length : done.length} of ${kindsInOrder.length || '?'} stages complete`);
   lines.push('');
   lines.push('## Decided so far');
@@ -117,9 +123,11 @@ export function generateResumeBrief({ runId, dir, runMeta, chainConfig, readTask
   lines.push('');
   lines.push('## Next action for the driving session');
   if (deliverableDone) lines.push(`Run is complete. Deliverable at ${join(dir, 'deliverable.md')}.`);
+  else if (pending && member) lines.push(`Answer stage "${pending}" (prepare_stage_prompt(${JSON.stringify(runId)}, ${JSON.stringify(pending)}) bundles it; submit_stage writes the answer and does NOT resume a tree member), then run \`${memberResumeCommand(member)}\` in a terminal (${memberWho(member, pending)}).`);
   else if (pending) lines.push(`Call prepare_stage_prompt(${JSON.stringify(runId)}, ${JSON.stringify(pending)}), or answer it directly and call submit_stage.`);
   // 0.8.1 decided rule 6: an advice call is never resumed; it is asked again.
   else if (existsSync(join(dir, 'advice.meta.json')) || existsSync(join(dir, 'advise-log.json'))) lines.push(`This is an advice call, which is not resumed. Call run_status(${JSON.stringify(runId)}) for what it has; to ask again, start with council_quote.`);
+  else if (member) lines.push(`Call run_status(${JSON.stringify(runId)}) to check current progress. To continue this node run \`${memberResumeCommand(member)}\` in a terminal (${memberWho(member, null)}); resume_run does not resume a tree member.`);
   else lines.push(`Call resume_run(${JSON.stringify(runId)}) or run_status(${JSON.stringify(runId)}) to check current progress.`);
 
   return `${lines.join('\n')}\n`;

@@ -52,14 +52,14 @@ test('keyEnvValue: the dialog value when usable, else the standard variable; emp
 async function missingKeysOf(env, dotenv = '') {
   const cwd = mkdtempSync(join(tmpdir(), 'thc-plugin-keys-'));
   if (dotenv) writeFileSync(join(cwd, '.env'), dotenv);
-  const child = spawn(process.execPath, [join(root, ...server.args[0].replace('${CLAUDE_PLUGIN_ROOT}/', '').split('/'))], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...env } });
+  const child = spawn(process.execPath, [join(root, ...server.args[0].replace('${CLAUDE_PLUGIN_ROOT}/', '').split('/'))], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_ADVISE_MOCK: '1', ...env } });   // the advice path stays offline; no key is touched (this file's subject is how a key is resolved, so no malformed key here: C&C's ruling, 14 Oct 2026)
   let buf = ''; const pending = new Map(); let id = 1;
   child.stdout.on('data', d => { buf += d; let nl; while ((nl = buf.indexOf('\n')) !== -1) { const l = buf.slice(0, nl); buf = buf.slice(nl + 1); try { const m = JSON.parse(l); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } } catch { /* not a reply */ } } });
   const rpc = (method, params) => new Promise(r => { const i = id++; pending.set(i, r); child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: i, method, params })}\n`); });
   try {
     await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'plugin-keys-test', version: '0' } });
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
-    const r = await rpc('tools/call', { name: 'dry_run', arguments: { chain: 'cheap-7-v2', json: true } });
+    const r = await rpc('tools/call', { name: 'dry_run', arguments: { chain: 'plan-mini-council', json: true } });
     const text = r.result.content.map(c => c.text).join('');
     return JSON.parse(text.slice(text.indexOf('{'))).missingKeys.map(m => m.envVar);
   } finally { child.kill(); }

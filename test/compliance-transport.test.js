@@ -14,14 +14,14 @@ import { resolveChainSeats } from '../src/chain.js';
 import { evaluatePolicy } from '../src/policy.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const euOnly = JSON.parse(readFileSync(resolve(here, '../chains/eu-only.json'), 'utf8'));
+const euOnly = JSON.parse(readFileSync(resolve(here, '../chains/outdated/eu-only.json'), 'utf8'));
 
 test('control: eu-only as shipped lints clean', () => {
-  assert.deepEqual(lintChain(euOnly, 'chains/eu-only.json').filter(f => f.kind === 'invalid-compliance-config'), []);
+  assert.deepEqual(lintChain(euOnly, 'chains/outdated/eu-only.json').filter(f => f.kind === 'invalid-compliance-config'), []);
 });
 
 test('eu-only with transport: openrouter is refused by the compliance lint', () => {
-  const f = lintChain({ ...euOnly, transport: 'openrouter' }, 'chains/eu-only.json').filter(x => x.kind === 'invalid-compliance-config');
+  const f = lintChain({ ...euOnly, transport: 'openrouter' }, 'chains/outdated/eu-only.json').filter(x => x.kind === 'invalid-compliance-config');
   assert.ok(f.some(x => /reroutes/.test(x.message)), f.map(x => x.message).join('\n'));
 });
 

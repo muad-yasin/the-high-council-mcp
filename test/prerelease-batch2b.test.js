@@ -9,6 +9,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spendReport } from '../src/spend.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { startTyped } from './helpers/typed-cap.js';
 
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), '../src/cli.js');
 
@@ -30,11 +32,13 @@ test('money #4: a call that failed after it was sent is charged on disk, so --sp
       },
     }));
     // A keyed seat on a loopback stub needs the environment's opt-in since the key-host lint (0.7.8).
-    const r = await new Promise(res => {
-      const c = spawn(process.execPath, [cli, '--task', 'tasks/x.md', '--chain', 'stub'], { cwd: dir, env: { PATH: process.env.PATH, OPENROUTER_API_KEY: 'test-not-a-key', COUNCIL_ALLOW_LOOPBACK_KEY_HOST: '1' } });
+    // 0.8.3 M6 typed cap T4a: a paid start waits for a typed limit (exit 21); startTyped types one and resumes the same run.
+    const spawnCli = args => new Promise(res => {
+      const c = spawn(process.execPath, [cli, ...args], { cwd: dir, env: { PATH: process.env.PATH, OPENROUTER_API_KEY: 'test-not-a-key', COUNCIL_ALLOW_LOOPBACK_KEY_HOST: '1' } });
       let out = ''; c.stdout.on('data', b => { out += b; }); c.stderr.on('data', b => { out += b; });
       c.on('close', code => res({ code, out }));
     });
+    const r = await startTyped(spawnCli, ['--task', 'tasks/x.md', '--chain', 'stub'], () => join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]));
     assert.equal(r.code, 16, r.out);
     const run = join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
     const charge = JSON.parse(readFileSync(join(run, 'superseded', 'build.charge-1.usage.json'), 'utf8'));
@@ -46,7 +50,7 @@ test('money #4: a call that failed after it was sent is charged on disk, so --sp
 // A live MCP session over stdio (same shape as test/prerelease-batch4-mcp.test.js).
 function mcpCall(cwd, call, timeoutMs = 60_000) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd } });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys() } });
     let buf = '';
     const timer = setTimeout(() => { child.kill(); fail(new Error('timed out')); }, timeoutMs);
     child.stdout.on('data', d => {
@@ -118,8 +122,9 @@ test('cache audit #1: a between-fixes entry is replayed but recorded, and its pr
   delete u.promptHash; // cached after the fingerprint fix, before the prompt-hash fix
   writeFileSync(up, JSON.stringify(u));
   writeFileSync(join(run, 'build.md'), 'A build.');
+  // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so it accepts the two finished exits.
   const r = cliSync(dir, ['--resume', run]);
-  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.ok([0, 22].includes(r.status), r.stdout + r.stderr);
   assert.match(readFileSync(join(run, 'WARNINGS.md'), 'utf8'), /cache_unverified: stage "criteria"/);
   assert.deepEqual(JSON.parse(readFileSync(join(run, 'report.json'), 'utf8')).unverifiedReplays.map(x => x.stage), ['criteria']);
   assert.ok(JSON.parse(readFileSync(up, 'utf8')).promptHash, 'the trusted hit now carries its prompt hash');

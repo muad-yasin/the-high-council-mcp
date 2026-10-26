@@ -59,3 +59,14 @@ test('chain-schema: "selfReview": "allowed", the escape chain-lint advises, vali
   assert.ok(validate({ ...base, selfReview: 'allowed' }), JSON.stringify(validate.errors));
   assert.equal(validate({ ...base, selfReview: true }), false);
 });
+
+// 0.8.3 (C&C ruling, 13 Oct 2026): the documented top-level `max_proposals_per_seat` (README, docs/index.html) had no schema row, so a chain that set it failed this schema (additionalProperties
+// false at the top level) while chain.js ignored it. It is a positive integer; the older nested `proposals.maxProposalsPerSeat` has a row too.
+test('chain-schema: "max_proposals_per_seat" is a positive integer at the top level; so is proposals.maxProposalsPerSeat', () => {
+  const base = { seats: { critics: [{ provider: 'mock', model: 'mock-x' }] } };
+  assert.ok(validate({ ...base, max_proposals_per_seat: 2 }), JSON.stringify(validate.errors));
+  assert.equal(validate({ ...base, max_proposals_per_seat: 0 }), false);
+  assert.equal(validate({ ...base, max_proposals_per_seat: '2' }), false);
+  assert.ok(validate({ ...base, proposals: { parts: 3, maxProposalsPerSeat: 2 } }), JSON.stringify(validate.errors));
+  assert.equal(validate({ ...base, proposals: { maxProposalsPerSeat: 0 } }), false);
+});

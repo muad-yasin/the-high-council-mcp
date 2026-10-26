@@ -28,6 +28,8 @@ import {
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+import { runFolderKind } from './run-files.js';
+import { EXIT_NOT_AGREED } from './exit-codes.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -39,9 +41,9 @@ const root = resolve(here, '..');
 // service's own RELAY_CHAIN env var (start-run.js) could in principle name a different chain, in
 // which case its provider keys would also need to be Fly secrets here; this constant is a
 // documented default, not a hard runtime restriction.
-// 0.8.2 (owner, 6 Oct 2026: archive the unused chains): plan-auto moved to archive/chains/, so the default lookup tries chains/ and then archive/chains/.
+// 0.8.2 (owner, 6 Oct 2026: archive the unused chains): plan-auto moved out of chains/, so the default lookup tries chains/ and then chains/outdated/ (0.8.3: the folder every retired chain lives in).
 export function requiredEnvForChain(chainName, chainsDir = null) {
-  const dirs = chainsDir ? [chainsDir] : [join(root, 'chains'), join(root, 'archive', 'chains')];
+  const dirs = chainsDir ? [chainsDir] : [join(root, 'chains'), join(root, 'chains', 'outdated')];
   const configPath = dirs.map(d => join(d, `${chainName}.json`)).find(existsSync);
   if (!configPath) return [];
   const config = JSON.parse(readFileSync(configPath, 'utf8'));
@@ -88,13 +90,17 @@ export function dailyUsage(runsDir, now = Date.now()) {
   const cutoff = now - 24 * 3600 * 1000;
   let usd = 0;
   let count = 0;
+  let symbolicLinksNotCounted = 0;
   for (const id of existsSync(runsDir) ? readdirSync(runsDir) : []) {
     const d = runIdToDate(id);
-    if (!d || d.getTime() < cutoff) continue;
+    if (!d) continue;
+    // a symbolic link in runs/ is never a run (src/run-files.js runFolderKind): counted apart, never read as a second run
+    if (runFolderKind(join(runsDir, id)) === 'link') { symbolicLinksNotCounted += 1; continue; }
+    if (d.getTime() < cutoff) continue;
     count += 1;
     usd += readJson(join(runsDir, id, 'report.json'))?.totals?.usd ?? 0;
   }
-  return { usd, count };
+  return { usd, count, ...(symbolicLinksNotCounted ? { symbolicLinksNotCounted } : {}) };
 }
 
 function runChildForeground({ spawnFn, args, cwd }) {
@@ -262,7 +268,7 @@ export function createRelayHttpServer({
         statusCode = 200;
         body = { outcome: 'paused', runId, questions };
       }
-    } else if (code === 0) {
+    } else if (code === 0 || code === EXIT_NOT_AGREED) {   // 22: the run FINISHED and its panel did not agree (0.8.3); report.json says so. 7 and 8 stay errors, as before.
       const runId = findNewRunDir(runsDir, before);
       statusCode = 200;
       body = { outcome: 'completed', runId };
@@ -300,7 +306,7 @@ export function createRelayHttpServer({
         spawnFn, args: [cliPath, '--resume', join('runs', id)], cwd: relayRoot,
       });
 
-      if (code !== 0) {
+      if (code !== 0 && code !== EXIT_NOT_AGREED) {   // 22: finished, panel not agreed (0.8.3)
         res.status(500).json({ success: false, error: 'nonzero_exit', exitCode: code, stderrTail: stderr.slice(-500) });
         return;
       }

@@ -13,8 +13,11 @@
 // never be read as a finished one.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { usdFigure } from './usd-figure.js';
 
-export const SUPERSEDED_DIR = 'superseded';
+import { SUPERSEDED_DIR, nextSupersededN } from './superseded-n.js';
+// The two live in a LEAF module (node imports only) so verdict-envelope.js, which providers.js imports, does not drag usd-figure -> cost -> roles into providers.js's closure (test/no-digest-in-prompt-paths.test.js).
+export { SUPERSEDED_DIR, nextSupersededN };
 
 /**
  * Move a stage's files (`<label>.md`, `<label>.usage.json`, `<label>.prompt.json`) into
@@ -26,8 +29,7 @@ export function archiveSuperseded(runDir, label) {
   if (!files.length) return null;
   const dir = join(runDir, SUPERSEDED_DIR);
   mkdirSync(dir, { recursive: true });
-  let n = 1;
-  while (['md', 'usage.json', 'prompt.json'].some(ext => existsSync(join(dir, `${label}.${n}.${ext}`)))) n++;
+  const n = nextSupersededN(runDir, label);
   // usage first and text last, the same order the CLI writes a stage in: a crash in between leaves
   // the text in place, so the stage still reads as cached and is judged again on the next resume.
   for (const ext of ['usage.json', 'prompt.json', 'md']) {
@@ -41,14 +43,15 @@ export function archiveSuperseded(runDir, label) {
  * thinking attempt whose retry failed) is written here too, as `<label>.charge-<n>.usage.json`, so
  * every spend reader that adds this folder in counts it - and the cap does on resume.
  */
-export function recordLostCharge(runDir, label, { provider = null, model = null, usd = 0, reason = '' } = {}) {
+export function recordLostCharge(runDir, label, { provider = null, model = null, usd = 0, reason = '', reservationId = null, kind = null } = {}) {
   if (!(Number(usd) > 0)) return null;
   const dir = join(runDir, SUPERSEDED_DIR);
   mkdirSync(dir, { recursive: true });
   let n = 1;
   while (existsSync(join(dir, `${label}.charge-${n}.usage.json`))) n++;
   const path = join(dir, `${label}.charge-${n}.usage.json`);
-  writeFileSync(path, JSON.stringify({ provider, model, usage: { input: 0, output: 0 }, usd: Number(usd), reason }));
+  // 0.8.3 M2 (D18): the reservation the charge belongs to, and whether it is the discarded attempt's waste or the billed, unreadable call itself. Both additive; absent when the call wrote no reservation.
+  writeFileSync(path, JSON.stringify({ provider, model, usage: { input: 0, output: 0 }, usd: Number(usd), reason, ...(reservationId ? { reservationId } : {}), ...(kind ? { kind } : {}) }));
   return path;
 }
 
@@ -58,18 +61,23 @@ export function recordLostCharge(runDir, label, { provider = null, model = null,
  * tokens by design). Every spend reader and a resume's cap already add this folder in, so no reader is new. Written
  * atomically (temp file, then rename); never overwrites.
  */
-export function recordCall(runDir, label, { provider = null, model = null, usage = null, usd = 0, ms = null, promptHash = null } = {}) {
+export function recordCall(runDir, label, { provider = null, model = null, usage = null, usd = 0, ms = null, promptHash = null, reservationId = null } = {}) {
   const dir = join(runDir, SUPERSEDED_DIR);
   mkdirSync(dir, { recursive: true });
   let n = 1;
   while (existsSync(join(dir, `${label}.call-${n}.usage.json`))) n++;
   const path = join(dir, `${label}.call-${n}.usage.json`);
-  writeFileSync(`${path}.tmp`, JSON.stringify({ provider, model, usage, usd: Number(usd) || 0, ms, promptHash }));
+  writeFileSync(`${path}.tmp`, JSON.stringify({ provider, model, usage, usd: Number(usd) || 0, ms, promptHash, ...(reservationId ? { reservationId } : {}) }));
   renameSync(`${path}.tmp`, path);
   return path;
 }
 
-/** Every superseded stage's cost record: [{ label, provider, model, usd }]. Never throws. */
+/**
+ * Every superseded stage's cost record: [{ label, provider, model, usd, ... }]. Never throws.
+ * 0.8.3 (Builder D, Batch 1 audit item 10): `usd` goes through the one reader (src/usd-figure.js). A figure that is there and is not a number of dollars (a string, a negative, NaN, null)
+ * and a file that does not parse are UNKNOWN: the row keeps `usd: 0` (the floor) and carries `unknown: true`, so a total can say so and name the file. Before, `Number(u?.usd) || 0`
+ * read a bad figure as 0 (or a negative one as negative) and skipped a torn file without a word.
+ */
 export function supersededStagesOf(runDir) {
   const dir = join(runDir, SUPERSEDED_DIR);
   let names = [];
@@ -77,14 +85,21 @@ export function supersededStagesOf(runDir) {
   const out = [];
   for (const f of names) {
     if (!f.endsWith('.usage.json')) continue;
+    const label = `${SUPERSEDED_DIR}/${f.replace(/\.usage\.json$/, '')}`;
     let u = null;
-    try { u = JSON.parse(readFileSync(join(dir, f), 'utf8')); } catch { continue; }
-    out.push({ label: `${SUPERSEDED_DIR}/${f.replace(/\.usage\.json$/, '')}`, provider: u?.provider ?? null, model: u?.model ?? null, usd: Number(u?.usd) || 0 });
+    try { u = JSON.parse(readFileSync(join(dir, f), 'utf8')); } catch { out.push({ label, provider: null, model: null, usd: 0, reservationId: null, kind: null, unknown: true }); continue; }
+    const n = u !== null && typeof u === 'object' && !Array.isArray(u) ? usdFigure(u.usd) : null;
+    out.push({ label, provider: u?.provider ?? null, model: u?.model ?? null, usd: n ?? 0, reservationId: typeof u?.reservationId === 'string' ? u.reservationId : null, kind: typeof u?.kind === 'string' ? u.kind : null, ...(n === null ? { unknown: true } : {}) });
   }
   return out;
 }
 
-/** What the superseded stages cost in total. */
+/** What the superseded stages cost in total (the readable part: see supersededStagesOf). */
 export function supersededSpendOf(runDir) {
   return supersededStagesOf(runDir).reduce((sum, s) => sum + s.usd, 0);
+}
+
+/** The superseded stage files whose figure could not be read, as `superseded/<name>.usage.json` relative to the run folder. */
+export function supersededUnknownFilesOf(runDir) {
+  return supersededStagesOf(runDir).filter(s => s.unknown).map(s => `${s.label}.usage.json`);
 }

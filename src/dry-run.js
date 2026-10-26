@@ -6,6 +6,7 @@
 // Pure: it reads the environment only through providers.keyFor (presence, never the value) and
 // prices with cost.js's estimateChainRows, the function the human printout and `council doctor`
 // already use. No network call, no file written, nothing spent.
+import { roundLimitsOf } from './overseer-rounds.js';
 import { estimateChainRows, priceTableAge, expiredPriceRows, DEFAULT_ESTIMATE } from './cost.js';
 import { everySeatSlotsOf, labOf } from './chain.js';
 import { unpricedSeats } from './unpriced.js';
@@ -42,7 +43,8 @@ export function dryRunReport(config, { fromRun = false, taskChars = null, histor
   const advising = config.advise?.enabled === true;
   // The cheapest way a planning run can end: the first review round finishes it. Everything before the
   // rounds (criteria, alternatives, proposals, debate, build) is paid either way.
-  const floor = sum(estimateChainRows(advising ? { ...config, advise: { ...config.advise, rounds: 0 } } : { ...config, maxRounds: 1 }, { fromRun }));
+  const floorConfigOf = cfg => (advising ? { ...cfg, advise: { ...cfg.advise, rounds: 0 } } : (roundLimitsOf(cfg).overseer !== null ? { ...cfg, maxOverseerRounds: 1 } : { ...cfg, maxRounds: 1 }));
+  const floor = sum(estimateChainRows(floorConfigOf(config), { fromRun }));
 
   const assumedPromptTokens = config.estimate?.promptTokens ?? DEFAULT_ESTIMATE.promptTokens;
   const taskTokens = taskChars === null ? null : Math.ceil(taskChars / 4);
@@ -53,6 +55,8 @@ export function dryRunReport(config, { fromRun = false, taskChars = null, histor
     : null;
   const withTask = taskConfig ? sum(estimateChainRows(taskConfig, { fromRun })).usd : null;
   const maximumWithTask = taskConfig ? sum(estimateChainRows(taskConfig, { fromRun, maximum: true })).usd : null;
+  // bundle unit (19 Okt 2026): the cheapest end with the task's size too, so a tree's grant check (the child's cheapest end) is priced for the input it will really carry
+  const floorWithTask = taskConfig ? sum(estimateChainRows(floorConfigOf(taskConfig), { fromRun })).usd : null;
 
   const seats = everySeatSlotsOf(config).map(({ role, seat }) => ({
     role, provider: seat.provider, model: seat.model, lab: labOf(seat), ...seatKeyStatus(seat.provider),
@@ -74,13 +78,16 @@ export function dryRunReport(config, { fromRun = false, taskChars = null, histor
     chain: config.name ?? null,
     description: config.description ?? null,
     ...(typeof config.summary === 'string' ? { summary: config.summary } : {}),
-    maxRounds: config.maxRounds ?? null,
+    maxRounds: roundLimitsOf(config).overseer !== null ? null : roundLimitsOf(config).passes,   // CR-4B-007: the EFFECTIVE pass cap (a chain that leaves maxRounds out runs with the default of 2, as the dry run's figures and its "Rounds:" line say)
+    // round semantics (2a): present only for a chain with overseer rounds; maxRounds is then null (the ceiling is derived, never a second key)
+    ...(roundLimitsOf(config).overseer !== null ? { maxOverseerRounds: roundLimitsOf(config).overseer, passCeiling: roundLimitsOf(config).passes } : {}),
     signoff: config.signoff || 'first',
     estimate: {
       // Every figure prices the chain's own assumed token sizes (config.estimate) at pricing.json's
       // list prices. They are estimates, not bounds: the per-run cap is the bound.
       basis: 'chain token assumptions, list prices',
       floorUsd: floor.usd,
+      floorWithTaskUsd: floorWithTask,
       // worstCaseUsd keeps its name and value (readers depend on it) but is the EXPECTED figure: the chain's own assumed sizes with the typical output of a review. expectedUsd is the same number under an honest
       // name; maximumUsd is every planned call at its whole output allowance (an Anthropic seat's one retry included), the figure the spend cap can be compared with.
       worstCaseUsd: worst.usd,
@@ -104,7 +111,7 @@ export function dryRunReport(config, { fromRun = false, taskChars = null, histor
       // 0.8.2 item 8a: under a cap, a run on a chain with an unpriced seat is refused at its start (exit 5); `unpriced` lists the seats. --max-usd none is the way out besides adding a price row.
       unpricedSeatsRefused: defaultCapUsd !== null && unpricedSeats(config).length > 0, // every seat slot, not only the planned rows: an unpriced seat of a stage that is switched off is refused too
     },
-    rows: rows.map(r => ({ label: r.label, seat: r.seat, inputTokens: r.input, outputTokens: r.output, usd: r.usd, priced: r.priced, maximumOutputTokens: maxByLabel.get(r.label)?.output ?? null, maximumUsd: maxByLabel.get(r.label)?.usd ?? null })),
+    rows: rows.map(r => ({ label: r.label, seat: r.seat, inputTokens: r.input, outputTokens: r.output, usd: r.usd, priced: r.priced, maximumOutputTokens: maxByLabel.get(r.label)?.output ?? null, maximumUsd: maxByLabel.get(r.label)?.usd ?? null, ...(r.times ? { times: r.times, maximumTimes: maxByLabel.get(r.label)?.times ?? null } : {}) })),
     seats,
     missingKeys,
     canRun: missingKeys.length === 0,

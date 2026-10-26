@@ -4,6 +4,8 @@
 //   - a row BELOW the list's headline price is RAISED to it (the cap was projecting less than the list says);
 //   - a row ABOVE it is NEVER lowered here (a row may be deliberately dear: a promotion that expires, a ZDR endpoint, a first-party price); it is reported;
 //   - rows with `expires` are not touched.
+//   - the stamp `_openrouterCheckedAt` means: every `openrouter/` row WITHOUT an `expires` date was compared with the list on that date. Rows with `expires` are not compared by design (test/pricing-expiry.test.js covers
+//     them) but must still be on the list. A row, with or without `expires`, that the list does not name any more cannot be checked, so the script then REFUSES: it exits 2, writes nothing and does not move the stamp (the lane E guard, 24 Okt 2026).
 // The list's headline is one endpoint's price (often an unusual one), and a call can fall back to a dearer endpoint: with --endpoints (the list of
 // /api/v1/models/<id>/endpoints saved per model) the dearest NON-fast-tier endpoint that can serve the model's smallest shipped output cap is printed next to it. That column is
 // information for the owner's decision on whether the rows should price the dearest endpoint; this script does not apply it.
@@ -45,12 +47,12 @@ function dearestEndpoint(id) {
   return { in: Math.max(...eps.map(e => perM(e.pricing.prompt))), out: Math.max(...eps.map(e => perM(e.pricing.completion))), n: eps.length };
 }
 
-const changes = []; const lines = [];
+const changes = []; const lines = []; const unlisted = [];
 for (const [key, row] of Object.entries(table)) {
   if (!key.startsWith('openrouter/') || !row || typeof row !== 'object') continue;
   const id = key.slice('openrouter/'.length);
   const m = live.get(id);
-  if (!m) { lines.push(`${id}: NOT LISTED any more`); continue; }
+  if (!m) { lines.push(`${id}: NOT LISTED any more`); unlisted.push(id); continue; }
   const li = perM(m.pricing.prompt), lo = perM(m.pricing.completion);
   const dear = dearestEndpoint(id);
   const note = dear ? `  dearest endpoint ${r6(dear.in)}/${r6(dear.out)} (n=${dear.n})` : '';
@@ -63,6 +65,11 @@ for (const [key, row] of Object.entries(table)) {
   else lines.push(`${id}: file ${row.in}/${row.out} = list${note}`);
 }
 console.log(lines.join('\n'));
+// A-DRAFT (lane E, 24 Okt 2026; maintainer-script sentence): a row the list no longer names was never compared, so the stamp must not say it was.
+if (unlisted.length) {
+  console.error(`\nrefused: ${unlisted.length} openrouter/ row(s) are not on OpenRouter's list any more (${unlisted.join(', ')}), so they could not be compared. Nothing was written and _openrouterCheckedAt was not moved. Remove the row (a seat on it cannot be called) or re-key it to the model's new id, then run this again.`);
+  process.exit(2);
+}
 if (write) {
   // Text-level edit, so the rest of the file keeps its formatting (1.0 stays 1.0) and the diff shows only the rows that changed.
   let text = readFileSync(pricingPath, 'utf8');

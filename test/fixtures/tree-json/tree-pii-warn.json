@@ -1,0 +1,30 @@
+{
+  "schema": "tree/1",
+  "treeId": "2026-10-12T00-00-00-000Z",
+  "rootCapUsd": 5,
+  "chains": [
+    {
+      "depth": 0,
+      "name": "split-root",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "depth": 1,
+      "name": "priced-debate",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "depth": 2,
+      "name": "priced-debate",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "limits": {
+    "maxDepth": 2,
+    "maxRuns": 12,
+    "maxChildrenPerSplit": 4,
+    "attemptsPerChild": 1
+  },
+  "piiGate": "warn",
+  "createdAt": "2026-10-12T00:00:00.000Z"
+}

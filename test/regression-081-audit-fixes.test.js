@@ -48,7 +48,7 @@ function finishedRun() {
   writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a tiny thing.\n');
   writeFileSync(join(dir, 'chains', 'fx.json'), JSON.stringify({ name: 'fx', maxRounds: 1, seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'mock', model: 'mock-builder' }, reviser: { provider: 'mock', model: 'mock-builder' }, critics: [{ provider: 'mock', model: 'mock-critic-a' }] } }));
   const r = spawnSync(process.execPath, [cli, '--task', 'tasks/t.md', '--chain', 'fx'], { cwd: dir, env: cleanEnv(), encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr);
+  assert.ok([0, 22].includes(r.status), r.stderr);   // 22: finished, mock panel not agreed (0.8.3; exit-not-agreed.test.js pins the rule)
   const run = join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
   return { dir, run };
 }

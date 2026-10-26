@@ -8,7 +8,10 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { keyEnvValue } from '../src/key-env.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { childGone } from './helpers/child-gone.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const server = join(root, 'src', 'mcp', 'server.js');
@@ -22,7 +25,7 @@ function mcpSession({ cwd, env, calls }) {
   // No PATH: the server must find Node for its CLI child without one, as a bundle host may not
   // put its own Node on PATH.
   const r = spawnSync(process.execPath, [server], {
-    cwd, input: requests.map(x => JSON.stringify(x)).join('\n') + '\n', encoding: 'utf8', timeout: 90_000, env,
+    cwd, input: requests.map(x => JSON.stringify(x)).join('\n') + '\n', encoding: 'utf8', timeout: 90_000, env: { ...malformedProviderKeys(), ...env },
   });
   const byId = new Map();
   for (const line of (r.stdout || '').split('\n')) {
@@ -31,7 +34,6 @@ function mcpSession({ cwd, env, calls }) {
   return byId;
 }
 const payload = m => JSON.parse(m?.result?.content?.[0]?.text ?? 'null');
-
 test('COUNCIL_WORKDIR puts tasks and runs there, not in the directory the host started the server in', () => {
   const hostCwd = mkdtempSync(join(tmpdir(), 'thc-host-'));
   const work = join(mkdtempSync(join(tmpdir(), 'thc-work-')), 'council'); // does not exist yet
@@ -55,30 +57,34 @@ test('COUNCIL_WORKDIR puts tasks and runs there, not in the directory the host s
 });
 
 test('an unsubstituted ${user_config.x} placeholder is read as unset, not as a key or a ceiling', () => {
+  // $0 BY CONSTRUCTION (Haiku batch 4 A7 #1, 13 Oct 2026): this test used to START `single-vendor-openai` to see the missing-key exit. The child ran in an empty folder, so src/cli.js fell back to the CHECKOUT's own .env, and with an OpenAI
+  // key there the first stage was a PAID call (v0.8.2 shipped the same start). No real chain is started now (test/no-paid-chain-spawn.test.js refuses one). The strip is shown where it happens, and the ceiling placeholder through a MOCK run.
+  const ph = '${user_config.openai_api_key}'; const phCap = '${user_config.max_usd}';
+  const probe = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(server).href)}); console.log(JSON.stringify({ key: process.env.OPENAI_API_KEY ?? null, cap: process.env.MAX_USD_PER_RUN ?? null }));`],
+    { cwd: mkdtempSync(join(tmpdir(), 'thc-probe-')), env: { OPENAI_API_KEY: ph, MAX_USD_PER_RUN: phCap }, encoding: 'utf8', timeout: 30_000 });
+  assert.equal(probe.status, 0, probe.stderr);
+  assert.deepEqual(JSON.parse(probe.stdout), { key: null, cap: null }, 'importing the server drops both placeholders from the environment, so no child can see them');
+  assert.equal(keyEnvValue('OPENAI_API_KEY', { OPENAI_API_KEY: ph }), null, 'and a placeholder is not a key even if one did get through');
   const work = mkdtempSync(join(tmpdir(), 'thc-work-'));
   try {
     const res = mcpSession({
       cwd: work,
-      env: { OPENAI_API_KEY: '${user_config.openai_api_key}', MAX_USD_PER_RUN: '${user_config.max_usd}' },
+      env: { OPENAI_API_KEY: ph, MAX_USD_PER_RUN: phCap },
       calls: [
         { name: 'write_task', arguments: { name: 'demo', content: '# Task\n\nPlan a small todo app.\n' } },
-        { name: 'start_run', arguments: { chain: 'single-vendor-openai', task: 'tasks/demo.md' } },
         { name: 'start_run', arguments: { chain: 'mock', task: 'tasks/demo.md' } },
       ],
     });
-    const keyed = payload(res.get(3));
-    assert.equal(keyed?.started, false, 'a placeholder must not pass the key check');
-    assert.equal(keyed.exitCode, 5, `missing key (COUNCIL-E001), got ${JSON.stringify(keyed)}`);
-    assert.doesNotMatch(readFileSync(keyed.log, 'utf8'), /user_config/);
-    const mock = payload(res.get(4));
+    const mock = payload(res.get(3));
     assert.equal(mock?.started, true, `a placeholder ceiling must fall back to the default, got ${JSON.stringify(mock)}`);
   } finally {
     // The mock run started above is detached and may still be writing; the tmp dir is left for the OS.
   }
 });
 
-test('COUNCIL_MAX_USD_LIMIT is a ceiling the tool arguments cannot lift or remove', () => {
+test('COUNCIL_MAX_USD_LIMIT is a ceiling the tool arguments cannot lift or remove', async () => {
   const work = mkdtempSync(join(tmpdir(), 'thc-work-'));
+  let capped = null;
   try {
     const res = mcpSession({
       cwd: work,
@@ -102,7 +108,7 @@ test('COUNCIL_MAX_USD_LIMIT is a ceiling the tool arguments cannot lift or remov
       assert.equal(r.run, undefined, 'refused before any run folder was made');
     }
     // No max_usd: the lower of the limit ($1) and MAX_USD_PER_RUN ($50) applies, and stops the run.
-    const capped = payload(res.get(5));
+    capped = payload(res.get(5));
     // On a quiet machine the cap stops the run before start_run returns (exitCode 4). On a loaded
     // one the child can get past startup first, so start_run says started:true and the stop lands
     // a moment later; either way the run must end at the cap.
@@ -116,6 +122,9 @@ test('COUNCIL_MAX_USD_LIMIT is a ceiling the tool arguments cannot lift or remov
     const stop = JSON.parse(readFileSync(join(work, 'runs', capped.run, 'STOPPED-budget.json'), 'utf8'));
     assert.equal(stop.capUsd, 1);
   } finally {
+    // 13 Oct 2026 (teardown race, ENOTEMPTY in this very rmSync): the run start_run spawned is DETACHED and keeps writing after STOPPED-budget.json appears, so removing the folder under it fails.
+    // Wait for the child itself to be gone (its pid is in .spawn.json, written by the server when it spawned it): an event, with a guard, never a sleep of a guessed length.
+    if (capped?.run) await childGone(join(work, 'runs', capped.run));
     rmSync(work, { recursive: true, force: true });
   }
 });

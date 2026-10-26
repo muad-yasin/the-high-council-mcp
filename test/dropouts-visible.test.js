@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderDropoutsBoard } from '../src/report-shape.js';
+import { installOutdatedChain } from './helpers/chain-file.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -40,6 +41,7 @@ test('the dry run prints external seats as "external" and says they are outside 
   const dir = mkdtempSync(join(tmpdir(), 'thc-dry-ext-'));
   try {
     writeFileSync(join(dir, '.env'), '');
+    installOutdatedChain(root, dir, 'plan-daily-7');   // 0.8.3 (lane B): retired to chains/outdated/, copied as the hint tells a person
     const r = spawnSync('node', [cli, '--dry-run', '--chain', 'plan-daily-7'], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH } });
     assert.equal(r.status, 0, r.stderr);
     const extRows = r.stdout.split('\n').filter(l => /^\s+\S+\s+external\//.test(l));

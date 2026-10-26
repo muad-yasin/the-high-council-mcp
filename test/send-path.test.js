@@ -10,6 +10,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { preSendRefusals, gateSeatsOf } from '../src/send-path-refusals.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 import { profileFor, KINDS } from '../src/send-profiles.js';
 import { registerAdviceTools } from '../src/mcp/advice.js';
 
@@ -43,7 +44,7 @@ const RULES = [
   ['sensitivity', c => { c.env.COUNCIL_ADVISE_MOCK = '0'; c.env.COUNCIL_ADVISE_CHAIN_SINGLE = 'no-zdr'; }], // an internal brief, a seat that keeps text
   ['secret_shaped', c => { c.brief.excerpts.push({ label: 'env', kind: 'config', why_needed: 'The question is about this config.', text: KEY }); }],
   ['mask_collision', c => { c.brief.question = 'Should we email [EMAIL_1] about dropping the legacy invoices column?'; }],
-  ['pii_left', c => { c.brief.decision_at_stake = 'Does ｍａｘ＠ｅｘａｍｐｌｅ．ｃｏｍ own the invoices table?'; }],
+  ['pii_left', c => { c.brief.decision_at_stake = 'Does ｍａｘ＠ｍａｉｌ－ｃｏｒｐ．ｄｅ own the invoices table?'; }],
   ['over_ceiling', c => { c.env.COUNCIL_ADVISE_MOCK = '0'; c.env.COUNCIL_ADVISE_CHAIN_SINGLE = 'pricey'; }],
   ['over_server_limit', c => { c.usdLimit = 0.1; }],
   // 0.8.2 item 1 (owner via C&C, 7 Oct 2026, "Terminal rule only, no cap change"): max_usd_per_run now refuses on the call's EXPECTED cost (it was the ceiling, $1 here), so the rule is exercised on the shipped priced Sol chain (expected about $0.06), not on the $0 mock chain.
@@ -52,7 +53,7 @@ const RULES = [
 ];
 
 function run(applied) {
-  const c = { brief: BRIEF(), input: { mode: 'single' }, env: { COUNCIL_ADVISE_MOCK: '1' }, policy: null, usdLimit: null };
+  const c = { brief: BRIEF(), input: { mode: 'single' }, env: { COUNCIL_ADVISE_MOCK: '1', ...malformedProviderKeys() }, policy: null, usdLimit: null };
   for (const i of [...applied].sort((a, b) => b - a)) RULES[i][1](c);
   const work = mkdtempSync(join(tmpdir(), 'send-path-'));
   if (c.policy !== null) writeFileSync(join(work, 'policy.json'), c.policy);

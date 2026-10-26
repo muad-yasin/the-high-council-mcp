@@ -4,6 +4,7 @@
 // deliberately excluded - that's the already-logged v4 unpriced-model
 // defect, not new scope for this candidate.
 import { providerNames, keyDestinationReasons } from './providers.js';
+import { NOTES_ITEM_CHARS_DEFAULT, NOTES_ABOUT_CHARS_DEFAULT, NOTES_TEXT_MAX_DEFAULT, NOTES_ABOUT_MAX_DEFAULT } from './review-notes-lane.js';
 import { validateSeatRole } from './seat-role.js';
 import { ALLOWED_TOOLS } from './tools.js';
 import { priceOf, SEAT_DEFAULT_MAX_TOKENS } from './cost.js';
@@ -12,8 +13,11 @@ import { dirname, join, resolve } from 'node:path';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { LANE_IDS } from './lanes.js';
+import { layerProblems, overseerKeyProblems } from './layers.js';
+import { labProblem, labUnsafeMessage, labSuggestion } from './lab-safety.js';
 import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots, everySeatOf, SIGNOFF_MODES, modelIdentity, seatIdentity } from './chain.js';
 import { deniedSeatsOf } from './denied-models.js';
+import { pinShapeProblem, pinExampleOf } from './price-pin.js';
 
 // Labs the source procurement report names as not EU-based (v7.x compliance
 // chains). Used only to enforce an EU-region compliance claim against the
@@ -32,7 +36,7 @@ export function isShippedChainPath(filePath) {
 // `claims` and `descending` added 2026-09-23 (bug audit GuardLayer #7): chain.js reads both, so a
 // valid seat there was falsely refused as a typo.
 // `alternatives` and `deep_dive` added 2026-09-26 (tiered councils).
-const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger', 'ambiguity', 'coldRead', 'claims', 'descending', 'security_reviewer', 'alternatives', 'deep_dive'];
+const KNOWN_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'proposers', 'critics', 'challenger', 'ambiguity', 'coldRead', 'claims', 'descending', 'security_reviewer', 'alternatives', 'deep_dive', 'decider'];
 
 /**
  * Lint findings for a chain config, each `{ kind, message, fix }`. Never
@@ -69,6 +73,41 @@ export function lintChain(config, filePath = '<chain>') {
       else if (!LANE_IDS.includes(seat.lane)) findings.push({ kind: 'invalid-lane', message: `seats.critics has lane "${seat.lane}", which is not one of ${LANE_IDS.join(', ')}.`, fix: `Use one of ${LANE_IDS.join(', ')} in ${filePath}, or remove "lane".` });
       else if (config?.descending) findings.push({ kind: 'invalid-lane', message: 'a critic has a "lane" on a descending chain, whose critic prompt does not carry lanes: it would silently do nothing.', fix: `Remove "lane" from the critics, or turn off "descending", in ${filePath}.` });
     }
+  }
+
+  // 1d. Panel layers (0.8.3, Review/Build_0.8.3/m6-closing/Layered_Panel_Contract.md section 3.2): the rules are src/layers.js `layerProblems`. runChainStages (src/chain.js) throws
+  // the same problems, so a chain that reaches runChain without this lint gate (a direct import, a test) is refused too. Each is a misuse that would make the key silently do nothing, or leave a seat with no place.
+  for (const p of layerProblems(config, filePath)) findings.push({ kind: 'invalid-layer', ...p });
+  for (const p of overseerKeyProblems(config, filePath)) findings.push({ kind: 'invalid-overseer-rounds', ...p });
+
+  // 1e. The conflict decider (0.8.3 E4b unit 2; src/conflict-decider.js): `seats.decider` rules on a swing between LAYERS of a layered panel, so on a chain whose panel is not layered it could never be asked and would silently do nothing. The decider is not a
+  // voter: it is outside the one-lab-per-seat rule on purpose (its lab is named in each decision beside the two parties').
+  if (seats.decider !== undefined) {
+    const critics = Array.isArray(seats.critics) ? seats.critics : [];
+    const layeredPanel = critics.length > 0 && critics.every(c => c && typeof c === 'object' && c.layer !== undefined);
+    if (!seats.decider || typeof seats.decider !== 'object' || Array.isArray(seats.decider)) {
+      findings.push({ kind: 'invalid-decider', message: 'seats.decider is not a seat (an object with provider and model).', fix: `Make "seats.decider" in ${filePath} one seat, e.g. { "provider": "external", "model": "claude-code-session" }, or remove it.` });
+    } else if (!layeredPanel) {
+      findings.push({ kind: 'invalid-decider', message: 'seats.decider is set, but the review panel is not layered (every critic needs a "layer"), so the conflict it rules on can never arise and the seat would silently do nothing.', fix: `Add "layer" to every seat of seats.critics in ${filePath}, or remove seats.decider.` });
+    }
+  }
+
+  // 1c. The proposal cap (0.8.3, C&C rulings 13 Oct 2026). Two spellings exist: the documented top-level `max_proposals_per_seat` and the older `proposals.maxProposalsPerSeat`. (1) Both set to different
+  // values would run one cap and read like the other; chain.js refuses the same chain at run time (proposalCapOf), this is the message `council doctor` gives first. (2) The documented key must be a
+  // whole number of 1 or more: anything else is ignored at run time, so the chain would run with no cap. The nested key keeps its older, pinned "ignored" behaviour and is not checked.
+  if (config?.max_proposals_per_seat !== undefined && config?.proposals?.maxProposalsPerSeat !== undefined && config.max_proposals_per_seat !== config.proposals.maxProposalsPerSeat) {
+    findings.push({
+      kind: 'proposal-cap-conflict',
+      message: `The proposal cap is set twice with different values: max_proposals_per_seat is ${JSON.stringify(config.max_proposals_per_seat)} and proposals.maxProposalsPerSeat is ${JSON.stringify(config.proposals.maxProposalsPerSeat)}. A run on this chain is refused until it is set once.`,
+      fix: `Keep only "max_proposals_per_seat" (the documented key) in ${filePath} and remove "proposals.maxProposalsPerSeat".`,
+    });
+  }
+  if (config?.max_proposals_per_seat !== undefined && !(Number.isInteger(config.max_proposals_per_seat) && config.max_proposals_per_seat > 0)) {
+    findings.push({
+      kind: 'proposal-cap-invalid',
+      message: `max_proposals_per_seat is ${JSON.stringify(config.max_proposals_per_seat)}, which is not a whole number of 1 or more. Such a value is ignored, so the chain would run with no cap.`,
+      fix: `Set "max_proposals_per_seat" in ${filePath} to a whole number of 1 or more, or remove the key.`,
+    });
   }
 
   // 2. Unreachable stage: the critique/panel round needs at least one
@@ -128,6 +167,25 @@ export function lintChain(config, filePath = '<chain>') {
         kind: 'missing-tool-reference',
         message: `a seat references an unrecognized provider "${s.provider}".`,
         fix: `Check the spelling against a known provider (${[...known].join(', ')}) in ${filePath}, or add "${s.provider}" to src/providers.js if it's meant to be new.`,
+      });
+    }
+  }
+
+  // lab-unsafe (bug audit 24 Okt 2026, BUG-D-021): a seat's lab is written into the file name of every stage it answers, so a path separator, a name that is exactly "." or ".." or a control character in it
+  // would place those files outside the run folder. Named by what is wrong, not by an allow-list (a lab with a space or "+" stays valid). The run-time twin is assertStageLabelSafe (src/lab-safety.js).
+  {
+    const slotOf = seat => { for (const [slot, v] of Object.entries(seats)) { if (v === seat || (Array.isArray(v) && v.includes(seat))) return slot; } return null; };
+    const seenLab = new Set();
+    for (const s of allSeats) {
+      const lab = s?.lab;
+      const what = labProblem(lab);
+      if (!what || seenLab.has(lab)) continue;
+      seenLab.add(lab);
+      const slot = slotOf(s);
+      findings.push({
+        kind: 'lab-unsafe',
+        message: labUnsafeMessage(slot ? `seats.${slot}` : 'a seat of this chain', lab, what),
+        fix: `Give the seat a plain lab in ${filePath}, for example "${labSuggestion(lab)}" (letters, digits, "-", "_" and "." are fine; a lab that is only "." or ".." is not).`,
       });
     }
   }
@@ -219,6 +277,8 @@ export function lintChain(config, filePath = '<chain>') {
     debate_hygiene: { shuffle: 'boolean', noQuoteMarks: 'boolean' },
     // 0.8.2 (owner decision 3): the answer-back data for the next round's judges. Off in every chain written before it existed.
     answer_back: { enabled: 'boolean' },
+    // Notes lane (0.8.3 notes lane unit 2): capped proposals and improvement ideas in every review round. Off in every chain written before it existed.
+    reviewNotes: { enabled: 'boolean', perKind: 'positive-integer', itemChars: 'positive-integer', aboutChars: 'positive-integer', textMax: 'positive-integer', aboutMax: 'positive-integer' },
     // The council advisor (thc-research brief 27, src/advise.js). Experimental; off in every chain written before it.
     advise: { enabled: 'boolean', usd: 'positive-number', rounds: 'advise-rounds', skipDebateWhenUnanimous: 'boolean', synthesis: 'advise-synthesis', samples: 'advise-samples', max_wall_ms: 'advise-wall' },
     deep_dive: { enabled: 'boolean', job: 'job', focus: 'string-array', usd: 'positive-number', maxCalls: 'positive-integer', chunkChars: 'chunk' },
@@ -456,8 +516,31 @@ export function lintChain(config, filePath = '<chain>') {
       }
     }
 
+    // 0.8.3 (lane B, C&C order 23 Okt 2026; A-DRAFT message): only the exact string below earns a region check (the routing check further down reads "EU" and nothing else), so no spelling gets a weaker one. Before this, "EU" got the full routing check and
+    // "eu" or "Europe" got only the description check: a chain that CLAIMED a region lint could not check passed. "US" is not listed: nothing checks it, and a region this lint cannot check is refused like any other.
+    // An unknown region, or a regions value that is not a list of strings, is a finding. A list entry earns its place only together with the check that reads it.
+    const KNOWN_REGIONS = ['EU'];
+    const rawRegions = config.compliance.regions;
+    if (rawRegions !== undefined && !(Array.isArray(rawRegions) && rawRegions.every(r => typeof r === 'string'))) {
+      findings.push({
+        kind: 'invalid-compliance-config',
+        message: 'compliance.regions must be a list of region names, such as ["EU"], so each one can be checked.',
+        fix: `Write "compliance.regions" in ${filePath} as a list of strings, each one a region this check knows (${KNOWN_REGIONS.map(r => `"${r}"`).join(' or ')}).`,
+      });
+    } else {
+      for (const r of rawRegions || []) {
+        if (!KNOWN_REGIONS.includes(r)) {
+          findings.push({
+            kind: 'invalid-compliance-config',
+            message: `compliance.regions names "${r}", which is not a region this check knows (${KNOWN_REGIONS.map(x => `"${x}"`).join(' and ')}, spelled exactly); a region it cannot check is refused, not passed.`,
+            fix: `Remove "${r}" from "compliance.regions" in ${filePath}, since this check cannot verify it; if you meant ${KNOWN_REGIONS.map(x => `"${x}"`).join(' or ')}, write it exactly like that.`,
+          });
+        }
+      }
+    }
+
     const declaredProviders = new Set(config.compliance.providers || []);
-    const declaredRegions = new Set(config.compliance.regions || []);
+    const declaredRegions = new Set(Array.isArray(rawRegions) ? rawRegions.filter(r => typeof r === 'string') : []);
     const actualProviders = new Set(routedSeats.map(s => s.provider).filter(Boolean));
     const description = config.description || '';
 
@@ -965,6 +1048,32 @@ export function lintChain(config, filePath = '<chain>') {
       fix: `Set "signoff": "unanimous" in ${filePath}, or remove answer_back.`,
     });
   }
+  // Notes lane: the judges' notes ride in the unanimous panel loop only; and the length limit the judge is asked to keep may not exceed the read cap that cuts it (gate note addendum 1, R2).
+  if (config?.reviewNotes?.enabled === true) {
+    if (config.signoff !== 'unanimous') {
+      findings.push({
+        kind: 'review-notes-needs-unanimous',
+        message: 'reviewNotes.enabled is true but this chain does not set "signoff": "unanimous": the notes are asked in the panel loop that unanimous sign-off runs, so they are never asked.',
+        fix: `Set "signoff": "unanimous" in ${filePath}, or remove reviewNotes.`,
+      });
+    }
+    if (!(Number.isInteger(config.reviewNotes.perKind) && config.reviewNotes.perKind >= 1)) {
+      findings.push({
+        kind: 'review-notes-per-kind',
+        message: 'reviewNotes.enabled is true but "perKind" is not a whole number of at least 1: the lane has no cap to enforce, so it stays off.',
+        fix: `Set reviewNotes.perKind to a whole number of at least 1 (the shipped chain uses 3) in ${filePath}.`,
+      });
+    }
+    const textMax = config.reviewNotes.textMax ?? NOTES_TEXT_MAX_DEFAULT; const aboutMax = config.reviewNotes.aboutMax ?? NOTES_ABOUT_MAX_DEFAULT;
+    const itemChars = config.reviewNotes.itemChars ?? NOTES_ITEM_CHARS_DEFAULT; const aboutChars = config.reviewNotes.aboutChars ?? NOTES_ABOUT_CHARS_DEFAULT;
+    if (itemChars > textMax || aboutChars > aboutMax) {
+      findings.push({
+        kind: 'review-notes-limit-above-cap',
+        message: `reviewNotes asks the judge for items of up to ${itemChars} characters (about ${aboutChars}) but the harness reads at most ${textMax} (about ${aboutMax}): the limit asked for is above the cap that cuts it.`,
+        fix: `Lower reviewNotes.itemChars to at most textMax and reviewNotes.aboutChars to at most aboutMax, or raise textMax/aboutMax, in ${filePath}.`,
+      });
+    }
+  }
   if ((config?.debate_hygiene?.shuffle === true || config?.debate_hygiene?.noQuoteMarks === true) && !((config.proposals && config.debate) || config.alternatives?.enabled === true)) {
     findings.push({
       kind: 'debate-hygiene-without-debate',
@@ -1052,7 +1161,7 @@ export function lintChain(config, filePath = '<chain>') {
     }
     const ignoredKeys = ['proposals', 'debate', 'alternatives', 'deep_dive', 'dispute', 'signoff_table', 'debate_hygiene', 'answer_back', 'questions', 'handoff', 'argued', 'security_review', 'descending', 'challenge', 'coldRead', 'claims', 'canary', 'lints', 'majority_guard', 'decisions', 'ambiguity_union', 'preflight', 'verify', 'signoff', 'panel', 'revise']
       .filter(k => config[k] !== undefined && config[k] !== false && config[k]?.enabled !== false);
-    const ignoredSeats = ['criteria', 'skeleton', 'reviser', 'finalist', 'handoff', 'proposers', 'alternatives', 'deep_dive', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'ambiguity', 'descending', 'security_reviewer'].filter(k => seats[k] !== undefined);
+    const ignoredSeats = ['criteria', 'skeleton', 'reviser', 'finalist', 'handoff', 'proposers', 'alternatives', 'deep_dive', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'ambiguity', 'descending', 'security_reviewer', 'decider'].filter(k => seats[k] !== undefined);
     if (ignoredKeys.length || ignoredSeats.length) {
       findings.push({
         kind: 'advise-ignores-planning-stages',
@@ -1137,11 +1246,25 @@ export function lintChain(config, filePath = '<chain>') {
           findings.push({
             kind: 'reasoning-not-high',
             message: `${seat.provider}/${seat.model}: ${p.why} (${p.path}${p.value === null ? '' : ` = ${JSON.stringify(p.value)}`}). Reasoning is always high for a shipped chain.`,
-            fix: `Remove that setting from the seat in ${filePath} (src/reasoning-table.json says which field makes ${seat.provider}/${seat.model} reason at high). There is no override.`,
+            fix: p.kind === 'table-unknown'
+              ? `Do one of these for ${seat.provider}/${seat.model} in ${filePath}: ${p.ways.map((w, n) => `(${n + 1}) ${w}`).join('; ')}. There is no override.`
+              : `Remove that setting from the seat in ${filePath} (src/reasoning-table.json says which field makes ${seat.provider}/${seat.model} reason at high). There is no override.`,
           });
         }
       }
     }
+  }
+
+  // invalid-price-pin (0.8.3 A3a fix-up, C&C ruling 18 Okt 2026): every OpenRouter call carries a price pin (src/price-pin.js). An `extra.provider` or `extra.provider.max_price` that is not an object has nowhere to
+  // put it, so invoke() would refuse the seat at its first call (PinRefused, nothing sent): said here first, before a run is paid for. The rule is price-pin.js's pinShapeProblem, so the two cannot disagree.
+  for (const seat of everySeatOf(resolved) || []) {
+    const bad = pinShapeProblem(seat);
+    if (!bad) continue;
+    findings.push({
+      kind: 'invalid-price-pin',
+      message: `${seat.provider}/${seat.model}: ${bad.field} is ${JSON.stringify(bad.got) ?? 'not a value'}, not an object, so the price limit that every OpenRouter call carries cannot be built (the run would stop at this seat before anything is sent).`,
+      fix: `In ${filePath}, make ${bad.field} an object (for the price limit: ${pinExampleOf(seat)}, dollars per million tokens), or remove it to use the table price.`,
+    });
   }
 
   return findings;

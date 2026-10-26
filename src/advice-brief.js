@@ -13,6 +13,8 @@
 //   - `tried` is required unless `first_look` is true, and at least two options are required (28 guard 3);
 //   - `new_evidence` is part of the brief, because anything a seat reads must be in the text that is hashed.
 import { z } from 'zod';
+import { hasUrlUserinfo } from './secret-patterns.js';
+import { briefHiddenRegex } from './hidden-chars.js';
 
 export const ADVICE_SCHEMA_VERSION = 'advice-brief/1';
 // All strings together; excerpts together. Over the cap means refuse, never truncate (a truncated PEM block once leaked,
@@ -36,8 +38,8 @@ export const MOMENTS = ['before_commit', 'stuck', 'before_done', 'choose_between
 export const SENSITIVITIES = ['public', 'internal', 'confidential', 'personal_data', 'secret_adjacent', 'unknown'];
 export const EXCERPT_KINDS = ['code', 'error', 'log', 'config', 'doc', 'spec'];
 
-// A repo-relative path or a short description: never absolute, never `..`, never a URL with credentials.
-const ORIGIN = /^(?![/~\\]|[A-Za-z]:[\\/])(?!.*:\/\/[^/\s]*@)(?!(?:.*[\\/])?\.\.(?:[\\/]|$))[^\u0000-\u001f]*$/;
+// A repo-relative path or a short description: never absolute, never `..`; a URL with credentials is refused by the same .refine (hasUrlUserinfo, src/secret-patterns.js: the one rule; ONE check, so an origin that breaks both rules gets one sentence, not two).
+const ORIGIN = /^(?![/~\\]|[A-Za-z]:[\\/])(?!(?:.*[\\/])?\.\.(?:[\\/]|$))[^\u0000-\u001f]*$/;
 
 const line = (min, max) => z.string().min(min).max(max);
 
@@ -55,7 +57,7 @@ export const ADVICE_BRIEF = z.object({
   excerpts: z.array(z.object({
     label: line(1, 80),
     kind: z.enum(EXCERPT_KINDS),
-    origin: z.string().max(200).regex(ORIGIN, 'a repo-relative path or short description: no leading slash, tilde, drive letter or "..", no credentials in a URL').optional(),
+    origin: z.string().max(200).refine(v => ORIGIN.test(v) && !hasUrlUserinfo(v), 'a repo-relative path or short description: no leading slash, tilde, drive letter or "..", no credentials in a URL').optional(),
     why_needed: line(10, 200).describe('which part of the question this answers and why the advisors cannot answer without it'),
     text: line(1, EXCERPT_ITEM_MAX_CHARS),
   }).strict()).max(5).optional().describe('decision-relevant excerpts only; at most 36,000 characters together'),
@@ -77,7 +79,7 @@ function stringsOf(v, out = []) {
 // variation selectors (but not U+FE0F, which emoji use) and Unicode tag characters. One of them inside a key, or a key spelled in tag
 // characters, scored no hit on the scan (brief 29 review, finding 1). They are REFUSED, not stripped: the text that is hashed and shown
 // must be the text that is sent.
-const HIDDEN = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0e\ufeff\uffa0\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/u;
+const HIDDEN = briefHiddenRegex();   // src/hidden-chars.js is the one list (audit item 7); this is what the brief refused before, plus the exotic invisible members the hand-written list lacked
 
 /** The first hidden character in any string of the brief, as { where, code }, or null. */
 export function hiddenCharacterIn(brief) {

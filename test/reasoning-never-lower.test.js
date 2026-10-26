@@ -8,7 +8,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, setBudget, setCache, budgetState, BudgetExceeded, NO_ANSWER_THINKING, setPromptSpy } from '../src/chain.js';
 import { projectAttempts, projectStage, worstCaseOf } from '../src/cost.js';
-import { retryCapFor, retryCeilingOf, loweringReasons } from '../src/reasoning.js';
+import { retryCapFor, retryCeilingOf, loweringReasons, REASONING_TABLE } from '../src/reasoning.js';
+import { everyChainFile } from './helpers/chain-file.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const stubFetch = handler => { const original = globalThis.fetch; globalThis.fetch = handler; return () => { globalThis.fetch = original; }; };
@@ -121,23 +122,27 @@ test('no duplicate paid call: an outer cut-off retry starts from the cap invoke(
   });
 });
 
-test('a seat whose cap is above its model\'s own maximum is not re-asked at the same cap (OpenRouter Llama 4 Maverick: cap 36,000, model maximum 16,384)', async () => {
+// 0.8.3 step (g): this used to seat Llama 4 Maverick, whose row was a number (16,384); the table now says it has no published limit (null), and no chain may name that model. The row is a fixture row, written for the test and
+// removed after it, so no refresh of the table's router numbers (deepseek-chat moved from 16,384 to 16,000 in the same refresh) can change what the test pins.
+test('a seat whose cap is above its model\'s own maximum is not re-asked at the same cap (an OpenRouter model with a row of 16,384, cap 36,000)', async () => {
+  const rowKey = 'openrouter/vendor/capped-at-16384';
   const had = process.env.OPENROUTER_API_KEY;
   process.env.OPENROUTER_API_KEY = 'sk-or-test-not-a-key';
   const logs = [];
   const caps = [];
   const restore = stubFetch(async (url, opts) => {
     caps.push(JSON.parse(opts.body).max_completion_tokens);
-    return { ok: true, json: async () => ({ model: 'meta-llama/llama-4-maverick', choices: [{ message: { content: '{"meets": tru' }, finish_reason: 'length' }], usage: { prompt_tokens: 30, completion_tokens: 36000 } }) };
+    return { ok: true, json: async () => ({ model: 'vendor/capped-at-16384', choices: [{ message: { content: '{"meets": tru' }, finish_reason: 'length' }], usage: { prompt_tokens: 30, completion_tokens: 36000 } }) };
   });
   try {
+    REASONING_TABLE.models[rowKey] = { form: null, maxOutput: 16384, defaultEffort: null, supportedEfforts: null, mandatory: null, source: 'openrouter-models', defaultAboveHigh: false };
     setCache(null); setBudget(null);
-    const critic = { provider: 'openrouter', model: 'meta-llama/llama-4-maverick', maxTokens: 36000, lab: 'llama4' };
-    const cfg = { name: 'maverick', signoff: 'unanimous', maxRounds: 1, criteria: ['It exists.'], seats: { critics: [critic, { provider: 'mock', model: 'mock-critic-b', lab: 'mock-b' }] } };
+    const critic = { provider: 'openrouter', model: 'vendor/capped-at-16384', maxTokens: 36000, lab: 'capped' };
+    const cfg = { name: 'capped', signoff: 'unanimous', maxRounds: 1, criteria: ['It exists.'], seats: { critics: [critic, { provider: 'mock', model: 'mock-critic-b', lab: 'mock-b' }] } };
     await runChain({ request: 'Req.', config: cfg, draft: 'REVISED MOCK DELIVERABLE', log: l => logs.push(l) });
     assert.ok(caps.length >= 1 && caps.every(c => c === 36000), `fixture: the seat's own cap only (${caps})`);
     assert.equal(logs.filter(l => /asking once more with a/.test(l)).length, 0, 'no retry at a cap that is not bigger');
-  } finally { restore(); if (had === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = had; }
+  } finally { restore(); delete REASONING_TABLE.models[rowKey]; if (had === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = had; }
 });
 
 test('the no-answer record is on the board in first-mode chains too (the single-critic path), not only in the unanimous panel', async () => {
@@ -253,7 +258,8 @@ test('never lower, form 2 (source scan): every call that sends a seat\'s request
 
 test('never lower, form 3 (every shipped non-mock seat): what the harness would send has no lowering setting', () => {
   const walk = (o, out = []) => { if (Array.isArray(o)) o.forEach(v => walk(v, out)); else if (o && typeof o === 'object') { if (typeof o.provider === 'string' && typeof o.model === 'string' && o.provider !== 'mock' && o.provider !== 'external') out.push(o); Object.values(o).forEach(v => walk(v, out)); } return out; };
-  for (const f of readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json'))) {
-    for (const seat of walk(JSON.parse(readFileSync(join(root, 'chains', f), 'utf8')))) assert.deepEqual(loweringReasons(seat.extra, seat), [], `${f}: ${seat.provider}/${seat.model}`);
+  // 0.8.3 (lane B): the retired chains in chains/outdated/ are scanned too (the ruling: reasoning never lowered, in the folder as well).
+  for (const { file: f, path } of everyChainFile(root)) {
+    for (const seat of walk(JSON.parse(readFileSync(path, 'utf8')))) assert.deepEqual(loweringReasons(seat.extra, seat), [], `${f}: ${seat.provider}/${seat.model}`);
   }
 });

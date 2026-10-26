@@ -7,13 +7,14 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deniedReasonsOf } from '../src/denied-models.js';
+import { everyChainFile } from './helpers/chain-file.js';
 
 const chainsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'chains');
 
-test('no shipped chain seats a Kimi/Moonshot model', () => {
+test('no shipped chain seats a Kimi/Moonshot model (the retired ones in chains/outdated/ are scanned too: the ruling of 18 Okt 2026)', () => {
   const hits = [];
-  for (const f of readdirSync(chainsDir).filter(f => f.endsWith('.json'))) {
-    const cfg = JSON.parse(readFileSync(join(chainsDir, f), 'utf8'));
+  for (const { file: f, path } of everyChainFile(join(chainsDir, '..'))) {
+    const cfg = JSON.parse(readFileSync(path, 'utf8'));
     const seats = JSON.stringify(cfg.seats || {});
     if (/kimi|moonshot/i.test(seats)) hits.push(f);
   }

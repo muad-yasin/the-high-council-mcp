@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, setBudget, setCache, NO_ANSWER_THINKING } from '../src/chain.js';
+import { typeCap } from './helpers/typed-cap.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = resolve(here, '../src/cli.js');
@@ -38,7 +39,12 @@ globalThis.fetch = async (url, opts) => { const b = JSON.parse(opts.body || '{}'
   writeFileSync(join(dir, 'calls.txt'), '');
   const env = { ...process.env, ANTHROPIC_API_KEY: 'sk-ant-test-not-a-key', STUB_CALLS: join(dir, 'calls.txt') };
   delete env.OPENROUTER_API_KEY;
-  execFileSync('node', ['--import', join(dir, 'preload.mjs'), cli, '--task', 'tasks/t.md', '--chain', 'rr', '--max-usd', '50'], { cwd: dir, env, encoding: 'utf8', stdio: 'pipe' });
+  // 0.8.3 M6 typed cap T4a: the paid start waits for a typed limit (exit 21, no call made); a limit is typed and the SAME run is resumed.
+  const cliRun = args => { try { return execFileSync('node', ['--import', join(dir, 'preload.mjs'), cli, ...args], { cwd: dir, env, encoding: 'utf8', stdio: 'pipe' }); } catch (e) { if (e.status === 22) return String(e.stdout ?? ''); throw e; } };   // 22: finished, panel not agreed (0.8.3)
+  try { cliRun(['--task', 'tasks/t.md', '--chain', 'rr', '--max-usd', '50']); assert.fail('a paid start without a typed limit must wait'); } catch (e) { assert.equal(e.status, 21, `${e.message}`); }
+  assert.equal(readFileSync(join(dir, 'calls.txt'), 'utf8'), '', 'no call was made before the limit was typed');
+  typeCap(join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]), '50');
+  cliRun(['--resume', join(dir, 'runs', readdirSync(join(dir, 'runs'))[0])]);
   assert.deepEqual(readFileSync(join(dir, 'calls.txt'), 'utf8').trim().split('\n'), ['36000', '64000'], 'one call and one same-effort retry, nothing duplicated');
   const run = join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
   const usage = JSON.parse(readFileSync(join(run, 'panel-1-sonnet5.usage.json'), 'utf8'));

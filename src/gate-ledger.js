@@ -43,7 +43,10 @@ export const LEDGER_SCHEMA = 'gate-ledger/1';
 // The set M4 (sent), M5 (more_material_requested) and M6 (stopped) need; plan M3 Work 2. 0.8.2 item 6d (owner, 7 Oct 2026: "we go with the full one") adds the contract record's three:
 // contract_locked, amend_requested and amend_decided (src/contract-record.js). A ledger that holds one of them is read as "broken" by a 0.8.1 tool (it reports an unknown event, whatever the
 // format id says), which the CHANGELOG lists under the breaking heading.
-export const EVENTS = Object.freeze(['gate_requested', 'gate_answered', 'sent', 'stopped', 'more_material_requested', 'contract_locked', 'amend_requested', 'amend_decided']);
+// 0.8.3 M5b (C&C, 8 Oct 2026): a recursive-councils tree reuses the gate for the person's approvals, and a tree gate is used ONCE like any other, so its use events join the list: `tree_frontier_approved` (a frontier
+// approval), `tree_decided` (a `council tree decide` answer) and, since M6 S2, `tree_checked` (a `council tree check` run the person approved). Same breaking-format sentence as the contract events above: an older tool reads a ledger that holds one of them as "broken".
+export const EVENTS = Object.freeze(['gate_requested', 'gate_answered', 'sent', 'stopped', 'more_material_requested', 'contract_locked', 'amend_requested', 'amend_decided', 'tree_frontier_approved', 'tree_decided', 'tree_checked', 'cap_consumed']);
+// 0.8.3 M6 typed cap T3 (14 Oct 2026): `cap_consumed` is the use event of a `run_cap` gate (the limit a person typed for one run); an older tool reads a ledger that holds it as "broken", the same breaking-format sentence as the events above.
 // The two gate events are written only by src/gate.js and the contract's lock and decision events only by src/contract-record.js (both through withLedger); everything else may append these.
 // amend_requested is public on purpose: it is a request that decides nothing (the `contract_amend` tool appends it), and a person reads its words before a decision.
 export const PUBLIC_EVENTS = Object.freeze(['sent', 'stopped', 'more_material_requested', 'amend_requested']);

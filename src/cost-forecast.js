@@ -7,9 +7,10 @@
 // pricing.json rather than trusting a historical run's own possibly-stale
 // `usd` field (a model's price can change between the run and today).
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { runFolderKind } from './run-files.js';
 import { join } from 'node:path';
 import { runIdToDate } from './spend.js';
-import { costOf } from './cost.js';
+import { costOf, isHarnessRecord } from './cost.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 
@@ -30,20 +31,25 @@ export function forecastCost(chainName, runsDir, { days = 90, now = Date.now() }
   try {
     ids = existsSync(runsDir) ? readdirSync(runsDir) : [];
   } catch {
-    return { chain: chainName, days, runsUsed: 0, low: null, high: null, mean: null, note: 'runs directory could not be read' };
+    return { chain: chainName, days, runsUsed: 0, symbolicLinksNotCounted: 0, low: null, high: null, mean: null, note: 'runs directory could not be read' };
   }
 
+  let symbolicLinksNotCounted = 0;
   const perRunUsd = [];
   const unpriced = new Set();
   for (const id of ids) {
-    const when = runIdToDate(id);
-    if (!when || when.getTime() < cutoff) continue;
+    if (!runIdToDate(id)) continue;
+    // a symbolic link in runs/ is never a run (the harness never makes one): asked FIRST (before the date and the window, so a dangling link and a link outside the window are counted too), counted apart, never read as a second run (src/run-files.js runFolderKind, the one predicate every reader of runs/ asks)
+    const kind = runFolderKind(join(runsDir, id));
+    if (kind === 'link') { symbolicLinksNotCounted += 1; continue; }
+    if (kind !== 'folder') continue;
+    if (runIdToDate(id).getTime() < cutoff) continue;
     const report = readJson(join(runsDir, id, 'report.json'));
     if (!report || report.chain !== chainName) continue;
 
     let total = 0;
     for (const s of report.stages || []) {
-      if (!s.usage) continue;
+      if (!s.usage || isHarnessRecord(s)) continue; // a zero-cost harness record (handoff-notes) is not a priced call
       const c = costOf(s.provider, s.model, s.usage);
       total += c.usd;
       if (!c.priced) unpriced.add(`${s.provider}/${s.model}`);
@@ -52,7 +58,7 @@ export function forecastCost(chainName, runsDir, { days = 90, now = Date.now() }
   }
 
   if (!perRunUsd.length) {
-    return { chain: chainName, days, runsUsed: 0, low: null, high: null, mean: null, note: 'no historical runs of this chain in the window' };
+    return { chain: chainName, days, runsUsed: 0, symbolicLinksNotCounted, low: null, high: null, mean: null, note: 'no historical runs of this chain in the window' };
   }
 
   const low = Math.min(...perRunUsd);
@@ -64,7 +70,7 @@ export function forecastCost(chainName, runsDir, { days = 90, now = Date.now() }
   // understate the range, same discipline summarise() (cost.js) already
   // applies to a single run's own total.
   return {
-    chain: chainName, days, runsUsed: perRunUsd.length, low, high, mean,
+    chain: chainName, days, runsUsed: perRunUsd.length, symbolicLinksNotCounted, low, high, mean,
     ...(unpriced.size ? { partial: true, unpriced: [...unpriced], note: `${unpriced.size} model(s) in this history have no entry in pricing.json and were counted as $0: ${[...unpriced].join(', ')}` } : {}),
   };
 }

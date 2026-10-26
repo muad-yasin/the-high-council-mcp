@@ -38,7 +38,8 @@ test('test_chain_lint_catches_errors: a missing stage contract, an unreachable s
   }, 'chains/fixture.json');
 
   const kinds = findings.map(f => f.kind).sort();
-  assert.deepEqual(kinds, ['missing-stage-contract', 'missing-tool-reference', 'unreachable-stage']);
+  // 0.8.3: the builder's `nosuchlab/x` has no reasoning-table row and states no effort, and the path is a shipped one, so reasoning-not-high (fails closed) reports it too.
+  assert.deepEqual(kinds, ['missing-stage-contract', 'missing-tool-reference', 'reasoning-not-high', 'unreachable-stage']);
   for (const f of findings) {
     assert.ok(f.fix && f.fix.length > 0, `${f.kind} must carry an actionable fix`);
     assert.match(f.fix, /chains\/fixture\.json/, `${f.kind}'s fix must name the real file path`);
@@ -143,9 +144,9 @@ test('council --chain <broken chain name> refuses to run, fail-loud, before any 
 });
 
 // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): plan-two-strong now lives in archive/chains/ and is still linted here.
-test('item 6: archive/chains/plan-two-strong.json (the roster-inversion chain) passes chain-lint', () => {
-  const config = JSON.parse(readFileSync(join(root, 'archive', 'chains', 'plan-two-strong.json'), 'utf8'));
-  const findings = lintChain(config, 'archive/chains/plan-two-strong.json');
+test('item 6: chains/outdated/plan-two-strong.json (the roster-inversion chain) passes chain-lint', () => {
+  const config = JSON.parse(readFileSync(join(root, 'chains', 'outdated', 'plan-two-strong.json'), 'utf8'));
+  const findings = lintChain(config, 'chains/outdated/plan-two-strong.json');
   assert.deepEqual(findings, []);
 });
 
@@ -246,7 +247,7 @@ test('self-review: scoped to unanimous signoff, where the author\'s lab holds a 
 // escape hatch, fails the suite instead of passing unnoticed.
 // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): cheap-7 moved to archive/chains/, so the sweep covers both folders and the pin still holds.
 test('self-review: exactly one shipped chain fails it, and it is the superseded one', () => {
-  const failing = ['chains', join('archive', 'chains')].flatMap(dir => readdirSync(join(root, dir)).filter(f => f.endsWith('.json')).filter(f => {
+  const failing = ['chains', join('chains', 'outdated')].flatMap(dir => readdirSync(join(root, dir)).filter(f => f.endsWith('.json')).filter(f => {
     const config = JSON.parse(readFileSync(join(root, dir, f), 'utf8'));
     return lintChain(config, `${dir}/${f}`).some(x => x.kind === 'self-review');
   }));
@@ -254,8 +255,8 @@ test('self-review: exactly one shipped chain fails it, and it is the superseded 
 });
 
 test('cheap-7-v2: seven independent labs vote, and neither author is among them', () => {
-  const config = JSON.parse(readFileSync(join(root, 'chains', 'cheap-7-v2.json'), 'utf8'));
-  assert.deepEqual(lintChain(config, 'chains/cheap-7-v2.json'), []);
+  const config = JSON.parse(readFileSync(join(root, 'chains', 'outdated', 'cheap-7-v2.json'), 'utf8'));
+  assert.deepEqual(lintChain(config, 'chains/outdated/cheap-7-v2.json'), []);
 
   // Seven voting labs. Removing the builder's critic seat must not cost a seat: the panel
   // is the mechanism, and shrinking it to six was a regression the fix caused, not a fix.
@@ -281,7 +282,7 @@ test('cheap-7-v2: seven independent labs vote, and neither author is among them'
 });
 
 test('cheap-7-v2: every seat is priced, because an unpriced seat is an uncapped seat', () => {
-  const config = JSON.parse(readFileSync(join(root, 'chains', 'cheap-7-v2.json'), 'utf8'));
+  const config = JSON.parse(readFileSync(join(root, 'chains', 'outdated', 'cheap-7-v2.json'), 'utf8'));
   const seats = [...Object.values(config.seats).filter(s => !Array.isArray(s)), ...config.seats.critics];
   for (const s of seats) {
     assert.ok(priceOf(s.provider, s.model), `${s.provider}/${s.model} has no entry in src/pricing.json - it would project $0 and escape the spend cap`);

@@ -29,11 +29,13 @@ import { lintChain } from './chain-lint.js';
 import { deniedReasonsOf } from './denied-models.js';
 import { loadPolicy, evaluatePolicy, buildPolicyContext } from './policy.js';
 import { profileFor } from './send-profiles.js';
+import { outdatedAdviceChainHint } from './chain-name.js';
 
 export const money = n => `$${(Math.round(n * 1e4) / 1e4).toFixed(n >= 1 ? 2 : 4)}`;
 
 /** Admission: the chain exists, is an advise chain, lints clean, every seat is priced, allowed and routed as its class requires. */
 export function admitChain(name, config) {
+  if (!config && outdatedAdviceChainHint(name)) return `no advice chain "${name}" in the package.${outdatedAdviceChainHint(name)}`;   // 0.8.3 lane B (B-DRAFT): a retired advice chain says where it went
   if (!config || config.advise?.enabled !== true) return `"${name}" is not an advise chain`;
   // 0.8.2 (owner, 6 Oct 2026): no wall clock is required any more; a chain that sets advise.max_wall_ms still gets it (src/cli.js).
   const findings = lintChain(config, name);
@@ -99,7 +101,7 @@ export function previewSeats(config) {
 }
 
 /**
- * The seats a gate binds (its `seats`, hashed into meta_sha256): lab, model and retention wording of every seat, in order. One
+ * The seats a gate binds (its `seats`, hashed into meta_sha256): lab, model and retention LABEL of every seat (r.label, not the `detail` wording the preview prints beside it), in order. One
  * definition for the gate the server writes and for the check `council --advice-adopt` makes against the chain it is about to
  * run, so a chain swapped, reordered, or with its routing changed after approval is refused (M4 review H1).
  */
@@ -139,7 +141,7 @@ export function preSendRefusals(kind, { brief, mode, advisor, max_usd }, { work,
   // 4. price, policy, guards
   const price = priceOfChain(config, masked.text, { maxUsd: max_usd ?? null });
   if (price.blindWorst > price.ceiling) return refuse('over_ceiling', `the blind round alone could cost ${money(price.blindWorst)}; the ceiling for this call is ${money(price.ceiling)}${max_usd ? ' (your max_usd)' : ''}.`, 'Shorten the brief, use single mode or a cheaper seat, or raise max_usd.', { worst_usd: price.blindWorst, ceiling_usd: price.ceiling });
-  if (usdLimit !== null && price.ceiling > usdLimit) return refuse('over_server_limit', `this call's ceiling ${money(price.ceiling)} is above the $${usdLimit} limit the user set in COUNCIL_MAX_USD_LIMIT.`, 'Ask the user to raise that limit in the server settings.');
+  if (usdLimit !== null && price.ceiling > usdLimit) return refuse('over_server_limit', `this call's ceiling ${money(price.ceiling)} is above the $${usdLimit} limit the user set in COUNCIL_MAX_USD_LIMIT.`, "Only the user can raise that limit, where it is set: the server's settings, or a COUNCIL_MAX_USD_LIMIT line in the project's .env.");
   let policyWarnings = [];
   if (policy) {
     const ev = advicePolicyVerdict(policy, config, price.ceiling, { runsDir, now });

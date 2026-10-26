@@ -1,0 +1,224 @@
+// CR-RC-019 (builder 19's trace of T's cross-read C-2, rated P2 by C&C thcmcp-a1 on 26 Okt 2026): pendingBelowOf (src/tree-transitions.js) asks whether a finished node is WHOLE. Its `registeredGen(path)` read the newest registered
+// generation of a child path ANYWHERE in the tree. The children a REPLACED generation of the same parent path registered there (orphans now, still in the record) answered for the new generation, so a regenerated sub-plan whose split
+// was verified and whose children frontier nobody approved yet read as whole while none of its children existed. A root re-plan then HELD it instead of setting it aside: a wrong held set in the decision, and a wrong count on its screen.
+// The fix scopes the read to the children registered under a frontier of THIS node at THIS generation (its own lineage), as `slotFilled` already was.
+// Through the REAL verbs (all-mock chains, $0; the plans a model would write are handed to each run as a DRAFT, as in test/tree-nested-adoption-walk.test.js, whose legs 1-8 this follows). No hand-made record line: every stop is opened by
+// the sitting after a person's edit of a run's HANDOFF.md.
+//   1 `tree approve`  the root's children frontier            2 sitting   R/M1 (splits on plan-a.md) and R/M3 close passed; R/M1's split is verified, its frontier waits
+//   3 `tree approve`  R/M1's children frontier                4 sitting   R/M1/M1..M3 and the consumer R/M2 close passed
+//   5 HANDOFF.md of R/M1@g1 edited, sitting: a stop on it      6 `decide --stop` regenerate of R/M1; sitting: recovery opens R/M1@g2 (and its consumer R/M2@g2)
+//   7 `tree approve`  R's replacement frontier                8 sitting   R/M1@g2 runs plan-a.md again (the SAME milestone ids), closes, its split is verified; nobody approves its children frontier
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { readTreeRecord, stateOf } from '../src/tree-record.js';
+import { approveHandler } from '../src/tree-approve.js';
+import { decideHandler } from '../src/tree-decide.js';
+import * as api from '../src/api.js';
+import { describeFrontier, findPendingFrontier } from '../src/tree-frontier.js';
+import { generationOf, ineligibleBelowRoot, orphansOf, pendingBelowOf } from '../src/tree-transitions.js';
+import { registerNextChild } from '../src/tree-loop.js';
+import { bundleDirOf } from '../src/tree-continuation.js';
+import { runTree } from '../src/tree-run.js';
+import { trackedRealRoot } from './helpers/temp-trees.js';
+import { splitChildren } from './helpers/child-chains.js';
+import { block3, plan3, planWith } from './helpers/split-fixture.js';
+import { draftStarter, eventsOf, phases } from './helpers/sitting.js';
+import { terminal } from './helpers/terminal.js';
+import { ROOT_ID } from './helpers/tree-fixture.js';
+
+const io = answers => { const t = terminal(answers); const timer = setTimeout(() => t.stdin.end(), 8000); t.stop = () => clearTimeout(timer); return t; };
+const state = r => stateOf(readTreeRecord(r.t.rootDir));
+const keys = list => list.map(a => `${a.node}@g${a.generation}`);
+
+/** R/M1's plan, the block of test/tree-nested-adoption-walk.test.js: children K1..K3 (milestones M1..M3) with questions of their own, M5 ready. Both generations of R/M1 run it, so their splits name the same child paths. */
+function block() {
+  const b = block3();
+  for (const m of b.milestones) if (m.open_question) m.open_question = `Inside the store: ${m.open_question}`;
+  b.milestones[4] = { id: 'M5', status: 'ready', basis: 'Release and rollback plan', open_question: null };
+  return b;
+}
+
+async function approve(r, leg) {
+  const pending = findPendingFrontier({ rootDir: r.t.rootDir });
+  assert.ok(pending?.key, `${leg}: a frontier waits for approval`);
+  const t = io([pending.key.slice(0, 8), 'y']);
+  const code = await approveHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, work: r.t.work, stdin: t.stdin, stdout: t.stdout, stderr: t.stderr, now: () => Date.now() }).finally(t.stop);
+  assert.equal(code, 0, `${leg}: ${t.shown()}${t.errors()}`);
+  return pending;
+}
+async function decide(r, flags, answers, leg) {
+  const t = io(answers);
+  const code = await decideHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, flags, work: r.t.work, stdin: t.stdin, stdout: t.stdout, stderr: t.stderr, now: () => Date.now() }).finally(t.stop);
+  assert.equal(code, 0, `${leg}: ${t.shown()}${t.errors()}`);
+}
+/** A person edits the HANDOFF.md of a finished run; the next sitting meets the changed file and opens a stop on that node (the route test/tree-nested-adoption-walk.test.js test 1 drives). -> the stop's needs_decision_opened event. */
+async function stopByHandoff(r, node, generation, start, leg) {
+  const runId = state(r).nodes.get(`${node}@g${generation}`).runId;
+  const file = join(r.t.runsDir, runId, 'HANDOFF.md');
+  writeFileSync(file, `${readFileSync(file, 'utf8')}\nA late change to this run.\n`);
+  await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 0, startRun: start });
+  const stop = eventsOf(r).filter(e => e.event === 'needs_decision_opened' && e.node === node && e.generation === generation).at(-1);
+  assert.ok(stop, `${leg}: the sitting opened a stop on ${node}@g${generation} (${JSON.stringify(eventsOf(r).filter(e => e.event === 'needs_decision_opened').map(e => [e.id, e.node, e.generation, e.source]))})`);
+  return stop;
+}
+
+/** Legs 1-4: R/M1@g1 split, its three children and the consumer R/M2 finished. -> { r, start } */
+async function finishedSplit() {
+  const r = await trackedRealRoot(splitChildren());
+  writeFileSync(join(r.t.work, 'plan-a.md'), planWith(block(), { preface: 'REVISED MOCK DELIVERABLE\n\n' }));
+  const start = draftStarter(r, { 'R/M1': 'plan-a.md' });
+  await approve(r, 'leg 1');
+  await runTree(r.t.rootDir, { work: r.t.work, startRun: start });
+  await approve(r, 'leg 3');
+  await runTree(r.t.rootDir, { work: r.t.work, startRun: start });
+  assert.deepEqual(['R/M1/M1', 'R/M1/M2', 'R/M1/M3', 'R/M2'].map(n => phases(r)[n]), ['closed', 'closed', 'closed', 'closed'], `leg 4: ${JSON.stringify(phases(r))}`);
+  return { r, start };
+}
+
+/** Legs 5-8: R/M1 planned again; R/M1@g2 closed with a verified split, its children frontier not approved (no frontier of R/M1@g2 on record). -> { r, start } */
+async function regeneratedParent() {
+  const { r, start } = await finishedSplit();
+  const stop = await stopByHandoff(r, 'R/M1', 1, start, 'leg 5');
+  // `fresh`: the earlier plan offered as data would put R/M1@g2's input over the fixture's 4000-byte allowance (the reason test/tree-nested-adoption-walk.test.js gives)
+  await decide(r, { stop: stop.id, fresh: true }, ['Plan the store again.\n.', stop.id, 'y'], 'leg 6');
+  await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 0, startRun: start });
+  assert.ok(eventsOf(r).filter(e => e.event === 'generation_opened').at(-1)?.nodes.some(n => n.node === 'R/M1' && n.generation === 2), 'leg 6: R/M1@g2 is opened');
+  await approve(r, 'leg 7');
+  await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 1, startRun: start });
+  const st = state(r);
+  const n = st.nodes.get('R/M1@g2');
+  assert.deepEqual([n?.phase, n?.outcome], ['closed', 'passed'], `leg 8: R/M1@g2 finished (${JSON.stringify(phases(r))})`);
+  assert.deepEqual(n.verifiedSplit?.children, ['R/M1/M1', 'R/M1/M2', 'R/M1/M3'], 'leg 8: its split is verified and names the same child paths as R/M1@g1\'s');
+  assert.equal([...st.frontiers.values()].some(f => f.parentNode === 'R/M1' && f.parentGeneration === 2), false, 'leg 8: no frontier of R/M1@g2 is on record (nobody ran `tree approve` for it)');
+  for (const k of ['R/M1/M1@g1', 'R/M1/M2@g1', 'R/M1/M3@g1']) assert.ok(st.nodes.has(k) && orphansOf(st).has(k), `leg 8: ${k}, a child of the replaced R/M1@g1, is still in the record, an orphan`);
+  return { r, start };
+}
+
+test('CR-RC-019: a regenerated sub-plan (R/M1@g2) with a verified split and NONE of its children registered is half-finished, though the replaced generation\'s children sit on the same paths; a root re-plan sets it aside', { timeout: 900_000 }, async () => {
+  const { r } = await regeneratedParent();
+  const st = state(r);
+  assert.ok(ineligibleBelowRoot(st).includes('R/M1@g2'), `R/M1@g2 is not holdable: its split names three children and none of ITS children is registered (${JSON.stringify(ineligibleBelowRoot(st))})`);
+  assert.equal(pendingBelowOf(st, st.nodes.get('R/M1@g2')), true, 'pendingBelowOf: the orphans of R/M1@g1 do not answer for R/M1@g2');
+});
+
+test('CR-RC-019, the record: the decision that plans the root again lists R/M1@g2 in its affected set (set aside, not held)', { timeout: 900_000 }, async () => {
+  const { r, start } = await regeneratedParent();
+  const rootStop = await stopByHandoff(r, 'R', 1, start, 'the root stop');
+  await decide(r, { stop: rootStop.id }, ['Plan it again.\n.', rootStop.id, 'y'], 'the root re-plan');
+  const dec = eventsOf(r).filter(e => e.event === 'decision_recorded' && e.stopId === rootStop.id).at(-1);
+  assert.equal(dec?.replansRoot, true, `the decision plans the root again (${JSON.stringify(dec)})`);
+  assert.ok(keys(dec.affected).includes('R/M1@g2'), `R/M1@g2 is in the decision's affected set: ${JSON.stringify(keys(dec.affected))}`);
+});
+
+test('CR-RC-019, the neighbour (control): a whole R/M1@g1 one of whose children was REGENERATED (R/M1/M3@g1 -> R/M1/M3@g2, registered and finished) stays whole: the regenerated child is registered under a frontier of R/M1@g1', { timeout: 900_000 }, async () => {
+  const { r, start } = await finishedSplit();
+  const stop = await stopByHandoff(r, 'R/M1/M3', 1, start, 'the child stop');
+  await decide(r, { stop: stop.id, fresh: true }, ['Plan this part again.\n.', stop.id, 'y'], 'the child regenerate');
+  await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 0, startRun: start });
+  // the stop also puts the consumers of R/M1/M3's ancestors in question (src/tree-affected.js), so the decision can open R/M2@g2 beside R/M1/M3@g2: their replacement frontiers are offered one at a time (R's first, by path order).
+  // A FIXED number of rounds, each approving what waits and sitting once; the loop reads the regenerated child by KEY (the path's phase is R/M1/M3@g1's until g2 registers)
+  for (let i = 0; i < 6 && state(r).nodes.get('R/M1/M3@g2')?.phase !== 'closed'; i += 1) {
+    if (findPendingFrontier({ rootDir: r.t.rootDir })?.key) await approve(r, `round ${i + 1}: a replacement frontier`);
+    await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 2, startRun: start });
+  }
+  const st = state(r);
+  const regen = st.nodes.get('R/M1/M3@g2');
+  assert.deepEqual([regen?.phase, regen?.outcome], ['closed', 'passed'], `the regenerated child finished (${JSON.stringify(phases(r))}; opened ${JSON.stringify(eventsOf(r).filter(e => e.event === 'generation_opened').map(e => e.nodes))}; approved ${JSON.stringify(eventsOf(r).filter(e => e.event === 'frontier_approved').length)})`);
+  const f = st.frontiers.get(regen.frontierKey);
+  assert.deepEqual([f?.parentNode, f?.parentGeneration], ['R/M1', 1], 'the lineage: the regenerated child is registered under a frontier whose parent is R/M1@g1 (the scope key)');
+  assert.equal(pendingBelowOf(st, st.nodes.get('R/M1@g1')), false, 'R/M1@g1 is whole');
+  assert.equal(ineligibleBelowRoot(st).includes('R/M1@g1'), false, `and holdable (${JSON.stringify(ineligibleBelowRoot(st))})`);
+});
+
+// CR-RB-004 (T's trace of round B's own open item; rated P2 by C&C thcmcp-a1, 26 Okt 2026): a child regenerate whose replacement nobody approved (R/M1/M1@g2 OPENED, not registered), then its parent planned again (R/M1@g2).
+// R/M1@g2's split numbered its children by childGenerationOf, which skipped older openings only in a ROOT era, so its R/M1/M1 took the old decision's number g2, and with it that decision's text as the child's own opening decision
+// (src/tree-derive-load.js openedBy: every generation_opened that names the key), part 7 of the paid seat's context, bound by bundleSha256. And until a colliding child registered above, the old decision's replacement frontier was
+// offered again under R/M1@g2 (B), so approving it registered the OLD number with the OLD text. The child step regenerates R/M1/M1 because it registers FIRST (the provider; src/tree-loop.js registers one child at a time, and
+// its stop puts its consumer R/M1/M2 in question too, so the old decision opens R/M1/M2@g2 as well: that is the opening B is checked on, after R/M1/M1 registered). Real verbs, as the tests above (legs 1-8 plus the child step).
+test('CR-RB-004: a child regenerate left unapproved, then its parent planned again: the parent\'s new child starts ABOVE the opened number, carries no decision typed for the old child, generationOf agrees, and the old replacement is not offered again', { timeout: 900_000 }, async () => {
+  const { r, start } = await finishedSplit();
+  const childStop = await stopByHandoff(r, 'R/M1/M1', 1, start, 'the child stop');
+  await decide(r, { stop: childStop.id, fresh: true }, ['Plan this part again, for the old plan.\n.', childStop.id, 'y'], 'the child regenerate');
+  const oldDecision = eventsOf(r).filter(e => e.event === 'decision_recorded' && e.stopId === childStop.id).at(-1);
+  await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 0, startRun: start });
+  const opened = eventsOf(r).filter(e => e.event === 'generation_opened' && e.decisionId === oldDecision.id).flatMap(e => e.nodes.map(n => `${n.node}@g${n.generation}`));
+  assert.ok(opened.includes('R/M1/M1@g2') && opened.includes('R/M1/M2@g2'), `the child step: R/M1/M1@g2 and its consumer R/M1/M2@g2 are opened; their replacement is never approved (${opened})`);
+  // the neighbour at the frontier site (C&C condition 1): under UNCHANGED parent generations the decision's replacement frontiers are still offered by `tree approve`. R's (R/M2@g2) comes first by path order; test 3 above walks
+  // R/M1's own child frontier through to its registration
+  const offered = findPendingFrontier({ rootDir: r.t.rootDir });
+  assert.deepEqual([offered?.openedBy?.id, offered?.parent?.node], [oldDecision.id, 'R'], 'the child regenerate\'s replacement waits for approval (R\'s first, by path order)');
+  const parentStop = await stopByHandoff(r, 'R/M1', 1, start, 'leg 5');
+  await decide(r, { stop: parentStop.id, fresh: true }, ['Plan the store again.\n.', parentStop.id, 'y'], 'leg 6');
+  const parentDecision = eventsOf(r).filter(e => e.event === 'decision_recorded' && e.stopId === parentStop.id).at(-1);
+  await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 0, startRun: start });
+  // legs 7-8 in a FIXED number of rounds: approve R's replacement frontier (never one of R/M1's), sit once, until R/M1@g2 is closed
+  for (let i = 0; i < 6 && state(r).nodes.get('R/M1@g2')?.phase !== 'closed'; i += 1) {
+    const p = findPendingFrontier({ rootDir: r.t.rootDir });
+    if (p?.key && p.parent.node === 'R') await approve(r, `round ${i + 1}: R's replacement frontier`);
+    await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 1, startRun: start });
+  }
+  assert.deepEqual(state(r).nodes.get('R/M1@g2')?.verifiedSplit?.children, ['R/M1/M1', 'R/M1/M2', 'R/M1/M3'], `leg 8: R/M1@g2 closed with a verified split naming the same paths (${JSON.stringify(phases(r))})`);
+  const split = findPendingFrontier({ rootDir: r.t.rootDir });
+  assert.deepEqual([split?.parent?.node, split?.parent?.generation, split?.openedBy ?? null], ['R/M1', 2, null], 'R/M1@g2\'s split frontier is the one that waits');
+  const stopSide = generationOf(state(r), 'R/M1/M1');
+  await approve(r, 'R/M1@g2\'s split frontier');
+  // the provider R/M1/M1 is the split's first child (src/tree-frontier.js dependencyOrder); one child registers at a time, so a registered node of the replacement (R/M2) that has not run yet is let run once first
+  const own = () => [...state(r).nodes.values()].find(n => n.node === 'R/M1/M1' && n.frontierKey === split.key);
+  const tried = [];
+  for (let i = 0; i < 4 && !own(); i += 1) {
+    const reg = registerNextChild(r.t.rootDir, { work: r.t.work }); tried.push(reg.kind === 'registered' ? `registered ${reg.event.node}@g${reg.event.generation}` : reg.kind);
+    if (reg.kind !== 'registered' && reg.kind !== 'active') break;
+    if (!own()) await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 1, startRun: start });
+  }
+  const child = own();
+  assert.ok(child, `R/M1@g2's R/M1/M1 is registered under its split frontier (${tried.join('; ')})`);
+  const reg = { event: child };
+  const ctx = readFileSync(join(bundleDirOf(r.t.rootDir, 'R/M1/M1', reg.event.generation), 'context.md'), 'utf8');
+  const again = findPendingFrontier({ rootDir: r.t.rootDir });
+  assert.deepEqual({
+    registered: `R/M1/M1@g${reg.event.generation}`,
+    stopSideSaid: stopSide,
+    oldDecisionInContext: new RegExp(`decision ${oldDecision.id}\\b`).test(ctx),
+    parentDecisionInContext: new RegExp(`decision ${parentDecision.id} re-planned R/M1`).test(ctx),
+    oldReplacementOfferedAgain: again?.openedBy?.id === oldDecision.id,
+  }, { registered: 'R/M1/M1@g3', stopSideSaid: 3, oldDecisionInContext: false, parentDecisionInContext: true, oldReplacementOfferedAgain: false });
+});
+
+// CR-RB-004, the ANCESTOR walk (builder 19's read of 2977cdf1, C-2, rated P2 by C&C thcmcp-a1): the parent of the old opening can be numbered by a SPLIT and never opened, yet sit in a lineage a ROOT re-plan replaced. A child regenerate
+// left unapproved (R/M1/M1@g2 and its consumer R/M1/M2@g2 OPENED under R@g1), then a root stop and the root re-plan (R@g2), whose split registers R/M1@g2 by split. The fix of 2977cdf1 compared the opening only with its
+// PARENT's opening (R/M1@g2 has none), so once R/M1@g2's split frontier was approved and before its children registered, the old decision's frontier came back under R/M1@g2 and the stop side named the old number while the
+// preview numbered above it (the root-era line). Now every ancestor's opening counts, R's included. Real verbs at the DEFAULT depth: the file's legs 1-4, the child step, a root stop the sitting opens and the root re-plan,
+// then the new root plan runs (a root starter that passes the bundle's criteria only when it has one, as test/tree-era2-numbering.test.js does).
+test('CR-RB-004, the ancestor walk: a child regenerate left unapproved, then the ROOT planned again: under the split-numbered R/M1@g2 the old replacement is not offered and the stop side names the preview\'s number', { timeout: 900_000 }, async () => {
+  const { r, start } = await finishedSplit();
+  const childStop = await stopByHandoff(r, 'R/M1/M1', 1, start, 'the child stop');
+  await decide(r, { stop: childStop.id, fresh: true }, ['Plan this part again, for the old plan.\n.', childStop.id, 'y'], 'the child regenerate');
+  const oldDecision = eventsOf(r).filter(e => e.event === 'decision_recorded' && e.stopId === childStop.id).at(-1);
+  await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 0, startRun: start });
+  assert.ok(eventsOf(r).some(e => e.event === 'generation_opened' && e.decisionId === oldDecision.id && e.nodes.some(n => n.node === 'R/M1/M1' && n.generation === 2)), 'the child step: R/M1/M1@g2 is opened; its replacement is never approved');
+  // the root stop is opened by the SITTING (the root run's HANDOFF.md edited), as every stop in this file: a person's `--open-root-stop` refuses while a frontier waits (src/tree-person-stop.js), and the child's replacement waits
+  const rootStop = await stopByHandoff(r, 'R', 1, start, 'the root stop');
+  await decide(r, { stop: rootStop.id }, ['Plan it again.\n.', rootStop.id, 'y'], 'the root re-plan');
+  assert.equal(eventsOf(r).filter(e => e.event === 'decision_recorded' && e.stopId === rootStop.id).at(-1)?.replansRoot, true, 'the root re-plan is recorded');
+  writeFileSync(join(r.t.work, 'plan-r2.md'), plan3());
+  const rootPlan = ({ chain, bundleDir, runId, grantUsd }) => api.run({ chain, task: join(bundleDir, 'task.md'), ...(existsSync(join(bundleDir, 'criteria.json')) ? { criteria: join(bundleDir, 'criteria.json') } : {}), ...(existsSync(join(bundleDir, 'context.md')) ? { context: join(bundleDir, 'context.md') } : {}), runId, treeNode: join(bundleDir, 'node.json'), cwd: r.t.work, maxUsd: grantUsd, draft: 'plan-r2.md', rounds: 1 });
+  const go = opts => (opts.node === 'R' ? rootPlan(opts) : start(opts));
+  // a FIXED number of rounds: approve what waits unless it is R/M1@g2's own split frontier (the bite point), sit once, until R/M1@g2 is closed
+  for (let i = 0; i < 8 && state(r).nodes.get('R/M1@g2')?.phase !== 'closed'; i += 1) {
+    const p = findPendingFrontier({ rootDir: r.t.rootDir });
+    if (p?.key && !(p.parent?.node === 'R/M1' && p.parent?.generation === 2)) await approve(r, `round ${i + 1}`);
+    await runTree(r.t.rootDir, { work: r.t.work, maxStarts: 1, startRun: go });
+  }
+  const m1 = state(r).nodes.get('R/M1@g2');
+  assert.deepEqual([m1?.phase, m1?.verifiedSplit?.children, eventsOf(r).some(e => e.event === 'generation_opened' && e.nodes.some(n => n.node === 'R/M1' && n.generation === 2))], ['closed', ['R/M1/M1', 'R/M1/M2', 'R/M1/M3'], false], `R/M1@g2 was numbered by R@g2's split (never opened), closed, and its split is verified (${JSON.stringify(phases(r))})`);
+  const split = findPendingFrontier({ rootDir: r.t.rootDir });
+  assert.deepEqual([split?.parent?.node, split?.parent?.generation, split?.openedBy ?? null], ['R/M1', 2, null], 'R/M1@g2\'s split frontier is the one that waits');
+  const preview = describeFrontier({ rootDir: r.t.rootDir, work: r.t.work, pending: split }).preview.children.find(c => c.node === 'R/M1/M1')?.generation;
+  const stopSide = generationOf(state(r), 'R/M1/M1');
+  await approve(r, 'R/M1@g2\'s split frontier');
+  const again = findPendingFrontier({ rootDir: r.t.rootDir });       // the bite point: approved, nothing of R/M1@g2 registered yet
+  assert.deepEqual({ preview, stopSideSaid: stopSide, oldReplacementOfferedAgain: again?.openedBy?.id === oldDecision.id }, { preview: 3, stopSideSaid: 3, oldReplacementOfferedAgain: false });
+});
+

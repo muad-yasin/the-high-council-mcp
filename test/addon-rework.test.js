@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,10 +16,12 @@ import { runResumability } from '../src/run-status.js';
 import { dryRunReport } from '../src/dry-run.js';
 import { verdictStats } from '../src/verdict-stats.js';
 import { metricsReport } from '../src/metrics.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
-const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+const chain = name => readChainFile(root, name);
 const workspace = () => {
   const dir = mkdtempSync(join(tmpdir(), 'thc-addon-rework-'));
   mkdirSync(join(dir, 'tasks')); mkdirSync(join(dir, 'chains'));
@@ -229,7 +231,7 @@ test('Work 6: the shipped roster: advise-standard is Sol, GLM-5.3 and Gemini 3.8
   const { SEAT_CHAINS } = await import('../src/mcp/advice.js');
   assert.deepEqual(Object.keys(SEAT_CHAINS).sort(), ['astra', 'deepseek', 'gemini', 'glm-flash', 'opus', 'qwen', 'sol']);
   const shipped = readdirSync(join(root, 'chains')).filter(f => /^advise-/.test(f)).map(f => f.slice(0, -5)).sort();
-  assert.deepEqual(shipped, ['advise-premium', 'advise-single', 'advise-single-astra', 'advise-single-deepseek', 'advise-single-gemini', 'advise-single-glm-flash', 'advise-single-opus', 'advise-single-qwen', 'advise-standard']);
+  assert.deepEqual(shipped, ['advise-single', 'advise-single-astra', 'advise-single-deepseek', 'advise-single-gemini', 'advise-single-glm-flash', 'advise-single-opus', 'advise-single-qwen', 'advise-standard']);
   for (const f of readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json'))) {
     const c = JSON.parse(readFileSync(join(root, 'chains', f), 'utf8'));
     if (c.advise?.enabled === true) assert.equal(c.resumeAfterStop, false, f);
@@ -249,8 +251,10 @@ test('Work 6 (DR-7): advise-premium lints clean, seats no denied model and no An
   }
   // A quote is free and sends nothing. The operator selects the chain, opens the floor to public and raises the money limits.
   const dir = mkdtempSync(join(tmpdir(), 'thc-addon-premium-'));
+  // 0.8.3 (lane B): advise-premium is retired to chains/outdated/; an operator who wants it names a folder of their own (advice chains are never read from the project), so the test does the same.
+  const op = mkdtempSync(join(tmpdir(), 'thc-addon-premium-op-')); copyFileSync(join(root, 'chains', 'outdated', 'advise-premium.json'), join(op, 'advise-premium.json'));
   // 0.8.1 decided rule 5d: the floor is the operator's setting; a project's policy.json cannot lower it.
-  const s = mcpSession(dir, { COUNCIL_ADVICE_SENSITIVITY_FLOOR: 'public', COUNCIL_ADVISE_MOCK: '0', COUNCIL_ADVISE_CHAIN_COUNCIL: 'advise-premium', COUNCIL_ADVISE_MAX_USD_PER_CALL: '10', COUNCIL_ADVISE_MAX_USD_PER_SESSION: '10', COUNCIL_ADVISE_MAX_USD_PER_DAY: '10' });
+  const s = mcpSession(dir, { COUNCIL_ADVICE_SENSITIVITY_FLOOR: 'public', COUNCIL_ADVISE_MOCK: '0', ...malformedProviderKeys(), COUNCIL_ADVISE_CHAIN_COUNCIL: 'advise-premium', COUNCIL_ADVICE_CHAINS_DIR: op, COUNCIL_ADVISE_MAX_USD_PER_CALL: '10', COUNCIL_ADVISE_MAX_USD_PER_SESSION: '10', COUNCIL_ADVISE_MAX_USD_PER_DAY: '10' });
   try {
     const q = await s.call('council_quote', { brief: BRIEF(), mode: 'council' });
     assert.ok(q.quote_id, JSON.stringify(q));
@@ -357,7 +361,8 @@ test('stage labels are the 0.8.0 set for every mock planning chain (renaming one
     const dir = workspace();
     writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a small command-line tool that renames photos by the date they were taken.\n');
     const r = run(dir, ['--task', 'tasks/t.md', '--chain', name, '--max-usd', '100']);
-    assert.equal(r.status, w.exit, `${name}: ${r.stderr.slice(-400)}`);
+    // 0.8.3 exit 22: the fixture records the 0.8.0 exit; a chain that exited 0 then exits 22 now when its mock panel does not agree (exit-not-agreed.test.js pins the rule). The labels below are this test's subject.
+    assert.ok(r.status === w.exit || (w.exit === 0 && r.status === 22), `${name}: exit ${r.status}, 0.8.0 recorded ${w.exit}: ${r.stderr.slice(-400)}`);
     const rd = onlyRun(dir);
     const rep = existsSync(join(rd, 'report.json')) ? 'report.json' : existsSync(join(rd, 'report-partial.json')) ? 'report-partial.json' : null;
     const labels = rep ? readJson(join(rd, rep)).stages.map(s => s.label) : readdirSync(rd).filter(x => x.endsWith('.usage.json')).map(x => x.slice(0, -11));

@@ -9,7 +9,7 @@ import { runChain, setCache, duplicateLabSlots } from '../src/chain.js';
 import { lintChain } from '../src/chain-lint.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+const chain = name => readChainFile(root, name);
 
 // --- 5 (ProposalsDebateDispute #4): the dissent block after a round nobody was heard in ---------
 
@@ -56,7 +56,8 @@ test('duplicateLabSlots covers preflight.seats', () => {
 
 test('guard: every lab-keyed stage label in chain.js belongs to a stage duplicateLabSlots checks', () => {
   const src = readFileSync(join(root, 'src', 'chain.js'), 'utf8');
-  const prefixes = [...new Set([...src.matchAll(/label: `([a-z-]+)(?:\$\{round\}-)?\$\{(?:lab|labOf\([a-zA-Z]+\))\}/g)].map(m => m[1]))].sort();
+  // CHANGED ACCEPTED (lab-identity unit): OLD only `${lab}` / `${labOf(x)}`; NEW also `${seatKeyOf(x)}`. WHY: stage labels are built from the SEAT KEY now (== the lab string unless a model repeats on layers), so the scan must follow them.
+  const prefixes = [...new Set([...src.matchAll(/label: `([a-z-]+)(?:\$\{round\}-)?\$\{(?:lab|labOf\([a-zA-Z]+\)|seatKeyOf\([a-zA-Z]+\))\}/g)].map(m => m[1]))].sort();
   // prefix -> the slot duplicateLabSlots checks for it (or why it cannot collide).
   const COVERED = {
     'alt-debate-': 'alternatives', 'alt-reply-': 'alternatives', 'alternative-': 'alternatives',
@@ -91,6 +92,7 @@ test('the two real modes, and no signoff at all, still pass lint', () => {
 import { estimateChainRows } from '../src/cost.js';
 import * as R from '../src/roles.js';
 import { boardRef } from '../src/chain.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 test('the dry-run prices the dispute rewrite, each dispute-review and the canary reply', () => {
   const cfg = { ...chain('plan-premium-7'), dispute: { enabled: true, review: true, stall_rounds: 2 } };

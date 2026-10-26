@@ -89,7 +89,10 @@ test('the alternatives stage actually passes the skeleton to the build call', as
   const seen = [];
   const r = await runChain({ request: 'r', config: cfg, log: () => {}, onStage: s => seen.push(s.label) });
   assert.ok(seen.includes('skeleton') && seen.includes('build'));
-  assert.match(readFileSync(join(root, 'src', 'chain.js'), 'utf8'), /R\.builderUser\(\{[^}]*skeleton \}\)/);
+  // EDITED 23 Okt 2026 (lane D; stale test, not a changed behaviour). OLD: /R\.builderUser\(\{[^}]*skeleton \}\)/ - it needed `skeleton` to be the LAST key of the call.
+  // a733285 (19 Okt 2026, bundle unit step 2b; Muad 19 Okt 2026 "Yes and yes" on the <earlier-plan> tag) put `earlierPlan` after it. `skeleton` is still a key of the call at chain.js:3193;
+  // this regex is the only check here that chain.js passes it (the test above only shows that builderUser prints a skeleton when it is given one).
+  assert.match(readFileSync(join(root, 'src', 'chain.js'), 'utf8'), /R\.builderUser\(\{[^}]*\bskeleton\b[^}]*\}\)/);
   assert.ok(r.deliverable);
 });
 
@@ -113,7 +116,7 @@ test('--pii-gate is saved with the run and re-applied, with a fresh scan, on res
   const runDir = pausedRun(work, ['--pii-gate', 'hard-stop', '--context', 'ctx']);
   assert.deepEqual(JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')).piiGate, { mode: 'hard-stop', allow: [] });
   // During the pause, personal data lands in a context document the resume re-reads.
-  writeFileSync(join(work, 'ctx', 'notes.md'), '# Notes\n\nWrite to someone@example.com about it.\n');
+  writeFileSync(join(work, 'ctx', 'notes.md'), '# Notes\n\nWrite to someone@mail-corp.de about it.\n');
   const r = run(['--resume', runDir], work);
   assert.equal(r.code, 11, `the resume must be stopped by the saved hard-stop gate:\n${r.out}`);
   assert.match(r.out, /PII-GATE \(hard-stop\)/);

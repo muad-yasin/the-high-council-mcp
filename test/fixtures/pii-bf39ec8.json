@@ -1,0 +1,51 @@
+{
+  "hard_stop": {
+    "args": [
+      "--pii-gate",
+      "hard-stop"
+    ],
+    "status": 11,
+    "piiLines": [
+      "  PII-GATE (hard-stop): [the task file and --context documents] line 1, col 29: email (value not shown)",
+      "  PII-GATE (hard-stop): [the task file and --context documents] line 1, col 72: iban (value not shown)",
+      "PII-GATE: stopped - 2 match(es) found in the task file and --context documents. Nothing was started, sent or spent."
+    ],
+    "stderrWhole": "  PII-GATE (hard-stop): [the task file and --context documents] line 1, col 29: email (value not shown)\n  PII-GATE (hard-stop): [the task file and --context documents] line 1, col 72: iban (value not shown)\n\nPII-GATE: stopped - 2 match(es) found in the task file and --context documents. Nothing was started, sent or spent.\nTo send it anyway, run the same command again and add:  --allow-pii email,iban\nThat allows every email / iban-shaped string in these files, also when this run is resumed.\n"
+  },
+  "warn": {
+    "args": [
+      "--pii-gate",
+      "warn"
+    ],
+    "status": 0,
+    "piiLines": [
+      "  PII-GATE (warn): [the task file and --context documents] line 1, col 29: email (value not shown)",
+      "  PII-GATE (warn): [the task file and --context documents] line 1, col 72: iban (value not shown)"
+    ],
+    "stderrWhole": null
+  },
+  "hard_stop_allow": {
+    "args": [
+      "--pii-gate",
+      "hard-stop",
+      "--allow-pii",
+      "email,iban"
+    ],
+    "status": 0,
+    "piiLines": [
+      "  PII-GATE (hard-stop): [the task file and --context documents] suppressed pattern class 'email' (--allow-pii)",
+      "  PII-GATE (hard-stop): [the task file and --context documents] suppressed pattern class 'iban' (--allow-pii)"
+    ],
+    "stderrWhole": null
+  },
+  "off": {
+    "args": [],
+    "status": 11,
+    "piiLines": [
+      "  PII-GATE (hard-stop): [the task file and --context documents] line 1, col 29: email (value not shown)",
+      "  PII-GATE (hard-stop): [the task file and --context documents] line 1, col 72: iban (value not shown)",
+      "PII-GATE: stopped - 2 match(es) found in the task file and --context documents. Nothing was started, sent or spent."
+    ],
+    "stderrWhole": "  PII-GATE (hard-stop): [the task file and --context documents] line 1, col 29: email (value not shown)\n  PII-GATE (hard-stop): [the task file and --context documents] line 1, col 72: iban (value not shown)\n\nPII-GATE: stopped - 2 match(es) found in the task file and --context documents. Nothing was started, sent or spent.\nTo send it anyway, run the same command again and add:  --allow-pii email,iban\nThat allows every email / iban-shaped string in these files, also when this run is resumed.\n"
+  }
+}

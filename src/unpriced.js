@@ -1,16 +1,16 @@
 // Which seats of a chain have no price, for the spend cap to refuse (0.8.2 item 8a; ChatGPT review 1 #4a; owner, 7 Oct 2026: "build it tonight"). Pure: it reads the chain and pricing.json, calls nothing.
 // An unpriced seat projects $0, so a cap could not stop what a call to it costs. Under a cap the harness refuses such a seat before anything is sent (the run's start; invoke() is the backstop for any call that
 // reaches it some other way). mock, external and the free local provider (ollama) are exempt: see needsPrice in src/cost.js.
-import { needsPrice } from './cost.js';
+import { needsPrice, priceProblemOf } from './cost.js';
 import { everySeatSlotsOf } from './chain.js';
 
-/** -> [{ provider, model, roles: 'critics[0], builder' }] one entry per distinct provider/model that needs a price and has none. */
+/** -> [{ provider, model, problem: 'missing' | 'unusable', roles: 'critics[0], builder' }] one entry per distinct provider/model that needs a price and has none (`unusable`: it has a row, but not two finite numbers >= 0). */
 export function unpricedSeats(config) {
   const found = new Map();
   for (const { role, seat } of everySeatSlotsOf(config)) {
     if (!needsPrice(seat)) continue;
     const key = `${seat.provider}/${seat.model}`;
-    const e = found.get(key) ?? { provider: seat.provider, model: seat.model, roles: [] };
+    const e = found.get(key) ?? { provider: seat.provider, model: seat.model, problem: priceProblemOf(seat.provider, seat.model) ?? 'missing', roles: [] };
     e.roles.push(role);
     found.set(key, e);
   }

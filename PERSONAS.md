@@ -25,7 +25,7 @@ here is a secondary association in a reader's mind, not a legal one - worth havi
 not worth revisiting a decision already made.
 
 A `role.persona` key that is not in the set in use is sent as a bare name, with no voice
-directive. `plan-premium-7` seats two such keys, `hypatia` and `avicenna`, next to the five
+directive. The retired `plan-premium-7` (in `chains/outdated/`) seats two such keys, `hypatia` and `avicenna`, next to the five
 defaults: without a persona file of your own they reach the debate prompt as those names alone.
 
 **You can replace the whole set.** `loadPersonas()` in `src/personas.js` reads an operator-supplied

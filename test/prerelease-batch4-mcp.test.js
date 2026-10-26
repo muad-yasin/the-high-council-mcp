@@ -10,6 +10,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { waitForRunEnd } from './helpers/child-gone.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -19,7 +21,7 @@ const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).ver
 // so async tools (start_run waits on its child) get to reply.
 function mcpSession(cwd, calls, { timeoutMs = 60_000, env = {} } = {}) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...env } });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys(), ...env } });
     const want = new Set([1, ...calls.map((_, i) => i + 2)]);
     const byId = new Map();
     let buf = '';
@@ -123,7 +125,7 @@ test('start_run: parallel calls get distinct run ids; a run that dies at once is
     assert.ok(!readFileSync(a.log, 'utf8').includes('sk-or-v1-FAKE'));
     // The mock runs keep writing after start_run answers; let them finish before cleaning up.
     for (const id of [a.run, b.run]) {
-      for (let i = 0; i < 120 && !existsSync(join(dir, 'runs', id, 'report.json')); i++) await new Promise(r => setTimeout(r, 250));
+      await waitForRunEnd(join(dir, 'runs', id));
     }
   } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
@@ -169,6 +171,6 @@ syncBuiltinESMExports();
     assert.equal(gated.exitCode, 9, JSON.stringify(gated));
     assert.match(gated.logTail, /BLOCKED/);
     assert.equal(ok.started, true, JSON.stringify(ok));
-    for (let i = 0; i < 120 && !existsSync(join(dir, 'runs', ok.run, 'report.json')); i++) await new Promise(r => setTimeout(r, 250));
+    await waitForRunEnd(join(dir, 'runs', ok.run));
   } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });

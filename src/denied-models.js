@@ -10,7 +10,7 @@
 // runChain()/invoke() at run time, so a user-written chain, a resumed run (lint is skipped on
 // --resume) or a direct runChain() caller cannot get past it either.
 
-import { knownProviderHosts } from './providers.js';
+import { knownProviderHosts, providersAtHost, isFreeProvider, isKeyOptional } from './providers.js';
 
 // 2026-09-26, Muad: "Kimi K3 is not excluded completely from being used, it was just removed from
 // our own chain configs." So Kimi/Moonshot is no longer denied here: a user may seat it in their own
@@ -68,10 +68,17 @@ export function baseUrlReasons(seat) {
   if (DENIED_HOST.test(host) || DENIED_MODEL.test(host) || /(^|[.-])router([.-]|$)/i.test(host)) {
     return [`baseUrl host "${host}" is a denied lab or a router (no xAI/Grok; no override)`];
   }
+  // A FREE / key-optional provider (ollama: a local or self-hosted server) is priced at $0 whatever its host and sends its optional key as a bearer to whatever host the seat names, so for it the allowance of "any known
+  // provider's own host" would let a paid call escape the spend cap (found by Builder C, 12 Oct): it may name only a loopback or private-network host (0.8.3). A KNOWN PAID provider's host is refused, naming the provider to use.
+  const local = isFreeProvider(seat.provider) || isKeyOptional(seat.provider);
   if (isLoopback(host)) return [];
-  if (seat.provider === 'ollama' && isPrivateNet(host)) return [];
+  if (local && isPrivateNet(host)) return [];
+  if (local && knownProviderHosts().has(host)) {
+    const owners = providersAtHost(host).join(' or ');
+    return [`baseUrl host "${host}" is ${owners}'s own API host: a seat on provider "${seat.provider}" (no key required, priced at $0) cannot be pointed at it, because a paid call would then escape the spend cap; use provider ${owners} with its key, so the seat is priced and capped`];
+  }
   if (knownProviderHosts().has(host)) return [];
-  return [`baseUrl host "${host}" is not a known provider's API host${seat.provider === 'ollama' ? ' or a local/private-network address' : ' or a loopback address'}, so the seat cannot be shown to avoid a denied model`];
+  return [`baseUrl host "${host}" is not a known provider's API host${local ? ' or a local/private-network address' : ' or a loopback address'}, so the seat cannot be shown to avoid a denied model`];
 }
 
 // Bug audit 2026-09-27 M1: a seat with no model (missing, null or "") skipped every id check below,

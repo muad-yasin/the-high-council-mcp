@@ -92,3 +92,10 @@ test('invisible characters in content are counted so the operator is told', () =
   assert.equal(countInvisible('plain﻿text'), 1, 'a BOM mid-text is not');
   assert.equal(countInvisible('ordinary source'), 0);
 });
+
+test('item 7: the invisible count is the module\'s: emoji sequences report none, a variation selector or filler is counted, a leading byte-order mark stays ordinary', () => {
+  const cp = (...a) => String.fromCodePoint(...a);
+  assert.equal(countInvisible(`plan ${cp(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467)} ${cp(0x1F600, 0xFE0F)}`), 0, 'an emoji family and a colour emoji are not phantom invisibles');
+  assert.equal(countInvisible(`x${cp(0xFE00, 0x3164, 0x2800)}y`), 3);
+  assert.equal(countInvisible(`${cp(0xFEFF)}plain`), 0);
+});

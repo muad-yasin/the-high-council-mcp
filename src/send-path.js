@@ -23,11 +23,12 @@ import { join, dirname } from 'node:path';
 import { retentionAsOf, retentionAgeDays, RETENTION_STALE_DAYS, sensitivityWords } from './advice-tier.js';
 import { ADVISE_LOG_FILE, DISPOSITION_MIN_REASON_CHARS, checkDispositions, decide, installSalt, openObjections, readLedger } from './advice-guards.js';
 import { sha256Hex, ADVICE_BRIEF_FILE, ADVICE_META_FILE, ADVICE_META_SCHEMA, moreMaterialRequested } from './advice-run.js';
-import { requestGate, answerGate, readGateAnswer } from './gate.js';
+import { requestGate, answerGate, readGateAnswer, readGateText } from './gate.js';
 import { loadPolicy } from './policy.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
 import { profileFor, DEFAULT_SEAT } from './send-profiles.js';
 import { preSendRefusals, advicePolicyVerdict, admitChain, seatsOf, previewSeats, gateSeatsOf, money } from './send-path-refusals.js';
+import { removeStopRequestBy } from './stop-files.js';
 
 // A quote lives this long (brief 29: about ten minutes). A quote stores the masked text, so the number of live quotes is capped too.
 export const QUOTE_TTL_MS = 10 * 60_000;
@@ -45,6 +46,16 @@ export const gateAnswerCommand = (runDir, gateId, { pkg = process.pkg, execPath 
 const lastLineOf = text => { const lines = String(text).split('\n').filter(l => l.trim() !== ''); const l = lines.length ? lines[lines.length - 1].trim() : ''; return l.length > 80 ? `${l.slice(0, 77)}...` : l; };
 
 // The message of the approval dialog (the client's elicitation): the preview, then the exact text, then a closing sentence. (Extracted unchanged for tests.)
+// 0.8.3 M6 typed cap T6a: the MCP server asks a run's limit through the client's dialog, but it may not name a gate module itself (test/gate-answer.test.js: only the answerers do, and submit_stage must reach no gate code from server.js's own imports).
+// So the three gate touches of that dialog live here, in an answerer, on the person channel 'elicitation' only: the pending limit screen (the text its hash covers), the gate's recorded status, and the answer (a typed amount or a decline).
+export function capGateScreen(runDir, gateId) {
+  const state = readGateAnswer(runDir, gateId);
+  const bytes = state?.gate ? readGateText(runDir, state.gate.text) : null;
+  return bytes ? { text: bytes.toString('utf8'), sha256: state.gate.sha256 } : null;
+}
+export const capGateStatus = (runDir, gateId) => readGateAnswer(runDir, gateId)?.status ?? null;
+export const answerCapGate = (runDir, gateId, { shownSha256, decision, typedCap, client }) =>
+  answerGate(runDir, gateId, { channel: 'elicitation', shownSha256, decision, actor: client?.name ?? null, tty: null, ...(decision === 'approved' ? { typedCap, client } : {}) });
 export function dialogMessage(q) {
   const fence = dashFence(q.text);   // audit A3-4: longer than any dash run in the text, so the text cannot fake its own end
   return `${previewText(q)}\n\nThe text that would be sent (everything between the two lines of ${fence.length} dashes, ${[...q.text].length} characters):\n${fence}\n${q.text.endsWith('\n') ? q.text : `${q.text}\n`}${fence}\nThe text above has ${[...q.text].length} characters and its last line reads: ${JSON.stringify(lastLineOf(q.text))}. (If a client draws the dash lines alike, check that last line: nothing after it is sent.)\nAn AI agent asked for this. Approve only if you want this text sent to the models above, and this money spent.`;
@@ -88,7 +99,7 @@ async function withProcessLock(work, fn, waitMs = 30_000) {
 }
 
 export function createSendPath(ctx) {
-  const { work, runsDir, env = process.env, loadChain, spawnRun, nextRunId, usdLimit = null, masks, maskAt, ownRuns } = ctx;
+  const { work, runsDir, env = process.env, loadChain, spawnRun, nextRunId, usdLimit = null, masks, maskAt, ownRuns, stopRun } = ctx;
   const ttlMs = ctx.ttlMs ?? QUOTE_TTL_MS;
   const quotes = new Map();
   let queue = Promise.resolve();
@@ -255,7 +266,10 @@ export function createSendPath(ctx) {
     const config = loadChain(q.chain);
     const gap = admitChain(q.chain, config);
     if (gap) return R('seat_not_allowed', `${gap}.`, 'Ask for a new quote.');
-    const { policy } = loadPolicy(work);
+    const { policy, error: policyError } = loadPolicy(work);
+    // 13 Oct 2026 (J1-13-1 batch, found by Builder D): the error was dropped here, so a policy.json that stopped reading between the quote and the send was checked against NO policy on this side (the child's own preflight then refused it with a bare start failure).
+    // Refused here with the quote path's own words, before anything starts; q.used is not set, so the approved quote stays reusable once the file is repaired.
+    if (policyError) return R('policy_unreadable', `policy.json cannot be read (${policyError}), so the sensitivity floor and the provider limits cannot be checked.`, 'Ask the user to repair policy.json.');
     if (policy) {
       const ev = advicePolicyVerdict(policy, config, q.price.ceiling_usd, { runsDir, now: Date.now() });
       if (!ev.ok) return R('policy', `policy.json refuses this call: ${ev.reasons.join(' ')}`, 'Ask the user; the policy is theirs.');
@@ -358,13 +372,33 @@ export function createSendPath(ctx) {
       const checked = checkBeforeStart(kind, q, profile.fingerprint(q.fpBrief, salt), readLedger(runsDir), profile.limits(env), R);
       if (checked) return checked;
       const id = q.gate.run;
+      // 13 Oct 2026 (late-window cancel, C&C's contract): a cancel that fires after the check above and before the child's own stop check used to be read only after spawnRun returned (advice.js), so
+      // a real seat could take its first paid call after a cancel that came before every call. From the point the start is irrevocable, the cancel puts the STOP request on disk the moment it fires,
+      // through the ONE writer (stopRun, advice.js); the child reads it before its first call (advise.js halted()). ORDER matters: the listener is armed BEFORE `q.used` is set and `signal.aborted` is re-read once,
+      // synchronously, because a listener added after the signal fired never fires and an abort between a check and the arming would be caught by neither. Armed no earlier: the folder is the gate folder
+      // and is reused when this quote is sent again, `--advice-adopt` removes no old STOP (only --resume does), so a STOP written for a run that never started would stop that later re-send.
+      let stopWritten = false;
+      // J1-13-1 (Haiku batch 3): the listener used to be removed here when spawnRun returned, so from then until the child's first stop check a cancel was seen only at the next progress poll and the child's first paid call could
+      // still go out. It now stays armed for the WHOLE call: runSend hands back `disarm` and council_advise calls it when the call ends (a finally). `phase` names, in the STOP record, where the cancel fired.
+      let phase = 'during the start';
+      const onAbort = () => { stopRun(id, `client_cancel (${phase})`); stopWritten = true; };
+      const disarm = () => io.signal?.removeEventListener('abort', onAbort);
+      io.signal?.addEventListener('abort', onAbort, { once: true });
+      if (io.signal?.aborted) { disarm(); return R('cancelled', 'the client cancelled this call before the run started.', 'Nothing more to do; ask again only if the user still wants it.', { run: q.gate.run }); }
       q.used = true;
-      const res = await spawnRun(id, ['--advice-adopt', join('runs', id), '--allow-unfenced']);
-      if (!res.started) { q.used = false; return { startFailed: res }; }
+      let res;
+      try { res = await spawnRun(id, ['--advice-adopt', join('runs', id), '--allow-unfenced']); } catch (e) { disarm(); throw e; }
+      if (!res.started) {
+        disarm();
+        // The start failed and the quote is reusable again (q.used false): the STOP this listener wrote must not stay behind in the gate folder to stop a later re-send. Only OUR file goes (by client_cancel, this run); a person's `council stop` stays.
+        if (stopWritten) removeStopRequestBy(join(runsDir, id), { by: 'client_cancel', run: id });
+        q.used = false; return { startFailed: res };
+      }
+      phase = 'after the run started';
       ownRuns.add(id);
       masks.set(id, q.mapping); maskAt.set(id, Date.now());
       quotes.delete(q.quote_id);
-      return { startedRun: id };
+      return { startedRun: id, disarm };
     }, lockWaitFor(io)));
   }
 

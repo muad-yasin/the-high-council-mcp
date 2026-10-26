@@ -8,13 +8,13 @@
     "source": "github"
   },
   "websiteUrl": "https://sower-industries.de/en/THC/",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "the-high-council",
-      "version": "0.8.2",
+      "version": "0.8.3",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -98,7 +98,7 @@
         },
         {
           "name": "MAX_USD_PER_RUN",
-          "description": "Per-run spend ceiling in US dollars. The run stops before any stage that could pass it. Default 7.",
+          "description": "The figure the spending-limit screen suggests for a paid run; the limit is the number the person types. Unset, a command-line run suggests nothing, and when a client sends no max_usd the MCP server suggests the lesser of 7 and COUNCIL_MAX_USD_LIMIT where that is set. For a chain with no paid seat it is the run's ceiling (7 when unset). A run stops before any stage that could pass its limit.",
           "isRequired": false,
           "isSecret": false,
           "format": "number",
@@ -106,7 +106,7 @@
         },
         {
           "name": "COUNCIL_MAX_USD_LIMIT",
-          "description": "A hard per-run ceiling in US dollars that the MCP client cannot raise or remove (max_usd above it, or \"none\", is refused). Set it to the same value as MAX_USD_PER_RUN to lock the cap.",
+          "description": "A hard per-run ceiling in US dollars that the MCP client cannot raise or remove (max_usd above it, or \"none\", is refused). Set it to the same value as MAX_USD_PER_RUN so the suggested figure and the ceiling are the same.",
           "isRequired": false,
           "isSecret": false,
           "format": "number"

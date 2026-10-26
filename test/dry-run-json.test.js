@@ -7,18 +7,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { everySeatOf, everySeatSlotsOf } from '../src/chain.js';
 import { estimateChainRows } from '../src/cost.js';
 import { dryRunReport, seatKeyStatus } from '../src/dry-run.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { readChainFile, installOutdatedChain } from './helpers/chain-file.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
 const chainNames = readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5));
-const load = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+const load = name => readChainFile(root, name);
 
 // A clean environment: no provider key from the machine running the tests leaks in.
 const KEYS = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'MISTRAL_API_KEY', 'DEEPSEEK_API_KEY', 'GOOGLE_API_KEY', 'GEMINI_API_KEY', 'TOGETHER_API_KEY', 'ZAI_API_KEY', 'OLLAMA_API_KEY'];
@@ -27,7 +29,13 @@ const cleanEnv = extra => {
   for (const k of KEYS) if (!(k in extra)) delete env[k];
   return env;
 };
-const dry = (args, env = {}, cwd) => spawnSync(process.execPath, [cli, ...args, '--dry-run', '--json'], { encoding: 'utf8', env: cleanEnv(env), cwd: cwd ?? mkdtempSync(join(tmpdir(), 'thc-dry-')) });
+// 0.8.3 (lane B): a retired chain named here is copied into the temp work folder first, as the "no such chain" hint tells a person to do.
+const dry = (args, env = {}, cwd) => {
+  const dir = cwd ?? mkdtempSync(join(tmpdir(), 'thc-dry-'));
+  const named = args[args.indexOf('--chain') + 1];
+  if (args.includes('--chain') && existsSync(join(root, 'chains', 'outdated', `${named}.json`))) installOutdatedChain(root, dir, named);
+  return spawnSync(process.execPath, [cli, ...args, '--dry-run', '--json'], { encoding: 'utf8', env: cleanEnv(env), cwd: dir });
+};
 
 test('the seat slots are the seats the guards read, for every shipped chain', () => {
   for (const name of chainNames) {
@@ -134,7 +142,7 @@ test('a chain that does not exist still fails as before, and prints no JSON', ()
 // it dry_run still returns the text it always did).
 function mcpCall(cwd, call) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: cleanEnv({ HOME: cwd }) });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: cleanEnv({ HOME: cwd, ...malformedProviderKeys() }) });
     let buf = '';
     const timer = setTimeout(() => { child.kill(); fail(new Error('timed out')); }, 60_000);
     child.stdout.on('data', d => {

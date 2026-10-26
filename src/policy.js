@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { priceOf, estimateChainRows } from './cost.js';
 import { spendReport } from './spend.js';
 import { outsideFences } from './quote-check.js';
+import { terminalSafe } from './terminal-safe.js';
 
 export const POLICY_FILENAME = 'policy.json';
 
@@ -39,11 +40,21 @@ export function POLICY_PATH(workDir) {
   return join(workDir, POLICY_FILENAME);
 }
 
+// What a JSON value is, in words a person reads in a refusal ("the file holds a list").
+const kindOf = v => (v === null ? 'null' : Array.isArray(v) ? 'a list' : typeof v === 'string' ? 'a string' : typeof v === 'number' ? 'a number' : typeof v === 'boolean' ? 'true or false' : 'an object');
+
+// 0.8.3 T1-10 (Batch 2 audit item 10): the top level must be a JSON object. A `null`, `0`, `""`, `false` or `[]` file used to load as
+// "a policy" that configured nothing, or (the falsy ones) as no policy at all, because the callers test `if (policy)`: a file that exists is
+// enforced or it refuses, never silently skipped. Callers treat a non-null `error` as a refusal (cli.js, gate-cli.js: COUNCIL-E005, whose
+// text for this error starts at NOT_AN_OBJECT below, src/errors.js).
+export const NOT_AN_OBJECT = 'the top level must be a JSON object';
 export function loadPolicy(workDir) {
   const path = POLICY_PATH(workDir);
   if (!existsSync(path)) return { policy: null, error: null };
   try {
-    return { policy: JSON.parse(readFileSync(path, 'utf8')), error: null };
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return { policy: null, error: `${NOT_AN_OBJECT}, but the file holds ${kindOf(value)}` };
+    return { policy: value, error: null };
   } catch (err) {
     return { policy: null, error: err.message };
   }
@@ -56,12 +67,18 @@ export function loadPolicy(workDir) {
 // equivalent day count spendReport already understands, rather than adding a second code path
 // for calendar-aware spend.
 export function monthToDateUsd(runsDir, now = Date.now()) {
+  return monthToDate(runsDir, now).usd;
+}
+// The same, with the count of run-folder figures that did not read (src/spend.js usdFigure): `usd` is then a FLOOR and the monthly limit cannot be checked against it; `unknownWhere` names them as
+// `<run id>/<file>` (a run id and a file name are not run content), so a person can find and repair them.
+export function monthToDate(runsDir, now = Date.now()) {
   const d = new Date(now);
   const startOfMonth = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
   // +1 second of slack so a run created in the same instant the month began is never excluded
   // by a zero-width window - spendReport's cutoff is strictly `when >= cutoff`.
   const days = (now - startOfMonth) / 86_400_000 + 1 / 86_400;
-  return spendReport(runsDir, { days, now }).totalUsd;
+  const r = spendReport(runsDir, { days, now });
+  return { usd: r.totalUsd, unknownFigures: r.unknownFigures, unknownWhere: r.runs.flatMap(x => (x.unknownFiles ?? []).map(f => `${x.id}/${f}`)) };
 }
 
 // The EXPECTED figure of the dry run (typical review output), as it always was: a policy REFUSES on this one. The MAXIMUM (0.8.2 item 8c, estimateChainRows with maximum: true) only WARNS (owner, 7 Oct 2026: "make it a warning, not a refusal").
@@ -79,7 +96,7 @@ export function buildPolicyContext(config, allSeats, runsDir, now = Date.now()) 
     allSeats,
     worstCaseUsd: worstCaseRunUsd(config),
     maximumUsd: estimateChainRows(config, { maximum: true }).reduce((s, r) => s + r.usd, 0),
-    monthToDateUsd: monthToDateUsd(runsDir, now),
+    ...(() => { const m = monthToDate(runsDir, now); return { monthToDateUsd: m.usd, monthUnknownFigures: m.unknownFigures, monthUnknownWhere: m.unknownWhere }; })(),
   };
 }
 
@@ -113,7 +130,43 @@ function configuredFields(policy) {
   return Object.keys(POLICY_CAPABILITIES).filter(field => set[field]);
 }
 
+// 0.8.3 T1-10: what is wrong with the policy file itself, one sentence per problem, before any check runs. Fail closed: a key that is not a
+// policy key would enforce nothing (a misspelt `max_usd_per_runs` let any spend through), and a value of the wrong type is skipped by the check
+// that reads it (`"allowed_providers": "openrouter"` admitted every provider). A top-level key that starts with "$" or "_" is metadata
+// (`$schema`, `_comment`) and is ignored: a misspelt policy key never starts with either (C&C ruling 13 Oct 2026). `advice_sensitivity_floor` is a
+// key whose VALUE src/advice-tier.js reads (documented: a value that is not one of the three levels is read as confidential), so only the key is checked.
+// Key names are project-writable text: shown JSON-quoted, control characters removed, cut at 60 characters.
+// one cleaning for any name out of a project-writable folder that goes into a refusal: terminal-safe (controls, escapes, bidi marks), no new line or tab, cut at 60 characters
+const cleanName = k => terminalSafe(k).replace(/[\n\t]/g, '').slice(0, 60);
+const shown = k => JSON.stringify(cleanName(k));
+const isStrings = v => Array.isArray(v) && v.every(x => typeof x === 'string');
+const FIELD_RULES = {
+  allowed_providers: [isStrings, 'a list of strings'],
+  allowed_regions: [isStrings, 'a list of strings'],
+  required_chain_tags: [isStrings, 'a list of strings'],
+  required_signoff_paths: [Array.isArray, 'a list of glob strings'],   // its entries are checked just below with the sentence checkRequiredSignoffPaths has always used
+  max_usd_per_run: [v => typeof v === 'number' && Number.isFinite(v) && v >= 0, 'a number of dollars, zero or more'],
+  max_usd_per_month: [v => typeof v === 'number' && Number.isFinite(v) && v >= 0, 'a number of dollars, zero or more'],
+  refuse_unpriced_seats: [v => typeof v === 'boolean', 'true or false'],
+};
+export function policyProblems(policy) {
+  if (policy === null || typeof policy !== 'object' || Array.isArray(policy)) return [`policy.json: ${NOT_AN_OBJECT}, but it holds ${kindOf(policy)}.`];
+  const known = [...Object.keys(POLICY_CAPABILITIES), 'advice_sensitivity_floor'];
+  const out = [];
+  for (const [key, value] of Object.entries(policy)) {
+    if (key.startsWith('$') || key.startsWith('_')) continue;
+    if (key === 'advice_sensitivity_floor') continue;
+    const rule = FIELD_RULES[key];
+    if (!rule) out.push(`${shown(key)} is not a policy key, so it would enforce nothing. The keys are: ${known.join(', ')}. (A key that starts with "$" or "_" is ignored.)`);
+    else if (key === 'required_signoff_paths' && Array.isArray(value) && value.some(p => typeof p !== 'string' || p.trim() === '')) out.push(`required_signoff_paths: every entry must be a non-empty glob string; got ${JSON.stringify(value.filter(p => typeof p !== 'string' || p.trim() === ''))}.`);   // the same sentence checkRequiredSignoffPaths gives a bad entry, now also when no change request is in play
+    else if (!rule[0](value)) out.push(`${key}: must be ${rule[1]}; the file has ${typeof value === 'number' ? (Number.isFinite(value) ? 'a negative number' : 'a number that is not finite') : kindOf(value)}, so this rule would enforce nothing.`);
+  }
+  return out;
+}
+
 export function evaluatePolicy(policy, ctx) {
+  const refused = policyProblems(policy);
+  if (refused.length) return { ok: false, reasons: refused, checks: [], warnings: [] };   // a file that does not say what it enforces enforces nothing: refused, no other check runs
   const { config, allSeats, worstCaseUsd, maximumUsd, monthToDateUsd: mtdUsd } = ctx;
   const reasons = [];
   const warnings = [];
@@ -139,16 +192,24 @@ export function evaluatePolicy(policy, ctx) {
 
   if (typeof policy.max_usd_per_run === 'number' && worstCaseUsd > policy.max_usd_per_run) {
     // 0.8.2 item 1 (owner via C&C, 7 Oct 2026: "Terminal rule only, no cap change"): the advice send path now hands in the chain's expected cost as `worstCaseUsd` (the CLI's own figure) and the call's ceiling (at least the CLI's maximum) as `maximumUsd`, and says so (`figure: 'call'`).
-    reasons.push(`max_usd_per_run: ${ctx.figure === 'call' ? `the expected cost of this call's chain (the first figure --dry-run prints) is $${worstCaseUsd.toFixed(4)}${Number.isFinite(maximumUsd) ? ` and the most this call can spend (its ceiling) $${maximumUsd.toFixed(4)}` : ''}` : `this chain's expected cost (the first figure --dry-run prints) is $${worstCaseUsd.toFixed(4)}${Number.isFinite(maximumUsd) ? ` and its maximum $${maximumUsd.toFixed(4)}` : ''}`}, over the $${policy.max_usd_per_run.toFixed(4)} limit.`);
+    reasons.push(`max_usd_per_run: ${ctx.figure === 'call' ? `the expected cost of this call's chain (the first figure --dry-run prints) is $${worstCaseUsd.toFixed(4)}${Number.isFinite(maximumUsd) ? ` and the most this call can spend (its ceiling) $${maximumUsd.toFixed(4)}` : ''}` : `this chain's expected cost (the first figure --dry-run prints) is $${worstCaseUsd.toFixed(4)}${Number.isFinite(maximumUsd) ? ` and its upper estimate $${maximumUsd.toFixed(4)}` : ''}`}, over the $${policy.max_usd_per_run.toFixed(4)} limit.`);
   } else if (typeof policy.max_usd_per_run === 'number' && Number.isFinite(maximumUsd) && maximumUsd > policy.max_usd_per_run) {
     // Warns, never refuses (owner, 7 Oct 2026): the expected cost fits; a run in which every call writes its seat's whole output allowance could go past the limit. The spend cap, not this policy, is what stops it.
     warnings.push(ctx.figure === 'call'
       ? `max_usd_per_run: the expected cost of this call's chain (the first figure --dry-run prints) is $${worstCaseUsd.toFixed(4)}, within the $${policy.max_usd_per_run.toFixed(4)} limit, but the most this call can spend (its ceiling) is $${maximumUsd.toFixed(4)}, over it. It is sent only if you approve it, and its ceiling stops it at $${maximumUsd.toFixed(4)}.`
-      : `max_usd_per_run: this chain's expected cost is $${worstCaseUsd.toFixed(4)}, within the $${policy.max_usd_per_run.toFixed(4)} limit, but its maximum cost (every call at its whole output allowance; the MAXIMUM figure --dry-run prints) is $${maximumUsd.toFixed(4)}, over it. The run starts; only its spend cap stops a run that goes past the limit.`);
+      : `max_usd_per_run: this chain's expected cost is $${worstCaseUsd.toFixed(4)}, within the $${policy.max_usd_per_run.toFixed(4)} limit, but its upper estimate (every call at its whole output allowance; the UPPER ESTIMATE figure --dry-run prints) is $${maximumUsd.toFixed(4)}, over it. The run starts; only its spend cap stops a run that goes past the limit.`);
   }
 
   if (typeof policy.max_usd_per_month === 'number' && mtdUsd > policy.max_usd_per_month) {
     reasons.push(`max_usd_per_month: $${mtdUsd.toFixed(4)} already spent this month, over the $${policy.max_usd_per_month.toFixed(4)} limit.`);
+  } else if (typeof policy.max_usd_per_month === 'number' && ctx.monthUnknownFigures > 0) {
+    // 0.8.3 (Builder D): the total is a floor (src/spend.js usdFigure): a figure that is there and is not a number of dollars was left out. A limit that cannot be checked is refused, not passed (fails closed).
+    const where = ctx.monthUnknownWhere ?? [];
+    // the run id is checked by the run-name rule; the file name after it is project-writable text (cleanName)
+    const named = where.slice(0, 5).map(w => { const [id, ...file] = w.split('/'); return `${id}/${cleanName(file.join('/'))}`; }).join(', ');
+    const more = where.length > 5 ? `, and ${where.length - 5} more` : '';
+    const n = ctx.monthUnknownFigures;
+    reasons.push(`max_usd_per_month: this month's spend cannot be totalled because ${n} figure${n === 1 ? '' : 's'} in the run folders could not be read as a number of dollars${named ? `: ${named}${more}` : ''}. The limit cannot be checked until ${n === 1 ? 'that file holds' : 'every file named here holds'} a readable number of dollars.`);
   }
 
   if (Array.isArray(policy.required_chain_tags) && policy.required_chain_tags.length) {

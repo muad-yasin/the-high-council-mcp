@@ -18,9 +18,10 @@ import { homedir } from 'node:os';
 import { readdirSync, readFileSync, writeFileSync, existsSync, linkSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUN_FOLDER } from './run-status.js';
-import { readRunFile } from './run-files.js';
+import { readRunFile, runFolderKind } from './run-files.js';
 import { NEW_EVIDENCE_MIN_CHARS } from './advice-brief.js';
 import { mask } from './advice-mask.js';
+import { redactText } from './secret-patterns.js';
 
 export const ADVISE_LOG_FILE = 'advise-log.json';
 export const DISPOSITION_DECISIONS = ['accept', 'reject', 'defer'];
@@ -60,6 +61,31 @@ export const ADVICE_DEFAULTS = Object.freeze({
   duplicateSimilarity: 0.6,
   newEvidenceMinChars: NEW_EVIDENCE_MIN_CHARS,
 });
+
+// A SET but unreadable advice money limit (14 Oct 2026, C&C's entries 7 + 14): limitsFromEnv below keeps the default for any value it cannot read, so `COUNCIL_ADVISE_MAX_USD_PER_CALL=0,50` ran at $1.50 and
+// `COUNCIL_ADVISE_MAX_USD_PER_DAY=2,5` at $10 with no word: a limit the operator typed was not the one in force (backend rule 16: a silent fallback is a defect). The three DOLLAR limits are therefore refused when set and
+// not a plain decimal number (digits with an optional fraction: the grammar COUNCIL_MAX_USD_LIMIT uses, src/mcp/usd-limit.js), by the server at start (`--advice-adopt`, which the server starts with the same environment, is not checked again); an unset or empty one keeps the default.
+// The COUNT and COOLDOWN limits (14 Oct 2026, C&C: the same class, not deferred) follow: COUNCIL_ADVISE_CALLS_PER_SESSION / _PER_DAY and COUNCIL_ADVISE_COOLDOWN_MS are refused when set and not a whole number (digits only). What limitsFromEnv accepted before and is
+// now refused: a fraction (`2.5` was floored to 2), an exponent (`1e3` was 1000), hexadecimal (`0x10` was 16) and a leading plus (`+5` was 5), none of which an operator means as a count (a negative value or `Infinity` was already replaced by the default in silence and is now refused too); a plain whole number (0 included) is read exactly as before. The example in the sentence is the DEFAULT, so copying it cannot loosen a guard.
+const ADVICE_MONEY = Object.freeze([['COUNCIL_ADVISE_MAX_USD_PER_CALL', 'perCallUsd'], ['COUNCIL_ADVISE_MAX_USD_PER_SESSION', 'sessionUsd'], ['COUNCIL_ADVISE_MAX_USD_PER_DAY', 'dayUsd']]);
+const ADVICE_COUNTS = Object.freeze([['COUNCIL_ADVISE_CALLS_PER_SESSION', 'sessionCalls', 'calls'], ['COUNCIL_ADVISE_CALLS_PER_DAY', 'dayCalls', 'calls'], ['COUNCIL_ADVISE_COOLDOWN_MS', 'cooldownMs', 'milliseconds']]);
+const PLAIN_DOLLARS = /^\s*\d+(\.\d+)?\s*$/;
+const WHOLE_NUMBER = /^\s*\d+\s*$/;
+const shownValue = raw => { const t = redactText(String(raw)).text; return t.length > 40 ? `${t.slice(0, 40)}...` : t; }; // echoed in the sentence, so anything key-shaped is redacted first (the value may be a key pasted into the wrong field)
+/** The sentence for the first advice limit (the three money limits, then the two call counts and the cooldown) that is set but not readable (dollars: a plain number; counts and cooldown: a whole number), or null. Never throws; reads only those six names. */
+export function adviceLimitRefusal(env = process.env) {
+  for (const [name, key] of ADVICE_MONEY) {
+    const raw = env[name];
+    if (raw === undefined || raw === '' || PLAIN_DOLLARS.test(raw)) continue;
+    return `${name} is "${shownValue(raw)}", which is not a plain number of dollars (digits with an optional dot), so nothing started. A limit it cannot read would be replaced by the default of $${ADVICE_DEFAULTS[key].toFixed(2)}, which may not be the limit you meant. Set a number such as 2.5, or remove the setting.`;
+  }
+  for (const [name, key, unit] of ADVICE_COUNTS) {
+    const raw = env[name];
+    if (raw === undefined || raw === '' || WHOLE_NUMBER.test(raw)) continue;
+    return `${name} is "${shownValue(raw)}", which is not a whole number of ${unit} (digits only), so nothing started. A limit it cannot read would be replaced by the default of ${ADVICE_DEFAULTS[key]} ${unit}, which may not be the limit you meant. Set a whole number such as ${ADVICE_DEFAULTS[key]}, or remove the setting.`;
+  }
+  return null;
+}
 
 /** The limits in force: the defaults, then the operator's environment. A caller argument can only lower a limit. */
 export function limitsFromEnv(env = process.env) {
@@ -161,6 +187,7 @@ export function similarity(a, b) {
 export function readLedger(runsDir, { now = Date.now(), windowMs = ADVICE_DEFAULTS.dayMs } = {}) {
   if (!existsSync(runsDir)) return [];
   const out = [];
+  let symbolicLinksNotCounted = 0;
   // A damaged record fails closed, but only inside the window the limits look at: run ids are timestamps, so a folder older than that
   // cannot change any limit and must not block every call for ever.
   const damaged = id => {
@@ -170,6 +197,8 @@ export function readLedger(runsDir, { now = Date.now(), windowMs = ADVICE_DEFAUL
   for (const d of readdirSync(runsDir)) { // fs-ok: names in runs/ only; every file inside is read below with readRunFile (O_NOFOLLOW, 0.8.2 item 2)
     if (!RUN_FOLDER.test(d)) continue;
     const dir = join(runsDir, d);
+    // a symbolic link in runs/ is never a run (src/run-files.js runFolderKind): a LINKED folder would count another run's advise-log twice (the daily advice limit would err high). Counted apart on the result (a property of the array), never read.
+    if (runFolderKind(dir) === 'link') { symbolicLinksNotCounted += 1; continue; }
     const p = join(dir, ADVISE_LOG_FILE);
     // 0.8.2 item 2: every read here is O_NOFOLLOW (src/run-files.js): a link where a log or run.json should be is a damaged record (fails closed), never followed.
     const logFile = readRunFile(dir, ADVISE_LOG_FILE);
@@ -190,7 +219,9 @@ export function readLedger(runsDir, { now = Date.now(), windowMs = ADVICE_DEFAUL
       } catch { /* not an advice run */ }
     }
   }
-  return out.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0) || (a.run < b.run ? -1 : 1));
+  out.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0) || (a.run < b.run ? -1 : 1));
+  out.symbolicLinksNotCounted = symbolicLinksNotCounted;
+  return out;
 }
 
 /** Dollars a ledger entry counts for: what it spent once the run recorded that, else the most it can still spend. */

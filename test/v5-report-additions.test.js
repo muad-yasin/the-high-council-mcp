@@ -153,7 +153,7 @@ test('a resumed run still reports the checks its first round enforced, even afte
     let args = ['--chain', 'mock-external', '--task', 'task.md'];
     for (let i = 0; i < 8; i++) {
       try { execFileSync('node', [cli, ...args], { cwd: dir, encoding: 'utf8', env, stdio: 'pipe' }); break; }
-      catch (err) { if (err.status !== 3) throw err; }
+      catch (err) { if (err.status === 22) break; if (err.status !== 3) throw err; }   // 22: finished, mock panel not agreed (0.8.3)
       const runId = readdirSync(join(dir, 'runs'))[0];
       const runDir = join(dir, 'runs', runId);
       rmSync(join(dir, 'policy.json'), { force: true });

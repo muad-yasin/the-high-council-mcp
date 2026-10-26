@@ -10,6 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlin
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -211,7 +212,7 @@ test('a run.json that names a hostile cwd cannot widen where a task path may be 
 // A sequential session: each step is built from the previous answers (the quote id is only known after council_quote).
 function mcpSteps(cwd, steps) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_ADVISE_COOLDOWN_MS: '0' } });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_ADVISE_COOLDOWN_MS: '0', ...malformedProviderKeys() } });
     const results = []; const byId = new Map(); let buf = ''; let next = 0;
     const timer = setTimeout(() => { child.kill(); fail(new Error('timed out')); }, 60_000);
     const send = o => child.stdin.write(JSON.stringify(o) + '\n');
@@ -239,6 +240,7 @@ test('council_advise records objection dispositions without following a symlinke
   try {
     const id = '2026-10-06T17-00-05-000Z'; const dir = join(w.work, 'runs', id);
     mkdirSync(dir, { recursive: true });
+    // zero-spend-ok: this server has no approver, so no send is ever approved, and its env carries malformed provider keys (never filled from .env, never sent)
     writeFileSync(join(dir, 'run.json'), JSON.stringify({ chain: 'advise-single' }));
     // A valid-shape ledger entry with a timestamp in the future, so it stays "in session" for the guards.
     writeFileSync(join(dir, 'advise-log.json'), JSON.stringify({ ts: Date.now() + 3_600_000, quoted: { ceiling_usd: 0.1 }, dissent_ids: [`${id}#glm5.3`], dispositions: [] }));

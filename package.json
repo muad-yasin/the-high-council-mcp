@@ -1,6 +1,6 @@
 {
   "name": "the-high-council",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "mcpName": "io.github.muad-yasin/the-high-council",
   "description": "The High Council: a multi-model planning harness. One builder, independent critics from other labs, checkable acceptance criteria, a debate on the record, and a hard stop.",
   "type": "module",
@@ -25,7 +25,7 @@
     "ui": "node src/ui/server.js",
     "mcp": "node src/mcp/server.js",
     "http-server": "node src/http-server.js",
-    "test": "node --test",
+    "test": "node --test --import ./test/helpers/tmp-sweep.js",
     "build:bin": "pkg . --compress GZip",
     "build:appimage": "bash scripts/build-appimage.sh",
     "smoke:bin": "node scripts/smoke-binary.mjs"
@@ -57,6 +57,7 @@
     "src/",
     "!src/http-server.js",
     "chains/",
+    "!chains/outdated/",
     "schemas/",
     "types/",
     "README.md",

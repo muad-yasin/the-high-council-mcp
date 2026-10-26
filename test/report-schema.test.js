@@ -53,7 +53,7 @@ test('report schema: REPORT_SCHEMA_VERSION is the version the schema pins', () =
 // pause for a human; mock-budget stops at the cap and so writes no report.json by design).
 const ONE_SITTING = ['mock', 'mock-criteria-kinds', 'mock-unanimous', 'mock-debate', 'mock-dispute', 'mock-open', 'mock-partitioned',
   'mock-patch', 'mock-patch-fallback', 'mock-proposals', 'mock-questions', 'mock-relay', 'mock-security-review', 'mock-tiered',
-  'mock-advise-single', 'mock-advise-quick', 'mock-advise-standard', 'mock-advise-deep'];
+  'mock-advise-single', 'mock-advise-quick', 'mock-advise-standard', 'mock-advise-deep', 'mock-layered'];
 
 test('report schema: the list above still names every mock chain that finishes in one sitting', () => {
   const shipped = readdirSync(join(root, 'chains')).filter(f => /^mock.*\.json$/.test(f)).map(f => f.slice(0, -5));
@@ -206,7 +206,7 @@ test('report schema: a resumed run writes the task relative to where it started,
       if (!existsSync(answer)) writeFileSync(answer, '# Plan\n\nOne JSON file of notes; add, list and delete from the command line.\n');
     }
     const r = spawnSync('node', [cli, '--resume', join('runs', run)], { encoding: 'utf8', cwd: dir, env });
-    assert.ok([0, 3].includes(r.status), `resume exit ${r.status}\n${r.stdout}\n${r.stderr}`);
+    assert.ok([0, 3, 22].includes(r.status), `resume exit ${r.status}\n${r.stdout}\n${r.stderr}`);   // 22: a finished run whose mock panel did not agree (0.8.3; exit-not-agreed.test.js pins the rule)
   }
   assert.ok(sittings >= 1, 'the run was resumed at least once');
   const report = JSON.parse(readFileSync(join(runDir, 'report.json'), 'utf8'));
@@ -239,7 +239,7 @@ test('report schema: fromRun is written relative to where the run started, fresh
   const env = { PATH: process.env.PATH };
   const node = (args, what) => {
     const r = spawnSync('node', [cli, ...args], { encoding: 'utf8', cwd: dir, env });
-    assert.ok([0, 3].includes(r.status), `${what}: exit ${r.status}\n${r.stdout}\n${r.stderr}`);
+    assert.ok([0, 3, 22].includes(r.status), `${what}: exit ${r.status}\n${r.stdout}\n${r.stderr}`);   // 22: a finished run whose mock panel did not agree (0.8.3)
   };
   node(['--chain', 'mock', '--task', 'tasks/smoke.md', '--run-id', '2026-01-01T00-00-00-000Z'], 'base run');
   const base = join(dir, 'runs', '2026-01-01T00-00-00-000Z');

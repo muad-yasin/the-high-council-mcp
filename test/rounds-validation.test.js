@@ -24,7 +24,8 @@ test('--rounds must be a whole number of 1 or more; anything else is a usage err
     }
     assert.ok(!existsSync(join(dir, 'runs')), 'no run folder for a rejected flag');
     const ok = spawnSync('node', [cli, '--chain', 'mock', '--task', 'tasks/t.md', '--rounds', '1'], { encoding: 'utf8', cwd: dir, env: { PATH: process.env.PATH } });
-    assert.equal(ok.status, 0, ok.stderr.slice(-200));
+    // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so it accepts the two finished exits.
+    assert.ok([0, 22].includes(ok.status), ok.stderr.slice(-200));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

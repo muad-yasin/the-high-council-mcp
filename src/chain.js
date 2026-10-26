@@ -1,16 +1,57 @@
+import { effectiveLimits, newRoundState, advance, stopIdOf, panelEnding } from './overseer-rounds.js';
 import { call, keyFor, resolveVendorSeat } from './providers.js';
 import { held } from './held-roles.js';
+import { findConflict } from './conflict-detector.js';
+import { MAX_CONFLICTS_PER_CALL, deciderSeatOf, deciderActive, conflictItems, readRulings, decisionRow, ConflictAsked, conflictChoiceFor } from './conflict-decider.js';
 import { handoffPrompt } from './handoff-prompt.js';
 import { extraWithHighDefault, retryCapFor, retryCeilingOf } from './reasoning.js';
-import { parseDisputes } from './draft-disputes.js';
+import { pinnedExtra, ownPinOf } from './price-pin.js';
+import { effectiveRow } from './price-table.js';
+import { PriceRefused, isMaxPriceRefusal, markSkippable, seatSkipChoice, seatSkipActive, skipKeyOf } from './price-refused.js';
+import { collectNoteLines, parseDisputes } from './draft-disputes.js';
+import { readNotes, budgetLeft, parseNoteAnswers, notesView, fitNotes, lastRoundOf, sinceLastRevise } from './review-notes.js';
+import { notesConfigOf, reviewNotesActive, splitNotes } from './review-notes-lane.js';
 export { parseDisputes };
+
+/**
+ * Notes lane unit 2 (gate note addendum 1, A3): `parseDisputes` strips a writer's NOTE-TAKEN/DECLINED/SAME answer lines and returns them as `noteLines`. A stage that is not asked for them ignores them BY DESIGN (the
+ * lane's prompts reach only the main revise, and in this commit not even that), and says so with a count, so nothing disappears silently. Prints nothing when there are none, so no existing log changes.
+ */
+/**
+ * ROADMAP 83: an EARLY-FINISH trailer line (the session's proposal to end the run early) is acted on by ONE stage only: the revise of a layered chain whose reviser is the person's own session. Every other stage strips it
+ * (parseDisputes) and says so, so a line the harness did not act on never disappears silently. Prints nothing when there is none.
+ */
+/** The harness-written builder-task section of an early finish (A-DRAFT words). One line per open objection, the judge's own text collapsed to one line. */
+export function withBuilderTasks(handoff, tasks) {
+  const one = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const lines = tasks.map((t, n) => `- BT-${n + 1} (${t.id}, raised by ${t.lab ? labFromKey(t.lab) : 'an unnamed lab'}; ${t.handled === 'declined' ? `the reviser declined it${t.declined_reason ? `: ${one(t.declined_reason)}` : ''}` : t.handled === 'changed' ? 'the reviser changed the plan, not re-reviewed' : t.handled === 'unchanged' ? 'the plan was not changed for it' : 'still open'}): ${one(t.criterion)} - ${one(t.problem)}`);
+  return `${String(handoff).replace(/\s+$/, '')}\n\n## Builder tasks left open at the early finish\n\nThis run finished early at the session's proposal and the overseer layer's yes; the lower layers did not review the last revision. This is NOT agreement. Each objection below is still open and is a task for the builder.\n\n${lines.join('\n')}\n`;
+}
+/**
+ * The builder tasks of an early finish read back from a finished report.json (`council handoff --from-run` rebuilds HANDOFF.md from it): the objections are `dispute.open_objections` (the one list the dissent block and the run's own
+ * handoff use, so the same N), and what the reviser did with each comes from `stop.items` by id. null when the report is not an early finish or lists none.
+ */
+export function earlyTasksFromReport(report) {
+  if (report?.stop?.kind !== 'early_finish' || !Array.isArray(report.dispute?.open_objections) || !report.dispute.open_objections.length) return null;
+  const kept = new Map((Array.isArray(report.stop.items) ? report.stop.items : []).map(i => [i.id, i]));
+  // BUG-D-001: the reviser's reason for a declined objection is kept in stop.items (declined_reason, cut at 600 characters), so the handoff rebuilt from the report says what the run's own handoff said.
+  return report.dispute.open_objections.map(o => { const k = kept.get(o.id); return { id: o.id ?? 'no id', lab: o.seat ?? o.lab ?? null, criterion: o.criterion, problem: o.problem, handled: k?.handled ?? 'open', ...(typeof k?.declined_reason === 'string' && k.declined_reason ? { declined_reason: k.declined_reason } : {}) }; });
+}
+export function earlyFinishIgnored(stage, reason, say) {
+  if (typeof reason === 'string' && reason) say(`  ${stage}: an early-finish line was in the reply, removed from the text and not acted on (only the revise of a layered chain with a session reviser acts on it).`);
+}
+export function noteLinesIgnored(stage, noteLines, say) {
+  if (Array.isArray(noteLines) && noteLines.length) say(`  ${stage}: ${noteLines.length} answer line(s) to review notes were in the reply, removed from the text and not recorded (this stage is not asked for them).`);
+}
 import * as R from './roles.js';
-import { withLane } from './lanes.js';
+import { assertStageLabelSafe } from './lab-safety.js';
+import { seatKeyOf, seatField, repeatedLabsOf, registerSeatKeys, shownSeat, labFromKey, layerNoteOf, keyOfRecord, seatsOfRow } from './seat-key.js';
+import { PREFLIGHT_SYSTEM, debateSystemFor, criticPromptFor, isWriterSeat, seatIdentity, modelIdentity, labOf, withHeldNote, noQuoteMarksOn, withSplitNote as splitNoteOf, reviserSystemFor as reviserSystemOf, settingsOf } from './stage-system.js';
+export { criticPromptFor, isWriterSeat, seatIdentity, modelIdentity, labOf } from './stage-system.js';
+export { seatKeyOf } from './seat-key.js';
 import { costOf, summarise, formatUsd, wouldBreach, projectStage, projectAttempts, isAnthropicSeat, needsPrice, SEAT_DEFAULT_MAX_TOKENS, readUsage, readUsd } from './cost.js';
 import { requiredDeliverableSections } from './preflight.js';
 import { withdrawalLedger } from './withdrawal-ledger.js';
-import { applySeatRole } from './seat-role.js';
-import { loadPersonas } from './personas.js';
 import { NO_TIE_BREAK } from './tie-break.js';
 import { runTool as defaultRunTool, ALLOWED_TOOLS, runSeatToolRequests } from './tools.js';
 import { runLints } from './lints.js';
@@ -20,21 +61,27 @@ import { parsePatches, applyPatches, changedSince } from './patch-revise.js';
 import { injectCanary, shouldSampleCanary, runIdUnit, pickCanaryTarget, pickCanaryTargetSeeded, CANARY_NOTE } from './canary.js';
 import { readerView, viewRecord, translateRefs } from './debate-order.js';
 import { markPostQuote } from './post-quotes.js';
-import { buildAnswerBack, answerBackSummary, applyAnswers, stillOpen } from './answer-back.js';
+import { buildAnswerBack, answerBackSummary, applyAnswers, stillOpen, changedPassages } from './answer-back.js';
 import { runSecurityReviewStage, DEFAULT_SECURITY_REVIEWER_SEAT } from './security-review.js';
+import { containerText } from './container-text.js';
 import { assertNoDeniedModels, deniedReasonsOf, DeniedModel } from './denied-models.js';
 import { promptHashOf, promptSha256Of, cacheVerdict } from './cache-integrity.js';
+import { isEnvelopePair, issueEnvelope, envelopeInForce, draftIdOf } from './verdict-envelope.js';
+import { objectionLedger, fitLedger, LEDGER_MAX_CHARS } from './objection-ledger.js';
 import { stripLockBlock } from './criteria-lock.js';
+import { stripBuilderTaskBlock } from './handoff-contract-text.js';
 import { buildArguedFacts, checkArguedRefs, ARGUED_SYSTEM, arguedUser, ARGUED_LABEL, ARGUED_FILE } from './argued.js';
 import { normaliseCriteria, criteriaSummary, kindsRecord, checksSection, unevidencedCheckableMets, summaryLine, MET_VERDICT, FAILED_VERDICT, verdictWord } from './criteria-kinds.js';
-import { missingCriteriaRows, signoffTableGap, describeTableGap, outsideCriteriaRows } from './criteria-ledger.js';
+import { missingCriteriaRows, signoffTableGap, describeTableGap, outsideCriteriaRows, criterionIndexOf, metEvidenceFor } from './criteria-ledger.js';
 import { objectionId, objectionKey, stallSignature } from './objection-ids.js';
+import { layerProblems, LAYER_STATE_WORDS } from './layers.js';
 import { seededShuffle } from './seeded-shuffle.js';
 import { buildTextLabels } from './text-labels.js';
 import { lintCriteria } from './criteria-lints.js';
 import { runDeepDive, deepDiveFailures } from './deep-dive.js';
 import { runAdvise, AdviceStopped } from './advise.js';
 import { assertOutboundClean, SecretShapedPrompt } from './outbound-scan.js';
+import { answerRecordOf } from './answered-by.js';
 export { DeniedModel };
 
 // v3 §4: the criteria stage's own user prompt, exported so it's testable without running a
@@ -145,7 +192,7 @@ export function runVerification(config, { runTool = defaultRunTool, log = () => 
 // independent function in the same concurrent-Promise.all-over-labs shape as that block, sized
 // to what a description-only review actually needs (no anonymisation, no cross-lab posts/
 // replies - every seat reviews the same fixed text and returns one independent verdict).
-export const PREFLIGHT_SYSTEM = `You review a task description before any code change is proposed against it. You never see, write, or evaluate a diff - only the text below. Your only job is to catch a task framing that would be unsafe or nonsensical to start building against: contradictory requirements, a missing or unnamed target, an acceptance test that cannot be satisfied as stated. Do not comment on style or completeness beyond that. Reply as JSON only: {"verdict": "pass" | "object", "objections": ["one sentence per real problem, empty if verdict is pass"]}`;
+export { PREFLIGHT_SYSTEM } from './stage-system.js';
 
 export function preflightUser(request) {
   return `# Task description under review (no diff or proposal exists yet)\n\n${request}`;
@@ -156,14 +203,14 @@ export function preflightUser(request) {
 export async function runPreflightStage(config, { request, invoke, record, log = () => {} }) {
   const seats = (config.preflight?.seats && config.preflight.seats.length) ? config.preflight.seats : (config.seats.critics || []);
   const verdicts = await settleAll(seats.map(async seat => {
-    const lab = labOf(seat);
+    const lab = seatKeyOf(seat);
     try {
       const s = record(await invoke(seat, {
         system: PREFLIGHT_SYSTEM,
         user: preflightUser(request),
         log, label: `preflight-${lab}`,
       }));
-      const parsed = parseJson(s.text);
+      const parsed = parseJson(s.text, { strict: true });
       // Bug-audit fix, 2026-09-23 (Review/BugAudit_ChainParsers_2026-09-23.md #6): anything but the
       // exact "object" used to read as "pass" - a null parse, a cut-off reply, "Object" in another
       // case - so a garbled objection waved the task through. Only a stated "pass" passes now; an
@@ -267,10 +314,8 @@ function criteriaRetryNote(kind, quoted) {
 // colon of an objection or merge that quotes nothing, the reply prompts say what the mark means, and the debate prompts tell a poster to copy the phrase it talks about. The words are held (src/held-roles.js):
 // `replyUserMarked` / `altReplyUserMarked` (the whole reply prompt, byte-identical to R.replyUser / R.altReplyUser when no post is unquoted), `noQuoteGloss`, `debatePostQuoteRule`. Until the re-record each falls back to the
 // prompt that has always been sent.
-const noQuoteMarksOn = config => config?.debate_hygiene?.noQuoteMarks === true;
 const replyUserFor = config => (noQuoteMarksOn(config) ? (held('replyUserMarked') ?? R.replyUser) : R.replyUser);
 const altReplyUserFor = config => (noQuoteMarksOn(config) ? (held('altReplyUserMarked') ?? R.altReplyUser) : R.altReplyUser);
-const withHeldNote = (config, system, name) => { const text = noQuoteMarksOn(config) ? held(name)?.() : null; return text ? `${system}\n\n${text}` : system; };
 
 // Criteria that describe the criteria list (its JSON shape, what each criterion must be) rather
 // than the deliverable. Any one JSON-shape item flags it; otherwise a third or more of the items
@@ -398,65 +443,420 @@ function describeDropped(items) {
 // judgement of that reply (cut off? all reasoning? truncated?) must use THAT cap, not the one the call site started from, or a normal long reply reads as
 // truncated and gets a third paid call. Never below the cap the caller started from (a corrupt record cannot shrink it).
 export const askedCapOf = (stage, fallback) => (Number.isFinite(stage?.cappedAt) && stage.cappedAt >= fallback ? stage.cappedAt : fallback);
-// 0.8.2 item 7: the ONE door every critic system prompt goes through, so a lane paragraph (src/lanes.js) can never be applied at some call sites and missed at others (a source-scan test fails on a bare
-// R.criticSystem( anywhere else in this file). A seat with no lane gets R.criticSystem's text unchanged.
-// Item 28 (Muad's yes 7 Oct 2026 via C&C): in a chain with "selfReview": "allowed", the critic seat that wrote the draft gets the self-review opening (R.criticSystem's `selfReview`).
-export function criticPromptFor(seat, open, opts, config) {
-  const self = config?.selfReview === 'allowed' && isWriterSeat(seat, config.seats);
-  const o = self ? { ...(opts || {}), selfReview: true } : opts;
-  return withLane(seat, o === undefined ? R.criticSystem(open) : R.criticSystem(open, o));
-}
-
-// The model a seat actually runs, provider prefix and :variant dropped, so `anthropic/claude-sonnet-5` on OpenRouter and `claude-sonnet-5` direct are one model. Mock and external seats
-// have no real model identity (mock chains reuse names on purpose), so they return null and never match. (Moved here from src/chain-lint.js, which re-exports it.)
-export function modelIdentity(seat) {
-  if (!seat?.model || seat.provider === 'mock' || seat.provider === 'external') return null;
-  return String(seat.model).toLowerCase().split('/').pop().split(':')[0];
-}
-// Who a seat is, for "is this the same agent": its model identity, or for an external seat its model string (a writer and a critic that name the same session,
-// "claude-code-session", are the same agent: audit fix cnc-chains-lint F1). One rule for chain-lint's self-review check and for the writer's critic prompt.
-export const seatIdentity = seat => modelIdentity(seat) ?? (seat?.provider === 'external' && seat.model ? `external:${String(seat.model).toLowerCase()}` : null);
-/** True when this critic seat is the plan's writer (the builder's or the reviser's lab, or the same model / session under another lab label). */
-export function isWriterSeat(seat, seats) {
-  return ['builder', 'reviser'].some(k => {
-    const w = seats?.[k];
-    if (!w || !seat) return false;
-    if (labOf(w) === labOf(seat)) return true;
-    const id = seatIdentity(w);
-    return id !== null && id === seatIdentity(seat);
-  });
-}
 export function cutOffRetryCap(cap, ceiling = CUT_OFF_RETRY_MAX_TOKENS) {
   return retryCapFor(cap, ceiling);
 }
 
-export function parseJson(text) {
-  // Models wrap JSON in prose or fences no matter how firmly you ask them not to,
-  // and the small ones leave a trailing comma before ] or } (GLM 5.3 Flash,
-  // 2026-09-07: a real objection counted as an abstention over one comma).
+/**
+ * The per-seat proposal cap a chain asks for, or null (no cap). 0.8.3 (C&C ruling, 13 Oct 2026): the documented spelling is the TOP-LEVEL `max_proposals_per_seat` (README, docs/index.html);
+ * the older nested `proposals.maxProposalsPerSeat` keeps working (nothing shipped uses it). A positive integer is a cap; anything else is "no cap" under either spelling (a negative value
+ * must not slice from the end of a list: test/proposal-cap.test.js). A chain that sets BOTH spellings to different values is refused: it would run one cap and read like the other.
+ */
+export function proposalCapOf(config) {
+  const top = config?.max_proposals_per_seat;
+  const nested = config?.proposals?.maxProposalsPerSeat;
+  if (top !== undefined && nested !== undefined && top !== nested) {
+    throw new Error(`this chain sets the proposal cap twice with different values: max_proposals_per_seat is ${JSON.stringify(top)} and proposals.maxProposalsPerSeat is ${JSON.stringify(nested)}. Keep one: max_proposals_per_seat, the documented key.`);
+  }
+  const v = top !== undefined ? top : nested;
+  return Number.isInteger(v) && v > 0 ? v : null;
+}
+
+// Repairs, mildest first. Each one targets a slip a real seat has made:
+//  - trailing comma before ] or } (GLM 5.3 Flash)
+//  - a key written as a bare string, "reason: text" instead of "reason": "text"
+//    (Mistral Large, six times in one reply, 2026-09-07)
+//  - a stray unescaped quote or raw control char inside a string value (Qwen3.5-9B, 2026-09-10)
+const PARSE_REPAIRS = [
+  c => c,
+  c => c.replace(/,\s*([\]}])/g, '$1'),
+  c => c.replace(/"([A-Za-z_][A-Za-z0-9_ ]*):\s+([^"]*)"/g, (all, k, v) => `"${k}": "${v.replace(/"/g, '\\"')}"`).replace(/,\s*([\]}])/g, '$1'),
+  c => repairStrayQuotesAndControlChars(c).replace(/,\s*([\]}])/g, '$1'),
+];
+/** One span read with the repairs: { ok, value, text } where `text` is the exact string that parsed (duplicate keys are checked on it). */
+const readWithRepairs = span => {
+  for (const repair of PARSE_REPAIRS) { const text = repair(span.trim()); try { return { ok: true, value: JSON.parse(text), text }; } catch { /* try the next repair */ } }
+  return { ok: false };
+};
+// A span that looks like an attempt at JSON (it holds a quoted key). One that does not parse is a FAILED ATTEMPT; a prose span like {quick} is not.
+const JSON_LOOKING = /"[^"\n]*"\s*:/;
+
+/**
+ * Reads JSON out of a model's reply. Models wrap JSON in prose or fences no matter how firmly you ask them not to, and the small ones leave a trailing comma (GLM 5.3 Flash, 2026-09-07).
+ *
+ * The decision table is Review/Build_0.8.3/m6-closing/E_ParseJson_Decision_Table.md (ruled 13 Oct 2026, Amendment 2 after Astra's review the same day); test/parse-json-prose-braces.test.js has
+ * one test per row. Three kinds of caller:
+ *  - N (no option): tolerant, the baseline everywhere it read, and in the span path a reply with exactly one JSON span.
+ *  - V `{ verdict: true }`: the callers whose reply becomes a panel verdict (normaliseCritique). A critic is told to quote the draft, and the draft is full of `{"meets": true}`, so a quoted span must
+ *    never stand in for a verdict the seat did not give. Beside the chosen answer (fenced or not) any failed JSON-looking attempt, any cut-off verdict, a duplicate key, contradictory decision
+ *    fields, or another readable span standing for a DIFFERENT verdict, or for the same verdict with a different decision payload, gives null: an abstention and one re-ask, never a sign-off or an
+ *    objection on the record.
+ *  - S `{ strict: true }`: decision-bearing callers with no verdict polarity (the run's criteria, the security review, preflight, the cold reader): the same guards, with "distinct readable object" in
+ *    place of "different verdict".
+ * Baseline order is kept (the whole reply, the first fenced block, an unclosed fence, the first-to-last brace span: the first that parses wins); the guards only ever turn a parsed value into null.
+ * Only when nothing parses, the outermost balanced `{...}` spans are read (audit A4-1: prose with braces of its own, "Verdict check {quick}: {...}").
+ */
+export function parseJson(text, { verdict = false, strict = false, expect = null } = {}) {
+  // E3b unit one (inert: no shipped call site passes `expect`): the verdict envelope. See readExpecting.
+  if (expect) return readExpecting(text, expect);
+  const guarded = verdict || strict;
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   const openFence = text.match(/```(?:json)?\s*([\s\S]*)$/); // closing fence missing
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
-  const braces = first !== -1 && last > first ? text.slice(first, last + 1) : null;
-  const candidates = [text, fenced?.[1], openFence?.[1], braces].filter(Boolean);
-  // Repairs, mildest first. Each one targets a slip a real seat has made:
-  //  - trailing comma before ] or } (GLM 5.3 Flash)
-  //  - a key written as a bare string, "reason: text" instead of "reason": "text"
-  //    (Mistral Large, six times in one reply, 2026-09-07)
-  //  - a stray unescaped quote or raw control char inside a string value (Qwen3.5-9B, 2026-09-10)
-  const repairs = [
-    c => c,
-    c => c.replace(/,\s*([\]}])/g, '$1'),
-    c => c.replace(/"([A-Za-z_][A-Za-z0-9_ ]*):\s+([^"]*)"/g, (all, k, v) => `"${k}": "${v.replace(/"/g, '\\"')}"`).replace(/,\s*([\]}])/g, '$1'),
-    c => repairStrayQuotesAndControlChars(c).replace(/,\s*([\]}])/g, '$1'),
-  ];
-  for (const repair of repairs) {
-    for (const c of candidates) {
-      try { return JSON.parse(repair(c.trim())); } catch { /* try the next shape */ }
+  // Guarded callers: a `{` after the last `}` that never closes and is followed by a quoted key is a verdict that was cut off. The first-to-last span must not then be read, because it can end at
+  // an EARLIER object (a sign-off the seat quoted from the draft) and turn a broken verdict into a SIGN-OFF - found at 59756d5 while testing the rules below, an older defect than the audit item;
+  // no run produced it, its incident is the test row T-D2 in test/parse-json-prose-braces.test.js. A trailing prose `{` with no key after it does not count.
+  const scan = scanBraceSpans(text);
+  const cutOffTail = guarded && scan.unclosed && scan.unclosedAt > last && JSON_LOOKING.test(text.slice(scan.unclosedAt));
+  const braces = !cutOffTail && first !== -1 && last > first ? text.slice(first, last + 1) : null;
+  const candidates = [['whole', text], ['fence', fenced?.[1]], ['openFence', openFence?.[1]], ['wide', braces]].filter(([, c]) => c);
+  for (const repair of PARSE_REPAIRS) {
+    for (const [path, c] of candidates) {
+      const jsonText = repair(c.trim());
+      let value;
+      try { value = JSON.parse(jsonText); } catch { continue; /* try the next shape */ }
+      if (!guarded) return value;
+      if (duplicatesChangeTheDecision(jsonText, value, { verdict }) || (verdict && contradictory(value))) return null;
+      return path === 'fence' || path === 'openFence' ? checkedAgainstTheRest(path, value, text, { verdict }) : value;
     }
   }
-  return null;
+  return readSpans(scan, { verdict, strict });
+}
+
+/** The pair this call expects must be two 12-hex strings: a malformed one would make `undefined === undefined` admit every quoted verdict, so a verdict path throws instead of failing open. */
+function checkedExpect(expect) {
+  if (!isEnvelopePair(expect)) throw new Error('parseJson: `expect` must be { review_id, draft_id }, each 12 hex characters');
+  return expect;
+}
+/** A parsed span that carries exactly the pair this call expects (both ids, as strings). */
+const carriesPair = (o, expect) => !!o && typeof o === 'object' && !Array.isArray(o) && o.review_id === expect.review_id && o.draft_id === expect.draft_id;
+
+/**
+ * The regions a reply is read in, the same split checkedAgainstTheRest uses: the body of every closed fence, the body of a trailing fence whose closing is missing, and the prose outside both. A stray `{`
+ * in the prose (code the critic quotes: `if (x) {`) must not hide a verdict in a fence, so a brace that never closes is fatal only when JSON-looking text follows it (the baseline rule).
+ */
+function replyRegions(text) {
+  const closed = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)].map(m => m[1]);
+  const withoutClosed = text.replace(/```(?:json)?\s*([\s\S]*?)```/g, ' ');
+  const open = withoutClosed.match(/```(?:json)?\s*([\s\S]*)$/)?.[1];
+  const outside = withoutClosed.replace(/```[\s\S]*$/, ' ');
+  return [outside, ...closed, ...(open === undefined ? [] : [open])];
+}
+
+/**
+ * The whole reply is scanned first, string-aware (scanBraceSpans), so a triple backtick INSIDE a JSON string (a critic quoting code in a failure's text) can neither cut the verdict apart nor change the text read.
+ * Only when that scan leaves a brace unclosed (a stray `{` in quoted code, a cut-off verdict) is the reply split into regions (replyRegions) so the stray brace cannot hide a verdict in a fence. Stated limit: a reply
+ * that has BOTH a stray unclosed brace and a triple backtick inside a string falls to the region split and can read null (a span that is not a verbatim part of the reply is refused, so it never reads changed text).
+ */
+const regionsOf = text => (scanBraceSpans(text).unclosed ? replyRegions(text) : [text]);
+/** A span the seat sent is a verbatim substring of its reply; one that is not came from the region split cutting through a string, and is never read (the record must hold what the seat wrote). */
+const fromReply = (text, span) => text.includes(span);
+
+/**
+ * E3b (ruled 14 Oct 2026): the reply is read for `expect = { review_id, draft_id }`. Candidates come from the outermost balanced spans of each region (replyRegions), not the baseline's whole-text-then-fence order,
+ * because a candidate must carry the pair wherever it sits and the examples around it are to be ignored, not chosen between. Only spans that carry BOTH ids equal to the pair are candidates; a span without them is an
+ * example and is ignored (a quoted `{"meets": true}` in a fence, a relay seat's earlier verdict, an old example). The rules then: a failed JSON-looking attempt, a cut-off verdict (an unclosed brace followed by
+ * JSON-looking text) or a decision-changing duplicate key ANYWHERE gives null (an example's duplicate key included: it is still a failed read of the reply); `contradictory` fields and different decision payloads
+ * are judged among the CANDIDATES only (a contradictory example without the ids is only an example). No candidate gives null; why is envelopeReason's question. Candidates are spans inside THIS reply only: the pair
+ * of another call (the first attempt of a retry, an earlier re-ask) matches nothing here. The V rules apply whatever `verdict` says; the option is accepted for symmetry with the other callers.
+ */
+function readExpecting(text, expect) {
+  checkedExpect(expect);
+  const candidates = [];
+  for (const region of regionsOf(text)) {
+    const scan = scanBraceSpans(region);
+    if (scan.unclosed && JSON_LOOKING.test(region.slice(scan.unclosedAt))) return null;
+    for (const span of scan.spans) {
+      if (!fromReply(text, span)) return null;
+      const got = readWithRepairs(span);
+      if (!got.ok) { if (JSON_LOOKING.test(span)) return null; continue; }
+      if (duplicatesChangeTheDecision(got.text, got.value, { verdict: true })) return null;
+      if (carriesPair(got.value, expect)) candidates.push(got.value);
+    }
+  }
+  if (!candidates.length || candidates.some(contradictory)) return null;
+  return candidates.every(o => decisionKey(o) === decisionKey(candidates[0])) ? candidates[0] : null;
+}
+
+/**
+ * Why a reply that parseJson(text, { expect }) read as null has no candidate, for the record: 'wrong_id' when some readable object carries a review_id or draft_id that is not this call's pair, 'missing' when
+ * none carries either, and null whenever the envelope is not the reason: a candidate exists (the null came from ambiguity), or the reply holds a failed JSON-looking attempt or a cut-off verdict (the seat may well
+ * have sent the ids; the existing unreadable reason stands and nothing is recorded that the seat did not do). Pure.
+ */
+export function envelopeReason(text, expect) {
+  checkedExpect(expect);
+  let sawId = false, sawObject = false;
+  for (const region of regionsOf(text)) {
+    const scan = scanBraceSpans(region);
+    if (scan.unclosed && JSON_LOOKING.test(region.slice(scan.unclosedAt))) return null;
+    for (const span of scan.spans) {
+      if (!fromReply(text, span)) return null;
+      const got = readWithRepairs(span);
+      if (!got.ok) { if (JSON_LOOKING.test(span)) return null; continue; }
+      if (!got.value || typeof got.value !== 'object') continue;
+      sawObject = true;
+      if (carriesPair(got.value, expect)) return null;
+      if ('review_id' in got.value || 'draft_id' in got.value) sawId = true;
+    }
+  }
+  // C&C's classification order (14 Oct 2026): the envelope is named only when the reply holds a COMPLETE, PARSEABLE object that lacks or mis-states the pair. Prose with no object at all is malformed, not "missing".
+  if (!sawObject) return null;
+  return sawId ? 'wrong_id' : 'missing';
+}
+
+/**
+ * E4: the judge's own reasoning for an answer (answers[].evidence) is kept ON the in-memory answer row, as a NON-enumerable property: the ledger reads it, `JSON.stringify` (report.json) and every spread never
+ * see it, and the "latest ask counts" splice of a re-ask removes row and evidence together, so the ledger can never show reasoning for a disposition the record no longer holds.
+ */
+function withEvidence(row, answers) {
+  const a = Array.isArray(answers) ? answers.find(x => x && typeof x === 'object' && x.id === row.id && typeof x.evidence === 'string') : null;
+  if (a) Object.defineProperty(row, 'evidence', { value: a.evidence, enumerable: false });
+  return row;
+}
+
+/**
+ * E3b unit three (C&C's classification order, 14 Oct 2026): provider error -> truncation (usage) -> malformed JSON -> missing ids -> wrong ids. The envelope may be named ONLY when the usage-based class is the
+ * "malformed JSON" fall-through (the reply was not cut off, not ended by an error, not reasoning-exhausted) AND the reply holds a complete parseable object that lacks or mis-states the pair (envelopeReason). A truncated or
+ * malformed reply keeps its own reason and never reads envelope "missing". null when no envelope is in use.
+ */
+function envelopeWhyOf(cs, cap, env) {
+  if (!env || !classifyUnreadable(cs.usage, cap).startsWith('malformed JSON')) return null;
+  return envelopeReason(cs.text, env);
+}
+
+/**
+ * E3b unit two (gate page section 11.1): the ONE place a critic call gets its envelope. Called at every critic call site BEFORE the user string is handed to invoke(), with the call's own label and the draft text
+ * that call shows: it issues (or, on a resume, READS) the pair first, so the prompt, and with it the stage cache's prompt hash, is identical on a replay. Returns { user, expect }: the user text with the held
+ * "Reply identity" section appended LAST (after every quoted block and note), and the pair the reply is read with. A run not using the envelope (the run.json flag, set once at the start) gets its text back unchanged
+ * and expect null: nothing is issued, nothing is read. A run recorded as using it whose sentence is not available fails loud.
+ */
+export function withEnvelope(label, shownDraft, userText) {
+  if (!envelopeInForce()) return { user: userText, expect: null };
+  // Fail LOUD and closed: an error here (no sentence, no store, a record that cannot be written) must stop the run, never be caught by the call site as "the seat did not answer" and turn into an abstention.
+  // `controlFlow` is the flag rethrowControlFlow() lets through.
+  try {
+    const section = held('verdictEnvelopeSection');
+    if (!section) throw new Error('verdict envelope: this run is recorded as using the envelope, but src/roles.js has no verdictEnvelopeSection to show the seat');
+    const { review_id, draft_id } = issueEnvelope(label, shownDraft);
+    return { user: `${userText}\n\n${section({ review_id, draft_id })}`, expect: { review_id, draft_id } };
+  } catch (err) {
+    throw Object.assign(err, { controlFlow: true });
+  }
+}
+
+/**
+ * Guarded callers, a fenced answer (table rows B1-B6, C1): one inventory of everything else in the reply - the prose outside the fence and the body of every OTHER fence, read the same way, so a
+ * code fence is not exempt from a failed attempt inside it. null when the inventory holds a failed attempt (an unreadable JSON-looking span, a cut-off verdict, a duplicate key), or another readable
+ * object that stands for a different verdict (V) / is a different object (S), or for the same verdict with a different decision payload.
+ */
+function checkedAgainstTheRest(path, value, text, { verdict }) {
+  let outside;
+  const bodies = [];
+  if (path === 'fence') {
+    // Bug audit 2026-10-24 C-006: the body of a TRAILING fence whose closing is missing is a region of the reply too (replyRegions reads it): a closed sign-off fence followed by prose and a last fence that opens with an objection and is never closed must not read as the sign-off alone.
+    const withoutClosed = text.replace(/```(?:json)?\s*([\s\S]*?)```/g, ' ');
+    const open = withoutClosed.match(/```(?:json)?\s*([\s\S]*)$/)?.[1];
+    bodies.push(...[...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)].slice(1).map(m => m[1]), ...(open === undefined ? [] : [open]));
+    outside = withoutClosed.replace(/```[\s\S]*$/, ' ');
+  } else {
+    outside = text.slice(0, text.indexOf('```'));
+  }
+  const readable = [];
+  for (const body of [outside, ...bodies]) {
+    const around = scanBraceSpans(body);
+    if (around.unclosed && JSON_LOOKING.test(body.slice(around.unclosedAt))) return null; // a cut-off verdict
+    for (const span of around.spans) {
+      const got = readWithRepairs(span);
+      if (got.ok) { if (duplicatesChangeTheDecision(got.text, got.value, { verdict })) return null; readable.push(got.value); } else if (JSON_LOOKING.test(span)) return null; // a failed attempt
+    }
+  }
+  if (!verdict) return readable.every(o => canon(o) === canon(value)) ? value : null;
+  const mine = spanVerdict(value);
+  if (readable.some(o => { const q = spanVerdict(o); return q !== null && q !== mine; })) return null;
+  if (readable.some(o => contradictory(o))) return null;
+  const same = readable.filter(o => mine !== null && spanVerdict(o) === mine);
+  return same.every(o => decisionKey(o) === decisionKey(value)) ? value : null;
+}
+
+/** Table rows E0-E9: nothing parsed above; read the outermost balanced spans, failing closed. */
+function readSpans(scan, { verdict, strict }) {
+  if (scan.unclosed) return null; // an opener that never closes may be the answer opening
+  const readable = [];
+  for (const span of scan.spans) {
+    const got = readWithRepairs(span);
+    if (got.ok) {
+      if ((verdict || strict) && duplicatesChangeTheDecision(got.text, got.value, { verdict })) return null;
+      readable.push(got.value);
+    } else if (JSON_LOOKING.test(span)) return null; // a failed attempt, however many readable spans surround it
+  }
+  if (readable.length === 0) return null;
+  if (!verdict && !strict) return readable.length === 1 ? readable[0] : null; // N: a quoted example must never become a recorded proposal
+  if (!verdict) return readable.every(o => canon(o) === canon(readable[0])) ? readable[0] : null; // S: distinct readable objects are ambiguous
+  if (readable.some(contradictory)) return null;
+  const bearing = readable.filter(o => spanVerdict(o) !== null); // V: only a span that states a verdict can be one; the others are examples
+  if (bearing.length === 0) return null;
+  if (new Set(bearing.map(spanVerdict)).size > 1) return null; // different verdicts: cannot tell which is the seat's
+  return bearing.every(o => decisionKey(o) === decisionKey(bearing[0])) ? bearing[0] : null; // the same verdict: only an identical decision payload is safe to take
+}
+
+const sortKeys = v => (Array.isArray(v) ? v.map(sortKeys) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sortKeys(v[k])])) : v);
+/** The whole object as one comparable string (key order and spacing do not matter). */
+const canon = v => JSON.stringify(sortKeys(v));
+/** The decision-bearing part of a verdict object: meets, failures, the criteria table rows and answers, missing = empty. Wording like verdict_line is not decision-bearing. */
+const decisionKey = o => canon({ meets: o?.meets ?? null, failures: o?.failures ?? [], criteria: o?.criteria ?? [], answers: o?.answers ?? [] });
+
+/**
+ * The same JSON text read with the FIRST of a repeated key winning (JSON.parse keeps the LAST). Only called on text JSON.parse already accepted, so the grammar is trusted: this is a reader, not
+ * a validator. Keys are compared decoded (an escaped spelling is the same key); `__proto__` is set with defineProperty so it stays an own key like JSON.parse makes it.
+ */
+function parseFirstWins(json) {
+  let i = 0;
+  const ws = () => { while (i < json.length && ' \t\n\r'.includes(json[i])) i++; };
+  const string = () => {
+    const start = i++;
+    while (json[i] !== '"') { if (json[i] === '\\') i++; i++; }
+    i++;
+    return JSON.parse(json.slice(start, i));
+  };
+  const value = () => {
+    ws();
+    const ch = json[i];
+    if (ch === '{') {
+      i++; ws();
+      const o = {};
+      if (json[i] === '}') { i++; return o; }
+      for (;;) {
+        ws();
+        const k = string();
+        ws(); i++; // the colon
+        const v = value();
+        if (!Object.prototype.hasOwnProperty.call(o, k)) Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
+        ws();
+        if (json[i++] === '}') return o;
+      }
+    }
+    if (ch === '[') {
+      i++; ws();
+      const a = [];
+      if (json[i] === ']') { i++; return a; }
+      for (;;) { a.push(value()); ws(); if (json[i++] === ']') return a; }
+    }
+    if (ch === '"') return string();
+    const m = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|^true|^false|^null/.exec(json.slice(i));
+    i += m[0].length;
+    return JSON.parse(m[0]);
+  };
+  return value();
+}
+
+/**
+ * Audit item 3 / Astra finding 4, refined 14 Oct 2026 after diffing the parser over 1,176 real replies on disk: a repeated key is a reason to abstain only when it CHANGES THE DECISION.
+ * `lastWins` is the ordinary parse. For a verdict (V) the two readings are compared on what the panel records: the verdict they stand for, `meets`, the real failures and the answer-back `answers`; for a strict
+ * caller (S) on the whole object. One real reply carries an accidental second `verdict` line in a criteria row with the same outcome either way, and re-asking it would be a paid call for nothing.
+ * Fails closed: if the first-wins reading cannot be made, the duplicate counts as decision-changing.
+ */
+function duplicatesChangeTheDecision(json, lastWins, { verdict }) {
+  if (!hasDuplicateKeys(json)) return false;
+  let first;
+  try { first = parseFirstWins(json); } catch { return true; }
+  if (!verdict) return canon(first) !== canon(lastWins);
+  return spanVerdict(first) !== spanVerdict(lastWins)
+    || (first?.meets ?? null) !== (lastWins?.meets ?? null)
+    || canon(realFailures(first)) !== canon(realFailures(lastWins))
+    || canon(first?.answers ?? []) !== canon(lastWins?.answers ?? []); // decisionKey counts answers as decision-bearing, so a repeated answers key that flips a disposition is a decision change
+}
+
+/**
+ * True when a JSON text holds an object with the same key twice (decoded names compared, so an escaped spelling does not hide one). `JSON.parse` keeps the LATER value, which can erase an explicit
+ * rejection (`{"meets": false, "meets": true}`) before any ambiguity check can run. Only called on text that already parsed.
+ */
+function hasDuplicateKeys(json) {
+  const stack = [];
+  for (let i = 0; i < json.length; i++) {
+    const ch = json[i];
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < json.length && json[j] !== '"') { if (json[j] === '\\') j++; j++; }
+      const top = stack[stack.length - 1];
+      if (top?.keys && top.expectKey) {
+        let name; try { name = JSON.parse(json.slice(i, j + 1)); } catch { name = json.slice(i, j + 1); }
+        if (top.keys.has(name)) return true;
+        top.keys.add(name);
+        top.expectKey = false;
+      }
+      i = j;
+    } else if (ch === '{') stack.push({ keys: new Set(), expectKey: true });
+    else if (ch === '[') stack.push({ keys: null, expectKey: false });
+    else if (ch === '}' || ch === ']') stack.pop();
+    else if (ch === ',' && stack[stack.length - 1]?.keys) stack[stack.length - 1].expectKey = true;
+  }
+  return false;
+}
+
+// The ONE placeholder rule of the verdict readers (parseJson's checks below and normaliseCritique): an entry that names no criterion and says nothing, or names a none-word criterion and says nothing else, is not a failure.
+const NONE_WORDS = /^(none|n\/?a|-|no failures?)\.?$/i;
+/** Text that says nothing: absent, blank, or a none-word ("None", "N/A", "-", "no failures"). */
+const saysNothing = x => { const s = String(x ?? '').trim(); return s === '' || NONE_WORDS.test(s); };
+// Bug audit 2026-10-24 C-007: a placeholder failure entry names no criterion AND says nothing (its own comment, below). The old rule dropped two entries that DO say something: a bare string (`"failures": ["The plan has no rollback section"]`) and an object whose criterion is a none-word but whose problem or fix is real. Either, beside `meets: true`, read as a sign-off around an objection the seat gave.
+// ONE rule: normaliseCritique uses this function too (it used to carry a second copy kept in step by a test).
+const isPlaceholderFailure = f => {
+  if (!f) return true;
+  if (typeof f === 'string') return saysNothing(f);
+  if (typeof f !== 'object') return true;
+  if (f.criterion) return NONE_WORDS.test(String(f.criterion).trim()) && saysNothing(f.problem) && saysNothing(f.fix);
+  return !String(f.problem || '').trim();
+};
+const tableRows = o => (Array.isArray(o?.criteria) ? o.criteria.filter(r => r && typeof r === 'object' && !Array.isArray(r)) : []);
+const realFailures = o => (Array.isArray(o?.failures) ? o.failures.filter(f => !isPlaceholderFailure(f)) : []);
+
+/**
+ * Contradictory decision fields: `meets: true` beside a real failure or a FAILED table row, or `meets: false` beside an all-MET table that lists NO real failure. No reading of such an object is safe.
+ * An all-MET table with `meets: false` AND real failures is a consistent objection (normaliseCritique reads failures first): two of 541 verdict replies on disk have that shape (14 Oct 2026).
+ */
+function contradictory(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+  const rows = tableRows(o);
+  const failing = realFailures(o).length > 0 || rows.some(r => FAILED_VERDICT.test(verdictWord(r.verdict)));
+  const allMet = rows.length > 0 && rows.every(r => MET_VERDICT.test(verdictWord(r.verdict)));
+  return (o.meets === true && failing) || (o.meets === false && allMet && realFailures(o).length === 0);
+}
+
+/**
+ * The verdict a parsed span would stand for downstream, in the order normaliseCritique decides it: any real failure or FAILED table row is an objection; else `meets: true` or a non-empty
+ * all-MET table is a sign-off; else `meets: false` is an objection; anything else (an example object with none of these fields) stands for no verdict (null).
+ */
+function spanVerdict(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+  const rows = tableRows(o);
+  if (realFailures(o).length || rows.some(r => FAILED_VERDICT.test(verdictWord(r.verdict)))) return 'objection';
+  if (o.meets === true || (rows.length > 0 && rows.every(r => MET_VERDICT.test(verdictWord(r.verdict))))) return 'sign-off';
+  return o.meets === false ? 'objection' : null;
+}
+
+/**
+ * The outermost balanced `{...}` spans of a text, left to right, with string state tracked (a brace inside a double-quoted string, and an escaped quote, do not count), and whether a `{`
+ * outside every span never closed (`unclosed`, at `unclosedAt`: the scan stops at the first one, so a hostile reply of a million `{` costs one pass). A balanced span is not searched for spans inside it.
+ * More than `maxStarts` spans stop the scan and read as unclosed (fail closed). Pure.
+ */
+export function scanBraceSpans(text, { maxStarts = 64 } = {}) {
+  const spans = [];
+  let i = text.indexOf('{');
+  while (i !== -1) {
+    if (spans.length >= maxStarts) return { spans, unclosed: true, unclosedAt: i };
+    let depth = 0, inString = false, end = -1;
+    for (let j = i; j < text.length; j++) {
+      const ch = text[j];
+      if (inString) { if (ch === '\\') j++; else if (ch === '"') inString = false; continue; }
+      if (ch === '"') inString = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}' && --depth === 0) { end = j; break; }
+    }
+    if (end === -1) return { spans, unclosed: true, unclosedAt: i };
+    spans.push(text.slice(i, end + 1));
+    i = text.indexOf('{', end + 1);
+  }
+  return { spans, unclosed: false, unclosedAt: -1 };
 }
 
 // Explains why a critic's reply couldn't be parsed, for the abstention log line. Found 2026-09-10
@@ -535,6 +935,9 @@ export function abstentionReasonCode(usage, maxTokens) {
 // hold something (Llama 3.3 70B did exactly this on 2026-09-07, and the
 // harness counted it as an objection). The per-criterion table is the honest
 // signal, so the summary fields are derived from it rather than trusted.
+// 14 Oct 2026 (C&C ruling on fix-up 3, after Astra's review finding 5): that shape is no longer a sign-off anywhere. parseJson({ verdict: true }) returns null for an all-MET table beside `meets: false`
+// and no real failure (an abstention and a re-ask), and this function agrees: it reads the same object as unreadable. A reply whose own flag says it does not meet is never recorded as consent; the cost is
+// up to two re-asks per occurrence (0 of 541 recorded verdict replies have the shape). The old rule (824a4b9, 23 Sep 2026: the table wins) is reversed; its test is edited with old and new in its comment.
 
 // A critic's own text (criterion/problem/fix/verdict_line) is entirely critic-controlled and
 // flows, undelimited until roles.js's own prompt-construction fix, straight into the reviser's
@@ -556,6 +959,8 @@ export function abstentionReasonCode(usage, maxTokens) {
 const CHARS_PER_TOKEN = 4; // the harness's rule everywhere it estimates tokens (estimateTokens)
 const BOARD_TEXT_MIN_CHARS = 40_000; // the amendment's floor: about 10,000 tokens, five times the old cut
 const CRITIC_FIELD_MAX_CHARS = 8_000; // the amendment's floor for critic fields (was 2,000)
+// E84: the longest evidence text of another reviewer's table row a judge is shown in a re-ask, and the only text a peer-sourced withdrawal may quote. 600 = the cap on one objection line in answerBackSection (src/roles.js oneLine); a MET row's evidence is not capped at parse (only a FAILED row's, through capField), so the cap is applied here, before the text is shown and checked.
+const PEER_ROW_MAX_CHARS = 600;
 const boardTextLimit = maxTokens => Math.max(BOARD_TEXT_MIN_CHARS, (maxTokens ?? DEFAULT_MAX_TOKENS) * CHARS_PER_TOKEN);
 let fieldCuts = [];
 /** Start a new record of cut fields. The CLI calls it once per run (one run per process); a nested runChain (descending
@@ -576,8 +981,8 @@ function capField(value, { limit = CRITIC_FIELD_MAX_CHARS, stage = null, field =
 // fenced snippet picked out of a prose objection, a truncated array's first element. That is the
 // "garbled counts as consent" incident class again. A sign-off now needs no failures AND a stated
 // pass: `meets: true`, or a non-empty table whose every row is MET (the table is still the honest
-// signal for the 2026-09-07 Llama shape - all MET, meets:false, placeholder failure - which stays a
-// sign-off). An explicit meets:false with nothing named becomes an objection; a reply that states
+// signal, except for the 2026-09-07 Llama shape - all MET, meets:false, placeholder failure - which is
+// unreadable since 14 Oct 2026, see above). An explicit meets:false with nothing named becomes an objection; a reply that states
 // no verdict at all comes back `unreadable: true`, which callers turn into an abstention (it blocks
 // unanimity; it is never consent). A non-array `failures` or a non-object reply is unreadable too,
 // rather than a throw - the reply is on disk before it is parsed, so a throw here used to crash
@@ -597,9 +1002,8 @@ export function normaliseCritique(critique, log = () => {}, { stage = null } = {
 
   // A placeholder names no criterion AND says nothing - an entry with a real problem but no
   // criterion key is still an objection, just an unlabelled one.
-  const noneCriterion = f => /^(none|n\/?a|-|no failures?)\.?$/i.test(String(f.criterion).trim());
-  const placeholder = f => !f || typeof f !== 'object' || (f.criterion ? noneCriterion(f) : !String(f.problem || '').trim());
-  const failures = rawFailures.filter(f => !placeholder(f))
+  // a bare string entry that says something is an objection with no criterion named: it becomes { problem: <the text> } (C-007)
+  const failures = rawFailures.filter(f => !isPlaceholderFailure(f)).map(f => (typeof f === 'string' ? { problem: f } : f))
     .map(f => ({ ...f, criterion: capField(f.criterion ? String(f.criterion) : NO_VERDICT_FAILURE_CRITERION, { stage, field: 'criterion' }), problem: capField(f.problem, { stage, field: 'problem' }), fix: capField(f.fix, { stage, field: 'fix' }) }));
   const dropped = rawFailures.length - failures.length;
   if (dropped) log(`    (ignored ${dropped} placeholder failure entr${dropped === 1 ? 'y' : 'ies'} that named no criterion)`);
@@ -613,6 +1017,8 @@ export function normaliseCritique(critique, log = () => {}, { stage = null } = {
   if (failures.length) return { ...critique, failures, verdict_line, meets: false };
 
   const allMet = rows.length > 0 && rows.every(r => MET_VERDICT.test(verdictOf(r)));
+  // The Llama shape: the flag says no and the table says yes with nothing real named. Neither wins silently (an explicit false is never approval by precedence): an abstention the panel re-asks.
+  if (critique.meets === false && allMet) return unreadable('the reply says meets:false beside a table where every criterion is MET and names no failure');
   if (critique.meets === true || allMet) return { ...critique, failures, verdict_line, meets: true };
   if (critique.meets === false) {
     // A stated objection that named nothing. Kept as an objection (never consent), with whatever
@@ -649,7 +1055,6 @@ export function scoreProposals(proposals, plan) {
 // blind-panel and debate logic key on. A second copy of this one-liner there
 // could drift from this one, and the thing that would silently break is
 // exactly what the harness exists to measure (lab independence).
-export const labOf = seat => seat.lab || seat.provider;
 // How many labs sit on a chain's panel: its critics, by labOf. What `council doctor` advertises.
 export const panelLabCount = config => new Set((config?.seats?.critics || []).filter(Boolean).map(labOf)).size;
 
@@ -671,7 +1076,9 @@ export function duplicateLabSlots(config) {
   const check = (slot, list) => {
     if (!Array.isArray(list)) return;
     const labs = list.filter(Boolean).map(labOf);
-    const dupes = [...new Set(labs.filter((l, i) => labs.indexOf(l) !== i))];
+    let dupes = [...new Set(labs.filter((l, i) => labs.indexOf(l) !== i))];
+    // lab-identity unit (Q1): the SAME model on different layers of a layered critics panel is not a collision, it has its own seat key (src/seat-key.js)
+    if (slot === 'critics') dupes = dupes.filter(l => !repeatedLabsOf(list).find(r => r.lab === l)?.keys);
     if (dupes.length) out.push({ slot, labs: dupes });
   };
   // Every stage whose label is keyed by lab (test/prerelease-batch1b.test.js walks chain.js's
@@ -694,10 +1101,10 @@ export function duplicateLabSlots(config) {
 // dedicated seat kind.
 export function findSeatByLab(config, id) {
   const seats = config?.seats || {};
-  const named = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger']
+  const named = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'decider']
     .map(k => seats[k]).filter(Boolean);
   const all = [...named, ...(seats.critics || []), ...(seats.proposers || []), ...(seats.alternatives || [])];
-  return all.find(s => labOf(s) === id) || null;
+  return all.find(s => seatKeyOf(s) === id) || null;
 }
 
 // roster.criteria_seat (item 5): absent leaves the existing configured
@@ -740,9 +1147,19 @@ export function unionAmbiguities(lists) {
 // that seat (a Claude Code session on the Max plan, a human), and the run
 // resumes from disk once <label>.md exists. Thrown, not returned, so the
 // chain's control flow stays linear.
+/**
+ * Round semantics 2b (Muad 15 Oct 2026: a round ends only when the overseer layer gives a verdict; after the cap or a layer's revision bound the run STOPS and the person chooses): thrown by the loop when advance() says stop. Control flow, like
+ * ExternalPause: the invoke catch lets it through; runChain attaches the run so far as `partial`; the CLI writes a stopped marker + report-partial.json (NO report.json: the run did not finish) and exits 23. Thrown BEFORE the
+ * post-loop stages, so a stop spends nothing more.
+ */
+export class RoundStopped extends Error {
+  constructor(stop) { super(`the run stopped: ${stop.kind}`); this.controlFlow = true; this.stop = stop; }
+}
+
 export class ExternalPause extends Error {
-  constructor(label, system, user) {
+  constructor(label, system, user, askedFor = null) {
     super(`waiting for external stage ${label}`); this.controlFlow = true; this.label = label; this.system = system; this.user = user;
+    this.askedFor = askedFor;   // the seat's model (harness a, S3): the NEEDS file says which model the seat asks for
     // The prompt the external answer will be checked against on resume (pre-release audit 5 #1/#4).
     this.promptHash = promptHashOf(system, user);
   }
@@ -839,6 +1256,20 @@ export function rethrowControlFlow(err) {
   if (err instanceof BudgetExceeded || err instanceof ExternalPause || err?.controlFlow) throw err;
 }
 
+// A3a commit 2 (18 Okt 2026; src/price-refused.js): the two helpers of the seat-skip choice. `skipChosen(seat, labels)` goes first INSIDE the try of a stage that can do without a seat (a debate post, a reply round; never a panel judge, see the panel catch): a seat
+// the person chose to skip (run.json seatChoices, src/price-refused.js setSeatSkips) throws a plain error there, which the stage's own catch counts as an unreachable seat, an abstention, exactly as a down lab is. CR-1B-002: only from the stage that was refused on
+// (the choice's recorded call label is one of `labels`, the labels of the call about to be made) to the end of the run; a stage the seat already finished before it replays from disk, so its cost stays counted. `offerSkip` goes first
+// INSIDE that catch, before rethrowControlFlow: it tells a PriceRefused that this stage could do without the seat, and how many OTHER seats of its group (not already skipped) would stay.
+function skipChosen(seat, labels) {
+  const c = seatSkipActive(seat, labels);
+  if (c) throw new Error(`skipped by a --skip-seat flag (price refused; recorded ${c.at ?? 'earlier'})`);
+}
+function offerSkip(err, seat, group) {
+  if (!(err instanceof PriceRefused)) return;
+  const k = skipKeyOf(seat);
+  markSkippable(err, { voices: (group ?? []).filter(s => s && skipKeyOf(s) !== k && !seatSkipChoice(s)).length, lab: seatKeyOf(seat) });
+}
+
 // Bug-audit fix, 2026-09-23 (BugAudit_MoneyPath #5): a parallel stage waits for EVERY call to
 // settle before it rethrows. Promise.all rejected on the first BudgetExceeded while sibling calls
 // were still in flight - the CLI then exited, so those siblings were billed but never recorded,
@@ -860,6 +1291,12 @@ export async function settleAll(promises) {
         .filter(r => r.status === 'rejected' && r.reason !== failed.reason && r.reason instanceof ExternalPause)
         .map(r => r.reason);
       if (siblings.length) failed.reason.siblings = [...(failed.reason.siblings || []), ...siblings];
+    }
+    // A3a commit 2 (18 Okt 2026, C&C): every seat of this stage that OpenRouter refused at its price pin rides along on the first refusal as `also`, so ONE stop names them all and one resume (a row each, or --skip-seat) fixes the stage,
+    // instead of "fix one, resume, hit the next". Only refusals ride along; any other rejection that settled first still wins exactly as before.
+    if (failed.reason instanceof PriceRefused) {
+      const also = results.filter(r => r.status === 'rejected' && r.reason !== failed.reason && r.reason instanceof PriceRefused).map(r => r.reason);
+      if (also.length) failed.reason.also = also;
     }
     throw failed.reason;
   }
@@ -895,6 +1332,23 @@ export const DISPUTE_REVIEW_VERDICTS = ['accepted', 'misrepresented', 'silently_
 
 const squash = t => String(t ?? '').replace(/\s+/g, ' ').trim();
 
+// The failures a report shows: `lab` is the bare lab and a repeated seat's key moves to `seat` (the key stays internal; failures keep it in `lab` while the run is going).
+// What the dispute prompt's "Raised by" line is built from (roles.js renderClaim): the objection's seat MODEL id from the seat record (never from seat-key text) and, for a model that sits on more than one
+// layer of a layered critics panel, its layer. Transient: it is not part of the failure record.
+const withRaisedBy = (f, critics) => {
+  const seat = f.lab ? critics.find(c => seatKeyOf(c) === f.lab) : null;
+  if (!seat) return f;
+  const layers = new Set((critics || []).filter(c => (seatIdentity(c) ?? `model:${c.model}`) === (seatIdentity(seat) ?? `model:${seat.model}`) && Number.isInteger(c.layer)).map(c => c.layer));
+  return { ...f, model: seat.model, ...(layers.size > 1 ? { model_layer: seat.layer } : {}) };
+};
+// A conflict item as the decider prompt, the decisions[] rows and the asked rows show it: the BARE lab, the repeated seat's key moved to `seat`.
+const bareConflictItem = it => ({ ...shownFailure(it), others: it.others.map(shownFailure) });
+// CR-6A-004: a peer a withdrawal quoted (`quoted_ref`) is recorded by its seat KEY (`<lab>-l2` for a model repeated on a second layer); the record shows the lab, and `quoted_layer` beside it says which layer.
+const shownFailure = f => {
+  const g = f?.lab && labFromKey(f.lab) !== f.lab ? { ...f, lab: labFromKey(f.lab), seat: f.lab } : f;
+  return g?.quoted_ref && labFromKey(g.quoted_ref) !== g.quoted_ref ? { ...g, quoted_ref: labFromKey(g.quoted_ref) } : g;
+};
+const shownCritique = c => (c?.failures?.some(f => f?.lab && labFromKey(f.lab) !== f.lab) ? { ...c, failures: c.failures.map(shownFailure) } : c);
 export async function runDisputeReview(config, { request, openFailures, draftBefore, draftAfter, invoke, record, log = () => {} }) {
   const critics = config.seats?.critics || [];
   const byLab = new Map();
@@ -904,12 +1358,15 @@ export async function runDisputeReview(config, { request, openFailures, draftBef
     byLab.get(lab).push({ ...f, index });
   });
   const entries = new Array(openFailures.length);
-  const entry = (o, fields) => ({ criterion: o.criterion, lab: o.lab || null, ...fields });
+  const entry = (o, fields) => ({ criterion: o.criterion, lab: o.lab ? labFromKey(o.lab) : null, ...(o.lab && labFromKey(o.lab) !== o.lab ? { seat: o.lab } : {}), ...fields });
   const after = squash(draftAfter);
+  // T2-6 commit 3 (C&C FIX, 14 Oct 2026): the seat is SHOWN containerText(draftAfter) (src/roles.js disputeReviewUser), so a quote is also checked against exactly that text. Any substring of the shown text is a substring of its
+  // squashed form, which is what `shownAfter` is, so a quote copied from the prompt always matches; the escape is never undone on the quote (it is not reversible). The raw match stays, for a seat that quotes the draft as written.
+  const shownAfter = squash(containerText(draftAfter));
 
   const calls = [];
   for (const [lab, objs] of byLab) {
-    const seat = lab ? critics.find(c => labOf(c) === lab) : null;
+    const seat = lab ? critics.find(c => seatKeyOf(c) === lab) : null;
     if (!seat) {
       for (const o of objs) entries[o.index] = entry(o, { verdict: 'unconfirmed', reason: 'no panel seat for this lab' });
       continue;
@@ -934,7 +1391,7 @@ export async function runDisputeReview(config, { request, openFailures, draftBef
         const r = parsed.reviews.find(x => x?.objection === k + 1) ?? null;
         const claimed = DISPUTE_REVIEW_VERDICTS.includes(r?.verdict) ? r.verdict : null;
         const quote = typeof r?.quote === 'string' ? r.quote : '';
-        const quoteFound = quote.trim() !== '' && after.includes(squash(quote));
+        const quoteFound = quote.trim() !== '' && (after.includes(squash(quote)) || shownAfter.includes(squash(quote)));
         const base = { claimed_verdict: claimed, quote, quote_found: quoteFound, note: typeof r?.note === 'string' ? r.note : null };
         if (!claimed) {
           entries[o.index] = entry(o, { verdict: 'unconfirmed', reason: r ? 'no valid verdict' : 'objection not answered', ...base });
@@ -998,14 +1455,19 @@ export function setCache(c) { cache = c || { get: () => null }; }
 // seven critics at $22.89 of a $25 cap all passed and could spend $27.93. Each call now reserves its
 // projection synchronously when it passes the check, and the reservation is swapped for the actual
 // cost when it settles - so the check a sibling sees already counts every call in flight.
-let budget = { cap: null, spent: 0, reserved: 0 };
+// `assumed` (cost-unit U1 split, 14 Oct 2026): the part of `spent` that is a WORST CASE charged for replayed stages whose usage record has no figure, never a recorded dollar: { stages, usd }. The cap counts it (a resume cannot lap the cap); every record
+// (a stage's own usd, report totals, --spend, STOPPED-budget.json spentUsd) carries only the recorded part.
+let budget = { cap: null, spent: 0, reserved: 0, assumed: { stages: 0, usd: 0 } };
 // Audit A1-5 (0.8.1): a cap that is not a finite number above zero (a hand-edited run.json, a corrupt value) used to pass through and make every projection
 // "fit" (NaN comparisons are false). It fails closed now: the run does not start. null still means no ceiling (the owner's `--max-usd none`).
 export function setBudget(cap) {
   if (cap !== null && cap !== undefined && !(typeof cap === 'number' && Number.isFinite(cap) && cap > 0)) throw new Error(`the spend cap must be a number above 0 (or none), not ${JSON.stringify(cap)}; nothing was run and nothing was spent. Fix --max-usd, or the maxUsd value in the run's run.json.`);
-  budget = { cap: cap ?? null, spent: 0, reserved: 0 };
+  budget = { cap: cap ?? null, spent: 0, reserved: 0, assumed: { stages: 0, usd: 0 } };
 }
-export function budgetState() { return { ...budget, remaining: budget.cap === null ? null : Math.max(0, budget.cap - budget.spent - budget.reserved) }; }
+// The RECORDED part of the budget's spend: `spent` minus the worst-case charges for replayed stages with no recorded figure (`assumed`). This is the figure every record carries (STOPPED-*.json, the stop marker, the advice log); `spent` itself is
+// what the cap counts. Equal while nothing was assumed.
+export function recordedSpentOf(state = budget) { return Math.max(0, state.spent - (state.assumed?.usd || 0)); }
+export function budgetState() { return { ...budget, assumed: { ...budget.assumed }, remaining: budget.cap === null ? null : Math.max(0, budget.cap - budget.spent - budget.reserved) }; }
 // Pre-release audit, money path #2 (Review/PreRelease_Audit_moneypath_2026-09-23.md): spend from an
 // earlier sitting whose cached stage is no longer replayed - it went stale and was re-run - still
 // happened. The CLI counts it in here (on resume, from the archived `<label>.stale-*.usage.json`
@@ -1063,6 +1525,7 @@ let promptSpy = null;
 export function setPromptSpy(fn) { promptSpy = typeof fn === 'function' ? fn : null; }
 
 async function invoke(seat, { system, user, log, label }) {
+  assertStageLabelSafe(label, labOf(seat));   // BUG-D-021: before anything is read from or written to a run folder, sent or paid
   promptSpy?.({ label, provider: seat.provider, model: seat.model, system, user });
   const started = Date.now();
   // Backstop for the check at the top of runChain: every call, including a replay from disk.
@@ -1100,16 +1563,25 @@ async function invoke(seat, { system, user, log, label }) {
   const projected = attempts.first + attempts.retry;
   const oneAttempt = attempts.first;
   let attemptWorstCase = attempts.first; // the worst case of the attempt now in flight (set to attempts.retry for the retry)
-  const recordedUsd = h => {
+  // What a replayed stage costs, as TWO figures (cost-unit U1 + C&C's split ruling, 14 Oct 2026). `recorded` is what the stage's own record says (the stage's returned usd, report.json, --spend: a figure the record does not hold is never invented
+  // there); `charged` is what the CAP counts. They are equal except when the record has NO `usd` at all (absent or null) on a seat that can cost money: that is a lost figure, not a free stage, so the cap counts one attempt's worst case
+  // (`assumed: true`) while the recorded figure stays 0. $0 stays for a seat that projects $0 (a free, external or unpriced seat). A MALFORMED figure (not a number >= 0) is charged one attempt on both, as before.
+  const replayFigures = h => {
+    if ((h.usd === undefined || h.usd === null) && oneAttempt > 0) {
+      log(`  ${label}: the cost recorded on disk for this stage is missing - ${formatUsd(oneAttempt)} (one attempt's worst case) counted toward the cap instead.`);
+      return { recorded: 0, charged: oneAttempt, assumed: true };
+    }
     const usd = readUsd(h.usd);
-    if (usd !== null) return usd;
+    if (usd !== null) return { recorded: usd, charged: usd, assumed: false };
+    // A MALFORMED figure (cost-unit U1 split, C&C 14 Oct 2026, closing the class): the same as an absent one. The record holds no usable dollar, so the recorded figure is what src/spend.js reads it as (unknown: nothing added, so 0 here); the cap counts one attempt.
     log(`  ${label}: the cost recorded on disk for this stage is not a valid amount - ${formatUsd(oneAttempt)} (one attempt's worst case) counted toward the cap instead.`);
-    return oneAttempt;
+    return { recorded: 0, charged: oneAttempt, assumed: oneAttempt > 0 };
   };
+  const chargeReplay = f => { budget.spent += f.charged; if (f.assumed) { budget.assumed.stages += 1; budget.assumed.usd += f.charged; } };
   let hit = cache.get(label);
   // 0.8.1 FX-9: the cached `handoff` stage may be the final HANDOFF.md on a case-insensitive disk (one file); its
   // lock block is the harness's, never the model's text, so it is cut before the text is used.
-  if (hit && label === 'handoff' && typeof hit.text === 'string') hit = { ...hit, text: stripLockBlock(hit.text) };
+  if (hit && label === 'handoff' && typeof hit.text === 'string') hit = { ...hit, text: stripBuilderTaskBlock(stripLockBlock(hit.text)) }; // 2b-1c: the builder-task block is the harness's too (stripLockBlock's twin)
   if (hit) {
     // Pre-release cache audit #1: the decision is cacheVerdict() (cache-integrity.js). An entry with
     // no record of its inputs is stale now; one from between the two fixes is trusted but recorded
@@ -1117,9 +1589,12 @@ async function invoke(seat, { system, user, log, label }) {
     // written back by the CLI (onStage), so the gap closes at the next resume.
     const verdict = cacheVerdict(hit, promptHash);
     if (verdict.status === 'stale') {
-      const oldUsd = recordedUsd(hit);
-      budget.spent += oldUsd;
+      const old = replayFigures(hit);
+      const oldUsd = old.recorded;   // the sentence below says what the old answer COST; a worst case assumed for a missing figure is already named by replayFigures' own log line
+      chargeReplay(old);
       cache.invalidate?.(label, verdict.why);
+      // BUG-D-005 / BUG-C-013: the collected NOTE lines of a folded handoff (`handoff-notes`) are derived from THIS stage's reply, so they go stale with it (set aside, never read back for the new reply). Only when that file exists: no noise line for a lane-off chain.
+      if (label === 'handoff' && typeof cache.get?.('handoff-notes')?.text === 'string') cache.invalidate?.('handoff-notes', verdict.why);
       log(`  CACHE STALENESS WARNING: stage "${label}" - ${verdict.why}; ${seat.provider === 'external' ? 'the old answer was set aside and the operator is asked again' : 're-running it'}${oldUsd ? ` (the ${formatUsd(oldUsd)} the old answer cost still counts toward the cap)` : ''}.`);
       hit = null;
     } else if (verdict.status === 'unverified') {
@@ -1128,21 +1603,32 @@ async function invoke(seat, { system, user, log, label }) {
     }
   }
   if (hit) {
-    const usd = recordedUsd(hit);
+    const figures = replayFigures(hit);
+    const usd = figures.recorded;
     const usage = hit.usage ? readUsage(hit.usage).usage : { input: 0, output: 0 };
-    budget.spent += usd;
+    chargeReplay(figures);
     log(`  ${label}: ${hit.provider || seat.provider}/${hit.model || seat.model} - from disk (${usage.input} in, ${usage.output} out, ${formatUsd(usd)} already spent)`);
     // 0.8.1 R: what the original attempt decided survives the replay (the cache file is data: only a positive number and the one known mark are taken).
     const replayed = { ...(Number.isFinite(hit.cappedAt) && hit.cappedAt >= (seat.maxTokens ?? DEFAULT_MAX_TOKENS) ? { cappedAt: hit.cappedAt } : {}), ...(hit.noAnswer === NO_ANSWER_THINKING ? { noAnswer: NO_ANSWER_THINKING } : {}) };
-    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), usage, usd, priced: true, ms: 0, text: hit.text, cached: true, promptHash, ...replayed };
+    // 0.8.3 M2 (D18): the id of the reservation that paid for this stage, read back from its usage file, so a finished run's report names the sitting that paid (null/absent for a stage that wrote none).
+    const paidBy = typeof hit.reservationId === 'string' && hit.reservationId ? { reservationId: hit.reservationId } : {};
+    return { label, provider: hit.provider || seat.provider, model: hit.model || seat.model, lab: labOf(seat), ...seatField(seat), ...answerRecordOf(hit, seat), usage, usd, priced: true, ms: 0, text: hit.text, cached: true, promptHash, ...replayed, ...paidBy };
   }
   assertOutboundClean(label, { system, user }, outboundScan);
-  if (seat.provider === 'external') throw new ExternalPause(label, system, user);
+  if (seat.provider === 'external') throw new ExternalPause(label, system, user, seat.model);
   // 0.8.2 item 8a: under a cap, a seat with no price is refused here, before the only line that spends (see UnpricedSeat).
   if (budget.cap !== null && needsPrice(seat)) {
     log(`  ${label}: REFUSED - ${seat.provider}/${seat.model} has no price, so the spend cap of ${formatUsd(budget.cap)} cannot hold it.`);
     throw new UnpricedSeat({ label, seat: `${seat.provider}/${seat.model}`, cap: budget.cap });
   }
+
+  // A3a (18 Okt 2026): an OpenRouter call carries a price pin at the seat's table price (src/price-pin.js); built here, at the call boundary only: the seat, its `extra` and every record stay as they were. The retry sends the same `sentExtra`.
+  // Built BEFORE the cap check and the reservation: a seat whose provider/max_price is not an object throws PinRefused (controlFlow) here, so nothing is reserved and nothing is sent (the UnpricedSeat pattern; chain-lint says it first).
+  // 0.8.1 milestone R (owner: "I want reasoning to always be 'High' for the 'High' Council"; "NO LOWER EFFORT"): the reasoning setting a
+  // request carries is the seat's own, plus "high" where it is unset (src/reasoning.js; a seat the table has no field for gets nothing).
+  // The retry below sends the SAME `sentExtra`: no path in this file lowers a seat's effort (test/reasoning-never-lower.test.js scans for it).
+  const firstCap = seat.maxTokens ?? DEFAULT_MAX_TOKENS;
+  const sentExtra = pinnedExtra(seat, extraWithHighDefault(seat, firstCap));
 
   // The cap is checked here, before the only line in this file that spends
   // money. Anthropic seats are projected at two attempts because invoke()
@@ -1151,7 +1637,7 @@ async function invoke(seat, { system, user, log, label }) {
   const verdict = wouldBreach({ spent: budget.spent + budget.reserved, cap: budget.cap, projected });
   if (verdict.breach) {
     const inFlight = budget.reserved > 0 ? ` (plus up to ${formatUsd(budget.reserved)} reserved by calls still in flight)` : '';
-    log(`  ${label}: STOPPED - ${formatUsd(budget.spent)} spent${inFlight}, this stage could cost up to ${formatUsd(projected)}, ceiling is ${formatUsd(budget.cap)}.`);
+    log(`  ${label}: STOPPED - ${formatUsd(recordedSpentOf())} spent${inFlight}, this stage could cost up to ${formatUsd(projected)}, ceiling is ${formatUsd(budget.cap)}.`);
     throw new BudgetExceeded({ label, seat: `${seat.provider}/${seat.model}`, spent: budget.spent, cap: budget.cap, projected });
   }
   // Reserved synchronously - no await between the check above and this line - and released in the
@@ -1171,13 +1657,8 @@ async function invoke(seat, { system, user, log, label }) {
       }
     }
 
-    progressHook({ label, lab: labOf(seat), startedAt: new Date().toISOString() });
+    progressHook({ label, lab: labOf(seat), ...seatField(seat), startedAt: new Date().toISOString() });
 
-    const firstCap = seat.maxTokens ?? DEFAULT_MAX_TOKENS;
-    // 0.8.1 milestone R (owner: "I want reasoning to always be 'High' for the 'High' Council"; "NO LOWER EFFORT"): the reasoning setting a
-    // request carries is the seat's own, plus "high" where it is unset (src/reasoning.js; a seat the table has no field for gets nothing).
-    // The retry below sends the SAME `sentExtra`: no path in this file lowers a seat's effort (test/reasoning-never-lower.test.js scans for it).
-    const sentExtra = extraWithHighDefault(seat, firstCap);
     const ask = (extra, maxTokens = firstCap) => call(seat.provider, {
       model: seat.model,
       system,
@@ -1197,9 +1678,10 @@ async function invoke(seat, { system, user, log, label }) {
     // extra.models fallback, a dated alias), and an unpriced answering model cost $0, so the cap went
     // blind for that call. It is charged at the seat's own model's price instead, and says so.
     const priceAnswer = r => {
-      const own = costOf(r.provider, r.model, r.usage);
+      const pin = ownPinOf(seat);   // CR-1F-001: the call carried the seat's own pin, so it is recorded at max(row, pin) per field, as the projection priced it
+      const own = costOf(r.provider, r.model, r.usage, pin);
       if (own.priced || r.model === seat.model) return own;
-      const asSeat = costOf(r.provider, seat.model, r.usage);
+      const asSeat = costOf(r.provider, seat.model, r.usage, pin);
       if (asSeat.priced) log(`  ${label}: answered by ${r.provider}/${r.model}, which has no price entry - charged at ${seat.model}'s price.`);
       return asSeat.priced ? asSeat : own;
     };
@@ -1252,6 +1734,7 @@ async function invoke(seat, { system, user, log, label }) {
       provider: res.provider,
       model: res.model,
       lab: labOf(seat),
+      ...seatField(seat),
       usage: res.usage,
       usd: cost.usd + wasted,
       priced: cost.priced,
@@ -1271,6 +1754,8 @@ async function invoke(seat, { system, user, log, label }) {
       // 0.8.1 R review: the cap this answer was asked at. An Anthropic seat was already retried at the bigger cap here, so a caller's cut-off retry
       // starts from THIS cap and is skipped when it has no room (it used to repeat the same paid call).
       cappedAt: finalCap,
+      // 0.8.3 M2 (D18): the reservation that paid for this call, so the usage file, report.json and the tree's accounting can tell it from another call with the same label. Absent when none was written (a mock call).
+      ...(reservationId ? { reservationId } : {}),
     };
     budget.spent += cost.usd; // `wasted` was already added when the first attempt was discarded
     unrecordedWaste = 0; // stage.usd carries it now
@@ -1281,7 +1766,9 @@ async function invoke(seat, { system, user, log, label }) {
     return stage;
   } catch (err) {
     settled = { outcome: err?.maybeBilled ? 'billed_unreadable' : 'failed', usd: err?.maybeBilled ? attemptWorstCase : 0 };
-    if (unrecordedWaste > 0) chargeHook({ label, provider: seat.provider, model: seat.model, usd: unrecordedWaste, reason: 'an attempt discarded because thinking used the whole budget; its retry then failed' });
+    // 0.8.3 M2 (D18): both charges below carry the call's reservation id and a kind, because one call can leave BOTH (a discarded first attempt and a billed, unreadable retry); the accounting gate matches a
+    // `billed_unreadable` settlement to its one `billed` charge, never to the waste.
+    if (unrecordedWaste > 0) chargeHook({ label, provider: seat.provider, model: seat.model, usd: unrecordedWaste, reservationId, kind: 'waste', reason: 'an attempt discarded because thinking used the whole budget; its retry then failed' });
     // A call that failed after the request reached the provider (providers.js marks it
     // `maybeBilled`: a dropped 200 body, a non-JSON 200, a post-send timeout) was probably paid
     // for, and its usage is unreadable. Charge one attempt's projection so the cap still sees it
@@ -1290,8 +1777,15 @@ async function invoke(seat, { system, user, log, label }) {
     if (err?.maybeBilled) {
       const charge = attemptWorstCase; // the worst case of the attempt that failed (the retry's is bigger than the first's since 0.8.1)
       budget.spent += charge;
-      chargeHook({ label, provider: seat.provider, model: seat.model, usd: charge, reason: 'failed after it was sent and may have been billed (one attempt\'s worst case)' });
+      chargeHook({ label, provider: seat.provider, model: seat.model, usd: charge, reservationId, kind: 'billed', reason: 'failed after it was sent and may have been billed (one attempt\'s worst case)' });
       log(`  ${label}: the call failed after it was sent and may have been billed - ${formatUsd(charge)} (one attempt's worst case) counted toward the cap.`);
+    }
+    // A3a commit 2 (18 Okt 2026; C&C C2, FAIL CLOSED): a 404 on a call that carried the price pin is OpenRouter refusing it. It stops the run for the person (src/price-refused.js, exit 24) whether or not the body names the
+    // max price: a 404 left as a provider error would be an abstention at a judge or debate seat, the silent skip Muad ruled out. Only the one probe's wording earns a recommendation (`recognised`).
+    if (seat.provider === 'openrouter' && err?.status === 404 && sentExtra?.provider?.max_price !== undefined && !err.controlFlow) {
+      const refused = new PriceRefused({ seat: `${seat.provider}/${seat.model}`, label, pin: sentExtra.provider.max_price, row: effectiveRow(seat.provider, seat.model), status: err.status, said: String(err.message ?? '').split('\n')[0].replace(/^HTTP \d+\s*/, ''), recognised: isMaxPriceRefusal(err.message), lab: labOf(seat), ownPin: !!ownPinOf(seat), ownFields: Object.keys(ownPinOf(seat) ?? {}) });
+      log(`  ${label}: REFUSED at the price limit - ${refused.seat} (HTTP 404${refused.recognised ? ', no host at or under that limit' : ', reason not recognised'}); nothing more was sent for this call.`);   // a run stops for the person; an advice call fails as a whole (PR-10, test/advice-refusal-whole-call.test.js)
+      throw refused;
     }
     throw err;
   } finally {
@@ -1333,7 +1827,7 @@ export function resolveChainSeats(config) {
     return out;
   };
   const seats = { ...config.seats };
-  for (const key of ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'security_reviewer', 'deep_dive']) {
+  for (const key of ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'security_reviewer', 'deep_dive', 'decider']) {
     if (seats[key]) seats[key] = rw(seats[key]);
   }
   for (const key of ['critics', 'proposers', 'ambiguity', 'alternatives']) {
@@ -1372,7 +1866,7 @@ export function resolveChainSeats(config) {
 // and `everySeatOf` below are this list with the names dropped, so a reader that wants the roles
 // (the dry run's per-seat key report, src/dry-run.js) cannot drift from the guards that read the
 // seats. The order is the one those functions always had.
-const SINGLE_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'security_reviewer', 'deep_dive'];
+const SINGLE_SEAT_KEYS = ['criteria', 'builder', 'reviser', 'finalist', 'skeleton', 'handoff', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'security_reviewer', 'deep_dive', 'decider'];
 const LIST_SEAT_KEYS = ['critics', 'proposers', 'ambiguity', 'alternatives'];
 export function seatSlotsOf(config) {
   const s = config.seats || {};
@@ -1451,7 +1945,7 @@ export function checkSeats(seats) {
 // it, per this project's documented history of unenforced prompt rules).
 const DEFAULT_DESCENDING_ORDER = ['plan', 'architecture', 'edge_cases', 'code'];
 
-export async function runDescendingChain({ request, config, log = console.log, onStage = () => {}, snap = null }) {
+export async function runDescendingChain({ request, config, log = console.log, onStage = () => {}, snap = null, earlierPlan = null }) {
   const stages = [];
   // Every stage this function runs - its own descending-build/critic calls, and every stage
   // invoke()'d inside the two runChain() sub-calls below via the shared onStage hook - lands in
@@ -1514,7 +2008,7 @@ export async function runDescendingChain({ request, config, log = console.log, o
         // chain-lint refuses the pair, and neither sub-run runs the stage.
         argued: undefined,
       };
-      planResult = await runChain({ request, config: planConfig, log, onStage: subOnStage });
+      planResult = await runChain({ request, config: planConfig, log, onStage: subOnStage, earlierPlan });       // the plan sub-run is the one with a builder; the final sub-run is handed the stacked draft
       content = planResult.deliverable;
     } else {
       const builderSeat = (config.seats.descending && config.seats.descending[stageName]) || config.seats.builder;
@@ -1530,7 +2024,7 @@ export async function runDescendingChain({ request, config, log = console.log, o
       const res = record(await invoke(critic, {
         system: R.DESCENDING_CRITIC_SYSTEM,
         user: R.descendingCriticUser({ request, stageName, content, frozen, order }),
-        log, label: `descending-${stageName}-critic-${labOf(critic)}`,
+        log, label: `descending-${stageName}-critic-${seatKeyOf(critic)}`,
       }));
       const parsed = parseJson(res.text);
       const amend = parsed?.amend;
@@ -1550,12 +2044,12 @@ export async function runDescendingChain({ request, config, log = console.log, o
             : `"${amend.target}" is not the current stage ("${stageName}")`,
         };
         rejectedAmendments.push(rejection);
-        log(`  rejected: ${labOf(critic)} tried to amend "${amend.target}" - ${rejection.reason}`);
+        log(`  amendment rejected: ${shownSeat(critic)} tried to amend "${amend.target}". Reason: ${rejection.reason}.`);
         continue;
       }
       if (amend.text) {
         content += `\n\nAmendment (${labOf(critic)}): ${amend.text}`;
-        log(`  amended ${stageName} per ${labOf(critic)}`);
+        log(`  amended ${stageName} per ${shownSeat(critic)}`);
       }
     }
 
@@ -1593,7 +2087,7 @@ export async function runDescendingChain({ request, config, log = console.log, o
     ...(planResult?.debateOrders?.length ? { debateOrders: planResult.debateOrders } : {}),
     handoff: finalResult.handoff,
     passed: finalResult.passed,
-    lastCritique: finalResult.lastCritique,
+    lastCritique: shownCritique(finalResult.lastCritique),
     signoff: finalResult.signoff,
     // v7.3: forwarded from finalResult so allocator (and challenge, the same
     // pre-existing gap) work when stacked with descending - the final round
@@ -1636,28 +2130,35 @@ export async function runChain(args) {
   try {
     return await runChainStages(args, snap);
   } catch (err) {
-    if (err instanceof BudgetExceeded && snap.fn) {
+    if ((err instanceof BudgetExceeded || err instanceof RoundStopped || err instanceof PriceRefused || err instanceof ConflictAsked) && snap.fn) {
       try { err.partial = snap.fn(err); } catch { /* keep whatever an inner run attached */ }
     }
     throw err;
   }
 }
 
-async function runChainStages({ request: requestIn, config, draft: initialDraft = null, log = console.log, onStage = () => {}, runId = null }, snap) {
+/** The limit a stop reached, in the words the run log already uses when a person finishes at it. One source for the finish log line, the dispute stage's stop reason and the dissent block (C-005). */
+function limitReachedWords(stop) { return stop.kind === 'overseer_cap' ? 'the overseer-round limit was reached' : `layer ${stop.layer} reached its limit`; }
+async function runChainStages({ request: requestIn, config, draft: initialDraft = null, log = console.log, onStage = () => {}, runId = null, treeMember = false, roundChoices = [], earlierPlan = null }, snap) {
   // 7.x single-vendor mode: resolved once, before either chain shape runs, so descending mode
   // and the normal stage flow both see vendor-routed seats without duplicating the call.
   config = resolveChainSeats(config);
+  registerSeatKeys(config);       // lab-identity unit: a model repeated on different layers of a layered critics panel gets its seat key before any stage label is built
   // No denied model (xAI/Grok, or a router that could reach it) is ever seated -
   // checked on the resolved roster, before any stage runs. See src/denied-models.js.
   assertNoDeniedModels(config);
   if ('signoff' in config && config.signoff !== undefined && !SIGNOFF_MODES.includes(config.signoff)) {
     throw new Error(`unknown signoff ${JSON.stringify(config.signoff)}: this harness runs ${SIGNOFF_MODES.map(m => `"${m}"`).join(' or ')} only, and will not quietly run a different mode than the chain names.`);
   }
+  proposalCapOf(config); // refuses a chain that sets the cap under both spellings with different values, before any stage
   const shared = duplicateLabSlots(config);
   if (shared.length) {
     throw new Error(`two seats share a lab, so they would share one stage label and one cached reply: ${shared.map(d => `seats.${d.slot} (${d.labs.join(', ')})`).join('; ')}. Give each seat its own "lab".`);
   }
-  if (config.descending) return runDescendingChain({ request: requestIn, config, log, onStage, snap });
+  // 0.8.3 E2b: the same refusals as the lint (src/layers.js), so a chain that reaches runChain without going through the CLI's lint gate (a direct import, a test) is refused too and never runs flat.
+  const layerFindings = layerProblems(config, config.name ? `the chain "${config.name}"` : 'this chain');
+  if (layerFindings.length) throw new Error(`${layerFindings[0].message} ${layerFindings[0].fix}`);
+  if (config.descending) return runDescendingChain({ request: requestIn, config, log, onStage, snap, earlierPlan });
 
   // The council advisor (config.advise, src/advise.js): one question, one verdict, the dissent on the
   // record. It has its own short flow - blind opinions, an optional anonymised debate, a roll-up -
@@ -1694,6 +2195,11 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     const ledger = props.length ? peek(() => withdrawalLedger(props), null) : null;
     const optional = {
       noHeardReviewer: peek(() => noHeardReviewer, null) || undefined,
+      layers: peek(() => (layered ? layersRecord : undefined), undefined),
+      decisions: peek(() => (decisions.length ? decisions : undefined), undefined),
+      overseer_rounds: peek(() => (ovOn ? ovCompleted : undefined), undefined),
+      reviewNotes: peek(() => (notesOn ? notesBlock() : undefined), undefined), // notes lane: a stopped run keeps the items its judges gave
+      layerStop: peek(() => layerStop, null) || undefined,
       notQuorate: peek(() => notQuorate, null) || undefined,
       ground_truth: peek(() => ground_truth, undefined),
       canary: peek(() => canary, undefined),
@@ -1717,9 +2223,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       dropouts: peek(() => dropouts, []),
       board: peek(() => board, null),
       debate: peek(() => debate, null),
+      currentDraft: typeof plan === 'string' ? plan : null,   // the plan as it stands (a round stop writes it to deliverable-partial.md; no report shape reads this key)
       scoreboard: props.length && plan ? peek(() => scoreProposals(props, plan), null) : null,
       passed: peek(() => passed, false),
-      lastCritique: peek(() => lastCritique, null),
+      lastCritique: peek(() => shownCritique(lastCritique), null),
       signoff: peek(() => signoff, null),
       challenge: peek(() => challenge, null),
       allocator: config.allocator?.enabled ? peek(() => ({
@@ -1733,8 +2240,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       missingCriteria: peek(() => missingCriteria, []),
       signoffTableGaps: peek(() => signoffTableGaps, []),
       debateOrders: peek(() => debateOrders, []),
-      answerBack: peek(() => answerBackRecords, []),
-      answerBackReplies: peek(() => answerBackReplies, []),
+      answerBack: peek(() => answerBackRecords.map(shownFailure), []),
+      answerBackReplies: peek(() => answerBackReplies.map(shownFailure), []),
       outsideCriteriaRows: peek(() => outsideCriteriaRowList, []),
       criteriaLints: peek(() => criteriaLints, []),
       history: peek(() => history, []),
@@ -1764,6 +2271,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   // if that one is incomplete too.
   const onceMoreIfIncomplete = async (st, seat, opts, say) => {
     if (!draftIncomplete(st.usage)) return st;
+    skipChosen(seat, [opts.label]);   // CR-1B-002: a skip recorded at the retry's refusal starts here, after the first (paid) call replayed
     say(`  ${opts.label.replace(/-retry$/, '')}: the provider ended the reply with stop "${st.usage.stop}" - retrying once.`);
     return record(await invoke(seat, opts));
   };
@@ -1839,14 +2347,14 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const res = record(await invoke(seat, {
           system: R.AMBIGUITY_SYSTEM,
           user: R.ambiguityUser({ request }),
-          log: say, label: `ambiguity-${labOf(seat)}`,
+          log: say, label: `ambiguity-${seatKeyOf(seat)}`,
         }));
         const parsed = parseJson(res.text);
         list = Array.isArray(parsed?.ambiguities) ? parsed.ambiguities.filter(a => typeof a === 'string' && a.trim()) : [];
-        say(`  ${labOf(seat)}/${seat.model}: ${list.length} ambiguit${list.length === 1 ? 'y' : 'ies'}.`);
+        say(`  ${shownSeat(seat)}/${seat.model}: ${list.length} ambiguit${list.length === 1 ? 'y' : 'ies'}.`);
       } catch (err) {
         rethrowControlFlow(err);
-        say(`  ${labOf(seat)}/${seat.model}: no ambiguity reply (${String(err.message).slice(0, 100)}).`);
+        say(`  ${shownSeat(seat)}/${seat.model}: no ambiguity reply (${String(err.message).slice(0, 100)}).`);
       }
       return { lines, list };
     }));
@@ -1921,20 +2429,25 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     }
   }
 
-  const maxRounds = config.maxRounds ?? 2;
+  // Round semantics 2b: for a chain with maxOverseerRounds the pass limit is the DERIVED ceiling (the most advance() allows), never a second key; any other chain keeps maxRounds ?? 2.
+  const limits = effectiveLimits(config, roundChoices); // the chain file's limits plus the person's recorded choices at earlier stops (round semantics 2b-ii); the choices are NOT part of the config, so the stage cache fingerprint is unchanged
+  const maxRounds = limits.passes;
   const stopOnPass = config.stopOnPass !== false;
-  const open = config.scope === 'open';
+  const { open } = settingsOf(config);
   // Decision records (src/roles.js, DECISIONS_RULE_*): opt-in via `decisions.enabled`, and implied by
   // the `alternatives` stage, whose losing architectures are recorded in the same "Decisions"
   // section. Absent both, every prompt that takes these options is byte-identical to before.
-  const promptOpts = { decisions: config.decisions?.enabled === true || config.alternatives?.enabled === true };
+  const { promptOpts } = settingsOf(config);
+  // 0.8.3 M3 (PLAN 5.1, 5.2): a run that is a MEMBER of a recursive-councils tree (the CLI started it with a lineage) is asked for the split block in its plan, and its handoff seat to reproduce it. Those words are held
+  // (src/held-roles.js; drafted in test/held-prompts/held.js, recorded by the one 0.8.3 re-record, M7): while `held(name)` is undefined nothing is added, so every prompt of every run is byte-identical to what it
+  // always was (the stage cache keys on it), and a run that is not a tree member never asks.
+  const withSplitNote = (system, name) => splitNoteOf(treeMember, system, name);
   // Tiered councils: the majority guard. Off (absent) in every chain written before it existed, so
   // those runs keep today's reply prompts byte for byte.
-  const guard = config.majority_guard?.enabled === true;
+  const { guard } = settingsOf(config);
   // Criterion kinds (src/criteria-kinds.js): opt-in via `criteria_kinds.enabled`. Absent, no prompt
   // changes, no kinds are recorded, and the result carries no criteria_kinds/criteria_summary key.
   const kindsOn = config.criteria_kinds?.enabled === true;
-  if (kindsOn) promptOpts.kinds = true;
   let criteriaKinds = null;
   // Every criteria list this run takes - a seat's reply, a retry's, a hand-written one - goes
   // through here, so the guards below always see plain strings and kinds stay index-aligned.
@@ -1956,7 +2469,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   // 0.8.2 (owner decision 3, ticket 10): with `answer_back.enabled` the harness builds, after each revise, what each judge will be shown about its own earlier objections (src/answer-back.js).
   // Data only until the owner's prompt list is approved: the summary is recorded in report.json and the full data is held in `answerBackLatest` (written after each revise; read by the prompt that will
   // render it, which does not exist yet). It is built before the allocator's extra revise, so its changed passages do not include those edits.
-  const answerBackOn = config.answer_back?.enabled === true;
+  const { answerBackOn } = settingsOf(config);
   const answerBackRecords = [];
   const answerBackReplies = [];
   let answerBackLatest = {};
@@ -2016,7 +2529,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       user: criteriaUserPrompt(request, config),
       log, label: 'criteria',
     }));
-    const parsed = parseJson(s.text);
+    const parsed = parseJson(s.text, { strict: true }); // the criteria are the run's checker: a quoted example must never stand in for them (Astra's review, finding 3)
     criteria = takeCriteria(parsed?.criteria);
     if (!Array.isArray(criteria) || criteria.length === 0) {
       throw new Error('The criteria stage returned no usable criteria. Raw output kept in the run log.');
@@ -2035,7 +2548,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         user: `${criteriaUserPrompt(request, config)}\n\n${criteriaRetryNote('infeasible', infeasible[0])}`,
         log, label: 'criteria-feasibility-retry',
       }));
-      const retried = takeCriteria(parseJson(again.text)?.criteria);
+      const retried = takeCriteria(parseJson(again.text, { strict: true })?.criteria);
       if (!Array.isArray(retried) || retried.length === 0 || infeasibleCriteria(retried, { handoff: !!config.handoff, debate: !!config.debate }).length) {
         throw new Error('The criteria stage twice demanded documents a single build stage cannot produce. Stopped before any paid review round; see the run log.');
       }
@@ -2048,7 +2561,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         user: `${criteriaUserPrompt(request, config)}\n\n${criteriaRetryNote('meta', metaCriteria(criteria)[0])}`,
         log, label: 'criteria-retry',
       }));
-      const retried = takeCriteria(parseJson(again.text)?.criteria);
+      const retried = takeCriteria(parseJson(again.text, { strict: true })?.criteria);
       if (!Array.isArray(retried) || retried.length === 0 || metaCriteria(retried).length) {
         throw new Error('The criteria stage twice returned criteria about the criteria list rather than the request. Stopped before any paid review round; see the run log.');
       }
@@ -2102,7 +2615,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     log(`\nStage: alternatives (${altSeats.length} labs each propose ONE whole architecture, blind)`);
     const altResults = await settleAll(altSeats.map(async seat => {
       const lines = []; const say = m => lines.push(m);
-      const lab = labOf(seat);
+      const lab = seatKeyOf(seat);
       const seatCap = seat.maxTokens ?? DEFAULT_MAX_TOKENS;
       const capped = { ...seat, maxTokens: perAlt ? Math.min(seatCap, perAlt) : seatCap };
       const readAlt = text => {
@@ -2179,9 +2692,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // "Lab X" letter. Absent or "authors": the posters are the authors, as before.
       const posterSeats = [...altSeats];
       if (config.alternatives.debaters === 'all') {
-        for (const s of config.seats.proposers || []) if (!posterSeats.some(p => labOf(p) === labOf(s))) posterSeats.push(s);
+        for (const s of config.seats.proposers || []) if (!posterSeats.some(p => seatKeyOf(p) === seatKeyOf(s))) posterSeats.push(s);
       }
-      const posterLabs = [...labs, ...posterSeats.map(labOf).filter(l => !labs.includes(l))];
+      const posterLabs = [...labs, ...posterSeats.map(seatKeyOf).filter(l => !labs.includes(l))];
       posterLabs.forEach(l => { if (!maps.labTo[l]) maps.labTo[l] = `Lab ${String.fromCharCode(65 + Object.keys(maps.labTo).length)}`; });
       // 0.8.2 (owner decision 2): per-reader seeded order and letters on the alternatives debate too, when debate_hygiene.shuffle is on (src/debate-order.js).
       const altViews = new Map();
@@ -2199,11 +2712,12 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       const altPostsFor = author => (config.debate_hygiene?.shuffle === true ? posts.map(p => altRefsFor(p, altViewOf(author).maps)) : posts);
       altPostsRealFn = () => (config.debate_hygiene?.shuffle === true ? posts.map(p => altRefsFor(p, null)) : posts);
       const altTextVariants = x => (config.debate_hygiene?.shuffle === true && x.by !== 'canary' ? [...new Set([x.text, ...[...altViews.values()].map(v => translateRefs(x.text, altViewOf(x.by).maps, v.maps))])] : [x.text]);
-      const seatOf = lab => posterSeats.find(s => labOf(s) === lab);
+      const seatOf = lab => posterSeats.find(s => seatKeyOf(s) === lab);
       log(`\nStage: alternatives debate (${posterLabs.length} labs read ${posterLabs.length > labs.length ? `the ${labs.length} authors'` : "each other's"} architectures, anonymised)`);
       const postResults = await settleAll(posterLabs.map(async lab => {
         const lines = []; const say = m => lines.push(m);
         try {
+          skipChosen(seatOf(lab), [`alt-debate-${lab}`]);
           const st = record(await invoke(seatOf(lab), {
             // No persona here: seat roles apply at exactly one call site, the proposal debate
             // (test/stage-isolation.test.js guards that boundary). Widening it to this stage is a
@@ -2219,6 +2733,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           say(`  ${lab}: ${mine.length} post(s)`);
           return { lines, posts: mine };
         } catch (err) {
+          offerSkip(err, seatOf(lab), posterSeats);   // A3a commit 2: a price refusal here may be skipped as the person's recorded choice
           rethrowControlFlow(err);
           say(`  ${lab}: no debate reply (${String(err.message).slice(0, 100)}).`);
           return { lines, posts: [] };
@@ -2234,6 +2749,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const mine = items.filter(a => a.lab === lab && posts.some(x => x.on === a.id));
         if (!mine.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
         try {
+          skipChosen(seatOf(lab), [`alt-reply-${lab}`]);
           const st = record(await invoke(seatOf(lab), {
             system: withHeldNote(config, R.altReplySystem(guard), 'noQuoteGloss'),
             user: altReplyUserFor(config)({ request, alternatives: altViewOf(lab).items, posts: altPostsFor(lab), lab, maps: altViewOf(lab).maps, guard }),
@@ -2246,6 +2762,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           say(`  ${lab}: ${got.map(r => r.action).join(', ') || 'no usable reply'}`);
           return { lines, replies: got };
         } catch (err) {
+          offerSkip(err, seatOf(lab), labs.map(seatOf));   // A3a commit 2: a price refusal here may be skipped as the person's recorded choice
           rethrowControlFlow(err);
           say(`  ${lab}: no reply-round answer (${String(err.message).slice(0, 100)}).`);
           return { lines, replies: [] };
@@ -2309,7 +2826,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     // only - no claim here or anywhere else that it changes proposal quality or diversity.
     const partitionSlices = config.proposals.partition?.slices || null;
     if (partitionSlices) {
-      const knownLabs = new Set(proposers.map(labOf));
+      const knownLabs = new Set(proposers.map(seatKeyOf));
       for (const [lab, text] of Object.entries(partitionSlices)) {
         if (typeof text !== 'string' || !text.trim()) {
           throw new Error(`config.proposals.partition.slices["${lab}"] must be a non-empty string`);
@@ -2328,20 +2845,20 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       const lines = [];
       const say = m => lines.push(m);
       const capped = { ...seat, maxTokens: Math.min(seat.maxTokens ?? DEFAULT_MAX_TOKENS, parts * perPart + 300) };
-      const slice = (partitionSlices && partitionSlices[labOf(seat)]) || null;
+      const slice = (partitionSlices && partitionSlices[seatKeyOf(seat)]) || null;
       const pool = [];
       let unreadable = 0, lastSt = null;
       for (let k = 0; k < samples; k++) {
         const st = lastSt = record(await invoke(capped, {
           system: R.proposerSystem(open),
           user: R.proposerUser({ request, criteria, skeleton, parts, slice }),
-          log: say, label: `propose-${labOf(seat)}${samples > 1 ? `-${k + 1}` : ''}`,
+          log: say, label: `propose-${seatKeyOf(seat)}${samples > 1 ? `-${k + 1}` : ''}`,
         }));
         const parsed = parseJson(st.text);
         const list = Array.isArray(parsed?.proposals) ? parsed.proposals.slice(0, parts) : null;
         if (!list) unreadable++; else pool.push(...list.filter(p => p && p.title).map(p => ({ ...p, attempt: k + 1 })));
       }
-      if (unreadable) say(`  ${labOf(seat)}/${seat.model}: ${unreadable} of ${samples} attempt(s) unreadable.`);
+      if (unreadable) say(`  ${shownSeat(seat)}/${seat.model}: ${unreadable} of ${samples} attempt(s) unreadable.`);
       // A lab that returns nothing readable drops out of the panel entirely:
       // no proposals, no seat in the debate, no row anyone is likely to miss
       // it from. For a harness whose whole claim is that independent labs
@@ -2360,17 +2877,17 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const cut = !!lastSt && abstentionReasonCode(lastSt.usage || {}, from) === 'REPLY_TRUNCATED';
         const retryCap = cut ? cutOffRetryCap(from, retryCeilingOf(capped)) : capped.maxTokens;
         if (cut && retryCap <= from) {
-          say(`  ${labOf(seat)}/${seat.model}: proposals cut off at ${from} tokens, already the largest retry cap - not retried.`);
+          say(`  ${shownSeat(seat)}/${seat.model}: proposals cut off at ${from} tokens, already the largest retry cap - not retried.`);
         } else {
           const st = record(await invoke({ ...capped, maxTokens: retryCap }, {
             system: R.proposerSystem(open),
             user: R.proposerUser({ request, criteria, skeleton, parts, slice }),
-            log: say, label: `propose-${labOf(seat)}-retry`,
+            log: say, label: `propose-${seatKeyOf(seat)}-retry`,
           }));
           const parsed = parseJson(st.text);
           const list2 = Array.isArray(parsed?.proposals) ? parsed.proposals.slice(0, parts) : null;
           if (list2) pool.push(...list2.filter(p => p && p.title).map(p => ({ ...p, attempt: samples + 1 })));
-          say(`  ${labOf(seat)}/${seat.model}: ${cut ? `proposals cut off at ${from} tokens; retried with a ${retryCap}-token cap` : 'nothing readable; retried once'} - ${pool.length ? `recovered ${pool.length} proposal(s)` : 'still nothing'}.`);
+          say(`  ${shownSeat(seat)}/${seat.model}: ${cut ? `proposals cut off at ${from} tokens; retried with a ${retryCap}-token cap` : 'nothing readable; retried once'} - ${pool.length ? `recovered ${pool.length} proposal(s)` : 'still nothing'}.`);
         }
       }
       let list = pool;
@@ -2380,7 +2897,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const js = record(await invoke(judgeSeat, {
           system: R.JUDGE_SYSTEM,
           user: R.judgeUser({ request, criteria, skeleton, pool, keep }),
-          log: say, label: `judge-${labOf(seat)}`,
+          log: say, label: `judge-${seatKeyOf(seat)}`,
         }));
         const jp = parseJson(js.text);
         const picks = Array.isArray(jp?.picks) ? [...new Set(jp.picks.map(Number).filter(n => n >= 1 && n <= pool.length))].slice(0, keep) : null;
@@ -2389,41 +2906,40 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           judged = jp.dropped_because || '';
         } else {
           list = pool.slice(0, keep);
-          say(`  ${labOf(seat)}/${seat.model}: judge reply unreadable - keeping the first ${list.length} of the pool.`);
+          say(`  ${shownSeat(seat)}/${seat.model}: the judge's reply could not be read; keeping the first ${list.length} proposals of the pool.`);
         }
       }
-      if (!list.length) say(`  ${labOf(seat)}/${seat.model}: no proposals.`);
-      else say(`  ${labOf(seat)}/${seat.model}: ${list.length} proposal(s)${samples > 1 ? ` kept from a pool of ${pool.length}` : ''}${list.map(p => `\n    - ${p.title}`).join('')}${judged ? `\n    judge: ${judged}` : ''}`);
+      if (!list.length) say(`  ${shownSeat(seat)}/${seat.model}: no proposals.`);
+      else say(`  ${shownSeat(seat)}/${seat.model}: ${list.length} proposal(s)${samples > 1 ? ` kept from a pool of ${pool.length}` : ''}${list.map(p => `\n    - ${p.title}`).join('')}${judged ? `\n    judge: ${judged}` : ''}`);
       // v5 §1 candidate 10: opt-in only, no default (his call, 2026-09-13) -
       // a chain that never sets max_proposals_per_seat behaves exactly as it
       // did before this candidate existed. Only a chain that does set it, and
       // only a seat whose own list still exceeds that cap, pays for one more
       // prompt to fold its own proposals down before the board sees them.
-      const cap = Number.isInteger(config.proposals.maxProposalsPerSeat) && config.proposals.maxProposalsPerSeat > 0
-        ? config.proposals.maxProposalsPerSeat : null;
+      const cap = proposalCapOf(config);
       if (cap && list.length > cap) {
         const ms = record(await invoke(capped, {
           system: R.PROPOSAL_MERGE_SYSTEM,
           user: R.proposalMergeUser({ request, criteria, skeleton, list, cap }),
-          log: say, label: `propose-${labOf(seat)}-merge`,
+          log: say, label: `propose-${seatKeyOf(seat)}-merge`,
         }));
         const parsed = parseJson(ms.text);
         const picks = Array.isArray(parsed?.kept) ? [...new Set(parsed.kept.map(Number).filter(n => n >= 1 && n <= list.length))].slice(0, cap) : null;
         const before = list.length;
         list = picks && picks.length ? picks.map(n => list[n - 1]) : list.slice(0, cap);
-        say(`  ${labOf(seat)}/${seat.model}: folded ${before} proposal(s) down to ${list.length} (cap ${cap})${parsed?.merged_because ? ` - ${parsed.merged_because}` : ''}`);
+        say(`  ${shownSeat(seat)}/${seat.model}: folded ${before} proposal(s) down to ${list.length} (cap ${cap})${parsed?.merged_because ? ` - ${parsed.merged_because}` : ''}`);
       }
       return { seat, list, pool, lines, slice };
     }));
     // Labs that ended the stage with nothing, after the retry. Recorded so
     // the run report shows a shrunken roster instead of leaving it to be
     // inferred from a missing scoreboard row.
-    dropouts = results.filter(r => !r.list.length).map(r => ({ lab: labOf(r.seat), model: r.seat.model, stage: 'proposals', reason: 'no readable proposals after a retry' }));
+    dropouts = results.filter(r => !r.list.length).map(r => ({ lab: labOf(r.seat), ...seatField(r.seat), model: r.seat.model, stage: 'proposals', reason: 'no readable proposals after a retry' }));
 
     const seen = {};
     for (const { seat, list, pool, lines, slice } of results) {
       lines.forEach(m => log(m));
-      let tag = labOf(seat).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      let tag = seatKeyOf(seat).toUpperCase().replace(/[^A-Z0-9]/g, '');
       seen[tag] = (seen[tag] || 0) + 1;
       if (seen[tag] > 1) tag += String(seen[tag]);
       // slice metadata only (v1): threads which per-seat instruction, if any, produced this
@@ -2439,8 +2955,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         ...(p.id !== undefined ? { proposer_id: p.id } : {}),
         ...(p.lab !== undefined ? { proposer_lab: p.lab } : {}),
       });
-      list.forEach((p, i) => proposals.push({ ...ownIdentity(p), id: `${tag}-${i + 1}`, lab: labOf(seat), model: seat.model, slice: slice || null }));
-      pool.forEach(p => proposalPool.push({ ...ownIdentity(p), lab: labOf(seat), model: seat.model, kept: list.includes(p) }));
+      list.forEach((p, i) => proposals.push({ ...ownIdentity(p), id: `${tag}-${i + 1}`, lab: seatKeyOf(seat), model: seat.model, slice: slice || null }));
+      pool.forEach(p => proposalPool.push({ ...ownIdentity(p), lab: labOf(seat), ...seatField(seat), model: seat.model, kept: list.includes(p) }));
     }
     log(`  ${proposals.length} proposal(s) go to the builder.`);
     if (dropouts.length) {
@@ -2468,13 +2984,14 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       const postsReal = () => (shuffleOn ? posts.map(p => refsFor(p, null)) : posts);
       const textVariants = x => (shuffleOn && x.by !== 'canary' ? [...new Set([x.text, ...[...views.values()].map(v => translateRefs(x.text, viewOf(x.by).maps, v.maps))])] : [x.text]);
       const labs = [...new Set(proposals.map(p => p.lab))];
-      const seatOf = lab => proposers.find(s => labOf(s) === lab);
+      const seatOf = lab => proposers.find(s => seatKeyOf(s) === lab);
       log(`\nStage: debate (${labs.length} labs read each other's proposals, anonymised)`);
       const postResults = await settleAll(labs.map(async lab => {
         const lines = []; const say = m => lines.push(m);
         let posts = [], revisions = [], toolResults = [], toolWarnings = [];
         const dropped = [];
         try {
+          skipChosen(seatOf(lab), [`debate-${lab}`]);
           // v6 §1/§3: role augmentation applies only here, the debate-stage
           // system prompt - never to the panel/critique stage. A seat with
           // no role gets R.DEBATE_SYSTEM back unchanged (applySeatRole is a
@@ -2484,7 +3001,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           // actually reaches the prompt - it was documented but never read here, so a custom
           // persona key went out as a bare name with no voice.
           const debatePrompt = {
-            system: withHeldNote(config, applySeatRole(R.DEBATE_SYSTEM, seatOf(lab)?.role, loadPersonas()), 'debatePostQuoteRule'),
+            system: debateSystemFor(config, seatOf(lab)),
             user: R.debateUser({ request, criteria, skeleton, proposals: viewOf(lab).proposals, lab, maps: viewOf(lab).maps }),
           };
           const st = record(await invoke(seatOf(lab), { ...debatePrompt, log: say, label: `debate-${lab}` }));
@@ -2529,6 +3046,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             }
           }
         } catch (err) {
+          offerSkip(err, seatOf(lab), labs.map(seatOf));   // A3a commit 2: a price refusal here may be skipped as the person's recorded choice
           rethrowControlFlow(err);
           say(`  ${lab}: no debate reply (${String(err.message).slice(0, 100)}).`);
         }
@@ -2564,6 +3082,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const mineWithPosts = proposals.filter(p => p.lab === lab && posts.some(x => x.on === p.id));
         if (!mineWithPosts.length) { say(`  ${lab}: nothing to answer.`); return { lines, replies: [] }; }
         try {
+          skipChosen(seatOf(lab), [`reply-${lab}`]);
           const st = await onceMoreIfIncomplete(record(await invoke(seatOf(lab), {
             system: withHeldNote(config, R.replySystem(guard), 'noQuoteGloss'),
             user: replyUserFor(config)({ request, proposals: viewOf(lab).proposals, posts: postsFor(lab), lab, maps: viewOf(lab).maps, guard }),
@@ -2596,6 +3115,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           progressHook({ kind: 'verdict', label: `reply-${lab}`, lab, decisions: { keep: n('keep'), amend: n('amend'), withdraw: n('withdraw') } });
           return { lines, replies: mine, dropped };
         } catch (err) {
+          offerSkip(err, seatOf(lab), labs.map(seatOf));   // A3a commit 2: a price refusal here may be skipped as the person's recorded choice
           rethrowControlFlow(err);
           say(`  ${lab}: no reply-round answer (${String(err.message).slice(0, 100)}).`);
           return { lines, replies: [] };
@@ -2698,13 +3218,15 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   } else {
     log('\nRound 1: build');
     const built = (await draftStage(config.seats.builder, {
-      system: R.builderSystem(open, promptOpts),
-      user: R.builderUser({ request, criteria, proposals, board, alternatives: alternativesBoard, skeleton }),
+      system: withSplitNote(R.builderSystem(open, promptOpts), 'treeSplitWriterNote'),
+      user: R.builderUser({ request, criteria, proposals, board, alternatives: alternativesBoard, skeleton, earlierPlan }),
       log, label: 'build',
     })).text;
     // 0.8.1 FX-15: a builder (an external session above all) may end its reply with DECLINED lines too. They are not part of the draft every critic
     // grades; they go to report.json `disputes` with round 'build'. A reply that is nothing but DECLINED lines leaves no draft: stop, never grade an empty page.
     const parsedBuild = parseDisputes(built, { disputedBlock: false });
+    noteLinesIgnored('build', parsedBuild.noteLines, log);
+    earlyFinishIgnored('build', parsedBuild.earlyFinish, log);
     if (!parsedBuild.draft.trim()) throw new DraftTruncated('build', 'its reply held nothing but DECLINED lines, so there is no draft to review', 'declined_only');
     draft = parsedBuild.draft;
     buildDisputes = parsedBuild.disputes;
@@ -2751,7 +3273,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   //     stage label appears, and the result carries no `deep_dive` key.
   let deepDive;
   if (config.deep_dive?.enabled === true && !initialDraft) {
-    log(`\nStage: deep dive (${labOf(config.seats.deep_dive)}/${config.seats.deep_dive.model}, job: ${config.deep_dive.job || 'sources'}, its own cap ${formatUsd(config.deep_dive.usd)})`);
+    log(`\nStage: deep dive (${shownSeat(config.seats.deep_dive)}/${config.seats.deep_dive.model}, job: ${config.deep_dive.job || 'sources'}, its own cap ${formatUsd(config.deep_dive.usd)})`);
     deepDive = await runDeepDive(config, { request, criteria, draft, invoke, record, parseJson, rethrowControlFlow, log, runSpent: () => budget.spent });
     if (deepDive.findings.length) {
       log(`\nStage: revise (the deep dive's ${deepDive.findings.length} finding(s), before the panel's first review)`);
@@ -2761,6 +3283,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         log, label: 'deep-dive-revise',
       })).text;
       const parsed = parseDisputes(revised);
+      noteLinesIgnored('deep-dive-revise', parsed.noteLines, log);
+    earlyFinishIgnored('deep-dive-revise', parsed.earlyFinish, log);
       draft = parsed.draft;
       deepDive.revise = { declined: parsed.disputes };
       parsed.disputes.forEach(reason => log(`  declined: ${reason}`));
@@ -2778,6 +3302,194 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   const failedByRound = [];
   const regressions = [];
   let noHeardReviewer = null; // set when a panel round heard no reviewer at all - see the panel loop
+  // 0.8.3 E2b, the layered review panel (contract Review/Build_0.8.3/m6-closing/Layered_Panel_Contract.md; gate page E2_Gate_Page.md). `layered` = every panel critic carries `layer` (layerProblems guarantees
+  // all or none; the length guard because [].every() is true). `layersRecord` is one row per round per layer, kept for the whole run and shared with the partial report, so a stopped run still shows
+  // which layer was asked, which was interrupted (`unfinished`) and which never started (`not_asked`). `layerStop` is set when a layer ended the run without an objection and without a usable vote.
+  const layered = Array.isArray(config.seats?.critics) && config.seats.critics.length > 0 && config.seats.critics.every(c => c.layer !== undefined);
+  const layerNumbers = layered ? [...new Set(config.seats.critics.map(c => c.layer))].sort((a, b) => a - b) : [];
+  const topLayer = layered ? layerNumbers[layerNumbers.length - 1] : null;
+  // Astra #1: an overseer layer ABOVE other layers needs an explicit sign-off from every seat; with one layer a stated pass is clean, exactly as in the unlayered panel.
+  const explicitTop = layered && layerNumbers.length >= 2;
+  // 0.8.3 E3 (gate page E3_Gate_Page.md, readers audit E3_Readers_Audit.md): on a LAYERED chain with answer_back a judge's open objections persist until that judge is next ASKED, whatever the number of rounds in between
+  // (an upper layer is not asked while a lower one objects). Unlayered chains keep the old rule byte for byte: data for the next round only. `answerBackLatest[lab]` then also holds, in memory only, `sawDraft` (the text the lab
+  // LAST JUDGED; never in report.json) and a `raised_round` on each objection.
+  const retained = answerBackOn && layered;
+  const layersRecord = [];
+  // E4b unit 2 (conflict decider; gate note m7/A_E4b_Units23_Gate_Note.md): the three captures rule R reads on ANY layered chain (widened from `ledgerOn`, addendum condition 1), and the record of what was decided. `revisedRounds` = the passes
+  // that went on to a revise; `heardByRound` is filled below for every layered chain; `decisions` becomes report.json `decisions[]` (additive; present only when a conflict was found). All rebuilt on a resume (the replies, the revise and the conflict stages replay).
+  const revisedRounds = []; const decisions = [];
+  let unhandledConflicts = null;   // { round, found }: a swing found in a pass that has not been acted on or recorded yet; whatever leaves the pass loop with one still set records it (`loop_ended`): a swing is shown, never dropped
+  const layerOf = Object.fromEntries((config.seats?.critics ?? []).filter(c => Number.isFinite(c.layer)).map(c => [seatKeyOf(c), c.layer]));
+  const deciderKind = () => { const seat = deciderSeatOf(config); return !seat ? 'none' : seat.provider === 'external' ? 'external' : 'seat'; };
+  // A conflict that gets no ruling is still SHOWN: one `decisions[]` row per conflict, with the reason (a swing with no ruler is recorded, never dropped).
+  const recordUndecidedConflicts = (found, why, round, ov) => {
+    const seat = deciderSeatOf(config);
+    for (const it of conflictItems(found, openByRound, { limit: Infinity }).map(bareConflictItem)) decisions.push(decisionRow({ round, overseerRound: ov, item: it, kind: deciderKind(), deciderLab: seat ? labOf(seat) : null, why }));
+  };
+  // The decider stage (Branch A: an external seat pauses the run, exit 3, NEEDS-conflict-<pass>.md; Branch B: one call through invoke() under the cap; Branch C: no seat, or its prompt is not recorded yet = no call). The label is stable
+  // (`conflict-<pass>`), so a resume replays the answer from disk at zero cost. A ruling ANNOTATES and is handed to the reviser as a note; it never closes an objection. Returns the reviser's note ('' when there is none).
+  const decideConflicts = async (found, round, ov) => {
+    const seat = deciderSeatOf(config);
+    if (!seat || !deciderActive(config)) {
+      const why = seat ? 'prompt_held' : 'no_decider_seat';
+      recordUndecidedConflicts(found, why, round, ov);
+      log(`\n  round ${round}: ${found.length} objection(s) came back after the writer revised the plan in response to another layer's objection (a swing between layers); ${seat ? 'the decider\'s prompt is not recorded yet' : 'this chain names no decider'}, so nobody rules on it.`);
+      return '';
+    }
+    const all = conflictItems(found, openByRound, { limit: Infinity }).map(bareConflictItem);
+    const items = all.slice(0, MAX_CONFLICTS_PER_CALL);
+    const wrap = o => ({ ...o, criterion: R.claimText(o.criterion), problem: R.claimText(o.problem), quote: o.quote ? R.claimText(o.quote) : '' });
+    const shown = items.map(it => ({ ...it, objection: wrap(it.objection), others: it.others.map(wrap) }));
+    const label = `conflict-${round}`;
+    const lab = seatKeyOf(seat);
+    log(`\nRound ${round}: ${items.length} objection(s) came back after the writer revised the plan in response to another layer's objection - asking the decider (${lab}).`);
+    let rulings = items.map(() => null); let why = 'unreadable_ruling';
+    try {
+      const st = record(await invoke(seat, { system: held('conflictDeciderSystem')(), user: held('conflictDeciderUser')({ plan: draft, items: shown }), log, label }));
+      rulings = readRulings(parseJson(st.text), items);
+    } catch (err) {
+      // rethrowControlFlow is the FIRST statement (the cap, an external pause, a refused price: not ours to swallow). A stop at the decider stage itself ends the loop before the revise, so the swing is recorded as the stop passes through, for the partial
+      // report to show it; an external pause is no end (a resume replays this pass and asks again).
+      try { rethrowControlFlow(err); } catch (stop) { if (!(stop instanceof ExternalPause)) recordUndecidedConflicts(found, 'loop_ended', round, ov); throw stop; }
+      why = 'decider_unreachable';
+      log(`  ${lab}/${seat.model}: no reply from the decider (${String(err.message).slice(0, 120)}) - nobody rules on this swing.`);
+    }
+    // Unit 3: a ruling that ASKS for the person. A run with a person's recorded choice for this (pass, conflict) applies the CHOICE (and keeps the decider's lean). Otherwise the run stops for the person BEFORE the revise (exit 25); the rows
+    // are recorded first, so the partial report carries them. A tree member stops the same way: its tree offers the choice (`council tree decide <tree> --prevail-node <node> --prevail ...`, src/tree-choice.js) and `tree resume` applies it.
+    const applied = [];   // { n, prevail, reason } the reviser may be told: only a side, never `neither`
+    const asked = [];
+    items.forEach((it, i) => {
+      const r = rulings[i];
+      const common = { round, overseerRound: ov, label, item: it, kind: deciderKind(), deciderLab: lab };
+      if (!r) { decisions.push(decisionRow({ ...common, why })); return; }
+      if (!r.ask_person) { decisions.push(decisionRow({ ...common, ruling: r })); if (r.prevail !== 'neither') applied.push({ n: it.n, prevail: r.prevail, reason: r.reason }); return; }
+      const lean = { decider_prevail: r.prevail, decider_reason: r.reason };
+      const choice = conflictChoiceFor(round, it.n);
+      if (choice) { decisions.push(decisionRow({ ...common, ruling: { prevail: choice.prevail, reason: '', ask_person: true }, extra: { ...lean, via: choice.via ?? 'cli' } })); if (choice.prevail !== 'neither') applied.push({ n: it.n, prevail: choice.prevail, reason: '' }); return; }
+      decisions.push(decisionRow({ ...common, why: 'person_asked', extra: lean }));
+      asked.push({ n: it.n, ids: [it.id, ...it.others.map(o => o.id)], labs: [it.lab, ...it.others.map(o => o.lab)], ...([it.seat, ...it.others.map(o => o.seat)].some(Boolean) ? { seats: [it.seat ?? it.lab, ...it.others.map(o => o.seat ?? o.lab)] } : {}), layers: [it.layer, ...it.others.map(o => o.layer)], rounds: [it.round, ...it.others.map(o => o.round)], silent_round: it.silent_round, ...lean });
+    });
+    for (const it of all.slice(MAX_CONFLICTS_PER_CALL)) decisions.push(decisionRow({ round, overseerRound: ov, label, item: it, kind: deciderKind(), deciderLab: lab, why: 'over_limit' }));
+    if (asked.length) throw new ConflictAsked({ pass: round, overseerRound: ov, asked });
+    const read = applied;
+    return read.length ? (held('reviserDecisionNote')({ rulings: read.map(r => ({ ...r, reason: r.reason ? R.claimText(r.reason) : '' })) }) ?? '') : '';
+  };
+  // Round semantics 2b: the overseer-round bookkeeping (src/overseer-rounds.js, a pure function of the verdict stream, so a resume re-derives it at zero cost). `round` stays the PASS counter (stage labels never change).
+  const ovOn = layered && limits.overseer !== null;
+  let ovState = newRoundState();
+  let ovCompleted = 0;
+  let finishedStop = null;
+  // ROADMAP 83 (C&C rulings 20 Okt 2026): the session's early-finish proposal. ELIGIBLE only on a layered chain with overseer rounds whose reviser is the person's OWN session (provider external) AND with both held sentences recorded; otherwise
+  // the line is stripped and logged, never acted on (the feature is off until Muad approves the words). `earlyAsk` is set by the revise and consumed by the NEXT pass, which asks the TOP layer only; `earlyFinish` is the run's record when
+  // the overseer layer said yes. It is its own variable: finishedStop means a PERSON chose, and the early yes is never lastCritique, a panelVerdicts row, signoff[] or a layers[] row.
+  let earlyAsk = null; let earlyFinish = null; let earlyTasks = null;
+  const earlyEligible = () => ovOn && layered && (config.seats.reviser || config.seats.builder)?.provider === 'external' && !!held('reviserEarlyFinishNote') && !!held('earlyFinishAskSection');
+  let layerStop = null;
+  // E4 (gate page E4_Gate_Page.md, approved by C&C 14 Oct 2026): the objection ledger the TOP layer reads, on a layered chain with answer_back (`retained`) and at least two layers. Inputs are DERIVED from records the run keeps
+  // plus three small captures made at the lines that already read them (all rebuilt on a resume, because the replies and the revise stages replay): ledgerRaises (the judges' OWN raises per round: no carried verdict's failures),
+  // heardByRound / notAskedByRound (who gave a new verdict; whose layer was not asked), draftShaByRound (the draft each round judged), draftChangedByRound (did the revise change the draft). The reviser's reasons are read from `disputes`.
+  const ledgerOn = retained && layerNumbers.length >= 2;
+  const ledgerRaises = []; const heardByRound = {}; const notAskedByRound = {}; const draftShaByRound = {}; const draftChangedByRound = {};
+  // The reviser's response per round, derived from `disputes` (every DECLINED reason by round and objection id; rebuilt on a resume) and draftChangedByRound.
+  const reviserByRoundOf = () => { const out = {}; for (const d of disputes) (out[d.round] ||= { declined: [], draftChanged: draftChangedByRound[d.round] ?? null }).declined.push({ ...(d.objection_id ? { id: d.objection_id } : {}), reason: d.reason }); for (const rd of Object.keys(draftChangedByRound)) (out[rd] ||= { declined: [], draftChanged: draftChangedByRound[rd] }); return out; };
+  let roundLedger = null; // { text } for the round now being asked: ONE text per round, appended identically at every top-layer call
+  // Notes lane unit 2, judge side (gate note Notes_Lane_Unit2_Gate_Note.md + addendum 1; C&C PASS ON CONDITIONS 15 Okt 2026). Inert unless the chain's `reviewNotes` switch is on AND every lane sentence is held (reviewNotesActive:
+  // the same predicate src/cost.js asks). The items are DERIVED, never stored: this loop re-reads each judge reply on a resume (the panel stage files replay), so they rebuild identically. `notesStash` holds, per call
+  // (keyed by the stage label), the notes part taken OFF the reply before the verdict was read; a stash whose reply never became a recorded verdict is counted as dropped (`verdict_not_recorded`, with lab and pass).
+  const notesCfg = notesConfigOf(config); const notesOn = reviewNotesActive(config);
+  const notesItems = []; const notesCut = []; const notesDropped = []; const notesStash = new Map(); const notesUnheardIn = new Map(); const notesCutIn = new Map(); let notesLong = 0;
+  const notesRound = round => (ovOn ? ovState.overseerRound : round); // the budget's round: the OVERSEER round on a layered chain, the pass otherwise (gate page section 7)
+  // 2b-0b (C&C ruling 16 Okt 2026): a reply the provider cut off at its cap (usage stop length / max_tokens: the stop reason, as M3 decides it, never the 95% guess) never contributes notes, on any path: it can parse from an early fence the model
+  // abandoned (M3), and a cut OBJECTION still counts as a verdict, a cut sign-off can be followed by a clean re-ask. Its notes are counted dropped `reply_cut_off` and the seat is not asked for notes again in this overseer round.
+  // Every place that puts a parsed reply's notes in the stash comes through here. A chain with the lane off keeps the old stash (its "ignored" count).
+  const stashNotes = (lab, round, label, notesReply, usage) => {
+    if (!notesReply) return;
+    if (notesOn && providerCutOff(usage)) { notesDropped.push({ lab, pass: round, why: 'reply_cut_off' }); notesCutIn.set(lab, notesRound(round)); return; }
+    // 2b-1a (C&C ruling 16 Okt 2026): the harness treats a sign-off the provider ended with error / content_filter / refusal like a cut one (an abstention: the reply may not have finished, M4); the M3 principle covers it, so such a reply contributes no notes either.
+    if (notesOn && draftIncomplete(usage)) { notesDropped.push({ lab, pass: round, why: 'reply_incomplete' }); notesCutIn.set(lab, notesRound(round)); return; }
+    notesStash.set(label, { lab, pass: round, notesReply, label });
+  };
+  const notesAskNote = (seat, tag, round) => {
+    if (!notesOn) return '';   // E195 (A2, 18 Okt 2026): the "lane is off (review notes held)" log line is gone; the four sentences are recorded in src/roles.js, so a chain with the key on always has the lane
+    // The first ask of a seat's pass only (condition 1): never a re-ask in the same pass (-reaskN), and not in a later pass of the same overseer round when the seat's last outcome there was unheard or truncated.
+    // The bigger-cap retry and the blocking-question attempt build their own prompts below and carry no notes ask. invoke()'s own same-effort retry of an Anthropic seat (src/chain.js, `anthropicSeat && thinking > 0 && cut off`:
+    // seats whose provider, or originalProvider under single-vendor transport, is `anthropic`; no shipped tier seat is one, all are OpenRouter ids) resends the SAME prompt at a bigger cap. It fires on a reply cut off after
+    // thinking, whether or not any text came back, so after a cut the notes ask may have contributed it can go out a second time: a named known limit (gate note addendum 1, corrected 15 Okt 2026).
+    if (tag !== '' || notesUnheardIn.get(seatKeyOf(seat)) === notesRound(round) || notesCutIn.get(seatKeyOf(seat)) === notesRound(round)) return '';
+    const lab = seatKeyOf(seat); const r = notesRound(round);
+    const left = { proposal: budgetLeft(notesItems, lab, 'proposal', r, notesCfg.perKind), idea: budgetLeft(notesItems, lab, 'idea', r, notesCfg.perKind) };
+    if (left.proposal === 0 && left.idea === 0) return '';
+    const text = held('reviewNotesAsk')({ proposals: left.proposal, ideas: left.idea, itemChars: notesCfg.itemChars, aboutChars: notesCfg.aboutChars });
+    return text ? `\n\n${text}` : '';
+  };
+  // 2b-1a, the writer side (records only; gate note Notes_Lane_2b1_Gate_Note.md, C&C PASS ON CONDITIONS 16 Okt 2026). The writer's answers are RECORDED, never believed: `notesAnswered` id -> the first answer the writer gave (first wins), with the stage that
+  // carried it; a second, different answer for one id is `conflicting` (parseNoteAnswers), an answer naming no item is counted (notesView exclusion). Everything here is derived from the stage files a replay re-reads: no state outside the run.
+  const notesAnswered = new Map(); const notesConflicts = new Set(); let notesShownThrough = 0;
+  // What the answers did NOT become, counted so nothing the writer wrote disappears silently (report.json review_notes.answer_counts): malformed / repeated / reasonless lines (parseNoteAnswers), and `answered_again` = a later stage gave a DIFFERENT answer for an id already answered (the first answer stands).
+  const notesAnswerCounts = { malformed: 0, repeated: 0, reasonless: 0, answered_again: 0 };
+  const notesLabs = () => config.seats.critics.map(seatKeyOf);
+  const recordNoteAnswers = (noteLines, from, { after = false, ending } = {}) => {
+    const parsed = parseNoteAnswers((noteLines || []).join('\n'));
+    notesAnswerCounts.malformed += parsed.malformed; notesAnswerCounts.repeated += parsed.repeated; notesAnswerCounts.reasonless += parsed.reasonless;
+    for (const [id, a] of parsed.answers) {
+      const earlier = notesAnswered.get(id);
+      if (!earlier) { notesAnswered.set(id, { ...a, from, ...(after ? { after: true, ending } : {}) }); continue; }
+      if (earlier.status !== a.status || (earlier.reason ?? null) !== (a.reason ?? null) || (earlier.same_as ?? null) !== (a.same_as ?? null)) notesAnswerCounts.answered_again += 1;
+    }
+    for (const id of parsed.conflicts) notesConflicts.add(id);
+  };
+  const answersArg = () => ({ answers: new Map([...notesAnswered].map(([id, a]) => { const { from, ending, ...rest } = a; return [id, rest]; })), conflicts: [...notesConflicts] });
+  const wrapRow = r => ({ ...r, text: R.claimText(r.text), ...(r.about !== undefined ? { about: R.claimText(r.about) } : {}) });
+  // The writer's section: the items no revise has shown it yet (sinceLastRevise), not yet answered, grouped by notesView, after the objections. '' unless the lane is on and the held sentence exists.
+  const reviseNotesNote = () => {
+    if (!notesOn) return '';
+    const unseen = sinceLastRevise(notesItems, notesShownThrough > 0 ? [{ pass: notesShownThrough, revised: true }] : []);
+    const rows = notesView(unseen, null, { chainLabs: notesLabs(), alreadyAnswered: new Set(notesAnswered.keys()) }).rows.map(wrapRow);
+    if (!rows.length) return '';
+    const text = held('reviewNotesRevise')?.({ rows });
+    return text ? `\n\n${text}` : '';
+  };
+  // Cross-round memory: from the second overseer round on, every judge's prompt carries the LAST round's items with the writer's answers, cut by fitNotes (40,000 characters / the token estimate); the cut is named in the text and counted.
+  // An overflow (the answered rows alone do not fit) sends nothing and logs it. Recomputed per call from the records: deterministic, so a resume builds the same prompt.
+  const memoryNote = () => {
+    if (!notesOn || !ovOn || ovState.overseerRound < 2) return '';
+    const last = lastRoundOf(notesItems, ovState.overseerRound);
+    if (last === null) return '';
+    const rows = notesView(notesItems.filter(i => i.overseer_round === last), answersArg(), { chainLabs: notesLabs() }).rows.map(wrapRow);
+    if (!rows.length) return '';
+    const word = held('reviewNotesMemory');
+    if (!word) return '';
+    const fit = fitNotes(rows, ({ rows: shown, omitted }) => word({ rows: shown, omitted }) ?? '');
+    if (fit.overflow) { log('  review notes: the memory block of the last overseer round is over its size limit even cut to the answered rows alone, so none is sent this round; the rows stay in the run log.'); return ''; }
+    return fit.text ? `\n\n${fit.text}` : '';
+  };
+  // 2b-1b helpers. The fold applies only when the lane is on, unanswered items exist, the held sentence exists and the handoff seat is the writer seat (same lab, provider and model). notesFolded = the fold ran this run.
+  let notesFolded = false;
+  const sameSeat = (a, b) => !!a && !!b && seatKeyOf(a) === seatKeyOf(b) && a.provider === b.provider && a.model === b.model;
+  const notesFoldRows = (seat, { standalone = false } = {}) => {
+    if (!notesOn || !held('reviewNotesAnswer')) return [];
+    const writerSeat = config.seats.reviser || config.seats.builder;
+    if (!standalone && !sameSeat(seat, writerSeat)) return [];
+    if (standalone && config.handoff && sameSeat(config.seats.handoff || config.seats.builder, writerSeat)) return [];
+    // an id the writer already answered (even one whose SAME target is bad, which reads unanswered) is never asked again: the first answer stands, a second would only be counted answered_again
+    return notesView(notesItems, answersArg(), { chainLabs: notesLabs(), alreadyAnswered: new Set(notesAnswered.keys()) }).rows.filter(r => r.answer.status === 'unanswered').map(wrapRow);
+  };
+  // What ended the run's panel, recorded beside an answer given after it (report.json answer.ending): a plain word per ending kind the loop has.
+  const notesEnding = () => panelEnding({ passed, finishedStop, earlyFinish, layerStop, noHeardReviewer, notQuorate });
+  // report.json `review_notes` (additive, present only when the lane ran): the accepted items with who raised the same exact id in the same overseer round, what was cut, what was dropped and why.
+  const notesBlock = () => {
+    const nv = notesView(notesItems, answersArg(), { chainLabs: notesLabs() });
+    const view = new Map(nv.rows.map(r => [r.id, r.answer]));
+    const answerOfItem = id => ({ ...(view.get(id) ?? { status: 'unanswered' }), ...(notesAnswered.has(id) && !notesConflicts.has(id) ? { from: notesAnswered.get(id).from, ...(notesAnswered.get(id).ending ? { ending: notesAnswered.get(id).ending } : {}) } : {}) });
+    return {
+    enabled: true, per_kind: notesCfg.perKind, item_chars: notesCfg.itemChars, about_chars: notesCfg.aboutChars,
+    items: notesItems.map(it => ({ ...shownFailure(it), raised_by: [...new Set(notesItems.filter(o => o.id === it.id && o.overseer_round === it.overseer_round).map(o => labFromKey(o.lab)))].sort(), answer: answerOfItem(it.id) })),
+    answers_from: [...new Set([...notesAnswered.values()].map(a => a.from))].sort(),
+    answer_counts: { unknown_answer_ids: nv.exclusion.unknown_answer_ids, bad_same: nv.exclusion.bad_same, ...notesAnswerCounts },
+    cut: notesCut, dropped: notesDropped, long: notesLong,
+    };
+  };
+  let ledgerOffLogged = false;
   // Quorum floor (0.7.8, thc-research brief 11; chain flag `quorum: { minHeard: N }`, off unless a
   // chain sets it, and no shipped chain does). A unanimous sign-off counts only when at least N
   // reviewers gave a verdict (signed off or objected). Today a panel of seven where one seat signs
@@ -2815,7 +3527,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   if (config.signoff === 'unanimous') {
     for (let round = 1; round <= maxRounds; round++) {
       const relay = config.panel === 'relay';
-      log(`\nRound ${round}: panel review (${config.seats.critics.length} labs, ${relay ? 'relay - each sees the verdicts before it' : 'independent'})`);
+      log(`\nRound ${round}: panel review (${config.seats.critics.length} judges, ${relay ? 'relay - each sees the verdicts before it' : 'independent'})`);
       const verdicts = [];
       // fencedSource rides along on `freedoms` so criticSystem keeps one options argument
       // rather than growing a positional flag at three call sites. It is not a freedom; it is
@@ -2826,62 +3538,131 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // hint the last reply could not be read and tended to repeat it. External re-asks only; an API
       // seat's prompt is unchanged.
       const externalReaskNote = (seat, tag) => seat.provider === 'external' && /^-reask\d+$/.test(tag)
-        ? `\n\n# Your previous reply could not be read\n\nThe last reply to this review (\`panel-${round}-${labOf(seat)}${tag === '-reask1' ? '' : `-reask${Number(tag.slice(6)) - 1}`}.md\`) was not a readable verdict. Answer with the JSON object the system prompt describes, and nothing else.`
+        ? `\n\n# Your previous reply could not be read\n\nThe last reply to this review (\`panel-${round}-${seatKeyOf(seat)}${tag === '-reask1' ? '' : `-reask${Number(tag.slice(6)) - 1}`}.md\`) was not a readable verdict. Answer with the JSON object the system prompt describes, and nothing else.`
         : '';
       // 0.8.2 wiring (2a): a seat re-asked because its sign-off table was refused is told what the table lacked, whatever its provider. The words are a held sentence (src/held-roles.js:
       // `criticReaskNote({ kind, ids })` in src/roles.js after the re-record, ids are criterion numbers as the judge's list shows them); until then an API seat's re-ask is the same prompt and an
       // external seat gets the note above.
       // Astra's 0.8.2 review (7 Oct 2026, F1): a seat re-asked because its clean sign-off left some of its own earlier objections without an answer is told which ids (held sentence
       // `criticUnansweredNote({ ids, also })`, drafted in test/held-prompts/held-next.js). With a table gap as well, ONE note: the table's words, then the answers' (`also`). API and external seats alike.
-      const reaskNote = (seat, tag, gap, answersGap = null) => {
+      // E84 (ROADMAP 84): a STATED PASS that still holds objections of its own (`gapKind` 'stated_pass') is told so with its own sentence (criticStatedPassNote: criticUnansweredNote's first sentence says "It said the draft meets the criteria",
+      // which a pass did not say); on a retained chain the re-ask about a judge's own objections also carries `peerText`, the other reviewers' evidence it may quote (otherReviewersBlock), after the note.
+      const reaskNote = (seat, tag, gap, answersGap = null, gapKind = null, peerText = null, envelopeKind = null) => {
         const isReask = /^-reask\d+$/.test(tag);
         const table = gap && isReask ? held('criticReaskNote')?.({ kind: gap.kind, ids: gap.criterion_ids.map(id => Number(String(id).replace(/^C/, ''))) }) : null;
-        const answers = answersGap?.length && isReask ? held('criticUnansweredNote')?.({ ids: answersGap.map(o => o.id), also: !!table }) : null;
-        const text = [table, answers].filter(Boolean).join('\n\n');
-        return text ? `\n\n${text}` : externalReaskNote(seat, tag);
+        const answers = answersGap?.length && isReask
+          ? (gapKind === 'stated_pass' ? held('criticStatedPassNote')?.({ ids: answersGap.map(o => o.id), peers: !!peerText }) : held('criticUnansweredNote')?.({ ids: answersGap.map(o => o.id), also: !!table }))
+          : null;
+        // E3b: a seat whose last reply was unreadable because the ids were missing or wrong is told so (held sentence); the kind comes from the unheard row.
+        const envNote = envelopeKind && isReask ? held('criticEnvelopeReaskNote')?.({ kind: envelopeKind }) : null;
+        const text = [table, answers, answers ? peerText : null, envNote].filter(Boolean).join('\n\n');
+        // An external seat is also told how to answer (externalReaskNote) when the envelope note is the only held note: it has to know what to paste, not only what was missing.
+        return text ? `\n\n${text}${envNote ? externalReaskNote(seat, tag) : ''}` : externalReaskNote(seat, tag);
+      };
+      // E84: ONE predicate for whose evidence a judge may be SHOWN and may QUOTE (Muad's "yes to widening what a judge may quote", with his answers of 14 Oct 2026: only the layered chain, and ANY layer: "the top judges should be reading it too"):
+      // the chain is layered with answer_back (`retained`), the other judge is another lab, was heard in THIS round's own asks (not carried from an earlier round, not abstained). Layers are asked in ascending order, so at a layer-k re-ask
+      // the round holds layers 1..k. Everything the re-ask shows and everything applyAnswers accepts as a peer source comes from peerRowsOf below, which asks this predicate and nothing else.
+      const quotableFrom = (asked, v) => retained && !!v.critique && !v.carried && !v.abstained && labOf(v.seat) !== labOf(asked);
+      // Letters: the same formula as the relay `prior` list (position among the verdicts with a critique), so "Reviewer B" names one lab in the whole prompt.
+      const peerRowsOf = (asked, objections) => {
+        const withCritique = verdicts.filter(v => v.critique);
+        const rows = []; const byObjection = {};
+        for (const o of objections) {
+          const at = criterionIndexOf(o.criterion, criteria);
+          if (at < 0) continue; // an objection whose criterion names no single criterion has no peer evidence (fail closed)
+          for (const v of verdicts) {
+            if (!quotableFrom(asked, v)) continue;
+            for (const raw of metEvidenceFor(v.critique, criteria, at)) {
+              const text = raw.slice(0, PEER_ROW_MAX_CHARS);
+              const ref = `Reviewer ${String.fromCharCode(65 + withCritique.indexOf(v))}`;
+              if (!rows.some(r => r.n === at + 1 && r.ref === ref && r.text === text)) rows.push({ n: at + 1, criterion: criteria[at], ref, text });
+              (byObjection[o.id] ||= []).push({ lab: seatKeyOf(v.seat), layer: v.seat.layer, text });
+            }
+          }
+        }
+        return { rows, byObjection };
       };
       // 0.8.2 wiring (3c, 3d): from round 2 a judge that had objections is shown them, the writer's reasons and the changed passages, and told how to answer (`answers`, parsed by applyAnswers below).
       // Held sentence: `answerBackSection` in src/roles.js after the re-record; until then the prompt is untouched. It stays on a re-ask of the same round (the answers are read on the re-ask too).
       // Order: the suffixes (this one, then the re-ask note) follow criticUser's last line. On the `-answered` attempt of a blocking question (freedoms.blocking_questions: in no shipped chain, a user's own
       // setting) that line is "Give your verdict now ..." and the section's reply format follows it; accepted, since the section's own last words ask for the reply the judge must give.
+      // Layered (retained): the entry is shown whenever the lab is asked, the changed passages are the diff between the text it last judged and the text it is shown now, and one summary row is written per
+      // round per lab when the section text was really appended AND the call went out (keyed by round and lab, so a -reask / -retry / -answered attempt cannot add a second). The row is composed when the prompt is built
+      // (`pendingRows`), marked sent once invoke() has returned or the call failed after leaving (`sentLabs`), and written by flushShown() when the layer's ask ends, in seat order, even if a later seat's call stops the run:
+      // a call refused before it left (a spend stop, an unpriced seat, the key scan) shows no row. A paused external seat writes its prompt for the person and its row comes when the reply is replayed.
+      const pendingRows = new Map(); const sentLabs = new Set(); const pushedRows = new Set();
+      const flushShown = seats => {
+        for (const s of seats) {
+          const lab = seatKeyOf(s);
+          if (sentLabs.has(lab) && pendingRows.has(lab) && !pushedRows.has(lab)) { pushedRows.add(lab); answerBackRecords.push(pendingRows.get(lab)); }
+        }
+      };
       const answerBackNote = seat => {
-        const a = answerBackOn && answerBackRound === round ? answerBackLatest[labOf(seat)] : null;
-        const text = a ? held('answerBackSection')?.({ objections: a.objections, declined: a.declined, changed: a.changed_passages }) : null;
+        const lab = seatKeyOf(seat);
+        const a = retained ? answerBackLatest[lab] : (answerBackOn && answerBackRound === round ? answerBackLatest[lab] : null);
+        const changed = a && retained ? changedPassages(a.sawDraft, draft + changedSince(lastPatches)) : a?.changed_passages;
+        const text = a ? held('answerBackSection')?.({ objections: a.objections, declined: a.declined, changed }) : null;
+        if (text && retained && !pendingRows.has(lab)) {
+          pendingRows.set(lab, { round, lab, objection_ids: a.objections.map(o => o.id), declined: a.declined.length, changed_passages: changed.length, raised_round: Math.min(...a.objections.map(o => o.raised_round ?? round)) });
+        }
         return text ? `\n\n${text}` : '';
       };
-      const reviewSeat = async (criticSeat, prior, say, tag = '', tableGap = null, answersGap = null) => {
+      // E4: the ledger section, for the seats of the TOP layer only, built once per round before they are asked (below). Order in the prompt: criticUser + answer-back + LEDGER + re-ask note + the envelope section last.
+      const ledgerNote = seat => (roundLedger?.text && seat.layer === topLayer ? `\n\n${roundLedger.text}` : '') + (earlyAsk && seat.layer === topLayer ? `\n\n${earlyAsk.text}` : '');   // ROADMAP 83: the session's proposal and the list, for the overseer layer only
+      const reviewSeat = async (criticSeat, prior, say, tag = '', tableGap = null, answersGap = null, gapKind = null, envelopeKind = null) => {
         let cs, parsed, answeredQuestion = null;
+        let askedNotes = false; // the first call of this ask carried the notes ask (the notes lane): a reply cut off after that ask is recorded below
+        let envUsed = null; // the pair the reply now held in `cs` was asked under (null: no envelope), for envelopeReason
+        // E84: in a re-ask about the judge's OWN objections on a retained chain it is shown what the other judges of its layer wrote about the same criteria, and a withdrawal may quote it. `peer.byObjection` is built by the
+        // same call that built the text shown (peerRowsOf), and is used as `sources` only when that text was really appended to this prompt (the held sentence exists): what is shown and what is checked cannot differ.
+        const peer = retained && /^-reask\d+$/.test(tag) && answersGap?.length ? peerRowsOf(criticSeat, answersGap) : null;
+        const peerText = peer?.rows.length ? held('otherReviewersBlock')?.({ rows: peer.rows }) || null : null;
+        const sources = peerText ? peer.byObjection : null;
+        // Where the explicit ask stands for a row that is carried for want of an answer (retained chains only): set at the line that decides it, never filled in afterwards.
+        const askOnReask = answersGap?.length ? 'asked' : 'reask_spent'; // a re-ask with the note, or one spent on a lost first reply (it carried no note)
         // `panelMaxTokens` (2026-09-22): an optional per-seat output cap for the panel review only.
         // A seat that needs room to reason (GLM-5.3 Flash cut off at 36k on the Zofia run) can get it
         // here without raising its debate posts, proposals or replies - the text other labs read.
         if (criticSeat.panelMaxTokens) criticSeat = { ...criticSeat, maxTokens: criticSeat.panelMaxTokens };
         let cutOffRetried = false, effectiveCap = criticSeat.maxTokens ?? DEFAULT_MAX_TOKENS;
+        // Notes lane (2b-0): the stage label of the call whose reply `parsed` holds (the attempt the notes came from; updated in the same statement as every assignment to `parsed`). `normaliseCritique`'s `stage` and the live-view labels keep `noteKey` (the pass's own label), so no verdict record changes.
+        let parsedLabel = '', lastCallLabel = '';
         // v7 item 4: at most one blocking-question round trip per seat per round - the critic is
         // told it may not ask a second one, and this loop does not offer it the chance to anyway.
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
+            const callLabel = attempt === 0 ? `panel-${round}-${seatKeyOf(criticSeat)}${tag}` : `panel-${round}-${seatKeyOf(criticSeat)}${tag}-answered`;
+            lastCallLabel = callLabel;
+            // Patch mode shows the full draft plus the edits made since the last review, so a
+            // reviewer can see what moved without re-reading the plan. Empty in full-rewrite
+            // mode and on round 1, where there is no "since" to speak of.
+            const shown = draft + changedSince(lastPatches);
+            const env = withEnvelope(callLabel, shown, R.criticUser({ request, criteria, draft: shown, prior, answeredQuestion, checks }) + answerBackNote(criticSeat) + ledgerNote(criticSeat) + memoryNote() + (attempt === 0 ? (() => { const n = notesAskNote(criticSeat, tag, round); if (n) askedNotes = true; return n; })() : '') + reaskNote(criticSeat, tag, tableGap, answersGap, gapKind, peerText, envelopeKind));
+            envUsed = env.expect;
             cs = record(await invoke(criticSeat, {
               system: criticPromptFor(criticSeat, open, freedoms, config),
-              // Patch mode shows the full draft plus the edits made since the last review, so a
-              // reviewer can see what moved without re-reading the plan. Empty in full-rewrite
-              // mode and on round 1, where there is no "since" to speak of.
-              user: R.criticUser({ request, criteria, draft: draft + changedSince(lastPatches), prior, answeredQuestion, checks }) + answerBackNote(criticSeat) + reaskNote(criticSeat, tag, tableGap, answersGap),
-              log: say, label: attempt === 0 ? `panel-${round}-${labOf(criticSeat)}${tag}` : `panel-${round}-${labOf(criticSeat)}${tag}-answered`,
+              user: env.user,
+              log: say, label: callLabel,
             }));
+            sentLabs.add(seatKeyOf(criticSeat));
           } catch (err) {
+            // A3a commit 2: a panel judge is NEVER skippable. The panel agrees only when every judge is heard (allSignedOff needs unheard === 0, a layer with an unheard seat is 'unheard', and the round asks again on the
+            // unchanged draft until the round cap: NOT agreement), so a skipped judge would make agreement impossible and the run would pay its rounds for nothing. The stop says so and recommends the price row.
+            if (err instanceof PriceRefused) err.noSkip = 'a panel agrees only when every judge is heard';
             rethrowControlFlow(err);
             // A lab that is down (429 after retries, 5xx, network) must not take
             // the panel down with it. It abstains, and the log says why.
-            say(`  ${labOf(criticSeat)}/${criticSeat.model}: no reply (${String(err.message).slice(0, 120)}) - counted as an abstention.`);
+            say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: no reply (${String(err.message).slice(0, 120)}) - counted as an abstention.`);
             // v5 item 3, touch point 2: a verdict update for the live view, using a value
             // chain.js has already computed at this point - no new parsing. A provider exception
             // is infrastructure failure, not a stated position - the live wedge's `dropped`
             // state, kept separate from `objected` (item 1's report.json rule, item 3's own
             // scope addition kept true in the live view too).
-            progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+            progressHook({ kind: 'verdict', label: `panel-${round}-${seatKeyOf(criticSeat)}${tag}`, lab: labOf(criticSeat), ...seatField(criticSeat), dropped: true });
             return { seat: criticSeat, critique: null, abstained: true, error: String(err.message), reasonCode: 'SEAT_UNREACHABLE' };
           }
-          parsed = parseJson(cs.text);
+          parsed = parseJson(cs.text, { verdict: true, ...(envUsed ? { expect: envUsed } : {}) });
+          parsedLabel = lastCallLabel;
           // Bug audit 2026-09-27 M3: a reply the provider cut off at the cap can still parse (an
           // early complete fence, a lucky brace span), and a parsed cut-off `meets:true` went
           // straight through as a sign-off. So "cut off" is decided from the provider's stop reason
@@ -2897,81 +3678,139 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             // bigger cap; if that fails too, the seat abstains as before and the round rule
             // below refuses to call the panel unanimous without it.
             cutOffRetried = true;
-            const firstParsed = parsed, firstCs = cs, firstCap = effectiveCap;
+            const firstParsed = parsed, firstCs = cs, firstCap = effectiveCap, firstEnv = envUsed, firstLabel = parsedLabel;
             const biggerCap = cutOffRetryCap(fromCap, retryCeilingOf(criticSeat));
-            say(`  ${labOf(criticSeat)}/${criticSeat.model}: reply cut off at ${fromCap} tokens - asking once more with a ${biggerCap}-token cap.`);
+            say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: reply cut off at ${fromCap} tokens - asking once more with a ${biggerCap}-token cap.`);
             try {
+              // The retry is its own call: its own label, its own shown draft (the plain draft) and so its OWN pair (C&C C2): the first attempt's pair read against the retry's reply is wrong_id.
+              const retryLabel = `panel-${round}-${seatKeyOf(criticSeat)}${tag}-retry`;
+              const env = withEnvelope(retryLabel, draft, R.criticUser({ request, criteria, draft, prior, answeredQuestion, checks }) + answerBackNote(criticSeat) + ledgerNote(criticSeat) + memoryNote() + (tableGap || answersGap || envelopeKind ? reaskNote(criticSeat, tag, tableGap, answersGap, gapKind, peerText, envelopeKind) : ''));
+              envUsed = env.expect;
               cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
                 system: criticPromptFor(criticSeat, open, freedoms, config),
-                user: R.criticUser({ request, criteria, draft, prior, answeredQuestion, checks }) + answerBackNote(criticSeat) + (tableGap || answersGap ? reaskNote(criticSeat, tag, tableGap, answersGap) : ''),
-                log: say, label: `panel-${round}-${labOf(criticSeat)}${tag}-retry`,
+                user: env.user,
+                log: say, label: retryLabel,
               }));
               effectiveCap = biggerCap;
-              parsed = parseJson(cs.text);
+              parsed = parseJson(cs.text, { verdict: true, ...(envUsed ? { expect: envUsed } : {}) });
+              parsedLabel = retryLabel;
               // M3: when the cut-off first reply did parse, an unreadable retry must not throw away
               // what it said - back to the first reply (a cut objection still counts; a cut sign-off
               // is turned into an abstention below).
-              if (!parsed && firstParsed) { parsed = firstParsed; cs = firstCs; effectiveCap = firstCap; }
+              if (!parsed && firstParsed) { parsed = firstParsed; cs = firstCs; effectiveCap = firstCap; envUsed = firstEnv; parsedLabel = firstLabel; }
+              // Notes lane (2b-0): a cut-off first reply that parsed and carried notes is replaced by the retry. A reply cut at its cap can parse from a lucky span (the M3 comment above; no salvage), so its notes are NOT read:
+              // recorded as dropped `reply_cut_off` instead of lost without a trace (the retry's own notes are read as any reply's).
+              else if (notesOn && firstParsed && splitNotes(firstParsed).notesReply) { notesDropped.push({ lab: seatKeyOf(criticSeat), pass: round, why: 'reply_cut_off' }); notesCutIn.set(seatKeyOf(criticSeat), notesRound(round)); }
             } catch (err) {
               rethrowControlFlow(err);
-              say(`  ${labOf(criticSeat)}/${criticSeat.model}: the bigger-cap retry failed (${String(err.message).slice(0, 120)}) - keeping the first attempt's abstention.`);
+              envUsed = firstEnv; // the reply held in `cs` is still the first attempt's
+              say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: the bigger-cap retry failed (${String(err.message).slice(0, 120)}) - keeping the first attempt's abstention.`);
             }
           }
           if (!parsed) {
             // An unreadable verdict is an abstention: it neither signs off nor
             // objects, and it cannot block the panel. It used to count as a
             // pass, which would have waved a truncated FAILED straight through.
-            const why = classifyUnreadable(cs.usage, askedCapOf(cs, effectiveCap));
+            const envelopeWhy = envelopeWhyOf(cs, askedCapOf(cs, effectiveCap), envUsed); // E3b: missing | wrong_id when the envelope is the reason (classification order above), else null
+            // The false "malformed JSON" diagnosis of a well-formed reply that only lacks the ids is replaced by the held sentence (without it, and for every other cause, the text is today's).
+            const why = (envelopeWhy && held('criticEnvelopeUnreadableWhy')?.({ kind: envelopeWhy })) || classifyUnreadable(cs.usage, askedCapOf(cs, effectiveCap));
             const reasonCode = abstentionReasonCode(cs.usage, askedCapOf(cs, effectiveCap));
+            // Notes lane: a reply that was cut off AFTER the notes ask went out lost its verdict, and the notes may be why (they ride in the same reply). Recorded with its lab and pass, and the seat is not asked for
+            // notes again in this overseer round (a verdict outranks notes). Nothing is guessed about which part was cut.
+            if (askedNotes && reasonCode === 'REPLY_TRUNCATED') { notesDropped.push({ lab: seatKeyOf(criticSeat), pass: round, why: 'reply_cut_off' }); notesCutIn.set(seatKeyOf(criticSeat), notesRound(round)); }
             // v5 §1 candidate 4: the code is prepended, the diagnosis itself
             // is untouched - classifyUnreadable's three distinct reasons are
             // load-bearing (each one traces to a real incident on disk) and
             // this candidate changes what's printed, never what's diagnosed.
-            say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] unreadable reply (${cs.usage.output} tokens out; ${why})${cs.noAnswer ? ` - ${cs.noAnswer}` : ''} - counted as an abstention, not a sign-off.`);
+            say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] unreadable reply (${cs.usage.output} tokens out; ${why})${cs.noAnswer ? ` - ${cs.noAnswer}` : ''} - counted as an abstention, not a sign-off.`);
             // Same live-wedge treatment as the provider-exception abstention above: a real
             // reply came back, but not a usable one - item 1's outcome logic already treats
             // this identically to a dropout (`signedOff === null && passed === false`), so the
             // live view stays consistent with what report.json will say at the end.
-            progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+            progressHook({ kind: 'verdict', label: `panel-${round}-${seatKeyOf(criticSeat)}${tag}`, lab: labOf(criticSeat), ...seatField(criticSeat), dropped: true });
             // 0.8.1 milestone R: a seat whose thinking used the whole cap is recorded as such on the board (panelVerdicts[].no_answer), still an abstention.
-            return { seat: criticSeat, critique: null, abstained: true, reasonCode, ...(cs.noAnswer ? { noAnswer: cs.noAnswer } : {}) };
+            // E3b: the envelope field records why when the envelope was the reason (envelopeWhy above); the existing reasonCode stays.
+            return { seat: criticSeat, critique: null, abstained: true, reasonCode, ...(cs.noAnswer ? { noAnswer: cs.noAnswer } : {}), ...(envelopeWhy ? { envelope: envelopeWhy } : {}) };
           }
           if (freedoms?.blocking_questions && parsed.blocking_question && attempt === 0) {
-            say(`  ${labOf(criticSeat)}/${criticSeat.model}: blocking question - ${parsed.blocking_question}`);
+            say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: blocking question - ${parsed.blocking_question}`);
             const proposerSeat = config.seats.builder;
             const answer = record(await invoke(proposerSeat, {
               system: R.BLOCKING_ANSWER_SYSTEM,
               user: R.blockingAnswerUser({ request, draft, question: parsed.blocking_question }),
-              log: say, label: `panel-${round}-${labOf(criticSeat)}${tag}-question`,
+              log: say, label: `panel-${round}-${seatKeyOf(criticSeat)}${tag}-question`,
             }));
-            say(`  ${labOf(proposerSeat)}/${proposerSeat.model}: answered - ${answer.text}`);
+            say(`  ${shownSeat(proposerSeat)}/${proposerSeat.model}: answered - ${answer.text}`);
             answeredQuestion = { question: parsed.blocking_question, answer: answer.text };
+            // Notes lane (2b-0): attempt 0 carried the notes ask; the `-answered` attempt overwrites `parsed`, so attempt 0's notes are put in the stash BEFORE the loop goes on (read under the same rule as any reply of the pass).
+            if (notesOn) stashNotes(seatKeyOf(criticSeat), round, parsedLabel, splitNotes(parsed).notesReply, cs.usage);
             continue;
           }
           break;
         }
         if (freedoms?.pass && parsed.pass) {
-          say(`  ${labOf(criticSeat)}/${criticSeat.model}: PASSED - ${parsed.pass_reason || '(no reason given)'}`);
+          // Notes lane (2b-0): a stated pass is not a recorded verdict, but its reply may carry notes: stashed like any parsed reply (read iff the seat ends the pass with a recorded verdict, e.g. after the re-ask a stated pass with open own objections gets;
+          // a seat that ends on its stated pass has them counted dropped `verdict_not_recorded`, not lost without a trace).
+          if (notesOn) stashNotes(seatKeyOf(criticSeat), round, parsedLabel, splitNotes(parsed).notesReply, cs.usage);
+          say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: PASSED - ${parsed.pass_reason || '(no reason given)'}`);
+          const passLab = seatKeyOf(criticSeat);
+          const passReason = capField(parsed.pass_reason, { stage: `panel-${round}-${passLab}${tag}`, field: 'pass_reason' }) || '';
+          // 0.8.3 E3 (C&C ruling a1, 14 Oct 2026): on a layered chain with answer_back a stated pass by a lab that still holds its OWN open objections is recorded as its pass, never rewritten, and those objections are carried at once
+          // (`openOwn`; the record refuses to invent a disposition, not a verdict): the lab cannot sign a layer off by declining to judge. The VALUE that tells it from an objection is the
+          // answer_back_replies row (effect stated_pass_open, one per id). Only a validated withdrawal with a quote consumes an objection (Astra #9).
+          // E84 (ROADMAP 84): E3's carry is the FALLBACK. When the explicit ask is possible (the held sentence is recorded, and this is the judge's first ask of the round) the pass is not final yet: it is returned as the same internal shape
+          // a clean sign-off with unanswered objections has (abstained, `unansweredFallback`), so the round's ONE re-ask loop (askLayer) asks the judge once about its own objections, when the rest of its layer is clean; the fallback below is
+          // exactly E3's verdict, and its rows and the entry are written by `settle` only when it is adopted. A re-ask that comes back with a verdict replaces it (the latest ask counts).
+          const heldOpen = retained ? (answerBackLatest[passLab]?.objections || []) : [];
+          let openOwn = []; let settle = () => {};
+          if (heldOpen.length) {
+            // A pass reply may still carry `answers`: a withdrawal with a quote found in the draft (or, on a re-ask that showed them, in a peer's row) IS a disposition, so it is applied; what the pass leaves
+            // answered some other way (sustained, a refused withdrawal, a word that is neither) is carried as applyAnswers carries it, with that effect row, and an id with no answer at all is carried as stated_pass_open.
+            const applied = applyAnswers({ lab: passLab, critique: { failures: [], answers: parsed.answers }, own: heldOpen, shownDraft: draft, round, sources });
+            openOwn = [...applied.carried, ...applied.unanswered];
+            settle = (ask, announce) => {
+              // A re-ask replaces what the judge's earlier reply of the round recorded (same rule as the verdict path below); a deferred first ask has recorded nothing yet.
+              if (tag) for (let k = answerBackReplies.length - 1; k >= 0; k--) if (answerBackReplies[k].round === round && answerBackReplies[k].lab === passLab) answerBackReplies.splice(k, 1);
+              for (const r of applied.records) if (r.effect !== 'unanswered') answerBackReplies.push(withEvidence({ round, lab: passLab, ...r }, parsed.answers));
+              for (const f of applied.unanswered) answerBackReplies.push({ round, lab: passLab, id: f.id, status: null, effect: 'stated_pass_open', ask });
+              // What the pass withdrew with a quote is settled now: the lab's entry keeps only what is still open (gone altogether when nothing is).
+              const left = stillOpen(answerBackLatest[passLab], answerBackReplies, { round, lab: passLab });
+              if (left.length) answerBackLatest[passLab] = { ...answerBackLatest[passLab], objections: left }; else delete answerBackLatest[passLab];
+              if (openOwn.length) announce(`  ${passLab}/${criticSeat.model}: stated a pass while ${openOwn.length} of its own earlier objection(s) stay open (a pass is not a withdrawal): ${openOwn.map(o => o.id).join(', ')}`);
+            };
+          }
+          const finalVerdict = { seat: criticSeat, critique: null, passed: true, passReason, ...(openOwn.length ? { openOwn } : {}) };
+          const canAsk = openOwn.length > 0 && retained && !tag && !!held('criticStatedPassNote');
+          if (canAsk) {
+            progressHook({ kind: 'verdict', label: `panel-${round}-${passLab}${tag}`, lab: labOf(criticSeat), ...seatField(criticSeat), dropped: true });
+            return { seat: criticSeat, critique: null, abstained: true, reasonCode: 'STATED_PASS_OPEN', answersGap: openOwn, answersKind: 'stated_pass', unansweredFallback: { ...finalVerdict, settle } };
+          }
           // A stated, recorded refusal to verdict - not a stated position either way, so the
           // live wedge treats it as "waiting" territory rather than objected/signed. Reported
           // as its own kind so the writer doesn't have to special-case `passed` on top of
           // `verdict`.
-          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), passStated: true });
-          return { seat: criticSeat, critique: null, passed: true, passReason: capField(parsed.pass_reason, { stage: `panel-${round}-${labOf(criticSeat)}${tag}`, field: 'pass_reason' }) || '' };
+          progressHook({ kind: 'verdict', label: `panel-${round}-${passLab}${tag}`, lab: labOf(criticSeat), ...seatField(criticSeat), passStated: true });
+          settle(tag ? askOnReask : 'words_not_recorded', say);
+          return finalVerdict;
         }
-        let critique = normaliseCritique(parsed, say, { stage: `panel-${round}-${labOf(criticSeat)}${tag}` });
+        // Notes lane: the two note keys come OFF the reply before the verdict is read from the rest (on EVERY chain: normaliseCritique spreads the object it is given, and a note must never ride inside a recorded
+        // verdict, a peer block or a signoff record). Only normaliseCritique's argument changes: `parsed` still feeds blocking_question and answers above and below. The notes part is kept per call.
+        const { verdictPart, notesReply } = splitNotes(parsed);
+        const noteKey = `panel-${round}-${seatKeyOf(criticSeat)}${tag}`;
+        stashNotes(seatKeyOf(criticSeat), round, parsedLabel, notesReply, cs.usage);
+        let critique = normaliseCritique(verdictPart, say, { stage: noteKey });
         if (critique.unreadable) {
           // Parsed as JSON but stated no verdict - the same abstention as an unparseable reply.
           const reasonCode = abstentionReasonCode(cs.usage, askedCapOf(cs, effectiveCap));
-          say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply states no verdict (${critique.unreadableWhy}) - counted as an abstention, not a sign-off.`);
-          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+          say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply states no verdict (${critique.unreadableWhy}) - counted as an abstention, not a sign-off.`);
+          progressHook({ kind: 'verdict', label: `panel-${round}-${seatKeyOf(criticSeat)}${tag}`, lab: labOf(criticSeat), ...seatField(criticSeat), dropped: true });
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
         }
         if (critique.meets && draftIncomplete(cs.usage)) {
           // M4's panel side: the provider ended the reply with error/content_filter/refusal. Whatever
           // parsed is not a finished verdict, so a sign-off from it is not consent.
-          say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply signs off but the provider ended it with stop "${cs.usage.stop}" - counted as an abstention, not a sign-off.`);
-          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+          say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply signs off but the provider ended it with stop "${cs.usage.stop}" - counted as an abstention, not a sign-off.`);
+          progressHook({ kind: 'verdict', label: `panel-${round}-${seatKeyOf(criticSeat)}${tag}`, lab: labOf(criticSeat), ...seatField(criticSeat), dropped: true });
           return { seat: criticSeat, critique: null, abstained: true, reasonCode: abstentionReasonCode(cs.usage, askedCapOf(cs, effectiveCap)) };
         }
         if (critique.meets && providerCutOff(cs.usage)) {
@@ -2979,19 +3818,23 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           // gets none). A cut-off sign-off is never consent: the seat is unheard. A cut-off objection
           // is kept - it already said no, and dropping it would lose a vote (pilot 2026-09-17).
           const reasonCode = abstentionReasonCode(cs.usage, askedCapOf(cs, effectiveCap)) === 'REASONING_EXHAUSTED' ? 'REASONING_EXHAUSTED' : 'REPLY_TRUNCATED';
-          say(`  ${labOf(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply signs off but was cut off at the cap (stop: ${cs.usage.stop}) - counted as an abstention, not a sign-off.`);
-          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+          say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] reply signs off but was cut off at the cap (stop: ${cs.usage.stop}) - counted as an abstention, not a sign-off.`);
+          progressHook({ kind: 'verdict', label: `panel-${round}-${seatKeyOf(criticSeat)}${tag}`, lab: labOf(criticSeat), ...seatField(criticSeat), dropped: true });
           return { seat: criticSeat, critique: null, abstained: true, reasonCode };
         }
         // 0.8.2 (owner ruling 6 Oct 2026): a judge's `answers` about its own earlier objections. A withdrawal with no quote found in the draft does not count: the objection stays open.
         let pendingAnswers = null; // this ask's own objections left unanswered under a clean sign-off (not the `answersGap` argument, which was the previous ask's, for the note)
-        if (answerBackOn && answerBackRound === round && answerBackLatest[labOf(criticSeat)]) {
-          const applied = applyAnswers({ lab: labOf(criticSeat), critique, own: answerBackLatest[labOf(criticSeat)].objections, shownDraft: draft, round }); // cnc-prompts F2: the draft alone (in patch mode the "Was:" blocks and the harness's sentences are not the draft)
+        if (answerBackOn && (retained || answerBackRound === round) && answerBackLatest[seatKeyOf(criticSeat)]) {
+          const applied = applyAnswers({ lab: seatKeyOf(criticSeat), critique, own: answerBackLatest[seatKeyOf(criticSeat)].objections, shownDraft: draft, round, sources }); // cnc-prompts F2: the draft alone (in patch mode the "Was:" blocks and the harness's sentences are not the draft)
           // A re-ask of the same round replaces what the seat's earlier reply of the round recorded (the latest ask is the one that counts; a refused table's reply is not counted twice).
-          if (tag) for (let k = answerBackReplies.length - 1; k >= 0; k--) if (answerBackReplies[k].round === round && answerBackReplies[k].lab === labOf(criticSeat)) answerBackReplies.splice(k, 1);
-          for (const r of applied.records) answerBackReplies.push({ round, lab: labOf(criticSeat), ...r });
+          if (tag) for (let k = answerBackReplies.length - 1; k >= 0; k--) if (answerBackReplies[k].round === round && answerBackReplies[k].lab === seatKeyOf(criticSeat)) answerBackReplies.splice(k, 1);
+          // E84: on a retained chain a row carried for want of an answer says whether the judge was asked: 'asked' / 'reask_spent' on a re-ask, 'own_verdict_objects' when its own verdict already objects (carried at once, nothing to ask),
+          // 'words_not_recorded' when the re-ask sentence is not recorded; a first ask that may still be re-asked is stamped where the round decides (askLayer's adoption of the fallback).
+          const objectsAlready = critique.meets !== true || applied.carried.length > 0;
+          const unansweredAsk = !retained ? undefined : tag ? askOnReask : objectsAlready ? 'own_verdict_objects' : !held('criticUnansweredNote') ? 'words_not_recorded' : undefined;
+          for (const r of applied.records) answerBackReplies.push(withEvidence({ round, lab: seatKeyOf(criticSeat), ...r, ...(r.effect === 'unanswered' && unansweredAsk ? { ask: unansweredAsk } : {}) }, critique.answers));
           if (applied.carried.length) {
-            say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${applied.carried.length} earlier objection(s) stay open (a withdrawal needs a quote from the draft; a sustained answer, or one that says neither sustained nor withdrawn, leaves it open): ${applied.carried.map(c => c.id).join(', ')}`);
+            say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: ${applied.carried.length} earlier objection(s) stay open (a withdrawal needs a quote from the draft; a sustained answer, or one that says neither sustained nor withdrawn, leaves it open): ${applied.carried.map(c => c.id).join(', ')}`);
             critique = { ...critique, failures: [...critique.failures, ...applied.carried], meets: false };
           }
           // Astra's 0.8.2 review (7 Oct 2026, F1): a CLEAN sign-off that leaves some of the judge's own objections without any answer is not counted yet. The first ask of the round
@@ -3000,9 +3843,10 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           // A verdict that already objects (its own failures, or a carried answer above) carries its unanswered ones at once with no re-ask: it is no pass either way, and an objection it
           // skipped would otherwise be missing from the next round's answer-back and could pass unanswered there (Sonnet review of item 27, 7 Oct 2026, finding 3).
           // A re-ask whose first ask was LOST (unreadable, cut off) is a re-ask too: the round's one re-ask is spent, so what it leaves unanswered is carried without the note (a cost cap).
-          if (applied.unanswered.length && held('criticUnansweredNote')) {
-            if (critique.meets !== true || /^-reask\d+$/.test(tag)) {
-              say(`  ${labOf(criticSeat)}/${criticSeat.model}: no answer for ${applied.unanswered.length} earlier objection(s)${critique.meets === true ? ' after the re-ask' : ''} - they stay open: ${applied.unanswered.map(c => c.id).join(', ')}`);
+          // Layered (E3, readers audit 22): the unanswered branch does not depend on the held sentence: without it the ids are carried at once instead of being re-asked with a prompt that cannot say why.
+          if (applied.unanswered.length && (held('criticUnansweredNote') || retained)) {
+            if (critique.meets !== true || /^-reask\d+$/.test(tag) || (retained && !held('criticUnansweredNote'))) {
+              say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: no answer for ${applied.unanswered.length} earlier objection(s)${critique.meets === true ? ' after the re-ask' : ''} - they stay open: ${applied.unanswered.map(c => c.id).join(', ')}`);
               critique = { ...critique, failures: [...critique.failures, ...applied.unanswered], meets: false };
             } else pendingAnswers = applied.unanswered;
           }
@@ -3011,30 +3855,30 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const unansweredFallback = pendingAnswers ? { seat: criticSeat, critique: { ...critique, failures: [...critique.failures, ...pendingAnswers], meets: false } } : null;
         {
           const outside = outsideCriteriaRows(critique, criteria);
-          if (outside.length) outsideCriteriaRowList.push({ round, lab: labOf(criticSeat), rows: outside });
+          if (outside.length) outsideCriteriaRowList.push({ round, lab: seatKeyOf(criticSeat), rows: outside });
         }
         if (tableRequired && critique.meets === true) {
           const gap = signoffTableGap(critique, criteria);
           if (gap) {
-            say(`  ${labOf(criticSeat)}/${criticSeat.model}: signs off without a full table (${describeTableGap(gap)}) - counted as an abstention, not a sign-off.`);
-            noteMissingRows(critique, round, labOf(criticSeat));
-            signoffTableGaps.push({ round, lab: labOf(criticSeat), ...(tag ? { stage: `panel-${round}-${labOf(criticSeat)}${tag}` } : {}), ...gap });
-            progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+            say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: signs off without a full table (${describeTableGap(gap)}) - counted as an abstention, not a sign-off.`);
+            noteMissingRows(critique, round, seatKeyOf(criticSeat));
+            signoffTableGaps.push({ round, lab: seatKeyOf(criticSeat), ...(tag ? { stage: `panel-${round}-${seatKeyOf(criticSeat)}${tag}` } : {}), ...gap });
+            progressHook({ kind: 'verdict', label: `panel-${round}-${seatKeyOf(criticSeat)}${tag}`, lab: labOf(criticSeat), ...seatField(criticSeat), dropped: true });
             return { seat: criticSeat, critique: null, abstained: true, reasonCode: 'INCOMPLETE_TABLE', tableGap: gap, ...(unansweredFallback ? { answersGap: pendingAnswers, unansweredFallback } : {}) };
           }
         }
         if (unansweredFallback) {
-          say(`  ${labOf(criticSeat)}/${criticSeat.model}: signs off without answering ${pendingAnswers.length} of its own earlier objection(s) (${pendingAnswers.map(c => c.id).join(', ')}) - not counted as a sign-off yet.`);
-          progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), dropped: true });
+          say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: signs off without answering ${pendingAnswers.length} of its own earlier objection(s) (${pendingAnswers.map(c => c.id).join(', ')}) - not counted as a sign-off yet.`);
+          progressHook({ kind: 'verdict', label: `panel-${round}-${seatKeyOf(criticSeat)}${tag}`, lab: labOf(criticSeat), ...seatField(criticSeat), dropped: true });
           // Internal only: the round turns every such verdict into a re-ask or into `unansweredFallback` before anything is recorded, so this code never reaches report.json.
           return { seat: criticSeat, critique: null, abstained: true, reasonCode: 'UNANSWERED_OBJECTIONS', answersGap: pendingAnswers, unansweredFallback };
         }
-        say(`  ${labOf(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
-        noteMissingRows(critique, round, labOf(criticSeat));
-        if (checks) noteUnevidenced(critique, round, labOf(criticSeat), say);
+        say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: ${critique.meets ? 'SIGNED OFF' : `${critique.failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
+        noteMissingRows(critique, round, seatKeyOf(criticSeat));
+        if (checks) noteUnevidenced(critique, round, seatKeyOf(criticSeat), say);
         // v5 item 3, touch point 2: the verdict update the live view needs - `passed` (chain.js's
         // own name for "meets every criterion") is already computed here, no new parsing.
-        progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}${tag}`, lab: labOf(criticSeat), passed: critique.meets === true });
+        progressHook({ kind: 'verdict', label: `panel-${round}-${seatKeyOf(criticSeat)}${tag}`, lab: labOf(criticSeat), ...seatField(criticSeat), passed: critique.meets === true, ...(earlyAsk && criticSeat.layer === topLayer ? { earlyAnswer: true } : {}) });   // ROADMAP 83: the live view labels the overseer's answer to a proposal, never as an ordinary sign-off
         critique.failures.forEach(f => say(`    FAILED: ${f.criterion} - ${f.problem}`));
         return { seat: criticSeat, critique };
       };
@@ -3044,78 +3888,256 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       const carried = carry && carry.shownDraft === shownDraft ? carry.byLab : null;
       carry = null;
       if (carried) {
-        log(`  draft unchanged since round ${round - 1}: carrying over the verdicts of ${[...carried.keys()].join(', ')} on this same text; asking only ${config.seats.critics.filter(c => !carried.has(labOf(c))).map(c => `${labOf(c)}/${c.model}`).join(', ')}.`);
+        log(`  draft unchanged since round ${round - 1}: carrying over the verdicts of ${[...carried.keys()].map(labFromKey).join(', ')} on this same text; asking only ${config.seats.critics.filter(c => !carried.has(seatKeyOf(c))).map(c => `${seatKeyOf(c)}/${c.model}`).join(', ')}.`);
       }
       const carriedVerdict = criticSeat => {
-        const v = carried?.get(labOf(criticSeat));
+        const v = carried?.get(seatKeyOf(criticSeat));
         if (!v) return null;
-        progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(criticSeat)}`, lab: labOf(criticSeat), carried: true, ...(v.passed ? { passStated: true } : { passed: true }) });
-        return { ...v, carried: true };
+        progressHook({ kind: 'verdict', label: `panel-${round}-${seatKeyOf(criticSeat)}`, lab: seatKeyOf(criticSeat), carried: true, ...(v.passed ? { passStated: true } : { passed: true }) });
+        return { ...v, carried: true, ...(layered ? { fromRound: v.fromRound ?? round - 1 } : {}) };
       };
 
-      if (relay) {
-        // Relay seats run one after another, in a fresh order each round so
-        // no lab is always the anchor (seeded, so a resume replays it), and
-        // earlier verdicts are handed on anonymised so a seat can't defer to a name.
-        for (const criticSeat of seededShuffle(config.seats.critics, `${runId ?? ''}:relay:${round}`)) {
-          const kept = carriedVerdict(criticSeat);
-          if (kept) { verdicts.push(kept); continue; }
-          const prior = verdicts.filter(v => v.critique).map((v, i) => ({ lab: `Reviewer ${String.fromCharCode(65 + i)}`, verdict_line: v.critique.verdict_line, failures: v.critique.failures }));
-          verdicts.push(await reviewSeat(criticSeat, prior, log));
+      // E2a (0.8.3, the layered panel's first step; contract Review/Build_0.8.3/m6-closing/Layered_Panel_Contract.md 4.1): everything from "ask the seats" to "turn an unanswered fallback into an objection" is one
+      // function over a set of seats. It appends to the round's shared `verdicts`, and its two loops (the re-ask of unheard seats, the unanswered-objection fallback) read only the verdicts THIS call
+      // appended (from `start`). The unlayered panel calls it once with every critic: start is 0, so the calls, their order, the logs and the stage labels are what they were before the refactor.
+      // `panelVerdicts[].reasked`: the indices (in `verdicts`) of the seats a re-ask CALL was made for in this round. Derived from the act: it is added to in the one re-ask loop below, immediately before the call, so a seat that was
+      // unheard on its first ask but never re-asked (another judge objected, so nothing was left to decide; or its re-ask was spent) is not recorded as asked again (reasked defect, found 14 Oct 2026 at 38f3314).
+      const reaskedAt = new Set();
+      // Bug audit 2026-10-24 C-004: these two recordings used to sit AFTER the E4 ledger stop, so a round that stopped there lost what its already-asked layers produced (their panelVerdicts rows, their "Round r panel" history entry, and the notes in their
+      // replies: paid calls whose records vanished). They are functions now: the ledger stop calls the same code the normal path calls (further down, in the same places as before). signoff[], lastCritique and finalPanelRound still mean "the last panel that finished".
+      const foldRoundNotes = () => {
+        // Notes lane, the ONE place notes are read (gate note 1.2): from the verdicts that became this pass's recorded set (a critique, not carried), in (pass, lab) order, with the budget left after the same seat's
+        // earlier passes of this overseer round. A reply that never became a verdict (unreadable, cut off, an abstention that was re-asked) is counted as dropped, with its lab and pass, and a seat that ended the
+        // pass unheard or truncated is not asked again in the same overseer round (notesAskNote).
+        const or = notesRound(round); const consumed = new Set(); let ignored = 0;
+        const seatIndex = lab => config.seats.critics.findIndex(c => seatKeyOf(c) === lab);
+        // The dropped rows this pass's calls pushed while they ran (a cut-off reply, a cut-off first reply the retry replaced) are put in SEAT order: blind seats run at the same time, so on a live run they arrive in reply order, on a replay in seat order.
+        { const early = []; for (let i = notesDropped.length - 1; i >= 0; i--) if (notesDropped[i].pass === round) early.unshift(...notesDropped.splice(i, 1)); early.sort((x, y) => seatIndex(x.lab) - seatIndex(y.lab)); notesDropped.push(...early); }
+        // Notes lane (2b-0, C&C ruling Q1, 16 Okt 2026): the notes of EVERY reply of a pass that parsed (the first reply, a `-answered` attempt, each re-ask) are read here, in the order the calls were made, iff the seat ENDS the pass with a
+        // recorded verdict (a critique that is not carried). One budget (budgetLeft over the items already read) and one id rule (an id this seat already gave in this pass is skipped before the cut, so it costs no slot) cover all of them.
+        // A seat that ends the pass unheard keeps the drop below. Each item records the attempt (the stage-label suffix of the file that holds its reply: '' first reply, 'reask1', 'reask2', 'answered', ...).
+        for (const v of verdicts) {
+          const lab = seatKeyOf(v.seat);
+          if (!v.carried) { if (v.critique || v.passed) notesUnheardIn.delete(lab); else notesUnheardIn.set(lab, or); }
+          if (v.carried || !v.critique) continue;
+          for (const [key, st] of notesStash) {
+            if (st.lab !== lab || st.pass !== round) continue;
+            consumed.add(key);
+            if (!notesOn) { ignored += 1; continue; }
+            const left = { proposal: budgetLeft(notesItems, lab, 'proposal', or, notesCfg.perKind), idea: budgetLeft(notesItems, lab, 'idea', or, notesCfg.perKind) };
+            const skipIds = new Set(notesItems.filter(i => i.lab === lab && i.pass === round).map(i => i.id));
+            const read = readNotes(st.notesReply, { left, textMax: notesCfg.textMax, aboutMax: notesCfg.aboutMax, skipIds });
+            const attempt = st.label.slice(`panel-${round}-${lab}`.length).replace(/^-/, '');
+            for (const item of read.items) {
+              notesItems.push({ ...item, lab, layer: v.seat.layer ?? null, overseer_round: or, pass: round, attempt });
+              if (item.text.length > notesCfg.itemChars) notesLong += 1;
+            }
+            for (const kind of ['proposal', 'idea']) if (read.cut[kind]) notesCut.push({ lab, overseer_round: or, pass: round, kind, count: read.cut[kind] });
+            for (const d of read.dropped) notesDropped.push({ lab, pass: round, why: d.why, ...(d.kind ? { kind: d.kind } : {}) });
+          }
         }
-      } else {
-        // Blind seats see nothing of each other, so they run at the same
-        // time. Each seat's log lines are buffered and flushed in seat order,
-        // so the run log reads exactly as it did when they ran in sequence.
-        const results = await settleAll(config.seats.critics.map(async criticSeat => {
-          const kept = carriedVerdict(criticSeat);
-          if (kept) return { verdict: kept, lines: [] };
-          const lines = [];
-          const verdict = await reviewSeat(criticSeat, [], m => lines.push(m));
-          return { verdict, lines };
-        }));
-        for (const { verdict, lines } of results) {
-          lines.forEach(m => log(m));
-          verdicts.push(verdict);
+        // The replies whose seat did not end the pass heard: dropped, in SEAT order (a live run's replies arrive in any order; the record must not depend on it).
+        for (const [key, st] of [...notesStash].filter(([, e]) => e.pass === round).sort((x, y) => seatIndex(x[1].lab) - seatIndex(y[1].lab))) {
+          if (!consumed.has(key)) { if (notesOn) notesDropped.push({ lab: st.lab, pass: round, why: 'verdict_not_recorded' }); else ignored += 1; }
+          notesStash.delete(key);
         }
-      }
+        if (ignored) log(`  review notes: ${ignored} judge repl${ignored === 1 ? 'y' : 'ies'} in pass ${round} carried a notes part, ignored (this chain's review notes are off).`);
+      };
+      const recordPanelRound = () => {
+      verdicts.forEach((v, i) => panelVerdicts.push({
+      round, lab: labOf(v.seat), ...seatField(v.seat), model: v.seat.model,
+      ...(layered ? { layer: v.seat.layer } : {}),
+      ...(v.seat.lane ? { lane: v.seat.lane } : {}),
+      verdict: v.abstained ? 'unheard' : v.passed ? 'passed' : v.critique.meets === true ? 'signed_off' : 'objected',
+      reason_code: v.abstained ? (v.reasonCode || null) : null,
+      ...(v.abstained && v.tableGap ? { table_gap: v.tableGap } : {}),
+      ...(v.abstained && v.noAnswer ? { no_answer: v.noAnswer } : {}),
+      ...(v.abstained && v.envelope ? { envelope: v.envelope } : {}),
+      reasked: reaskedAt.has(i),
+      // R1: additive. True when this seat was not asked this round: its verdict from the round
+      // before, on the same unchanged draft, was carried over.
+      ...(v.carried ? { carried: true } : {}),
+      ...(layered && v.carried ? { from_round: v.fromRound } : {}), // 0.8.3 E2b, additive: the round the carried verdict was given in
+      }));
 
-      // Re-ask only the seats that were not heard, and only when it matters: every heard reviewer
-      // is clean (signed off or stated a pass), so the unheard seat alone decides the round. The
-      // rest of the panel already answered this exact draft, so asking them again would only
-      // spend money. Two extra attempts per round at most; a seat still unheard after that leaves
-      // the round non-unanimous (below). If a heard reviewer objected there is nothing to
-      // decide here - the reviser runs on the union of objections and the next round re-asks all.
-      const unheardFirst = verdicts.map(v => !!v.abstained);
-      const heardClean = () => verdicts.every(v => v.abstained || v.passed || v.critique?.meets === true);
-      for (let reask = 1; reask <= 2 && heardClean() && verdicts.some(v => v.abstained); reask++) {
-        for (let i = 0; i < verdicts.length; i++) {
-          if (!verdicts[i].abstained) continue;
-          // 0.8.2 (owner decision 1: "one re-ask, then abstention"): a seat refused for an incomplete table is re-asked once; an unreadable or lost reply keeps its two.
-          // F1 (Astra, 7 Oct 2026): a seat re-asked about unanswered objections shares that one re-ask (a cost cap), even when the re-ask itself came back unreadable.
-          if (reask > 1 && (verdicts[i].reasonCode === 'INCOMPLETE_TABLE' || verdicts[i].unansweredFallback)) continue;
-          const seatToAsk = verdicts[i].seat;
-          log(`  re-asking only ${labOf(seatToAsk)}/${seatToAsk.model} (${reask}/2) - it was not heard; the rest of the panel already answered this draft.`);
-          const prior = relay ? verdicts.filter(v => v.critique).map((v, k) => ({ lab: `Reviewer ${String.fromCharCode(65 + k)}`, verdict_line: v.critique.verdict_line, failures: v.critique.failures })) : [];
-          const before = verdicts[i];
-          verdicts[i] = await reviewSeat(seatToAsk, prior, log, `-reask${reask}`, before.tableGap || null, before.answersGap || null);
-          // A LOST re-ask (no verdict read at all) must not lose the objections it was asked about: the earlier fallback stays. A re-ask refused only for its table did read the
-          // judge's answers (an answered objection is closed, a still unanswered one was carried), so the old fallback must not come back (Sonnet review of item 27, finding 1).
-          if (verdicts[i].abstained && verdicts[i].reasonCode !== 'INCOMPLETE_TABLE' && !verdicts[i].unansweredFallback && before.unansweredFallback) verdicts[i] = { ...verdicts[i], answersGap: before.answersGap, unansweredFallback: before.unansweredFallback };
+      history.push(`## Round ${round} panel\n${verdicts.map(v =>
+      `- ${shownSeat(v.seat)}/${v.seat.model}: ${v.abstained ? (v.reasonCode === 'INCOMPLETE_TABLE' ? 'abstained (sign-off without a full per-criterion table)' : 'abstained (unreadable reply)') : v.passed ? `passed - ${v.passReason || '(no reason given)'}` : v.critique.meets ? 'signed off' : `${v.critique.failures.length} failure(s)`}`
+      ).join('\n')}`);
+      };
+      // E3 readers audit: ONE derived predicate for "this ask objects". A stated pass that carries its own open objections objects; every other pass is a non-vote, as before.
+      const openOwnOf = v => v.openOwn || [];
+      const objects = v => (v.critique && v.critique.meets !== true) || openOwnOf(v).length > 0;
+      const askLayer = async seats => {
+        const start = verdicts.length;
+        try {
+        if (relay) {
+          // Relay seats run one after another, in a fresh order each round so
+          // no lab is always the anchor (seeded, so a resume replays it), and
+          // earlier verdicts are handed on anonymised so a seat can't defer to a name.
+          for (const criticSeat of seededShuffle(seats, `${runId ?? ''}:relay:${round}`)) {
+            const kept = carriedVerdict(criticSeat);
+            if (kept) { verdicts.push(kept); continue; }
+            const prior = verdicts.filter(v => v.critique).map((v, i) => ({ lab: `Reviewer ${String.fromCharCode(65 + i)}`, verdict_line: v.critique.verdict_line, failures: v.critique.failures }));
+            verdicts.push(await reviewSeat(criticSeat, prior, log));
+          }
+        } else {
+          // Blind seats see nothing of each other, so they run at the same
+          // time. Each seat's log lines are buffered and flushed in seat order,
+          // so the run log reads exactly as it did when they ran in sequence.
+          const results = await settleAll(seats.map(async criticSeat => {
+            const kept = carriedVerdict(criticSeat);
+            if (kept) return { verdict: kept, lines: [] };
+            const lines = [];
+            const verdict = await reviewSeat(criticSeat, [], m => lines.push(m));
+            return { verdict, lines };
+          }));
+          for (const { verdict, lines } of results) {
+            lines.forEach(m => log(m));
+            verdicts.push(verdict);
+          }
         }
-      }
-      // F1: a seat still waiting on its unanswered objections (not re-asked because another judge objected, or its re-ask was lost) is recorded as objecting with them, never as unheard.
-      for (let i = 0; i < verdicts.length; i++) {
-        if (!verdicts[i].abstained || !verdicts[i].unansweredFallback) continue;
-        const v = verdicts[i];
-        log(`  ${labOf(v.seat)}/${v.seat.model}: ${v.answersGap.length} earlier objection(s) still without an answer - they stay open: ${v.answersGap.map(c => c.id).join(', ')}`);
-        verdicts[i] = v.unansweredFallback;
-        progressHook({ kind: 'verdict', label: `panel-${round}-${labOf(v.seat)}`, lab: labOf(v.seat), passed: false }); // the live view showed it dropped; it is an objection now
+
+        // Re-ask only the seats that were not heard, and only when it matters: every heard reviewer
+        // is clean (signed off or stated a pass), so the unheard seat alone decides the round. The
+        // rest of the panel already answered this exact draft, so asking them again would only
+        // spend money. Two extra attempts per round at most; a seat still unheard after that leaves
+        // the round non-unanimous (below). If a heard reviewer objected there is nothing to
+        // decide here - the reviser runs on the union of objections and the next round re-asks all.
+        const heardClean = () => verdicts.slice(start).every(v => v.abstained || (v.passed && !openOwnOf(v).length) || v.critique?.meets === true);
+        for (let reask = 1; reask <= 2 && heardClean() && verdicts.slice(start).some(v => v.abstained); reask++) {
+          for (let i = start; i < verdicts.length; i++) {
+            if (!verdicts[i].abstained) continue;
+            // 0.8.2 (owner decision 1: "one re-ask, then abstention"): a seat refused for an incomplete table is re-asked once; an unreadable or lost reply keeps its two.
+            // F1 (Astra, 7 Oct 2026): a seat re-asked about unanswered objections shares that one re-ask (a cost cap), even when the re-ask itself came back unreadable.
+            if (reask > 1 && (verdicts[i].reasonCode === 'INCOMPLETE_TABLE' || verdicts[i].unansweredFallback)) continue;
+            const seatToAsk = verdicts[i].seat;
+            log(`  re-asking only ${shownSeat(seatToAsk)}/${seatToAsk.model} (${reask}/2) - it was not heard; the rest of the panel already answered this draft.`);
+            const prior = relay ? verdicts.filter(v => v.critique).map((v, k) => ({ lab: `Reviewer ${String.fromCharCode(65 + k)}`, verdict_line: v.critique.verdict_line, failures: v.critique.failures })) : [];
+            const before = verdicts[i];
+            reaskedAt.add(i);
+            verdicts[i] = await reviewSeat(seatToAsk, prior, log, `-reask${reask}`, before.tableGap || null, before.answersGap || null, before.answersKind || null, before.envelope || null);
+            // A LOST re-ask (no verdict read at all) must not lose the objections it was asked about: the earlier fallback stays. A re-ask refused only for its table did read the
+            // judge's answers (an answered objection is closed, a still unanswered one was carried), so the old fallback must not come back (Sonnet review of item 27, finding 1).
+            if (verdicts[i].abstained && verdicts[i].reasonCode !== 'INCOMPLETE_TABLE' && !verdicts[i].unansweredFallback && before.unansweredFallback) verdicts[i] = { ...verdicts[i], answersGap: before.answersGap, answersKind: before.answersKind, unansweredFallback: before.unansweredFallback, askedAgain: !!before.answersGap?.length };
+          }
+        }
+        // F1: a seat still waiting on its unanswered objections (not re-asked because another judge objected, or its re-ask was lost) is recorded as objecting with them, never as unheard.
+        for (let i = start; i < verdicts.length; i++) {
+          if (!verdicts[i].abstained || !verdicts[i].unansweredFallback) continue;
+          const v = verdicts[i];
+          // E84: whether the explicit ask happened is known here: 'asked' when a re-ask with the note was made (its reply was lost, so the first ask's fallback stands), else the round never re-asked because another judge of the
+          // layer objected ('layer_objected': nothing to decide; the judge is asked again in the next round it is in). Retained chains only.
+          const askNow = v.askedAgain ? 'asked' : 'layer_objected';
+          const { settle: settleFallback, ...adopted } = v.unansweredFallback; // the closure stays out of the verdict list
+          verdicts[i] = adopted;
+          if (v.answersKind === 'stated_pass') {
+            // The deferred stated pass is adopted as E3 recorded it: a pass that carries its objections. Its rows and the entry are written now. A first ask that was never re-asked was never "re-asked" in the record either.
+            log(`  ${shownSeat(v.seat)}/${v.seat.model}: ${v.answersGap.length} earlier objection(s) still without an answer after its stated pass - they stay open: ${v.answersGap.map(c => c.id).join(', ')}`);
+            settleFallback(askNow, log);
+            progressHook({ kind: 'verdict', label: `panel-${round}-${seatKeyOf(v.seat)}`, lab: seatKeyOf(v.seat), passStated: true });
+          } else {
+            log(`  ${shownSeat(v.seat)}/${v.seat.model}: ${v.answersGap.length} earlier objection(s) still without an answer - they stay open: ${v.answersGap.map(c => c.id).join(', ')}`);
+            if (retained) for (const r of answerBackReplies) if (r.round === round && r.lab === seatKeyOf(v.seat) && r.effect === 'unanswered' && r.ask === undefined) r.ask = askNow;
+            progressHook({ kind: 'verdict', label: `panel-${round}-${seatKeyOf(v.seat)}`, lab: seatKeyOf(v.seat), passed: false }); // the live view showed it dropped; it is an objection now
+          }
+        }
+        } finally {
+          flushShown(seats); // E3: the answer_back summary rows of the labs whose call went out, in seat order, even when a later seat's call stopped the run
+          // E84: a stop (the spend cap refuses the re-ask before it is sent, an external seat pauses, an abort) between a judge's first ask and the round's decision leaves its deferred verdict undecided. The record must still
+          // be what it was at E3 plus the truth about the ask: a stated pass writes its rows as E3 wrote them, and every row carried for want of an answer says `run_stopped` (the run ended before the judge's answer to a re-ask was in).
+          // After a normal ask nothing is pending here (the adoption loop above replaced every interim verdict), so this is a no-op. Retained chains only.
+          if (retained) for (let i = start; i < verdicts.length; i++) {
+            const v = verdicts[i];
+            if (!v.abstained || !v.unansweredFallback) continue;
+            const { settle: settleFallback } = v.unansweredFallback;
+            if (v.answersKind === 'stated_pass') settleFallback('run_stopped', log);
+            else for (const r of answerBackReplies) if (r.round === round && r.lab === seatKeyOf(v.seat) && r.effect === 'unanswered' && r.ask === undefined) r.ask = 'run_stopped';
+          }
+        }
+      };
+      // The state of one layer from the verdicts it produced (gate page 3.2): an objection ends the climb; a seat not heard ends it too (the round asks again on the unchanged draft); a layer in which nobody
+      // voted, or (the top layer above other layers) not every seat signed off explicitly, is `abstained` and stops the run.
+      const layerState = (vs, explicit) => {
+        if (vs.some(objects)) return 'objected';
+        if (vs.some(v => v.abstained)) return 'unheard';
+        if (explicit) return vs.every(v => v.critique?.meets === true) ? 'signed_off' : 'abstained';
+        return vs.some(v => v.critique) ? 'signed_off' : 'abstained';
+      };
+      let roundRows = null;
+      if (!layered) await askLayer(config.seats.critics);
+      else {
+        roundRows = layerNumbers.map(n => ({ round, layer: n, ...(ovOn ? { overseer_round: ovState.overseerRound } : {}), labs: config.seats.critics.filter(c => c.layer === n).map(labOf), ...(config.seats.critics.some(c => c.layer === n && seatKeyOf(c) !== labOf(c)) ? { seats: config.seats.critics.filter(c => c.layer === n).map(seatKeyOf) } : {}), state: 'not_asked' }));
+        layersRecord.push(...roundRows);
+        if (ledgerOn) { draftShaByRound[round] = draftIdOf(draft); roundLedger = null; }
+        let ledgerStopped = false;
+        // ROADMAP 83: the pass after a session's early-finish proposal asks the OVERSEER LAYER ONLY (the lower layers are exactly what an early finish skips); its answer is that overseer round's verdict.
+        for (const row of (earlyAsk ? roundRows.filter(r => r.layer === topLayer) : roundRows)) {
+          // E4: the TOP layer is shown the objection ledger. Built ONCE here (one text per round); an overflow of the ACTIVE rows stops the run BEFORE the ask (the row stays not_asked, nothing is sent to the top layer).
+          if (row.layer === topLayer && layerNumbers.length >= 2) {
+            if (!ledgerOn) {
+              if (!ledgerOffLogged) { ledgerOffLogged = true; log('  ledger not built: answer_back is off, so there are no dispositions to show the top layer.'); }
+            } else {
+              const sentence = held('overseerLedgerSection');
+              const rowsOf = sentence ? objectionLedger({ openByRound: ledgerRaises, replies: answerBackReplies, reviserByRound: reviserByRoundOf(), draftShaByRound, heardByRound, notAskedByRound, layerOf: Object.fromEntries(config.seats.critics.map(c => [seatKeyOf(c), c.layer])), currentRound: round }).map(r => ({ ...r, raised_by: { ...r.raised_by, lab: labFromKey(r.raised_by.lab) }, ...(r.judge?.quoted_ref ? { judge: { ...r.judge, quoted_ref: `${labFromKey(r.judge.quoted_ref)}${layerNoteOf(r.judge.quoted_ref)}` } } : {}) })) : [];   // CR-6A-004: the quoted peer is named like every other seat in text a model reads: the lab, plus " (layer N)" for a model repeated on more than one layer   // the ledger sentence is a prompt: the bare lab, never the seat key
+              if (!sentence) log('  ledger section held: the top layer is asked with the ordinary prompt.');
+              else if (rowsOf.length) {
+                const fit = fitLedger(rowsOf, ({ rows, omitted }) => sentence({ rows, omitted }));
+                const shown = { rows: fit.counts.rows, active: fit.counts.active, closed_cut: fit.counts.closed_cut, chars: fit.chars, tokens_est: fit.tokens_est };
+                if (fit.overflow) {
+                  layerStop = { round, layer: topLayer, reason: 'ledger_overflow', labs: row.labs, ...(row.seats ? { seats: row.seats } : {}), ledger: shown };
+                  log(`\n  round ${round}: ${held('ledgerOverflowExit')?.({ rows: shown.rows, chars: shown.chars, limit: LEDGER_MAX_CHARS }) ?? `the open objections (${shown.rows} rows, ${shown.chars} characters) are too many to show the top layer in full (limit ${LEDGER_MAX_CHARS}). Nothing was sent to the top layer. Stopping; this is not agreement.`}`);
+                  ledgerStopped = true;
+                  break;
+                }
+                roundLedger = { text: fit.text };
+                row.ledger = shown;
+                if (fit.counts.closed_cut) log(`  ledger: ${fit.counts.closed_cut} earlier closed row(s) were left out of the top layer's section (named in it).`);
+              }
+            }
+          }
+          const from = verdicts.length;
+          row.state = 'unfinished';
+          log(`  layer ${row.layer} of ${layerNumbers.length} (${row.labs.join(', ')}):`);
+          await askLayer(config.seats.critics.filter(c => c.layer === row.layer));
+          const mine = verdicts.slice(from);
+          row.state = layerState(mine, explicitTop && row.layer === topLayer);
+          const carriedHere = mine.filter(v => v.carried).map(v => ({ lab: seatKeyOf(v.seat), from_round: v.fromRound }));
+          if (carriedHere.length) row.carried = carriedHere;
+          if (row.state !== 'signed_off') {
+            log(`  layer ${row.layer} did not sign off (${LAYER_STATE_WORDS[row.state]}); the layers above it are not asked this round.`);
+            break;
+          }
+        }
+        // For a live view that closes a round on an event: fired once per layered round, after its last asked layer, with the labs actually asked (a carried verdict is not an ask).
+        progressHook({ kind: 'round-end', round, labs: verdicts.filter(v => !v.carried).map(v => seatKeyOf(v.seat)) });
+        // E4: the ledger did not fit. layerStop is set and the top row stays not_asked. The round loop ends HERE, before the E2b block below could classify the same round as no_objection_to_revise, so that block needs no guard (C&C ruling 15 Oct 2026). The ORDER is the whole safeguard: if the E2b block is ever moved ahead of this break, test/objection-ledger-wiring.test.js row "E4 w4" (layerStop.reason stays ledger_overflow) fails
+        // (variant tree, 14 Oct 2026: removing a `!layerStop` guard there changed no test result, so none was added).
+        if (ledgerStopped) { foldRoundNotes(); recordPanelRound(); passed = false; break; }
+        if (earlyAsk) {
+          const pending = earlyAsk; earlyAsk = null;
+          const topRow = roundRows.find(r => r.layer === topLayer);
+          if (topRow.state === 'signed_off' && !topRow.carried) {
+            // The overseer layer said yes (every seat of it signed off explicitly). NOT a sign-off of the draft: nothing of this pass is recorded as a verdict, a layers[] row or signoff[]; lastCritique stays the objections of the pass that
+            // triggered the revise, so the dispute stage and the dissent block carry every one of them (the early yes can never wipe an objection).
+            earlyFinish = { kind: 'early_finish', pass: round, overseer_round: ovOn ? ovState.overseerRound : 0, chosen: 'early', reason: pending.reason, items: pending.record, overseer: topRow.labs };
+            earlyTasks = pending.tasks;
+            if (ovOn) ovCompleted += 1;   // the overseer layer gave its verdict for this round: overseer_rounds counts it, and equals stop.overseer_round
+            layersRecord.splice(layersRecord.length - roundRows.length, roundRows.length);
+            // This pass's judge replies are not read as notes (the pass is not a recorded pass): counted as dropped, like any reply whose seat did not end a recorded pass.
+            for (const [key, st] of [...notesStash].filter(([, e]) => e.pass === round)) { if (notesOn) notesDropped.push({ lab: st.lab, pass: round, why: 'verdict_not_recorded' }); notesStash.delete(key); }
+            passed = false;
+            log(`\n  finishing early at the session's proposal, with the overseer layer's yes: ${pending.record.length} open objection(s) go to the builder as tasks; this is NOT agreement.`);
+            break;
+          }
+          log(`\n  the overseer layer did not agree to finish early (${LAYER_STATE_WORDS[topRow.state] ?? topRow.state}); its reply counts as an ordinary overseer verdict.`);
+        }
+        if (ledgerOn) notAskedByRound[round] = roundRows.filter(x => x.state === 'not_asked').flatMap(seatsOfRow);
       }
 
       // Each objection carries the lab that raised it, so the human review
       // step sees who said what rather than an anonymous merged list.
       const voting = verdicts.filter(v => v.critique);
+      foldRoundNotes();
       // `abstained` keeps its old meaning (everyone without a critique, including a stated pass).
       // `unheard` is the narrower set that matters for unanimity: seats whose reply was lost - cut
       // off, malformed, or the provider was down. A stated pass is a position; a lost reply is not.
@@ -3126,8 +4148,16 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // marking every claim "unquoted" would be noise that teaches seats to ignore the mark.
       // Nothing is ever dropped: an unquoted objection may still be right, and silently
       // discarding an objection is how a real defect disappears.
-      const allFailures = voting.flatMap(v =>
-        markFailures(v.critique.failures, fencedSource).map(f => ({ ...f, lab: labOf(v.seat), id: objectionId(labOf(v.seat), f) })));
+      // E3: a stated pass's carried objections (verdict.openOwn) join the round's failures at this single fold point, ids and carried_from_round kept (they were marked when first raised).
+      const openOwnFailures = verdicts.flatMap(v => openOwnOf(v).map(f => ({ ...f, lab: seatKeyOf(v.seat) })));
+      const openOwnAny = openOwnFailures.length > 0;
+      const allFailures = [...voting.flatMap(v =>
+        markFailures(v.critique.failures, fencedSource).map(f => ({ ...f, lab: seatKeyOf(v.seat), id: objectionId(seatKeyOf(v.seat), f) }))), ...openOwnFailures];
+      if (layered) heardByRound[round] = verdicts.filter(v => !v.carried && !v.abstained && (v.critique || v.passed)).map(v => seatKeyOf(v.seat));   // E4b: who gave a NEW verdict this round (rule R's "was asked"), on every layered chain
+      if (ledgerOn) {
+        // E4 captures: the judges' OWN raises only (a carried verdict's failures belong to an earlier round), and who gave a NEW verdict this round (a carried verdict is not "heard").
+        ledgerRaises.push({ round, failures: [...voting.filter(v => !v.carried).flatMap(v => v.critique.failures.map(f => ({ ...f, lab: seatKeyOf(v.seat), id: objectionId(seatKeyOf(v.seat), f) }))), ...openOwnFailures] });
+      }
       if (fencedSource) {
         for (const w of quoteWarnings(allFailures.filter(f => f.quote_status), 'panel')) {
           log(`    QUOTE: ${w}`);
@@ -3144,7 +4174,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // REGRESSION. Now per (lab, criterion): the same lab failed it before, was HEARD in the
       // previous round without failing it, and fails it again.
       const failedNow = new Set(allFailures.filter(f => f.criterion).map(f => `${f.lab}\u0000${f.criterion}`));
-      const heardNow = new Set(voting.map(v => labOf(v.seat)));
+      const heardNow = new Set(voting.map(v => seatKeyOf(v.seat)));
       const prevRound = failedByRound[failedByRound.length - 1];
       const regressedPairs = failedByRound.length >= 2 ? [...failedNow].filter(key =>
         prevRound.heard.has(key.split('\u0000')[0])
@@ -3156,14 +4186,14 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         regressions.push({ round, criterion: c, labs });
       }
       failedByRound.push({ failed: failedNow, heard: heardNow });
-      const allVotersClean = voting.length > 0 && voting.every(v => v.critique.meets === true);
+      const allVotersClean = voting.length > 0 && voting.every(v => v.critique.meets === true) && !openOwnAny;
       // An unheard reviewer is an unknown, not consent. Found in the 2026-09-17 pilot: when every
       // reviewer that WAS heard signed off, the old check declared "every lab that answered signed
       // off" and passed, with a truncated or malformed dissent silently outside the vote. The
       // relay engine already carries this rule (run 2026-09-13T20-20-07-757Z); ported here.
       // With no quorum set (minHeard 0) every round is quorate and this is exactly the old rule.
       const quorate = voting.length >= minHeard;
-      const allSignedOff = allVotersClean && unheard === 0 && quorate;
+      const allSignedOff = allVotersClean && unheard === 0 && quorate && (!layered || roundRows.every(r => r.state === 'signed_off'));
       lastCritique = { meets: allSignedOff, failures: allFailures };
       // `objections` is why a seat declined, co-located with the decision itself.
       // The same failures also appear flattened in lastCritique.failures, tagged
@@ -3177,12 +4207,13 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // lab despite its name. `provider` stays for compatibility and is marked deprecated in
       // schemas/report-v1.json; it can go only with a schemaVersion 2.
       signoff = verdicts.map(v => ({
-        provider: labOf(v.seat), lab: labOf(v.seat), model: v.seat.model,
+        provider: labOf(v.seat), lab: labOf(v.seat), ...seatField(v.seat), model: v.seat.model,
+        ...(layered ? { layer: v.seat.layer } : {}), // 0.8.3 E2b, additive: the layer this seat sits in (layered chains only)
         // 0.7.9, additive: the seat's index in config.seats.critics. A relay panel lists signoff[]
         // in its seeded review order, so array position is not the seat (verdict-diff reads this).
-        seat_index: config.seats.critics.findIndex(c => labOf(c) === labOf(v.seat)),
+        seat_index: config.seats.critics.findIndex(c => seatKeyOf(c) === seatKeyOf(v.seat)),
         signedOff: v.abstained || v.passed ? null : v.critique.meets === true,
-        objections: v.abstained || v.passed ? null : v.critique.failures.map(f => ({ ...f, id: objectionId(labOf(v.seat), f) })),
+        objections: v.abstained || v.passed ? null : v.critique.failures.map(f => ({ ...f, id: objectionId(seatKeyOf(v.seat), f) })),
         // v7 item 4: a pass is a stated, recorded refusal to verdict - distinct from an
         // abstention (no usable reply at all), which is why it carries its own reason field
         // instead of overloading `objections`.
@@ -3193,25 +4224,11 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         reason_code: v.abstained ? (v.reasonCode || null) : null,
       }));
 
-      verdicts.forEach((v, i) => panelVerdicts.push({
-        round, lab: labOf(v.seat), model: v.seat.model,
-        ...(v.seat.lane ? { lane: v.seat.lane } : {}),
-        verdict: v.abstained ? 'unheard' : v.passed ? 'passed' : v.critique.meets === true ? 'signed_off' : 'objected',
-        reason_code: v.abstained ? (v.reasonCode || null) : null,
-        ...(v.abstained && v.tableGap ? { table_gap: v.tableGap } : {}),
-        ...(v.abstained && v.noAnswer ? { no_answer: v.noAnswer } : {}),
-        reasked: unheardFirst[i],
-        // R1: additive. True when this seat was not asked this round: its verdict from the round
-        // before, on the same unchanged draft, was carried over.
-        ...(v.carried ? { carried: true } : {}),
-      }));
-
-      history.push(`## Round ${round} panel\n${verdicts.map(v =>
-        `- ${labOf(v.seat)}/${v.seat.model}: ${v.abstained ? (v.reasonCode === 'INCOMPLETE_TABLE' ? 'abstained (sign-off without a full per-criterion table)' : 'abstained (unreadable reply)') : v.passed ? `passed - ${v.passReason || '(no reason given)'}` : v.critique.meets ? 'signed off' : `${v.critique.failures.length} failure(s)`}`
-      ).join('\n')}`);
+      recordPanelRound();
 
       if (allSignedOff) {
         passed = true;
+        if (ovOn) ovCompleted += 1;
         log(abstained
           ? `  every lab that answered signed off (${abstained} passed); stopping.`
           : `  every lab on the panel signed off; stopping.`);
@@ -3231,9 +4248,25 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         break;
       }
 
-      if (voting.length === 0) {
-        noHeardReviewer = { round, unheard, passedOnly: verdicts.length - unheard };
-        log(`\n  round ${round}: no reviewer was heard (${unheard} unreadable or unreachable, ${verdicts.length - unheard} stated a pass) - there is nothing to revise against. Stopping the loop; this is not agreement.`);
+      if (voting.length === 0 && !openOwnAny) {
+        noHeardReviewer = { round, unheard, passedOnly: verdicts.length - unheard, ...(layered ? { layer: roundRows.filter(r => r.state !== 'not_asked').pop().layer } : {}) };
+        log(`\n  round ${round}${layered ? `, layer ${noHeardReviewer.layer}` : ''}: no reviewer was heard (${unheard} unreadable or unreachable, ${verdicts.length - unheard} stated a pass) - there is nothing to revise against. Stopping the loop; this is not agreement.`);
+        passed = false;
+        break;
+      }
+
+      // 0.8.3 E2b: a layered round whose climb ended on a layer in which nobody voted (only stated passes), or on a top layer where not every seat signed off explicitly, has no objection to revise
+      // against and nobody unheard to ask again: it stops here, as "not agreement", instead of reaching the reviser with an empty list (the 2026-09-23 bug-audit #3 class, one layer up).
+      if (layered && !allSignedOff && allVotersClean && unheard === 0) {
+        const row = roundRows.find(r => r.state === 'abstained') || roundRows.filter(r => r.state !== 'not_asked').pop();
+        const mine = verdicts.filter(v => seatsOfRow(row).includes(seatKeyOf(v.seat)));
+        const reason = row.state !== 'abstained' ? 'no_objection_to_revise' : mine.some(v => v.critique) ? 'top_layer_not_explicit' : 'only_stated_passes';
+        layerStop = { round, layer: row.layer, reason, labs: reason === 'top_layer_not_explicit' ? mine.filter(v => v.critique?.meets !== true).map(v => labOf(v.seat)) : row.labs, ...(reason === 'top_layer_not_explicit' ? (mine.some(v => seatKeyOf(v.seat) !== labOf(v.seat)) ? { seats: mine.filter(v => v.critique?.meets !== true).map(v => seatKeyOf(v.seat)) } : {}) : (row.seats ? { seats: row.seats } : {})) };
+        log(reason === 'top_layer_not_explicit'
+          ? `\n  round ${round}, layer ${row.layer} (the top layer): ${layerStop.labs.join(', ')} did not sign off explicitly (stated a pass). The top layer needs an explicit sign-off from every seat. Stopping the loop; this is not agreement.`
+          : reason === 'only_stated_passes'
+            ? `\n  round ${round}, layer ${row.layer}: nobody gave a verdict (only stated passes) - there is nothing to revise against. Stopping the loop; this is not agreement.`
+            : `\n  round ${round}: nothing was objected to, so there is nothing to revise against. Stopping the loop; this is not agreement.`);
         passed = false;
         break;
       }
@@ -3251,6 +4284,11 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       const roundSignature = stallSignature(allFailures);
       objectionSignatures.push(roundSignature);
       openByRound.push({ round, failures: allFailures });
+      // E4b unit 2 (rule R, src/conflict-detector.js): a lower judge's old objection came back after an upper judge's was fixed. Found HERE, before any stop can end the pass (pure; from records every layered pass keeps); ACTED on just before the revise
+      // (below). A pass that ends otherwise leaves it in `unhandledConflicts`, recorded when the loop is left; the last pass records it as `last_round`.
+      const conflictsNow = layered ? findConflict({ round, failuresByRound: openByRound, heardByRound, layerOf, revisedRounds }) : [];
+      const conflictOv = ovOn ? ovState.overseerRound : null;   // the overseer round this pass belongs to (before advance() can move it), as the `layers` rows read it
+      unhandledConflicts = conflictsNow.length ? { round, found: conflictsNow, ov: conflictOv } : null;
       if (disputeEnabled && roundSignature && objectionSignatures.length >= stallRounds) {
         const recent = objectionSignatures.slice(-stallRounds);
         if (recent.every(s => s === recent[0])) {
@@ -3260,10 +4298,44 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         }
       }
 
+      // Round semantics 2b: AFTER the stall rule (which fires first), BEFORE the cap backstop, the E4b conflict check and the revise: classify how this pass ended and ask advance() whether a bound is reached.
+      if (ovOn) {
+        const asked = roundRows.filter(r => r.state !== 'not_asked');
+        const lastAsked = asked[asked.length - 1];
+        const topLayer = Math.max(...roundRows.map(r => r.layer));
+        const passEnd = allVotersClean && unheard > 0 ? { outcome: 'unheard', layer: (roundRows.find(r => r.state === 'unheard') ?? lastAsked).layer }
+          : lastAsked?.state === 'objected' ? (lastAsked.layer === topLayer ? { outcome: 'overseer_verdict', verdict: 'objected' } : { outcome: 'layer_objected', layer: lastAsked.layer })
+            : null;
+        if (passEnd) {
+          const step = advance(limits.advanceConfigAt(ovState.overseerRound), ovState, passEnd);
+          ovState = step.state;
+          if (step.overseerRoundEnded) ovCompleted += 1;
+          if (step.action === 'stop') {
+            passed = false;
+            const { overseerRound, ...stopFields } = step.stop; // one spelling in the record: overseer_round
+            const stop = { ...stopFields, pass: round, overseer_round: overseerRound ?? ovCompleted };
+            // The person chose to FINISH at this very stop (run.json roundChoices): the run ends here, NOT agreed, and the post-loop stages (dispute, handoff) run over what is on disk.
+            if (roundChoices.some(c => c.choice === 'finish' && c.stop === stopIdOf(stop))) {
+              finishedStop = { ...stop, chosen: 'finish' };
+              log(`\n  finishing at the person's choice: ${limitReachedWords(stop)}; this is NOT agreement.`);
+              break;
+            }
+            if (unhandledConflicts) { recordUndecidedConflicts(unhandledConflicts.found, 'loop_ended', unhandledConflicts.round, unhandledConflicts.ov); unhandledConflicts = null; }   // a stopped run still shows the swing (the partial report carries decisions)
+            throw new RoundStopped(stop);
+          }
+        }
+      }
+
+      // On the LAST pass there is no revise, so the swing is only recorded (`why: last_round`: no call, no pause), as the cap ends the run as it always did.
+      if (conflictsNow.length && round === maxRounds) { recordUndecidedConflicts(conflictsNow, 'last_round', round, conflictOv); unhandledConflicts = null; }
       if (round === maxRounds) {
         log(allVotersClean
           ? `  round cap (${maxRounds}) reached: every lab that answered signed off clean, but ${unheard} never returned a readable verdict - this is NOT agreement. Read their raw reply (see report.json signoff[]) before treating this as passed.`
           : `  round cap (${maxRounds}) reached without unanimous signoff; open objections go into the report.`);
+        if (layered && roundRows.some(r => r.state === 'not_asked')) {
+          const never = roundRows.filter(r => r.state === 'not_asked').map(r => r.layer);
+          log(`  ${never.length === 1 ? `layer ${never[0]} was` : `layers ${never.join(', ')} were`} never asked in the final round - this is NOT agreement.`);
+        }
         break;
       }
 
@@ -3273,12 +4345,25 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         log(`\nRound ${round}: every lab that answered signed off clean, but ${unheard} did not return a readable verdict - asking again on the unchanged draft rather than declaring agreement.`);
         passed = false;
         // R1: the heard seats' clean verdicts carry into the next round, on this exact text only.
-        carry = { shownDraft, byLab: new Map(verdicts.filter(v => !v.abstained).map(v => [labOf(v.seat), v])) };
+        carry = { shownDraft, byLab: new Map(verdicts.filter(v => !v.abstained).map(v => [seatKeyOf(v.seat), v])) };
         // Roadmap item 30 (found building item 27, 7 Oct 2026; Muad's yes via C&C): the answer-back data was set only at a revise, so an unheard judge asked again in the next round was
         // no longer shown its open objections nor had its answers read, and a plain clean sign-off passed the run. The draft is unchanged and nothing was revised, so the same data
         // still holds: it moves on to the next round, for the seats that will be asked again (report.json's answerBack says what each round showed, and to whom).
         // Only what is still open moves on: an objection the judge withdrew with a quote in a reply that was then not counted (refused for its table) is settled (final review, finding 3).
-        if (answerBackOn && answerBackRound === round) {
+        if (retained) {
+          // Layered (E3): the three sets, kept apart. HEARD clean: every id was answered with a quote or the verdict would have objected, so the entry goes. UNHEARD: it keeps what it still had open (an id withdrawn with
+          // a quote in a reply that was read is settled). NOT ASKED (not among the verdicts): untouched. A stated pass with open objections cannot be here (it objects, so this branch is not taken).
+          for (const v of verdicts) {
+            const lab = seatKeyOf(v.seat);
+            const entry = answerBackLatest[lab];
+            if (!entry || v.carried) continue;
+            if (v.critique) delete answerBackLatest[lab];
+            else if (v.abstained) {
+              const objections = stillOpen(entry, answerBackReplies, { round, lab });
+              if (objections.length) answerBackLatest[lab] = { ...entry, objections }; else delete answerBackLatest[lab];
+            }
+          }
+        } else if (answerBackOn && answerBackRound === round) {
           const asked = {};
           for (const [lab, entry] of Object.entries(answerBackLatest)) {
             if (carry.byLab.has(lab)) continue; // heard and clean on this same text: not asked again
@@ -3289,23 +4374,43 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           answerBackRound = round + 1;
           answerBackRecords.push(...answerBackSummary(round + 1, asked));
         }
+        unhandledConflicts = null;   // the same panel is asked again on the unchanged draft (no revise here); a swing needs an OWN objection, so this branch is not reached with one in practice
         continue;
       }
 
+      if (layered && allFailures.length === 0) {
+        // Invariant (backend rule 14): the reviser is entered only with something to fix. Every way to get here without an objection is a stop above; this one is the net under them.
+        // UNREACHABLE TODAY, kept on purpose and untested (a test it cannot fail is no evidence; C&C ruling 14 Oct 2026). Why: allFailures is empty only when no voter objected and no stated pass carries an open objection (E3's `openOwn`
+        // is folded into allFailures). normaliseCritique never returns meets:false with an empty failures list (it keeps an unlabelled objection or reads the reply as unreadable, i.e. an abstention), so every voter is then clean:
+        // the round either passes (allSignedOff) or stops above (no voter, not quorate, only stated passes, top layer not explicit, nothing to revise). It becomes reachable if a path ever lets a voter object with no failure
+        // recorded, or if a failure is dropped between the critique and allFailures; this line is the guard that turns that into a recorded stop instead of an empty revise.
+        const last = roundRows.filter(r => r.state !== 'not_asked').pop();
+        layerStop = { round, layer: last.layer, reason: 'no_objection_to_revise', labs: last.labs, ...(last.seats ? { seats: last.seats } : {}) };
+        log(`\n  round ${round}: nothing was objected to, so there is nothing to revise against. Stopping the loop; this is not agreement.`);
+        passed = false;
+        break;
+      }
+      // E4b unit 2: the conflict decider, between the verdicts and the revise. Its note (when the prompt is recorded and a ruling was read) joins the reviser's prompt after the objections.
+      unhandledConflicts = null;   // handled just below (a ruling, or a recorded reason nobody ruled)
+      const decisionNote = conflictsNow.length ? await decideConflicts(conflictsNow, round, conflictOv) : '';
+      revisedRounds.push(round);   // this pass goes on to a revise (rule R's "a revise was made for another layer between b and c")
       log(`\nRound ${round}: revise (union of everything any lab flagged)`);
       const reviserSeat = config.seats.reviser || config.seats.builder;
       const patchMode = config.revise?.mode === 'patch';
       // 0.8.2 wiring (P13, owner 7 Oct 2026): with answer_back.enabled the reviser is told each failure's objection id and the DECLINED form that carries it (ONE form: the held systems replace the sentence that gives it,
       // they do not add a second), so the judge that raised the objection is shown the reason next to it. Held (src/held-roles.js): `reviserSystemWithIds` / `patchReviserSystemWithIds` and `reviserIdsNote({ failures })`;
       // until the re-record each falls back to what has always been sent.
-      const reviserSystemFor = patch => (answerBackOn ? held(patch ? 'patchReviserSystemWithIds' : 'reviserSystemWithIds') : undefined) ?? (patch ? R.patchReviserSystem : R.reviserSystem);
-      const idsNote = answerBackOn ? (held('reviserIdsNote')?.({ failures: allFailures }) ?? '') : '';
+      const reviserSystemFor = patch => reviserSystemOf(answerBackOn, patch);
+      const idsNote = [answerBackOn ? (held('reviserIdsNote')?.({ failures: allFailures }) ?? '') : '', decisionNote, earlyEligible() ? (held('reviserEarlyFinishNote')() ?? '') : ''].filter(Boolean).join('\n\n');   // E4b: the decider's ruling, if any, is the last block before the notes
+      const notesReviseNote = reviseNotesNote(); // 2b-1a: AFTER the objections (they decide the verdict; a long notes list must not crowd them out)
       const revised = (await draftStage(reviserSeat, {
-        system: reviserSystemFor(patchMode)(open, !!fencedSource, promptOpts),
-        user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }) + (idsNote ? `\n\n${idsNote}` : ''),
+        system: withSplitNote(reviserSystemFor(patchMode)(open, !!fencedSource, promptOpts), 'treeSplitWriterNote'),
+        user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }) + (idsNote ? `\n\n${idsNote}` : '') + notesReviseNote,
         log, label: `revise-${round}`,
       })).text;
       const parsedRevise = parseDisputes(revised, { withIds: answerBackOn });
+      if (notesOn) { recordNoteAnswers(parsedRevise.noteLines, `revise-${round}`); notesShownThrough = round; } else noteLinesIgnored('revise', parsedRevise.noteLines, log);
+      let earlyReason = parsedRevise.earlyFinish;
 
       // Patch mode: apply the edits locally so untouched text is byte-identical by
       // construction. Any block that does not apply cleanly falls back to one full rewrite -
@@ -3322,26 +4427,63 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           log(`  patch mode: ${applied.reason} - falling back to one full rewrite for this round.`);
           patchFallbacks.push({ round, reason: applied.reason });
           const full = (await draftStage(reviserSeat, {
-            system: reviserSystemFor(false)(open, !!fencedSource, promptOpts),
-            user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }) + (idsNote ? `\n\n${idsNote}` : ''),
+            system: withSplitNote(reviserSystemFor(false)(open, !!fencedSource, promptOpts), 'treeSplitWriterNote'),
+            user: R.reviserUser({ request, criteria, draft, critique: { failures: allFailures }, proposals, board }) + (idsNote ? `\n\n${idsNote}` : '') + notesReviseNote,
             log, label: `revise-${round}-full`,
           })).text;
           const reparsed = parseDisputes(full, { withIds: answerBackOn });
+          earlyReason = reparsed.earlyFinish;   // the full rewrite REPLACES the patch reply: the session's final word is the one in the reply that became the draft
+          if (notesOn) recordNoteAnswers(reparsed.noteLines, `revise-${round}-full`); else noteLinesIgnored('revise-full', reparsed.noteLines, log);
           parsedRevise.draft = reparsed.draft;
           reparsed.disputes.forEach((r, k) => { parsedRevise.disputes.push(r); parsedRevise.disputeIds.push(reparsed.disputeIds[k]); });
           lastPatches = null;
         }
       }
-      if (answerBackOn) {
+      // ROADMAP 83: the session's proposal. The list the overseer reads is DERIVED from the pass that triggered this revise (every objection of it, the stated passes' own open ones included), never from the session's words: the
+      // session's reason is its own claim and is recorded as model-supplied. Each item says what the revise did with it.
+      if (typeof earlyReason === 'string' && earlyReason) {
+        if (earlyEligible()) {
+          const draftChanged = parsedRevise.draft !== draft;
+          const items = allFailures.map(f => { const k = parsedRevise.disputeIds.indexOf(f.id); return { id: f.id, lab: f.lab, criterion: f.criterion, problem: f.problem, handled: k >= 0 ? 'declined' : !answerBackOn ? 'open' : draftChanged ? 'changed' : 'unchanged', ...(k >= 0 ? { declined_reason: parsedRevise.disputes[k] } : {}) }; });
+          const text = held('earlyFinishAskSection')({ reason: R.claimText(earlyReason), items: items.map(i => ({ id: i.id, lab: i.lab, handled: i.handled, criterion: R.claimText(i.criterion ?? ''), problem: R.claimText(i.problem ?? ''), ...(i.declined_reason !== undefined ? { declined_reason: R.claimText(i.declined_reason) } : {}) })) });
+          earlyAsk = { text, reason: String(earlyReason).slice(0, 1000), record: items.map(i => ({ id: i.id, lab: i.lab, handled: i.handled, ...(typeof i.declined_reason === 'string' && i.declined_reason ? { declined_reason: i.declined_reason.slice(0, 600) } : {}) })), tasks: items };
+          carry = null;   // every overseer seat reads the proposal itself: a clean verdict carried from an earlier pass is never an answer to it
+          log(`  revise-${round}: the session proposes an early finish with ${items.length} open objection(s). The next pass asks only the overseer layer whether to finish early.`);
+        } else log(`  revise-${round}: an EARLY-FINISH line was in the reply and was not acted on (it needs a layered chain with overseer rounds and the session as its reviser).`);
+      }
+      if (retained) {
+        // Layered (E3): the map persists. Labs HEARD this round (they gave a critique) get this round's failures as their new entry, drawn from the text they just judged (`sawDraft` = shownDraft); a heard-clean lab has none, so
+        // its entry goes. A lab that STATED A PASS while holding open objections keeps its entry (raised_round and the text it last judged), refreshed only with the writer's reasons from this revise. An UNHEARD lab keeps
+        // what it still had open. A NOT-ASKED lab's entry is left exactly as it was. Nothing is written to the run's records here: the summary rows are written when a lab is shown the section.
+        const built = buildAnswerBack({ failures: allFailures, declined: parsedRevise.disputes, declinedIds: parsedRevise.disputeIds, oldDraft: draft, newDraft: parsedRevise.draft });
+        const passedOpen = new Set(verdicts.filter(v => openOwnOf(v).length).map(v => seatKeyOf(v.seat)));
+        for (const v of voting) delete answerBackLatest[seatKeyOf(v.seat)];
+        for (const [lab, b] of Object.entries(built)) {
+          if (passedOpen.has(lab) && answerBackLatest[lab]) {
+            const kept = answerBackLatest[lab];
+            answerBackLatest[lab] = { ...kept, declined: b.declined, objections: kept.objections.map(o => { const reason = b.objections.find(x => x.id === o.id)?.declined_reason; return reason ? { ...o, declined_reason: reason } : o; }) };
+          } else {
+            answerBackLatest[lab] = { ...b, sawDraft: shownDraft, objections: b.objections.map(o => ({ ...o, raised_round: allFailures.find(f => f.lab === lab && f.id === o.id)?.carried_from_round ?? round })) };
+          }
+        }
+        for (const v of verdicts.filter(v => v.abstained)) {
+          const lab = seatKeyOf(v.seat);
+          const entry = answerBackLatest[lab];
+          if (!entry) continue;
+          const objections = stillOpen(entry, answerBackReplies, { round, lab });
+          if (objections.length) answerBackLatest[lab] = { ...entry, objections }; else delete answerBackLatest[lab];
+        }
+      } else if (answerBackOn) {
         // Final review of items 27/28/30 (7 Oct 2026), finding 1: a judge UNHEARD this round keeps its still-open objections (those it was shown this round, minus any it withdrew with a
         // quote in a reply that was not counted). They go to the judge again next round, not into the reviser's list above: nothing re-raised them this round, and the judge answers first.
         const keptOpen = answerBackRound === round
-          ? verdicts.filter(v => v.abstained).flatMap(v => stillOpen(answerBackLatest[labOf(v.seat)], answerBackReplies, { round, lab: labOf(v.seat) }).map(o => ({ ...o, lab: labOf(v.seat) })))
+          ? verdicts.filter(v => v.abstained).flatMap(v => stillOpen(answerBackLatest[seatKeyOf(v.seat)], answerBackReplies, { round, lab: seatKeyOf(v.seat) }).map(o => ({ ...o, lab: seatKeyOf(v.seat) })))
           : [];
         answerBackLatest = buildAnswerBack({ failures: [...allFailures, ...keptOpen], declined: parsedRevise.disputes, declinedIds: parsedRevise.disputeIds, oldDraft: draft, newDraft: parsedRevise.draft });
         answerBackRecords.push(...answerBackSummary(round + 1, answerBackLatest)); // shown to the judge in the NEXT round
         answerBackRound = round + 1;
       }
+      draftChangedByRound[round] = parsedRevise.draft !== draft; // E4: did this revise change the draft at all (not: did it fix a given objection)
       draft = parsedRevise.draft;
       parsedRevise.disputes.forEach((reason, k) => disputes.push({ round, reason, ...(parsedRevise.disputeIds[k] ? { objection_id: parsedRevise.disputeIds[k] } : {}) }));
       passed = false;
@@ -3387,6 +4529,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
             log, label: `allocator-${round}`,
           })).text;
           const parsedTargeted = parseDisputes(targeted);
+          noteLinesIgnored('allocator', parsedTargeted.noteLines, log);
+    earlyFinishIgnored('allocator', parsedTargeted.earlyFinish, log);
           draft = parsedTargeted.draft;
           parsedTargeted.disputes.forEach(reason => disputes.push({ round: `allocator-${round}`, reason }));
           // v7.3 item 4: the falsification watch this stage's own proposal
@@ -3408,15 +4552,19 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         }
       }
     }
+    if (unhandledConflicts) { recordUndecidedConflicts(unhandledConflicts.found, 'loop_ended', unhandledConflicts.round, unhandledConflicts.ov); unhandledConflicts = null; }   // the loop was left (a stall, a layer stop, the person's finish) with a swing in its last pass
   } else {
     for (let round = 1; round <= maxRounds; round++) {
       const criticSeat = config.seats.critics[(round - 1) % config.seats.critics.length];
       log(`\nRound ${round}: critique`);
       let cs;
+      let rrEnv = null; // the pair the reply held in `cs` was asked under (E3b)
       try {
+        const env = withEnvelope(`critique-${round}`, draft, R.criticUser({ request, criteria, draft, checks }));
+        rrEnv = env.expect;
         cs = record(await invoke(criticSeat, {
           system: criticPromptFor(criticSeat, open, checks ? { criteriaKinds: true } : undefined, config),
-          user: R.criticUser({ request, criteria, draft, checks }),
+          user: env.user,
           log, label: `critique-${round}`,
         }));
       } catch (err) {
@@ -3428,8 +4576,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         if (!config.degrade_on_provider_error) throw err;
         // Bug audit 2026-09-28 (area 3 #2.6): this said [COUNCIL-E005], the catalog's "Policy refusal".
         log(`  ${criticSeat.provider}/${criticSeat.model}: provider failure (${String(err.message).slice(0, 120)}) - seat dropped, not counted as a pass or an objection.`);
-        dropouts.push({ lab: labOf(criticSeat), model: criticSeat.model, stage: `critique-${round}`, reason: `provider failure: ${String(err.message).slice(0, 200)}` });
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: 'SEAT_UNREACHABLE', reasked: false });
+        dropouts.push({ lab: labOf(criticSeat), ...seatField(criticSeat), model: criticSeat.model, stage: `critique-${round}`, reason: `provider failure: ${String(err.message).slice(0, 200)}` });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), ...seatField(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: 'SEAT_UNREACHABLE', reasked: false });
         lastCritique = { meets: false, dropped: true, failures: [{
           criterion: '(critic seat dropped)',
           problem: `${criticSeat.provider}/${criticSeat.model}'s round ${round} call failed (provider error) and was degraded to a dropped seat rather than crashing the run.`,
@@ -3437,7 +4585,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         break;
       }
 
-      let parsed = parseJson(cs.text);
+      let parsed = parseJson(cs.text, { verdict: true, ...(rrEnv ? { expect: rrEnv } : {}) });
       // Verify pass 2026-09-28 F2: M3/M4 held only on the unanimous panel, so in `first` mode a
       // cut-off or provider-ended `meets:true` still passed the run. The same rules here: one
       // bigger-cap retry for a reply cut off at its cap (parsed or not), falling back to a parsed
@@ -3449,20 +4597,23 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       const fromCap = cs.cappedAt ?? critCap;
       if ((parsed ? providerCutOff(cs.usage) : true) && abstentionReasonCode(cs.usage, askedCapOf(cs, critCap)) === 'REPLY_TRUNCATED'
         && cutOffRetryCap(fromCap, retryCeilingOf(criticSeat)) > fromCap) {
-        const firstParsed = parsed, firstCs = cs, firstCap = critCap;
+        const firstParsed = parsed, firstCs = cs, firstCap = critCap, firstEnv = rrEnv;
         const biggerCap = cutOffRetryCap(fromCap, retryCeilingOf(criticSeat));
         log(`  critic reply cut off at ${fromCap} tokens - asking once more with a ${biggerCap}-token cap.`);
         try {
+          const env = withEnvelope(`critique-${round}-retry`, draft, R.criticUser({ request, criteria, draft, checks }));
+          rrEnv = env.expect;
           cs = record(await invoke({ ...criticSeat, maxTokens: biggerCap }, {
             system: criticPromptFor(criticSeat, open, checks ? { criteriaKinds: true } : undefined, config),
-            user: R.criticUser({ request, criteria, draft, checks }),
+            user: env.user,
             log, label: `critique-${round}-retry`,
           }));
           critCap = biggerCap;
-          parsed = parseJson(cs.text);
-          if (!parsed && firstParsed) { parsed = firstParsed; cs = firstCs; critCap = firstCap; }
+          parsed = parseJson(cs.text, { verdict: true, ...(rrEnv ? { expect: rrEnv } : {}) });
+          if (!parsed && firstParsed) { parsed = firstParsed; cs = firstCs; critCap = firstCap; rrEnv = firstEnv; }
         } catch (err) {
           rethrowControlFlow(err);
+          rrEnv = firstEnv;
           log(`  the bigger-cap retry failed (${String(err.message).slice(0, 120)}) - keeping the first reply.`);
         }
       }
@@ -3475,12 +4626,17 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         // hiding a genuine objection, and this chain's whole value is not letting that slip
         // through. `passed` keeps whatever it already was (false unless an earlier round already
         // passed); what changes is that the report now says why, instead of nothing.
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, askedCapOf(cs, critCap)), ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
-        log(`  critic reply could not be parsed as JSON even after repair attempts; stopping ` +
+        const rrWhy = envelopeWhyOf(cs, askedCapOf(cs, critCap), rrEnv); // E3b: see envelopeWhyOf
+        panelVerdicts.push({ round, lab: labOf(criticSeat), ...seatField(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, askedCapOf(cs, critCap)), ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), ...(rrWhy ? { envelope: rrWhy } : {}), reasked: false });
+        // E3b unit three: a well-formed reply that only lacks the ids is not "unparseable": the held sentence replaces the false text (log, label and problem) ONLY when the envelope is the reason.
+        const rrSentence = rrWhy && held('criticEnvelopeUnreadableWhy')?.({ kind: rrWhy });
+        log(rrSentence ? `  critic reply: ${rrSentence}; stopping without a verdict from this critic - not a pass, not counted as an objection either.`
+          : `  critic reply could not be parsed as JSON even after repair attempts; stopping ` +
           `without a verdict from this critic - not a pass, not counted as an objection either.`);
         lastCritique = { meets: false, failures: [{
-          criterion: '(critic reply unparseable)',
-          problem: `${criticSeat.provider}/${criticSeat.model}'s round ${round} reply could not ` +
+          criterion: rrSentence ? (held('criticEnvelopeUnreadableLabel')?.() || '(critic reply unparseable)') : '(critic reply unparseable)',
+          problem: rrSentence ? `${criticSeat.provider}/${criticSeat.model}'s round ${round} reply: ${rrSentence} - no verdict was recovered from it.`
+            : `${criticSeat.provider}/${criticSeat.model}'s round ${round} reply could not ` +
             `be parsed as JSON even after repair attempts - no verdict was recovered from it.`,
         }] };
         break;
@@ -3489,7 +4645,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       if (critique.unreadable) {
         // Parsed, but no verdict in it - handled exactly like the unparseable reply above: not a
         // pass, not an objection, and the run stops saying why (bug audit 2026-09-23).
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, askedCapOf(cs, criticSeat.maxTokens)), ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), ...seatField(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: abstentionReasonCode(cs.usage, askedCapOf(cs, criticSeat.maxTokens)), ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
         log(`  critic reply states no verdict (${critique.unreadableWhy}); stopping without a verdict from this critic - not a pass, not counted as an objection either.`);
         lastCritique = { meets: false, failures: [{
           criterion: '(critic reply stated no verdict)',
@@ -3503,7 +4659,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         const stopped = draftIncomplete(cs.usage);
         const reasonCode = stopped ? abstentionReasonCode(cs.usage, askedCapOf(cs, critCap))
           : (abstentionReasonCode(cs.usage, askedCapOf(cs, critCap)) === 'REASONING_EXHAUSTED' ? 'REASONING_EXHAUSTED' : 'REPLY_TRUNCATED');
-        panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: reasonCode, ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
+        panelVerdicts.push({ round, lab: labOf(criticSeat), ...seatField(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: 'unheard', reason_code: reasonCode, ...(cs.noAnswer ? { no_answer: cs.noAnswer } : {}), reasked: false });
         log(`  [COUNCIL-E004] critic reply signs off but ${stopped ? `the provider ended it with stop "${cs.usage.stop}"` : `was cut off at the cap (stop: ${cs.usage.stop})`}; stopping without a verdict from this critic - not a pass.`);
         lastCritique = { meets: false, failures: [{
           criterion: '(critic sign-off incomplete)',
@@ -3512,9 +4668,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         break;
       }
       lastCritique = critique;
-      noteMissingRows(critique, round, labOf(criticSeat));
-      if (checks) noteUnevidenced(critique, round, labOf(criticSeat), log);
-      panelVerdicts.push({ round, lab: labOf(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: critique.meets === true ? 'signed_off' : 'objected', reason_code: null, reasked: false });
+      noteMissingRows(critique, round, seatKeyOf(criticSeat));
+      if (checks) noteUnevidenced(critique, round, seatKeyOf(criticSeat), log);
+      panelVerdicts.push({ round, lab: labOf(criticSeat), ...seatField(criticSeat), model: criticSeat.model, ...(criticSeat.lane ? { lane: criticSeat.lane } : {}), verdict: critique.meets === true ? 'signed_off' : 'objected', reason_code: null, reasked: false });
       const failures = critique.failures;
       log(`  verdict: ${critique.meets ? 'MEETS' : `${failures.length} failure(s)`} - ${critique.verdict_line || ''}`);
       failures.forEach(f => log(`    FAILED: ${f.criterion} - ${f.problem}`));
@@ -3542,6 +4698,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         log, label: `revise-${round}`,
       })).text;
       const parsedRevise = parseDisputes(revised);
+      noteLinesIgnored('revise', parsedRevise.noteLines, log);
+      earlyFinishIgnored('revise', parsedRevise.earlyFinish, log);
       draft = parsedRevise.draft;
       parsedRevise.disputes.forEach(reason => disputes.push({ round, reason }));
       passed = false;
@@ -3620,12 +4778,16 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   // deliverable a builder reads first carried no warning. Such a seat's most recent recorded
   // objections are carried, keeping `lab` (the dispute stage finds the seat by it) and marked as
   // unheard in the final round, so nobody reads them as a current position.
-  const finalPanelRound = panelVerdicts.length ? Math.max(...panelVerdicts.map(v => v.round)) : null;
+  // C-004: a ledger-overflow stop now records the verdicts of the layers it did ask (panelVerdicts rows for its round), but lastCritique and signoff[] still hold the last FINISHED panel, so the final panel round stays that one: the dissent lists below are then exactly what they were before (a stop round counted
+  // as final would carry the top layer's older objections a second time, once as heard and once as not asked).
+  const finalRounds = panelVerdicts.map(v => v.round).filter(r => !(layerStop?.reason === 'ledger_overflow' && r === layerStop.round));
+  const finalPanelRound = finalRounds.length ? Math.max(...finalRounds) : null;
   // In a round nobody was heard in, a seat that only stated a pass cast no vote either.
   // The same for a round that was not quorate: its stated passes were not votes.
-  const notHeard = v => v.verdict === 'unheard' || ((noHeardReviewer || notQuorate) && v.verdict === 'passed');
+  const notHeard = v => v.verdict === 'unheard' || ((noHeardReviewer || notQuorate) && v.verdict === 'passed')
+    || (layerStop && layerStop.round === v.round && seatsOfRow(layerStop).includes(keyOfRecord(v)) && v.verdict === 'passed');
   const unheardAtEnd = (!passed && config.signoff === 'unanimous')
-    ? panelVerdicts.filter(v => v.round === finalPanelRound && notHeard(v)).map(v => v.lab)
+    ? panelVerdicts.filter(v => v.round === finalPanelRound && notHeard(v)).map(keyOfRecord)
     : [];
   const carriedFailures = unheardAtEnd.flatMap(lab => {
     for (let i = openByRound.length - 1; i >= 0; i--) {
@@ -3634,9 +4796,20 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     }
     return [];
   });
-  const openFailures = [...heardOpenFailures, ...carriedFailures];
+  // 0.8.3 E2b (contract 4.6): a lab whose layer was not asked in the final round is in neither list above, but its latest objection may still be open against this draft. It is carried when its latest
+  // heard, non-carried verdict was an objection; a later sign-off of that lab closes it. Tagged, so nobody reads it as a position taken against the final draft.
+  const notAskedFailures = (layered && !passed && finalPanelRound !== null)
+    ? layersRecord.filter(r => r.round === finalPanelRound && r.state === 'not_asked').flatMap(seatsOfRow).flatMap(lab => {
+      const latest = panelVerdicts.filter(v => keyOfRecord(v) === lab && v.verdict !== 'unheard' && !v.carried).pop();
+      const inRound = latest ? (openByRound.find(o => o.round === latest.round)?.failures || []).filter(f => f.lab === lab && f.criterion) : [];
+      // E3 (readers audit 24): a lab whose latest verdict was a STATED PASS that carried its own open objections (they are in that round's failures) still has them open; a plain pass has none in the round.
+      if (latest?.verdict !== 'objected' && !(latest?.verdict === 'passed' && inRound.length)) return [];
+      return inRound.map(f => ({ ...f, not_asked_in_final_round: true, last_raised_round: latest.round }));
+    })
+    : [];
+  const openFailures = [...heardOpenFailures, ...carriedFailures, ...notAskedFailures];
   if (disputeEnabled && config.signoff === 'unanimous' && openFailures.length) {
-    const stopWhy = noHeardReviewer ? `no reviewer heard in round ${noHeardReviewer.round}` : notQuorate ? `round ${notQuorate.round} not quorate` : stalled ? `stalled after ${stalled.rounds} identical rounds` : 'round cap reached';
+    const stopWhy = noHeardReviewer ? `no reviewer heard in round ${noHeardReviewer.round}` : notQuorate ? `round ${notQuorate.round} not quorate` : finishedStop ? `finished at the person's choice (${limitReachedWords(finishedStop)})` : layerStop ? (layerStop.reason === 'ledger_overflow' ? `the objection ledger did not fit for layer ${layerStop.layer} of round ${layerStop.round}` : `layer ${layerStop.layer} of round ${layerStop.round} gave no usable verdict`) : earlyFinish ? `finished early at the session's proposal (pass ${earlyFinish.pass})` : stalled ? `stalled after ${stalled.rounds} identical rounds` : 'round cap reached';
     log(`\nStage: dispute (${stopWhy}, ${openFailures.length} open objection(s))`);
     log('  This does not re-open the vote. The panel is done; this records what it could not settle.');
 
@@ -3654,10 +4827,12 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     const reviserSeat = config.seats.reviser || config.seats.builder;
     const revised = (await draftStage(reviserSeat, {
       system: R.DISPUTE_SYSTEM,
-      user: R.disputeUser({ request, criteria, draft, failures: openFailures }),
+      user: R.disputeUser({ request, criteria, draft, failures: openFailures.map(f => withRaisedBy(f, config.seats.critics)) }),
       log, label: 'dispute',
     })).text;
     const parsedDispute = parseDisputes(revised);
+    noteLinesIgnored('dispute', parsedDispute.noteLines, log);
+    earlyFinishIgnored('dispute', parsedDispute.earlyFinish, log);
     const draftBeforeDispute = draft;
     draft = parsedDispute.draft;
     if (draft !== draftBeforeDispute) bodyChanges.push('dispute');
@@ -3681,20 +4856,23 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       // current position against this draft.
       const status = f.unheard_in_final_round
         ? `last raised in round ${f.last_raised_round}; ${f.lab || 'that lab'} was not heard in the final round, so it may already be fixed in the draft below`
-        : 'never resolved';
+        : f.not_asked_in_final_round
+          ? `last raised in round ${f.last_raised_round}; ${f.lab ? labFromKey(f.lab) : 'that lab'}'s layer was not asked in the final round, so whether the draft below answers it is not known`
+          : 'never resolved';
       return [
         `### ${f.criterion}`,
-        `*Raised by ${f.lab || 'an unnamed lab'}${r ? `, round ${r}` : ''}, ${status}.*`,
+        `*Raised by ${f.lab ? `${labFromKey(f.lab)}${layerNoteOf(f.lab)}` : 'an unnamed lab'}${r ? `, round ${r}` : ''}, ${status}.*`,   // A-DRAFT (Astra A1): a model on more than one layer names its layer, the shape of the reviser's approved "Raised by" line (roles.js:248)
         '',
         f.problem || '(no problem text recorded)',
         ...(f.fix ? ['', `Suggested fix: ${f.fix}`] : []),
       ].join('\n');
     });
+    // C-005: a ledger-overflow stop says what the dispute stage's log line says (the top layer was never asked); a person's --finish says so too, not "round cap reached".
     const block = [
       '## Unresolved dissent',
       '',
       `${openFailures.length} objection(s) were still open when this run stopped` +
-        `${noHeardReviewer ? ` (no reviewer could be heard in round ${noHeardReviewer.round}, so the panel stopped there; nobody has reviewed the latest draft)` : notQuorate ? ` (in round ${notQuorate.round} only ${notQuorate.heard} reviewer(s) gave a verdict, below this chain's quorum of ${notQuorate.minHeard}, so the panel stopped there)` : stalled ? ` (the same objections for ${stalled.rounds} rounds running)` : ' (round cap reached)'}.`,
+        `${noHeardReviewer ? ` (no reviewer could be heard in round ${noHeardReviewer.round}, so the panel stopped there; nobody has reviewed the latest draft)` : notQuorate ? ` (in round ${notQuorate.round} only ${notQuorate.heard} reviewer(s) gave a verdict, below this chain's quorum of ${notQuorate.minHeard}, so the panel stopped there)` : finishedStop ? ` (the person chose to finish at this stop: ${limitReachedWords(finishedStop)}; the panel did not agree)` : layerStop ? (layerStop.reason === 'ledger_overflow' ? ` (the objection ledger did not fit for layer ${layerStop.layer} of round ${layerStop.round}, so the panel stopped there)` : ` (in round ${layerStop.round}, layer ${layerStop.layer} gave no usable verdict, so the panel stopped there)`) : earlyFinish ? ` (the run finished early at the session's proposal, with the overseer layer's yes; the lower layers did not review the last revision)` : stalled ? ` (the same objections for ${stalled.rounds} rounds running)` : ' (round cap reached)'}.`,
       'The panel did not agree. This plan is one draft with known, named disagreement against it,',
       'not a signed-off deliverable - read these before acting on anything below.',
       '',
@@ -3713,16 +4891,18 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
 
     dispute = {
       ran: true,
-      reason: noHeardReviewer ? 'no_heard_reviewer' : notQuorate ? 'not_quorate' : stalled ? 'stalled' : 'round_cap',
+      reason: noHeardReviewer ? 'no_heard_reviewer' : notQuorate ? 'not_quorate' : finishedStop ? 'finish_chosen' : layerStop ? 'layer_not_signed_off' : earlyFinish ? 'early_finish' : stalled ? 'stalled' : 'round_cap',
       stall_rounds: stalled ? stalled.rounds : null,
-      stopped_at_round: noHeardReviewer ? noHeardReviewer.round : notQuorate ? notQuorate.round : stalled ? stalled.round : (finalPanelRound ?? maxRounds),
+      stopped_at_round: noHeardReviewer ? noHeardReviewer.round : notQuorate ? notQuorate.round : layerStop ? layerStop.round : earlyFinish ? earlyFinish.pass : stalled ? stalled.round : (finalPanelRound ?? maxRounds),
       open_objections: openFailures.map(f => ({
         criterion: f.criterion,
-        lab: f.lab || null,
+        lab: f.lab ? labFromKey(f.lab) : null,
+        ...(f.lab && labFromKey(f.lab) !== f.lab ? { seat: f.lab } : {}),
         problem: f.problem || null,
         ...(f.id ? { id: f.id } : {}),
         first_raised_round: firstSeen.get(objectionKey(f)) ?? null,
         ...(f.unheard_in_final_round ? { unheard_in_final_round: true, last_raised_round: f.last_raised_round } : {}),
+        ...(f.not_asked_in_final_round ? { not_asked_in_final_round: true, last_raised_round: f.last_raised_round } : {}),
       })),
       panel_rereviewed: false,
       // Additive: present only when the chain sets dispute.review.
@@ -3730,7 +4910,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     };
     log(`  recorded ${openFailures.length} unresolved objection(s) at the top of the deliverable. Outcome stays "no consensus".`);
   } else if (disputeEnabled && config.signoff === 'unanimous') {
-    dispute = { ran: false, reason: passed ? 'panel_signed_off' : noHeardReviewer ? 'no_heard_reviewer' : notQuorate ? 'not_quorate' : 'no_open_objections', ...(noHeardReviewer ? { stopped_at_round: noHeardReviewer.round } : notQuorate ? { stopped_at_round: notQuorate.round } : {}) };
+    dispute = { ran: false, reason: passed ? 'panel_signed_off' : noHeardReviewer ? 'no_heard_reviewer' : notQuorate ? 'not_quorate' : finishedStop ? 'finish_chosen' : layerStop ? 'layer_not_signed_off' : earlyFinish ? 'early_finish' : 'no_open_objections', ...(noHeardReviewer ? { stopped_at_round: noHeardReviewer.round } : notQuorate ? { stopped_at_round: notQuorate.round } : layerStop ? { stopped_at_round: layerStop.round } : earlyFinish ? { stopped_at_round: earlyFinish.pass } : {}) };
   }
 
   // 3b. Post-signoff challenge (config.challenge: { enabled: true }), v7
@@ -3761,6 +4941,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
         log, label: 'challenge-revise',
       })).text;
       const parsedRevise = parseDisputes(revised);
+      noteLinesIgnored('challenge-revise', parsedRevise.noteLines, log);
+    earlyFinishIgnored('challenge-revise', parsedRevise.earlyFinish, log);
       if (parsedRevise.draft !== draft) bodyChanges.push('challenge');
       draft = parsedRevise.draft;
       parsedRevise.disputes.forEach(reason => disputes.push({ round: 'challenge', reason }));
@@ -3820,7 +5002,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
       coldRead = { status: 'not_judged', reason_code: 'SEAT_UNREACHABLE', raised: false, contradictions: [] };
     }
     if (cr) {
-      const parsed = parseJson(cr.text);
+      const parsed = parseJson(cr.text, { strict: true });
       if (!parsed || typeof parsed.raised !== 'boolean') {
         const code = abstentionReasonCode(cr.usage || {}, coldReadSeat.maxTokens ?? DEFAULT_MAX_TOKENS);
         log(`  cold-reader: the reply could not be read (${code || 'REPLY_UNPARSEABLE'}) - NOT JUDGED, which is not the same as "no contradictions".`);
@@ -3853,11 +5035,45 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   const draftForHandoff = draft; // what the handoff is made from (the delivered text at this point)
   if (config.handoff) {
     log('\nStage: handoff');
-    handoff = (await draftStage(config.seats.handoff || config.seats.builder, {
-      ...handoffPrompt({ config, request, draft, planFile: config.handoffPlanFile || 'PLAN.md', checks, criteria }),
+    const handoffSeat = config.seats.handoff || config.seats.builder;
+    // 2b-1b, the FOLD (gate note Notes_Lane_2b1_Gate_Note.md section 2, C&C PASS ON CONDITIONS 16 Okt 2026): the items nobody answered ride INSIDE this call when the handoff seat IS the writer seat, so a chain pauses once, not twice.
+    const foldRows = notesFoldRows(handoffSeat);
+    const handoffStage = await draftStage(handoffSeat, {
+      ...handoffPrompt({ config, request, draft, planFile: config.handoffPlanFile || 'PLAN.md', checks, criteria, treeMember, ...(foldRows.length ? { notes: { rows: foldRows, ending: notesEnding() } } : {}) }),
       log, label: 'handoff',
-    })).text;
+    });
+    const raw = handoffStage.text;
+    handoff = raw;
+    if (foldRows.length) {
+      // The raw reply stays in the stage file `handoff.md` (draftStage wrote it): a replay re-derives the answers from it every time. Only the closing NOTE lines leave the TEXT everything downstream reads; no NOTE lines = every item stays unanswered, and NO fallback call runs.
+      // 2b-1c (C&C condition 1 on a case-insensitive disk, where HANDOFF.md overwrites handoff.md after the run): the collected NOTE lines also get their OWN stage file, `handoff-notes.md`, written when the handoff call completes (a zero-cost
+      // harness record, never a model call) and read back FIRST on every replay, so the answers never depend on the one file the CLI rewrites.
+      const got = collectNoteLines(raw);
+      const prior = cache.get('handoff-notes');
+      // BUG-D-005 / BUG-C-013: the file is read back only when the handoff stage itself was REPLAYED; a handoff that ran live (a stale one re-run, or an external answer just pasted) takes its OWN reply's NOTE lines, and they are written fresh (cached: false).
+      const usedPrior = handoffStage.cached === true && typeof prior?.text === 'string';
+      const noteLines = usedPrior ? collectNoteLines(prior.text).noteLines : got.noteLines;
+      // a replay records it too (cached: true, so the CLI does not rewrite it): a resumed run's report.stages keeps the row the first run had
+      if (noteLines.length) record({ label: 'handoff-notes', provider: 'harness', model: 'none', lab: labOf(handoffSeat), usage: { input: 0, output: 0 }, usd: 0, priced: true, ms: 0, text: noteLines.join('\n'), cached: usedPrior });
+      handoff = got.text; notesFolded = true;
+      recordNoteAnswers(noteLines, 'handoff', { after: true, ending: notesEnding() });
+    }
   }
+  // 2b-1b, the STANDALONE fallback: when the fold did not apply (no handoff stage, or a handoff seat that is not the writer) one `notes-answer` call over the same items. Never both; its text never becomes a draft or a handoff.
+  if (notesOn && !notesFolded) {
+    const writerSeat = config.seats.reviser || config.seats.builder;
+    const rows = notesFoldRows(writerSeat, { standalone: true });
+    if (rows.length) {
+      log('\nStage: notes-answer');
+      // The system prompt carries no quoted judge text: a short held writer line; the plan, then the items and the ask, ride in the user prompt.
+      const reply = (await draftStage(writerSeat, { system: held('reviewNotesAnswer')({ rows: [], standaloneSystem: true }), user: held('reviewNotesAnswer')({ rows, plan: draftForHandoff, ending: notesEnding() }), log, label: 'notes-answer' })).text;
+      recordNoteAnswers(collectNoteLines(reply).noteLines, 'notes-answer', { after: true, ending: notesEnding() });
+    }
+  }
+
+  // ROADMAP 83 (ruling d): every open objection of an early finish is carried into the handoff as a NAMED builder task. Written by the harness, not asked of the handoff model, so no model can drop one; appended AFTER the model's text as a
+  // last `##` section, so the Status line (the top block before the first `##`) and the milestones section (which ends at the next `##`) read exactly as they did (test/early-finish-flow.test.js pins parseMilestones before and after).
+  if (earlyFinish && earlyTasks && typeof handoff === 'string') handoff = withBuilderTasks(handoff, earlyTasks);
 
   // 5b. "How this plan was argued" (config.argued.enabled, src/argued.js). Opt-in, enabled in no
   // shipped chain. Runs once, on the handoff seat (the builder when there is no handoff seat) - an
@@ -3898,7 +5114,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   if (config.security_review?.enabled === true) {
     log('\nStage: security review (final, read-only)');
     security_review = await runSecurityReviewStage(config, {
-      request, deliverable: draft, groundTruthPost: ground_truth_post, invoke, record, parseJson,
+      request, deliverable: draft, groundTruthPost: ground_truth_post, invoke, record, parseJson: t => parseJson(t, { strict: true }),
       abstentionReasonCode, rethrow: [ExternalPause, BudgetExceeded, SecretShapedPrompt, DeniedModel], log,
     });
     log(`  gate: ${security_review.gate} - ${security_review.findings.length} finding(s), ${security_review.blocking_count} blocking${security_review.reason_code ? ` (${security_review.reason_code})` : ''}`);
@@ -3931,7 +5147,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     handoff,
     scoreboard,
     passed,
-    lastCritique,
+    lastCritique: shownCritique(lastCritique),
     signoff,
     challenge,
     coldRead,
@@ -3945,13 +5161,18 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     panelVerdicts,
     // Additive: present only when a panel round heard no reviewer and the loop stopped there.
     ...(noHeardReviewer ? { noHeardReviewer } : {}),
+    // Additive (0.8.3 E2b): the layered panel's per-round, per-layer record, and the stop of a layer that ended the run without a usable vote. Present only on a layered chain.
+    ...(layered ? { layers: layersRecord, ...(layerStop ? { layerStop } : {}), ...(ovOn ? { overseer_rounds: ovCompleted } : {}), ...(finishedStop ? { stop: finishedStop } : earlyFinish ? { stop: earlyFinish } : {}) } : {}),
     // Additive (0.7.8): present only when the chain set a quorum and a round fell short of it.
     ...(notQuorate ? { notQuorate } : {}),
+    // Additive (0.8.3 E4b): one row per conflict between layers the panel found (rule R), with the ruling or the reason nobody ruled. Present only when a conflict was found.
+    ...(decisions.length ? { decisions } : {}),
     history,
     stages,
     totals: summarise(stages),
     orphanSections: ledger?.orphanSections ?? [],
     withdrawalCycles: ledger?.withdrawalCycles ?? 0,
+    ...(notesOn ? { reviewNotes: notesBlock() } : {}),
     ...(ground_truth !== undefined ? { ground_truth } : {}),
     ...(argued !== undefined ? { argued } : {}),
     ...(toolRequestWarnings !== undefined ? { toolRequestWarnings } : {}),
@@ -3975,8 +5196,8 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     missingCriteria,
     // Additive (0.8.2): present only when something happened - sign-offs refused for an incomplete table (signoff_table.required) and table rows that named no criterion.
     ...(signoffTableGaps.length ? { signoffTableGaps } : {}),
-    ...(answerBackRecords.length ? { answerBack: answerBackRecords } : {}),
-    ...(answerBackReplies.length ? { answerBackReplies } : {}),
+    ...(answerBackRecords.length ? { answerBack: answerBackRecords.map(shownFailure) } : {}),
+    ...(answerBackReplies.length ? { answerBackReplies: answerBackReplies.map(shownFailure) } : {}),
     ...(debateOrders.length ? { debateOrders: [...debateOrders].sort((a, b) => (a.stage + a.reader < b.stage + b.reader ? -1 : 1)) } : {}),
     ...(outsideCriteriaRowList.length ? { outsideCriteriaRows: outsideCriteriaRowList } : {}),
     criteriaLints,

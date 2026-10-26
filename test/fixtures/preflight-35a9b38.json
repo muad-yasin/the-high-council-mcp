@@ -1,0 +1,34 @@
+{
+  "missing_key": {
+    "chain": "plan-daily-7",
+    "status": 5,
+    "stderr": "\nCOUNCIL-E001 [degradable] Missing API key\nThe \"openrouter\" API key isn't set, so chain \"plan-daily-7\" can't call that lab. An API key is what proves to openrouter that a request is yours to pay for - without it, every call to that lab fails before it starts.\n\nSet OPENROUTER_API_KEY in your .env file.\nSee: README.md#setup\n\nRun \"council doctor\" to see exactly which keys each shipped chain needs.\n",
+    "stdoutHead": [
+      ""
+    ]
+  },
+  "policy_refused": {
+    "chain": "plan-daily-7",
+    "status": 12,
+    "stderr": "\nCOUNCIL-E005 [fatal] Policy refusal\nChain \"plan-daily-7\" was refused by the policy file at \"<WORK>/policy.json\": allowed_providers: seat \"openrouter/deepseek/deepseek-v4.1-flash\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/openai/gpt-6.1-sol\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/z-ai/glm-5.3-flash\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/tencent/hy4-preview\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/google/gemini-3.8-flash\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/deepseek/deepseek-v4.1-flash\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/meta/muse-spark-1.3\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/qwen/qwen3.8-max-0902\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/xiaomi/mimo-v2.6-pro\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/deepseek/deepseek-v4-pro\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/openai/gpt-6-luna\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/minimax/minimax-m3\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/tencent/hy4-preview\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/google/gemini-3.8-flash\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/deepseek/deepseek-v4.1-flash\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/meta/muse-spark-1.3\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/qwen/qwen3.8-max-0902\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/xiaomi/mimo-v2.6-pro\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/openai/gpt-6.1-sol\" uses provider \"openrouter\", which is not in [mock]. allowed_providers: seat \"openrouter/z-ai/glm-5.3-flash\" uses provider \"openrouter\", which is not in [mock]. A policy file is a locked, operator-set set of limits (allowed providers, regions, spend, required tags) checked before any provider is called - a run that would violate it never starts.\n\nChange the chain, or the policy file at <WORK>/policy.json, so this run no longer violates it.\nSee: docs/policy.md\n",
+    "stdoutHead": [
+      ""
+    ]
+  },
+  "policy_parse_error": {
+    "chain": "mock",
+    "status": 6,
+    "stderr": "\nCOUNCIL-E005 [fatal] Policy refusal\nThe policy file \"<WORK>/policy.json\" isn't valid JSON, so it can't be enforced at all. A policy file is a locked, operator-set set of limits (allowed providers, regions, spend, required tags) checked before any provider is called - a run that would violate it never starts.\n\nFix the JSON syntax in <WORK>/policy.json.\nSee: docs/policy.md\n",
+    "stdoutHead": [
+      ""
+    ]
+  },
+  "outbound_scan": {
+    "chain": "mock",
+    "status": 11,
+    "stderr": "\nOUTBOUND KEY SCAN: refusing to run - 1 credential-shaped string(s) in the input, which would be sent to every seat:\n  <WORK>/tasks/x.md:2  Stripe (sk_/rk_/pk_ live/test)\nNothing was sent. Remove the key from the input, or rerun with --allow-secret-shaped to send it deliberately.\n",
+    "stdoutHead": [
+      ""
+    ]
+  }
+}

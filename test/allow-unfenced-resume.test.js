@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE } from '../src/report-shape.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { childGone, childPid } from './helpers/child-gone.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -84,7 +86,7 @@ test('scenario 1, over MCP: submit_stage resumes such a run (it cannot pass --al
       { jsonrpc: '2.0', method: 'notifications/initialized' },
       { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'submit_stage', arguments: { run: runId, stage, content: '# Plan\n\nRead PORT from the environment, default 8080.\n' } } },
     ];
-    const r = spawnSync(process.execPath, [server], { cwd: dir, input: requests.map(x => JSON.stringify(x)).join('\n') + '\n', encoding: 'utf8', timeout: 90_000, env: { PATH: process.env.PATH } });
+    const r = spawnSync(process.execPath, [server], { cwd: dir, input: requests.map(x => JSON.stringify(x)).join('\n') + '\n', encoding: 'utf8', timeout: 90_000, env: { PATH: process.env.PATH, ...malformedProviderKeys() } });
     const reply = (r.stdout || '').split('\n').map(l => { try { return JSON.parse(l); } catch { return null; } }).find(m => m?.id === 2);
     const out = JSON.parse(reply?.result?.content?.[0]?.text ?? 'null');
     assert.equal(out?.resumed, true, `submit_stage did not resume the run: ${JSON.stringify(out)}`);
@@ -96,6 +98,7 @@ test('scenario 1, over MCP: submit_stage resumes such a run (it cannot pass --al
       await new Promise(res => setTimeout(res, 100));
     }
     assert.ok(!existsSync(join(runDir, 'BLOCKED-ARTIFACTS.md')), 'the MCP resume was blocked by the artifact gate');
+    assert.ok(await childGone(runDir), `the resumed child (pid ${childPid(runDir)}) was still running before the folder is removed`);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -120,7 +123,8 @@ test('scenario 2: a capped run whose resume the gate blocks keeps its STOPPED ma
     for (const f of kept) assert.ok(existsSync(join(runDir, f)), `${f} was deleted by a resume the gate refused`);
     // Given the waiver on this resume, it goes on, finishes, and the stop's record makes way for report.json.
     const resumed = run(dir, ['--resume', runDir, '--max-usd', 'none', '--allow-unfenced']);
-    assert.equal(resumed.status, 0, `${resumed.stdout.slice(-400)}${resumed.stderr}`);
+  // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so it accepts the two finished exits.
+    assert.ok([0, 22].includes(resumed.status), `${resumed.stdout.slice(-400)}${resumed.stderr}`);
     for (const f of kept) assert.ok(!existsSync(join(runDir, f)), `${f} must not outlive the stop it describes`);
     assert.ok(existsSync(join(runDir, 'report.json')));
     assert.equal(runJson(runDir).allowUnfenced, true, 'a waiver given on a resume is saved too');
@@ -134,9 +138,11 @@ test('a narrower --allow-unfenced <files> on resume replaces the saved whole-gat
     const runDir = onlyRun(dir);
     const r = run(dir, ['--resume', runDir, '--allow-unfenced', 'src/other.js']);
     assert.equal(r.status, EXIT_ARTIFACTS_BLOCKED, 'app.js is no longer waived');
+    // CHANGED ACCEPTED TEST (CR-1E-006 same class, 25 Okt 2026; C&C ruled): a REFUSED command leaves nothing it typed on disk. OLD: after this blocked resume (exit 9) run.json already held the narrower list (allowUnfenced undefined, unfencedAllowList
+    // ['src/other.js']). NEW: the refused command saves nothing, so the whole-gate waiver the run started with stands; the narrower list replaces it only once a resume gets past the gate (below).
     const meta = runJson(runDir);
-    assert.equal(meta.allowUnfenced, undefined);
-    assert.deepEqual(meta.unfencedAllowList, ['src/other.js']);
+    assert.equal(meta.allowUnfenced, true);
+    assert.equal(meta.unfencedAllowList, undefined);
     // A file list is saved and applied on the next flagless resume the same way. (The gate reports and
     // matches the file name the task's prose names as a token, `app.js` here, not `src/app.js`.)
     assert.equal(run(dir, ['--resume', runDir, '--allow-unfenced', 'app.js']).status, 3, 'back to the external pause');

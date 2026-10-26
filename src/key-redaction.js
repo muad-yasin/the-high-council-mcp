@@ -17,11 +17,11 @@ import { findSecrets } from './secret-patterns.js';
 // Scans one file's text, returning `{ line, column, pattern }` for each match - never the
 // matched substring itself. Matched on the whole text (a private-key block spans lines), then
 // mapped back to a line and column.
-export function scanText(text, filename = '') {
+export function scanText(text, filename = '', { exemptReservedHosts = false } = {}) {
   const starts = [0];
   for (let i = 0; i < text.length; i++) if (text[i] === '\n') starts.push(i + 1);
   const lineOf = idx => { let lo = 0, hi = starts.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= idx) lo = mid; else hi = mid - 1; } return lo; };
-  return findSecrets(text, { filename }).map(s => {
+  return findSecrets(text, { filename, exemptReservedHosts }).map(s => {
     const l = lineOf(s.start);
     return { line: l + 1, column: s.start - starts[l] + 1, pattern: s.name };
   });

@@ -55,11 +55,17 @@ test('contract: a non-array failures or null criteria rows never throw (#2)', ()
   assert.equal(normaliseCritique({ criteria: [null, { criterion: 'C', verdict: 'FAILED' }] }).failures[0].criterion, 'C');
 });
 
-test('contract: real sign-offs still sign off, including the 2026-09-07 Llama placeholder shape', () => {
+test('contract: real sign-offs still sign off; the 2026-09-07 Llama placeholder shape is an abstention (C&C ruling 14 Oct 2026)', () => {
   assert.ok(signs({ meets: true, failures: [] }));
   assert.ok(signs({ meets: true }));
-  // Every criterion MET, meets:false, a placeholder failure because the array "had to" hold something.
-  assert.ok(signs({ meets: false, failures: [{ criterion: 'None' }], criteria: [{ criterion: 'C1', verdict: 'MET' }, { criterion: 'C2', verdict: 'MET' }] }));
+  // EDITED ACCEPTED ASSERTION (14 Oct 2026, C&C ruling 1 on fix-up 3). OLD: `assert.ok(signs(llama))` - every criterion MET, meets:false, a placeholder failure because the array "had to" hold
+  // something, was a SIGN-OFF (incident fix 824a4b9, 23 Sep 2026: the table won over the flag). NEW: a reply whose own flag says it does not meet is never recorded as a sign-off; it is an unreadable
+  // verdict (an abstention, which the panel re-asks), the same reading parseJson({ verdict: true }) already gives it. Real failures beside the same table stay an objection (next test file).
+  const llama = { meets: false, failures: [{ criterion: 'None' }], criteria: [{ criterion: 'C1', verdict: 'MET' }, { criterion: 'C2', verdict: 'MET' }] };
+  assert.equal(signs(llama), false, 'the Llama shape is not a sign-off');
+  assert.equal(normaliseCritique(llama).unreadable, true, 'it is an abstention');
+  assert.equal(normaliseCritique({ meets: false, failures: [{ criterion: 'C1', problem: 'a cross-criterion problem' }], criteria: llama.criteria }).meets, false, 'a real failure beside an all-MET table stays an objection');
+  assert.equal(normaliseCritique({ meets: false, failures: [{ criterion: 'C1', problem: 'a cross-criterion problem' }], criteria: llama.criteria }).unreadable, undefined);
   assert.ok(signs({ criteria: [{ criterion: 'C1', verdict: 'met' }] }));
   // A named failure always wins over a meets:true.
   assert.equal(normaliseCritique({ meets: true, failures: [{ criterion: 'C1', problem: 'p' }] }).meets, false);

@@ -1,0 +1,186 @@
+{
+  "name": "plan-mini-council-sol-session",
+  "description": "The Mini Council with Sol answered through your ChatGPT plan (0.8.3): the same roster as plan-mini-council, one of the three planning chains by price (plan-mini-council, plan-medium-council, plan-high-council), with GPT-6.1 Sol at layer 3 as an external seat instead of a paid API seat. It runs the planning stages without the alternatives stage and without the deep dive, with three proposers (DeepSeek V4.1 Flash, MiMo V2.6 Pro, GLM-5.3 Flash) and a layered review panel of six named judges in three layers: layer 1 GLM-5.3 Flash, GPT-6 Luna; layer 2 MiMo V2.6 Pro, Claude Haiku 5.5; layer 3 GPT-6.1 Sol and Claude Opus 5.5. Exactly these six vote, six judges from four companies (GPT-6 Luna and GPT-6.1 Sol are one company, Claude Haiku 5.5 and Claude Opus 5.5 are one company); MiMo V2.6 Pro and GLM-5.3 Flash each both propose and judge, which is why \"judging\" is \"all-roles\". Every layer has at least two judges. A layer is asked only when every layer below it signed off, and a layer signs off when all its judges do. Any objection at a lower layer sends the draft to the reviser and the climb starts again at layer 1; a round ends only when layer 3 gives its verdict, a sign-off or an objection. This chain allows 2 such overseer rounds (maxOverseerRounds) and, inside one round, 1 revision of layer 1 and 1 of layer 2 (layerRevisions). When either limit is reached the run stops, resumable and NOT agreed, and you choose: continue (it extends the limit that was reached; the run's spending limit still applies), or finish (the dispute stage and the handoff run and the result stays \"not agreed\"), or revise the draft yourself. Claude Haiku 5.5 (layer 2) and Claude Opus 5.5 (layer 3) are answered through your own Claude subscription (provider external, subscription:haiku-5.5, subscription:opus-5.5): like the criteria, skeleton, build, revise and handoff stages, each pauses the run (exit 3) until it is answered, and the answers should come from a separate fresh session, not the one that wrote the plan. GPT-6.1 Sol at layer 3 is answered through your own ChatGPT plan (provider external, subscription:gpt-6.1-sol), so layer 3 pauses twice in every round the climb reaches it. The price shows $0 for every seat you answer yourself, and nothing in the harness checks who answered or that the answers are independent of each other or of the session that wrote the plan. This copy is for people with a Claude plan and a ChatGPT plan; the default chain is plan-mini-council, where Sol is a paid API seat. Without a Claude subscription, replace each of those seats with its API seat: {\"provider\":\"openrouter\",\"model\":\"anthropic/claude-haiku-5.5\",\"maxTokens\":128000,\"lab\":\"haiku5.5\",\"extra\":{\"reasoning\":{\"effort\":\"high\"}},\"layer\":2}; {\"provider\":\"openrouter\",\"model\":\"anthropic/claude-opus-5.5\",\"maxTokens\":128000,\"lab\":\"opus5.5\",\"extra\":{\"reasoning\":{\"effort\":\"high\"}},\"layer\":3}; the other stages still need a Claude Code session. Compared with plan-high-council, Mini asks fewer models, runs fewer rounds and allows fewer revisions. answer_back is on: a judge's own earlier objection is shown back to it, and only that judge can close it. The criteria, skeleton, build, revise and handoff stages need a Claude Code session (provider external): they pause the run (exit 3) until the session answers. Every API seat reasons at high, or at the model's own default where that is higher (the harness sends these no effort setting: GLM-5.3 Flash at max); no Grok, no Kimi. Output caps are the largest reply the harness knows for each model: DeepSeek V4.1 Flash 393,216; MiMo V2.6 Pro and GLM-5.3 Flash 131,072; GPT-6 Luna 128,000. Dry run (0.8.3, prices of 2026-10-18, the dry run's assumed sizes): $1.41 expected (every overseer round ends after one climb through the layers) and an upper estimate of $4.46 (every allowed revision used in every overseer round), about $1.41 plus a Claude subscription and a ChatGPT subscription. The upper estimate leaves out the in-pass re-asks (up to 2 per seat), up to 2 consecutive passes that re-ask a silent seat, the explicit asks of a silent judge, answer-back calls, the memory block judge calls read from overseer round 2 on (up to 10000 tokens per call, paid input that neither figure prices) and the larger prompt the top layer reads, so it is not a ceiling: the limit you type is what stops spending. No proposer's cap is below the most the harness will retry its model at, so a proposal cut off at its cap is not asked again with a bigger one. Every figure printed here fits under the $7 default cap, and under the Claude Desktop bundle's default Spend ceiling of $10. Type a limit above the upper estimate to keep the run from stopping at its limit unless a call outside the plan adds up; a lower limit, even the expected figure, can stop it there (exit 4, resumable with a higher total). This roster has not run, and none of its mechanisms has been measured. Price your task with `npm run dry` and get an explicit go before any paid run.",
+  "summary": "The Mini roster with GPT-6.1 Sol answered through your own ChatGPT plan; smaller and cheaper than plan-high-council.",
+  "maxOverseerRounds": 2,
+  "layerRevisions": {
+    "1": 1,
+    "2": 1
+  },
+  "signoff": "unanimous",
+  "judging": "all-roles",
+  "signoff_table": {
+    "required": true
+  },
+  "answer_back": {
+    "enabled": true
+  },
+  "debate_hygiene": {
+    "shuffle": true,
+    "noQuoteMarks": true
+  },
+  "handoff_contract": {
+    "milestones": true
+  },
+  "dispute": {
+    "enabled": true,
+    "stall_rounds": 2
+  },
+  "proposals": {
+    "parts": 3,
+    "maxTokens": 393216
+  },
+  "debate": true,
+  "decisions": {
+    "enabled": true
+  },
+  "majority_guard": {
+    "enabled": true
+  },
+  "canary": {
+    "enabled": true,
+    "sampleRate": 0.1
+  },
+  "handoff": true,
+  "reviewNotes": {
+    "enabled": true,
+    "perKind": 3
+  },
+  "estimate": {
+    "promptTokens": 28000,
+    "draftTokens": 10000,
+    "critiqueTokens": 5000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "external",
+      "model": "subscription:opus-5.5",
+      "lab": "opus5.5-sub",
+      "maxTokens": 128000,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "skeleton": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "builder": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "reviser": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "handoff": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "decider": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "proposers": [
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4.1-flash-1017",
+        "lab": "deepseek-v4.1-flash",
+        "maxTokens": 393216,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "xiaomi/mimo-v2.6-pro",
+        "lab": "mimo-v2.6-pro",
+        "maxTokens": 131072,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "lab": "glm5.3-flash",
+        "maxTokens": 131072
+      }
+    ],
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "lab": "glm5.3-flash",
+        "maxTokens": 131072,
+        "layer": 1
+      },
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6-luna",
+        "lab": "gpt6-luna",
+        "maxTokens": 128000,
+        "layer": 1,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "xiaomi/mimo-v2.6-pro",
+        "lab": "mimo-v2.6-pro",
+        "maxTokens": 131072,
+        "layer": 2,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "external",
+        "model": "subscription:haiku-5.5",
+        "lab": "haiku5.5-sub",
+        "maxTokens": 128000,
+        "layer": 2,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "external",
+        "model": "subscription:gpt-6.1-sol",
+        "lab": "gpt6.1-sol-sub",
+        "maxTokens": 128000,
+        "layer": 3,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "external",
+        "model": "subscription:opus-5.5",
+        "lab": "opus5.5-sub",
+        "layer": 3,
+        "maxTokens": 128000,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      }
+    ]
+  }
+}

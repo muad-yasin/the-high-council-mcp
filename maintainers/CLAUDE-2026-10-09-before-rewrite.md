@@ -1,0 +1,342 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+`the-high-council-mcp` - a multi-model planning harness, published as an MCP server and a CLI.
+It runs one request past seats filled by models from different labs, makes them argue on the
+record, and writes a deliverable plus a full debate board. MIT, BYOK-only.
+
+**As of the `skills/backend-frontend-developer` branch, this repo also carries `skills/` - a
+growing set of generic, non-game-specific skills shipped alongside the harness, not part of it.**
+Explicit, informed scope expansion (Muad's call, after being told plainly this widens the repo
+from "debate harness" to "debate harness + skills distributor"): `backend-developer` and
+`frontend-developer` cover general backend/frontend engineering - not any single project's stack,
+and not game-specific systems work (that lives in the separate `sower-backend`/`sower-frontend`
+plugins, which this repo does not bundle). `good-news-writing` (added on the
+`skills/news-content-generic` branch, de-SMO'd from Stock Market Oasis's four `news-*` skills per
+that project's own migration plan, which named it as deferred, real work rather than invented
+scope) covers the warm-register content craft for writing genuine positive coverage of a real
+person or organization - composes with the `drafting`/`fact-checking`/`line-editing`/`final-read`
+skills rather than duplicating them. Those four came from the private `sower-writer` plugin and
+were published here in 0.7.8 (Muad's call, 2026-09-26), after a privacy and leftover-content check. `ux-design` and `visual-craft` followed the same way. The
+`skills/core-task-skills` branch (2026-09-14, Muad's direct request) added five cross-domain core
+agentic skills - `task-scoping`, `research-and-sourcing`, `verification-and-critique`,
+`context-and-handoff`, `tool-and-action-discipline` - built from a research pass on agent and
+multi-agent failure modes plus the rest of Stock Market Oasis's skill library, and upgraded
+`backend-developer`/`frontend-developer` with that library's remaining generalizable rules. A future
+session should not be confused by a `skills/` directory with no mention here - if more skills are
+ever added, they belong to this same "generic, public, BYOK-consistent" bar, not project-specific
+content, and go through the same leftover-content grep (source project names, internal paths,
+private seat build names, third-party text) before they ship.
+
+**Game-development skills are public here, by Muad's explicit call (2026-10-05).** `proof-discipline`,
+`game-verification`, `open-world-streaming`, `engine-editor-driving` and `dcc-agent-authoring` ship in `skills/`
+although this section's earlier bar was "not game-specific": Muad confirmed in his own session that they go
+public, as neutral, dated, graded facts about game engines and Blender, not any one project's rules. The
+criteria-tier rule is owned by `verification-and-critique`; `proof-discipline` points to it. Public text may name
+engine and tool vendors (Unity, Unreal, Riot's published talks) for neutral facts only; project-specific
+decisions, paths and session names stay out and go through the same leftover-content grep.
+
+**The skill list lives in `skills/` itself.** `skills/README.md` (the catalog) and
+`docs/skills.html` (the customer-facing presentation) both enumerate it by hand, so
+`test/skills-catalog.test.js` derives the real set from the folders and fails if either document
+drifts - same reasoning as `test/landing-page.test.js`. Add or remove a skill and the suite tells
+you which document needs updating. `docs/skills.html` carries the landing page's two properties:
+no scripts, no third-party requests.
+
+**Visibility: this repo is public again** (it was private from 2026-09-22; Muad made it public, and
+confirmed on 2026-10-02 that this was deliberate; the GitHub description reads "Open source now").
+Everything committed here is published the moment it is pushed. The landing page lives at
+https://sower-industries.de/en/THC/ (the npm `homepage`); the GitHub Pages workflow still runs only by
+hand. The npm package `the-high-council` is public: **0.7.6 was published 2026-09-23** on Muad's go
+(after a 24-audit pre-release round); **0.8.0 was published 2026-10-02** (npm, GitHub
+release with the `.mcpb`, MCP registry), as is (Muad: no users besides him yet), and audited
+after release on 2026-10-02 (findings in the maintainer's local `Review/`). **0.8.1 was released
+2026-10-06** (npm, GitHub release with the `.mcpb`, tag `v0.8.1`, MCP registry), carrying those fixes and the
+advisor add-on; the 19 skills went public with it. The latest is **0.8.2, released 2026-10-07** (npm, GitHub release
+with the `.mcpb`, tag `v0.8.2` on the squash commit `a11345d`, MCP registry): the contract record, the debate and sign-off
+options, no default chain, and the fixes of ten audits; the per-finding history stays on the local branch `release/0.8.2`. No new releases unless he asks; `npm publish` is his (2FA passkey, run from a real terminal).
+The licence stays MIT.
+
+Read `maintainers/HANDOFF.md` before starting work. It carries the release order and the hard rules. Its two
+"open decisions" are now settled and should not be reopened: the `LICENSE` holder stays
+**Sower Industries** (the legal company, confirmed by the author), and the package was renamed to
+**`the-high-council`** (npm names are lowercase, so `THC` would have shipped as `thc`; `THC` stays
+internal shorthand). The `council` command is the public one; `relay` is kept as an alias so
+anything already shelling out to it keeps working.
+
+"The High Council" is this harness. "Sophi-A" is a separate product (a Tauri app, different repo,
+Apache-2.0). Do not conflate them.
+
+## Commands
+
+```bash
+npm install
+npm test                                  # node --test over test/*.js
+node --test test/chain.test.js            # one file
+node --test --test-name-pattern 'parseJson: raw newline'   # one test
+
+npm run mcp                               # MCP server, stdio transport
+npm run dry -- --task tasks/x.md --chain verify   # price a run, call nothing
+node src/cli.js --task tasks/x.md --chain verify  # a real, paid run
+node src/cli.js --resume runs/<id>        # continue a run paused at an external seat
+node src/cost.js                          # price a roster of models
+npm run ui                                # local run browser (src/ui/)
+```
+
+Any chain whose seats are all `provider: "mock"` (`chains/mock*.json`) runs the full pipeline
+offline for $0 and needs no keys. Use those to exercise plumbing changes before spending money.
+
+`npm run http-server` exists but `src/http-server.js` is **not part of this release**: since 0.7.8
+`package.json` `files` leaves it out of the npm package and `express` is a devDependency, so it
+runs from a clone only (`test/package.test.js` pins both). Its
+`MAX_USD_PER_DAY` is a separate, daily cap and is unrelated to the per-run cap below.
+
+## Architecture
+
+The whole harness is one function, `runChain()` in `src/chain.js` (a large, growing file - check its
+current line count rather than trusting a number here), driven by a JSON
+config. Everything else is an entry point into it or a support module.
+
+**Config is the product.** `chains/*.json` are not examples - they are how behaviour is chosen.
+A chain names its seats (`criteria`, `skeleton`, `builder`, `reviser`, `handoff`, `critics[]`),
+the `maxRounds` cap, and feature flags (`questions`, `proposals`, `debate`, `handoff`,
+`signoff: "unanimous"`, `panel: "relay"`). `runChain` reads those flags and skips whole stages.
+Adding a capability usually means a stage in `chain.js` plus a flag, not a new chain file.
+
+A **seat** is `{ provider, model, maxTokens?, temperature?, extra?, lab? }`. `lab` overrides the
+identity used for independence accounting - three seats on OpenRouter are three labs, and mock
+chains put two labs on one provider. Blind-panel and debate logic key off `labOf(seat)`, so
+getting `lab` wrong silently corrupts the thing the harness exists to measure.
+
+**Stage flow** (`runChain`, in order): questions → criteria → skeleton → proposals (blind, per
+lab) → debate (anonymised posts, then author keep/amend/withdraw) → build → critic/revise rounds
+under the cap → optional final edit → handoff. Two termination modes: `first` (any one critic
+passes) and `unanimous` (every critic signs off on the *same* draft, else the reviser fixes the
+union of all objections and the whole panel re-reviews).
+
+**Layers:**
+- `src/providers.js` - one adapter shape in, one out. Anthropic speaks the Messages API; every
+  other provider shares one OpenAI-chat-completions adapter (`OPENAI_COMPAT`). Adding a provider
+  is usually one line there. `mock` is a fake provider with named models
+  (`mock-unreadable`, `mock-provider-error`, `mock-proposer-empty`) that each exercise a specific
+  failure branch offline.
+- `src/roles.js` - every system and user prompt. Prompt changes belong here, never inline in
+  `chain.js`. `criticSystem(open)` / `criteriaSystem(open)` etc. swap a scope rule by template.
+  `HANDOFF_SYSTEM` reads an optional `## Available tools` section out of the task file and names
+  the listed tool in each item's acceptance test. The task text is already in that seat's prompt,
+  so the convention costs nothing; the instruction's real content is the restraint - exact names
+  only, never invent a tool or a command line, and assume nothing when the section is absent.
+  `test/roles.test.js` pins that, since a prompt cannot be tested by running it (the mock provider
+  ignores prompt text by design).
+- `src/cost.js` - `pricing.json` lookup, `costOf`/`summarise` (measurement, after the fact) and
+  `worstCaseOf`/`wouldBreach` (projection, before the fact - what the spend cap enforces against).
+- `src/cli.js` - flags, `.env` loading, the run folder, the stage cache.
+- `src/reasoning.js` + `src/reasoning-table.json` - **reasoning is always high for a shipped chain** (Muad, 2026-10-05: "NO LOWER EFFORT"). The dated table
+  (written by `scripts/refresh-reasoning-table.mjs`; sources in the file; not exercised live) says per model what field means high, the model's own default and
+  its largest reply; `loweringReasons` is the one list of settings that lower it. No code path may lower a seat's effort (`test/reasoning-never-lower.test.js`
+  scans for it); chain-lint's `reasoning-not-high` refuses a shipped chain that does (a user's own chain passes through). The table turns `npm test` red on
+  2026-12-06 (60 days; the table was regenerated on 2026-10-07); with the retention table (2026-10-31) and the Sol price row and the OpenRouter price rows (both 2026-11-21) those are release-week chores, not bugs.
+- `src/key-env.js` - the one reader of provider keys: the plugin dialog's `COUNCIL_PLUGIN_<LAB>_API_KEY`, then the standard variable, then `.env`; empty, blank
+  or a `${user_config.` placeholder counts as unset, and a key with a control character in it is "malformed" (never sent; `council doctor` says so). `src/env-file.js` - the one
+  reader of a project's `.env`: it never sets `COUNCIL_PLUGIN_*`, process-level variables (`NODE_*`, `LD_*`, `PATH`, proxies), the loopback-key switch or an operator-only setting,
+  and says so once per refused name (`.env` is project-writable). `src/draft-disputes.js` - `parseDisputes` and the one function (`stripDeclined`) every reader of a builder's or
+  reviser's raw stage text must use (a test scans `src/` for readers that skip it; the build stage and those readers strip DECLINED lines only, a reviser also a trailing Disputed block).
+- The advisor add-on (0.8.1; the add-on's own audit trail is in `maintainers/` and `Review/`): `src/mcp/advice.js` (the `council_quote` / `council_advise` tools), `src/send-path.js` +
+  `send-path-refusals.js` + `send-profiles.js` (the shared quote -> approve -> start path and what refuses a send), `src/gate.js` + `gate-ledger.js` + `gate-cli.js` (the approval gate and its
+  hash-chained ledger; the terminal answer is `council gate answer`), `src/advice-brief.js` + `advice-mask.js` (the brief schema, masking, the exact text a person reads),
+  `src/advise.js` (the blind-then-debate run), `src/advice-guards.js` (limits and the cross-run ledger), `src/advice-run.js` + `advice-stop.js` + `stop-files.js` (the run folder and the stop rule),
+  `src/mcp/untrusted.js` + `return-path.js` (what comes back to the agent, marked as untrusted text).
+- Added in 0.8.2 (the plan: `Review/0.8.2_Plan_2026-10-06.md`, the build log in the maintainer's local `Review/Build_0.8.2/`): the contract record (`src/contract-lint.js`, `contract-record.js`, `contract-cli.js`,
+  `contract-draft.js`, `src/mcp/contract.js`: versions in `runs/<id>/contract/`, the gate ledger is the authority, `council contract draft|lock|show|check|amend`, MCP `contract_read` / `contract_amend`); cost honesty
+  (`src/unpriced.js` refuses an unpriced seat under a cap, `src/spend-reservations.js` writes a call's worst case before it is sent, `estimateChainRows(..., { maximum: true })` gives the dry run's second figure,
+  `scripts/model-caps-report.mjs` generates `maintainers/MODEL-CAPS.md` and a test diffs it); the debate pieces (`src/objection-ids.js`, `src/answer-back.js`, `src/post-quotes.js`, `src/criteria-ledger.js`,
+  `src/milestones.js`, `src/lanes.js`, `src/handoff-prompt.js` = the one place the handoff prompts are built). A chain's switches (`signoff_table`, `answer_back`, `debate_hygiene`, `handoff_contract`, `judging`) are listed in
+  `config/chain-schema.json`; `"judging": "all-roles"` (owner, 7 Oct 2026) is the explicit override that lets a chain's architects, proposers, deep dive and writer also vote.
+- Prompt text that is DRAFTED but not yet recorded is test data in `test/held-prompts/held.js`; `src/held-roles.js` (code only) returns a function for a held name only once `src/roles.js` exports one of that name, and
+  `setPromptSpy` (chain.js) lets a door test read the prompt a seat is sent. After the 0.8.2 re-record every held sentence is in `roles.js`; the held file stays as test data and `test/held-prompts.test.js` compares the two.
+- `src/mcp/server.js` - the same operations as MCP tools. It **spawns `src/cli.js` detached** so a
+  long run outlives the tool call; the client polls `run_status`. It does not run chains in-process.
+
+**The run folder is the database.** Each run writes `runs/<iso-timestamp>/` containing
+`run.json` (how to resume), `<label>.md` + `<label>.usage.json` per stage, `run.log`,
+`deliverable.md`, `BOARD.md`, `HANDOFF.md`, `report.json`. There is no other state store.
+
+**`report.json` is the machine-readable board; `BOARD.md` is the same thing for people.** Anything
+built on a run reads the JSON - `proposals[]`, `debate.posts[]` (`by`/`on`/`stance`/`merge_with`),
+`debate.replies[]` (`keep`/`amend`/`withdraw`), `signoff[]`, `scoreboard`, `totals`. Together those
+are a directed graph with verifiable edges. Nothing should ever parse `BOARD.md`'s headings, and
+the README now says so, because a four-lab council given a published run folder concluded the data
+existed only in prose and specified a markdown parser against it (2026-09-11). That was a
+documentation failure, not a model failure: the JSON was right there and undocumented. Its shape is
+a public contract now - adding fields is fine, renaming or removing one is a breaking change.
+
+**Resume and the stage cache.** `setCache()` gives `chain.js` a `get(label)` that replays a stage
+from `<label>.md` on disk at zero cost. This is what makes resume free and is why stage labels
+must stay stable - renaming a label orphans every run that paused before it.
+
+**The spend cap is enforced in `invoke()`, before the call.** `setBudget(cap)` arms a per-run
+ceiling; `invoke()` projects the worst case for the stage it is about to run (whole prompt as
+input, whole `maxTokens` as output, doubled for Anthropic's retry) and throws `BudgetExceeded`
+rather than spending past it. Replayed stages count toward the ceiling too, so resuming cannot lap
+it. Any new paid call must go through `invoke()` or it escapes the cap entirely. An unpriced seat
+projects $0, so a cap cannot hold it: since 0.8.2 a run under a cap refuses one before anything is sent
+(`unpricedSeats` in `src/unpriced.js` at the run's start, exit 5; `invoke()` throws `UnpricedSeat` as the backstop),
+and `--max-usd none` is the way out. `mock` (which is why the `mock-*` chains run free under any ceiling, and why
+`mock-budget` exists with fixture prices to test the cap offline), `external` and `ollama` are exempt (`needsPrice`
+in `src/cost.js`).
+
+**External seats pause the run.** `provider: "external"` throws `ExternalPause` (thrown, not
+returned, so control flow stays linear). The CLI catches it, writes `NEEDS-<stage>.md` with both
+prompts, and exits 3. The run resumes once `<label>.md` exists. The MCP path exposes the same
+thing as `external_prompt` / `submit_stage`. A paused run is not a stuck run.
+
+**Model output is assumed to be broken.** `parseJson` in `chain.js` repairs specific, observed
+failure modes (unescaped quotes inside markdown-quoted spans, raw newlines in string values) with
+real string-state tracking rather than regex, and deliberately still fails on genuinely garbled
+output. `classifyUnreadable` separates provider errors from truncation from malformed JSON.
+`invoke()` retries once, at the same reasoning effort and a bigger cap, when an Anthropic seat burns its whole `maxTokens`
+budget on thinking (until 0.8.0 the retry switched thinking off; owner, 5 Oct 2026: "NO LOWER EFFORT", so no code path lowers a seat's effort). Every one of these encodes a real incident - the comments name the run and the
+date. Read the comment before changing the behaviour, and keep the regression tests in
+`test/chain.test.js`, which are built from the actual broken replies.
+
+## Rules that are not style preferences
+
+- **BYOK only.** Never add a default key, a proxy, or a hosted/"try it free" path.
+- **No xAI/Grok, ever** (Muad, 2026-09-23: "No grok, ever!!!"). Not in any chain, roster, example
+  or default, and not through a router id that could pick it (`openrouter/auto` and the like).
+  Chain-lint's `denied-model` rule and a run-time check (both landing 2026-09-23) enforce this with
+  no opt-out; never add one. **Kimi K3 is out of every shipped chain** (the same day), but a user may
+  seat it in their own chain: Muad, 2026-09-26, *"Kimi K3 is not excluded completely from being used,
+  it was just removed from our own chain configs."* `test/shipped-chains-no-kimi.test.js` keeps it out
+  of `chains/`.
+- **No efficacy claims** in any user-facing text until something has actually been measured. The
+  README is deliberately written without them.
+- **The README's "Known limits" section stays honest.** Delete a limit when it stops being true,
+  never because it is embarrassing. It currently admits the missing spend cap; that admission is
+  removed by landing the cap, not by editing the sentence.
+- This tree is a curated extraction from a private repo. **Never add** `context/`, `tasks/`,
+  `plans/`, `Docs/`, `benchmark/`, `Dockerfile`, or `fly.toml`.
+- **Never move harness run output into this repo.** Run folders (`runs/<id>/` here, and
+  `~/Projects/relay/runs/<id>/` upstream) hold deliverables about the author's business and
+  personal plans - pledge stress-tests, company structure, strategy. This repo is public, or will be
+  again at release; a run
+  folder is not publishable by default. `runs/` is gitignored for this reason; keep it that way.
+- Internal references in code comments and chain descriptions are public on purpose. Do not
+  "clean" them.
+- Branch convention is `master`.
+- **Ideas are free to study; code and prose are never copied.** Researching the open-source
+  market (competing tools, academic papers, adjacent infrastructure patterns) for feature and
+  architecture ideas is standing, encouraged practice here - see
+  `Review/market-feature-survey-2026-09-15.md` for the shape of it. The discipline is: describe
+  an idea in this project's own words and evaluate it against this project's own identity and
+  standing exclusions (WANT / MIGHT-WANT / DON'T-WANT), never quote another repo's README, docs,
+  or code verbatim, and never port code from a differently-licensed project. This project is MIT
+  and wants others to do the same with it - the same courtesy runs the other way.
+
+## How sessions work together (the owner's C&C workflow, published on purpose)
+
+This is the owner's working method for building this repo with several Claude Code sessions at once. It is
+published deliberately (Muad, 8 Oct 2026: the public may know it, and it might help someone). The master copy
+lives on the owner's private board; this is its published copy as of 8 Oct 2026. **C&C** is the owner's
+Command-and-Control session: a Claude Code session that routes work to builder sessions, reviews each
+milestone and answers PASS or FIX. CLAUDE.md is loaded into every session in this repo, so these rules reach
+every one of them, after a `/compact` too.
+
+1. **Roles.** C&C routes and decides; builder sessions build; the owner talks only to C&C. Dispatch means
+   dispatch: C&C does not build a dispatched job itself.
+2. **C&C consults its advisor before anything goes to a builder** that carries a fix, a ruling, a go, a
+   PASS/FIX or a change to what it builds; also on a milestone's proposed defaults and at each milestone
+   report before the verdict. Plain acknowledgements are exempt. If something went out without it: consult
+   now, send a correction, and say so plainly.
+3. **The advisor line, checked on both sides.** Every such C&C message ends with
+   `Advisor: consulted - <what it changed>`. A builder that receives a fix, ruling or go without that line
+   replies "advisor line missing?" and acts on nothing in it until the line arrives.
+4. **Builders use their advisor** at the start, at important steps, when stuck, and before every report; each
+   report says what the advisor flagged.
+5. **Skills.** Every brief and every post-compact reminder names the skills the role needs (the catalog is
+   `skills/README.md`).
+6. **After any `/compact`**, a session re-reads its instructions, its own resume file and its skills, then
+   tells C&C: its commit and state, the skills it re-read, one rule from two of them in its own words, what its
+   advisor said, and its next three steps. A session that cannot produce this has lost the rules.
+7. **Builder reports**, per milestone: the commit SHAs; every exit check with its command and output; the test
+   arithmetic; evidence that the checks can fail (deliberate breakages that turn the tests red); the advisor's
+   flags; the items to flag. Then wait for PASS/FIX. A heads-up before every full test run, with absolute log
+   paths, and a check that the process and the log exist after launch.
+8. **C&C reviews** in its own worktree (never the shared checkout), against the plan's own exit list (not only
+   the builder's map of it), reads the log tails and the names of skipped tests, and checks the owner's gates
+   every milestone: prompt words need the owner's yes; no paid calls without his go and a cap; push, release
+   and publish are his; no efficacy claims; no xAI/Grok;
+   reasoning effort is never lowered; a count moves in the same commit as the thing it counts.
+9. **Mistakes are disclosed at once, in plain words,** by whoever made them.
+
+## The landing page (`docs/`)
+
+`docs/` is the landing page, served from sower-industries.de (GitHub Pages is off; the repo is public): a single standalone `index.html` plus self-hosted fonts. It is a
+Claude Design treatment of the README, and it has two properties that must survive any edit:
+
+- **No scripts and no third-party requests.** The design arrived depending on Claude Design's
+  `dc-runtime` (`support.js`, an unlicensed build artifact that also pulled React and Babel from
+  unpkg at runtime) and on Google Fonts. The runtime was removed by pre-rendering its three
+  `<sc-for>` loops to static HTML and converting `style-hover` to CSS; the fonts are self-hosted.
+  Never reintroduce either - hotlinked Google Fonts in particular are a live legal problem for the
+  German site this design is shared with.
+- **Its numbers are claims about this repo.** The counts (chain configs, MCP tools, providers,
+  default cap) are typed into the HTML, not derived - a static page cannot compute them. So
+  `test/landing-page.test.js` derives each one from the repo and fails if the page disagrees,
+  along with checking the page stays script-free and third-party-free. Change `chains/`, the tool
+  list, or the default ceiling and the suite will tell you the page needs updating. This is not
+  hypothetical: the page shipped saying 29 chains and 12 tools when the repo had 30 and 11, with
+  its own tools table listing eleven rows directly beneath the "12".
+
+**Canonical URL - the planned flip was cancelled, on evidence.** The original plan was: once
+`sower-industries.de/en/MCP/` deployed, point this page's `rel=canonical` and `og:url` there, on
+the assumption the two were the same page in two places.
+
+That deploy landed 2026-09-11 and both URLs now return 200, so the assumption was checked instead
+of acted on. **They are not duplicates.** This page is a treatment of the README (~1,300 words,
+what the harness is and how to install it). The sower-industries page is a different article
+(~1,850 words) built around one specific run's debate board - the withdrawals, the holdouts, the
+$0.0442. A cross-canonical between two pages that are not duplicates is at best ignored by search
+engines and at worst deindexes a page with its own content and its own audience, on the domain
+that actually hosts the code.
+
+That reasoning held while GitHub Pages served this page. **Update 2026-09-26 (Muad: "Point it to
+my live"):** Pages is off and `muad-yasin.github.io/the-high-council-mcp/` returns 404, so a
+self-canonical would name a page that does not exist. `docs/index.html`'s `rel=canonical` and
+`og:url` now point to https://sower-industries.de/en/MCP/, the live page. If Pages is ever turned
+back on, revisit this.
+
+**Update 2026-10-05 (Muad; 0.8.1 [D4]):** the site moved its home to https://sower-industries.de/en/THC/
+(install page /en/THC/2/); /MCP, /en/MCP/ and /en/Council/ are 301s to it (checked by curl). Every homepage and
+link in this repo, including this page's `rel=canonical` and `og:url`, now names https://sower-industries.de/en/THC/.
+
+## Cross-run spend (`src/spend.js`)
+
+`spendReport()` answers "what have I spent across every run", which `run_status` (one run) and the
+per-run cap (one run) cannot. It is **derived, never recorded**: every figure is read back out of
+`runs/<id>/` on disk. There is no ledger file.
+
+That was a deliberate choice over an append-only ledger in a dotfile, and it should not be quietly
+reversed. A ledger is a second copy of the truth that can drift from the run folders; it needs a
+write path, and a write path can fail during a run; it cannot account for runs that predate it; and
+because it would outlive the run folders, it would keep a record of work a user deleted precisely
+because it was sensitive. Deriving has none of those properties, and it keeps the project's
+existing invariant that a run's truth lives in its own folder.
+
+Consequences worth knowing: delete a run folder and its spend disappears from the report, which is
+intended. Runs with no `report.json` (still going, or stopped by the cap) are counted from their
+`<label>.usage.json` files, so the total stays honest mid-run.
+
+Spend output carries the chain and the cost only - never the task path or any run content. A test
+pins that, along with the degradation contract: a missing, unreadable or corrupt `runs/` must
+produce a usable answer rather than an error, and `spendReport` must never write to disk.
+
+**One recorded figure (0.8.2, item 8b).** The derivation above has exactly one exception: `runs/<id>/spend-reservations.jsonl` (`src/spend-reservations.js`, schema `spend-reservations/1`).
+`invoke()` appends a `reserved` line (the call's worst case, with its label and seat) with one write and an fsync BEFORE it sends, and a `settled` line when the call returns or throws. A `reserved`
+line with no `settled` line is a call in flight when the process died: the provider may have billed it and nothing else on disk says so, so it stays charged at its worst case in a resume's cap, `--spend`
+and the spend report (`costOfRun` in `src/spend.js` adds it). Why this is not the ledger the section above argued against: it records a moment nothing else can reconstruct (a call sent and not yet
+answered), it lives and dies with the run folder (it is no second copy outside it), a missing, torn or corrupt file reads as "none" (today's behaviour), and spend output still carries amounts only. The
+opposite rule holds for writing: if a reservation cannot be written the call is not sent. There is no command that reconciles an unsettled reservation, on purpose: the figure errs high.

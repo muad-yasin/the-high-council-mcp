@@ -166,7 +166,7 @@ function baseLintConfig() {
       criteria: { provider: 'anthropic', model: 'claude-sonnet-5', lab: 'author' },
       builder: { provider: 'anthropic', model: 'claude-sonnet-5', lab: 'author' },
       critics: [
-        { provider: 'openrouter', model: 'openai/gpt-6', lab: 'panel-one' },
+        { provider: 'openrouter', model: 'openai/gpt-6', lab: 'panel-one', extra: { reasoning: { effort: 'high' } } },   // 0.8.3: a made-up model with no table row must state its own high effort at a shipped path (reasoning-not-high fails closed)
         { provider: 'openrouter', model: 'google/gemini-3.8-flash', lab: 'panel-two' },
       ],
     },

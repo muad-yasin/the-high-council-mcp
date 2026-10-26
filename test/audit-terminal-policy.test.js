@@ -11,6 +11,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { answerAtTerminal } from '../src/gate-cli.js';
 import { readGateAnswer } from '../src/gate.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -28,7 +29,7 @@ const BRIEF = () => ({
 async function pendingGate(policy) {
   const dir = mkdtempSync(join(tmpdir(), 'thc-term-policy-')); mkdirSync(join(dir, 'runs'));
   if (policy !== undefined) writeFileSync(join(dir, 'policy.json'), typeof policy === 'string' ? policy : JSON.stringify(policy));
-  const child = spawn(process.execPath, [cli, '--mcp'], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, COUNCIL_ADVISE_MOCK: '0', COUNCIL_ADVISE_COOLDOWN_MS: '0' } });
+  const child = spawn(process.execPath, [cli, '--mcp'], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, COUNCIL_ADVISE_MOCK: '0', COUNCIL_ADVISE_COOLDOWN_MS: '0', ...malformedProviderKeys() } });
   const pending = new Map(); let buf = ''; let n = 0;
   child.stdout.on('data', d => { buf += d; let nl; while ((nl = buf.indexOf('\n')) !== -1) { const line = buf.slice(0, nl); buf = buf.slice(nl + 1); let m; try { m = JSON.parse(line); } catch { continue; } if (m.id !== undefined && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } } });
   const rpc = (method, params) => new Promise(r => { const id = ++n; pending.set(id, r); child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`); });

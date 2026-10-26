@@ -8,13 +8,14 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, exist
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
 
 function mcp(cwd, calls, { timeoutMs = 60_000, env = {} } = {}) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...env } });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys(), ...env } });
     const want = new Set(calls.map((_, i) => i + 2)); const byId = new Map(); let buf = '';
     const timer = setTimeout(() => { child.kill(); fail(new Error(`timed out; got ids ${[...byId.keys()]}`)); }, timeoutMs);
     child.stdout.on('data', d => {
@@ -75,14 +76,15 @@ test('cnc-mcp F1: a saved positive cap is kept as before (no max_usd passed), an
   } finally { a.clean(); b.clean(); }
 });
 
-test('cnc-mcp F1: a saved allowSecretShaped is never honoured over MCP unless the caller passes allow_secret_shaped true', async () => {
+test('cnc-mcp F1 (0.8.3): a saved allowSecretShaped is never honoured over MCP, with or without the removed allow_secret_shaped argument; the refusal sends a person to a terminal', async () => {
   const w = world({ set: { allowSecretShaped: true } });
   try {
     const [r1, r2] = await mcp(w.work, [{ name: 'resume_run', arguments: { run: w.id } }, { name: 'resume_run', arguments: { run: w.id, allow_secret_shaped: true } }]);
     const p1 = payload(r1);
     assert.equal(p1.resumed, false, JSON.stringify(p1).slice(0, 300));
-    assert.match(JSON.stringify(p1), /allow_secret_shaped/);
-    assert.notEqual(payload(r2).resumed, false, `the caller opted in again: ${JSON.stringify(payload(r2)).slice(0, 300)}`);
+    assert.match(JSON.stringify(p1), /council --resume runs\/<id>/);
+    assert.doesNotMatch(JSON.stringify(p1), /allow_secret_shaped/, 'the refusal names no parameter that no longer exists');
+    assert.equal(payload(r2).resumed, false, `an old client that still sends the argument gets the same refusal: ${JSON.stringify(payload(r2)).slice(0, 300)}`);
   } finally { w.clean(); }
 });
 
@@ -135,3 +137,47 @@ test('cnc-mcp F3: run_status and list_runs mark and clean every string that come
     assert.ok(q.untrusted_fields?.includes('progress') && q.untrusted_fields?.includes('state'), `the long-poll answer names its run-folder fields: ${JSON.stringify(q).slice(0, 400)}`);
   } finally { w.clean(); }
 });
+
+// tools/list through a real stdio session (the helper above only makes tools/call requests)
+function toolList(cwd) {
+  return new Promise((done, fail) => {
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys() } });
+    let buf = ''; const timer = setTimeout(() => { child.kill(); fail(new Error('tools/list timed out')); }, 60_000);
+    child.stdout.on('data', d => {
+      buf += d; let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        try { const m = JSON.parse(line); if (m.id === 2) { clearTimeout(timer); child.stdin.end(); child.kill(); done(m.result.tools); } } catch { /* not JSON-RPC */ }
+      }
+    });
+    child.stdin.write([
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'audit-mcp-resume', version: '0' } } },
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+    ].map(x => JSON.stringify(x)).join('\n') + '\n');
+  });
+}
+
+test('0.8.3: start_run and resume_run take no allow_secret_shaped (the live tool list); an old client that still sends it is refused at the key scan like one that does not, and the flag is not saved with the run', async () => {
+  const w = world();
+  try {
+    const tools = await toolList(w.work);
+    for (const name of ['start_run', 'resume_run']) assert.equal(Object.keys(tools.find(t => t.name === name).inputSchema.properties).includes('allow_secret_shaped'), false, name);
+    const fill = (n, set = 'aZ3kQ9xB') => Array.from({ length: n }, (_, i) => set[i % set.length]).join('');
+    writeFileSync(join(w.work, 'tasks', 'k.md'), `# A plan\n\nUse ${['sk', '-ant-api03-', fill(40)].join('')} for the build.\n`);
+    const [withArg, without] = await mcp(w.work, [
+      { name: 'start_run', arguments: { chain: 'mock-external', task: 'tasks/k.md', allow_secret_shaped: true } },
+      { name: 'start_run', arguments: { chain: 'mock-external', task: 'tasks/k.md' } },
+    ]);
+    for (const [what, r] of [['with the removed argument', withArg], ['without it', without]]) {
+      const p = payload(r);
+      assert.equal(p.started, false, `${what}: ${JSON.stringify(p).slice(0, 400)}`);
+      assert.equal(p.exitCode, 11, `${what}: refused by the outbound key scan (exit 11), not for another reason: ${JSON.stringify(p).slice(0, 400)}`);
+    }
+    for (const id of readdirSync(join(w.work, 'runs'))) {
+      const meta = JSON.parse(readFileSync(join(w.work, 'runs', id, 'run.json'), 'utf8'));
+      assert.notEqual(meta.allowSecretShaped, true, `${id}: the override was not saved with the run`);
+    }
+  } finally { w.clean(); }
+});
+

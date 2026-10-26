@@ -8,6 +8,7 @@
 // content, proposal text or prompt bodies.
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { runFolderKind } from './run-files.js';
 import { join } from 'node:path';
 import { runIdToDate } from './spend.js';
 import { shapeRounds } from './shape-rounds.js';
@@ -175,22 +176,28 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
   // are not a sign-off. Such runs are skipped and counted here, so the skip is never silent.
   let adviceRunsSkipped = 0;
   let unreadable = 0;
+  let symbolicLinksNotCounted = 0;
 
   let ids = [];
   try {
     ids = existsSync(runsDir) ? readdirSync(runsDir) : [];
   } catch {
     return { runsDir, days, since: new Date(cutoff), chains: [], labs: [], largestPrompts: [],
-             runsSeen: 0, unreadable: 0, note: 'runs directory could not be read' };
+             runsSeen: 0, unreadable: 0, symbolicLinksNotCounted: 0, note: 'runs directory could not be read' };
   }
 
   for (const id of ids) {
+    if (!runIdToDate(id)) continue;
+    // a symbolic link in runs/ is never a run (the harness never makes one): asked FIRST (before the date and the window, so a dangling link and a link outside the window are counted too), counted apart, never read as a second run (src/run-files.js runFolderKind, the one predicate every reader of runs/ asks)
+    const kind = runFolderKind(join(runsDir, id));
+    if (kind === 'link') { symbolicLinksNotCounted += 1; continue; }
     const when = runIdToDate(id);
-    if (!when || when.getTime() < cutoff) continue;
+    if (when.getTime() < cutoff) continue;
     const dir = join(runsDir, id);
     let files;
+    if (kind === 'missing') { unreadable += 1; continue; }
+    if (kind !== 'folder') continue;
     try {
-      if (!statSync(dir).isDirectory()) continue;
       files = readdirSync(dir);
     } catch { unreadable += 1; continue; }
 
@@ -328,7 +335,7 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
     .map(([type, v]) => ({ stageType: type, bytes: v.bytes, tokensApprox: Math.round(v.bytes / 4), file: v.file, run: v.run }))
     .sort((a, b) => b.bytes - a.bytes);
 
-  return { runsDir, days, since: new Date(cutoff), chains, labs, largestPrompts, runsSeen, unreadable, adviceRunsSkipped };
+  return { runsDir, days, since: new Date(cutoff), chains, labs, largestPrompts, runsSeen, unreadable, symbolicLinksNotCounted, adviceRunsSkipped };
 }
 
 const csvNum = x => (x === null ? '' : String(x));

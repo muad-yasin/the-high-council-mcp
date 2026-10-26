@@ -2,8 +2,15 @@
 // Stable within a minor version: these names, options and result fields. `report` follows the
 // report.json contract (fields are added, never renamed or removed without a major version).
 
-/** Where a run stands, derived from its run folder. */
-export type RunStatus = 'done' | 'budget_stopped' | 'failed' | 'blocked' | 'paused' | 'running' | 'stopped';
+/**
+ * Where a run stands, derived from its run folder: every value src/run-status.js deriveRunStatus can return (test/run-status-type.test.js derives the list from the code).
+ * 'awaiting_user_cap': a paid run waits for the spending limit a person types. 'awaiting_choice': the run stopped and waits for a person's choice (an overseer limit, a conflict, a refused price).
+ * 'user_stopped', 'client_cancel_stopped' and 'wall_clock_stopped': the run was stopped on purpose or by its clock. The five approval values are an advice call's folder before its run has started.
+ */
+export type RunStatus =
+  | 'done' | 'budget_stopped' | 'failed' | 'blocked' | 'paused' | 'running' | 'stopped'
+  | 'awaiting_user_cap' | 'awaiting_choice' | 'user_stopped' | 'client_cancel_stopped' | 'wall_clock_stopped'
+  | 'awaiting_approval' | 'approved' | 'declined' | 'approval_expired' | 'approval_invalid';
 
 /**
  * Per-run spend ceiling. Omitted: the CLI default (MAX_USD_PER_RUN, else $7).
@@ -79,7 +86,8 @@ export interface RunResult {
   /** The CLI's exit code; the README's exit-code table says what each means. */
   exitCode: number | null;
   signal: string | null;
-  status: RunStatus | 'not_started';
+  /** 'tree_refused' (since 0.8.3) when exitCode is 19: a recursive-councils tree refused to start or resume the run (nothing was run, nothing was spent). Exit 4 stays the spend cap. */
+  status: RunStatus | 'not_started' | 'tree_refused';
   report: Report | null;
   /** The last lines the CLI printed. Never contains a key value. */
   outputTail: string;
@@ -106,16 +114,18 @@ export interface RunOptions extends CommonRunOptions {
   /** Reuse an earlier run's criteria. */
   fromRun?: string;
   context?: string;
+  /** The acceptance list, as a file (--criteria): one criterion per line, or a JSON array. The run uses it instead of asking a criteria seat. */
+  criteria?: string;
+  /** The run's folder name (digits, T, Z and "-", the form of the default). The folder must not already hold a run. Default: the start time. */
+  runId?: string;
+  /** Makes the run a member of a recursive-councils tree: a JSON file naming its tree, node and generation (--tree-node). The tree record must have registered the node; otherwise the run is refused (exit 19). */
+  treeNode?: string;
+  /** The personal-data gate. Default 'hard-stop': a finding stops the run (exit 11). 'warn' (print and go on) is the developer's own typed choice, the same act as `--pii-gate warn`. */
   piiGate?: 'warn' | 'hard-stop';
-  /** Send key-shaped text anyway. Every prompt is scanned for the key formats in
-   *  src/secret-patterns.js by default, and a match stops the run (exit 11). */
-  allowSecretShaped?: boolean;
 }
 
 export interface ResumeOptions extends CommonRunOptions {
   runDir: string;
-  /** Continue a run the outbound key scan stopped (STOPPED-secret.md), sending the text anyway. */
-  allowSecretShaped?: boolean;
 }
 
 export declare function version(): string;

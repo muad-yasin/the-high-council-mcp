@@ -12,6 +12,7 @@
 // way around.
 
 import { ARGUED_SECTIONS } from './argued.js';
+import { askedForSentence } from './answered-by.js';
 
 // Canonical stage kinds. chain.js emits per-lab/per-round labels
 // (`propose-glm`, `panel-2-mistral`, `revise-3`, ...); STAGE_KIND_PATTERNS
@@ -115,6 +116,13 @@ const STAGE_DEFS = {
     required_sections: ['tasks'],
     return_instructions: 'Return the handoff document as plain text/markdown.',
   },
+  // 0.8.3 notes lane 2b-1b: the standalone notes-answer stage (a chain with no handoff stage, or a handoff seat that is not the writer). Without a kind here prepare_stage_prompt refuses the label and an external writer cannot answer it.
+  // The wording is an E item (a person or an external session reads it).
+  'notes-answer': {
+    role: 'Answer the review notes that follow the signed plan: for each item, say it is taken as a builder task, declined with a reason, or the same as another item.',
+    required_sections: [],
+    return_instructions: 'Return one answer line per item, as the prompt asks, as the last lines of the reply.',
+  },
   argued: {
     role: 'Write "How this plan was argued" for a beginner developer, from the fact pack only: the options considered and why the losers lost, the objections that changed the plan, what is still disputed, and one line per lab. Cite a fact-pack id on every claim.',
     // The headings the argued prompt asks for and argued.js checks (ARGUED_SECTIONS), under the
@@ -162,6 +170,7 @@ const STAGE_KIND_PATTERNS = [
   [/^final(-retry)?$/, 'final'],
   [/^handoff(-retry)?$/, 'handoff'],
   [/^argued(-retry)?$/, 'argued'],
+  [/^notes-answer$/, 'notes-answer'],
 ];
 
 /** Map a chain.js stage label (e.g. "propose-glm", "panel-2-mistral") to a canonical stage kind, or null if unrecognised. */
@@ -241,7 +250,7 @@ export function buildStageContract(config, stageKind) {
  * `references` must be paths, never inlined content: that is the property that keeps
  * the bundle small enough for a fresh, context-empty reader to hold comfortably.
  */
-export function renderStagePromptBundle({ contract, taskText, chainName, label, run, references, answerFile = null }) {
+export function renderStagePromptBundle({ contract, taskText, chainName, label, run, references, answerFile = null, askedFor = null }) {
   return `# STAGE CONTRACT
 stage_id: ${contract.stage_id}
 role: ${contract.role}
@@ -271,7 +280,7 @@ yet built). If the task's acceptance criteria seem to conflict with this stage's
 required_sections above, say so in your deliverable rather than silently picking one.
 
 # RETURN
-Write your deliverable per return_instructions above. Give it back to the driving
+${askedForSentence(askedFor)}When you hand your deliverable back, add one line of your own outside it: the model you are, so the driving session can pass it as answered_model. Write your deliverable per return_instructions above. Give it back to the driving
 session, which will call submit_stage(${JSON.stringify(run)}, ${JSON.stringify(label)}, <your deliverable text>).${answerFile ? `
 If you write the answer file yourself instead, write ${answerFile}.partial and rename it to
 ${answerFile} only when it is complete: the run resumes as soon as that name exists.` : ''}

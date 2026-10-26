@@ -10,15 +10,19 @@ import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, exist
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { waitForRunEnd } from './helpers/child-gone.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
 const EXT = lab => ({ provider: 'external', model: 'claude-code-session', lab });
 const PASS = JSON.stringify({ meets: true, criteria: [], failures: [], verdict_line: 'All criteria met.' });
+// The pass with the pair the prompt carries (read from <label>.envelope.json when it exists: once the verdict-envelope sentence is recorded a reply without review_id and draft_id is dropped as unheard); plain PASS when it does not.
+const passWithIds = (runDir, stage) => { const f = join(runDir, `${stage}.envelope.json`); return existsSync(f) ? JSON.stringify({ ...(({ review_id, draft_id }) => ({ review_id, draft_id }))(JSON.parse(readFileSync(f, 'utf8'))), ...JSON.parse(PASS) }) : PASS; };
 
 function mcpSession(cwd, calls, { timeoutMs = 60_000 } = {}) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd } });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys() } });
     const want = new Set([1, ...calls.map((_, i) => i + 2)]);
     const byId = new Map();
     let buf = '';
@@ -74,16 +78,19 @@ test('two external critics: both are listed, either can be answered first, and t
     assert.match((await call(dir, 'external_prompt', { run, stage: 'panel-1-mb' })).error, /not waiting/);
 
     // The second-listed stage first: accepted, and the run does not resume yet.
-    const a = await call(dir, 'submit_stage', { run, stage: 'panel-1-ec', content: PASS });
+    const a = await call(dir, 'submit_stage', { run, stage: 'panel-1-ec', content: passWithIds(runDir, 'panel-1-ec') });
     assert.equal(a.written, 'panel-1-ec.md', JSON.stringify(a));
     assert.equal(a.resumed, false);
     assert.deepEqual(a.waiting, ['panel-1-ea']);
     assert.ok(!existsSync(join(runDir, 'report.json')));
     // The last one resumes the run, which finishes.
-    const b = await call(dir, 'submit_stage', { run, stage: 'panel-1-ea', content: PASS });
+    const b = await call(dir, 'submit_stage', { run, stage: 'panel-1-ea', content: passWithIds(runDir, 'panel-1-ea') });
     assert.equal(b.resumed, true, JSON.stringify(b));
-    for (let i = 0; i < 120 && !existsSync(join(runDir, 'report.json')); i++) await new Promise(r => setTimeout(r, 250));
+    await waitForRunEnd(runDir);
     assert.ok(existsSync(join(runDir, 'report.json')), 'the run finished after both answers');
+    // CHANGED ACCEPTED TEST (decider-readiness apply patch fix-up 2, 24 Okt 2026; C&C ruling: this test passed on the on-state while both external answers were dropped as unheard, i.e. for the wrong reason). OLD: the answers were plain PASS and only the run's finish was asserted (the mock critic's pass finished it). NEW: the answers carry the pair when one is recorded, and the report must show both external seats HEARD (signed_off, not unheard).
+    const heard = JSON.parse(readFileSync(join(runDir, 'report.json'), 'utf8')).panelVerdicts.filter(v => v.round === 1 && (v.lab === 'ea' || v.lab === 'ec'));
+    assert.deepEqual(heard.map(v => v.verdict).sort(), ['signed_off', 'signed_off'], `both external answers were heard, not dropped as unheard: ${JSON.stringify(heard)}`);
   } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
@@ -112,13 +119,16 @@ test('a dotted lab (opus5.5-sub) can be fetched and answered over MCP; a ".." la
     assert.equal(p.stage, 'panel-1-opus5.5-sub', JSON.stringify(p));
     const bad = (await mcpSession(dir, [{ name: 'submit_stage', arguments: { run, stage: '..panel', content: PASS } }])).get(2);
     assert.ok(bad.error || bad.result?.isError, `a ".." label must be refused, got ${JSON.stringify(bad)}`);
-    const a = await call(dir, 'submit_stage', { run, stage: 'panel-1-opus5.5-sub', content: PASS });
+    // CHANGED ACCEPTED TEST (decider-readiness apply patch fix-up, 24 Okt 2026; the full suite on fad02049 listed it, #1646). OLD: the answer was PASS, a verdict with no ids. NEW: once src/roles.js records the verdict-envelope sentence the prompt carries a review_id and a draft_id and a reply without them is not counted (unheard), so the run did not finish; the answer carries the pair read from the call's record (`panel-1-opus5.5-sub.envelope.json`), as the answering session copies it from the prompt; without a record (words not recorded) it is PASS as before. WHY: the property under test is that a dotted lab can be fetched and answered over MCP.
+    const envFile = join(dir, 'runs', run, 'panel-1-opus5.5-sub.envelope.json');
+    const answer = existsSync(envFile) ? JSON.stringify({ ...(({ review_id, draft_id }) => ({ review_id, draft_id }))(JSON.parse(readFileSync(envFile, 'utf8'))), ...JSON.parse(PASS) }) : PASS;
+    const a = await call(dir, 'submit_stage', { run, stage: 'panel-1-opus5.5-sub', content: answer });
     assert.equal(a.written, 'panel-1-opus5.5-sub.md', JSON.stringify(a));
     assert.equal(a.resumed, true);
     // The answer resumes the run in a detached child. Wait for it to finish before the cleanup below,
     // or rmSync races its writes (CI 2026-09-29, v0.7.9 tag build: ENOTEMPTY on runs/<id>).
     const runDir = join(dir, 'runs', run);
-    for (let i = 0; i < 120 && !existsSync(join(runDir, 'report.json')); i++) await new Promise(r => setTimeout(r, 250));
+    await waitForRunEnd(runDir);
     assert.ok(existsSync(join(runDir, 'report.json')), 'the run finished after the answer');
   } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });

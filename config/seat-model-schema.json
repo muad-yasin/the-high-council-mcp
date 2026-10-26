@@ -8,6 +8,7 @@
   "properties": {
     "provider": { "type": "string" },
     "lab": { "type": "string" },
+    "layer": { "type": "integer", "minimum": 1, "maximum": 3, "description": "0.8.3 (layered review panel): the layer of a panel critic, 1 to 3. Read on seats.critics only (chain-lint refuses it elsewhere); either every critic has one or none does. A layer is asked only when every seat of the layers below it signed off on the same draft. Each layered seat needs its own `lab`." },
     "lane": { "enum": ["correctness_interfaces", "security_failure", "implementation_verification"], "description": "0.8.2 (item 7): the review lane of a panel critic: where its attention goes first. Read on seats.critics only (chain-lint refuses it elsewhere). Its words are recorded in src/roles.js (LANE_TEXT): a lane seat is told its lane, and a seat with no lane runs as a plain panel seat." },
     "maxTokens": { "type": "integer", "minimum": 1 },
     "panelMaxTokens": { "type": "integer", "minimum": 1, "description": "Optional output cap for the panel review stage only; maxTokens still governs proposals, debate and replies." },

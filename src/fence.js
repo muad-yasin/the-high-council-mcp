@@ -19,6 +19,7 @@
 import { readFileSync, existsSync, statSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, sep } from 'node:path';
 import { pathRefusal, redactSecrets } from './tools.js';
+import { countHidden, stripLeadingBom } from './hidden-chars.js';
 
 // Per-file ceiling. A fenced file is read by a person before it is sent, and a 200KB paste
 // is not read by anyone - it is scrolled past. Truncation is marked in the text so both the
@@ -76,10 +77,10 @@ const HIDDEN_IN_NAME = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/;
 // plus zero-width ones (U+200B-U+200F, U+2060, U+FEFF after the first byte). Not refused in a
 // file's CONTENT - real source has them (RTL strings, BOMs) - but counted, so the operator is
 // told that what they read in the task file may not be what a seat reads.
-const INVISIBLE_IN_TEXT = /[\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069]|(?!^)\ufeff/g;
+// (Audit item 7, 0.8.3: the number is src/hidden-chars.js's count now, emoji rule applied, so a plan with emoji reports no phantom invisibles; a LEADING byte-order mark stays ordinary.)
 
 export function countInvisible(text) {
-  return (String(text).match(INVISIBLE_IN_TEXT) || []).length;
+  return countHidden(stripLeadingBom(String(text)));
 }
 
 // A backtick fence longer than the longest backtick run anywhere in `text`, and never shorter

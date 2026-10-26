@@ -11,6 +11,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, readFileSync
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const cli = resolve(dirname(fileURLToPath(import.meta.url)), '../src/cli.js');
 const RUN = '2026-01-01T00-00-00-000Z';
@@ -25,7 +26,7 @@ function mcpSession(cwd, calls) {
   ];
   const r = spawnSync(process.execPath, [cli, '--mcp'], {
     cwd, input: requests.map(x => JSON.stringify(x)).join('\n') + '\n', encoding: 'utf8', timeout: 60_000,
-    env: { PATH: process.env.PATH },
+    env: { PATH: process.env.PATH, ...malformedProviderKeys() },
   });
   const byId = new Map();
   for (const line of (r.stdout || '').split('\n')) {

@@ -1,0 +1,250 @@
+{
+  "name": "plan-default-opro-council",
+  "description": "The one-key chain (0.8.3): a planning chain that runs on one OpenRouter key, so a first run needs no subscription (it is the quick start's chain; the three planning chains by size are plan-mini-council, plan-medium-council and plan-high-council). It runs the planning stages without the alternatives stage and without the deep dive, with three proposers (MiMo V2.6 Pro, GPT-6 Luna, GLM-5.3) and a layered review panel of nine named judges in three layers: layer 1 Claude Haiku 5.5, MiMo V2.6 Flash, GPT-6 Luna, MiniMax M3, GLM-5.3 Flash; layer 2 Qwen 3.8 Flash, Mistral Large 4; layer 3 GPT-6.1 Sol and Claude Opus 5.5. Exactly these nine vote, nine judges from seven companies (Claude Haiku 5.5 and Claude Opus 5.5 are one company, GPT-6 Luna and GPT-6.1 Sol are one company); GPT-6 Luna both proposes and judges, which is why \"judging\" is \"all-roles\". Every layer has at least two judges. A layer is asked only when every layer below it signed off, and a layer signs off when all its judges do. Any objection at a lower layer sends the draft to the reviser and the climb starts again at layer 1; a round ends only when layer 3 gives its verdict, a sign-off or an objection. This chain allows 1 such overseer round (maxOverseerRounds) and, inside one round, 1 revision of layer 1 and 1 of layer 2 (layerRevisions). When either limit is reached the run stops, resumable and NOT agreed, and you choose: continue (it extends the limit that was reached; the run's spending limit still applies), or finish (the dispute stage and the handoff run and the result stays \"not agreed\"), or revise the draft yourself. DeepSeek V4.1 Flash answers the criteria, skeleton, build, revise and handoff stages itself (provider openrouter), so none of those stages waits for a person and OPENROUTER_API_KEY is the only key; a swing between judge layers pauses the run (exit 3) and leaves a file for the Claude Code session, or you, to answer. Claude Haiku 5.5 (layer 1) and Claude Opus 5.5 (layer 3) are paid API seats here, not seats answered through your own Claude subscription. Compared with plan-high-council, this chain asks fewer models, runs fewer rounds and allows fewer revisions. answer_back is on: a judge's own earlier objection is shown back to it, and only that judge can close it. Every seat reasons at high, never lower: GLM-5.3 and GLM-5.3 Flash, whose own default is above high, are sent nothing and run at their own default; no Grok, no Kimi. Output caps are the largest reply the harness knows for each model: DeepSeek V4.1 Flash 393,216; MiMo V2.6 Pro, GLM-5.3, MiMo V2.6 Flash, GLM-5.3 Flash and Qwen 3.8 Flash 131,072; GPT-6 Luna, Claude Haiku 5.5, GPT-6.1 Sol and Claude Opus 5.5 128,000. For MiniMax M3 and Mistral Large 4 no published limit was found, so the seat cap is 128,000. Dry run (0.8.3, prices of 2026-10-23, the dry run's assumed sizes): $2.95 expected (every overseer round ends after one climb through the layers) and an upper estimate of $16.26 (every allowed revision used in every overseer round). The upper estimate leaves out the in-pass re-asks (up to 2 per seat), up to 2 consecutive passes that re-ask a silent seat, the explicit asks of a silent judge, answer-back calls, the memory block judge calls read from overseer round 2 on (up to 10000 tokens per call, paid input that neither figure prices) and the larger prompt the top layer reads, so it is not a ceiling: the limit you type is what stops spending. The upper estimate ($16.26) is above the default cap of $7, the figure the dry run compares a chain with; the expected figure ($2.95) and the cheapest end ($2.95, one overseer round, the dry run's floor) are not. On the command line your limit is the number you type, and the quick start runs this chain with --max-usd 10, which the screen suggests. The Claude Desktop bundle's default Spend ceiling of $10 is a hard ceiling nobody can type above, so with that default a run that uses its whole allowance stops at the ceiling (the expected figure and the cheapest end, $2.95, fit under it). Type a limit above the upper estimate to keep the run from stopping at its limit unless a call outside the plan adds up; a lower limit, even the expected figure, can stop it there (exit 4, resumable with a higher total). This roster has not run, and none of its mechanisms has been measured. Price your task with `npm run dry` and get an explicit go before any paid run.",
+  "summary": "Nine judges and three proposers on one OpenRouter key; the quick-start chain.",
+  "maxOverseerRounds": 1,
+  "layerRevisions": {
+    "1": 1,
+    "2": 1
+  },
+  "signoff": "unanimous",
+  "judging": "all-roles",
+  "signoff_table": {
+    "required": true
+  },
+  "answer_back": {
+    "enabled": true
+  },
+  "debate_hygiene": {
+    "shuffle": true,
+    "noQuoteMarks": true
+  },
+  "handoff_contract": {
+    "milestones": true
+  },
+  "dispute": {
+    "enabled": true,
+    "stall_rounds": 2
+  },
+  "proposals": {
+    "parts": 3,
+    "maxTokens": 393216
+  },
+  "debate": true,
+  "decisions": {
+    "enabled": true
+  },
+  "majority_guard": {
+    "enabled": true
+  },
+  "canary": {
+    "enabled": true,
+    "sampleRate": 0.1
+  },
+  "handoff": true,
+  "reviewNotes": {
+    "enabled": true,
+    "perKind": 3
+  },
+  "estimate": {
+    "promptTokens": 28000,
+    "draftTokens": 10000,
+    "critiqueTokens": 5000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "lab": "deepseek-v4.1-flash",
+      "maxTokens": 393216,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "skeleton": {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "lab": "deepseek-v4.1-flash",
+      "maxTokens": 393216,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "builder": {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "lab": "deepseek-v4.1-flash",
+      "maxTokens": 393216,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "reviser": {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "lab": "deepseek-v4.1-flash",
+      "maxTokens": 393216,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "handoff": {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4.1-flash-1017",
+      "lab": "deepseek-v4.1-flash",
+      "maxTokens": 393216,
+      "extra": {
+        "reasoning": {
+          "effort": "high"
+        }
+      }
+    },
+    "decider": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "proposers": [
+      {
+        "provider": "openrouter",
+        "model": "xiaomi/mimo-v2.6-pro",
+        "lab": "mimo-v2.6-pro",
+        "maxTokens": 131072,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6-luna",
+        "lab": "gpt6-luna",
+        "maxTokens": 128000,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3",
+        "lab": "glm5.3",
+        "maxTokens": 131072
+      }
+    ],
+    "critics": [
+      {
+        "provider": "openrouter",
+        "model": "anthropic/claude-haiku-5.5",
+        "lab": "haiku5.5",
+        "maxTokens": 128000,
+        "layer": 1,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "xiaomi/mimo-v2.6-flash",
+        "lab": "mimo-v2.6-flash",
+        "maxTokens": 131072,
+        "layer": 1,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6-luna",
+        "lab": "gpt6-luna",
+        "maxTokens": 128000,
+        "layer": 1,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "minimax/minimax-m3",
+        "lab": "minimax-m3",
+        "maxTokens": 128000,
+        "layer": 1,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "lab": "glm5.3-flash",
+        "maxTokens": 131072,
+        "layer": 1
+      },
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.8-flash",
+        "lab": "qwen3.8-flash",
+        "maxTokens": 131072,
+        "layer": 2,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "mistralai/mistral-large-4-0",
+        "lab": "mistral-large4",
+        "maxTokens": 128000,
+        "layer": 2,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6.1-sol",
+        "lab": "gpt6.1-sol",
+        "maxTokens": 128000,
+        "layer": 3,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      },
+      {
+        "provider": "openrouter",
+        "model": "anthropic/claude-opus-5.5",
+        "lab": "opus5.5",
+        "maxTokens": 128000,
+        "layer": 3,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          }
+        }
+      }
+    ]
+  }
+}

@@ -95,12 +95,11 @@ local chains as runnable because they need no key, not because the server is up.
 
 ### A run stopped with `STOPPED: per-run spend cap reached` (exit 4)
 
-The next stage's worst case would have crossed the cap. Nothing past the cap was spent, and no
+The next call's worst case would have gone past your limit. Nothing past the limit was spent, and no
 plan was written yet; what the run got through is in `report-partial.json` and `BOARD-partial.md`.
-`council --resume runs/<id> --max-usd <higher>` continues from where it stopped. The run tells you
-at the start when a chain's worst case is above your cap. `cheap-7-v2` (the first-run chain, $11.22 at the
-prices of 2026-10-06), `plan-premium-7` and `plan-highest-7` are above the default $7 cap before they start: price them with `--dry-run` and pass a
-`--max-usd` at or above that.
+`council --resume runs/<id>` continues from where it stopped: for a chain with a paid seat the screen asks for a new total for the whole run, above what the run has counted; a chain with no paid seat takes `--max-usd <higher>` instead. The run tells you
+at the start when a chain's expected cost or its upper estimate is above your limit. `plan-default-opro-council` (the first-run chain) expects less than the default $7 cap, but its upper estimate is above it, so its quick start passes `--max-usd 10`. `plan-medium-council`, `plan-high-council` and `plan-china-high-council` expect more than the default $7 cap before they start: price them with `--dry-run` and type a limit at or above the upper estimate when the screen asks, so that only a call outside the plan can stop the run at its limit (pass
+`--max-usd N` to put N on the screen as the suggestion).
 
 ### `BLOCKED: ... file(s) named but never fenced` (exit 9)
 
@@ -113,7 +112,7 @@ names it found.
 
 ### `--chain` refused, or a chain lint error naming `key-host`
 
-`--chain` takes a chain's name (`cheap-7-v2`, or `my-chain` for your own `chains/my-chain.json`),
+`--chain` takes a chain's name (`plan-default-opro-council`, or `my-chain` for your own `chains/my-chain.json`),
 never a path; anything else is a usage error (exit 2). `key-host` means a seat with a keyed
 provider has a `baseUrl` that is not that provider's own https API, and its key would go there.
 Move a local or self-hosted server to an `ollama` seat, or, for a local proxy in front of the

@@ -8,9 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { runChain, setPromptSpy, criticPromptFor, isWriterSeat, resolveChainSeats, labOf } from '../src/chain.js';
 import { renderDeepDiveBoard } from '../src/deep-dive.js';
 import * as R from '../src/roles.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+const chain = name => readChainFile(root, name);
 afterEach(() => setPromptSpy(null));
 const SELF = 'You are a critic in a multi-model review chain.\nYou wrote the draft you are reviewing: this chain lets its writer judge too.';
 const OLD = 'You are an independent critic in a multi-model review chain.\nYou did not write the draft you are reviewing.';

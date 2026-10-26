@@ -311,11 +311,11 @@
 
       <div style="margin-top:44px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:#1e1e21;border:1px solid #1e1e21;border-radius:14px;overflow:hidden;width:100%">
         <div style="background:#0f0f11;padding:20px 22px">
-          <div style="font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:600;color:#e3b23c;letter-spacing:-0.02em">46</div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:600;color:#e3b23c;letter-spacing:-0.02em">42</div>
           <div style="margin-top:4px;font-size:13px;color:#8d8a84">chain configs</div>
         </div>
         <div style="background:#0f0f11;padding:20px 22px">
-          <div style="font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:600;color:#e3b23c;letter-spacing:-0.02em">19</div>
+          <div style="font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:600;color:#e3b23c;letter-spacing:-0.02em">22</div>
           <div style="margin-top:4px;font-size:13px;color:#8d8a84">MCP tools</div>
         </div>
         <div style="background:#0f0f11;padding:20px 22px">
@@ -339,7 +339,7 @@
     <div style="margin:56px 0 0;padding:26px 28px;border-radius:14px;border:1px solid #2a2a2e;background:linear-gradient(180deg,#111113,#0d0d0f);position:relative;overflow:hidden">
       <div style="position:absolute;left:0;top:0;bottom:0;width:2px;background:linear-gradient(180deg,rgba(227,178,60,0.8),rgba(227,178,60,0.05))"></div>
       <div style="font-family:'Space Grotesk',sans-serif;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#e3b23c">On what this does and doesn't claim</div>
-      <p style="margin:12px 0 0;font-size:16px;line-height:1.65;color:#b9b5ad;text-wrap:pretty">This repo publishes the mechanism: the chains, the seat rosters, the stage order. It does not claim to produce better plans than a single good model would. That is an open question and we have not measured it. What it does, concretely, is make disagreement between models <em style="color:#e8e6e1;font-style:italic">visible and recorded</em> instead of averaged away - you can read who objected to what, who withdrew a proposal under argument, and who held their position.</p>
+      <p style="margin:12px 0 0;font-size:16px;line-height:1.65;color:#b9b5ad;text-wrap:pretty">This repo publishes the mechanism: the chains, the seat rosters, the stage order. So far there is one documented case, the plan for 0.8.3 itself: an outside AI review found the Council's amended plan substantially stronger than its starting draft, with part of that gain from later outside reviews and the maintainer's own rulings. One case is not a benchmark, so no general number is claimed. What the repo does, concretely, is make disagreement between models <em style="color:#e8e6e1;font-style:italic">visible and recorded</em> instead of averaged away - you can read who objected to what, who withdrew a proposal under argument, and who held their position.</p>
     </div>
 
     <section style="margin-top:72px">
@@ -451,7 +451,7 @@
 <span style="color:#e3b23c">npx</span> the-high-council doctor   <span style="color:#5f5c57"># your keys, runnable chains, prices</span>
 <span style="color:#5f5c57"># or keep a council command on your PATH:</span>
 <span style="color:#e3b23c">npm</span> install -g the-high-council</pre>
-        <p style="margin:16px 0 10px;font-size:15px;color:#8d8a84">Put only the keys your chain needs in a <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">.env</code> in the folder you run from (one OpenRouter key runs <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">cheap-7-v2</code>):</p>
+        <p style="margin:16px 0 10px;font-size:15px;color:#8d8a84">Put only the keys your chain needs in a <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">.env</code> in the folder you run from (one OpenRouter key runs <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">plan-default-opro-council</code>):</p>
         <div style="display:flex;flex-wrap:wrap;gap:6px">
           <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8a84;background:#141416;border:1px solid #1e1e21;padding:4px 9px;border-radius:6px">ANTHROPIC_API_KEY</span>
           <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8d8a84;background:#141416;border:1px solid #1e1e21;padding:4px 9px;border-radius:6px">OPENAI_API_KEY</span>
@@ -475,11 +475,11 @@ echo &quot;What I want planned, in plain words.&quot; &gt; tasks/your-idea.md
 
 # see what's available and what it would cost</span>
 council --help
-council --task tasks/your-idea.md --chain cheap-7-v2 --dry-run
+council --task tasks/your-idea.md --chain plan-default-opro-council --dry-run
 
 <span style="color:#5f5c57"># a real run</span>
-council --task tasks/your-idea.md --chain cheap-7-v2 --max-usd 22.37</pre>
-        <p style="margin:14px 0 16px;font-size:15px;line-height:1.6;color:#8d8a84"><code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c;background:#1a1a1d;padding:1px 5px;border-radius:4px">council</code> is <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">npx the-high-council</code> unless you installed it globally. <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">cheap-7-v2</code> needs one OpenRouter key; it is expected to cost $11.22 and could cost up to $22.36, both above the default cap. Name no chain and the command stops and lists the recommended ones: since 0.8.2 there is no default chain.</p>
+council --task tasks/your-idea.md --chain plan-default-opro-council --max-usd 10</pre>
+        <p style="margin:14px 0 16px;font-size:15px;line-height:1.6;color:#8d8a84"><code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c;background:#1a1a1d;padding:1px 5px;border-radius:4px">council</code> is <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">npx the-high-council</code> unless you installed it globally. <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">plan-default-opro-council</code> needs one OpenRouter key; it is expected to cost $2.95, with an upper estimate of $16.26, so the run carries <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">--max-usd 10</code>, which the screen suggests as your limit (the default cap is $7). A swing between judge layers pauses the run (exit 3) and leaves a file for the Claude Code session, or you, to answer. Name no chain and the command uses the default chain, plan-mini-council, and says so.</p>
         <p style="margin:0 0 10px;font-size:15.5px;color:#8d8a84">Or add it to Claude Code as an MCP server and let it drive:</p>
         <pre style="margin:0;padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0d0d0f;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.8;color:#c9c4ba;overflow-x:auto">claude mcp add council -- npx -y the-high-council council --mcp</pre>
         <p style="margin:14px 0 0;font-size:14.5px;line-height:1.6;color:#8d8a84;text-wrap:pretty">Claude Desktop: open the <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">.mcpb</code> file from the GitHub Releases page. MCP Registry: <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">io.github.muad-yasin/the-high-council</code>.</p>
@@ -493,13 +493,13 @@ council --task tasks/your-idea.md --chain cheap-7-v2 --max-usd 22.37</pre>
         <div style="margin-top:18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:26px;align-items:start">
           <div>
             <div style="font-family:'Space Grotesk',sans-serif;font-size:64px;font-weight:600;letter-spacing:-0.03em;color:#f0c75a;line-height:1;text-shadow:0 0 40px rgba(227,178,60,0.3)">$7</div>
-            <div style="margin-top:8px;font-size:14px;color:#8d8a84">per-run ceiling by default, checked <em style="color:#c9c4ba">before</em> each paid stage</div>
+            <div style="margin-top:8px;font-size:14px;color:#8d8a84">the default cap, which the dry run compares a chain with; your limit is the number you type, checked <em style="color:#c9c4ba">before</em> each paid stage</div>
           </div>
-          <p style="margin:0;font-size:15.5px;line-height:1.7;color:#8d8a84;text-wrap:pretty">A stage that could take the run past the ceiling is never called, so the cap holds rather than reporting the overspend afterwards. A run that hits it stops cleanly and writes <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">STOPPED-budget.md</code>. Nothing is half-written: what it got through is in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">report-partial.json</code>. Continue it with a higher ceiling and completed stages replay from disk for free.</p>
+          <p style="margin:0;font-size:15.5px;line-height:1.7;color:#8d8a84;text-wrap:pretty">A stage that could take the run past the ceiling is never called, so the cap holds rather than reporting the overspend afterwards. A run that hits it stops cleanly and writes <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">STOPPED-budget.md</code>. Nothing is half-written: what it got through is in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">report-partial.json</code>. Continue it: a paid run asks for a new, higher total on the limit screen, and completed stages replay from disk for free.</p>
         </div>
-        <pre style="margin:24px 0 0;padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0a0a0c;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.8;color:#c9c4ba;overflow-x:auto">council --task tasks/x.md --chain cheap-7-v2 --max-usd 2      <span style="color:#5f5c57"># this run stops at $2</span>
-council --task tasks/x.md --chain cheap-7-v2 --max-usd none   <span style="color:#5f5c57"># no ceiling</span>
-council --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># continue with headroom</span></pre>
+        <pre style="margin:24px 0 0;padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0a0a0c;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.8;color:#c9c4ba;overflow-x:auto">council --task tasks/x.md --chain plan-default-opro-council --max-usd 10      <span style="color:#5f5c57"># suggests $10 on the screen where you type your limit</span>
+council --task tasks/x.md --chain mock-budget --max-usd none   <span style="color:#5f5c57"># no paid seat: no ceiling</span>
+council --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># suggests a new total of $10</span></pre>
       </div>
     </section>
 
@@ -529,7 +529,7 @@ council --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># c
         
           <div style="display:grid;grid-template-columns:minmax(140px,220px) 1fr;border-bottom:1px solid #161618" class="h12">
             <div style="padding:13px 20px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">start_run</div>
-            <div style="padding:13px 20px;font-size:14.5px;color:#b9b5ad">Start a run in the background (max_usd sets its ceiling)</div>
+            <div style="padding:13px 20px;font-size:14.5px;color:#b9b5ad">Start a run in the background (for a paid chain max_usd is the figure the limit dialog suggests and you type the limit; a chain with no paid seat takes it as its ceiling)</div>
           </div>
         
           <div style="display:grid;grid-template-columns:minmax(140px,220px) 1fr;border-bottom:1px solid #161618" class="h13">
@@ -568,7 +568,7 @@ council --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># c
         
           <div style="display:grid;grid-template-columns:minmax(140px,220px) 1fr;border-bottom:1px solid #161618" class="h16">
             <div style="padding:13px 20px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">resume_run</div>
-            <div style="padding:13px 20px;font-size:14.5px;color:#b9b5ad">Resume a paused run, or raise max_usd on one the cap stopped</div>
+            <div style="padding:13px 20px;font-size:14.5px;color:#b9b5ad">Resume a paused run, or ask for a new, higher total on one its limit stopped (max_usd suggests it)</div>
           </div>
         
           <div style="display:grid;grid-template-columns:minmax(140px,220px) 1fr;border-bottom:1px solid #161618" class="h17">
@@ -605,43 +605,33 @@ council --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># c
             <div style="padding:13px 20px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">contract_amend</div>
             <div style="padding:13px 20px;font-size:14.5px;color:#b9b5ad">Ask for an obligation to be changed; free, decides nothing - a person decides it at a terminal</div>
           </div>
+
+          <div style="display:grid;grid-template-columns:minmax(140px,220px) 1fr;border-bottom:1px solid #161618" class="h20d">
+            <div style="padding:13px 20px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">tree_status</div>
+            <div style="padding:13px 20px;font-size:14.5px;color:#b9b5ad">Read-only view of a recursive-councils tree (pass its root run id): verdict and reasons, nodes, open stops, limits and money as two figures; it writes nothing</div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:minmax(140px,220px) 1fr;border-bottom:1px solid #161618" class="h20d">
+            <div style="padding:13px 20px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">tree_decide</div>
+            <div style="padding:13px 20px;font-size:14.5px;color:#b9b5ad">Answer a stop of a recursive-councils sub-plan as the controlling session: the answers (keep, milestone, sub-plan regenerate, price) take two calls (quote, then answer with a written reason), handing a stop to the person takes one; recorded as the session's, never a person's. The price step adds or raises one model's price, only the model a stopped member of this tree was refused for, and never lowers one; the session is told to show you the quoted text and pass your yes as the reason, and THC cannot check that it did. The frontier step approves the next split frontier once (the session is told to show you the quoted text and pass your yes as the reason; THC cannot check that it did), when every child gets its full ceiling and nothing is held back, unenforced or of unknown size; otherwise the person approves it with council tree approve. For a stuck root plan the session writes the new decision as a draft (the draft step, one call; nothing is decided or spent): `council tree decide` opens on the draft in full and you approve it by typing the stop id, or say what should change, and the session writes a new draft from your request (it reads it in `tree_status`). A root re-plan itself, a top-up and any other money, close and abandon stay a person's</div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:minmax(140px,220px) 1fr;border-bottom:1px solid #161618" class="h20d">
+            <div style="padding:13px 20px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#e3b23c">price_raise</div>
+            <div style="padding:13px 20px;font-size:14.5px;color:#b9b5ad">A run stopped by a price refusal gets a higher price from the session, in two calls: quote (the cheapest host that can serve the seat, as text for the user, nothing written) and confirm (only with the quote&rsquo;s hash and the user&rsquo;s own yes; writes the row into pricing.user.json). The session must show the user the text and get the yes in the chat first. It spends nothing; resume_run then stops at the spending-limit gate, which the person answers.</div>
+          </div>
         
       </div>
     </section>
 
     <section style="margin-top:72px">
       <h2 style="margin:0;font-family:'Hanken Grotesk',sans-serif;font-weight:600;font-size:34px;letter-spacing:-0.02em;color:#faf8f4">Chains</h2>
-      <p style="margin:10px 0 24px;max-width:760px;font-size:16px;line-height:1.65;color:#8d8a84;text-wrap:pretty">46 chain configs live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">chains/</code>. Each one is plain JSON - the seat roster, which models fill which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be copied and edited.</p>
+      <p style="margin:10px 0 24px;max-width:760px;font-size:16px;line-height:1.65;color:#8d8a84;text-wrap:pretty">42 chain configs live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#c9c4ba;background:#1a1a1d;padding:1px 5px;border-radius:4px">chains/</code>. Each one is plain JSON - the seat roster, which models fill which seat, the round cap, and whether proposals/debate/handoff stages run. They are meant to be copied and edited.</p>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
         
           <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">cheap-7-v2</div>
-            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Claude Sonnet 5 writes; seven other labs review and must all sign off. One OpenRouter key, $11.22 expected and $22.36 at most, above the default cap.</div>
-          </div>
-        
-          <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">plan-premium-7</div>
-            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">A Claude Code session writes; a seven-lab panel of larger models reviews. $36.75 expected and $78.59 at most, above the default cap.</div>
-          </div>
-        
-          <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">plan-highest-7</div>
-            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Tiered: seven low-cost models propose and debate, four top models write architectures, and every seat in the chain votes, blind, the plan's writer too. Untested with real models; $18.49 expected and $50.43 at most, above the default cap.</div>
-          </div>
-        
-          <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">plan-daily-7</div>
-            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">plan-highest-7's stages at a lower price, for planning one feature: Claude Opus 5.5 on your subscription, GPT-6.1 Sol and GLM-5.3 Flash write the architectures; six low-cost labs propose and debate; every seat in the chain votes, blind, the plan's writer too. $12.59 expected, above the default cap; $33.25 at most.</div>
-          </div>
-        
-          <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">local-ollama</div>
-            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Every seat on your own machine through Ollama. No key, $0.</div>
-          </div>
-        
-          <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h20">
             <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;color:#e3b23c">verify</div>
-            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Two labs, two rounds. Needs Anthropic, OpenAI and Google keys; since 0.8.2 there is no default chain, so name it.</div>
+            <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#8d8a84">Two labs, two rounds. Needs Anthropic, OpenAI and Google keys; name it with --chain.</div>
           </div>
         
           <div style="padding:18px 20px;border-radius:12px;border:1px solid #1e1e21;background:#0f0f11" class="h25">
@@ -748,22 +738,22 @@ council --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># c
         
           <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:start">
             <div style="margin-top:4px;width:7px;height:7px;border-radius:50%;background:#4a463f;box-shadow:0 0 0 4px rgba(74,70,63,0.18)"></div>
-            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">The spend cap is enforced against a worst case, not a prediction: the whole prompt billed as input plus the seat's entire maxTokens budget billed as output (for an Anthropic seat, a possible retry at a bigger cap is projected too). Real stages almost never cost that much, so a run can stop with headroom left. That is the intended trade - resume it with a higher ceiling.</p>
+            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">The spend cap is enforced against a worst case, not a prediction: before each call, the whole prompt billed as input plus the call's whole output allowance billed as output (an Anthropic seat's one retry at a bigger cap is projected too, where its output cap is below the retry's bound: 64,000 tokens, or the model's maximum where that is lower). A call that bills less than its worst case leaves the difference unspent, and the next call is still projected at its worst case, so a run can stop with headroom left. That is the intended trade - resume it and type a higher total.</p>
           </div>
         
           <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:start">
             <div style="margin-top:4px;width:7px;height:7px;border-radius:50%;background:#4a463f;box-shadow:0 0 0 4px rgba(74,70,63,0.18)"></div>
-            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">A seat whose model has no entry in src/pricing.json cannot be held by a spend cap, so a run under a cap refuses it before anything is sent (add a price row, or run with --max-usd none). The cap is only as good as the price table, which is dated.</p>
+            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">A seat whose model has no price, neither in src/pricing.json nor in your project's pricing.user.json, cannot be held by a spend cap, so a run under a cap refuses it before anything is sent (add a row for it to pricing.user.json in your project folder). The cap is only as good as the price table, which is dated.</p>
           </div>
         
           <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:start">
             <div style="margin-top:4px;width:7px;height:7px;border-radius:50%;background:#4a463f;box-shadow:0 0 0 4px rgba(74,70,63,0.18)"></div>
-            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">Prices in src/pricing.json are hand-maintained list prices, as of 2026-09-06; council doctor and --dry-run print that date and warn once it is more than 60 days old. They are estimates, not invoices. Your provider's bill is the real number.</p>
+            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">Prices in src/pricing.json are hand-maintained list prices, as of 2026-10-23; council doctor and --dry-run print that date and warn once it is more than 60 days old. They are estimates, not invoices. Your provider's bill is the real number.</p>
           </div>
         
           <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:start">
             <div style="margin-top:4px;width:7px;height:7px;border-radius:50%;background:#4a463f;box-shadow:0 0 0 4px rgba(74,70,63,0.18)"></div>
-            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">Chains with many labs and high round caps get expensive quickly. The recommended panels reach their maximum only if every call uses its whole output allowance; the dry run prints the expected price and the maximum. Price before you run.</p>
+            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">Chains with many labs and high round caps get expensive quickly. The recommended panels reach their upper estimate only if every call uses its whole output allowance; the dry run prints the expected price and the upper estimate. Price before you run.</p>
           </div>
         
           <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:start">
@@ -778,7 +768,7 @@ council --resume runs/&lt;id&gt; --max-usd 10    <span style="color:#5f5c57"># c
         
           <div style="background:#0d0d0f;padding:20px 24px;display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:start">
             <div style="margin-top:4px;width:7px;height:7px;border-radius:50%;background:#4a463f;box-shadow:0 0 0 4px rgba(74,70,63,0.18)"></div>
-            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">plan-highest-7, the tiered council, has not been run with real models, and none of its mechanisms has been measured. Its dry-run price is a projection.</p>
+            <p style="margin:0;font-size:15.5px;line-height:1.7;color:#a8a49c;text-wrap:pretty">The tiered councils (the planning tiers, and the retired plan-highest-7 and plan-daily-7 in chains/outdated/) have not been measured, and their dry-run prices are projections. plan-highest-7 never ran with real models.</p>
           </div>
         
       </div>

@@ -1,3 +1,4 @@
+// CHANGED ACCEPTED (label rename part 2, 20 Okt 2026; Muad 18 Okt: "upper estimate" replaces "at most" and "maximum"): OLD "$X per run, expected; $Y at most."; NEW "$X per run expected, with an upper estimate of $Y." WHY: the same figure, one name (src/cli.js, priced-again line).
 // test/advise.test.js
 //
 // The council advisor (thc-research brief 27, 2026-09-30): config.advise, src/advise.js, the
@@ -21,9 +22,10 @@ import { lintChain } from '../src/chain-lint.js';
 import { AdviceRefused, quoteStatus, readOpinion, applyDebateReply, rollUp, planAdvice, renderAdvice } from '../src/advise.js';
 import { reportJsonShape, renderBoardMd } from '../src/report-shape.js';
 import { computeOutcome } from '../src/outcome.js';
+import { readChainFile } from './helpers/chain-file.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+const chain = name => readChainFile(root, name);
 const labels = r => r.stages.map(s => s.label);
 const BRIEF = '# Should we cache the price list?\n\nWe plan to cache the price list in memory for 24 hours to avoid a call per request.\n';
 const mock = (model, lab, extra = {}) => ({ provider: 'mock', model, lab, ...extra });
@@ -560,7 +562,7 @@ test('advise: the CLI dry run reprices an advise chain with the task as the brie
   const taskTokens = Math.ceil(task.length / 4);
   const want = estimateChainRows({ ...c, estimate: { ...c.estimate, promptTokens: taskTokens } }).reduce((n, r) => n + r.usd, 0);
   // Changed by the owner's decision of 7 Oct 2026 (item 8c, two figures): the line says "expected" and gives the maximum after it.
-  assert.match(out, /Priced again with your task as the brief every seat reads: \$([\d.]+) per run, expected; \$([\d.]+) at most\./);
+  assert.match(out, /Priced again with your task as the brief every seat reads: \$([\d.]+) per run expected, with an upper estimate of \$([\d.]+)\./);
   const got = Number(out.match(/brief every seat reads: \$([\d.]+)/)[1]);
   // The CLI prints 4 decimals under $1 and 2 above it (the council's worst case is about $1.2 since the 2026-10-06 price refresh), so the tolerance is the printed precision.
   assert.ok(Math.abs(got - want) < (want < 1 ? 0.00006 : 0.006), `${got} vs ${want}`);

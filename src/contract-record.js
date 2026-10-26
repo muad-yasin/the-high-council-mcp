@@ -29,6 +29,7 @@ import { requestGate, readGateAnswer, listGates, recordUse, recordDeclined, read
 import { readRunFile, readRunJson } from './run-files.js';
 import { lintContractDraft, MAX_TEXT_CHARS, OBLIGATION_ID } from './contract-lint.js';
 import { hiddenCharacterReport } from './return-path.js';
+import { stripLeadingBom } from './hidden-chars.js';
 
 export const CONTRACT_SCHEMA = 'contract/1';
 export const CONTRACT_DIR = 'contract';
@@ -323,7 +324,8 @@ export function commitLock(runDir, { content, gate, sha256, rel }, { now = () =>
  * A request for an amendment: $0, decides nothing, appends one `amend_requested` line. It must name the CURRENT version and an obligation of it; the words are capped and are untrusted text that a
  * person reads before deciding. -> { ok: true, seq, version, obligation_id } | { ok: false, code, message }
  */
-export function requestAmendment(runDir, { version, obligation_id, reason, proposed_text }, { now = () => Date.now() } = {}) {
+export function requestAmendment(runDir, { version, obligation_id, reason: reasonIn, proposed_text: proposedIn }, { now = () => Date.now() } = {}) {
+  const reason = stripLeadingBom(reasonIn); const proposed_text = stripLeadingBom(proposedIn);   // a leading byte-order mark is an encoding artifact of the payload, stripped here and recorded nowhere (src/hidden-chars.js)
   const cur = loadCurrent(runDir);
   if (cur.problem) return refuse('contract_unreadable', cur.problem);
   if (cur.none) return refuse('no_contract', 'this run has no locked contract');
@@ -334,7 +336,7 @@ export function requestAmendment(runDir, { version, obligation_id, reason, propo
   if (typeof reason !== 'string' || !reason.trim() || reason.length > REASON_MAX_CHARS) return refuse('bad_reason', `the reason must be 1 to ${REASON_MAX_CHARS} characters`);
   if (typeof proposed_text !== 'string' || !proposed_text.trim() || proposed_text.length > MAX_TEXT_CHARS) return refuse('bad_proposed_text', `the proposed text must be 1 to ${MAX_TEXT_CHARS} characters`);
   if (!reason.isWellFormed() || !proposed_text.isWellFormed()) return refuse('not_well_formed', 'the request holds a lone surrogate (text that is not well-formed UTF-16): it would be written to the contract as a replacement character and the contract would never check; nothing was filed'); // audit fix cnc-contract F2
-  if (hiddenCount(reason) + hiddenCount(proposed_text)) return refuse('hidden_characters', 'the request holds hidden characters (tag, bidi or zero-width); a person approves what they can read');
+  if (hiddenCount(reason) + hiddenCount(proposed_text)) return refuse('hidden_characters', 'the request holds invisible characters (such as tag, bidi, zero-width, variation-selector or filler characters); a person approves what they can read');
   if (proposed_text === o.text) return refuse('no_change', 'the proposed text is the text the obligation already has');
   const open = state.requests.filter(r => r.status === 'open');
   if (open.length >= MAX_OPEN_REQUESTS) return refuse('too_many_open', `${open.length} requests are waiting for a person; wait for a decision before filing more`);

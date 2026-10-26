@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { REASONING_TABLE, REASONING_WORDS, loweringReasons, highExtraFor, extraWithHighDefault, reasoningProblems, retryCeilingOf, haikuBudgetFor, rowOf, tableAgeDays } from '../src/reasoning.js';
 import { lintChain, isShippedChainPath } from '../src/chain-lint.js';
 import { VENDOR_MODEL_MAPS, resolveVendorSeat } from '../src/providers.js';
+import { cutOffRetryCap } from '../src/chain.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const chainFiles = readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json')).sort();
@@ -24,7 +25,7 @@ test('the table: every row names a form and a source that exist, with a date; th
     if (row.form) assert.ok(row.form in REASONING_TABLE.forms, `${key}: form ${row.form} does not exist`);
   }
   for (const [name, form] of Object.entries(REASONING_TABLE.forms)) assert.ok(form.source in REASONING_TABLE.sources, `form ${name} has no source`);
-  // Turns red on asOf + staleDays + 1 (2026-12-06: age 60 still passes; the table was regenerated 2026-10-07): re-read the pages and re-run scripts/refresh-reasoning-table.mjs (MAN-7, with 2026-10-31 and 2026-11-21).
+  // Turns red on asOf + staleDays + 1 (2026-12-23: age 60 still passes; the table was regenerated 2026-10-23): re-read the pages and re-run scripts/refresh-reasoning-table.mjs (MAN-7, with 2026-11-21, 2026-11-23 and 2026-12-08).
   assert.ok(tableAgeDays() <= REASONING_TABLE.staleDays, `src/reasoning-table.json is ${tableAgeDays()} days old (as of ${REASONING_TABLE.asOf}); re-run scripts/refresh-reasoning-table.mjs`);
 });
 
@@ -105,16 +106,78 @@ test('retryCeilingOf: the model\'s own maximum, bounded by its transport; a seat
   assert.equal(retryCeilingOf({ provider: 'cohere', model: 'command-r7b-12-2024' }), 64000);
 });
 
-test('no shipped seat asks for more output than its model can return (a model limit, not a lower effort)', () => {
-  const over = [];
-  for (const [file, cfg] of Object.entries(shipped)) {
+// The models whose lab pages state no output limit (owner's answer, 23 Oct 2026: "unknown", never the router's number). A row with maxOutput null MUST be in this set and carry a dated note: a skip is not a pass, so a
+// null that is not named here fails. Their seats are never retried at a bigger cap: with no model maximum and no transport ceiling retryCeilingOf falls back to 64,000, and cutOffRetryCap never goes below the seat's own
+// cap, so a seat at 64,000 or more (the shipped ones are 128,000) is not retried; a shipped seat below 64,000 on one of these would be, and fails here.
+const NO_PUBLISHED_LIMIT = new Set(['openrouter/minimax/minimax-m3', 'openrouter/meta/muse-spark-1.2', 'openrouter/meta/muse-spark-1.3', 'openrouter/mistralai/mistral-large-4-0', 'openrouter/mistralai/mistral-medium-3-5', 'openrouter/meta-llama/llama-4-maverick', 'openrouter/qwen/qwen3.5-9b', 'openrouter/deepseek/deepseek-v4.1-flash']);
+
+// The one model whose figure is the OWNER'S PICK, not a lab figure (the owner, 2026-10-24: DeepSeek publishes no limit for the 0813 build; the router says 393,216; the pick is 384,000). Its row is a number WITH a dated note, kept by
+// the refresh script's LAB_OUTPUT_LIMITS entry. The guard runs both ways: every note belongs to a named set, and every named id has its row and note, so a refresh that dropped the entry cannot pass.
+const OWNER_PICK = new Set(['openrouter/deepseek/deepseek-v4-pro-0813']);
+function noteProblems(models) {
+  const out = [];
+  for (const [k, r] of Object.entries(models)) {
+    if (!r || !('maxOutputNote' in r)) continue;
+    if (r.maxOutput === null) { if (!NO_PUBLISHED_LIMIT.has(k)) out.push(`${k}: a null limit with a note, but not in the no-published-limit set`); }
+    else if (typeof r.maxOutput === 'number') {
+      if (!OWNER_PICK.has(k)) out.push(`${k}: a number with a note, but not in the owner's-pick set`);
+      else if (!/owner's pick \(\d{4}-\d{2}-\d{2}\)/.test(r.maxOutputNote)) out.push(`${k}: the note does not say it is the owner's pick, with its date`);
+    } else out.push(`${k}: maxOutputNote beside a maxOutput that is neither a number nor null`);
+  }
+  for (const k of OWNER_PICK) { const r = models[k]; if (!r || typeof r.maxOutput !== 'number' || !('maxOutputNote' in r)) out.push(`${k}: in the owner's-pick set, but its row is not a number with a note`); }
+  for (const k of NO_PUBLISHED_LIMIT) { const r = models[k]; if (!r || r.maxOutput !== null || !/\d{4}-\d{2}-\d{2}/.test(r.maxOutputNote ?? '')) out.push(`${k}: in the no-published-limit set, but its row is not a null with a dated note`); }
+  return out;
+}
+
+// `rowFor` and `ceilingOf` are injected so a test can show the guard red on a fixture row; the real table is passed below.
+function outputLimitProblems(chains, rowFor, ceilingOf, retryOf) {
+  const out = [];
+  for (const [file, cfg] of Object.entries(chains)) {
     for (const s of realSeats(cfg)) {
-      const max = rowOf(s)?.maxOutput;
-      if (typeof max !== 'number') continue;
-      for (const cap of [s.maxTokens, s.panelMaxTokens].filter(Number.isFinite)) if (cap > max) over.push(`${file}: ${s.provider}/${s.model} cap ${cap} > model maximum ${max}`);
+      const row = rowFor(s);
+      if (!row) continue;
+      const where = `${file}: ${s.provider}/${s.model}`;
+      if (row.maxOutput === null) {
+        if (!NO_PUBLISHED_LIMIT.has(`${s.provider}/${s.model}`)) out.push(`${where}: maxOutput is null but the model is not in the no-published-limit set`);
+        if (!/\d{4}-\d{2}-\d{2}/.test(row.maxOutputNote ?? '')) out.push(`${where}: maxOutput is null without a dated maxOutputNote`);
+        for (const cap of [s.maxTokens, s.panelMaxTokens].filter(Number.isFinite)) if (retryOf(cap, ceilingOf(s)) > cap) out.push(`${where}: cap ${cap} would be retried at ${retryOf(cap, ceilingOf(s))} with no model limit`);
+        continue;
+      }
+      if (typeof row.maxOutput !== 'number') { out.push(`${where}: maxOutput is neither a number nor null`); continue; }
+      for (const cap of [s.maxTokens, s.panelMaxTokens].filter(Number.isFinite)) if (cap > row.maxOutput) out.push(`${where} cap ${cap} > model maximum ${row.maxOutput}`);
     }
   }
-  assert.deepEqual(over, []);
+  return out;
+}
+
+test('no shipped seat asks for more output than its model can return (a model limit, not a lower effort); a null limit is explicit, dated and never retried bigger', () => {
+  assert.deepEqual(outputLimitProblems(shipped, rowOf, retryCeilingOf, cutOffRetryCap), []);
+  // a row that carries a note is named in one of the two sets: a null in the no-published-limit set, or a number in the owner's-pick set (rows null for another reason, such as the three together/* rows, carry no note and are not covered here)
+  assert.deepEqual(noteProblems(REASONING_TABLE.models), []);
+});
+
+test('the note guard can fail: a number with a note outside the set, a named null row that is a number or missing, a pick without its date, a named pick whose row lost its note, and a null with a note outside the set (fixture rows)', () => {
+  const pick = 'openrouter/deepseek/deepseek-v4-pro-0813';
+  const nulls = Object.fromEntries([...NO_PUBLISHED_LIMIT].map(k => [k, { maxOutput: null, maxOutputNote: 'none found; read 2026-10-24' }]));
+  const good = { [pick]: { maxOutput: 384000, maxOutputNote: "the owner's pick (2026-10-24), not a lab figure" }, ...nulls };
+  assert.deepEqual(noteProblems(good), [], 'the good case: the owner\'s pick and every named null row, dated');
+  assert.match(noteProblems({ ...good, 'openrouter/x/y': { maxOutput: 5, maxOutputNote: 'n' } }).join('|'), /openrouter\/x\/y: a number with a note, but not in the owner's-pick set/);
+  assert.match(noteProblems({ [pick]: { maxOutput: 384000, maxOutputNote: 'router, read 2026-10-24' } }).join('|'), /does not say it is the owner's pick, with its date/);
+  assert.match(noteProblems({ [pick]: { maxOutput: 393216 } }).join('|'), /in the owner's-pick set, but its row is not a number with a note/);
+  assert.match(noteProblems({ ...good, 'openrouter/x/z': { maxOutput: null, maxOutputNote: 'n' } }).join('|'), /openrouter\/x\/z: a null limit with a note, but not in the no-published-limit set/);
+  assert.match(noteProblems({ ...good, 'openrouter/qwen/qwen3.5-9b': { maxOutput: 235929 } }).join('|'), /openrouter\/qwen\/qwen3.5-9b: in the no-published-limit set, but its row is not a null with a dated note/);
+  assert.match(noteProblems({ ...good, 'openrouter/qwen/qwen3.5-9b': undefined }).join('|'), /in the no-published-limit set, but its row/);
+});
+
+test('the output-limit guard can fail: a null row outside the set, a null without a dated note, and a null seat that would be retried bigger are each reported (fixture rows)', () => {
+  const chain = (model, maxTokens) => ({ 'x.json': { seats: { critics: [{ provider: 'openrouter', model, maxTokens }] } } });
+  const row = (extra) => () => ({ maxOutput: null, ...extra });
+  const ceil = () => 64000, retry = cutOffRetryCap;
+  assert.match(outputLimitProblems(chain('vendor/unnamed', 128000), row({ maxOutputNote: 'none found; read 2026-10-23' }), ceil, retry).join('|'), /not in the no-published-limit set/);
+  assert.match(outputLimitProblems(chain('minimax/minimax-m3', 128000), row({}), ceil, retry).join('|'), /without a dated maxOutputNote/);
+  assert.match(outputLimitProblems(chain('minimax/minimax-m3', 36000), row({ maxOutputNote: 'none found; read 2026-10-23' }), ceil, retry).join('|'), /would be retried at 64000/);
+  assert.deepEqual(outputLimitProblems(chain('minimax/minimax-m3', 128000), row({ maxOutputNote: 'none found; read 2026-10-23' }), ceil, retry), [], 'the good case: named, dated, cap 128000 is not retried');
+  assert.match(outputLimitProblems(chain('minimax/minimax-m3', 128000), () => ({ maxOutput: 'x' }), ceil, retry).join('|'), /neither a number nor null/);
 });
 
 test('every shipped, non-mock chain reasons at high: the lint rule is clean, and each seat the table has a field for says so explicitly in its file', () => {
@@ -184,6 +247,9 @@ test('structural guard: every reasoning-looking key on a shipped seat is the tab
         leaves(REASONING_TABLE.forms[row.form].extra).forEach(p => allowed.add(p));
         if (row.form === 'anthropic-budget') ['thinking.type', 'thinking.budget_tokens'].forEach(p => allowed.add(p));
       }
+      // CHANGED ACCEPTED GUARD (roster apply, 18 Okt 2026). OLD: a seat on a model whose own default is above high (defaultAboveHigh) carries NO reasoning key. NEW: it may carry `reasoning.effort` equal to the table's own defaultEffort for that model (the roster files state each model's highest effort explicitly:
+      // GLM 5.3 / Flash `max`, Qwen 3.8 Max `xhigh`); any other value there, and every other key, still fails. WHY: owner, via the caps session ("EFFORT = EACH MODEL'S HIGHEST"); stating the model's own default is not a lowering, and the guard's job (no new spelling of off/low can hide) is kept.
+      // CHANGED ACCEPTED GUARD (HIGH unit, 23 Okt 2026): back to the OLD bar. OLD (roster apply, above): a defaultAboveHigh seat may state reasoning.effort equal to the table's defaultEffort. NEW: it carries NO reasoning key, so the harness sends it no effort setting and the model runs at its own default; the 27 explicit max/xhigh seats of nine chains are gone. WHY: Muad, 23 Okt 2026 20:44: "High should be *our* default setting. Some models are so cheap that *their* default is Max effort, and we can go with that".
       for (const p of leaves(s.extra).filter(p => looks.test(p))) if (!allowed.has(p)) problems.push(`${file}: ${s.provider}/${s.model} extra.${p}`);
     }
   }
