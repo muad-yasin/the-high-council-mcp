@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { appendTreeEvent, readTreeRecord, stateOf, TreeRefusal } from '../src/tree-record.js';
 import { runTree } from '../src/tree-run.js';
+import { sittingLines } from '../src/tree-resume.js';
 import { acceptChangedPlan } from '../src/tree-accept.js';
 import { approveHandler } from '../src/tree-approve.js';
 import { findPendingFrontier } from '../src/tree-frontier.js';
@@ -44,8 +45,12 @@ test('CR-RC-001 (a): a PROVIDER-owned derivation_refused stop under a parent_cha
   const { r, start, stop, file, frontierKey } = await providerStopped();
   appendTreeEvent(r.t.rootDir, parentChangedEvent({ scope: 'R/M2@g1', frontierKey, detail: 'hand-made: an ancestor of R/M2 no longer passed PLAN 5.5 items 1-3 at a start (the file was put back since)' }));     // hand-made 1
   assert.equal(findPendingFrontier({ rootDir: r.t.rootDir })?.key, frontierKey, 'the consumer\'s frontier waits for a new approval');
-  await runTree(r.t.rootDir, { work: r.t.work, startRun: start, maxStarts: 0 });
+  const sat = await runTree(r.t.rootDir, { work: r.t.work, startRun: start, maxStarts: 0 });
   assert.equal(restoredOf(r, stop.id).length, 0, 'the sitting did not close the provider\'s stop on a preview');
+  // CR-RC-016 (RULE 1c): the sitting's line names the cause and its way on (the accept writer's words, one copy), not "a file, a chain or the record did not read ... the next resume tries again", which a resume never changes here
+  const lines = sittingLines(sat, ROOT_ID);
+  assert.ok(lines.includes(`  Stop ${stop.id} on R/M1 (generation 1) stays open: R/M2@g1: derived as a preview only (its frontier waits for a new approval), and a preview does not read what its providers settled: approve the frontier again with \`council tree approve ${ROOT_ID}\`, then the check runs in full.`), lines.join('\n'));
+  assert.doesNotMatch(lines.join('\n'), /a file, a chain or the record did not read/);
   assert.ok(openIds(r).includes(stop.id), 'the stop stays open');
   writeFileSync(file, readFileSync(file, 'utf8').replace('## Store\n', '## Overview\nget(id) and put(record).\n\n## Store\n'));     // a REAL repair: the preview cannot confirm even this
   const accept = () => acceptChangedPlan(r.t.rootDir, { stopId: stop.id, actor: 'session', via: 'mcp', reason: 'adds the Overview section the parent promised; same split, same obligations', runsDir: r.t.runsDir, work: r.t.work });

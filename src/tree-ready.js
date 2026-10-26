@@ -57,7 +57,7 @@ import { DeriveRefusal, deriveChild, itemText } from './tree-derive.js';
 import { rootTaskOf, rootTaskPathOf } from './tree-root-task.js';
 import { budgetOf, capFactsOf, effectiveLimits, gateTree } from './tree-budget.js';
 import { describeFrontier, findPendingFrontier } from './tree-frontier.js';
-import { chainWayOn } from './tree-ways-on.js';
+import { chainWayOn, previewOnlyWords } from './tree-ways-on.js';
 
 export const VERDICTS = Object.freeze(['ready', 'incomplete', 'blocked']);
 
@@ -363,10 +363,11 @@ export function rederivedTriggers({ rootDir, record, state, runsDir, work, liveN
  */
 export function rederivationOutcome(triggers, { node, generation }) {
   // CR-RC-001: a derivation is judged by the stopped plan's ROLE in it. As the child's PARENT, a preview read that plan, so a return counts. As a provider (or inside a provider's subtree: a descendant basis), it does not: a preview
-  // never runs providerPieces (src/tree-derive.js), where an owned refusal of a provider is thrown, so a preview that returns has not checked the cause of this stop. That entry is 'unable', with its way on (A-DRAFT)
+  // never runs providerPieces (src/tree-derive.js), where an owned refusal of a provider is thrown, so a preview that returns has not checked the cause of this stop. That entry is 'unable', with its way on (A-DRAFT), and marked `previewOnly`
+  // (CR-RC-016: the sitting's close test tells it apart from a derivation that could not read, src/tree-restore.js)
   const asParent = t => t.parent.node === node && t.parent.generation === generation;
   const mine = triggers.filter(t => asParent(t) || t.providers.some(p => isWithin(node, p)))
-    .map(t => (t.outcome === 'derives' && t.preview && !asParent(t) ? { ...t, outcome: 'unable', detail: `derived as a preview only (its frontier waits for a new approval), and a preview does not read what its providers settled: approve the frontier again with \`council tree approve ${t.treeId}\`, then the check runs in full` } : t));
+    .map(t => (t.outcome === 'derives' && t.preview && !asParent(t) ? { ...t, outcome: 'unable', previewOnly: true, detail: previewOnlyWords(t.treeId) } : t));
   if (!mine.length) return { outcome: 'unable', mine };
   if (mine.every(t => t.outcome === 'derives')) return { outcome: 'resolved', mine };
   return { outcome: mine.some(t => t.outcome === 'owned') ? 'still' : 'unable', mine };
@@ -427,10 +428,12 @@ export function verdictOf(facts) {
 
   function judgeNode(n, k) {
     // S8 (C&C 12 Oct: one mechanism, no second code): the same reason for the ROOT, with wording that names the way on - a person decided a new root plan and its run is not registered yet (valid once S8-5 builds `council tree approve` for it)
+    // G7 item 1 (A-DRAFT): the root re-plan that approve cannot offer names its cause, and the chain's way on, S13 whole (src/tree-ways-on.js chainWayOn, one copy; batch 17) (the task's put-back words are in its detail; the accounting gate's acceptance is printed with the gate)
+    // Q-1 (batch 21): this line comes BEFORE the budget line. A cap raise offers a root plan refused for budget again (src/tree-frontier.js frontierOffersShare), and the refused entry stays until R@g is registered (src/tree-budget.js
+    // waitingForMoney), so both facts hold; the budget line's "then `council tree approve` offers it again" is false while approve itself refuses the frontier. A budget non-admission is never a refusal (an admitted:false child), so this fires only then
+    if (n.nextGeneration && n.node === 'R' && facts.rootReplanRefusal) { const r = facts.rootReplanRefusal; incomplete('generation_pending', k, `R: a new root plan (R@g${n.nextGeneration}) was decided and its run is not registered yet; \`council tree approve ${facts.treeId ?? '<root>'}\` cannot offer it now (${r.check}: ${r.detail})${r.check === 'chain' ? `: ${chainWayOn(facts.treeId ?? '<root>')}` : ''}`); return; }
     // D2 F9c S8 (A-DRAFT): a new root plan an approved preview did NOT admit for budget waits for money, not for an approval ("Nothing waits" until money comes back): name the way out
     if (n.nextGeneration && n.node === 'R' && refusedForBudget(facts, `R@g${n.nextGeneration}`)) { incomplete('generation_pending', k, `R: the new root plan (R@g${n.nextGeneration}) was approved but not admitted for budget: raise the tree's cap with \`council tree decide ${facts.treeId ?? '<root>'} --amend-cap <total>\`, then \`council tree approve ${facts.treeId ?? '<root>'}\` offers it again`); return; }
-    // G7 item 1 (A-DRAFT): the root re-plan that approve cannot offer names its cause, and the chain's way on, S13 whole (src/tree-ways-on.js chainWayOn, one copy; batch 17) (the task's put-back words are in its detail; the accounting gate's acceptance is printed with the gate)
-    if (n.nextGeneration && n.node === 'R' && facts.rootReplanRefusal) { const r = facts.rootReplanRefusal; incomplete('generation_pending', k, `R: a new root plan (R@g${n.nextGeneration}) was decided and its run is not registered yet; \`council tree approve ${facts.treeId ?? '<root>'}\` cannot offer it now (${r.check}: ${r.detail})${r.check === 'chain' ? `: ${chainWayOn(facts.treeId ?? '<root>')}` : ''}`); return; }
     if (n.nextGeneration) { incomplete('generation_pending', k, n.node === 'R' ? `R: a new root plan (R@g${n.nextGeneration}) was decided and its run is not registered yet: run \`council tree approve ${facts.treeId ?? '<root>'}\`` : `${n.node}: generation ${n.nextGeneration} was opened and is not registered yet`); return; }
     // staleness is about the record (a provider moved, a stop put the node in question), so it is read whatever state the node's own run is in
     for (const p of n.providers) {

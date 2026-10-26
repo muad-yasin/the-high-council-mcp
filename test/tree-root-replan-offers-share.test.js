@@ -3,11 +3,14 @@
 // `--amend-cap` and tree-decide.js promise "A child that was not admitted for budget is offered again at `council tree approve`". Driven on a real mock tree, $0.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { appendTreeEvent, readTreeRecord, stateOf } from '../src/tree-record.js';
 import { amendCap, budgetOf, ceilCents } from '../src/tree-budget.js';
 import { approveHandler } from '../src/tree-approve.js';
 import { decideHandler } from '../src/tree-decide.js';
 import { describeFrontier, findPendingFrontier } from '../src/tree-frontier.js';
+import { readinessOf } from '../src/tree-ready.js';
 import { registerNextChild } from '../src/tree-loop.js';
 import { runTree } from '../src/tree-run.js';
 import { trackedRealRoot } from './helpers/temp-trees.js';
@@ -54,4 +57,25 @@ test('C-058: a root re-plan approved while the new root run was not admitted for
   const reg = registerNextChild(r.t.rootDir, { work: r.t.work });
   assert.equal(reg.kind, 'registered', JSON.stringify(reg)); assert.equal(reg.event.generation, 2);
   assert.equal(stateOf(readTreeRecord(r.t.rootDir)).nodes.get('R@g2').phase, 'registered');
+});
+
+// Q-1 (batch 21, RULE 1c): the same state, raised, and then the root chain edited. Both readiness facts hold: the refused entry stays until R@g2 is registered (src/tree-budget.js waitingForMoney), and the raise offers the frontier
+// again, so readiness asks describeFrontier, which now refuses it (chain). The budget line's "then `council tree approve` offers it again" names a verb the state refuses; the refusal line, with the chain's way on, wins.
+test('Q-1: a root re-plan refused for budget, the cap raised and then the root chain edited: readiness names approve\'s refusal and the chain\'s way on, not "approve offers it again" (before the edit, the budget line: control)', async () => {
+  const r = await decided();
+  const b = budgetOf(r.t.rootDir); const cap0 = b.rootCapUsd;
+  amendCap(r.t.rootDir, { toCapUsd: Math.max(0.01, ceilCents(b.treeSpentUsd + b.unknownSpendHeldUsd + b.heldUsd)), expectedRevision: 1, ...AMEND });
+  const pending = findPendingFrontier({ rootDir: r.t.rootDir });
+  const first = await approve(r, [pending.key.slice(0, 8), 'y']);
+  assert.equal(first.code, 0, first.t.shown() + first.t.errors());
+  amendCap(r.t.rootDir, { toCapUsd: cap0 + 20, expectedRevision: 2, ...AMEND });
+  const pendingLine = () => readinessOf(r.t.rootDir, { work: r.t.work }).reasons.filter(x => x.code === 'generation_pending' && x.scope.startsWith('R@g')).map(x => x.text);
+  assert.deepEqual(pendingLine(), [`R: the new root plan (R@g2) was approved but not admitted for budget: raise the tree's cap with \`council tree decide ${ROOT_ID} --amend-cap <total>\`, then \`council tree approve ${ROOT_ID}\` offers it again`], 'control: approve takes it now');
+  const file = join(r.t.work, 'chains', 'split-root.json');
+  const c = JSON.parse(readFileSync(file, 'utf8')); c.description = `${c.description ?? ''} (edited after the tree registered it)`; writeFileSync(file, JSON.stringify(c, null, 2));
+  const again = findPendingFrontier({ rootDir: r.t.rootDir });
+  assert.equal(describeFrontier({ rootDir: r.t.rootDir, work: r.t.work, pending: again }).refusal?.check, 'chain', 'precondition: approve refuses the frontier now');
+  const [line] = pendingLine();
+  assert.match(line, /^R: a new root plan \(R@g2\) was decided and its run is not registered yet; `council tree approve \S+` cannot offer it now \(chain: the root chain cannot be read: the chain file split-root\.json is not the one the tree registered \(sha256 differs\)[^)]*\): put the chain file back as the tree registered it, or end the tree with `council tree decide \S+ --abandon`$/, line);
+  assert.doesNotMatch(line, /offers it again/);
 });

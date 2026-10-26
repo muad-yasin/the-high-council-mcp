@@ -30,7 +30,7 @@ import { fileProblemLine, writeTreeFiles } from './tree-files.js';
 import { formatUsd } from './cost.js';
 import { applyChoice, pendingChoiceOf, replacedOf } from './tree-choice.js';
 import { finalSentenceOf } from './tree-abandon.js';
-import { abandonCommand, chainWayOn, topUpWayOn } from './tree-ways-on.js';
+import { abandonCommand, chainWayOn, previewOnlyWords, topUpWayOn } from './tree-ways-on.js';
 
 // D2 F18 S13 and the abandon and top-up commands live in src/tree-ways-on.js (no imports: tree-member and tree-ready read them without a cycle); chainWayOn is re-exported for its earlier importers (src/tree-status.js)
 export { chainWayOn };
@@ -71,8 +71,11 @@ function sittingTail(res, rootId) {
   // the two views the sitting writes after each step (TREE_HANDOFF.md, tree/report.json): a failure is named, never silent, and never stops the sitting
   for (const p of res.fileProblems ?? []) L.push('', `  ${p.file} could not be written (${p.error}). The sitting went on; \`council tree status ${rootId}\` reads the record live and does not need the file.`);
   for (const r of res.restored ?? []) L.push('', `  Closed by the sitting: stop ${r.stopId} on ${r.node} (generation ${r.generation}). The plan text is the one recorded when that step finished${r.contractChecked ? ', and its contract check passes again' : ''}${r.splitVerified ? ', and its split is verified now' : ''}${r.derivationRechecked ? ', and every child it held back can be derived from it now' : ''}, so nothing needed your answer.`);
-  // D2 F4c with Astra (a) (A-DRAFT): a stop whose check could not run is said apart from a check that ran and failed
-  for (const r of res.unchecked ?? []) L.push('', r.why === 'contract_check_not_run'
+  // D2 F4c with Astra (a) (A-DRAFT): a stop whose check could not run is said apart from a check that ran and failed. CR-RC-016: a provider's stop whose derivations ran as previews only names that cause and its way on, in the words the
+  // accept writer prints for it (the frame of the line below, the child's key, src/tree-ways-on.js previewOnlyWords); "the next resume tries again" would not change it
+  for (const r of res.unchecked ?? []) L.push('', r.why === 'derivation_preview'
+    ? `  Stop ${r.stopId} on ${r.node} (generation ${r.generation}) stays open: ${r.previewOf.map(child => `${child}: ${previewOnlyWords(rootId)}`).join('; ')}.`
+    : r.why === 'contract_check_not_run'
     ? `  Stop ${r.stopId} on ${r.node} (generation ${r.generation}) stays open: its contract check could not be run this time (a file it reads did not read), which is not the same as a check that ran and failed. Once the file reads again, the next \`council tree resume ${rootId}\` runs the check and closes the stop if it passes.`
     : `  Stop ${r.stopId} on ${r.node} (generation ${r.generation}) stays open: the children it holds back could not be derived again this time (a file, a chain or the record did not read), which is not the same as a derivation that ran and failed. The next \`council tree resume ${rootId}\` tries again; \`council tree status ${rootId}\` shows what does not read.`);
   for (const s of res.stops ?? []) if (s.text) L.push('', ...s.text.trimEnd().split('\n'));

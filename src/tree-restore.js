@@ -9,7 +9,7 @@
 //        ONE read of the three files (report.json, deliverable.md, HANDOFF.md) through trustedRunDir + readRunFile; everything the HASHES and the closure comparison use is derived from that in-memory text (Astra #17). It calls neither readNodePlan nor
 //        closedFieldsOf nor handoffStatusOf: each re-reads from disk. ONE DEPARTURE, named (restore fix-up, 14 Oct 2026): for a stop that holds contract_check, restoreClosedStops also runs `contractCheckOf` on the same run folder, which READS the folder again (a second read, after the snapshot).
 //        It fails closed: if the bytes changed in between, the re-run exits non-zero and the stop stays open, and the event carries the SNAPSHOT's hash; every reader checks the file as it is when it reads it (the R7 rule), so a swap after the append reopens a stop on the next step.
-//   restoreDecision({ state, stop, snapshot, providerSnapshots }) -> { restore: false, why } | { restore: true, event }       PURE: the close test (below); `stop` = { id, ... } an open blocked stop's event; `providerSnapshots` = Map('node@gN' -> snapshotOfRun) of the node's registered providers (only read when the stop names provider_pin).
+//   restoreDecision({ state, stop, snapshot, providerSnapshots, contractExit, derivation, derivationPreview }) -> { restore: false, why, previewOf? } | { restore: true, event }       PURE: the close test (below); `stop` = { id, ... } an open blocked stop's event; `providerSnapshots` = Map('node@gN' -> snapshotOfRun) of the node's registered providers (only read when the stop names provider_pin).
 //   restoreClosedStops(rootDir, { runsDir, now, facts, afterSnapshot, work, deny }) -> [{ stopId, node, generation, restored: true } | { stopId, ..., restored: false, why }]
 //        `work` = the working folder the contract check resolves the task file from (the sitting passes its own; without it a stop holding contract_check stays open). `deny` = the secret denylist predicate of an UNTRUSTED caller (R16); the sitting passes none,
 //        like verifyClosedNodes and the readiness gatherer: a sitting runs only from the CLI on the person's own folder (no MCP route runs one).
@@ -34,7 +34,9 @@ import { rederivationOutcome, rederivedTriggers } from './tree-ready.js';
 
 const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 /** The `why` words of a close test that could NOT RUN (Astra (a): unable to check is not still failing; the sitting says them apart). */
-export const UNCHECKED_WHY = Object.freeze(['contract_check_not_run', 'derivation_not_run']);
+// CR-RC-016: 'derivation_preview' = the derivations this stop waits on ran as PREVIEWS only (the stopped plan is their provider and their frontier waits for a new approval), so the check that refused never ran and a resume does not change
+// that; the result carries the children's keys (`previewOf`) for the sitting's line, never a sentence
+export const UNCHECKED_WHY = Object.freeze(['contract_check_not_run', 'derivation_not_run', 'derivation_preview']);
 
 /** The three files of a finished run, read ONCE. { unreadable: <why> } when the run folder is refused or report.json does not read as a JSON object (the readiness rule's `report_unreadable`, tree-ready.js runFactsOf). */
 export function snapshotOfRun(runsDir, runId, { accepted = null } = {}) {
@@ -56,7 +58,7 @@ export function snapshotOfRun(runsDir, runId, { accepted = null } = {}) {
 }
 
 /** The close test. `state` is the fold, `stop` the open stop's event, `snapshot` snapshotOfRun's answer. -> { restore: true, event } | { restore: false, why }. `why` is a stable word, never a sentence. */
-export function restoreDecision({ state, stop, snapshot, providerSnapshots = new Map(), contractExit = null, derivation = null }) {
+export function restoreDecision({ state, stop, snapshot, providerSnapshots = new Map(), contractExit = null, derivation = null, derivationPreview = null }) {
   const meta = state.stopMeta.get(stop.id);
   if (!meta || !state.openStops.includes(stop.id) || meta.source !== 'blocked') return { restore: false, why: 'not_a_blocked_stop' };
   const codes = meta.blockedCodes ?? [];
@@ -66,6 +68,7 @@ export function restoreDecision({ state, stop, snapshot, providerSnapshots = new
   if (codes.includes('contract_check') && contractExit === null) return { restore: false, why: 'contract_check_not_run' };      // no working folder, a refused run folder, or a check that threw: it never ran (2b carry-over: two different conditions, two words)
   if (codes.includes('contract_check') && contractExit !== 0) return { restore: false, why: 'contract_check_still' };       // it ran and still fails
   // derivation_refused (D3 F4-1: FAIL CLOSED): resolved only when every derivation that reads this node's plan RETURNED; one still refused for a plan's text = still; anything else, an empty set included, = not run (never "no new failure")
+  if (codes.includes('derivation_refused') && derivation === 'unable' && derivationPreview?.length) return { restore: false, why: 'derivation_preview', previewOf: derivationPreview };     // CR-RC-016: not run because it was a preview, not because something did not read
   if (codes.includes('derivation_refused') && derivation !== 'resolved') return { restore: false, why: derivation === 'still' ? 'derivation_still' : 'derivation_not_run' };
   const n = state.nodes.get(`${stop.node}@g${stop.generation}`);
   if (!n || n.phase !== 'closed' || n.runId !== stop.runId) return { restore: false, why: 'not_closed' };
@@ -132,13 +135,18 @@ export function restoreClosedStops(rootDir, { runsDir = dirname(rootDir), now, f
       }
       // the live re-derivation, when the stop holds derivation_refused (D2 F4c, D3 F4-1): the derivations that READ this node's plan (it is the child's parent, a provider of the child, or inside a provider's subtree), through readiness' own
       // helper (one rule). FAIL CLOSED: any throw here is 'unable', never resolved
-      let derivation = null;
+      // CR-RC-016: `derivationPreview` = the children whose derivation was a preview only, when that is the WHOLE reason it is unable (every entry that did not derive is preview-only); one that could not read keeps the 'not run' line
+      let derivation = null; let derivationPreview = null;
       if ((state.stopMeta.get(id)?.blockedCodes ?? []).includes('derivation_refused')) {
-        try { derivation = rederivationOutcome(rederivedTriggers({ rootDir, record: readTreeRecord(rootDir), state, runsDir, work }), stop).outcome; } catch { derivation = 'unable'; }
+        try {
+          const ro = rederivationOutcome(rederivedTriggers({ rootDir, record: readTreeRecord(rootDir), state, runsDir, work }), stop);
+          derivation = ro.outcome;
+          if (ro.outcome === 'unable' && ro.mine.length && ro.mine.every(t => t.outcome === 'derives' || t.previewOnly)) derivationPreview = ro.mine.filter(t => t.previewOnly).map(t => t.child);
+        } catch { derivation = 'unable'; derivationPreview = null; }
       }
       afterSnapshot?.({ stopId: id, node: stop.node, generation: stop.generation });                 // TEST-ONLY seam (R7): a file replaced between the read and the append
-      const d = restoreDecision({ state, stop, snapshot, providerSnapshots, contractExit, derivation });
-      if (!d.restore) { results.push({ ...where, restored: false, why: d.why }); continue; }
+      const d = restoreDecision({ state, stop, snapshot, providerSnapshots, contractExit, derivation, derivationPreview });
+      if (!d.restore) { results.push({ ...where, restored: false, why: d.why, ...(d.previewOf ? { previewOf: d.previewOf } : {}) }); continue; }
       appendTreeEventLocked(rootDir, d.event, { ...(now ? { now } : {}), ...(facts ? { facts } : {}) });
       results.push({ ...where, restored: true, ...(d.event.contractExit === 0 ? { contractChecked: true } : {}), ...(d.event.rechecked ? { derivationRechecked: true } : {}), ...((state.stopMeta.get(id)?.blockedCodes ?? []).includes('expansion_refused') ? { splitVerified: true } : {}) });     // E164 (M7): the sitting's line names each live re-check only when the stop held it (D2 F4c adds two)
     }
