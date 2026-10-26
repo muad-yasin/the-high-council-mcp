@@ -7,7 +7,7 @@
 // the owner's pid and host. A lock whose pid is dead on this host is stale (a crash, a kill -9)
 // and is replaced; a lock from another host is never judged stale from here, since its pid
 // means nothing on this machine.
-import { openSync, writeSync, closeSync, readFileSync, unlinkSync, writeFileSync, renameSync, statSync } from 'node:fs';
+import { openSync, writeSync, closeSync, readFileSync, unlinkSync, writeFileSync, renameSync, statSync, fstatSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 
@@ -106,8 +106,11 @@ function writeLockBody(fd, path, body, { removeOnFail = true } = {}) {
     const text = JSON.stringify(body);
     if (writeSync(fd, text) !== Buffer.byteLength(text)) throw Object.assign(new Error(`short write to ${path}`), { code: 'ENOSPC' });
   } catch (err) {
+    // Only the file this descriptor wrote to is removed: a process suspended for longer than the age rule finds another process's lock at the path (CR-SOL-002), and that one is not ours to unlink.
+    let ours = false;
+    try { const was = fstatSync(fd); const now = statSync(path); ours = was.ino === now.ino && was.dev === now.dev; } catch { /* gone */ }
     try { closeSync(fd); } catch { /* already closed */ }
-    if (removeOnFail) { try { unlinkSync(path); } catch { /* already gone */ } }
+    if (removeOnFail && ours) { try { unlinkSync(path); } catch { /* already gone */ } }
     throw err;
   }
   closeSync(fd);
@@ -127,7 +130,7 @@ const isMine = (lockPath, mine) => {
 //
 // `_seam` (TEST ONLY, a no-op unless a test passes one; it is not reachable from the environment or the command line, like chain.js's setPromptSpy): called as _seam(stage, lockPath) at the two points where another
 // process can change the lock file between our looking and our acting: 'after-exists' (our create failed because the file existed, before we read it), 'after-claim' (the claim is ours, before we read the
-// file's state) and 'before-take' (we have decided what the file's state is, before we act on it). test/run-lock.test.js uses it to make the interleaving that lost an update deterministic.
+// file's state) and 'before-take' (we have decided what the file's state is, before we act on it); also 'after-create' (the fast path created the file and has not written its body) and 'after-claim-create' (our claim was created, not yet written) and 'before-clear' (an abandoned claim was judged, not yet cleared). test/run-lock.test.js and test/run-lock-two-owners.test.js use it to make the interleavings that lost an update, or gave two owners, deterministic.
 export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, unreadableStaleMs: givenStaleMs, _seam = null } = {}) {
   const unreadableStaleMs = staleMsOf(file, givenStaleMs);
   const seam = stage => { if (_seam) _seam(stage, join(runDir, file)); };
@@ -151,33 +154,49 @@ export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, un
     const claimPath = `${lockPath}.claim`;
     // A claim left behind by a dead process, or an unreadable one older than the bound (its writer died between the create and the write; CR-X3-002), is cleared and the claim is tried once more at once.
     // One that is being written right now, or belongs to a live process, is respected: the attempt reports the run as locked.
-    const claimAbandoned = () => {
+    const claimAbandoned = (path = claimPath) => {
       let c = null;
-      try { c = JSON.parse(readFileSync(claimPath, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return false; /* unreadable: below */ }
+      try { c = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return false; /* unreadable: below */ }
       if (c && typeof c === 'object') return c.host === hostname() && !isPidAlive(c.pid);
       if (!(unreadableStaleMs > 0)) return false;
-      try { return Date.now() - statSync(claimPath).mtimeMs > unreadableStaleMs; } catch { return false; }
+      try { return Date.now() - statSync(path).mtimeMs > unreadableStaleMs; } catch { return false; }
+    };
+    const claimIsOurs = () => {
+      try { const c = JSON.parse(readFileSync(claimPath, 'utf8')); return c.pid === pid && c.host === mine.host && c.nonce === mine.nonce; } catch { return false; }
     };
     let cfd;
     for (let again = true; cfd === undefined; again = false) {
       try { cfd = openSync(claimPath, 'wx'); } catch (e) {
         if (e.code !== 'EEXIST') throw e;
-        if (again && claimAbandoned()) { try { unlinkSync(claimPath); } catch { /* gone meanwhile */ } continue; }
-        throw locked();
+        if (!again || !claimAbandoned()) throw locked();
+        // CR-SOL-003: the claim we judged abandoned may have been replaced since (another contender cleared it and made its own). Judge it again; then move it aside under a name only we use, and judge what we took:
+        // a path is never unlinked on the strength of an earlier look. A claim that turns out to be alive was taken from its owner, who sees it is gone before it takes the lock and stops; so do we.
+        seam('before-clear');
+        if (!claimAbandoned()) throw locked();
+        const gone = `${claimPath}.${pid}.${mine.nonce}.gone`;
+        try { renameSync(claimPath, gone); } catch { continue; /* cleared by someone else meanwhile: try the create again */ }
+        const wasAbandoned = claimAbandoned(gone);
+        try { unlinkSync(gone); } catch { /* gone */ }
+        if (!wasAbandoned) throw locked();
       }
     }
+    const claimId = (() => { try { const st = fstatSync(cfd); return { ino: st.ino, dev: st.dev }; } catch { return null; } })();
     try {
-      writeLockBody(cfd, claimPath, { pid, host: mine.host }, { removeOnFail: false });   // inside the try: a write that throws must not leave the claim behind. The `finally` below is the ONLY remover of the claim (a second unlink could delete a contender's fresh claim)
+      seam('after-claim-create');
+      writeLockBody(cfd, claimPath, { pid, host: mine.host, nonce: mine.nonce }, { removeOnFail: false });   // inside the try: a write that throws must not leave the claim behind. The `finally` below removes it, and only if it is still the file we created
       // Branch on the lock file's ACTUAL state, never on "no holder" (that is also what an ABSENT lock looks like, and renaming over an absent lock overwrites one another process created in the meantime):
       //   absent -> create it exclusively, the way the fast path does (a lock that appeared since is then EEXIST = locked); the content is written after the create, so a reader that sees the young empty file
       //             reads it as 'held', never as stale;
       //   stale  -> rename over it. That is safe ONLY because (1) our claim file keeps every other claimant out, (2) the fast path cannot create a lock while the stale file exists (its create is EEXIST) and
-      //             (3) a dead holder cannot release it: nothing but this rename can change the file between our check and the rename.
+      //             (3) a dead holder cannot release it: nothing but this rename can change the file between our check and the rename;
       //   held   -> locked.
+      // Both takes happen only while the claim at its path is still OURS (CR-SOL-003: a claim another contender took from us means we no longer hold the right to replace anything), and each is followed by
+      // a check that the lock at the path is ours (CR-SOL-002): a take that is not confirmed holds nothing.
       seam('after-claim');
       const state = lockFileState(lockPath, unreadableStaleMs);
       seam('before-take');
       if (state === 'held') throw locked();
+      if (!claimIsOurs()) throw locked();
       if (state === 'absent') {
         let nfd;
         try { nfd = openSync(lockPath, 'wx'); } catch (e) { if (e.code === 'EEXIST') throw locked(); throw e; }
@@ -187,11 +206,21 @@ export function acquireRunLock(runDir, { pid = process.pid, file = LOCK_FILE, un
         writeFileSync(tmp, JSON.stringify(mine));
         renameSync(tmp, lockPath);
       }
+      if (!isMine(lockPath, mine)) throw locked();
     } finally {
-      try { unlinkSync(claimPath); } catch { /* gone */ }
+      // Removed only if it is still the file we created: the same inode AND not another contender's claim (a freed inode number can be handed to the next file created, so the inode alone is not proof). A claim whose write
+      // failed is empty or partial and carries no one's nonce; it is ours by its inode.
+      try {
+        const st = statSync(claimPath);
+        let theirs = false;
+        try { const c = JSON.parse(readFileSync(claimPath, 'utf8')); theirs = Boolean(c) && typeof c === 'object' && c.nonce !== mine.nonce; } catch { /* unreadable or empty: not another contender's */ }
+        if (claimId && st.ino === claimId.ino && st.dev === claimId.dev && !theirs) unlinkSync(claimPath);
+      } catch { /* gone, or no longer ours */ }
     }
     return hold();
   }
+  seam('after-create');
   writeLockBody(fd, lockPath, mine);
+  if (!isMine(lockPath, mine)) throw locked();   // CR-SOL-002: the file at the path is not ours (a suspended taker whose empty file was replaced): we hold nothing, and nothing of the other's is touched
   return hold();
 }
