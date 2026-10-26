@@ -249,7 +249,7 @@ revisit the canonical.
 
 This is the owner's method for building this repo with several Claude Code sessions at once, published
 deliberately (owner, 8 Oct 2026: it might help someone); the master copy lives on the owner's private board, and this is
-its public copy as of 23 Oct 2026. **It applies only when the owner assigns a session a C&C or builder role**;
+its public copy as of 26 Oct 2026. **It applies only when the owner assigns a session a C&C or builder role**;
 every session follows the Rules above. **C&C** is the owner's Command-and-Control session: it routes work to builder
 sessions, reviews each milestone and answers PASS or FIX. "Advisor" here means the Claude Code session's advisor
 model, not this product's advisor add-on.
@@ -259,7 +259,10 @@ model, not this product's advisor add-on.
 2. **C&C consults its advisor before anything goes to a builder** that carries a fix, a ruling, a go, a
    PASS/FIX or a change to what it builds; also on a milestone's proposed defaults and at each milestone report
    before the verdict. Plain acknowledgements are exempt. If something went out without it: consult now, send a
-   correction, and say so plainly.
+   correction, and say so plainly. When an advisor call fails (rate-limited, overloaded, any error), the session
+   waits 60 to 90 seconds (a background timer, not a blocking sleep) and calls it again, as often as it takes: the
+   step that needs the consult waits and nothing goes out without it, while work that needs none goes on. This holds
+   for C&C, every builder and every sub-agent.
 3. **The advisor line, checked on both sides.** Every such C&C message ends with
    `Advisor: consulted - <what it changed>` ("no change" when it changed nothing; never a claim of a consultation
    that did not happen). Whatever its length, a message that contains a GO, a PASS, a FIX, a ruling or a
@@ -316,11 +319,11 @@ model, not this product's advisor add-on.
     few seconds goes through one lock and a CPU cap at the lowest priority, so the sessions together stay inside
     a stated share of the machine. Kill a process only by its PID, never by a pattern (a pattern kill has hit
     another session's run). A commit that was reported is never amended: fix-ups go on top.
-12. **Sub-agents.** A builder may use up to four, for work whose input is big and whose output is a table or a trace
+12. **Sub-agents.** A builder may use up to three, for work whose input is big and whose output is a table or a trace
     (reading, tracing, mapping, counting, dated look-ups), each with its own advisor used regularly; its report ends
     with the advisor's flags. An agent gets a big slice and runs until the slice is done: done is a result (every
     file classified, every site traced, every id sourced), never a size or time cap, and an agent that cannot finish
-    returns what it has with the open items named. Four agents on four slices of one big question is the good case.
+    returns what it has with the open items named. Three agents on three slices of one big question is the good case.
     A sub-agent never commits and never writes a state or report file; one that edits works in its own worktree;
     none runs a test suite. A sub-agent's result is a delegate's report: the builder checks its load-bearing claims
     before they enter its own report.
