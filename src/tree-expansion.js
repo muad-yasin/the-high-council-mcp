@@ -119,6 +119,9 @@ export function recordExpansionRefusal(rootDir, { node, generation }, r, { facts
  * Creates no folder and never touches report.json. Returns { refusal, sha256, event }.
  */
 export function verifySplit(rootDir, { node, generation, runId, runDir, work, inheritedGlobal, ancestorQuestions, rootTaskPath }, { facts, now } = {}) {
+  // No `accepted` here, while nodesToVerify's guard (src/tree-loop.js) asks the same check WITH the node's accepted body hash. The two cannot disagree: a plan is accepted only when its split is the one that was checked
+  // (the table's plan_accepted row, src/tree-transitions.js), so a node with a split block is verified before any accept, and a verified node is never verified again; a leaf (no block) may be accepted unverified, but
+  // nodesToVerify never lists it (holdsSplitFence reads the accepted body and finds no fence), and an accept that adds a block is refused by the same row. (CR-RC-013: traced, the route does not exist.)
   const r = expansionCheck({ runDir, work, inheritedGlobal, ancestorQuestions });
   if (r.refusal) return { refusal: r.refusal, sha256: r.sha256, event: recordExpansionRefusal(rootDir, { node, generation }, r.refusal, { facts, now, once: true }) };
   // M5f (a): the record holds ONE verified split per node@generation. The same block again is the existing record (no second event, the same return value); another block is a refusal, written as a `blocked`
