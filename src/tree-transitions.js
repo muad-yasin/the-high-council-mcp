@@ -849,12 +849,16 @@ export function ineligibleBelowRoot(state, { answeringStopId = null } = {}) {
 // HALF-FINISHED (found by C&C's read of 3945050): a node is whole only when EVERY node its verified split names is registered, with nothing opened and not registered above the newest registered generation of that path
 // (a replacement under way), and no previewed/approved children frontier of it has an unregistered member. A verified split whose children the record does not list (a record from before the field) is unknown, so not whole.
 export function pendingBelowOf(state, n) {
-  const registeredGen = path => Math.max(0, ...[...state.nodes.values()].filter(x => x.node === path).map(x => x.generation));
+  // THIS node's lineage: a frontier whose parent is n at its generation. Its first split's frontier and the replacement frontier a regenerate of one of its children registers under (src/tree-frontier.js findPendingFrontier) both are.
+  const ownFrontier = key => { const f = state.frontiers.get(key); return f?.parentNode === n.node && f.parentGeneration === n.generation; };
+  // CR-RC-019 (builder 19's trace of T's cross-read C-2, 26 Okt 2026): the newest generation of a child path registered IN THIS LINEAGE. Read by path alone, the children a replaced generation of n's path registered there (orphans,
+  // still in the record) answered for n: a regenerated sub-plan with a verified split and none of its own children read as whole, and a root re-plan held it instead of setting it aside
+  const registeredGen = path => Math.max(0, ...[...state.nodes.values()].filter(x => x.node === path && ownFrontier(x.frontierKey)).map(x => x.generation));
   const names = n.verifiedSplit ? n.verifiedSplit.children : [];
   if (names === null) return true;
   // BUG-C-057 (bug audit 2026-10-24): a slot that a FINISHED run fills (a `reused` child of an approved frontier; `state.adopted` holds its slot) is never registered, so it is not a child left to register (tree-recovery.js does not count it either)
   // The adoption must be the one a frontier of THIS node (this generation) made: `adopted` is lapse-scoped to the newest generation of each parent path, but a parent path can have an older generation that is still live (adopted itself), and that generation's own split child is not filled by what the newer generation's frontier adopted (C&C thcmcp-cd 24 Okt 2026).
-  const slotFilled = path => [...(state.adopted ?? new Map()).values()].some(a => { const f = state.frontiers.get(a.frontierKey); return f?.parentNode === n.node && f.parentGeneration === n.generation && typeof a.slot === 'string' && a.slot.replace(/@g\d+$/, '') === path; });
+  const slotFilled = path => [...(state.adopted ?? new Map()).values()].some(a => ownFrontier(a.frontierKey) && typeof a.slot === 'string' && a.slot.replace(/@g\d+$/, '') === path);
   if (names.some(path => (registeredGen(path) === 0 && !slotFilled(path)) || (state.maxOpened.get(path) ?? 0) > registeredGen(path))) return true;
   return [...state.frontiers.values()].some(f => f.parentNode === n.node && f.parentGeneration === n.generation && (f.children ?? []).some(c => !c.reused && !state.nodes.has(`${c.node}@g${c.generation}`) && !(registeredGen(c.node) > c.generation)));
 }

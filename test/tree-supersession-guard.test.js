@@ -64,7 +64,8 @@ export const BASELINE = Object.freeze({
   // RAISED 23 Okt 2026 (red-triage SG-1 unit; the slot fix's dead-frontier block, 35f23f0): latestGenerationOf 11 -> 12. OLD: 11. WHY: foldRecord's era scope reads `const rootNow = latestGenerationOf(state, 'R');` (tree-transitions.js:455): the literal ROOT path, which is never adopted, so the adopted-aware predicate does not apply (a ROOT-ONLY site, like the others kept above). This test was not in the sets that carried 35f23f0; it has been red on every tree since; the box set of e69a2ed found it.
   // RAISED (G7 item 6, 26 Okt 2026, the widened maxGeneration): maxGeneration 2 -> 9. OLD: 2. WHY, the seven sites the old pattern missed (a paren inside the call): ROOT-ONLY: foldRecord's `latestRoot` (abandon), holdabilityOf's
   //   `rootGen`, the root re-plan guard's registered root generation (applyEvent). PERMANENT: `latestGenerationOf`'s own definition. BOOKKEEPING: foldRecord's `maxOpened` (the highest generation a decision OPENED per path).
-  //   BY PATH, kept at today's count, not reviewed for adoption here: foldRecord's `plainLatest` (the regenerate-of-a-reused-node slot rule) and pendingBelowOf's `registeredGen`. The count keeps a NEW site from passing.
+  //   BY PATH, kept at today's count, not reviewed for adoption here: foldRecord's `plainLatest` (the regenerate-of-a-reused-node slot rule). The count keeps a NEW site from passing.
+  //   SCOPED (CR-RC-019, 26 Okt 2026; the count unchanged): pendingBelowOf's `registeredGen` reads only the children registered under a frontier of the node it judges (its lineage), no longer the path anywhere in the tree.
   'tree-transitions.js': { latestGenerationOf: 12, latestByPath: 2, generationOf: 3, sortNewest: 4, maxGeneration: 9 },
 });
 
