@@ -104,7 +104,8 @@ test('PP-7: every OpenRouter seat of every shipped chain gets a pin (its row is 
 
 test('PP-8: the README says what the pin is (spend-cap section) and what has not been run (known limits); the CHANGELOG has its line', () => {
   const readme = readFileSync(join(ROOT, 'README.md'), 'utf8'); const log = readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8');
-  const cap = readme.slice(readme.indexOf('### The spend cap'), readme.indexOf('## Quick start (MCP)'));
+  const reference = readFileSync(join(ROOT, 'AI-README.md'), 'utf8');   // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (The spend cap); the Known limits stay in the README
+  const cap = reference.slice(reference.indexOf('### The spend cap'), reference.indexOf('## Quick start (MCP)'));
   assert.ok(cap.includes('price limit (`provider.max_price`)'), 'the spend-cap section names the pin');
   assert.ok(readme.includes('No endpoints found that satisfy the max price for this request') && readme.includes('have not been run'), 'known limits: the one probe and what was not run');
   assert.ok(log.includes('**Price limit on OpenRouter calls (0.8.3).**'), 'CHANGELOG line');

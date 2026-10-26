@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = readFileSync(join(root, 'src', 'cli.js'), 'utf8');
-const readme = readFileSync(join(root, 'README.md'), 'utf8');
+// README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (the exit-code table); the pin reads it there.
+const readme = readFileSync(join(root, 'AI-README.md'), 'utf8');
 // cli.js keeps most EXIT_ constants itself; 22 and 23 come from src/exit-codes.js (the one module the programs that spawn the CLI also read). Exit-22 unit: `named` reads both places, so no code can be left out.
 const exitCodesSrc = readFileSync(join(root, 'src', 'exit-codes.js'), 'utf8');
 const named = [...cli.matchAll(/^const (EXIT_[A-Z_]+) = (\d+);/gm), ...exitCodesSrc.matchAll(/^export const (EXIT_[A-Z_]+) = (\d+);/gm)].map(m => [m[1], Number(m[2])]);

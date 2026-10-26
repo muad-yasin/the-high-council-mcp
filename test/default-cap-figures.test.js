@@ -25,7 +25,8 @@ const PHRASE = `above the default cap of $${cliDefault}`; // derived, written th
 const TIERS = ['plan-mini-council', 'plan-mini-council-sol-session', 'plan-medium-council', 'plan-high-council'];
 const figures = name => { const r = dryRunReport(JSON.parse(text(`chains/${name}.json`)), { defaultCapUsd: cliDefault }); return { exp: r.estimate.expectedUsd, max: r.estimate.maximumUsd, floor: r.estimate.floorUsd }; };
 const descriptionOf = name => JSON.parse(text(`chains/${name}.json`)).description;
-const readmeRow = name => text('README.md').split('\n').find(l => l.startsWith(`| \`${name}\` |`));
+// README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (the Which-chain table and the Claude Desktop paragraph); the row and the paragraph are read there.
+const readmeRow = name => text('AI-README.md').split('\n').find(l => l.startsWith(`| \`${name}\` |`));
 
 // CHANGED ACCEPTED TEST (A3b U1, 18 Okt 2026). OLD: the three declarations of the default per-run cap agreed (src/default-cap.js DEFAULT_MAX_USD, the mcpb manifest default, server.json). NEW: the registry listing still agrees with the CLI
 // default, and the Claude Desktop bundle default is its own named figure (DESKTOP_DEFAULT_MAX_USD). WHY: Muad's pick 3 (18 Okt: "the Claude Desktop default spend ceiling goes from $7 to $10"); in the bundle the value also becomes COUNCIL_MAX_USD_LIMIT.
@@ -44,8 +45,8 @@ test('DL-1c: the two defaults are two names (decoupling): the Desktop figure is 
   assert.match(text('src/cli.js'), /import \{[^}]*\bDEFAULT_MAX_USD\b[^}]*\} from '\.\/default-cap\.js'/, 'the CLI imports the CLI default');
   assert.match(text('src/mcp/server.js'), /import \{[^}]*\bDEFAULT_MAX_USD\b[^}]*\} from '\.\.\/default-cap\.js'/, 'the MCP server imports the CLI default');
   assert.ok(text('mcpb/README.md').includes(`default $${desktopDefault} in the bundle)`), 'mcpb/README.md names both figures');
-  const readme = text('README.md');
-  assert.ok(readme.includes(`(default $${desktopDefault} in the bundle; on the command line your limit is the number you type)`), 'README.md Desktop paragraph names both figures');
+  const readme = text('AI-README.md');
+  assert.ok(readme.includes(`(default $${desktopDefault} in the bundle; on the command line your limit is the number you type)`), 'AI-README.md Desktop paragraph names both figures');
   assert.ok(text('CHANGELOG.md').includes(`default spend ceiling for a new install is $${desktopDefault} (0.8.3)`), 'the CHANGELOG line');
 });
 

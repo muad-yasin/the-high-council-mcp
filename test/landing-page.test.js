@@ -36,8 +36,9 @@ test('landing page: chain config count matches chains/', { skip: !page && 'no do
   assert.match(page, new RegExp(`${real} chain configs live in`),
     `the chains section prose disagrees with the real count (${real})`);
   // The README's Chains section repeats it too; nothing derived that copy, so adding a chain file (0.8.3 M0) would have left it one short.
-  assert.match(readFileSync(join(root, 'README.md'), 'utf8'), new RegExp(`^${real} chain configs live in`, 'm'),
-    `the README's Chains section disagrees with the real count (${real})`);
+  // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (Chains); the count is read there.
+  assert.match(readFileSync(join(root, 'AI-README.md'), 'utf8'), new RegExp(`^${real} chain configs live in`, 'm'),
+    `the Chains section in AI-README.md disagrees with the real count (${real})`);
 });
 
 test('landing page: MCP tool count matches the registered tools', { skip: !page && 'no docs/index.html' }, () => {

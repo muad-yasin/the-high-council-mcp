@@ -226,9 +226,12 @@ test('AR-7 (real verbs): run_status on a failed advice folder with STOPPED-error
 });
 
 test('AR-6: README and CHANGELOG say the call fails whole, and no longer say the other seats\' opinions are returned', () => {
-  const readme = readFileSync(join(root, 'README.md'), 'utf8'); const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
-  for (const [name, text] of [['README.md', readme], ['CHANGELOG.md', changelog]]) {
+  // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (The spend cap): the sentence is read there; the README keeps the ban.
+  const readme = readFileSync(join(root, 'README.md'), 'utf8'); const reference = readFileSync(join(root, 'AI-README.md'), 'utf8'); const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
+  for (const [name, text] of [['AI-README.md', reference], ['CHANGELOG.md', changelog]]) {
     assert.ok(/advice call, which cannot pause, fails as a whole|never delivered in part/.test(text), `${name} states the whole-call failure`);
+  }
+  for (const [name, text] of [['README.md', readme], ['AI-README.md', reference], ['CHANGELOG.md', changelog]]) {
     assert.ok(!/returns the other seats' opinions/.test(text), `${name} no longer describes the dropout rule`);
   }
 });

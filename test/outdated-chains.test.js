@@ -25,7 +25,7 @@ test('OUTDATED_CHAINS equals the files in chains/outdated/, none of them is also
 });
 
 test('no current doc or schema text still sends a reader to archive/chains/ (A-DRAFT, 0.8.3 lane B: the folder is gone; the old path in config/chain-schema.json and the README was false)', () => {
-  for (const f of ['README.md', 'config/chain-schema.json', 'TROUBLESHOOTING.md', 'CONTRIBUTING.md', 'PERSONAS.md', 'docs/index.html', 'docs/skills.html']) {
+  for (const f of ['README.md', 'AI-README.md', 'config/chain-schema.json', 'TROUBLESHOOTING.md', 'CONTRIBUTING.md', 'PERSONAS.md', 'docs/index.html', 'docs/skills.html']) {
     assert.doesNotMatch(readFileSync(join(root, f), 'utf8'), /archive\/chains/, `${f} still names the folder that no longer exists`);
   }
 });

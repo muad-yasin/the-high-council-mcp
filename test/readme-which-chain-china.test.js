@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 
 test('WC-1 each plan-china-* chain file has a row in the Which-chain table that says the roster has not run', { timeout: 60_000 }, () => {
-  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (the Which-chain table); the pin reads it there.
+  const readme = readFileSync(new URL('../AI-README.md', import.meta.url), 'utf8');
   const start = readme.indexOf('**Which chain.**'); assert.ok(start > 0, 'the Which-chain section is found');
   const table = readme.slice(start, readme.indexOf('\n\n', readme.indexOf('| Chain |', start) + 10) + 1);
   const names = readdirSync(new URL('../chains/', import.meta.url)).filter(f => /^plan-china-.*\.json$/.test(f)).map(f => f.replace(/\.json$/, ''));

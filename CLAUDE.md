@@ -38,7 +38,7 @@ deliverable plus a full debate board. MIT, BYOK-only.
   Commit freely; push, tag, release and `npm publish` are the owner's (publish needs his 2FA passkey, from a
   real terminal). No new release unless he asks.
 - **A count moves in the same commit as the thing it counts** (chains, tools, providers, skills, the default
-  cap): the README, `docs/index.html` and `docs/skills.html` type them by hand, and tests derive the real ones.
+  cap): the README, `AI-README.md`, `docs/index.html` and `docs/skills.html` type them by hand, and tests derive the real ones.
 - **Never add** `context/`, `tasks/`, `plans/`, `Docs/`, `benchmark/`, `Dockerfile` or `fly.toml` (this tree is a
   curated extraction from a private repo; `Docs/` with a capital D is unrelated to the public `docs/` landing
   page). `tasks/` is gitignored: task files are never committed.
@@ -165,7 +165,7 @@ folder.
 **`report.json` is the machine-readable board; `BOARD.md` is the same thing for people.** Anything built on a run
 reads the JSON - `proposals[]`, `debate.posts[]` (`by`/`on`/`stance`/`merge_with`), `debate.replies[]`
 (`keep`/`amend`/`withdraw`), `signoff[]`, `scoreboard`, `totals`: together a directed graph with verifiable edges.
-Nothing may parse `BOARD.md`'s headings; the README says so (a council once specified a markdown parser because
+Nothing may parse `BOARD.md`'s headings; `AI-README.md` says so (a council once specified a markdown parser because
 the JSON was undocumented). Its shape is a public contract (`schemas/report-v1.json`,
 `test/report-schema.test.js`): adding fields is fine, renaming or removing one is a breaking change.
 

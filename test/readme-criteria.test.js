@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { parseCriteriaFile } from '../src/criteria-kinds.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const readme = readFileSync(join(root, 'README.md'), 'utf8');
+// README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md; the pin reads it there, the sentences unchanged.
+const readme = readFileSync(join(root, 'AI-README.md'), 'utf8');
 
 test('the README documents --criteria for a task that already contains its acceptance list, and what it says about the file format is true', () => {
   assert.match(readme, /\*\*If your task already contains its own acceptance list\.\*\*/);

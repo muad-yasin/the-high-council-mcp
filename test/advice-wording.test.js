@@ -82,7 +82,7 @@ test('no efficacy or verdict words in the advice tools, the answer, the preview,
     assert.ok(!('verdict' in r.structuredContent), `${f}: no verdict key in what the agent reads`);
     assert.ok('leaning' in r.structuredContent);
   }
-  const readme = section(readFileSync(join(root, 'README.md'), 'utf8'), '### Asking other labs for advice');
+  const readme = section(readFileSync(join(root, 'AI-README.md'), 'utf8'), '### Asking other labs for advice');   // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md
   problems.push(...banned('README advice section', readme));
   assert.match(readme, /\bleaning\b/);
   assert.match(readme, /OpenRouter's routing tag for an\s+endpoint, not a guarantee/);
@@ -97,7 +97,7 @@ test('no efficacy or verdict words in the advice tools, the answer, the preview,
 
 test('the date in the README is the retention table\'s own', () => {
   const asOf = JSON.parse(readFileSync(join(root, 'src', 'advice-retention.json'), 'utf8')).asOf;
-  assert.match(readFileSync(join(root, 'README.md'), 'utf8'), new RegExp(`dated snapshot \\(read on ${asOf}`));
+  assert.match(readFileSync(join(root, 'AI-README.md'), 'utf8'), new RegExp(`dated snapshot \\(read on ${asOf}`));   // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (the advice section)
 });
 
 test('DR-6: wait_seconds above 30 is refused by the schema of council_advise and run_status; 30 is accepted', async () => {

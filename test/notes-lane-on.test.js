@@ -67,7 +67,7 @@ test('NL-3: the retired lane-off and held-draft wording is nowhere in anything t
   const files = [];
   const walk = d => { for (const n of readdirSync(d)) { const p = join(d, n); if (n === 'node_modules' || n === 'archive') continue; if (statSync(p).isDirectory()) walk(p); else if (/\.(js|json|md|html|mjs)$/.test(n)) files.push(p); } };
   for (const dir of ['src', 'config', 'schemas', 'chains', 'mcpb', 'docs']) if (existsSync(join(ROOT, dir))) walk(join(ROOT, dir));
-  files.push(join(ROOT, 'README.md'), join(ROOT, 'CHANGELOG.md'));
+  files.push(join(ROOT, 'README.md'), join(ROOT, 'AI-README.md'), join(ROOT, 'CHANGELOG.md'));   // AI-README.md: the README's moved sections (26 Okt 2026)
   assert.ok(files.length > 100, `the scan found ${files.length} files`);
   const hits = [];
   for (const f of files) { const t = readFileSync(f, 'utf8'); for (const s of RETIRED) if (t.includes(s)) hits.push(`${f.slice(ROOT.length + 1)}: ${s}`); }

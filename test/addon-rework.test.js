@@ -300,7 +300,7 @@ test('Work 7 (audit A5): a bare Mistral-shaped or Together-shaped key in a brief
 test('Work 9 (DR-3): the operator allowance is gone: no file names it, and a cheap internal call with no way to ask a person starts nothing (awaiting_approval since M4)', async () => {
   const name = 'COUNCIL_ADVISE_' + 'AUTO_USD'; // built, so this file does not match its own check
   const walk = d => readdirSync(d, { withFileTypes: true }).flatMap(e => (e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]));
-  const files = [...walk(join(root, 'src')), ...walk(join(root, 'docs')), ...walk(join(root, 'test')), join(root, 'README.md')]
+  const files = [...walk(join(root, 'src')), ...walk(join(root, 'docs')), ...walk(join(root, 'test')), join(root, 'README.md'), join(root, 'AI-README.md')]
     .filter(f => /\.(js|mjs|json|md|html)$/.test(f));
   const hits = files.filter(f => readFileSync(f, 'utf8').includes(name));
   assert.deepEqual(hits, []);

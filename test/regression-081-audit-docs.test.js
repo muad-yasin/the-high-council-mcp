@@ -47,7 +47,7 @@ test('A6-6/A6-9: advise-single\'s description names the reasoning high and the 4
 
 test('A6-4/A6-7/A6-8: counts and dates in the docs follow the code', () => {
   assert.match(read('TROUBLESHOOTING.md'), /plan-default-opro-council/);   // names the first-run chain (0.8.3 lane B, commit 2)
-  assert.doesNotMatch(read('README.md'), /2026-12-04/);
+  for (const f of ['README.md', 'AI-README.md']) assert.doesNotMatch(read(f), /2026-12-04/);   // README split (26 Okt 2026): the moved sections are scanned too
   assert.doesNotMatch(read('docs/index.html'), /doubled for Anthropic seats/);
   assert.match(read('docs/skills.html'), /Last updated 2026-10-0[56]/);
   assert.doesNotMatch(read('docs/report-format.md'), /14 of the 17/);
@@ -60,5 +60,5 @@ test('A6-4/A6-7/A6-8: counts and dates in the docs follow the code', () => {
 
 test('A3-5 (docs): no chain description or README sentence still says the council makes "six calls at most"', () => {
   for (const f of readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json'))) assert.doesNotMatch(JSON.parse(read(`chains/${f}`)).description || '', /six calls at most/i, f);
-  assert.doesNotMatch(read('README.md'), /six calls at most/i);
+  for (const f of ['README.md', 'AI-README.md']) assert.doesNotMatch(read(f), /six calls at most/i);
 });

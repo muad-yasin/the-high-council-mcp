@@ -38,7 +38,7 @@ test('every listed chain exists, once; a tested entry belongs to a listed chain;
 // 0.8.3 (lane B fix-up, C&C thcmcp-cd 23 Okt 2026): the quick-start chain plan-default-opro-council was in the README's "Which chain" table but had no Pricing row. The names come from that table (the rows between its
 // header and the next blank line), so a chain added to it later without a price row fails here instead of being missing.
 test('every chain the README\'s "Which chain" table lists has a row in the Pricing table', () => {
-  const lines = readme.split('\n');
+  const lines = readFileSync(join(root, 'AI-README.md'), 'utf8').split('\n');   // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (the Which-chain table); the Pricing table stays in the README
   const head = lines.findIndex(l => l.startsWith('| Chain | Who does what |'));
   assert.ok(head >= 0, 'the "Which chain" table header was not found');
   const names = [];

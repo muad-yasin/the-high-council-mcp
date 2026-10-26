@@ -157,7 +157,7 @@ test('documented but never read: `council init [--yes]` is on the list (it is na
 });
 
 test('every option the README and docs show on a council command line is on the known list', () => {
-  const files = ['README.md', 'TROUBLESHOOTING.md', 'CONTRIBUTING.md', ...readdirSync(join(root, 'docs')).filter(f => f.endsWith('.md')).map(f => `docs/${f}`)];
+  const files = ['README.md', 'AI-README.md', 'TROUBLESHOOTING.md', 'CONTRIBUTING.md', ...readdirSync(join(root, 'docs')).filter(f => f.endsWith('.md')).map(f => `docs/${f}`)];
   const shown = new Set();
   for (const f of files) {
     let fenced = false;

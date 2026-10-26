@@ -195,7 +195,7 @@ test('CD-12: the printed maximum counts the decider ONLY once its prompt is reco
 
 test('CD-13: the README says the decider\'s wording is not approved yet exactly while none of its three prompt functions is recorded in src/roles.js (the sentence goes in the commit that makes it untrue, and a CHANGELOG line names the decider)', async () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-  const readme = readFileSync(join(root, 'README.md'), 'utf8'); const log = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
+  const readme = readFileSync(join(root, 'AI-README.md'), 'utf8'); const log = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');   // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (Optional chain-config fields)
   const bullet = readme.slice(readme.indexOf('- **`seats.decider`**'), readme.indexOf('- **`quorum:'));
   assert.ok(bullet.length > 200 && bullet.includes('A ruling closes nothing') && bullet.includes('`no_decider_seat`') && bullet.includes('name the Claude Code session as their decider')   /* CHANGED ACCEPTED PIN (Job 4, 18 Okt 2026). OLD: '`plan-high-council` names the Claude Code session'. NEW: 'name the Claude Code session as their decider'. WHY: the five other layered chains now name it too (Muad: "A, yes"); the sentence names all six. */, 'the README bullet');
   const R = await import('../src/roles.js');
@@ -300,9 +300,10 @@ test('CD-21: the stop sentence names each asked conflict, the decider\'s lean as
 
 test('CD-23: the README names exit 25 and the --prevail answer, and says how a tree member is answered (the old Known limit that the ask is not offered in a tree is gone)', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-  const readme = readFileSync(join(root, 'README.md'), 'utf8');
-  assert.ok(readme.includes('| 25 | A layered run stopped because the conflict decider asked for you to choose') && readme.includes('Codes 19 to 25 are new in 0.8.3.'), 'the exit-code row');
-  assert.equal(readme.includes("the decider's ask for you is not offered"), false, 'the limit is no longer true: a member stops at exit 25');
-  assert.ok(readme.includes('council tree decide <tree id> --prevail-node <node> --prevail 1=<objection id>'), 'the row names the tree verb');
-  assert.ok(readme.includes('When the decider asks for your choice, the run stops at exit 25'), 'the seats.decider bullet');
+  // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (the exit-code table, Optional chain-config fields): the pins read it there; the Known limits stay in the README, the ban reads both.
+  const readme = readFileSync(join(root, 'README.md'), 'utf8'); const reference = readFileSync(join(root, 'AI-README.md'), 'utf8');
+  assert.ok(reference.includes('| 25 | A layered run stopped because the conflict decider asked for you to choose') && reference.includes('Codes 19 to 25 are new in 0.8.3.'), 'the exit-code row');
+  for (const doc of [readme, reference]) assert.equal(doc.includes("the decider's ask for you is not offered"), false, 'the limit is no longer true: a member stops at exit 25');
+  assert.ok(reference.includes('council tree decide <tree id> --prevail-node <node> --prevail 1=<objection id>'), 'the row names the tree verb');
+  assert.ok(reference.includes('When the decider asks for your choice, the run stops at exit 25'), 'the seats.decider bullet');
 });

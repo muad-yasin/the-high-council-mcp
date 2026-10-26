@@ -12,7 +12,7 @@ test('C1 the status phrase for a conflict stop does not count the objections', {
 });
 
 test('C2 the help text and README row 25 do not say two objections', { timeout: 60_000 }, () => {
-  const help = src('src/cli.js'); const readme = src('README.md');
+  const help = src('src/cli.js'); const readme = src('AI-README.md');   // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (the exit-code table)
   assert.doesNotMatch(help, /choose between two objections \(exit 25\)/); assert.match(help, /"neither" keeps them all/);
   const row = readme.split('\n').find(l => l.startsWith('| 25 |'));
   assert.doesNotMatch(row, /two objections|both objections/); assert.match(row, /all the objections stand/);

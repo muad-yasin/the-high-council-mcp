@@ -42,7 +42,7 @@ test('TD-2: no layered planning chain seats external/claude-code-session on its 
 });
 
 test('TD-3: the README sentence about the decider lists exactly the layered planning chains found in chains/*.json, and its number word matches', () => {
-  const readme = readFileSync(join(root, 'README.md'), 'utf8');
+  const readme = readFileSync(join(root, 'AI-README.md'), 'utf8');   // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (the seats.decider bullet)
   const m = /The (\w+) layered planning chains \(([^)]*)\) name the Claude Code session as their decider/.exec(readme);
   assert.ok(m, 'the README sentence is there');
   const listed = [...m[2].matchAll(/`([^`]+)`/g)].map(x => x[1]).sort();
