@@ -11,7 +11,7 @@ request past seats filled by models from different labs, makes them argue on the
 deliverable plus a full debate board. MIT, BYOK-only.
 
 - **Public.** The repo is public: anything pushed is published. The npm package `the-high-council` is public;
-  the latest release is **0.8.2** (tag `v0.8.2`; npm, a GitHub release with the `.mcpb`, the MCP registry).
+  the latest release is **0.8.3** (tag `v0.8.3`; npm, a GitHub release with the `.mcpb`, the MCP registry).
   Release history: `maintainers/HANDOFF.md` and `CHANGELOG.md`.
 - **Settled, do not reopen:** the package name is `the-high-council` (`THC` is internal shorthand); `council`
   is the public command and `relay` an alias kept for compatibility; the `LICENSE` holder is Sower Industries;
