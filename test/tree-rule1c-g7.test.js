@@ -27,7 +27,7 @@ test('item 1: a decided root re-plan whose root chain was edited is NOT named as
   const file = join(S.work, 'chains', 'depth2-root.json');
   const c = JSON.parse(readFileSync(file, 'utf8')); c.description = `${c.description ?? ''} (edited after the tree registered it)`; writeFileSync(file, JSON.stringify(c, null, 2));
   const line = pendingLine(S);
-  assert.match(line, /^R: a new root plan \(R@g2\) was decided and its run is not registered yet; `council tree approve \S+` cannot offer it now \(chain: the root chain cannot be read: the chain file depth2-root\.json is not the one the tree registered \(sha256 differs\)[^)]*\): put the chain file back as the tree registered it$/, line);
+  assert.match(line, /^R: a new root plan \(R@g2\) was decided and its run is not registered yet; `council tree approve \S+` cannot offer it now \(chain: the root chain cannot be read: the chain file depth2-root\.json is not the one the tree registered \(sha256 differs\)[^)]*\): put the chain file back as the tree registered it, or end the tree with `council tree decide \S+ --abandon`$/, line);       // CHANGED ACCEPTED (batch 17, the S13 dedupe): OLD end ": put the chain file back as the tree registered it$"
   assert.doesNotMatch(line, /: run `council tree approve/, line);
 });
 

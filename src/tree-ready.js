@@ -57,6 +57,7 @@ import { DeriveRefusal, deriveChild, itemText } from './tree-derive.js';
 import { rootTaskOf, rootTaskPathOf } from './tree-root-task.js';
 import { budgetOf, capFactsOf, effectiveLimits, gateTree } from './tree-budget.js';
 import { describeFrontier, findPendingFrontier } from './tree-frontier.js';
+import { chainWayOn } from './tree-ways-on.js';
 
 export const VERDICTS = Object.freeze(['ready', 'incomplete', 'blocked']);
 
@@ -428,8 +429,8 @@ export function verdictOf(facts) {
     // S8 (C&C 12 Oct: one mechanism, no second code): the same reason for the ROOT, with wording that names the way on - a person decided a new root plan and its run is not registered yet (valid once S8-5 builds `council tree approve` for it)
     // D2 F9c S8 (A-DRAFT): a new root plan an approved preview did NOT admit for budget waits for money, not for an approval ("Nothing waits" until money comes back): name the way out
     if (n.nextGeneration && n.node === 'R' && refusedForBudget(facts, `R@g${n.nextGeneration}`)) { incomplete('generation_pending', k, `R: the new root plan (R@g${n.nextGeneration}) was approved but not admitted for budget: raise the tree's cap with \`council tree decide ${facts.treeId ?? '<root>'} --amend-cap <total>\`, then \`council tree approve ${facts.treeId ?? '<root>'}\` offers it again`); return; }
-    // G7 item 1 (A-DRAFT): the root re-plan that approve cannot offer names its cause, and the chain's way on in S13's words (the task's put-back words are in its detail; the accounting gate's acceptance is printed with the gate)
-    if (n.nextGeneration && n.node === 'R' && facts.rootReplanRefusal) { const r = facts.rootReplanRefusal; incomplete('generation_pending', k, `R: a new root plan (R@g${n.nextGeneration}) was decided and its run is not registered yet; \`council tree approve ${facts.treeId ?? '<root>'}\` cannot offer it now (${r.check}: ${r.detail})${r.check === 'chain' ? ': put the chain file back as the tree registered it' : ''}`); return; }
+    // G7 item 1 (A-DRAFT): the root re-plan that approve cannot offer names its cause, and the chain's way on, S13 whole (src/tree-ways-on.js chainWayOn, one copy; batch 17) (the task's put-back words are in its detail; the accounting gate's acceptance is printed with the gate)
+    if (n.nextGeneration && n.node === 'R' && facts.rootReplanRefusal) { const r = facts.rootReplanRefusal; incomplete('generation_pending', k, `R: a new root plan (R@g${n.nextGeneration}) was decided and its run is not registered yet; \`council tree approve ${facts.treeId ?? '<root>'}\` cannot offer it now (${r.check}: ${r.detail})${r.check === 'chain' ? `: ${chainWayOn(facts.treeId ?? '<root>')}` : ''}`); return; }
     if (n.nextGeneration) { incomplete('generation_pending', k, n.node === 'R' ? `R: a new root plan (R@g${n.nextGeneration}) was decided and its run is not registered yet: run \`council tree approve ${facts.treeId ?? '<root>'}\`` : `${n.node}: generation ${n.nextGeneration} was opened and is not registered yet`); return; }
     // staleness is about the record (a provider moved, a stop put the node in question), so it is read whatever state the node's own run is in
     for (const p of n.providers) {
