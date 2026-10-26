@@ -326,7 +326,7 @@ page, drop that field. The debate itself is the part worth showing.
 
 ## Requirements
 
-- Node 20+
+- Node 24+
 - API keys for whichever labs the chain you choose actually uses
 
 ## Setup

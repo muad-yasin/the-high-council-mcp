@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changes that can break a script or a client
+
+- **Node.js 24 or newer is the supported version** (0.8.3 supported Node.js 20 or newer). The tests run on Node.js 24 and 26, and the binaries are built on Node.js 24. An older Node.js may still work, but it is untested, and npm warns at install.
+
 ## 0.8.3 - 2026-10-26 (BREAKING for scripts and clients that rely on the changes listed under "Changes that can break a script or a client")
 
 ### Changes that can break a script or a client

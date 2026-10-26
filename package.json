@@ -47,7 +47,7 @@
     "outputPath": "dist"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
