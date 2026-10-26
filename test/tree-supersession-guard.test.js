@@ -67,7 +67,7 @@ export const BASELINE = Object.freeze({
   //   BY PATH, kept at today's count, not reviewed for adoption here: foldRecord's `plainLatest` (the regenerate-of-a-reused-node slot rule). The count keeps a NEW site from passing.
   //   SCOPED (CR-RC-019, 26 Okt 2026; the count unchanged): pendingBelowOf's `registeredGen` reads only the children registered under a frontier of the node it judges (its lineage), no longer the path anywhere in the tree.
   // RAISED (CR-RB-004, 26 Okt 2026): latestGenerationOf 12 -> 13, maxGeneration 9 -> 10. OLD: 12 and 9. WHY: BOOKKEEPING, like maxOpened. childGenerationOf's new Math.max takes the highest generation of a path OPENED before its parent
-  //   generation was opened (openedInReplacedLineage over the fold's opening order); openedInReplacedLineage's latestGenerationOf asks the PARENT path's newest generation to tell an older lineage's opening, by path as generationOf's own fallback already does
+  //   generation was opened (openedInReplacedLineage over the fold's opening order); openedInReplacedLineage's latestGenerationOf asks each ANCESTOR path's newest generation (R included) to tell an older lineage's opening, by path as generationOf's own fallback already does
   //   (an adopted parent is the C2b-3 limit, unchanged). Neither decides whether a registered node is live.
   'tree-transitions.js': { latestGenerationOf: 13, latestByPath: 2, generationOf: 3, sortNewest: 4, maxGeneration: 10 },
 });

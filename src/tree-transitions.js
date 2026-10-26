@@ -995,16 +995,20 @@ export function childGenerationOf(state, parentGeneration, childPath) {
  * marks nodes stale at this generation, so the marks and the frontier's preview agree on every path, registered or not.
  */
 /**
- * CR-RB-004, the ONE predicate of its three readers: was `node@generation` OPENED before its parent path's generation (`parentGeneration`, by default the newest) was opened? Then it belongs to a replaced lineage: the parent was
- * planned again, the new plan numbers its children above it (childGenerationOf), the stop side does not name it (generationOf), and its replacement frontier is never offered (src/tree-frontier.js findPendingFrontier), so the
- * decision typed for the old child never reaches a node of the new plan. A parent generation never opened (generation 1, or numbered by a split) replaces nothing: a decision under it re-forms its frontier as before.
+ * CR-RB-004, the ONE predicate of its three readers: was `node@generation` OPENED before the newest generation of one of its ANCESTOR paths (R included) was opened (for the parent, `parentGeneration` when the caller has one)?
+ * Then it belongs to a replaced lineage: an ancestor was planned again after it, the new plan numbers that child above it (childGenerationOf), the stop side does not name it (generationOf), and its replacement frontier is never
+ * offered (src/tree-frontier.js findPendingFrontier), so the decision typed for the old child never reaches a node of the new plan. Every ancestor, not only the parent (builder 19's read of 2977cdf1): a parent numbered by a
+ * split is never opened itself, yet it can sit in a lineage a grandparent's or the root's re-plan replaced. A generation never opened replaces nothing; a decision taken after every ancestor's opening re-forms and numbers as before.
  */
 export function openedInReplacedLineage(state, node, generation, parentGeneration = null) {
-  const cut = node.lastIndexOf('/');
-  if (cut < 0) return false;
-  const parentAt = state.openedAt?.get(`${node.slice(0, cut)}@g${parentGeneration ?? latestGenerationOf(state, node.slice(0, cut))}`);
   const at = state.openedAt?.get(`${node}@g${generation}`);
-  return parentAt !== undefined && at !== undefined && at < parentAt;
+  if (at === undefined) return false;
+  for (let path = node, parent = true; path.includes('/'); parent = false) {
+    path = path.slice(0, path.lastIndexOf('/'));
+    const ancestorAt = state.openedAt?.get(`${path}@g${parent && parentGeneration !== null ? parentGeneration : latestGenerationOf(state, path)}`);
+    if (ancestorAt !== undefined && at < ancestorAt) return true;
+  }
+  return false;
 }
 export function generationOf(state, path) {
   const orphans = orphansOf(state);
