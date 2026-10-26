@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Writes the README's Pricing table (owner, 18 Okt 2026: the chains with their tested cost, the expected cost and the maximum) between the two pricing markers. The expected and maximum figures come from
-// estimateChainRows, the function the dry run and `council doctor` print from; the tested figures from maintainers/run-costs.json (real runs only; a chain with none prints "not run yet"). It types no
+// Writes the README's Pricing table (owner, 18 Okt 2026: the chains with their tested cost, the expected cost and the maximum; layout 26 Okt 2026: grouped, each group sorted by expected cost) between the two pricing markers. The expected and maximum figures come from
+// estimateChainRows, the function the dry run and `council doctor` print from; the tested figures from maintainers/run-costs.json (real runs only; a chain with none prints an en dash). It types no
 // figure of its own. An advice chain is priced the way the advice add-on prices it (priceOfChain with a brief at BRIEF_MAX_CHARS: the tool description's own "expected" and "at most", the
 // ceiling it enforces, one retry of a cut-off reply included), so the table and the add-on can never show two figures for one chain (C&C thcmcp-6d review, 18 Okt 2026). `node scripts/pricing-table.mjs` rewrites README.md; `--check` exits 1 when the README differs. test/pricing-table.test.js regenerates the table and fails on any difference
 // (the MODEL-CAPS.md pattern). Pure: reads files, calls nothing, spends nothing.
@@ -19,18 +19,23 @@ export const END = '<!-- pricing:end -->';
 const usd = n => `$${n.toFixed(2)}`;
 const sum = rows => rows.reduce((s, r) => s + r.usd, 0);
 
-/** The table, markers included, for the repository at `root`. */
+/** The tested cell: an en dash when no real run is recorded, else "$0.03–$0.15 (3 runs)", one figure when the cheapest and the dearest are the same. The version and the dates stay in the data. */
+const testedCell = t => t ? `${t.minUsd === t.maxUsd ? usd(t.minUsd) : `${usd(t.minUsd)}–${usd(t.maxUsd)}`} (${t.runs} run${t.runs === 1 ? '' : 's'})` : '–';
+
+/** The table, markers included, for the repository at `root`. Rows are grouped as maintainers/run-costs.json lists the groups; inside a group they are sorted by expected cost (the unrounded figure), the chain name breaking a tie. */
 export function generatePricingTable(root = DEFAULT_ROOT) {
   const data = JSON.parse(readFileSync(join(root, 'maintainers', 'run-costs.json'), 'utf8'));
-  const lines = [START, '', '| Chain | Tested cost (real runs) | Expected | Upper estimate |', '|---|---|---|---|'];
-  for (const name of data.chains) {
-    const config = JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
-    const t = data.tested?.[name];
-    const tested = t ? `${t.minUsd === t.maxUsd ? usd(t.minUsd) : `${usd(t.minUsd)} to ${usd(t.maxUsd)}`} (${t.runs} run${t.runs === 1 ? '' : 's'}, ${t.version}, ${t.dates})` : 'not run yet';
-    const [expected, most] = config.advise?.enabled === true
-      ? (p => [p.expected, p.ceiling])(priceOfChain(config, 'x'.repeat(BRIEF_MAX_CHARS)))
-      : [sum(estimateChainRows(config)), sum(estimateChainRows(config, { maximum: true }))];
-    lines.push(`| \`${name}\` | ${tested} | ${usd(expected)} | ${usd(most)} |`);
+  const lines = [START, '', '| Chain | Expected | Upper estimate | Tested (real runs) |', '|---|---|---|---|'];
+  for (const group of data.groups) {
+    lines.push(`| **${group.label}** | | | |`);
+    const rows = group.chains.map(name => {
+      const config = JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
+      const [expected, most] = config.advise?.enabled === true
+        ? (p => [p.expected, p.ceiling])(priceOfChain(config, 'x'.repeat(BRIEF_MAX_CHARS)))
+        : [sum(estimateChainRows(config)), sum(estimateChainRows(config, { maximum: true }))];
+      return { name, expected, most };
+    }).sort((a, b) => a.expected - b.expected || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const { name, expected, most } of rows) lines.push(`| \`${name}\` | ${usd(expected)} | ${usd(most)} | ${testedCell(data.tested?.[name])} |`);
   }
   lines.push('', END);
   return lines.join('\n');

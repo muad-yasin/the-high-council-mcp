@@ -37,7 +37,8 @@ test('PCH-3: the dry run prints the two figures the description and the Pricing 
   const est = dryRunReport(chain).estimate;
   const usd = n => `$${n.toFixed(2)}`;
   assert.ok(chain.description.includes(`${usd(est.expectedUsd)} expected`) && chain.description.includes(`${usd(est.maximumUsd)}`), 'the description carries the dry run');
-  assert.ok(readme.includes(`| \`plan-china-high-council\` | not run yet | ${usd(est.expectedUsd)} | ${usd(est.maximumUsd)} |`), 'the Pricing table row');
+  // CHANGED ACCEPTED (Pricing table layout, 26 Okt 2026): OLD the row read `| name | not run yet | expected | upper estimate |`; NEW the columns are Chain | Expected | Upper estimate | Tested, and an unrun chain's tested cell is an en dash.
+  assert.ok(readme.includes(`| \`plan-china-high-council\` | ${usd(est.expectedUsd)} | ${usd(est.maximumUsd)} | \u2013 |`), 'the Pricing table row');
   assert.ok(readme.includes('has five hosts at its price (0.8.3)'), 'the Known limit');
   assert.ok(chain.description.includes('nine models from seven companies'), 'the description says what it counts');
 });

@@ -1,20 +1,11 @@
 {
-  "_note": "Real run costs behind the README's Pricing table (scripts/pricing-table.mjs). `chains` is the table's row order. `tested` holds only figures from real, paid runs: the count, the cheapest and dearest total (report.json totals.usd, priced by the table of that day), the version and the dates. A chain with no entry prints \"not run yet\". Aggregated figures only: no task text, run ids or paths.",
-  "chains": [
-    "plan-mini-council",
-    "plan-default-opro-council",
-    "plan-mini-council-sol-session",
-    "plan-medium-council",
-    "plan-high-council",
-    "plan-china-mini-council",
-    "plan-china-medium-council",
-    "plan-china-high-council",
-    "daily7-sub-a",
-    "plan-claude-council",
-    "advise-standard",
-    "advise-single",
-    "verify",
-    "local-ollama"
+  "_note": "Real run costs behind the README's Pricing table (scripts/pricing-table.mjs). `groups` are the table's groups in print order, each with its label and its chains; the script sorts the rows inside a group by expected cost, so the order here does not matter. `tested` holds only figures from real, paid runs: the count, the cheapest and dearest total (report.json totals.usd, priced by the table of that day), the version and the dates; the table prints the count and the two totals, and the version and the dates stay here. A chain with no entry prints \"–\". Aggregated figures only: no task text, run ids or paths.",
+  "groups": [
+    { "label": "Planning chains", "chains": ["plan-high-council", "plan-medium-council", "plan-mini-council"] },
+    { "label": "Variants", "chains": ["plan-claude-council", "plan-default-opro-council", "plan-mini-council-sol-session"] },
+    { "label": "Chinese-lab alternatives", "chains": ["plan-china-high-council", "plan-china-medium-council", "plan-china-mini-council"] },
+    { "label": "Advice add-on", "chains": ["advise-single", "advise-standard"] },
+    { "label": "Other", "chains": ["daily7-sub-a", "local-ollama", "verify"] }
   ],
   "tested": {
     "advise-single": { "runs": 3, "minUsd": 0.03, "maxUsd": 0.15, "version": "0.8.2", "dates": "2026-10-07 to 2026-10-08" }
