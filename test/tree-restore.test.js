@@ -86,6 +86,8 @@ test('R6 + R11 (REAL): two damaged nodes, ONE stop (D2 F15: R/M2 depends on R/M1
   await sitting(r, start);
   assert.deepEqual(blockedStops(r).map(e => [e.node, e.blockedBy.map(b => b.code)]), [['R/M1', ['report_unreadable']], ['R/M2', ['report_unreadable']]], 'R/M2\'s own damage surfaces once R/M1\'s stop is closed (its provider reads fine now: no provider_pin)');
   const stop2 = blockedStops(r)[1].id;
+  // S14's control (batch 21): R/M2's OWN stop holds no provider_pin, and R/M2 still has the pin to R/M1 it registered against, so the free restore of R/M1's files is not named: the line follows the provider_pin cause, not the providers
+  assert.equal(needsDecisionStopText(r.t.rootDir, blockedStops(r)[1]).includes('Put the run files of'), false);
   assert.deepEqual(openStopIds(r), [stop2]);
   const st = stateOf(readTreeRecord(r.t.rootDir));
   assert.equal(st.stale.has('R/M2@g1'), true, 'the node of the open stop is in question');
@@ -105,6 +107,10 @@ test('R6 + R11 (REAL): two damaged nodes, ONE stop (D2 F15: R/M2 depends on R/M1
   assert.deepEqual(openStopIds(r), [again[1].id]);
 });
 
+// The note's "only through old records" (batch 21): the one path in today's writer that could give a consumer its own stop beside its provider's is nextToOpen's no-free-entry fallback (src/tree-blocked-child.js: no entry outside
+// every other's affected set). It cannot hold a provider and its consumer together. A consumer pins its provider from the provider's node_closed event (src/tree-derive-load.js), and its providers are its siblings and their descendants (src/tree-derive.js); for the
+// two to sit in each other's affected sets (src/tree-affected.js: the consumers of a node and of every ancestor, and everything below it) the provider would have to consume the consumer (a cycle), an ancestor of it (not a sibling or a
+// sibling's descendant), or sit below it (the consumer would pin its own descendant). And the writer re-reads after every stop it opens: a provider's stop puts its consumers in question first, so they are dropped.
 test('OLD RECORD (CONSTRUCTED, as 943906f wrote it; D2 F15 "old records"): two stops already open from one damaged provider report close for free when the files are back; the dependent\'s stop names the free restore of its provider (S14; 26 Okt 2026: in a 0.8.3 tree this line is reachable only through old records, because no answer closes a provider\'s stop without its files coming back except regenerate, which replaces the consumers, and trees first ship in 0.8.3, so old records are dev trees only); restoring R/M1 closes ONLY its stop, the other stays open, and once its own file is back too the dependent\'s stop closes with the provider pins it re-read', { timeout: 400_000 }, async () => {
   const { r, start } = await finished();
   const o1 = damage(r, 'R/M1'); const o2 = damage(r, 'R/M2');
