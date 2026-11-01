@@ -1,5 +1,5 @@
 // Severity tags on objections (B3 prep, JUDGE lane, unit 1: the CONTRACT). Pure: nothing here reads a clock, a file or a provider, and no model is called. The wiring comes in later units; this file is the one place
-// that says what a severity IS, which band it falls in, what holds a sign-off or a climb, who may change a tag, what "settled" means, and what the record carries. Every sentence below is mechanism, not prompt wording; the
+// that says what a severity IS, which band it falls in, what holds a sign-off, who may change a tag, what "settled" means, and what the record carries. Every sentence below is mechanism, not prompt wording; the
 // words a judge reads are A-DRAFT and live in src/roles.js (a later unit), shown once at the wording review.
 //
 // THE DECISIONS (Muad, 31 Okt 2026, in chat; binding text: the B3 PREP heading and its amendments in the maintainer's board):
@@ -17,8 +17,8 @@
 //
 // THE BANDS (bandOf): below 4 = 'sweep' (does not block; the final read records it); 4 to 6.9 = 'settle'; 7 to 10 = 'fix'. The thresholds below are dated constants, tuned after B3.
 //
-// WHAT HOLDS WHAT. An objection rated 4 or above that is not settled holds its layer's sign-off AND holds the climb (holdsSignOff, holdsClimb are the same line today; they are two functions because his two rules are two rules and
-// the lines may be tuned apart). What settles one (settleVerdict, settleStateOf), each an observable the code already produces:
+// WHAT HOLDS WHAT. An objection rated 4 or above that is not settled holds its layer's sign-off, and so the climb to the next layer inside the same pass (holdsSignOff). A rating does NOT move the ladder's count: the strict climb was undone on his word
+// (1 Nov 2026, "yes, undo it"), the ladder works as built. What settles one (settleVerdict, settleStateOf), each an observable the code already produces:
 //   'withdrawn' = the raiser's own argued withdrawal in the layer exchange (src/layer-debate.js outcomeOf);
 //   'fixed'     = a withdrawal in the answer-back whose quote is found in the REVISED draft (src/answer-back.js applyAnswers: effect 'withdrawn', quoted true, not quoted_from 'reviewer': a quote from another reviewer's evidence is a judge persuaded, recorded 'withdrawn'). The word "fixed" typed by a judge is NOT this: the answer-back reads
 //                 it as an unreadable answer and carries the objection;
@@ -32,7 +32,7 @@
 //
 // COPIES. Wherever an objection is rebuilt with named fields, `severity` is carried (the unit-2 list: answer-back.js buildAnswerBack and asFailure, layer-debate.js exchangeObjections, chain.js adoptedNow and the row copies,
 // the dispute stage's records belong to another lane, CACHE unit D). Where two copies of one id merge, the highest readable tag wins (mergeSeverity); an unreadable copy never lowers a readable one. A new objection named in an exchange post is asked to carry a severity; if it carries none that
-// is readable it is KEPT (a failure a judge raised is never dropped for lacking a tag: that would fail open), with severity null and band 'unreadable': it holds sign-off and the climb until it is settled or the handler or layer 3
+// is readable it is KEPT (a failure a judge raised is never dropped for lacking a tag: that would fail open), with severity null and band 'unreadable': it holds the sign-off until it is settled or the handler or layer 3
 // tags it, and the record shows null, never a number. There is no re-ask route for a post. Blind verdicts keep the re-ask.
 //
 // THE RECORD (all additive; nothing renamed). Each `objection` in report.json (signoff[].objections[], critique failures, layer_debates[] rows) may carry `severity` (the raiser's own tag).
@@ -52,7 +52,7 @@ const isTenth = v => Math.abs(v * 10 - Math.round(v * 10)) < 1e-9;
 
 /** The severity as a seat wrote it -> { ok: true, value } | { ok: false, why }. A JSON number only; never a word, never a string of digits. */
 export function readSeverity(raw) {
-  if (typeof raw !== 'number') return { ok: false, why: raw === undefined || raw === null ? 'no severity was given' : `severity is ${Array.isArray(raw) ? 'a list' : typeof raw}, not a number` };
+  if (typeof raw !== 'number') return { ok: false, why: raw === undefined || raw === null ? 'no severity was given' : `severity is a ${Array.isArray(raw) ? 'list' : typeof raw}, not a number` };
   if (!Number.isFinite(raw)) return { ok: false, why: 'severity is not a finite number' };
   if (raw < SEVERITY_SCALE.min || raw > SEVERITY_SCALE.max) return { ok: false, why: `severity ${raw} is outside ${SEVERITY_SCALE.min} to ${SEVERITY_SCALE.max}` };
   if (!isTenth(raw)) return { ok: false, why: `severity ${raw} has more than one decimal place` };
@@ -68,7 +68,6 @@ export function bandOf(value) {
 }
 /** An objection with no readable tag is HELD (never read as below 4, never a throw). */
 export const holdsSignOff = value => !readSeverity(value).ok || bandOf(value) !== 'sweep';
-export const holdsClimb = value => !readSeverity(value).ok || bandOf(value) !== 'sweep';
 
 /** The tag on an objection (or any object with a `severity`), read: { ok, value } | { ok: false, why }. */
 export const severityOf = f => (f && typeof f === 'object' ? readSeverity(f.severity) : { ok: false, why: 'no objection' });
@@ -124,7 +123,7 @@ export function mergeSeverity(a, b) {
   return ra.ok ? ra : rb.ok ? rb : ra;
 }
 
-/** The ids that hold a layer's sign-off and its climb: rated 4 or above (re-tags applied) or carrying no readable tag, and not settled. Input order. Never throws: an untagged objection is held. */
+/** The ids that hold a layer's sign-off: rated 4 or above (re-tags applied) or carrying no readable tag, and not settled. Input order. Never throws: an untagged objection is held. */
 export function openAtIds(objections, changes = []) {
   return (objections || []).filter(o => settleVerdict(effectiveSeverity(o, changes), o.state) === 'open').map(o => o.id);
 }
@@ -148,7 +147,7 @@ export function lintSeverityChain(config, filePath = 'the chain file') {
   if (config?.severity?.enabled !== true) return out;
   if (config.signoff !== 'unanimous') {
     // A-DRAFT (the words a person reads)
-    out.push({ kind: 'severity-needs-unanimous', message: 'severity.enabled is true but this chain is not "signoff": "unanimous": a severity gate acts on the unanimous panel loop only, so in any other mode the tags would be read and ignored without a word.', fix: `Set "signoff": "unanimous" in ${filePath}, or remove severity.` });
+    out.push({ kind: 'severity-needs-unanimous', message: 'severity.enabled is true but this chain does not set "signoff": "unanimous". A severity gate acts only under unanimous sign-off, so in any other mode the tags would be read and ignored without a word.', fix: `Set "signoff": "unanimous" in ${filePath}, or remove severity.` });
   }
   const critics = Array.isArray(config.seats?.critics) ? config.seats.critics : [];
   const perLayer = new Map();
@@ -156,7 +155,7 @@ export function lintSeverityChain(config, filePath = 'the chain file') {
   const lone = [...perLayer].filter(([, n]) => n === 1).map(([l]) => l);
   if (lone.length) {
     // A-DRAFT (the words a person reads)
-    out.push({ kind: 'severity-one-seat-layer', message: `severity.enabled is true but layer ${lone.join(', ')} has a single seat: a layer with one seat runs no exchange, so nobody could debate an objection there, and it would hold the sign-off until its raiser withdrew it.`, fix: `Give every layer at least two seats in ${filePath}, or remove severity.` });
+    out.push({ kind: 'severity-one-seat-layer', message: `severity.enabled is true but layer ${lone.join(', ')} has a single seat: a layer with one seat runs no exchange, so nobody could debate an objection raised there.`, fix: `Give every layer at least two seats in ${filePath}, or remove severity.` });
   }
   return out;
 }
@@ -228,6 +227,28 @@ export function createSeverityRun() {
     refuseRetags(pass, bySeat, why) {
       for (const { seat, retags } of bySeat || []) for (const r of Array.isArray(retags) ? retags : []) retagRefused.push({ id: typeof r?.id === 'string' ? r.id : null, seat, pass, why });
     },
+    /**
+     * The handler's re-tags that take effect AT `pass` (B3 prep, JUDGE 4b; his word "handler too"): each is an approved gate of kind `retag` ({ gate, id, severity, reason, channel, actor, person_words, at }), applied at the very top of its pass,
+     * before anything for that pass is built. A re-tag of an objection the run has not counted yet, or that already stands at that value, applies nothing and is recorded as refused (never dropped). The handler session has no seat and no ledger
+     * to read: the objection is found by its id. When layer 3 re-tags the same id in the same pass, the later one stands and both are recorded.
+     */
+    applyHandlerRetags(pass, list) {
+      const applied = [];
+      for (const r of Array.isArray(list) ? list : []) {
+        const refuse = why => retagRefused.push({ id: typeof r?.id === 'string' ? r.id : null, pass, why, by: 'handler', ...(r?.gate ? { gate: r.gate } : {}) });
+        const ok = checkRetag({ by: 'handler', id: r?.id, to: r?.severity, reason: r?.reason, pass });
+        if (!ok.ok) { refuse('invalid'); continue; }
+        const found = [...firstOf.keys()].find(k => k.endsWith(`\u0000${r.id}`));
+        if (!found) { refuse('id_unknown'); continue; }
+        const had = firstOf.get(found); const lab = found.slice(0, found.length - r.id.length - 1);
+        const from = had.force ?? had.value;
+        if (from === r.severity) { refuse('no_change'); continue; }
+        had.force = r.severity;
+        retagRows.push({ id: r.id, lab, from, to: r.severity, applied_to: r.severity, by: 'handler', pass, reason: String(r.reason).trim().slice(0, 600), ...(r.gate ? { gate: r.gate } : {}) });
+        applied.push({ id: r.id, lab, from, to: r.severity });
+      }
+      return { applied };
+    },
     /** The end of a finished pass: the pass's whole list (heard, carried, sustained). The last one is what a run that stops mid-pass reports, as NOT computed. */
     closePass(pass, failures) { closed = { pass, list: listOf(failures) }; },
     /** The end of the run, reached: `failures` is the complete list (a not-agreed end: the dispute stage's openFailures; a passed end: the last pass's list, swept items only). */
@@ -250,7 +271,7 @@ export function severityRecord(config, result) {
   if (!run) return { lines: { ...SEVERITY_LINES }, computed: false, not_computed: 'the run stopped before the end of its first pass was reached, so nothing is recorded as open or swept', open_at_end: null, swept: [], withdrawn: [], overrides: { by_direction: counts([]), rows: [] }, retags: [] };   // A-DRAFT (the words a person reads)
   return {
     lines: { ...SEVERITY_LINES }, computed: run.computed === true, as_of_pass: run.pass,
-    ...(run.computed === true ? {} : { not_computed: 'the run stopped before the end of its last pass was reached: open_at_end is the last pass that was computed' }),   // A-DRAFT
+    ...(run.computed === true ? {} : { not_computed: 'the run stopped before the end of its last pass was reached: open_at_end lists the objections open as of the last pass that was computed, and as_of_pass names that pass' }),
     open_at_end: run.open, swept: run.swept, withdrawn: run.withdrawn, overrides: { by_direction: counts(run.overrides), rows: run.overrides },
     ...(Array.isArray(run.unheard_at_end) && run.unheard_at_end.length ? { unheard_at_end: run.unheard_at_end } : {}),
     retags: Array.isArray(run.retags) ? run.retags : [], ...(Array.isArray(run.retags_refused) && run.retags_refused.length ? { retags_refused: run.retags_refused } : {}), ...(run.invariant ? { invariant: run.invariant } : {}),

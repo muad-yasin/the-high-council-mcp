@@ -156,3 +156,22 @@ export function fitLedger(rows, render, { maxChars = LEDGER_MAX_CHARS, maxTokens
   const m = measure(render({ rows: kept, omitted: left }));
   return { rows: kept, omitted: left, overflow: true, text: null, ...m, counts: { rows: kept.length, active: kept.length, closed_cut: cutIds.length, compacted: 0 } };
 }
+
+/**
+ * B3 prep, JUDGE unit L2: the open objections of layer 1 that a middle layer is shown (src/roles.js layerOneOpenSection). `render({ rows, left })` returns the exact text sent. Order: the highest rating first (an objection with no readable rating counts as the
+ * highest: it holds, as everywhere in src/severity.js), then the oldest, then the id (codepoint order). When the text is over the ledger's own budget (LEDGER_MAX_CHARS and LEDGER_MAX_TOKENS_EST above: the one existing field cap, no second figure) the LOWEST-rated rows
+ * are cut from the end and counted in `left`; the section names the count. Never a stop and never silent: even with every row cut the frame and the count are returned.
+ */
+export function fitOpenRows(rows, render, { maxChars = LEDGER_MAX_CHARS, maxTokens = LEDGER_MAX_TOKENS_EST } = {}) {
+  const rank = r => { const t = tagOf(r.severity); return t === null ? Infinity : t; };
+  const sorted = [...(rows || [])].sort((a, b) => rank(b) - rank(a) || (a.first_round ?? 0) - (b.first_round ?? 0) || byCode(String(a.id), String(b.id)));
+  const fits = text => { const m = measure(text); return m.chars <= maxChars && m.tokens_est <= maxTokens; };
+  let kept = sorted.length; let text = render({ rows: sorted, left: 0 });
+  while (!fits(text) && kept > 0) { kept -= 1; text = render({ rows: sorted.slice(0, kept), left: sorted.length - kept }); }
+  return { rows: sorted.slice(0, kept), left: sorted.length - kept, text, ...measure(text) };
+}
+
+/** Piece R: the writer's reason for each objection it DECLINED, id -> reason, WHOLE (his word, 1 Nov 2026: no cut at any length; nothing upstream bounds a reason, so a long one is a long block). `latest` is the answer-back record by lab ({ objections: [{ id, declined_reason }] }). */
+export function declinedReasonMap(latest) {
+  return new Map(Object.values(latest || {}).flatMap(e => (e?.objections || []).filter(x => typeof x.declined_reason === 'string' && x.declined_reason.trim()).map(x => [x.id, x.declined_reason])));
+}

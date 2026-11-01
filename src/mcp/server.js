@@ -36,10 +36,12 @@ import { capGateScreen, capGateStatus, answerCapGate } from '../send-path.js';
 import { adviceLimitRefusal } from '../advice-guards.js';
 import { applyEnvFile, envFileValues, conflictSentence, envFilePathFor, MONEY_NAMES } from '../env-file.js';
 import { waitForProgress as waitForProgressWith } from './progress-wait.js';
-import { SIDE_FOLDER_NAME, deriveRunStatus, awaitingUserCap, runResumability, waitingStage, waitingStages, isRunAlive, SPAWN_FILE, finishedRunState, artifactsBlocked, ARTIFACTS_BLOCKED_FILE, RUN_FOLDER, APPROVAL_STATUSES } from '../run-status.js';
+import { SIDE_FOLDER_NAME, deriveRunStatus, awaitingUserCap, awaitingUserCaps, runResumability, waitingStage, waitingStages, isRunAlive, SPAWN_FILE, finishedRunState, artifactsBlocked, ARTIFACTS_BLOCKED_FILE, RUN_FOLDER, APPROVAL_STATUSES } from '../run-status.js';
 import { lockHolder } from '../run-lock.js';
 import { PRICE_RAISE_DESCRIPTION, priceRaiseResult } from './price-raise.js';
 import { everySeatOf, resolveChainSeats } from '../chain.js';
+import { parseCapsSetting, CAPS_SETTING } from '../caps.js';   // DUALCAP 4c2: the per-provider caps switch, read as the CLI reads it
+import { capsInForce } from '../uncovered.js';
 import { harnessVersion } from '../version.js';
 import { isDeniedPath, pathRefusal } from '../tools.js';
 import { contextFileList } from '../context-files.js';
@@ -76,7 +78,9 @@ const pkg = resolve(here, '../..');
 // Such a value is read as unset (EXCEPT COUNCIL_MAX_USD_LIMIT, below: for the spend limit an unexpanded placeholder is Muad's call and refuses the server by default).
 // COUNCIL_MAX_USD_LIMIT is read as given, BEFORE the placeholders go (src/mcp/usd-limit.js decides what an unexpanded placeholder means for the limit).
 const rawUsdLimit = process.env.COUNCIL_MAX_USD_LIMIT;
-for (const [k, v] of Object.entries(process.env)) if (/^\$\{user_config\.[^}]*\}$/.test(v || '')) delete process.env[k];
+// DUALCAP 4c2: a per-provider cap's own ceiling (COUNCIL_MAX_USD_LIMIT_<ID>) is a spend limit too: it reaches the CLI AS GIVEN, which refuses an unexpanded placeholder (src/caps.js
+// readCapCeiling) instead of reading it as "not set". COUNCIL_SPEND_CAPS keeps the old reading (a whole placeholder is unset: test/caps-switch-start.test.js W2).
+for (const [k, v] of Object.entries(process.env)) if (/^\$\{user_config\.[^}]*\}$/.test(v || '') && !/^COUNCIL_MAX_USD_LIMIT_[A-Z]+$/.test(k)) delete process.env[k];
 // COUNCIL_WORKDIR sets the working directory when the client gives the server none it controls:
 // Claude Desktop's bundle format has no cwd setting, so a bundled server otherwise writes tasks
 // and runs wherever the app happened to start it. Unset, nothing changes.
@@ -181,6 +185,19 @@ const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catc
 // 2026-09-23, McpServer #5).
 // True when two paths are the same folder on disk (a link to it counts); a path that cannot be read is not the same.
 const sameFolder = (a, b) => { try { return realpathSync(a) === realpathSync(b); } catch { return false; } };
+// DUALCAP 4c2: the per-provider caps a run of this chain is held to, read the way the CLI reads them (the switch from this server's environment, the caps some seat of the
+// resolved roster bills through). Non-empty: the run takes one typed limit per cap, so the server passes NO run-wide ceiling (the CLI refuses --max-usd there) and refuses a
+// caller's max_usd before anything is spawned. [] when the switch is off, unreadable (the CLI refuses that itself) or no seat bills through an enabled cap.
+function capsHeldFor(chainName, runMeta = null) {
+  const sw = parseCapsSetting(process.env[CAPS_SETTING]);
+  if (!sw.ok || !sw.caps.length) return [];
+  const cfg = chainConfigFor(chainName, runMeta);
+  if (!cfg) return [];
+  let resolved = cfg; try { resolved = resolveChainSeats(cfg); } catch { /* the CLI reports a roster it cannot resolve */ }
+  return capsInForce(resolved, sw.caps);
+}
+/** The server's refusal of max_usd for a run held to per-provider caps (A-DRAFT M1). */
+const capsMaxUsdRefusal = () => { const sw = parseCapsSetting(process.env[CAPS_SETTING]); return `max_usd is one spending limit for the whole run, but ${CAPS_SETTING} (${sw.ok ? sw.caps.join(', ') : ''}) holds a run of this chain to a limit the person types for each provider. Nothing was started. Leave max_usd out: the person is asked one limit per provider.`; };
 function chainConfigFor(name, runMeta = null) {
   if (!isChainName(name)) return null;
   // 0.8.2 item 2 (review): run.json is run-folder data, so a `cwd` in it may name this server's own working folder (the normal case: a run is recorded with cwd = work) and nothing else;
@@ -314,7 +331,7 @@ function runSummary(id) {
     task: report?.task || (log.match(/^task: +(\S+)/m) || [])[1] || null,
     state: report ? finishedRunState(report)
       : artifactsBlocked(dir) ? `blocked: the task names files it never fences - see ${ARTIFACTS_BLOCKED_FILE}; a run's task is frozen once it starts, so start a NEW run with the files fenced into the task, or with start_run's allow_unfenced`
-      : budget.stoppedByCap ? (isAdviceFolder(dir) ? `stopped: the run's spend cap was below this advice call's worst case; nothing was spent; an advice call is not resumed (its approval is used up): ask for a new quote` : `stopped: per-run spend cap reached before stage ${budget.stoppedByCap.stage} - resume_run continues it (a paid run asks the person for a new total)`)
+      : budget.stoppedByCap ? (isAdviceFolder(dir) ? `stopped: the run's spend cap was below this advice call's worst case; nothing was spent; an advice call is not resumed (its approval is used up): ask for a new quote` : budget.stoppedByCap.capName ? `stopped: the ${budget.stoppedByCap.capName} spend cap reached before stage ${budget.stoppedByCap.stage} - resume_run continues it (the person types a new total for that cap)` : `stopped: per-run spend cap reached before stage ${budget.stoppedByCap.stage} - resume_run continues it (a paid run asks the person for a new total)`)   // the per-cap form: A-DRAFT M4 (DUALCAP 4c2)
       // 0.8.1 M6: an advice call stopped by a person, its client or its wall clock (STOPPED-<cause>.json), before or after paid calls.
       : stopMarker && waitsForPerson(stopMarker.stoppedBy) ? ROUND_STOPPED_STATE
       : stopMarker ? `stopped by ${({ user: 'a person', client_cancel: 'its client', wall_clock: 'its wall-clock ceiling' })[stopMarker.stoppedBy]}${({ some: ` after paid calls; what was paid for is in ${PARTIAL_REPORT_FILE}`, none: ' before any call: nothing was spent', unknown: ` (its stop marker cannot be read: spend unknown, see ${PARTIAL_REPORT_FILE} and council --spend)` })[stopSpendNote(stopMarker)]}`
@@ -491,6 +508,9 @@ async function holdSpawn() {
 
 // The result of a start or a resume that ended with exit 21: the run is waiting for a limit a person types. `requires_user` and `paid_started: false` are the fields a client acts on; `next` is the terminal command that records the limit.
 function awaitingCapResult(id, verb) {
+  const all = awaitingUserCaps(join(runsDir, id));
+  // DUALCAP 4c2: a run under per-provider caps waits for one limit per cap still open: every gate is named (A-DRAFT M3); a run with one limit answers as before
+  if (all.some(w => w.capName)) return { [verb]: false, run: id, state: 'awaiting_user_cap', requires_user: true, paid_started: false, decision: all[0].gate, decisions: all.map(w => ({ gate: w.gate, cap: w.capName })), next: `A person must type a limit for each provider still open. At a terminal: ${all.map(w => `council gate answer ${join(runsDir, id)} ${w.gate} (the ${w.capName} cap)`).join(' and ')}; then resume_run continues this run. Or in this client's dialog, when resume_run asks for them one by one.` };
   const waiting = awaitingUserCap(join(runsDir, id));
   return { [verb]: false, run: id, state: 'awaiting_user_cap', requires_user: true, paid_started: false, ...(waiting ? { decision: waiting.gate, next: `A person must type the limit: at their own terminal with council gate answer ${join(runsDir, id)} ${waiting.gate}, or in this client's dialog when resume_run asks for it; then this run can be resumed` } : {}) };
 }
@@ -502,6 +522,8 @@ function awaitingCapResult(id, verb) {
 // accept with no usable number record nothing that grants consent. One time budget for the whole call (the advice path's DR-6 constants), one prompt in flight per gate (single-flight, this process only).
 const CAP_REASKS = 2;
 const CAP_SCHEMA = { type: 'object', properties: { limit_usd: { type: 'number', title: 'Total limit in US dollars for this run', description: 'Type a number. Nothing is pre-filled.' } }, required: ['limit_usd'] };
+// DUALCAP 4c2: the field of one per-provider cap's question names its cap (A-DRAFT M2); the description and the rules are CAP_SCHEMA's.
+const capSchemaFor = capName => (capName ? { ...CAP_SCHEMA, properties: { limit_usd: { ...CAP_SCHEMA.properties.limit_usd, title: `Total limit in US dollars for the ${capName} cap` } } } : CAP_SCHEMA);
 const CAP_NO_NUMBER = 'No limit was typed. Type a number of dollars.';
 // A gate id alone is not unique across runs (every run's first cap gate is `g1`, gate.js), so the key is the run folder AND the gate: a second run waiting at g1 while the first run's dialog is open is asked its own question (review fix F2, 18 Okt 2026).
 const capAsking = new Map();   // `${runDir}|${gate id}` -> the dialog in flight
@@ -509,7 +531,7 @@ const capAskKey = (runDir, gateId) => `${runDir}|${gateId}`;
 const dialogFor = extra => ({ signal: extra?.signal, callStart: Date.now() });
 const clientCanElicit = () => !!(server.server.getClientCapabilities?.() || {}).elicitation;
 const capScreenOf = capGateScreen;
-async function askCapOnce({ runDir, gateId, dialog, deadline }) {
+async function askCapOnce({ runDir, gateId, dialog, deadline, capName = null }) {
   const client = { name: server.server.getClientVersion?.()?.name ?? null, version: server.server.getClientVersion?.()?.version ?? null };
   let prefix = '';
   for (let attempt = 0; attempt <= CAP_REASKS; attempt++) {
@@ -519,7 +541,7 @@ async function askCapOnce({ runDir, gateId, dialog, deadline }) {
     if (!screen) return 'unavailable';
     let res;
     try {
-      res = await server.server.elicitInput({ message: prefix ? `${prefix}\n\n${screen.text}` : screen.text, requestedSchema: CAP_SCHEMA }, { timeout: leftMs, signal: dialog.signal });
+      res = await server.server.elicitInput({ message: prefix ? `${prefix}\n\n${screen.text}` : screen.text, requestedSchema: capSchemaFor(capName) }, { timeout: leftMs, signal: dialog.signal });
     } catch (e) {
       if (dialog.signal?.aborted || e?.name === 'AbortError') return 'cancelled';
       if (e?.code === -32001 || /timed? ?out/i.test(String(e?.message))) return 'timeout';
@@ -545,17 +567,22 @@ async function askCapOnce({ runDir, gateId, dialog, deadline }) {
 async function capDialogFlow({ id, verb, dialog }) {
   const base = awaitingCapResult(id, verb);
   const runDir = join(runsDir, id);
-  const waiting = awaitingUserCap(runDir);
-  if (!dialog || !waiting || !clientCanElicit()) return base;
+  // DUALCAP 4c2: a run under per-provider caps waits for one limit per cap still open: each is asked in turn (one question per cap, single-flight per gate), and the run is
+  // continued ONCE, after every one is recorded. A run with one limit asks its one gate, as before.
+  const all = awaitingUserCaps(runDir);
+  const queue = all.some(w => w.capName) ? all : (awaitingUserCap(runDir) ? [{ gate: awaitingUserCap(runDir).gate, capName: null }] : []);
+  if (!dialog || !queue.length || !clientCanElicit()) return base;
   const budgetEnd = dialog.callStart + DEFAULT_HOLD_S * 1000;
   const deadline = budgetEnd - START_MARGIN_S * 1000;
-  const askKey = capAskKey(runDir, waiting.gate);
-  if (!capAsking.has(askKey)) capAsking.set(askKey, askCapOnce({ runDir, gateId: waiting.gate, dialog, deadline }).finally(() => capAsking.delete(askKey)));
-  const outcome = await capAsking.get(askKey);
-  if (outcome === 'declined') return { ...base, declined: true, note: 'The limit was declined in the dialog. Nothing was started and nothing more was spent; a new request asks again.' };
-  if (outcome !== 'approved') return base;
+  for (const w of queue) {
+    const askKey = capAskKey(runDir, w.gate);
+    if (!capAsking.has(askKey)) capAsking.set(askKey, askCapOnce({ runDir, gateId: w.gate, dialog, deadline, capName: w.capName }).finally(() => capAsking.delete(askKey)));
+    const outcome = await capAsking.get(askKey);
+    if (outcome === 'declined') return { ...base, declined: true, note: 'The limit was declined in the dialog. Nothing was started and nothing more was spent. A new request asks again; under COUNCIL_SPEND_CAPS, a limit already recorded for another provider stays recorded, and the person is asked only for the limits still open.' };
+    if (outcome !== 'approved') return base;
+  }
   // the answer is on record: resume the SAME run so the CLI consumes it as THE cap; if the call has no time left for that, the answer waits for resume_run
-  if (Date.now() > budgetEnd - 3000) return { ...base, state: 'limit_recorded', requires_user: false, note: 'The limit is recorded; this call had no time left to start the run. resume_run continues it.' };
+  if (Date.now() > budgetEnd - 3000) return { ...base, state: 'limit_recorded', requires_user: false, note: 'Every limit asked for is recorded; this call had no time left to start the run. resume_run continues it.' };
   const resumed = await resume(id, undefined, {});
   if (verb === 'started') { const { resumed: ok, ...rest } = resumed; return { started: ok === true, ...rest }; }
   return resumed;
@@ -597,7 +624,7 @@ async function piiStopFlow({ id, args, logPath, dialog }) {
 }
 
 // submit_stage resumes the run but never asks for a limit (DR-3): when the resume stops at the limit screen, the result names the call that does ask (C&C ruling A, 15 Oct 2026; E 184 i).
-const SUBMIT_CAP_HINT = 'The stage was written. This run now waits for its spending limit: resume_run asks for it in the client dialog, or a person types it at the terminal.';
+const SUBMIT_CAP_HINT = 'The stage was written. This run now waits for its spending limit: resume_run asks for it in the client dialog, or a person types it at the terminal. Under COUNCIL_SPEND_CAPS the run waits for one limit per provider still open, and resume_run asks for each in turn.';
 const submitStageResumed = r => (r?.state === 'awaiting_user_cap' ? { ...r, hint: SUBMIT_CAP_HINT } : r);
 
 // The stop sentence of a run stopped at an overseer limit: the marker's own text (src/overseer-rounds.js stopSentence, written by the CLI), which names `--continue` and `--finish`. null when the marker cannot be read (the log tail
@@ -660,7 +687,7 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   draft: z.string().optional().describe('path to a draft to review instead of building one'),
   from_run: z.string().optional().describe('reuse this earlier run\'s criteria'),
   rounds: z.number().int().min(1).max(5).optional(),
-  max_usd: MAX_USD_ARG.describe(`the figure to suggest as the run's spending limit, in USD, a positive number. For a paid chain the limit is the number the person types in the dialog; this figure is only the suggestion, and "none" is refused (nothing started). Left out, the dialog suggests MAX_USD_PER_RUN (a user who set COUNCIL_MAX_USD_LIMIT gets the lesser of the two, with $${DEFAULT_MAX_USD} for an unset MAX_USD_PER_RUN); with neither set it suggests nothing. A chain with no paid seat has no dialog: there this figure is the run's ceiling ($${DEFAULT_MAX_USD} when nothing sets it) and "none" removes it. A figure above COUNCIL_MAX_USD_LIMIT is refused, and so is "none" on a chain with no paid seat where the user set that limit; 0 is refused. The run stops cleanly before any stage that could pass its limit, and resumes with a higher total.`),
+  max_usd: MAX_USD_ARG.describe(`the figure to suggest as the run's spending limit, in USD, a positive number. When COUNCIL_SPEND_CAPS holds a run of this chain to a limit per provider, leave max_usd out: it is refused before anything starts, the dialog suggests no figure, and the person types one limit per provider. Otherwise, for a paid chain the limit is the number the person types in the dialog; this figure is only the suggestion, and "none" is refused (nothing started). Left out, the dialog suggests MAX_USD_PER_RUN (a user who set COUNCIL_MAX_USD_LIMIT gets the lesser of the two, with $${DEFAULT_MAX_USD} for an unset MAX_USD_PER_RUN); with neither set it suggests nothing. A chain with no paid seat has no dialog: there this figure is the run's ceiling ($${DEFAULT_MAX_USD} when nothing sets it) and "none" removes it. A figure above COUNCIL_MAX_USD_LIMIT is refused, and so is "none" on a chain with no paid seat where the user set that limit; 0 is refused. The run stops cleanly before any stage that could pass its limit, and resumes with a higher total.`),
   allow_unfenced: z.union([z.boolean(), z.array(z.string())]).optional().describe('waive the artifact gate: true for the whole task, or a list of file names that are only locations, not content the panel needs'),
 }, async ({ chain: named, task, context, draft, from_run, rounds, max_usd, allow_unfenced }, extra) => {
   // 0.8.3 tiers: no chain = the default chain (Muad 15 Okt 2026, "CLI and MCP"). It is not a silent spend: a paid run's limit is a number a person types, whatever the chain (the same gate as any named chain). The answer names the chain used.
@@ -682,7 +709,9 @@ server.tool('start_run', 'Start a harness run in the background. Returns the run
   if (draft) args.push('--draft', resolve(work, draft));
   if (from_run) args.push('--from-run', resolve(work, from_run));
   if (rounds) args.push('--rounds', String(rounds));
-  const ceiling = ceilingArgs(max_usd);
+  const held = capsHeldFor(chain);   // DUALCAP 4c2
+  if (held.length && max_usd !== undefined) return text({ started: false, error: capsMaxUsdRefusal() });
+  const ceiling = held.length ? [] : ceilingArgs(max_usd);
   if (ceiling.refused) return text({ started: false, error: ceiling.refused });
   args.push(...ceiling);
   if (allow_unfenced === true) args.push('--allow-unfenced');
@@ -795,7 +824,7 @@ server.tool('submit_stage', 'Write the answer for an external stage into the run
   return text({ written: `${stage}.md`, words: words(content), ...(warnings.length ? { warnings } : {}), ...submitStageResumed(await resume(run, undefined)) });   // NO dialog here (C&C ruling A, 15 Oct 2026): submit_stage can never reach a gate (DR-3; test/gate-answer.test.js:3). An exit 21 comes back as the awaiting result naming resume_run, which asks.
 });
 
-server.tool('resume_run', 'Resume a paused run after its external stage was answered (submit_stage does this for you), or a run its spending limit stopped (a paid run asks the person for a new, higher total; max_usd is the figure suggested). Completed stages replay from disk and cost nothing.', { run: z.string(), max_usd: MAX_USD_ARG.describe('the figure to suggest as the run\'s new total, a positive number. A paid run its limit stopped asks the person for the new total in the dialog; this figure is only the suggestion. For a chain with no paid seat it raises the ceiling for the rest of this run, and "none" removes it. "none" is refused where the user set COUNCIL_MAX_USD_LIMIT; a figure above that limit is refused; 0 is refused.') }, async ({ run, max_usd }, extra) => {
+server.tool('resume_run', 'Resume a paused run after its external stage was answered (submit_stage does this for you), or a run its spending limit stopped (a paid run asks the person for a new, higher total; max_usd is the figure suggested). Completed stages replay from disk and cost nothing.', { run: z.string(), max_usd: MAX_USD_ARG.describe('the figure to suggest as the run\'s new total, a positive number. For a run held to a cap per provider (COUNCIL_SPEND_CAPS), leave it out: it is refused, and the person types, in the dialog, the new total for each cap the run asks about. Otherwise, a paid run that stopped at its limit asks the person for the new total in the dialog; this figure is only the suggestion. For a chain with no paid seat it raises the ceiling for the rest of this run, and "none" removes it. "none" is refused where the user set COUNCIL_MAX_USD_LIMIT; a figure above that limit is refused; 0 is refused.') }, async ({ run, max_usd }, extra) => {
   { const bad = runRefusal(run); if (bad) return text({ error: bad }); }
   return text(await resume(run, max_usd, { dialog: dialogFor(extra) }));
 });
@@ -846,7 +875,10 @@ async function resume(run, maxUsd, { dialog = null } = {}) {
     // Audit fix cnc-mcp-security F1: a saved `allowSecretShaped` (the outbound key scan off) is run-folder data too: over MCP it is NEVER honoured (since the MCP parameter was removed in 0.8.3 the override is a person's typed flag only).
     if (meta?.allowSecretShaped === true) return { resumed: false, run, error: 'refused to resume: this run was saved with the key-shaped-text override, which is not honoured over MCP. A person can run `council --resume runs/<id>` in a terminal. Nothing more was spent.' };
   }
-  const ceiling = ceilingArgs(maxUsd, readRunJson(join(runsDir, run), 'run.json') ?? undefined);
+  const savedMeta = readRunJson(join(runsDir, run), 'run.json') ?? undefined;
+  const held = savedMeta ? capsHeldFor(savedMeta.chain, savedMeta) : [];   // DUALCAP 4c2: a run held to per-provider caps gets no run-wide ceiling
+  if (held.length && maxUsd !== undefined) return { resumed: false, run, error: capsMaxUsdRefusal() };
+  const ceiling = held.length ? [] : ceilingArgs(maxUsd, savedMeta);
   if (ceiling.refused) return { resumed: false, run, error: ceiling.refused };
   const logPath = join(work, `council-${Date.now()}.log`);
   const fd = openSync(logPath, 'a'); // fs-ok: the detached CLI's own log in the working folder, named council-<timestamp>.log: opened for appending by the server, not a run-folder file

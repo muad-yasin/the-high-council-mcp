@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { objectionId } from '../src/objection-ids.js';
 import {
-  SEVERITY_LINES, SEVERITY_SCALE, readSeverity, bandOf, holdsSignOff, holdsClimb, openAtIds, effectiveSeverity, checkRetag, settleVerdict, SETTLE_WORDS, severityOf, lintSeverityChain, mergeSeverity, endRecord, settleStateOf,
+  SEVERITY_LINES, SEVERITY_SCALE, readSeverity, bandOf, holdsSignOff, openAtIds, effectiveSeverity, checkRetag, settleVerdict, SETTLE_WORDS, severityOf, lintSeverityChain, mergeSeverity, endRecord, settleStateOf,
 } from '../src/severity.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -38,11 +38,11 @@ test('bandOf: 3.9 is swept, 4.0 and 6.9 settle, 7.0 and 10 must be fixed (the bo
   assert.throws(() => bandOf('7'), /severity/); assert.throws(() => bandOf(undefined), /severity/); assert.throws(() => bandOf(11), /severity/);
 });
 
-test('holdsSignOff and holdsClimb: below 4 holds neither; 4 and above hold both (his A: no objection rated 4 or above open)', () => {
-  assert.equal(holdsSignOff(3.9), false); assert.equal(holdsClimb(3.9), false);
-  for (const v of [4, 6.9, 7, 10]) { assert.equal(holdsSignOff(v), true, `${v} sign-off`); assert.equal(holdsClimb(v), true, `${v} climb`); }
+test('holdsSignOff: below 4 holds nothing; 4 and above hold the sign-off (his A: no objection rated 4 or above open)', () => {
+  assert.equal(holdsSignOff(3.9), false);
+  for (const v of [4, 6.9, 7, 10]) assert.equal(holdsSignOff(v), true, `${v} sign-off`);
   // No readable tag: held (a throw here would crash a sign-off site, and reading it as below 4 would fail open).
-  assert.equal(holdsSignOff(null), true); assert.equal(holdsClimb('9'), true); assert.equal(holdsSignOff(undefined), true);
+  assert.equal(holdsSignOff(null), true); assert.equal(holdsSignOff('9'), true); assert.equal(holdsSignOff(undefined), true);
 });
 
 test('the id of an objection ignores severity, so a tag or a re-tag never makes a second objection', () => {

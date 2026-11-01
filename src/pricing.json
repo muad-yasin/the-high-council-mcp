@@ -115,10 +115,10 @@
         "high": 0.72
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 7 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 7 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -170,10 +170,10 @@
       },
       "tier_driven": true,
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -199,10 +199,10 @@
         "high": 1.25
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 3 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 3 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -233,10 +233,10 @@
         "high": 7.5
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -260,10 +260,10 @@
         "high": 0.66
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "0 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -291,10 +291,10 @@
       },
       "tier_driven": true,
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (2)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -329,10 +329,10 @@
         "high": 1.32
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (2)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -358,10 +358,10 @@
         "high": 1.32
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (2)",
-        "output limit of at least 360000 tokens (the smallest maxTokens a shipped chain gives this model; 4 left out)",
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 360000 tokens (the smallest maxTokens a shipped chain gives this model; 4 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -389,10 +389,10 @@
       },
       "tier_driven": true,
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -418,10 +418,10 @@
         "high": 3.83
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 2 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 2 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -445,10 +445,10 @@
         "high": 8
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 384000 tokens (the smallest maxTokens a shipped chain gives this model; 3 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 384000 tokens (the smallest maxTokens a shipped chain gives this model; 3 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -474,10 +474,10 @@
         "high": 5.28
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (4)",
-        "output limit of at least 54000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (4 host(s))",
+        "output limit of at least 54000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -503,10 +503,10 @@
         "high": 6
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -530,10 +530,10 @@
         "high": 0.47
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -564,10 +564,10 @@
         "high": 22
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (1)",
-        "output limit of at least 15000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (1 host(s))",
+        "output limit of at least 15000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out; 4 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -593,10 +593,10 @@
         "high": 50
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -624,10 +624,10 @@
       },
       "tier_driven": true,
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (3)",
-        "output limit of at least 8000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (3 host(s))",
+        "output limit of at least 8000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "2 host(s) the page marks \"Not used in Standard routing\" left out",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -653,10 +653,10 @@
         "high": 4.25
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -682,10 +682,10 @@
         "high": 2.4
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (1)",
-        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 1 left out)",
+        "fast, ultrafast, priority and flex tiers left out (1 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 1 host(s) left out)",
         "0 host(s) the page marks \"Not used in Standard routing\" left out",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -709,10 +709,10 @@
         "high": 1
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 2 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 2 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -736,10 +736,10 @@
         "high": 22.5
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (4)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (4 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "0 host(s) the page marks \"Not used in Standard routing\" left out; 1 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -763,10 +763,10 @@
         "high": 27.5
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (1)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (1 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out; 4 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -790,10 +790,10 @@
         "high": 11
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out; 4 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -819,10 +819,10 @@
       },
       "tier_driven": true,
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (2)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -846,10 +846,10 @@
         "high": 2
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (1)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (1 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -873,10 +873,10 @@
         "high": 8
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (5)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (5 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -902,10 +902,10 @@
       },
       "tier_driven": true,
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (4)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (4 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "0 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -931,10 +931,10 @@
       },
       "tier_driven": true,
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (2)",
-        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -960,10 +960,10 @@
       },
       "tier_driven": true,
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out; 4 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -987,10 +987,10 @@
         "high": 2.1
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -1014,10 +1014,10 @@
         "high": 2.7
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 64000 tokens (the smallest maxTokens a shipped chain gives this model; 1 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 64000 tokens (the smallest maxTokens a shipped chain gives this model; 1 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -1041,10 +1041,10 @@
         "high": 2.501
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 64000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 64000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -1068,10 +1068,10 @@
         "high": 4.25
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -1095,10 +1095,10 @@
         "high": 3.75
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (4)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (4 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out; 3 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -1122,10 +1122,10 @@
         "high": 10
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -1149,10 +1149,10 @@
         "high": 3.75
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (4)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (4 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -1178,10 +1178,10 @@
       },
       "tier_driven": true,
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (3)",
-        "output limit of at least 12000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (3 host(s))",
+        "output limit of at least 12000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -1205,10 +1205,10 @@
         "high": 11
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "1 host(s) the page marks \"Not used in Standard routing\" left out; 4 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -1249,10 +1249,10 @@
         "high": 0.87
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 1 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 1 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }
@@ -1276,10 +1276,10 @@
         "high": 0.35
       },
       "filters": [
-        "fast, ultrafast, priority and flex tiers left out (0)",
-        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 0 left out)",
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
         "the page shows no \"Not used in Standard routing\" divider",
-        "a host with price overrides (by prompt size or by time of day) is priced at its dearest figure",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
         "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)"
       ]
     }

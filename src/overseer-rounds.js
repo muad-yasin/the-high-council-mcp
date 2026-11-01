@@ -125,12 +125,11 @@ export function stopSentence(stop, { spentUsd = null, draftFile = null, runDir =
   if (memberTail) return `${head}\n\n${memberTail}`;
   return head
     + `To go on: council --resume ${runDir} --continue (${extendWords(stop, add)}; the run's spending limit still applies). To end it here: council --resume ${runDir} --finish (the dispute stage and the handoff run, the open objections are handed over, the result stays "not agreed"). `
-    + (canSendUp(stop) ? `To pass the plan up: council --resume ${runDir} --send-up (layer 1's open objections go up to layer 2, which reviews the plan and rules on them; it uses no revision). ` : '')   // A-DRAFT
     + `Or take the draft and revise it yourself outside the Council.`;
 }
 
 // ---- Round semantics 2b-ii: the person's choice at a stop (continue / finish), recorded in run.json `roundChoices` and applied on the replay.
-/** True for the one stop where `--send-up` is offered: a layer-1 stop for its revision bound (not the overseer-round cap, not a silent seat, not layer 2). */
+/** True for a layer-1 stop for its revision bound (not the overseer-round cap, not a silent seat, not layer 2): the one stop where `--send-up` was offered until it was turned off on 1 Nov 2026. Kept for the recorded choices of older runs and for its test. */
 export const canSendUp = stop => stop?.kind === 'layer_bound' && stop.why === 'revisions' && stop.layer === 1;
 /** The identity of one stop: its kind, overseer round and pass. A choice names it, so re-typing the same command (after the limit screen, say) never counts twice. */
 export const stopIdOf = stop => `${stop.kind}:${stop.overseer_round}:${stop.pass}`;

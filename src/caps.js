@@ -55,7 +55,7 @@
 //   uses none of them), one Known-limits line each, open 0.8.4 items. These refusals land behind the not-armed refusal, before the arming lifts it.
 // IN-PROCESS (the shape pinned in unit 1, built in unit 4a; the CACHE lane rebases on it; the buckets live in chain.js `capBuckets`, beside `budget`, so budgetState()
 //   with the switch off stays byte for byte today's: its `caps` key appears only when armed). src/chain.js `budget` keeps { cap, spent, reserved, reservedExpected, assumed } as the RUN
-//   totals (budget.cap is null with the switch ON: there is no third total) and gains `caps`: null (OFF) | { <id>: { cap, spent, reserved,
+//   totals (budget.cap is null with the switch ON: there is no third total); beside it, `capBuckets` is null (OFF) | { <id>: { cap, spent, reserved,
 //   reservedExpected, assumed: { stages, usd } } } for the caps in force. setBudget(cap) is unchanged; setCapBudgets({ <id>: capUsd }) arms the buckets
 //   after setBudget(null). invoke(): the seat's cap = billingAccountOf(seat); BOTH gate points of the base (b8eb7839) run on that cap's bucket: the call's own
 //   check (wouldBreach, once: a seat bills through one account) and the check before the thinking retry is sent (28 Okt 2026); every charge (a replayed
@@ -118,7 +118,7 @@ export function seatBillingRefusal(seat) {
   if (!seat || typeof seat !== 'object' || !Object.hasOwn(seat, MOCK_BILLS_FIELD)) return null;
   const value = seat[MOCK_BILLS_FIELD];
   if (seat.provider !== 'mock') {
-    return { code: 'mock_bills_on_real_seat', sentence: `A seat whose provider is "${seat.provider}"${seat.model ? ` (${seat.model})` : ''} carries "${MOCK_BILLS_FIELD}", which only an offline mock seat may carry: a real seat's spend always counts against the cap of its own provider, so the field is refused rather than left to look as if it moved the spend.` };
+    return { code: 'mock_bills_on_real_seat', sentence: `A seat whose provider is "${seat.provider}"${seat.model ? ` (${seat.model})` : ''} carries "${MOCK_BILLS_FIELD}", which only an offline mock seat may carry. A real seat's spend always counts against the cap of its own provider; the field is refused, not ignored, so that it cannot look as if it had moved the spend. Remove "${MOCK_BILLS_FIELD}" from that seat.` };
   }
   if (typeof value !== 'string' || !BILLING_CAP_IDS.includes(value)) {
     return { code: 'mock_bills_not_a_billing_provider', sentence: `A mock seat's "${MOCK_BILLS_FIELD}" is ${shown(JSON.stringify(value) ?? String(value))}, which is not a provider that bills (one of ${BILLING_CAP_IDS.join(', ')}).` };
@@ -156,7 +156,7 @@ export function parseCapsSetting(raw) {
 // WHICH COMMANDS MAY SPEND (unit 2: the switch's check at the start of src/cli.js). FAIL CLOSED: a command runs while the switch is unreadable or on but not
 // armed only when it is listed here as spending nothing. Every subcommand of src/cli.js (its SUBCOMMANDS) is in exactly one list, and every verb of
 // `council tree` is classified (test/caps-switch-commands.test.js reads both from the source, so a new one forces a decision).
-export const NON_SPENDING_SUBCOMMANDS = Object.freeze(['--version', '-v', 'advise-rate', 'check-lock', 'demo', 'doctor', 'export-board', 'fence', 'gate', 'init', 'lint-criteria', 'relay-answer', 'replay', 'ruling-add', 'ruling-withdraw', 'stop', 'verify-handoff']);
+export const NON_SPENDING_SUBCOMMANDS = Object.freeze(['--version', '-v', 'advise-rate', 'check-lock', 'demo', 'doctor', 'export-board', 'fence', 'gate', 'init', 'lint-criteria', 'relay-answer', 'replay', 'ruling-add', 'retag-add', 'ruling-withdraw', 'stop', 'verify-handoff']);
 export const SPENDING_SUBCOMMANDS = Object.freeze(['digest', 'handoff']);
 // Subcommands decided by their verb: these verbs spend nothing (a gated record, a read, a stop); any other verb of the two, a new one included, may spend.
 export const NON_SPENDING_VERBS = Object.freeze({ tree: Object.freeze(['approve', 'check', 'decide', 'status', 'stop']), contract: Object.freeze(['amend', 'check', 'lock', 'show']) });
@@ -212,14 +212,15 @@ export const capsClassRefusalSentence = (c, caps) => `${CAPS_SETTING} is set (${
 /** What a dry run of a refused class says before it goes on (A-DRAFT): a real run would be refused; the dry run calls nothing. */
 export const capsDryRunNote = (c, caps) => `With ${CAPS_SETTING} set (${caps.join(', ')}), a real run of this command would be refused: ${classReasonOf(c)}. This dry run goes on and calls nothing.`;
 
-/** The refusal while the switch is on and the caps are not yet armed in this build (A-DRAFT; TEMPORARY: the arming unit removes it). `caps`: parseCapsSetting's sorted list. */
-export const capsNotArmedSentence = caps => `${CAPS_SETTING} is set (${caps.join(', ')}), but this build cannot yet hold a run to one spending cap per provider. Leave ${CAPS_SETTING} empty to run with one typed limit per run. Nothing was started.`;
+/** The refusal at the top for a command that may spend and is neither a main start or resume (they arm, 4b2 and 4c1) nor a refused class with its own sentence (A-DRAFT). `caps`: parseCapsSetting's sorted list. */
+export const capsNotArmedSentence = caps => `${CAPS_SETTING} is set (${caps.join(', ')}), but this command is neither a run start (--task) nor a --resume, the two commands the caps hold to one typed limit per provider. To start or continue a run under the caps, use --task or --resume. To run this command, leave ${CAPS_SETTING} empty and it runs with one typed limit per run. Nothing was started.`;
 
 // THE START REFUSALS (unit 3b; C&C's rulings of 1 Nov 2026). With the switch on, a main START or RESUME that is no refused class is not refused at the top
 // (capsDeferredStart): it runs the main path's own checks (the run folder, the chain, the keys, unpriced seats) and then, before anything is written, meets in
 // this order: a seat that is not mock carrying mockBills (refused WHATEVER the switch says: seatBillingRefusal; on every CLI line the chain lint answers that one
 // first, src/cli.js exitOnLint on the rerouted roster, start, resume and dry run alike, so this is the backstop behind it), seats no enabled cap covers (exit 5), option B (a
-// cap in force without a ceiling of its own while COUNCIL_MAX_USD_LIMIT is set, exit 2; an unreadable one too), and last the not-armed refusal. Every other line
+// cap in force without a ceiling of its own while COUNCIL_MAX_USD_LIMIT is set, exit 2; an unreadable one too; since 4b2 also the unreadable limits and Q1: "THE ARMING"),
+// and then a start arms (4b2) and a resume takes its folder's class (4c1, "THE RESUME"). Every other line
 // that may spend keeps the not-armed refusal at the top (fail closed). The list is computed once (src/uncovered.js capsStartRefusals); a dry run reports it, as
 // text lines and as the JSON field `startRefusals` (absent when empty), and calls nothing (Q1b). A RESUME TAKES THE CLASS OF ITS RUN FOLDER, never of the
 // --resume flag (C&C): a tree member's run (run.json's tree lineage) is a tree, exit 19; an advice folder (src/stop-files.js isAdviceFolder) an advice call, after
@@ -257,6 +258,80 @@ export function capsUncoveredSentence(entries, caps) {
 export const capsCeilingMissingSentence = (names, caps) => `${CAPS_SETTING} is set (${caps.join(', ')}) and so is COUNCIL_MAX_USD_LIMIT, so each cap in force needs its own ceiling, and ${names.join(' and ')} ${names.length === 1 ? 'is' : 'are'} not set. Set ${names.length === 1 ? 'it' : 'them'} to a plain number of dollars (such as 5 or 2.50). Nothing was started.`;
 /** One line of a dry run's report of a start refusal (A-DRAFT): what a real start would do, without the "Nothing was started." a dry run has no use for. */
 export const capsStartRefusalLine = r => `A real start would be refused (exit ${r.exit}): ${r.sentence.replace(/ Nothing was (started|sent)\.$/, '')}`;
+
+// THE ARMING (unit 4b2; C&C's rulings of 1 Nov 2026). With the switch on and at least one cap in force (src/uncovered.js capsInForce), a main start runs under one
+// limit a person types per cap (one typed-limit gate per cap, src/start-cap.js authorizeStart with capName), armed in invoke() as one bucket per cap
+// (src/chain.js setCapBudgets). A run-wide figure cannot act there and is refused, LAST among the start refusals (Q1: --max-usd, or MAX_USD_PER_RUN from the
+// environment or the project .env; a blank value or a host placeholder counts as unset, with the switch on only: C&C, ON-ONLY). A chain with no cap in force
+// keeps today's path. The wait at exit 21 lists every gate still open, and its next step is a plain --resume: a RESUME of a folder that holds only what that
+// wait wrote (capsPendingStart) continues the start; every other resume under the switch meets the not-armed line until the resume unit (4c).
+/** Q1's refusal (A-DRAFT): a run-wide figure under the switch, naming the setting and where it was set, never its value. `source`: 'flag' | 'environment' | 'project-env'. */
+export function capsRunWideSentence(source, caps) {
+  const what = source === 'flag' ? '--max-usd' : source === 'environment' ? 'MAX_USD_PER_RUN, set in the environment (where the Desktop plugin\'s max_usd setting also lands),' : 'MAX_USD_PER_RUN, set in the project .env,';
+  const out = source === 'flag' ? 'Start again without --max-usd' : source === 'environment' ? 'Unset it' : 'Remove that line';
+  return `${what} sets one spending limit for the whole run, but ${CAPS_SETTING} (${caps.join(', ')}) holds this run to a limit you type for each provider. Nothing was started. ${out}, and type one limit per provider when the run asks.`;
+}
+/** Whether a raw MAX_USD_PER_RUN counts as SET with the switch on: a blank value or a host placeholder (a Desktop field left empty) is unset (C&C, ON-ONLY: with the switch off the old reading stands). */
+export const perRunIsSet = raw => typeof raw === 'string' && raw.trim() !== '' && !isLimitPlaceholder(raw);
+// What a start waiting at exit 21 leaves in its run folder (src/cli.js before the typed-limit wait: run.json, the run lock; src/start-cap.js: each gate's screen and
+// scope file; src/gate.js and gate-ledger.js: the ledger, its lock and gates/), which is also all that `council gate answer` adds. REQUIRED must be there; ALLOWED
+// may be. Anything else (a stage file, a usage file, a reservation, a stop file, a log) is a run that started.
+const PENDING_REQUIRED = Object.freeze(['run.json', 'gate-ledger.jsonl', 'gates']);
+const PENDING_ALLOWED = /^(?:\.council\.lock|gate-ledger\.lock|cap-screen-\d+\.md|cap-scope-\d+\.json|gates[/\\]g\d+\.json|\.spawn\.json)$/;   // .spawn.json: the MCP server's own record of the child it spawned (src/mcp/server.js recordSpawn; 4c2)
+/** true when a run folder is a start still waiting for its typed limits: `entries` = its recursive listing (relative paths), `meta` = its run.json, which records no limit (no caps, no maxUsd). */
+export function capsPendingStart(entries, meta) {
+  if (!meta || typeof meta !== 'object' || Object.hasOwn(meta, 'caps') || Object.hasOwn(meta, 'maxUsd')) return false;
+  const list = (entries ?? []).map(String);
+  return PENDING_REQUIRED.every(f => list.includes(f)) && list.every(f => PENDING_REQUIRED.includes(f) || PENDING_ALLOWED.test(f));
+}
+/** The wait at exit 21 under the switch (A-DRAFT): every gate still open, one line each, then the one command that continues. `pending`: [{ id, gate }] in cap order. */
+export function capsWaitSentence(pending, caps, { dir, command, raiseId = null, relayed = false }) {
+  // Unit 4c1: an early raise repeats its `--raise-cap <id>` on the resume; a RELAYED raise (W2) lists one relay-answer line per open gate and the handler's resume.
+  const again = `${command} --resume ${dir}${raiseId || relayed ? ` --raise-cap${raiseId ? ` ${raiseId}` : ''}` : ''}${relayed ? ' --relayed' : ''}`;
+  if (relayed) {
+    const lines = pending.map((p, i) => (p.relayed ? `  ${i + 1}. ${command} relay-answer ${dir} ${p.gate} --total <the total, in dollars> --person-words "<the person's words as typed in this window, with the total in digits>"   (the ${p.id} cap: the session asked for this limit and relays what the person gives)` : `  ${i + 1}. ${command} gate answer ${dir} ${p.gate}   (the ${p.id} cap: the person asked for this limit and types it)`));
+    return `This run waits for a raised spending limit for each cap below. No call was started and nothing more was spent.\n${lines.join('\n')}\n  ${pending.length + 1}. ${again}\nThe tool cannot verify the permission; the record shows who relayed it.`;
+  }
+  const lines = pending.map((p, i) => `  ${i + 1}. ${command} gate answer ${dir} ${p.gate}   (the ${p.id} cap)`);
+  return `This run waits for a spending limit that you type for each provider still open (${CAPS_SETTING}: ${caps.join(', ')}). No call was started and nothing more was spent.\n${lines.join('\n')}\n  ${pending.length + 1}. ${again}`;
+}
+// THE RESUME (unit 4c1; C&C's rulings of 1 Nov 2026). A resume takes its class from its RUN FOLDER: a CAPS RUN is run.json `caps` AND one consumption per cap named
+// there in the gate ledger (every armed run: arming consumes each gate before it writes `caps`; the ledger is the authority, run.json a copy). It resumes under
+// the limits typed for it when the same caps are in force; a run started under one run-wide limit (run.json maxUsd) is refused when a cap is in force for it now,
+// a caps run when the switch is now off (the MODE FLIP, both ways), a caps run whose set of caps in force changed (a cap added or dropped after it spent), and a
+// folder that records no limit it can show and is no start still waiting for its typed limits (UNTOLD). A chain with no cap in force keeps today's path.
+const listOrNone = ids => (ids.length ? ids.join(', ') : 'none');
+/** The flip ON->OFF (A-DRAFT F1). `runCaps`: the caps the run was started under, sorted. */
+export const capsFlipOffSentence = runCaps => `This run was started with ${CAPS_SETTING} set (${runCaps.join(', ')}), under a limit typed for each provider, and the setting is now empty, so it was not continued: its limits would no longer be the ones it ran under. Set ${CAPS_SETTING} to ${runCaps.join(',')} again to continue it. Nothing was started.`;
+/** The flip OFF->ON (A-DRAFT F2). `caps`: the switch's ids. */
+export const capsFlipOnSentence = caps => `This run was started under one typed limit for the whole run, and ${CAPS_SETTING} is now set (${caps.join(', ')}), so it was not continued: its limits would no longer be the ones it ran under. Leave ${CAPS_SETTING} empty to continue it. Nothing was started.`;
+/** A changed set of caps in force (A-DRAFT F3). */
+export const capsSetChangedSentence = (runCaps, nowCaps) => `This run was started under these caps: ${listOrNone(runCaps)}. The caps in force now: ${listOrNone(nowCaps)}. It was not continued: a run keeps the caps it was started under, and a cap added or dropped since would change its limits. Continue it with the same caps in force (${listOrNone(runCaps)}). Nothing was started.`;
+/** A folder whose limits cannot be told (A-DRAFT U1). */
+export const CAPS_UNTOLD_SENTENCE = 'This run folder records no spending limit (run.json has no maxUsd, and the gate ledger holds no cap backed by a typed limit), and it is not a start still waiting for its limits, so what it may spend cannot be known and it was not continued. Start a new run. Nothing was started.';
+/**
+ * The resume's class (pure): { ok: 'today' | 'caps' | 'pending' } or { refuse: sentence }. `switchCaps`: the switch's ids ([] = off); `armed`: the caps in force now
+ * (capsInForce); `meta`: run.json; `entries`: the folder's recursive listing; `consumed`: the cap ids with a consumption in the ledger.
+ */
+export function capsResumeVerdict({ switchCaps = [], armed = [], meta = null, entries = [], consumed = [] } = {}) {
+  const raw = meta && typeof meta === 'object' ? meta.caps : undefined;
+  const runCaps = raw && typeof raw === 'object' && !Array.isArray(raw) ? Object.keys(raw).sort() : null;
+  if (!switchCaps.length) return runCaps ? { refuse: capsFlipOffSentence(runCaps) } : { ok: 'today' };
+  if (!armed.length) return runCaps ? { refuse: capsSetChangedSentence(runCaps, armed) } : { ok: 'today' };
+  if (meta && Object.hasOwn(meta, 'maxUsd')) return { refuse: capsFlipOnSentence(switchCaps) };
+  if (runCaps) {
+    if (!runCaps.length || !runCaps.every(id => consumed.includes(id))) return { refuse: CAPS_UNTOLD_SENTENCE };
+    if (runCaps.join(',') !== [...armed].sort().join(',')) return { refuse: capsSetChangedSentence(runCaps, [...armed].sort()) };
+    return { ok: 'caps' };
+  }
+  return capsPendingStart(entries, meta) ? { ok: 'pending' } : { refuse: CAPS_UNTOLD_SENTENCE };
+}
+/** --raise-cap under the caps with no cap named and no stop file naming one (A-DRAFT B1). */
+export const capsRaiseNameSentence = caps => `--raise-cap: name the cap to raise, one of this run's caps (${caps.join(', ')}), for example --raise-cap ${caps[0]}. A run stopped at a cap raises that cap with a plain --resume.`;
+/** --raise-cap <id> naming no cap of this run (A-DRAFT B2). The id is a word the person typed on the command line, shown as typed (cut at 40 characters). */
+export const capsRaiseUnknownSentence = (id, caps) => { const shown = String(id).slice(0, 40); return `--raise-cap ${shown}: ${shown} is not one of this run's caps (${caps.join(', ')}). Name one of them.`; };
+/** The run log's cap line under the switch (A-DRAFT). `limits`: { <id>: usd }; `money`: the formatter. */
+export const capsLogLine = (limits, money) => `cap:   ${Object.keys(limits).sort().map(id => `${id} ${money(limits[id])}`).join(', ')} (one limit typed for each provider)`;
 
 // The record fields the units write with the switch ON (every one ABSENT when it is OFF): one place, so a writer and a reader cannot spell them differently.
 export const CAP_RECORD_FIELDS = Object.freeze({

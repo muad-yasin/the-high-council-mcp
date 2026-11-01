@@ -89,7 +89,7 @@ test('N3: layer 3 objecting is one layer-3 visit and the plan goes back to layer
     p.answer('revise-2', plan(3));
     const next = p.run(['--resume', p.runDir()]);
     assert.equal(next.status, 3, next.stdout + next.stderr);
-    assert.match(next.stdout, /ladder: pass 3 starts at layer 1 \(layer-1 revisions in this block 0\/3, layer-2 visits 0\/3, layer-3 visits 1\/3\)/);
+    assert.match(next.stdout, /ladder: pass 3 starts at layer 1 \(layer-1 revisions in this block 0 of 3, layer-2 visits 0 of 3, layer-3 visits 1 of 3\)/);
     assert.match(next.stdout, /panel-2-l3: mock\/mock-critic-script-x-b3 - from disk/, 'the forced pass was replayed from disk, not asked again');
     assert.equal(p.saved().ladderSteps.length, 1);
     assert.equal(existsSync(join(p.runDir(), 'superseded')), false, 'nothing went stale');
@@ -112,8 +112,8 @@ const refusal = (id, name, { extra, setup, args = ['--next-pass-layer-3'], messa
 const answered = p => p.answer('revise-1', plan(2));
 refusal('N4a', 'a run with no ladder', { extra: [], setup: answered, message: /--next-pass-layer-3: this run has no ladder, so there is no first layer to change\. Nothing was recorded, run or spent\./ });
 refusal('N4b', 'the revise pause has not been answered', { message: /the run waits for an answer to revise-1; give that first\./ });
-refusal('N4c', 'a stage of the next pass is already on disk', { setup: p => { answered(p); writeFileSync(join(p.runDir(), 'ldebate-2-x2-l1.md'), 'x'); }, message: /pass 2 already has a stage on disk \(ldebate-2-x2-l1\.md\), and a stage is replayed only for the prompt it answered\./ });
-refusal('N4d', 'a credited pass (plain rules)', { extra: ['--ladder', '--ladder-credit', '2'], setup: answered, message: /pass 2 runs under the plain rules \(the first 2 passes are credited\), not the ladder\./ });
+refusal('N4c', 'a stage of the next pass is already on disk', { setup: p => { answered(p); writeFileSync(join(p.runDir(), 'ldebate-2-x2-l1.md'), 'x'); }, message: /pass 2 already has a stage on disk \(ldebate-2-x2-l1\.md\), so starting the pass at layer 3 would change what that stage was asked\. Nothing was recorded, run or spent\./ });
+refusal('N4d', 'a credited pass (plain rules)', { extra: ['--ladder', '--ladder-credit', '2'], setup: answered, message: /pass 2 is one of the first 2 passes, the ladder's credit, which run under the plain rules and not the ladder; so it has no first layer to change\. Nothing was recorded, run or spent\./ });
 refusal('N4e', 'a run stopped at a round limit', { setup: p => { answered(p); writeFileSync(join(p.runDir(), 'STOPPED-overseer_cap.json'), '{}'); }, message: /this run is stopped at a limit that waits for --continue or --finish; answer that first\./ });
 refusal('N4f', 'a conflict stop is judged by its pending pause, not called a limit', { setup: p => { answered(p); writeFileSync(join(p.runDir(), 'STOPPED-conflict.json'), '{}'); writeFileSync(join(p.runDir(), 'NEEDS-conflict-1.md'), 'x'); }, message: /the run waits for an answer to conflict-1; give that first\./ });
 test('N4g: refused: at the first pause (the build) there is no next pass to change; and the flag is not a start flag', () => {
@@ -150,7 +150,7 @@ test('N5b: a damaged ladderSteps entry in run.json is refused before anything ru
     q.answer('revise-1', plan(2));
     writeFileSync(join(q.runDir(), 'run.json'), JSON.stringify({ ...q.saved(), ladderSteps: [{ pass: 2, floor: 2 }] }));
     const r = q.run(['--resume', q.runDir()]);
-    assert.equal(r.status, 2); assert.match(r.stderr, /run\.json holds a ladderSteps entry that is not \{pass, floor: 3\}\. Nothing was run and nothing was spent\./);
+    assert.equal(r.status, 2); assert.match(r.stderr, /run\.json holds a ladderSteps entry that is not \{pass, floor: 3\}\. Check the file: it may have been edited by hand or damaged\. Nothing was run and nothing was spent\./);
     assert.equal(q.files().some(f => /^panel-2/.test(f)), false);
   } finally { q.done(); }
 });
@@ -165,7 +165,7 @@ test('N6: a layer-3 judge not heard on the requested pass (another layer-3 judge
     p.answer('revise-1', plan(2));
     const r = p.run(['--resume', p.runDir(), '--next-pass-layer-3']);
     assert.match(r.stdout, /ladder: pass 2 starts at layer 3 because the pass before it was answered/);
-    assert.match(r.stdout, /ladder: pass 3 starts at layer 3 again: a layer-3 judge was not heard in the pass before it, which had been asked to start there/);
+    assert.match(r.stdout, /ladder: pass 3 starts at layer 3 again: the pass before it was asked to start at layer 3, and a layer-3 judge was not heard in it\. The counts above are the ladder's own; this pass does not move them\./);
     const files = p.files();
     assert.equal(files.some(f => /^panel-3-l[12]/.test(f)), false, 'pass 3 did not fall back to layer 1');
     assert.ok(files.some(f => /^panel-3-l3/.test(f)), 'pass 3 asked layer 3 again');

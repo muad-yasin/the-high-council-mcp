@@ -36,7 +36,8 @@ test('plan-medium-council: the cheapest end the README row and the chain descrip
   const floor = dryRunReport(readChainFile(root, 'plan-medium-council'), { defaultCapUsd: 7 }).estimate.floorUsd;
   assert.ok(Number.isFinite(floor), 'the dry run gives a floor');
   const row = reference.split('\n').find(l => l.startsWith('| `plan-medium-council` |'));
-  assert.ok(row.includes(`the cheapest end ($${floor.toFixed(2)})`), `the row should say "the cheapest end ($${floor.toFixed(2)})"`);
+  // CHANGED ACCEPTED (B3 judge apply, 1 Nov 2026; decision D-110): OLD the row said "and the cheapest end ($x)"; NEW "and cheapest end ($x)" (the plan-high row's shape). The figure is still the dry run's floor.
+  assert.ok(row.includes(`and cheapest end ($${floor.toFixed(2)})`), `the row should say "and cheapest end ($${floor.toFixed(2)})"`);
   assert.ok(readChainFile(root, 'plan-medium-council').description.includes(`the cheapest end, $${floor.toFixed(2)},`), 'the description says the same figure');
 });
 

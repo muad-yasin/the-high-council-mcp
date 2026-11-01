@@ -57,6 +57,6 @@ export function buildStartScope(parts = {}) {
  */
 export function changedParts(before, after) {
   const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-  const parts = [['task_sha256', 'the task'], ['context_sha256', 'the context documents'], ['deliverable_sha256', 'the draft it works from'], ['chain_sha256', 'the chain file'], ['seats', 'the seats'], ['policy_sha256', 'the policy file'], ['sensitivity_floor', 'the sensitivity floor'], ['pii_mode', 'the personal-data check'], ['user_prices', 'a price row of the project\'s pricing.user.json'], ['caps', 'the spending caps in force'], ['provider_preference', 'the host preference of the project\'s provider-preference.json']];
+  const parts = [['task_sha256', 'the task'], ['context_sha256', 'the context documents'], ['deliverable_sha256', 'the draft it works from'], ['chain_sha256', 'the chain file'], ['seats', 'the seats'], ['policy_sha256', 'the policy file'], ['sensitivity_floor', 'the sensitivity floor'], ['pii_mode', 'the personal-data check'], ['user_prices', 'a price row of the project\'s pricing.user.json'], ['caps', 'the spending caps in force'], ['provider_preference', 'the project\'s host preferences (provider-preference.json)']];
   return parts.filter(([k]) => !same(before?.[k], after?.[k])).map(([, name]) => name);
 }

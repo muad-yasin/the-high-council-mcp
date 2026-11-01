@@ -7,11 +7,11 @@ import * as R from '../src/roles.js';
 import { samples } from './helpers/ledger-samples.js';
 
 const BEFORE_4A = {
-  "open_plain": "2ad886f977e3bcc1",
-  "open_declined_withdrawn": "583424796d48e867",
-  "exchange_withdrawal_and_quote": "7affb5cad6eb5950",
-  "observed_and_stated_pass": "0819dd84c66dfb52",
-  "compact_and_left_out": "0bf34be54e742443"
+  "open_plain": "77e642918e72543b",
+  "open_declined_withdrawn": "0f93e29459591005",
+  "exchange_withdrawal_and_quote": "af31e2c2cdadaac0",
+  "observed_and_stated_pass": "5799a6d8fc9c0d0c",
+  "compact_and_left_out": "7fcac0f6680c437d"
 };
 const digest = text => createHash('sha256').update(text).digest('hex').slice(0, 16);
 
@@ -29,5 +29,8 @@ test('switch on: the same rows render differently (an open entry carries its sev
   assert.notEqual(digest(text), BEFORE_4A.open_plain);
   assert.match(text, /open\. Severity: 6\.5\. Criterion:/);
   const closed = R.overseerLedgerSection({ rows: samples.open_declined_withdrawn.rows.map(r => ({ ...r, severity: 6.5 })), severityShown: true });
-  assert.equal(digest(closed), BEFORE_4A.open_declined_withdrawn, 'a closed entry shows no severity, so it is unchanged');
+  // milestone 2 (A-DRAFT): with the switch the frame of the section is reworded (L2); the ENTRIES are what this pin is about: a closed entry shows no severity, so its text is unchanged
+  const plainClosed = R.overseerLedgerSection({ rows: samples.open_declined_withdrawn.rows });
+  assert.equal(closed.slice(closed.indexOf('<prior-review')), plainClosed.slice(plainClosed.indexOf('<prior-review')), 'a closed entry shows no severity, so it is unchanged');
+  assert.equal(digest(plainClosed), BEFORE_4A.open_declined_withdrawn, 'and without the switch the whole section is today\'s');
 });

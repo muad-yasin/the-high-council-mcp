@@ -31,7 +31,13 @@ export const ENFORCEMENT_SENTENCES = Object.freeze({
 });
 export const COMPLETION_SENTENCE = 'The run may stop unfinished when the limit that is left cannot cover the next call.';
 
-export function buildCapScreen({ kind = 'run', subject = {}, notesMemory = '', estimate = null, maximum = { unknown: 'it was not computed' }, ceilings = [], suggestion = null, priceAsOf = null, landed = COST_UNIT_LANDED, userPrices = [], preferences = [], history = null } = {}) {
+/** The host-preference paragraph (provider-preference.json): shown on the screen with the switch off, and by the dry run (per-cap screens leave it out). Null for no rows. */
+export const preferenceSentence = (preferences = []) => (preferences.length ? `Host preference (provider-preference.json in your project folder): ${preferences.map(r => `${r.key}: ${r.prefer.join(', ')}`).join('; ')}. OpenRouter is asked to try these hosts first, in this order, and any other host only if none of them can serve the call. A bare tag also covers that provider's regional endpoints, and a host the chain ignores is skipped. The preference changes only the order hosts are tried in; each host keeps its own listed price.` : null);
+
+export function buildCapScreen({ kind = 'run', subject = {}, notesMemory = '', estimate = null, maximum = { unknown: 'it was not computed' }, ceilings = [], suggestion = null, priceAsOf = null, landed = COST_UNIT_LANDED, userPrices = [], preferences = [], history = null, cap = null } = {}) {
+  // 0.8.4 DUALCAP unit 4b2: `cap` = { id, of } asks the limit of ONE per-provider cap (one screen per cap in force). The figures stay the run's: the dry run's rows
+  // name a seat as provider/model, which does not say which account a mock seat bills through, so the screen says they cover every provider (A-DRAFT).
+  const capId = cap && typeof cap.id === 'string' ? cap.id : null;
   const what = kind === 'tree' ? 'tree' : kind === 'side' && subject.verb ? subject.verb : 'run';
   const later = kind === 'legacy' || kind === 'raise' || kind === 'raise_early' || kind === 'amend';   // T4b2: a run's limit AFTER the first one (or for a run made before the typed limit existed): the figures are what it has already counted
   const enforcement = enforcementState(landed);
@@ -42,13 +48,13 @@ export function buildCapScreen({ kind = 'run', subject = {}, notesMemory = '', e
     maximum: maximum && Number.isFinite(maximum.usd)
       ? `Most it could cost to finish, by the dry run's count: ${formatUsd(maximum.usd)} (not a ceiling: see below).`
       : `Most it could cost to finish, by the dry run's count: unknown (${maximum?.unknown ?? 'it was not computed'}).`,
-    limit: `Your limit: type the total, in US dollars, that this ${what} may spend (for example 5). THC refuses any call whose projected cost would take the total past it.`,
+    limit: capId ? `Your limit for ${capId}: type the total, in US dollars, that this ${what} may spend through ${capId} (for example 5). THC refuses any ${capId} call whose projected cost, added to what the run has already counted through ${capId}, would pass that limit.` : `Your limit: type the total, in US dollars, that this ${what} may spend (for example 5). THC refuses any call whose projected cost would take the total past it.`,
     ceilings: ceilings.filter(c => c && Number.isFinite(c.usd)).map(c => `Ceiling in force: ${formatUsd(c.usd)}${c.source ? ` (set by ${c.source})` : ''}. You cannot type more.`),
     suggestion: suggestion && Number.isFinite(suggestion.usd) ? `Configured suggestion: ${formatUsd(suggestion.usd)}${suggestion.source ? ` (from ${suggestion.source})` : ''}. It is shown only; it is not your limit until you type it.` : null,
-    // The figures a person is about to rely on, from the project's own price file (never only a label: $0.01 must be visible before typing). The wording is HELD (E item).
+    // The figures a person is about to rely on, from the project's own price file (never only a label: $0.01 must be visible before typing; the screen with the switch off: a per-cap screen sends the person to the dry run). The wording is HELD (E item).
     userPrices: userPrices.length ? `Priced from pricing.user.json in your project folder: ${userPrices.map(r => `${r.key} in ${r.in} / out ${r.out} per million tokens${r.src && r.src.in !== r.src.out ? ` (the ${r.src.in === 'shipped' ? 'in' : 'out'} figure is the package's, the higher one)` : ''}`).join('; ')}. THC's cost projection is only as good as those figures.` : null,
-    // 0.8.4 PRICES unit 3: the hosts the project's provider-preference.json asks OpenRouter to try first for this chain's models (the start scope binds the approval to them, so the screen shows them). Omitted when the file names none. The wording is HELD (E item).
-    preferences: preferences.length ? `Host preference from provider-preference.json in your project folder (OpenRouter is asked to try these hosts first, in this order, and any other host only if none of them can serve a call): ${preferences.map(r => `${r.key}: ${r.prefer.join(', ')}`).join('; ')}. A bare tag also covers that provider's regional endpoints, and a host the chain ignores is skipped. It changes the order hosts are tried in, never a price.` : null,
+    // 0.8.4 PRICES unit 3: the hosts the project's provider-preference.json asks OpenRouter to try first for this chain's models (the start scope binds the approval to them). Omitted when the file names none. The wording is HELD (E item).
+    preferences: preferenceSentence(preferences),
     enforcement: ENFORCEMENT_SENTENCES[enforcement],
     completion: COMPLETION_SENTENCE,
   };
@@ -57,19 +63,31 @@ export function buildCapScreen({ kind = 'run', subject = {}, notesMemory = '', e
   const money = n => (Number.isFinite(n) ? formatUsd(n) : 'unknown');
   const lines = [];
   if (kind === 'legacy') lines.push(`This run was started before a typed limit existed.`, `Already counted: ${money(h.spentUsd)}${h.unsettledUsd > 0 ? `, of which ${money(h.unsettledUsd)} is for calls that were still running when the run stopped and may or may not have been billed` : ''}.`);
-  if (kind === 'raise') lines.push(`This run stopped at its limit of ${money(h.previousCapUsd)}: ${money(h.spentUsd)} counted${Number.isFinite(h.projectedStageUsd) ? `, and the next stage could cost up to ${money(h.projectedStageUsd)}` : ''}.`, ...(Number.isFinite(h.suggestedUsd) ? [`The smallest total that gets past this stop: ${money(h.suggestedUsd)}.`] : []));
-  if (kind === 'raise_early') lines.push(`This run is under a limit of ${money(h.previousCapUsd)}: ${money(h.spentUsd)} counted.`);   // A-DRAFT (B3 prototype: a raise before the run has stopped at its limit)
+  // unit 4c1: a raise of ONE per-provider cap names it, and its figures are that cap's (A-DRAFT S1, S2)
+  if (kind === 'raise') lines.push(capId ? `This run stopped at its ${capId} limit of ${money(h.previousCapUsd)}: ${money(h.spentUsd)} counted through ${capId}${Number.isFinite(h.projectedStageUsd) ? `, and the next stage could cost up to ${money(h.projectedStageUsd)}` : ''}.` : `This run stopped at its limit of ${money(h.previousCapUsd)}: ${money(h.spentUsd)} counted${Number.isFinite(h.projectedStageUsd) ? `, and the next stage could cost up to ${money(h.projectedStageUsd)}` : ''}.`, ...(Number.isFinite(h.suggestedUsd) ? [`The smallest total that gets past this stop: ${money(h.suggestedUsd)}.`] : []));
+  if (kind === 'raise_early') lines.push(capId ? `This run is under a ${capId} limit of ${money(h.previousCapUsd)}: ${money(h.spentUsd)} counted through ${capId}.` : `This run is under a limit of ${money(h.previousCapUsd)}: ${money(h.spentUsd)} counted.`);   // A-DRAFT (B3 prototype: a raise before the run has stopped at its limit)
   if (kind === 'amend') lines.push(Array.isArray(h.changed) && h.changed.length ? `Changed since the limit for this run was typed: ${h.changed.join('; ')}.` : 'Something this run was started with changed since its limit was typed; the earlier state of this run cannot be shown.', `Previous limit: ${money(h.previousCapUsd)}. Already counted: ${money(h.spentUsd)}.`);
-  const floorLine = kind === 'raise_early' && Number.isFinite(h.previousCapUsd) ? ` It must be above ${money(h.previousCapUsd)}, the limit it has now.` : later && Number.isFinite(h.floorUsd) ? ` It must be above ${money(h.floorUsd)}, what the run has already counted.` : '';   // A-DRAFT for raise_early
+  const floorLine = kind === 'raise_early' && Number.isFinite(h.previousCapUsd) ? ` It must be above ${money(h.previousCapUsd)}, the limit it has now.` : later && Number.isFinite(h.floorUsd) ? ` It must be above ${money(h.floorUsd)}, what the run has already counted${capId ? ` through ${capId}` : ''}.` : '';   // A-DRAFT for raise_early
   // T5: a side command on a folder that already spent (an earlier sitting of the same rematch or replay, or the original run for handoff / draft / digest): the limit is a TOTAL for that folder, above what it has counted.
   const sideCounted = kind === 'side' && Number.isFinite(h.floorUsd) && h.floorUsd > 0;
   if (sideCounted) { lines.push(`Already counted for this folder: ${money(h.floorUsd)}.`); fields.limit = `Your limit: type the TOTAL, in US dollars, for this run folder as a whole, counting the ${money(h.floorUsd)} the run has already counted (not extra for this ${what} alone). It must be above ${money(h.floorUsd)}. THC refuses any call that would take the total past it.`; }
-  if (later) fields.limit = `Your new limit: type the TOTAL, in US dollars, for the whole run (not extra).${floorLine} THC refuses any call that would take the total past it.`;
+  if (later) fields.limit = capId ? `Your new limit for the ${capId} cap: type the TOTAL, in US dollars, for what the run spends through ${capId} (not extra).${floorLine} THC refuses any such call that would take that cap past it.` : `Your new limit: type the TOTAL, in US dollars, for the whole run (not extra).${floorLine} THC refuses any call that would take the total past it.`;   // the cap's variant: A-DRAFT S3
   fields.history = lines.length ? lines : null;
   const head = later
     ? `Continue this run?${subject.chain ? ` Chain: ${subject.chain}.` : ''}${subject.task ? ` Task: ${subject.task}.` : ''}`
     : kind === 'side' ? `Run this ${what}?${subject.chain ? ` Chain: ${subject.chain}.` : ''}${subject.task ? ` Task: ${subject.task}.` : ''}`
     : `Start this ${what}?${subject.chain ? ` Chain: ${subject.chain}.` : ''}${subject.task ? ` Task: ${subject.task}.` : ''}`;
-  const text = [head, '', ...(later ? [...lines, ...fields.ceilings] : [fields.estimate, fields.maximum, ...(notesMemory ? [`Not counted in either figure: ${notesMemory}.`] : []), ...(sideCounted ? lines : []), ...fields.ceilings]), ...(fields.suggestion ? [fields.suggestion] : []), ...(fields.userPrices ? [fields.userPrices] : []), ...(fields.preferences ? [fields.preferences] : []), '', fields.limit, '', fields.enforcement, fields.completion].join('\n');
+  // DUALCAP milestone 2 (Muad: "no clear and easy to see indication what the number is for"): under a cap the screen opens with the cap's name in capitals (H1), and a start
+  // shows THAT cap's estimate by the dry run's count (E1; E2 when nothing priced bills through it: its rows sum to $0) in place of the whole-run estimate and maximum. A-DRAFT.
+  const capLine = capId ? `${capId.toUpperCase()} spending limit (cap ${Array.isArray(cap.of) && cap.of.includes(capId) ? cap.of.indexOf(capId) + 1 : 1} of ${Array.isArray(cap.of) && cap.of.length ? cap.of.length : 1}${Array.isArray(cap.of) && cap.of.length ? `: ${cap.of.join(', ')}` : ''})` : null;
+  if (capId && !later) {
+    const e = estimate && Number.isFinite(estimate.usd) ? estimate.usd : 0;
+    fields.estimate = e > 0 ? `Calls through ${capId}, by the dry run's count${priceAsOf ? ` at the prices of ${priceAsOf}` : ''}: about ${formatUsd(e)}; worst case ${maximum && Number.isFinite(maximum.usd) ? formatUsd(maximum.usd) : 'unknown'} (not a ceiling).` : `No priced call goes through ${capId}, by the dry run's count.`;
+    fields.maximum = null;
+  }
+  // Muad's yes (1 Nov 2026, the limit-screen cleanup): a per-cap screen (start or raise) leaves out the pricing.user.json and host-preference paragraphs; the dry run
+  // prints both (userPriceLines, preferenceSentence). The screen with the switch off keeps them, byte for byte.
+  if (capId) { fields.userPrices = null; fields.preferences = null; }
+  const text = [...(capLine ? [capLine] : []), head, '', ...(later ? [...lines, ...fields.ceilings] : [fields.estimate, ...(fields.maximum ? [fields.maximum] : []), ...(notesMemory ? [`Not counted in either figure: ${notesMemory}.`] : []), ...(sideCounted ? lines : []), ...fields.ceilings]), ...(fields.suggestion ? [fields.suggestion] : []), ...(fields.userPrices ? [fields.userPrices] : []), ...(fields.preferences ? [fields.preferences] : []), '', fields.limit, '', fields.enforcement, fields.completion].join('\n');
   return { text, fields, enforcement };
 }

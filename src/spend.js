@@ -26,7 +26,7 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { supersededSpendOf, supersededStagesOf, supersededUnknownFilesOf } from './superseded.js';
-import { unsettledUsd } from './spend-reservations.js';
+import { unsettledUsd, unsettledReservations } from './spend-reservations.js';
 import { usdFigure } from './usd-figure.js';
 import { unreplayedOf } from './unreplayed.js';
 import { deriveRunStatus, APPROVAL_STATUSES, stoppedShortFile, waitingStages } from './run-status.js';
@@ -384,4 +384,17 @@ export function costToday(runsDir, { date = new Date(), now = Date.now() } = {})
     unreadable,
     symbolicLinksNotCounted,
   };
+}
+
+// DUALCAP (0.8.4 units 4c1, 4c2): what a run folder recorded through ONE per-provider cap: its stage usage files, its superseded and charge files, and its unsettled
+// reservations (at their worst case), each by the capName it carries. A record without one counts in no cap (the run total holds it). Derived from the folder, never
+// recorded; an unreadable usage file counts nowhere here, as the run total's reader treats it.
+export function capSpentOf(dir, capName) {
+  let names = [];
+  try { names = readdirSync(dir).filter(n => n.endsWith('.usage.json')); } catch { return 0; }
+  let usd = 0;
+  for (const n of names) { try { const u = JSON.parse(readFileSync(join(dir, n), 'utf8')); if (u?.capName === capName && Number.isFinite(u.usd) && u.usd > 0) usd += u.usd; } catch { /* unreadable: counted nowhere here */ } }
+  for (const r of supersededStagesOf(dir)) if (r.capName === capName) usd += r.usd;
+  for (const r of unsettledReservations(dir)) if (r.capName === capName) usd += r.usd;
+  return usd;
 }

@@ -46,7 +46,7 @@ test('the thinking retry is gated: a ceiling that admits the first attempt and c
       assert.equal(calls, 1, 'the retry was not sent');
       assert.ok(Math.abs(budgetState().spent - wasted) < 1e-9, `the wasted first attempt is counted, once (${budgetState().spent} vs ${wasted})`);
       assert.equal(budgetState().reserved, 0);
-      assert.ok(logs.some(l => /the retry at a bigger cap .* STOPPED, the retry was not sent/.test(l)), logs.join('\n'));
+      assert.ok(logs.some(l => /the retry at a bigger token cap .* STOPPED, the retry was not sent/.test(l)), logs.join('\n'));
     } finally { restore(); setBudget(null); }
   });
 });

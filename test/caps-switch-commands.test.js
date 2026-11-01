@@ -82,6 +82,7 @@ test('K4: the commands that spend nothing still run with the switch on: the usag
     ['gate', 'answer', 'runs/x', 'g1'],
     ['relay-answer', 'runs/x', 'g1', '--total', '5'],
     ['ruling-add', 'runs/x', '--ruling', 'r'],
+    ['retag-add', 'runs/x', '--retag-objection', 'O-aaaaaaaa', '--retag-severity', '2', '--retag-reason', 'r'],
     ['ruling-withdraw', 'runs/x', 'g1'],
     ['stop', 'runs/x'],
     ['tree', 'status', 'x'],

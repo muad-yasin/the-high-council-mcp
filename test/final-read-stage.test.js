@@ -57,7 +57,7 @@ test('switch ON at a never-heard end: each unread layer-3 seat is asked once; an
   assert.equal(computeOutcome(r), computeOutcome(off.r));
   assert.match(log, /Stage: final read/);
   assert.match(log, /l3b: did NOT read the final plan/);
-  assert.match(log, /LAYER 3 DID NOT READ THE FINAL PLAN \(l3b\)/);
+  assert.match(log, /NOT EVERY LAYER-3 SEAT READ THE FINAL PLAN after its last change \(l3b did not\)/);
   assert.match(r.deliverable, /^## Layer 3 on the final plan/m);
   assert.match(r.deliverable, /### l3b: DID NOT READ/);
   assert.ok(r.deliverable.indexOf('## Layer 3 on the final plan') < r.deliverable.indexOf('MOCK DELIVERABLE'), 'the record sits above the plan, never in it');
@@ -90,8 +90,8 @@ test('switch ON, AGREED end but the final edit changed the plan: layer 3 reads i
   assert.equal(hard.r.signoff.every(s => s.signedOff === true), true, 'signoff[] stays');
   assert.deepEqual(hard.r.finalRead.seats.map(s => [s.lab, s.read, s.meets]), [['l3', true, false]]);
   assert.equal(computeOutcome(hard.r), 'no_consensus', 'a layer-3 objection to the final plan ends an agreed run as not agreed');
-  assert.match(hard.log, /LAYER 3 OBJECTED TO THE FINAL PLAN: every layer had signed off on an earlier text, but this run is NOT agreement/);
-  assert.match(hard.r.deliverable, /\*\*Layer 3 objected to the final plan, so this run is NOT agreement\.\*\*/);
+  assert.match(hard.log, /LAYER 3 OBJECTED TO THE FINAL PLAN with an objection that holds the sign-off: every layer had signed off on an earlier text, but this run is NOT agreement/);
+  assert.match(hard.r.deliverable, /\*\*Layer 3 objected to the final plan with an objection that holds the sign-off, so this run is NOT agreement\.\*\*/);
 });
 
 test('switch ON, AGREED end, plan changed, and layer 3 does not read the final plan (an external seat answers the panel, then garbage twice): the run is NOT agreed (fail closed, outcome degraded), passed stays true', async () => {
@@ -112,8 +112,8 @@ test('switch ON, AGREED end, plan changed, and layer 3 does not read the final p
   assert.deepEqual(r.finalRead.seats.map(s => [s.lab, s.read, s.reasked]), [['ext', false, true]]);
   assert.equal(r.finalRead.run_end, 'agreed');
   assert.equal(computeOutcome(r), 'degraded');
-  assert.match(log, /This run is NOT agreement: every layer had signed off on an earlier text, but layer 3 did not read the final plan\./);
-  assert.match(r.deliverable, /\*\*This run is NOT agreement: layer 3 did not read the final plan\.\*\*/);
+  assert.match(log, /This run is NOT agreement: every layer had signed off on an earlier text, but not every layer-3 seat read the final plan\./);
+  assert.match(r.deliverable, /\*\*This run is NOT agreement: not every layer-3 seat read the final plan\.\*\*/);
 });
 
 test('real verb: an agreed run whose final edit layer 3 objects to exits 22, says NOT agreement in the verdict line and at the top of the BOARD, and report.json keeps passed true', () => {
@@ -123,7 +123,7 @@ test('real verb: an agreed run whose final edit layer 3 objects to exits 22, say
   writeFileSync(join(work, 'chains', 'fa.json'), JSON.stringify({ ...agreedChanged('cli', 'ox'), summary: 'final read agreed end' }));
   const run = spawnSync(process.execPath, [cli, '--task', 'task.md', '--chain', 'fa', '--max-usd', '1'], { cwd: work, encoding: 'utf8' });
   assert.equal(run.status, 22, run.stdout + run.stderr);
-  assert.match(run.stdout, /verdict:  NOT agreement: every layer had signed off an earlier text, but layer 3 objected to the final plan/);
+  assert.match(run.stdout, /verdict:  NOT agreement: every layer had signed off on an earlier text, but a layer-3 objection to the final plan holds the sign-off/);
   assert.match(run.stdout, /^final read: l3 objected \(\d+\) - the run is NOT agreed$/m);
   const runDir = join(work, 'runs', readdirSync(join(work, 'runs')).sort().pop());
   const report = JSON.parse(readFileSync(join(runDir, 'report.json'), 'utf8'));

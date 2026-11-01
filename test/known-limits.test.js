@@ -69,9 +69,12 @@ test('one phrase per unverified item U1-U7, and per limit plan section 7 names',
     ['per-provider caps: a tree does not run', /With per-provider spend caps on \(`COUNCIL_SPEND_CAPS`\), a recursive-council tree does not run/],
     ['per-provider caps: the advice add-on does not run', /With per-provider spend caps on, the advice add-on does not run/],
     ['per-provider caps: the paid side commands do not run', /With per-provider spend caps on, the paid side commands do not run/],
+    // 0.8.4 DUALCAP unit 4b2: the Desktop dialog has one limit field (the started-run limit of 4b2 was deleted by 4c1, which makes it untrue).
+    ['per-provider caps: the plugin cannot set per-provider limits', /The Desktop plugin cannot set per-provider limits/],
     // 0.8.4 (PRICES unit 3, 1 Nov 2026): the host preference file and the one thing about it nobody documents.
-    // 0.8.4 (PRICES unit 2b, 1 Nov 2026): long-prompt price steps are recorded, the cap does not read them yet.
-    ['the spend cap does not yet count long-prompt price steps', /the spend cap and the price limit sent with a call still use the row's base figure/],
+    // 0.8.4 (PRICES unit 2b, 1 Nov 2026): long-prompt price steps are recorded. CHANGED ACCEPTED TEST (DUALCAP 4d, 1 Nov 2026). OLD bar: the limit said the spend cap and the price limit still use the row's base figure. NEW bar: the cap, the price limit
+    // and the dry run's maximum read the step, so the limit narrows to what stays true: the dry run's expected figure still prices every row at its base figure. WHY: unit 4d wires the call's prompt size into every rate lookup; the limit is narrowed, not deleted.
+    ['the dry run\'s expected figure does not count long-prompt price steps', /the dry run's expected figure still prices every row at its base figure/],
     ['a host preference rests on documented ordering and one undocumented interaction', /does not say how `order` combines with `provider\.max_price`/],
   ];
   const missing = must.filter(([, re]) => !re.test(limits)).map(([name]) => name);
@@ -90,6 +93,13 @@ test('none of the phrases of the fixed 0.8.0 defects, nor the "Known defects in 
     /`handoff\.md` and `HANDOFF\.md` are one file/,
     /covers each\s+criterion's wording, not how it is checked/,
   ];
+  assert.deepEqual(gone.filter(re => re.test(limits)).map(String), []);
+});
+
+// 0.8.4 DUALCAP unit 4c1: a limit made untrue by the code is deleted in the same commit (CLAUDE.md), and stays deleted: the caps' started-run limit (4b2) went with
+// the resume under the caps.
+test('the per-provider caps limits that a later unit made untrue are gone', () => {
+  const gone = [/With per-provider spend caps on, a run that has started cannot be continued yet/];
   assert.deepEqual(gone.filter(re => re.test(limits)).map(String), []);
 });
 

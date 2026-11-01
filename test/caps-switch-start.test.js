@@ -4,7 +4,7 @@
 // command that spends nothing still runs. The per-cap ceiling settings are spend settings in a project .env (repeated or malformed lines stop the start).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,13 +26,11 @@ function project() {
   return { work, run };
 }
 
-// [argv, what it prints with the switch on]: a main-path start gets the not-armed refusal; a command of a refused class (unit 3a: a tree, a paid side
-// command, the advice add-on) gets its OWN sentence instead, a known limit of this version. A resume is pinned in test/caps-start-refusals.test.js C3 (unit 3b):
-// it now runs the main path's checks first, so it needs a real run folder (a paused run there; a folder that is no run gets the resume's own refusal).
+// [argv, what it prints with the switch on]: a command of a refused class (unit 3a: a tree, a paid side command, the advice add-on) gets its OWN sentence,
+// a known limit of this version. A main-path start no longer meets a refusal here: unit 4b2 arms it (test/caps-arming.test.js), and a chain with no cap in force
+// keeps today's path (W6). A resume is pinned in test/caps-start-refusals.test.js C5 (unit 3b): it runs the main path's checks first, so it needs a real run folder.
 const CLASS = /a known limit of this version/;
 const SPENDING = [
-  [['--task', 'tasks/x.md', '--chain', 'mock', '--max-usd', '1'], NOT_ARMED],
-  [['--task=tasks/x.md', '--chain', 'mock', '--max-usd', '1'], NOT_ARMED],
   [['tree', 'resume', '2026-11-01T00-00-00-000Z', '--dry-run'], CLASS],   // `tree resume` takes no --dry-run: the token does not make it a dry run
   [['--rematch', 'runs/2026-11-01T00-00-00-000Z'], CLASS],
   [['--replay', 'runs/2026-11-01T00-00-00-000Z'], CLASS],
@@ -44,14 +42,14 @@ const SPENDING = [
   [['tree', 'resume', '2026-11-01T00-00-00-000Z'], CLASS],
 ];
 
-test('W1 SWITCH ON: every command that may spend is refused before anything is written (exit 2, the sentence names the setting and the caps, no runs/ folder): a start with the not-armed sentence, a refused class with its own; the commands that spend nothing still run', () => {
+test('W1 SWITCH ON: every command of a refused class is refused before anything is written (exit 2, its own sentence names the setting and the caps, no runs/ folder); the commands that spend nothing still run', () => {
   const { work, run } = project();
   const ON = { COUNCIL_SPEND_CAPS: 'openrouter,anthropic' };
   for (const [args, sentence] of SPENDING) {
     const r = run(args, ON);
     assert.equal(r.code, 2, `${args.join(' ')}\n${r.out}`);
     assert.match(r.out, sentence, args.join(' '));
-    if (sentence === CLASS) assert.doesNotMatch(r.out, NOT_ARMED, `${args.join(' ')}: its own sentence comes before (instead of) the not-armed one`);
+    assert.doesNotMatch(r.out, NOT_ARMED, `${args.join(' ')}: its own sentence comes before (instead of) the not-armed one`);
     assert.match(r.out, /COUNCIL_SPEND_CAPS is set \(anthropic, openrouter\)/, args.join(' '));
     assert.equal(existsSync(join(work, 'runs')), false, `${args.join(' ')} wrote a runs/ folder`);
   }
@@ -88,6 +86,20 @@ test('W3 OPERATOR-ONLY: a project .env cannot turn the switch on (the notice nam
   assert.equal(r.code, 0, r.out);
   assert.doesNotMatch(r.out, NOT_ARMED);
   assert.equal(envFileRefuses('COUNCIL_SPEND_CAPS'), true);
+});
+
+test('W6 SWITCH ON, a chain with no cap in force (the plain mock chain: no seat bills through a capped account) keeps today\'s path: a start with --max-usd runs under that run cap, exit 0; run.json carries maxUsd and no caps; the not-armed line is gone for a start', () => {
+  const { work, run } = project();
+  const ON = { COUNCIL_SPEND_CAPS: 'openrouter,anthropic' };
+  for (const [i, task] of [['--task', 'tasks/x.md'], ['--task=tasks/x.md']].entries()) {
+    const id = `2026-11-01T00-00-0${i}-000Z`;
+    const r = run([...task, '--chain', 'mock', '--max-usd', '1', '--run-id', id], ON);
+    assert.equal(r.code, 0, `${task.join(' ')}\n${r.out}`);
+    assert.doesNotMatch(r.out, NOT_ARMED, task.join(' '));
+    const meta = JSON.parse(readFileSync(join(work, 'runs', id, 'run.json'), 'utf8'));
+    assert.equal(meta.maxUsd, 1, task.join(' '));
+    assert.equal(Object.hasOwn(meta, 'caps'), false, task.join(' '));
+  }
 });
 
 test('W5 SWITCH ON: a dry run is not refused (it prices and calls nothing; C&C, 1 Nov 2026: B3\'s re-pin is a dry run with the switch set): it prints its figures, exits 0 and writes no run folder', () => {

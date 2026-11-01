@@ -18,8 +18,8 @@ const NAME_RE = new RegExp(`^[A-Za-z][A-Za-z '’-]{0,${PERSONA_NAME_MAX - 1}}$`
 export const personaOf = seat => (seat && typeof seat === 'object' && typeof seat.persona === 'string' ? seat.persona : null);
 /** Why a persona is not a usable name, or null. */
 export function personaNameProblem(v) {
-  if (typeof v !== 'string') return `persona must be a text, not ${v === null ? 'null' : typeof v}`;
-  if (!NAME_RE.test(v) || v !== v.trim()) return `persona ${JSON.stringify(v)} must be a plain name: letters, spaces, hyphens and apostrophes, 1 to ${PERSONA_NAME_MAX} characters, no leading or trailing space`;
+  if (typeof v !== 'string') return `a persona must be text, not ${v === null ? 'null' : `a ${typeof v}`}`;
+  if (!NAME_RE.test(v) || v !== v.trim()) return `the persona ${JSON.stringify(v)} is not a plain name. A persona is letters, spaces, hyphens and apostrophes only, 1 to ${PERSONA_NAME_MAX} characters, with no leading or trailing space`;
   return null;
 }
 const lc = v => String(v).trim().toLowerCase();
@@ -68,20 +68,20 @@ export function lintJudgePersonas(config, filePath = 'the chain file') {
   }
   for (const c of criticsOf(config)) if (c && typeof c === 'object' && 'persona' in c && 'role' in c) add('judge-persona-with-role', 'a critic carries both "role" and "persona": "role" belongs to debating seats and "persona" to judges, and a seat is never both.', `Remove one of them from the critic in ${filePath}.`);
   if (cfg?.enabled !== true) return out;
-  if (config.signoff !== 'unanimous') add('judge-personas-needs-unanimous', 'judge_personas.enabled is true but this chain is not "signoff": "unanimous": the personas are written into the judges\' prompts of the unanimous panel loop only, so in any other mode they would silently do nothing.', `Set "signoff": "unanimous" in ${filePath}, or remove judge_personas.`);
-  if (cfg.form === undefined) add('invalid-judge-personas-config', `judge_personas.form is missing: it must be one of ${PERSONA_FORMS.map(f => `"${f}"`).join(', ')}.`, `Set "judge_personas": { "enabled": true, "form": "voice" or "method" } in ${filePath}.`);
+  if (config.signoff !== 'unanimous') add('judge-personas-needs-unanimous', 'judge_personas.enabled is true but this chain does not set "signoff": "unanimous". Personas are written into the judges\' prompts only under unanimous sign-off, so in any other mode they would silently do nothing.', `Set "signoff": "unanimous" in ${filePath}, or remove judge_personas.`);
+  if (cfg.form === undefined) add('invalid-judge-personas-config', `judge_personas.form is missing: it must be ${PERSONA_FORMS.map(f => `"${f}"`).join(' or ')}.`, `Set "judge_personas": { "enabled": true, "form": "voice" } in ${filePath} ("method" is the other form).`);
   const critics = criticsOf(config);
   const named = critics.filter(c => personaOf(c) !== null || (c && typeof c === 'object' && 'persona' in c));
-  if (!named.length) add('judge-personas-no-persona', 'judge_personas.enabled is true but no critic carries a "persona": nothing would be written into any prompt.', `Give the critics a "persona" (a plain name) in ${filePath}, or remove judge_personas.`);
+  if (!named.length) add('judge-personas-no-persona', 'judge_personas.enabled is true but no critic carries a "persona": nothing would be written into any prompt.', `Give at least one critic a "persona" (a plain name) in ${filePath}, or remove judge_personas.`);
   const seen = new Map();
   for (const c of named) {
     const problem = personaNameProblem(c.persona);
-    if (problem) { add('judge-persona-name', `seats.critics has ${problem}.`, `Use a plain name in ${filePath}.`); continue; }
+    if (problem) { add('judge-persona-name', `seats.critics: ${problem}.`, `Use a plain name in ${filePath}.`); continue; }
     const k = lc(c.persona);
-    if (seen.has(k)) add('judge-persona-duplicate', `two critics carry the persona "${c.persona}" (names are compared without case): the record could not tell them apart.`, `Give each critic its own persona in ${filePath}.`);
+    if (seen.has(k)) add('judge-persona-duplicate', `two critics carry the persona "${c.persona}" (upper and lower case count as the same): the record could not tell them apart.`, `Give each critic its own persona in ${filePath}.`);
     seen.set(k, true);
   }
-  for (const n of Array.isArray(cfg.name_only) ? cfg.name_only : []) if (!seen.has(lc(n))) add('judge-persona-name-only-unmatched', `judge_personas.name_only lists ${JSON.stringify(n)}, which matches no critic's persona (exact name, any case): a dead entry that looks like protection.`, `Remove it, or correct the spelling, in ${filePath}.`);
+  for (const n of Array.isArray(cfg.name_only) ? cfg.name_only : []) if (!seen.has(lc(n))) add('judge-persona-name-only-unmatched', `judge_personas.name_only lists ${JSON.stringify(n)}, which matches no critic's persona (the whole name must match; upper and lower case count as the same): the entry does nothing, though it looks as if it did.`, `Remove it, or correct the spelling, in ${filePath}.`);
   return out;
 }
 
@@ -94,5 +94,5 @@ export function judgePersonaWarnings(config) {
   const names = criticsOf(config).map(personaOf).filter(n => n !== null && n !== '');
   if (!names.length) return [];
   // A-DRAFT (the words a person reads)
-  return [{ message: `seats.critics carry a "persona" (${names.join(', ')}) but this chain does not switch "judge_personas" on, so no persona is written into any prompt; add "judge_personas": { "enabled": true, "form": "voice" or "method" } to use them, or remove "persona" to silence this warning.` }];
+  return [{ message: `seats.critics carry a "persona" (${names.join(', ')}) but this chain does not switch "judge_personas" on, so no persona is written into any prompt; add "judge_personas": { "enabled": true, "form": "voice" } to use them ("method" is the other form), or remove "persona" to silence this warning.` }];
 }

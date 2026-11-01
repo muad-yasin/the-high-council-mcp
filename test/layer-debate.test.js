@@ -110,7 +110,7 @@ test('exchange: off by default - no exchange label, no layerDebates, the verdict
 test('exchange: a single heard judge has nobody to read its objection - no exchange, and the writer is told it was not debated', async () => {
   const { r, seen } = await go(chainOf([seat('mock-exch-contest-withdraw', 'e1', 1), seat('mock-critic-x', 'e3', 2)], { ...ON, maxRounds: 2 }));
   assert.equal(r.layerDebates, undefined);
-  assert.match(seen.find(p => p.label === 'revise-1').user, /\(not debated\): no other reviewer of its layer has given a counted post on it against this draft/);
+  assert.match(seen.find(p => p.label === 'revise-1').user, /\(not debated\): no other reviewer of its layer has posted support, contest or insufficient evidence on it against this draft/);
 });
 
 test('exchange: a defect named in a post in the last allowed round reaches the writer marked as not debated', async () => {
@@ -203,7 +203,7 @@ test('ledger: an id raised in pass 1 and withdrawn in the exchange of pass 2 is 
   // what the top layer reads must not claim a quote was checked: the closing words say the withdrawal was made in the exchange, with a reason
   const text = overseerLedgerSection({ rows: [closed], omitted: null });
   assert.match(text, /withdrew it in its layer's exchange, giving a reason/);
-  assert.match(text, /or in its layer's exchange with a reason; every other one is open/);
+  assert.match(text, /or in its layer's exchange, giving a reason\. Every other objection in it is open/);
   assert.match(overseerLedgerSection({ rows: [{ ...closed, compact: true }], omitted: null }), /withdrawn in its layer's exchange, with a reason\./);
   const quoted = objectionLedger({ ...base, replies: [{ ...reply, effect: 'withdrawn' }] }).find(r => r.id === id);
   assert.ok(!/exchange/.test(overseerLedgerSection({ rows: [quoted], omitted: null })), 'a quote-validated withdrawal reads exactly as before');

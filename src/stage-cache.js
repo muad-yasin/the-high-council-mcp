@@ -27,13 +27,14 @@ export function makeStageCache({ dir, fingerprint, unverified = [] }) {
         if (existsSync(join(dir, `${label}.usage.json`))) {
           let n;
           let orphanUsd = 0;
-          try { orphanUsd = Number(JSON.parse(readFileSync(join(dir, `${label}.usage.json`), 'utf8')).usd); } catch { /* unreadable: kept anyway, counted as 0 here (the file itself is what the spend readers judge) */ }
+          let orphanCap;   // unit 4c1 (DUALCAP): the cap the orphan's record names, so the resume counts it in that cap (undefined: the run total only)
+          try { const o = JSON.parse(readFileSync(join(dir, `${label}.usage.json`), 'utf8')); orphanUsd = Number(o.usd); if (typeof o.capName === 'string' && o.capName) orphanCap = o.capName; } catch { /* unreadable: kept anyway, counted as 0 here (the file itself is what the spend readers judge) */ }
           try { n = archiveSuperseded(dir, label); } catch (err) {
             throw Object.assign(new Error(`${join(dir, `${label}.usage.json`)} holds a payment whose text never landed, and it could not be set aside (${err?.code || err?.message}); stage "${label}" was not run again, so that payment cannot be lost. Fix the folder and resume again.`), { controlFlow: true });
           }
           // ORDERING (backend rule 7): the archive updates the LIVE budget, here, at the moment the file moves. The start-time countEarlierSpend of superseded/ (above, before any stage) ran before this file was there and the stage is
           // not replayed, so without this line the cap of the resume itself would stay low; a stale stage gets the same treatment from invoke() at its invalidate. Counted once: report.json's totals read superseded/ at the end.
-          countEarlierSpend(Number.isFinite(orphanUsd) && orphanUsd > 0 ? orphanUsd : 0);
+          countEarlierSpend(Number.isFinite(orphanUsd) && orphanUsd > 0 ? orphanUsd : 0, orphanCap);
           appendFileSync(join(dir, 'WARNINGS.md'), `- cache_orphan: stage "${label}" had a cost record and no text (the process ended between the two writes); its first payment is kept as ${SUPERSEDED_HINT(label, n)}\n`);
         }
         return null;

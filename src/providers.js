@@ -135,6 +135,9 @@ const mockSeverityOf = (model, ask = 0) => {
 // Asks so far per scripted-judge model string (`mock-critic-script-<pattern>[-suffix]`, below), in this process only.
 const scriptedAsks = new Map();
 const envelopeLastIds = new Map(); // the ids a scripted envelope judge saw on its previous ask (mode `p`), per model string
+// The mock provider tells a judge's call from other calls by the judge prompt's own opening sentence. Since the Council introduction (JUDGE, B3 prep) opens the prompt, the sentence is no longer the first line: look for it at the start or at the start of any line.
+// MOCK-ONLY: its only readers are the mock provider's role detection in callMock (the three checks below that name 'You are an independent critic') and echoEnvelopeIds, which wraps ONLY the mock provider's call (`echoEnvelopeIds(await callMock(opts), opts)`); no real-provider path reads it.
+const isCriticSystem = system => /(^|\n)You are an independent critic/.test(String(system));
 /**
  * E3b unit three, commit 1 (C&C ruling, 14 Oct 2026): once the "Reply identity" sentence is live, every critic prompt of a CLI run carries a review_id and a draft_id and a reply without them is unreadable. A mock
  * critic returns fixed JSON, so without this every offline mock chain (the shipped ones, `council init`, rematch/replay of them, the CLI tests) would read as unheard at M7. So a critic's reply that is ONE whole JSON
@@ -143,7 +146,7 @@ const envelopeLastIds = new Map(); // the ids a scripted envelope judge saw on i
  * (mock-critic-envelope-*), which decide for themselves and stay the ONLY way to drive "no ids" through the real path.
  */
 function echoEnvelopeIds(res, { model, system, messages }) {
-  if (!res || typeof res.text !== 'string' || !String(system).startsWith('You are an independent critic')) return res;
+  if (!res || typeof res.text !== 'string' || !isCriticSystem(system)) return res;
   if (model.startsWith('mock-critic-envelope-') || res.usage?.stop === 'length' || res.usage?.stop === 'error') return res;
   const ids = idsFromPrompt(messages.map(m => m.content).join('\n'));
   if (!ids) return res;
@@ -403,7 +406,7 @@ async function callMock({ model, system, messages, maxTokens }) {
   // B2 (debate-084/b2; test/layer-debate.test.js): the exchange inside layer 1. `mock-exch-<post>-<reply>` is a judge that objects like the default scripted critic and, in the exchange, posts <post> on every objection it is
   // shown (`support`, `contest` quoting the first line of the draft with a reason, `doubt` = insufficient_evidence, `new` = support plus one new objection, `garbled` = no JSON) and answers its own posts with <reply> (`keep`, `withdraw`
   // with a reason, `amend`). Every other model supports and keeps. The objection ids are read out of the prompt, never built here.
-  if (system.startsWith('You are one reviewer on a panel. You and the other reviewers')) {
+  if (/(^|\n)You are one reviewer on a panel\. You and the other reviewers/.test(system)) {   // MOCK ONLY: the Council introduction can stand in front of the exchange prompt, so the opening is found at the start of any line
     await new Promise(r => setTimeout(r, 10));
     const post = /^mock-exch-(support|contest|doubt|new|newlater|garbled|cut|long|flip)-/.exec(model)?.[1] || 'support';
     // `cut`: the first ask of a prompt ends with a provider error (stop error, the kind draftIncomplete reads), the retry of it answers; `long`: a post whose reason and quote run far past any field cap.
@@ -419,7 +422,7 @@ async function callMock({ model, system, messages, maxTokens }) {
     const new_objections = (post === 'new' || (post === 'newlater' && postCalls >= 1)) ? [{ criterion: 'It adds no scope the request did not ask for.', problem: 'The plan names a second deliverable nobody asked for.' }] : [];
     return { text: JSON.stringify({ posts, new_objections }), usage: { input: 30, output: 30 }, provider: 'mock', model };
   }
-  if (system.startsWith('You are a reviewer on a panel. Earlier you objected to a plan.')) {
+  if (/(^|\n)You are a reviewer on a panel\. Earlier you objected to a plan\./.test(system)) {   // MOCK ONLY: same as above
     await new Promise(r => setTimeout(r, 10));
     const reply = /^mock-exch-[a-z]+-(keepthenwithdraw|amendonce|keep|withdraw-unargued|withdraw|amend)(?:-short)?(?:-always)?(?:-noanswers)?(?:-late-[a-z0-9]+|-id-[a-z0-9]+)?(?:-sev[a-z0-9]+)?(?:-selfname-[A-Za-z]+)?$/.exec(model)?.[1] || 'keep';
     const ids = [...user.matchAll(/^Your objection (O-[0-9a-f]{8})$/gm)].map(m => m[1]);
@@ -639,7 +642,7 @@ async function callMock({ model, system, messages, maxTokens }) {
   // is neither finished nor the cap. `mock-draft-error` does it every time; `mock-draft-error-once`
   // only the first time it sees a given prompt, so draftStage's same-cap retry gets a normal draft.
   if ((model === 'mock-draft-error' || (model === 'mock-draft-error-once' && !MOCK_DRAFT_ERROR_SEEN.has(user)))
-      && !system.startsWith('You are an independent critic') && !system.includes('turn a request into acceptance criteria')) {
+      && !isCriticSystem(system) && !system.includes('turn a request into acceptance criteria')) {
     if (model === 'mock-draft-error-once') MOCK_DRAFT_ERROR_SEEN.add(user);
     await new Promise(r => setTimeout(r, 10));
     return { text: '# Plan\n\n## Decisions\n\nWe chose', usage: { input: 10, output: 12, stop: 'error' }, provider: 'mock', model };
@@ -649,12 +652,12 @@ async function callMock({ model, system, messages, maxTokens }) {
   // `mock-draft-cut-then-fits` only at a cap of 1000 or less, so the chain's one bigger-cap retry
   // rescues it and the retried reply is the ordinary mock draft below.
   if ((model === 'mock-draft-cut' || (model === 'mock-draft-cut-then-fits' && maxTokens <= 1000))
-      && !system.startsWith('You are an independent critic') && !system.includes('turn a request into acceptance criteria')) {
+      && !isCriticSystem(system) && !system.includes('turn a request into acceptance criteria')) {
     await new Promise(r => setTimeout(r, 10));
     return { text: '# Plan\n\n## Decisions\n\nWe chose approach A because it re', usage: { input: 10, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model };
   }
   const isReviser = system.startsWith('You are the builder in a multi-model review chain,\nrevising');
-  const isCritic = !isReviser && system.startsWith('You are an independent critic');
+  const isCritic = !isReviser && isCriticSystem(system);
   const isCriteria = system.includes('turn a request into acceptance criteria');
   // v7 item 4 (debate freedoms, scoped): `mock-critic-blocking` asks one blocking question on
   // its first reply, then signs off once the prompt carries the proposer's answer back to it -
@@ -1154,7 +1157,7 @@ async function post(url, headers, body, label) {
       } catch {
         // S6-10: reading the error (a getter that throws on its name or message) must never replace it with the getter's error, which would carry no `maybeBilled`: the call would be lost from the cap. The fallback says the label
         // only (no text from the error, so nothing to scrub), and keeps the flag decided above.
-        thrown = Object.assign(new Error(`${label}: the request failed`), { causeClass: 'transport', failureHost: parsed.hostname, ...(billed ? { maybeBilled: true } : {}) });
+        thrown = Object.assign(new Error(`${label}: the request failed (the error itself could not be read)`), { causeClass: 'transport', failureHost: parsed.hostname, ...(billed ? { maybeBilled: true } : {}) });
       }
       throw thrown;
     }

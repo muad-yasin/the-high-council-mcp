@@ -213,7 +213,7 @@ test('SE-14 THE RAISER FILTER after the floor resets: an id a ruling closed, rai
   ajv.addKeyword({ keyword: 'x-stability', schemaType: 'string' });
   const validate = ajv.compile(schema);
   assert.ok(validate(report), JSON.stringify(validate.errors, null, 2));
-  assert.match(renderBoardMd({ runId: 'r-esc', result }), /Raised again by raiser-alpha in pass 4; not counted\./);
+  assert.match(renderBoardMd({ runId: 'r-esc', result }), /Raised again by raiser-alpha in pass 4, with a quote; not counted\./);
 });
 
 test('SE-15 THE CONSENSUS PATH keeps the record (C&C ruling, 27 Okt 2026: (a) as built): after the floor resets, the raiser re-reviews the final text and signs off cleanly, so every judge signed the same draft (passed, consensus); escalations[] stays in report.json and on BOARD.md, and the deliverable gets no escalated sign-off block', async () => {

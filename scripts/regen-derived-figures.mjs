@@ -68,7 +68,7 @@ export function deriveOnce(root = DEFAULT_ROOT, overlay = new Map()) {
       const mp = s.extra?.provider?.max_price; const row = priceOf(s.provider, s.model);
       if (!mp || !row || RA7_RAISED.has(s.model) || (mp.prompt === row.in && mp.completion === row.out)) continue;
       const re = new RegExp(`("max_price":\\s*\\{\\s*"prompt":\\s*)${esc(String(mp.prompt))}(,\\s*"completion":\\s*)${esc(String(mp.completion))}(\\s*\\})`);
-      if (!re.test(text)) { problems.push(`${rel}: cannot find the max_price ${JSON.stringify(mp)} to move to the row ${row.in}/${row.out}`); continue; }
+      if (!re.test(text)) { problems.push(`${rel}: cannot find max_price ${JSON.stringify(mp)} in the file, so it cannot be moved to the row's price ${row.in}/${row.out}`); continue; }
       text = text.replace(re, (m, a, b2, c3) => `${a}${row.in}${b2}${row.out}${c3}`); notes.push(`${name}: ${s.model} max_price ${mp.prompt}/${mp.completion} -> ${row.in}/${row.out}`);
     }
     set(rel, text);
@@ -109,7 +109,7 @@ export function deriveOnce(root = DEFAULT_ROOT, overlay = new Map()) {
     // upper estimate above the cap
     const oldFits = `Every figure printed here fits under the ${cap} default cap, and under the Claude Desktop bundle's default Spend ceiling of $${DESKTOP_DEFAULT_MAX_USD}.`;
     if (d.includes(oldFits)) {
-      if (r.maximumUsd > DESKTOP_DEFAULT_MAX_USD) { problems.push(`${name}: above the Desktop ceiling too; needs a different sentence`); continue; }
+      if (r.maximumUsd > DESKTOP_DEFAULT_MAX_USD) { problems.push(`${name}: above the Claude Desktop ceiling too; write the description sentence by hand`); continue; }
       set(rel, get(rel).split(oldFits).join(`The upper estimate (${usd(r.maximumUsd)}) is above the default cap of ${cap}; the expected figure (${usd(r.expectedUsd)}) fits under it. On the command line that cap is only a suggestion. Every figure printed here fits under the Claude Desktop bundle's default Spend ceiling of $${DESKTOP_DEFAULT_MAX_USD}.`));
       const oldRow = `Every figure fits under the default cap of ${cap}. This roster has not run.`;
       set('AI-README.md', get('AI-README.md').split('\n').map(l => (l.startsWith(`| \`${name}\` |`) && l.includes(oldRow)) ? l.replace(oldRow, `Its upper estimate (${usd(r.maximumUsd)}) is above the default cap of ${cap}; the expected figure (${usd(r.expectedUsd)}) fits under it. This roster has not run.`) : l).join('\n'));
@@ -121,7 +121,7 @@ export function deriveOnce(root = DEFAULT_ROOT, overlay = new Map()) {
       const newD = `The upper estimate (${usd(r.maximumUsd)}) and the cheapest end (${usd(r.floorUsd)}, one overseer round, the dry run's floor) are above the default cap of ${cap}.`;
       if (get(rel).includes(oldD)) { set(rel, get(rel).split(oldD).join(newD)); notes.push(`${name}: cheapest end ${usd(r.floorUsd)} sentence rewritten`); }
       const oldR = `Its upper estimate (${usd(r.maximumUsd)}) is above the default cap of ${cap}; the cheapest end (${usd(r.floorUsd)}) fits under it.`;
-      const newR = `Its upper estimate (${usd(r.maximumUsd)}) and the cheapest end (${usd(r.floorUsd)}) are above the default cap of ${cap}.`;
+      const newR = `Its upper estimate (${usd(r.maximumUsd)}) and cheapest end (${usd(r.floorUsd)}) are above the default cap of ${cap}.`;
       if (get('AI-README.md').includes(oldR)) { set('AI-README.md', get('AI-README.md').split(oldR).join(newR)); notes.push(`${name}: AI-README row rewritten`); }
     }
   }
@@ -210,7 +210,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const r = deriveOnce();
     for (const n of r.notes) console.error(`stale: ${n}`);
     for (const p of r.problems) console.error(`problem: ${p}`);
-    if (r.changes.size || r.problems.length) { console.error(`\n${r.changes.size} file(s) hold a figure that is not what the price table gives. Run: node scripts/regen-derived-figures.mjs`); process.exit(1); }
+    if (r.changes.size || r.problems.length) { console.error(`\nCheck failed: ${r.changes.size} file(s) hold a figure that is not what the price table gives (node scripts/regen-derived-figures.mjs rewrites them); any problem listed above needs a fix by hand.`); process.exit(1); }
     console.log('every derived figure is current');
   } else {
     const r = deriveAndWrite();

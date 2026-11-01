@@ -23,7 +23,9 @@
 //   recordStopped(runDir, {stoppedBy, spentUsd}, {now?}) -> { ok: true, seq } | { ok: false, code, message }   (M6)
 //   The `run_cap` kind (0.8.3 M6 typed cap T3; see RUN_CAP_KIND below): requestGate takes `cap` (the bound pending decision); answerGate takes `typedCap` (the person's raw text) and `client`; and
 //   consumeRunCap(runDir, gateId, {runId, scopeSha256}, {now?}) -> { ok: true, seq, gate, runId, capUsd, capMicroUsd } | { ok: false, code, message }   (the single `cap_consumed` use)
-//   runCapAuthority(runDir, {runId?, now?}) -> { status: 'none' } | { status: 'ok', gate, runId, operation, capUsd, capMicroUsd, channel, actor, seq } | { status: 'invalid', reason }   (a read, never a write)
+//   0.8.4 DUALCAP unit 4b1 (src/caps.js RECORDS, "run_cap gate"): a run_cap gate may carry cap.cap_name (a provider that bills: the per-provider cap its limit is for); its
+//   `cap_consumed` line carries the same name, and the order rules run PER CAP (two caps are two sequences in one ledger). A gate without it is byte for byte as before.
+//   runCapAuthority(runDir, {runId?, capName?, now?}) -> { status: 'none' } | { status: 'ok', gate, runId, operation, capUsd, capMicroUsd, channel, actor, seq } | { status: 'invalid', reason }   (a read, never a write)
 //   capScopeSha256(scope) -> hex   RUN_CAP_KIND, CAP_OPERATION
 //   PERSON_CHANNELS, GATE_TTL_MS, GATE_SCHEMA, GATES_DIR, textSha256, metaSha256
 //
@@ -57,7 +59,8 @@ import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, 
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { withLedger, readLedger, sha256Hex, LedgerBusyError, LedgerCorruptError, LedgerWriteError } from './gate-ledger.js';
 import { parseCapInput } from './cap-input.js';
-import { rulingGateText, parseRulingGateText, withdrawalGateText, parseWithdrawalGateText } from './rulings.js';
+import { BILLING_CAP_IDS, CAP_RECORD_FIELDS } from './caps.js';
+import { rulingGateText, parseRulingGateText, withdrawalGateText, parseWithdrawalGateText, retagGateText, parseRetagGateText } from './rulings.js';
 // The two ledger functions the contract record (src/contract-record.js) reads and appends through, so that only the gate modules name the ledger file: the verified ledger, and the public events (appendEvent refuses every other).
 export { readLedger, appendEvent } from './gate-ledger.js';
 
@@ -77,8 +80,10 @@ export function answerGateAsSession(runDir, gateId, { shownSha256, reason }, opt
 export const RULING_KIND = 'ruling';
 export const RULING_WITHDRAWAL_KIND = 'ruling_withdrawal';   // the person's decision to take an approved ruling out of force from a later pass on; its own kind, so no reader of a ruling mistakes it for one
 const RULING_TTL_MS = 24 * 60 * 60 * 1000;   // a ruling gate may wait a day for his answer; after that it can never be approved (answerGate refuses an expired gate)
+export const RETAG_KIND = 'retag';   // B3 prep (JUDGE 4b): the person's change of ONE objection's rating from a fixed pass on, relayed by the handler session; its own kind and its own reader (retagsOf), so rulingsOf never parses it as a ruling
 const isRulingKind = kind => kind === RULING_KIND || kind === RULING_WITHDRAWAL_KIND;
-const relayedKind = (kind, record) => isRulingKind(kind) || (kind === RUN_CAP_KIND && record?.cap?.operation === 'raise');
+const isRelayAskKind = kind => isRulingKind(kind) || kind === RETAG_KIND;   // the kinds the session may ask for itself, decline itself and relay the person's words for (a ruling, its withdrawal, a re-tag)
+const relayedKind = (kind, record) => isRelayAskKind(kind) || (kind === RUN_CAP_KIND && record?.cap?.operation === 'raise');
 const answeredOnAllowedChannel = (channel, kind, record = null) => PERSON_CHANNELS.includes(channel) || (channel === SESSION_CHANNEL && (SESSION_ELIGIBLE_KINDS.includes(kind) || relayedKind(kind, record)));
 /**
  * Every answer the session relayed on a person's permission (B3 prototype): [{ gate, kind, channel, actor, person_words, at, total_usd? }], oldest first; [] when there is none or the ledger cannot be read.
@@ -89,7 +94,7 @@ export function relayedAnswersOf(runDir) {
   if (!ledger.ok) return [];
   return ledger.lines.filter(l => l.event === 'gate_answered' && l.channel === SESSION_CHANNEL && typeof l.person_words === 'string').map(l => {
     const rec = readRecord(runDir, l.gate);
-    return { gate: l.gate, kind: rec?.kind ?? null, channel: l.channel, actor: l.actor, person_words: l.person_words, at: l.ts, ...(Number.isFinite(l.cap_usd) || typeof l.cap_usd === 'string' ? { total_usd: Number(l.cap_usd) } : {}) };
+    return { gate: l.gate, kind: rec?.kind ?? null, channel: l.channel, actor: l.actor, person_words: l.person_words, at: l.ts, ...(Number.isFinite(l.cap_usd) || typeof l.cap_usd === 'string' ? { total_usd: Number(l.cap_usd) } : {}), ...(capNameOf(rec?.cap ?? {}) ? { cap_name: capNameOf(rec.cap) } : {}) };   // DUALCAP 4c1: the cap a relayed raise was for (absent with the switch off)
   });
 }
 /**
@@ -99,18 +104,18 @@ export function relayedAnswersOf(runDir) {
 export function declinedBySessionOf(runDir) {
   const ledger = readLedger(runDir);
   if (!ledger.ok) return [];
-  return ledger.lines.filter(l => l.event === 'gate_answered' && l.channel === SESSION_CHANNEL && l.decision === 'declined').map(l => ({ gate: l.gate, kind: readRecord(runDir, l.gate)?.kind ?? null, actor: l.actor ?? null, reason: l.reason ?? null, at: l.ts })).filter(r => isRulingKind(r.kind));   // only a ruling or a withdrawal: no other kind of gate surfaces here
+  return ledger.lines.filter(l => l.event === 'gate_answered' && l.channel === SESSION_CHANNEL && l.decision === 'declined').map(l => ({ gate: l.gate, kind: readRecord(runDir, l.gate)?.kind ?? null, actor: l.actor ?? null, reason: l.reason ?? null, at: l.ts })).filter(r => isRelayAskKind(r.kind));   // only a ruling or a withdrawal: no other kind of gate surfaces here
 }
 /**
  * A ruling is asked for (B3 prototype): its text file is written into the run folder and a gate of kind `ruling` is requested for it (as a session gate when `relayed`, so the handler session can relay his answer). Refuses, writing
  * nothing: ruling_empty, ruling_duplicate (the same text for the same pass is already pending or approved), and whatever requestGate refuses.
  */
 export function requestRuling(runDir, { pass, text, relayed = false }, { now = () => Date.now() } = {}) {
-  if (!Number.isInteger(pass) || pass < 1 || typeof text !== 'string' || !text.trim()) return refuse('ruling_empty', 'a ruling needs a pass number and its text');   // A-DRAFT
+  if (!Number.isInteger(pass) || pass < 1 || typeof text !== 'string' || !text.trim()) return refuse('ruling_empty', 'a ruling needs a pass number and its text.');   // A-DRAFT
   const body = rulingGateText(pass, text);
   const have = rulingsOf(runDir, { now });
-  if (!have.ok) return refuse('gate_ledger_corrupt', 'the approval record of this run cannot be read');
-  if ([...have.rulings, ...have.pending].some(r => r.pass === pass && rulingGateText(r.pass, r.text) === body)) return refuse('ruling_duplicate', `this ruling is already recorded or waiting for pass ${pass}`);   // A-DRAFT
+  if (!have.ok) return refuse('gate_ledger_corrupt', 'the approval record of this run cannot be read.');
+  if ([...have.rulings, ...have.pending].some(r => r.pass === pass && rulingGateText(r.pass, r.text) === body)) return refuse('ruling_duplicate', `this ruling is already recorded or waiting for pass ${pass}.`);   // A-DRAFT
   const file = `ruling-${pass}-${textSha256(Buffer.from(body)).slice(0, 8)}.md`;
   return askForGate(runDir, RULING_KIND, file, body, relayed, now);
 }
@@ -128,10 +133,10 @@ function askForGate(runDir, kind, file, body, relayed, now) {
 export function requestWithdrawal(runDir, { gate, pass, relayed = false }, { now = () => Date.now() } = {}) {
   if (typeof gate !== 'string' || !GATE_ID.test(gate) || !Number.isInteger(pass) || pass < 1) return refuse('withdrawal_not_a_ruling', 'a withdrawal needs the gate of an approved ruling and a pass number');   // A-DRAFT
   const have = rulingsOf(runDir, { now });
-  if (!have.ok) return refuse('gate_ledger_corrupt', 'the approval record of this run cannot be read');
+  if (!have.ok) return refuse('gate_ledger_corrupt', 'the approval record of this run cannot be read.');
   const target = have.rulings.find(r => r.gate === gate);
   if (!target) return refuse('withdrawal_not_a_ruling', `gate ${gate} is not an approved ruling of this run${have.pending.some(r => r.gate === gate) ? ' (it is still waiting for his answer: decline it instead)' : ''}`);   // A-DRAFT
-  if (target.withdrawn || have.pending.some(r => r.kind === RULING_WITHDRAWAL_KIND && r.target === gate)) return refuse('withdrawal_duplicate', `ruling ${gate} is already withdrawn, or a withdrawal of it is waiting for his answer`);   // A-DRAFT
+  if (target.withdrawn || have.pending.some(r => r.kind === RULING_WITHDRAWAL_KIND && r.target === gate)) return refuse('withdrawal_duplicate', `ruling ${gate} is already withdrawn, or a withdrawal of it is already waiting for the person's answer.`);   // A-DRAFT
   const body = withdrawalGateText(gate, pass);
   return askForGate(runDir, RULING_WITHDRAWAL_KIND, `ruling-withdrawal-${gate}-${pass}-${textSha256(Buffer.from(body)).slice(0, 8)}.md`, body, relayed, now);
 }
@@ -141,7 +146,7 @@ export function requestWithdrawal(runDir, { gate, pass, relayed = false }, { now
  */
 export function declineOwnRequest(runDir, gateId, { reason }, opts) {
   const state = readGateAnswer(runDir, gateId, opts);
-  if (state.gate && !isRulingKind(state.gate.kind)) return refuse('decline_not_a_ruling', `gate ${gateId} is a ${state.gate.kind} gate: only a ruling or a withdrawal can be declined by the session that asked for it`);   // A-DRAFT
+  if (state.gate && !isRelayAskKind(state.gate.kind)) return refuse('decline_not_a_ruling', `gate ${gateId} is a ${state.gate.kind} gate: only a ruling, a withdrawal or a re-tag can be declined by the session that asked for it`);   // A-DRAFT
   return answerGate(runDir, gateId, { channel: SESSION_CHANNEL, shownSha256: state.gate?.sha256, decision: 'declined', actor: 'main-session', reason, tty: false }, opts);
 }
 
@@ -176,6 +181,42 @@ export function rulingsOf(runDir, { now = () => Date.now() } = {}) {
     if (!target || target.withdrawn) { out.unreadable.push(w.gate); out.unreadableInfo.push({ gate: w.gate, file: null, sha256: null }); continue; }
     const { target: _t, ...rest } = w;
     target.withdrawn = rest;
+  }
+  return out;
+}
+/**
+ * A handler re-tag is asked for (B3 prep, JUDGE 4b): the text file is written into the run folder and a gate of kind `retag` is requested for it (as a session gate when `relayed`). Refuses, writing nothing: retag_invalid (no pass, an id that is
+ * not an objection id, a rating that is not a number from 1 to 10 in steps of 0.1, no reason), retag_duplicate (a re-tag of the same objection for the same pass is already pending or approved: one per objection per pass), and whatever requestGate refuses.
+ */
+export function requestRetag(runDir, { pass, id, severity, reason, relayed = false }, { now = () => Date.now() } = {}) {
+  if (!Number.isInteger(pass) || pass < 1 || typeof id !== 'string' || !/^O-\w+$/.test(id) || !(typeof severity === 'number' && severity >= 1 && severity <= 10 && Math.abs(severity * 10 - Math.round(severity * 10)) < 1e-9) || typeof reason !== 'string' || !reason.trim()) return refuse('retag_invalid', 'a re-tag needs a pass number, an objection id (O-...), a rating from 1 to 10 in steps of 0.1 and a reason.');   // A-DRAFT
+  const have = retagsOf(runDir, { now });
+  if (!have.ok) return refuse('gate_ledger_corrupt', 'the approval record of this run cannot be read.');
+  if ([...have.retags, ...have.pending].some(r => r.pass === pass && r.id === id)) return refuse('retag_duplicate', `a re-tag of ${id} is already recorded or waiting for pass ${pass}.`);   // A-DRAFT
+  const body = retagGateText({ pass, id, severity, reason });
+  return askForGate(runDir, RETAG_KIND, `retag-${pass}-${id}-${textSha256(Buffer.from(body)).slice(0, 8)}.md`, body, relayed, now);
+}
+/**
+ * The handler re-tags of a run, from its gate ledger (B3 prep, JUDGE 4b): { ok, retags: [{ gate, pass, id, severity, reason, channel, actor, person_words, at }], pending: [{ gate, pass, id, severity, reason }], unreadable: [gate], unreadableInfo },
+ * oldest first. Same rules as rulingsOf, for its own kind only: an approved one stays in force from its pass on, a pending one blocks a resume, one that cannot be read is never dropped silently. { ok: false } when the ledger cannot be read.
+ */
+export function retagsOf(runDir, { now = () => Date.now() } = {}) {
+  const listed = listGates(runDir, { now });
+  if (listed === null) return { ok: false, retags: [], pending: [], unreadable: [], unreadableInfo: [] };
+  const out = { ok: true, retags: [], pending: [], unreadable: [], unreadableInfo: [] };
+  const asked = readLedger(runDir).lines.filter(l => l.event === 'gate_requested');
+  for (const g of listed) {
+    const st = readGateAnswer(runDir, g.id, { now });
+    const kind = asked.find(l => l.gate === g.id)?.kind ?? st.gate?.kind;
+    if (kind !== RETAG_KIND) continue;
+    if (st.status === 'invalid') { const rec = readRecord(runDir, g.id); out.unreadable.push(g.id); out.unreadableInfo.push({ gate: g.id, file: typeof rec?.text === 'string' ? rec.text : null, sha256: typeof rec?.sha256 === 'string' ? rec.sha256 : null }); continue; }
+    if (st.status !== 'approved' && st.status !== 'pending') continue;   // declined or expired: no re-tag
+    const bytes = readGateText(runDir, st.gate.text);
+    const parsed = bytes && textSha256(bytes) === st.gate.sha256 ? parseRetagGateText(bytes) : null;
+    if (!parsed) { out.unreadable.push(g.id); out.unreadableInfo.push({ gate: g.id, file: st.gate.text, sha256: st.gate.sha256 }); continue; }
+    if (st.status === 'pending') { out.pending.push({ gate: g.id, ...parsed }); continue; }
+    const a = st.gate.answer || {};
+    out.retags.push({ gate: g.id, ...parsed, channel: a.channel ?? null, actor: a.actor ?? null, person_words: typeof a.person_words === 'string' ? a.person_words : null, at: a.at ?? null });
   }
   return out;
 }
@@ -242,8 +283,12 @@ export const CAP_OPERATION = /^(start|resume_legacy|tree_start|raise|amend_scope
 const LATER_OPERATION = /^(raise|amend_scope)$/;
 const CAP_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/;
 const CAP_KEYS = ['ceiling_source', 'ceiling_usd', 'operation', 'run_id', 'scope_sha256'];
+// DUALCAP unit 4b1: the optional sixth key, the cap a typed limit is for (absent = a run's one limit, as before). One spelling for writer and reader: caps.js CAP_RECORD_FIELDS.
+const CAP_NAME_KEY = CAP_RECORD_FIELDS.gate;
+const capNameOf = x => (x && typeof x === 'object' && Object.hasOwn(x, CAP_NAME_KEY) ? x[CAP_NAME_KEY] : null);
 function capProblem(cap) {
-  if (!cap || typeof cap !== 'object' || Array.isArray(cap) || Object.keys(cap).sort().join() !== CAP_KEYS.join()) return ['bad_cap', `a run_cap gate needs cap = { ${CAP_KEYS.join(', ')} } and nothing else`];
+  if (!cap || typeof cap !== 'object' || Array.isArray(cap) || Object.keys(cap).filter(k => k !== CAP_NAME_KEY).sort().join() !== CAP_KEYS.join()) return ['bad_cap', `a run_cap gate needs cap = { ${CAP_KEYS.join(', ')} } and nothing else`];
+  if (Object.hasOwn(cap, CAP_NAME_KEY) && !BILLING_CAP_IDS.includes(cap[CAP_NAME_KEY])) return ['bad_cap', `cap.${CAP_NAME_KEY} must be a provider that bills (one of ${BILLING_CAP_IDS.join(', ')}), or absent`];   // A-DRAFT
   if (typeof cap.operation !== 'string' || !CAP_OPERATION.test(cap.operation)) return ['bad_cap', 'cap.operation must be start, resume_legacy, tree_start or side:<verb>'];
   if (typeof cap.run_id !== 'string' || !CAP_RUN_ID.test(cap.run_id)) return ['bad_cap', 'cap.run_id must be the run id the limit is typed for'];
   if (typeof cap.scope_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(cap.scope_sha256)) return ['bad_cap', 'cap.scope_sha256 must be a sha256 hex digest of what the run will do (capScopeSha256)'];
@@ -469,7 +514,7 @@ export function answerGate(runDir, gateId, { channel, shownSha256, decision, act
       const record = state.gate;
       if (channel === SESSION_CHANNEL) {
         if (relayedKind(record.kind, record)) {
-          if ((decision === 'approved' || !isRulingKind(record.kind)) && (typeof personWords !== 'string' || !personWords.trim())) return refuse('person_words_required', `gate ${gateId} is answered by the session only on the person's permission, with his own words as he typed them in the handler's window. None were given. Nothing was recorded.`);   // A-DRAFT
+          if ((decision === 'approved' || !isRelayAskKind(record.kind)) && (typeof personWords !== 'string' || !personWords.trim())) return refuse('person_words_required', `the session answers this gate only on the person's permission, with the person's own words as typed in the handler's window. None were given. Nothing was recorded.`);   // A-DRAFT
         } else if (!SESSION_ELIGIBLE_KINDS.includes(record.kind)) return refuse('channel_not_session_eligible', `a ${record.kind} gate is answered only by a person (${PERSON_CHANNELS.join(' or ')}): the session may answer ${SESSION_ELIGIBLE_KINDS.join(' and ')} gates only`);       // B-DRAFT
         if (lines.find(l => l.event === 'gate_requested' && l.gate === gateId)?.requested_by !== 'session') return refuse('gate_not_session_requested', `gate ${gateId} was asked for by a person: only the person answers it (the session answers a gate it asked for itself)`);       // B-DRAFT
         if (typeof reason !== 'string' || !reason.trim()) return refuse('session_reason_required', 'the session answers a gate with its written reason: none was given');       // B-DRAFT
@@ -489,13 +534,13 @@ export function answerGate(runDir, gateId, { channel, shownSha256, decision, act
         const parsed = parseCapInput(typedCap, { ceilingUsd: record.cap.ceiling_usd, ceilingSource: record.cap.ceiling_source, paid: true });
         if (!parsed.ok) return refuse(`cap_${parsed.code}`, parsed.sentence);
         capFields = { cap_usd: parsed.capUsd, cap_micro_usd: parsed.capMicroUsd };
-        if (channel === SESSION_CHANNEL && !figuresIn(personWords).some(x => Math.round(x * 1e6) === parsed.capMicroUsd)) return refuse('person_words_total', `the total ${parsed.capUsd} does not appear in the person's words as given, so the limit was not recorded. Quote his words with the figure in digits. Nothing was recorded.`);   // A-DRAFT
+        if (channel === SESSION_CHANNEL && !figuresIn(personWords).some(x => Math.round(x * 1e6) === parsed.capMicroUsd)) return refuse('person_words_total', `the total ${parsed.capUsd} does not appear in the person's words as given, so the limit was not recorded. Quote the person's words with the figure in digits. Nothing was recorded.`);   // A-DRAFT
         if (channel === 'elicitation' && client && typeof client === 'object') {
           const cn = typeof client.name === 'string' ? client.name.slice(0, 100) : null; const cv = typeof client.version === 'string' ? client.version.slice(0, 100) : null;
           if (cn) capFields.client_name = cn;
           if (cv) capFields.client_version = cv;
         }
-      } else if (personWords !== undefined && !(channel === SESSION_CHANNEL && relayedKind(record.kind, record))) return refuse('person_words_not_asked', `gate ${gateId} does not take the person's words with this answer. Nothing was recorded.`);   // A-DRAFT
+      } else if (personWords !== undefined && !(channel === SESSION_CHANNEL && relayedKind(record.kind, record))) return refuse('person_words_not_asked', `this gate does not take the person's words with this answer. Nothing was recorded.`);   // A-DRAFT
       else if (typedCap !== undefined) return refuse('cap_not_asked', `gate ${gateId} does not ask for a typed limit with this answer. Nothing was recorded.`);
       const line = append('gate_answered', { gate: gateId, decision, sha256: record.sha256, meta_sha256: record.meta_sha256, channel, actor, reason, tty, ...(channel === SESSION_CHANNEL && typeof personWords === 'string' && personWords.trim() ? { person_words: personWords } : {}), ...capFields });
       const answered = { ...record, status: decision, answer: { decision, channel, actor, reason, tty, ...(channel === SESSION_CHANNEL && typeof personWords === 'string' && personWords.trim() ? { person_words: personWords } : {}), at: line.ts, seq: line.seq, ...(capFields.cap_usd ? { cap_usd: capFields.cap_usd, cap_micro_usd: capFields.cap_micro_usd } : {}) } };
@@ -626,7 +671,8 @@ export function consumeRunCap(runDir, gateId, { runId, scopeSha256, committedMic
   if (st.status === 'invalid') return refuse(st.reason, `gate ${gateId} cannot be trusted (${st.reason})`);
   if (st.status !== 'approved') return refuse(st.status === 'expired' ? 'gate_expired' : 'gate_not_approved', `gate ${gateId} is ${st.status}, not approved`);
   const answered = st.answer;
-  const res = recordUse(runDir, gateId, 'cap_consumed', { run_id: runId, cap_micro_usd: answered.cap_micro_usd }, {
+  const capName = capNameOf(st.gate?.cap);   // DUALCAP: the use line names the gate's cap (absent: as before, byte for byte)
+  const res = recordUse(runDir, gateId, 'cap_consumed', { run_id: runId, cap_micro_usd: answered.cap_micro_usd, ...(capName !== null ? { [CAP_NAME_KEY]: capName } : {}) }, {
     now,
     before: ({ gate, lines }) => {
       if (gate.kind !== RUN_CAP_KIND) return { code: 'not_run_cap', message: `gate ${gateId} is a ${gate.kind} gate, not a limit for a run` };
@@ -635,7 +681,8 @@ export function consumeRunCap(runDir, gateId, { runId, scopeSha256, committedMic
       if (gate.cap.run_id !== runId) return { code: 'cap_copied', message: `this limit was typed for run ${gate.cap.run_id}, not for run ${runId}, so it cannot start this run. Nothing was started.` };
       // T4b: the order of a run's consumptions. The first is never a raise or an amendment (there is nothing to raise); every later one is, and its gate must have been requested AFTER the previous consumption (a gate requested
       // earlier and used late asks about a state of the run that is gone). A repeated gate is gate_used (recordUse). 
-      const prior = lines.filter(l => l.event === 'cap_consumed');
+      if (capNameOf(gate.cap) !== capName) return { code: 'cap_record_mismatch', message: `the cap of gate ${gateId} changed while it was being used; nothing was started` };
+      const prior = lines.filter(l => l.event === 'cap_consumed' && capNameOf(l) === capName);   // DUALCAP: the order rules run per cap
       const later = LATER_OPERATION.test(gate.cap.operation);
       if (!prior.length && later) return { code: 'cap_sequence', message: `gate ${gateId} raises or amends a limit, but this run has no limit to raise yet. Nothing was started.` };
       if (prior.length && !later) return { code: 'cap_sequence', message: `this run already has a limit; gate ${gateId} is a first limit, not a raise or an amendment. Nothing was started.` };
@@ -658,10 +705,17 @@ export function consumeRunCap(runDir, gateId, { runId, scopeSha256, committedMic
  * a consumed gate that does not read approved (or whose screen text changed), a use line that disagrees with its gate (cap_record_mismatch), or - when `runId` is given - a use line for another run (cap_copied: a folder copied
  * or moved carries the original run's id). The caller (a resume) holds the run lock while it reads this; `cap_amended` (the tree budget record) is another reader's.
  */
-export function runCapAuthority(runDir, { runId, now = () => Date.now() } = {}) {
+// DUALCAP unit 4b1: `capName` reads ONE cap's sequence (the consumptions whose cap_name equals it); absent, the lines with none (a run's one limit, and every ledger written
+// before per-cap limits). The ledger-wide checks (one run per ledger, the run id, a cap_name that is not a provider that bills) still read every consumption.
+export function runCapAuthority(runDir, { runId, capName = null, now = () => Date.now() } = {}) {
   const ledger = readLedger(runDir);
   if (!ledger.ok) return { status: 'invalid', reason: 'gate_ledger_corrupt' };
-  const used = ledger.lines.filter(l => l.event === 'cap_consumed');
+  const consumed = ledger.lines.filter(l => l.event === 'cap_consumed');
+  if (consumed.some(l => capNameOf(l) !== null && !BILLING_CAP_IDS.includes(capNameOf(l)))) return { status: 'invalid', reason: 'cap_record_mismatch' };
+  const used = consumed.filter(l => capNameOf(l) === (capName ?? null));
+  // the OTHER caps' lines (none in a ledger with one kind, so its checks below run exactly as before): for this run, like every line of one ledger
+  const others = consumed.filter(l => capNameOf(l) !== (capName ?? null));
+  if (others.some(l => (runId !== undefined && l.run_id !== runId) || l.run_id !== consumed[0].run_id)) return { status: 'invalid', reason: 'cap_copied' };
   if (!used.length) return { status: 'none' };
   // T4b: a run's limit in force is its LAST consumption, and EVERY consumption must hold: its gate approved and unchanged, its use line agreeing with its gate, the run id right, and the sequence valid (the first is not a raise or an
   // amendment; every later one is, and its gate was requested after the previous consumption; a gate is never used twice). Any failure makes the whole run invalid (fail closed): a total that cannot be traced is no authority.
@@ -673,7 +727,7 @@ export function runCapAuthority(runDir, { runId, now = () => Date.now() } = {}) 
     if (st.status !== 'approved' || st.gate.kind !== RUN_CAP_KIND) return { status: 'invalid', reason: st.status === 'invalid' ? st.reason : 'cap_gate_not_approved' };
     const bytes = readGateText(runDir, st.gate.text);
     if (!bytes || textSha256(bytes) !== st.gate.sha256) return { status: 'invalid', reason: 'hash_mismatch' };
-    if (u.sha256 !== st.gate.sha256 || u.run_id !== st.gate.cap.run_id || u.cap_micro_usd !== st.answer.cap_micro_usd) return { status: 'invalid', reason: 'cap_record_mismatch' };
+    if (u.sha256 !== st.gate.sha256 || u.run_id !== st.gate.cap.run_id || u.cap_micro_usd !== st.answer.cap_micro_usd || capNameOf(u) !== capNameOf(st.gate.cap)) return { status: 'invalid', reason: 'cap_record_mismatch' };
     if (runId !== undefined && u.run_id !== runId) return { status: 'invalid', reason: 'cap_copied' };
     if (prev && u.run_id !== prev.run_id) return { status: 'invalid', reason: 'cap_copied' };   // every consumption of one ledger is for ONE run
     const later = LATER_OPERATION.test(st.gate.cap.operation);

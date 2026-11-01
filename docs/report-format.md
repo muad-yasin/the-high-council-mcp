@@ -70,9 +70,9 @@ missing, the stage did not run. It does not mean the stage found nothing.
   `totals.unpriced` too.
 - `totals.usd` is the sum of the stages' settled `usd`. It excludes an unsettled reservation (a call that was sent when the process ended and never settled): `council --spend`, `run_status` and a resume's cap count
   such a reservation at its worst case, so those figures can be higher than the report's total.
-- Since 0.8.4 `totals.usd` also holds paid stage files that no `stages[]` row accounts for (a label an earlier sitting paid for and the finishing sitting never asked again, for example after the chain
-  gave its criteria in place of a criteria seat): shown separately as `totals.unreplayedUsd`, listed in `unreplayed[]` (experimental, present only when there were any) as `{ label, usd, reservationId }` each.
-  A report written before 0.8.4 does not hold them; `council --spend` and `run_status` add them when they read such a report.
+- Since 0.8.4 `totals.usd` also counts the cost of paid stage files that no `stages[]` row accounts for (a label an earlier sitting paid for and the finishing sitting never asked again, for example after the chain
+  gave its criteria in place of a criteria seat): that cost is shown separately as `totals.unreplayedUsd`, and the files are listed in `unreplayed[]` (experimental, present only when there were any) as `{ label, usd, reservationId }` each.
+  A report written before 0.8.4 does not count them; `council --spend` and `run_status` add them when they read such a report.
 - Since 0.8.3 a `stages[]` entry that was paid for by a call carries `reservationId` (r1, r2...): the id of the spend reservation written before that call was sent, so a charge is matched to its reservation
   by id and not by label (a label can be run twice). A mock stage, or a call projected at $0, has none. A stage replayed from disk carries the id of the sitting that paid. `superseded[]` (experimental, present only when a
   stage was set aside and paid for again) lists the records `totals.supersededUsd` absorbed: `{ label, usd, reservationId }` each (a charge record adds `kind`, `waste` or `billed`).

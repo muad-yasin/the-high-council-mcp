@@ -16,6 +16,8 @@ export function handoffPrompt({ config, request, draft, planFile = 'PLAN.md', ch
   // are unanswered and the held `reviewNotesAnswer` exists; absent, both prompts are the strings that have always been sent (`council handoff --from-run` passes none).
   const noteText = notes?.rows?.length ? held('reviewNotesAnswer')?.({ rows: notes.rows, ending: notes.ending }) : null;
   const withAsk = u => (noteText ? `${u}\n\n${noteText}` : u);
-  if (system && user) return { system: withNote(system({ milestones: true })), user: withAsk(user({ request, draft, planFile, checks, criteria })) };
-  return { system: withNote(R.HANDOFF_SYSTEM), user: withAsk(R.handoffUser({ request, draft, planFile, checks })) };
+  // TAGS SHOWN (A-DRAFT): with the chain's severity switch on, the handoff seat is told what the number on an objection means (the writer's sentence, the same one the reviser and the dispute prompt carry): the draft it reads carries each unresolved objection's rating. Switch off: nothing is added.
+  const withSev = s => (config?.severity?.enabled === true ? `${s}\n\n${R.SEVERITY_WRITER_SENTENCE}` : s);
+  if (system && user) return { system: withSev(withNote(system({ milestones: true }))), user: withAsk(user({ request, draft, planFile, checks, criteria })) };
+  return { system: withSev(withNote(R.HANDOFF_SYSTEM)), user: withAsk(R.handoffUser({ request, draft, planFile, checks })) };
 }

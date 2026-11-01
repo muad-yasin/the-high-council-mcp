@@ -88,7 +88,7 @@ export function layersHeadline(layers) {
   const count = r => `${r.labs.length} lab${r.labs.length === 1 ? '' : 's'}`;
   if (rows.every(r => r.state === 'signed_off') && !rows.some(r => r.raised_again?.length)) return `every layer signed off (${rows.map(r => `layer ${r.layer}: ${count(r)}`).join(', ')})`;
   const say = {
-    signed_off: r => (r.raised_again?.length ? `layer ${r.layer} signed off apart from ${r.raised_again.join(', ')}, closed by an earlier ruling` : `layer ${r.layer} signed off`),   // the raised_again words: stall escalation, A-DRAFT
+    signed_off: r => (r.raised_again?.length ? `layer ${r.layer} signed off apart from ${r.raised_again.join(', ')} (closed by an earlier ruling)` : `layer ${r.layer} signed off`),   // the raised_again words: stall escalation, A-DRAFT
     objected: r => `layer ${r.layer} objected`,
     unheard: r => `layer ${r.layer} was not fully heard`,
     abstained: r => `layer ${r.layer} gave no usable verdict`,

@@ -62,22 +62,24 @@ const sha256 = s => createHash('sha256').update(s).digest('hex');
 //   ROLES_SHA256  OLD 37cd72cc942e615f8aacecbbe434b8fa2c9afa4f7ddad68205b1d9a7456a5505  NEW ae75f5767fdd2c6050cd8efe2704b379753005d399bbe1f80d9046578b775866  WHY src/roles.js treeSplitWriterNote: the one context_refs sentence of the "children" bullet is replaced by Astra's paragraph (the reference grammar, the goal duty, the exclusions the harness supplies; its three typographic quote pairs and one apostrophe written as the prompt's own straight quotes). The mock chains below are not tree members and never receive the split note: their digests do not move.
 // Re-recorded 27 Okt 2026 (stall escalation, shape B) on the owner's yes: Muad, 27 Okt 2026, "Yes to all" (the ruling words, the top layer's rulings section, after an outside review of the wording):
 //   ROLES_SHA256  OLD ae75f5767fdd2c6050cd8efe2704b379753005d399bbe1f80d9046578b775866  NEW 908eab1a6c045ad07c91f2794b591654553c6b4b98c0124411568cd300689131  WHY src/roles.js records escalationRulingSystem, escalationRulingUser and ledgerRulingsSection from test/held-prompts/held-escalation.js (appended; no existing sentence changes). The pinned mock chains are unlayered: none of them can escalate, so their prompts and digests do not move.
-const ROLES_SHA256 = '908eab1a6c045ad07c91f2794b591654553c6b4b98c0124411568cd300689131';
+// Re-recorded at the B3 judge wording apply (1 Nov 2026), value copied from the failing run's output (the apply tree's src/roles.js):
+//   ROLES_SHA256  OLD 908eab1a6c045ad07c91f2794b591654553c6b4b98c0124411568cd300689131  NEW f485263b1b2fc1b563bf869bdf28f1c2ec079b71ccd6df1ee18a5eba2e252486  WHY the decided wording of the apply (judge prompts, the exchange prompts and the Council welcome, ledger frames, severity texts) is in src/roles.js.
+const ROLES_SHA256 = '759ea622e0f39fe31c4e50f38f02eba5af00e2ff2606db83d6e1981869505c09';
 // Recorded at 0d87668. `status` is the CLI's exit code (mock-security-review's mock reviewer blocks: 7). 0.8.3 exit 22: mock-dispute, mock-patch and mock-partitioned finish with their mock panel NOT agreed, which now exits 22 instead of 0 (calls and sha unchanged: no prompt changed).
 // mock-relay is left out: its panel order comes from Math.random (bug audit 2026-09-26 #2) and a relay
 // reviewer sees the reviews before it, so its prompts differ from run to run.
 const PINNED = {
-  'mock': { calls: 6, status: 0, sha: '04e8a94d1091adf3' },
-  'mock-debate': { calls: 15, status: 0, sha: '01ece0a2cb1e6ba3' },
-  'mock-unanimous': { calls: 8, status: 0, sha: '3eee6f1ff728c852' },
-  'mock-proposals': { calls: 16, status: 0, sha: '75ad9d6f83248225' },
-  'mock-questions': { calls: 16, status: 0, sha: 'c3dd1124528031ec' },
-  'mock-dispute': { calls: 12, status: 22, sha: '07dac8be066b51c6' },
-  'mock-criteria-kinds': { calls: 6, status: 0, sha: 'e7d59cf99569be28' },
-  'mock-open': { calls: 15, status: 0, sha: '51e1a8529008cbfb' },
-  'mock-patch': { calls: 7, status: 22, sha: '70b4cf275371e092' },
-  'mock-security-review': { calls: 5, status: 7, sha: '8910a2cd7310820c' },
-  'mock-partitioned': { calls: 6, status: 22, sha: '4ad3c879146db9c6' }
+  'mock': { calls: 6, status: 0, sha: 'dcc7f546e2bd5b56' },
+  'mock-debate': { calls: 15, status: 0, sha: '154bbfea88f76205' },
+  'mock-unanimous': { calls: 8, status: 0, sha: 'ca45e84be420cdc0' },
+  'mock-proposals': { calls: 16, status: 0, sha: '6e824efb274ab10d' },
+  'mock-questions': { calls: 16, status: 0, sha: '6c61a8346a69ec5d' },
+  'mock-dispute': { calls: 12, status: 22, sha: 'c0dfb9af349b23cb' },
+  'mock-criteria-kinds': { calls: 6, status: 0, sha: '25d76f74f14abd48' },
+  'mock-open': { calls: 15, status: 0, sha: '759ce122c156cace' },
+  'mock-patch': { calls: 7, status: 22, sha: 'a2f6a889f698651c' },
+  'mock-security-review': { calls: 5, status: 7, sha: '9621533c4e1abd76' },
+  'mock-partitioned': { calls: 6, status: 22, sha: 'c7b91073f8d07a47' },
 };
 const TASK = 'Plan a small command-line tool that renames photos by the date they were taken.\n';
 

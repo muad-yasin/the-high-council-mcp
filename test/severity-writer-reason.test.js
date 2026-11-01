@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { runChain, setPromptSpy, setCache, setBudget } from '../src/chain.js';
 import * as R from '../src/roles.js';
 import * as Sev from '../src/severity.js';
+import * as L from '../src/objection-ledger.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const d16 = t => createHash('sha256').update(t).digest('hex').slice(0, 16);
@@ -62,4 +63,12 @@ test('R: with the severity switch off the exchange post shows no writer reason (
 test('R: the sweep texts and their contract are gone (the closing round is the final read)', () => {
   assert.equal(R.SWEEP_SYSTEM, undefined); assert.equal(R.sweepUser, undefined); assert.equal(Sev.CLOSING_ROUND, undefined);
   for (const f of ['roles.js', 'severity.js']) assert.doesNotMatch(readFileSync(join(root, 'src', f), 'utf8'), /SWEEP_SYSTEM|sweepUser|CLOSING_ROUND|close-\$\{/);
+});
+
+test('R whole reason (his word 1 Nov 2026: no cut): a writer reason of 1,500 characters reaches the map whole, a reason of 600 and one of 5,000 too; an empty or non-text one is left out; and the block renders the whole text', () => {
+  const long = 'Because the plan says so. '.repeat(58); const huge = 'x'.repeat(5000);
+  const map = L.declinedReasonMap({ ea: { objections: [{ id: 'O-1', declined_reason: long }, { id: 'O-2', declined_reason: 'y'.repeat(600) }, { id: 'O-3', declined_reason: huge }, { id: 'O-4', declined_reason: '   ' }, { id: 'O-5' }] }, eb: { objections: [{ id: 'O-6', declined_reason: 7 }] } });
+  assert.deepEqual([...map.keys()], ['O-1', 'O-2', 'O-3']);
+  assert.equal(map.get('O-1'), long); assert.equal(map.get('O-3').length, 5000);
+  assert.ok(R.layerDebateUser({ ...BASE, objections: [{ ...OBJS[0], declined_reason: map.get('O-1') }] }).includes(long.trim()), 'the prompt carries the whole reason');
 });

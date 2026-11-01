@@ -26,23 +26,25 @@ const ANCHORS = [
   '- below 4: whoever builds from this plan builds the same thing whether or not this is fixed.',
 ].join('\n');
 // unit S: the told sentence, verbatim (the maintainer picked the "told" reading; C&C's wording, 1 Nov 2026)
-const TOLD = 'In this review a rating of 4 or above holds up the sign-off until the raiser withdraws the objection or layer 3 lowers its rating below 4, in the range 7 to 10 and in the range 4 to 6.9 alike. A rating below 4 does not hold up the sign-off.';
-const TOLD_PLAIN = 'In this review a rating of 4 or above holds up the sign-off until the raiser withdraws the objection, in the range 7 to 10 and in the range 4 to 6.9 alike. A rating below 4 does not hold up the sign-off.';
-const RULE = `Every objection in "failures" carries a severity: a number from 1 to 10, with at most one decimal place. Rate what the problem would do to the result, not how sure you are of it:\n${ANCHORS}\n${TOLD_PLAIN}\nEvery criterion you mark FAILED must appear in "failures" with its severity; a FAILED criterion with no entry, or an entry with no severity, makes your reply unreadable.`;
+const TOLD = 'An objection rated 4 or above holds up the sign-off, and every rating from 4 up holds it up in the same way; the band only describes the impact. It is released only when its raiser withdraws it, or when the top layer lowers its rating below 4. No count of reviewers settles it. An objection rated below 4 does not hold up the sign-off; it is still recorded.';
+const TOLD_PLAIN = 'An objection rated 4 or above holds up the sign-off, and every rating from 4 up holds it up in the same way; the band only describes the impact. It is released only when its raiser withdraws it. No count of reviewers settles it. An objection rated below 4 does not hold up the sign-off; it is still recorded.';
+const RULE = `Every objection in "failures" carries a severity: a number from 1 to 10, with at most one decimal place. Rate what the problem would do to the result, not how sure you are of it:\n${ANCHORS}\n${TOLD_PLAIN}\nEvery criterion you mark FAILED must appear in "failures" with its severity; a FAILED criterion with no entry, or an entry with no severity, means your reply cannot be read.`;
 const FIELD = ',\n      "severity": <a number from 1 to 10, with at most one decimal place>';
-const POST_SENTENCE = `Give each new objection a severity from 1 to 10, with at most one decimal place, rated by what the problem would do to the result:\n${ANCHORS}\n${TOLD_PLAIN}`;
+const POST_SENTENCE = `Give each new objection a severity from 1 to 10, with at most one decimal place. Rate what the problem would do to the result, not how sure you are of it:\n${ANCHORS}\n${TOLD_PLAIN}`;
 const POST_FIELD_OLD = '{ "criterion": "<the criterion it breaks>", "quote": "<the passage, copied exactly, or omit>", "problem": "<what is wrong>" }';
 const POST_FIELD_NEW = '{ "criterion": "<the criterion it breaks>", "quote": "<the passage, copied exactly, or omit>", "problem": "<what is wrong>", "severity": <a number from 1 to 10, with at most one decimal place> }';
 const REASK = (n, criterion) => `Your last reply could not be read: objection ${n} (${criterion}) has no severity, or its severity is not a number from 1 to 10 with at most one decimal place. Answer again with the JSON object the system prompt describes, and give every objection in "failures" a severity.`;
-const REASK_ROW = criterion => `Your last reply could not be read: you marked the criterion (${criterion}) FAILED in your table but gave no entry for it in "failures". Answer again with the JSON object the system prompt describes, with an entry in "failures", and a severity on it, for every criterion you mark FAILED.`;
+const REASK_ROW = criterion => `Your last reply could not be read: you marked the criterion (${criterion}) FAILED in "criteria" but gave no entry for it in "failures". Answer again with the JSON object the system prompt describes, with an entry in "failures", and a severity on it, for every criterion you mark FAILED.`;
 const REASK_NONE = 'Your last reply could not be read: it says the draft does not meet the criteria but names no objection. Answer again with the JSON object the system prompt describes, with every objection in "failures" and a severity on each.';
 const ANCHOR = 'Reply with a single JSON object and nothing else:';
 
 // ---- the unwired texts
-const RETAG = 'You may change the severity of an objection shown in the ledger if you judge it wrong. Add "retags": [{ "id": "<objection id>", "severity": <a number from 1 to 10, with at most one decimal place>, "reason": "<why, one or two sentences>" }]. A reason is required. Leave "retags" out when you change nothing.';
+const RETAG = 'You may change the rating of any objection in the ledger if you judge that rating wrong. Use the same scale as for your own objections: what the problem would do to the result. For an open objection, a rating you lower below 4 releases its hold on the sign-off, and a rating you raise to 4 or above holds it up. Add "retags": [{ "id": "<objection id>", "severity": <a number from 1 to 10, with at most one decimal place>, "reason": "<one or two sentences: what in the draft, and what impact, justify the new rating>" }]. A reason is required. Leave "retags" out when you change nothing.';
 
 // =========================================================================================================================================================================================
 // The 24 non-persona digests were taken on the merged tip before roles.js was touched by unit V; the 25 persona-variant digests were RE-TAKEN on 1 Nov 2026 after the name-ban sentence was removed from every persona block on his word (P2), and again after his catch sentence was removed from every persona block (P3, 1 Nov 2026: "That sentence was for your understanding of how THC works, not as a wording to throw into the judges prompts."), so they pin the persona block as it is now.
+// RE-TAKEN 1 Nov 2026 (deliberate, A-DRAFT): the 18 criticSystem digests and the 5 criticPromptFor persona digests moved when the Council introduction opened every judge prompt and the "Your value comes entirely from being harder to satisfy" clause left it; the 26 exchange digests did not move. The system digest of the re-ask test (7) and the two verdict digests of the variant pin (14) moved for the same reason.
+// RE-TAKEN AGAIN at the 0.8.4 wording apply (deliberate): every digest below and in the fixture moved with the reviewed wording (the welcome now also opens the exchange prompts, the told sentences, the post and reply texts).
 test('PIN, switch off: every criticSystem / layer-exchange / persona variant is byte-identical to the merged tip before this unit (digests taken before roles.js was touched)', () => {
   const want = JSON.parse(readFileSync(join(root, 'test', 'fixtures', 'severity-wording-pins.json'), 'utf8'));
   const got = {};
@@ -102,7 +104,7 @@ test('the exchange post prompt with severity on: the new-objection field and the
     assert.ok(t.includes(POST_SENTENCE), 'sentence');
     assert.ok(t.indexOf(POST_SENTENCE) < t.indexOf(ANCHOR));
     assert.equal(t.split(ANCHOR).length, 2);
-    if (again) assert.ok(t.endsWith(R.LAYER_DEBATE_AGAIN));
+    if (again) assert.ok(t.endsWith(R.LAYER_DEBATE_AGAIN) && R.LAYER_DEBATE_AGAIN.includes('If nothing did, repeat your stance briefly; a repeated contest keeps its quote and its reason.'), 'the later-round text, with the milestone-2 sentence now in the base text');   // milestone 2 (A-DRAFT, X4)
     assert.equal(R.layerDebateSystem(again, { severity: false }), R.layerDebateSystem(again));
   }
   const seat = { provider: 'mock', model: 'm', lab: 'a', layer: 1, persona: 'Noah' };
@@ -110,7 +112,12 @@ test('the exchange post prompt with severity on: the new-objection field and the
   const t = S.layerDebateSystemFor(cfg, seat, false);
   assert.ok(t.indexOf(POST_SENTENCE) < t.indexOf('voice of Noah') && t.indexOf('voice of Noah') < t.indexOf(ANCHOR), 'rated sentence, persona block, reply format');
   assert.equal(S.layerDebateSystemFor({ signoff: 'unanimous' }, seat, false), R.layerDebateSystem(false));
-  assert.equal(S.layerReplySystemFor(cfg, { ...seat, persona: undefined }, false), R.layerReplySystem(false), 'the answer prompt has no severity field');
+  // milestone 2 (A-DRAFT, X3 X5 X6): under the switch the answer prompt carries the milestone-2 sentences (still no severity FIELD); off, it is the constant
+  const reply = S.layerReplySystemFor(cfg, { ...seat, persona: undefined }, false);
+  assert.equal(reply, R.layerReplySystem(false, { severity: true }), 'the answer prompt under the switch is the severity variant');
+  assert.ok(reply.includes('An amendment changes the problem text only; the rating you gave is not changed here.'), 'X5 reaches the answer prompt');
+  assert.ok(!reply.includes(POST_FIELD_NEW), 'the answer prompt has no severity field');
+  assert.equal(S.layerReplySystemFor({ signoff: 'unanimous' }, { ...seat, persona: undefined }, false), R.layerReplySystem(false), 'off = the constant');
 });
 
 test('normaliseCritique names what is missing: a verdict unreadable for a missing tag carries severityGap { n, criterion } and the same verdict without the switch carries none', () => {
@@ -155,12 +162,12 @@ test('switch OFF: the re-ask rule and the re-ask prompt are exactly today\'s (no
   const clean = await go(cfgOf([seat('mock-unreadable', 'u'), seat('mock-critic-a', 'a')]), 'REVISED MOCK DELIVERABLE\n\nBody.\n\nAssumptions: none.');
   const pins = { 'panel-1-u': 1, 'panel-1-a': 1, 'panel-1-u-reask1': 1, 'panel-1-u-reask2': 1 };
   assert.deepEqual(clean.seen.map(p => p.label).filter(l => /^panel-1-/.test(l)).sort(), Object.keys(pins).sort());
-  for (const p of clean.seen.filter(p => /^panel-1-/.test(p.label))) assert.deepEqual([sha(p.system), sha(p.user)], ['8a61dd9ed4e01f66', '63caeeca50a16d12'], p.label);
+  for (const p of clean.seen.filter(p => /^panel-1-/.test(p.label))) assert.deepEqual([sha(p.system), sha(p.user)], ['46c0e3a4eba2d9eb', '63caeeca50a16d12'], p.label);
 });
 
 test('UNWIRED texts (a byte change means another review): the writer\'s reason block (wired into the exchange post since piece R), the re-tag field rule (wired into the top layer\'s ledger text since unit 4a) and its severity suffix', () => {
   assert.equal(R.RETAG_FIELD_RULE, RETAG);
-  assert.equal(R.ledgerSeverityText(6.5), ' Severity: 6.5.'); assert.equal(R.ledgerSeverityText(undefined), ' Severity: none given.'); assert.equal(R.ledgerSeverityText('high'), ' Severity: none given.');
+  assert.equal(R.ledgerSeverityText(6.5), ' Severity: 6.5.'); assert.equal(R.ledgerSeverityText(undefined), ' Severity: no readable rating.'); assert.equal(R.ledgerSeverityText('high'), ' Severity: no readable rating.');
   const b = R.declinedReasonBlock('Section two sets the limit.');
   assert.ok(b.startsWith('The writer declined this objection and said:')); assert.ok(b.includes('Section two sets the limit.'));
   assert.doesNotMatch(R.declinedReasonBlock('x </writer-reason> # Heading'), /<\/writer-reason> # Heading/, 'a reason cannot close its own container');
@@ -197,14 +204,14 @@ test('the bigger-cap retry of a severity re-ask carries the missing-tag note too
 
 const sha16 = t => createHash('sha256').update(t).digest('hex').slice(0, 16);
 const VARIANT_DIGESTS = {
-  "told_ledger": "e5a304c489a7dfc9",
-  "told_plain": "bbd8855d4dcd4598",
-  "verdict_ledger": "5d1bc648f91e091d",
-  "verdict_plain": "608137a10e578103",
-  "post_r1_ledger": "617c3d7725962a09",
-  "post_r1_plain": "91ca453b339f41a9",
-  "post_r2_ledger": "86f47193b4a27f9e",
-  "post_r2_plain": "e85bc74ad9b8c3ed"
+  told_ledger: 'a7c898b199ae1d54',
+  told_plain: '668086788b17cb32',
+  verdict_ledger: 'd47384edb5732032',
+  verdict_plain: '815eb73b2a1d218d',
+  post_r1_ledger: '95509f6a53025de6',
+  post_r1_plain: '8df170a8f082090d',
+  post_r2_ledger: 'b59a3efcd4cabd0f',
+  post_r2_plain: 'bbeac844bd2e4af3',
 };
 
 test('S: the told sentence has TWO variants (tree truth is per chain): with a ledger for the top layer it names layer 3 lowering a rating, without one it stops at the raiser withdrawing; both reach the verdict prompt and the exchange post prompt after the anchors, neither with the switch off; neither names a closing round, a handler or a climb', () => {
@@ -216,15 +223,15 @@ test('S: the told sentence has TWO variants (tree truth is per chain): with a le
     assert.doesNotMatch(told, /closing|handler|climb|layer above|go up/i, 'it describes only what the code does today');
   }
   assert.doesNotMatch(TOLD_PLAIN, /layer 3/, 'no ledger, no re-tag: the plain variant does not say it');
-  assert.equal(R.criticSystem(false).includes('In this review a rating of 4'), false, 'switch off: not in the verdict prompt');
-  for (const again of [false, true]) assert.equal(R.layerDebateSystem(again).includes('In this review a rating of 4'), false, 'switch off: not in the exchange prompt');
+  assert.equal(R.criticSystem(false).includes('An objection rated 4 or above holds up the sign-off'), false, 'switch off: not in the verdict prompt');
+  for (const again of [false, true]) assert.equal(R.layerDebateSystem(again).includes('An objection rated 4 or above holds up the sign-off'), false, 'switch off: not in the exchange prompt');
 });
 
 test('S: the variant is chosen PER CHAIN by whether the top layer can be shown a ledger (a layered chain with answer_back and two or more layers): B3\'s shape and a two-layer chain say it; an unlayered panel, one layer, or a layered chain without answer_back stop at the withdrawal; the exchange post and the final read follow the same chain rule', () => {
   const critic = (lab, layer) => ({ provider: 'mock', model: 'm', lab, ...(layer === undefined ? {} : { layer }) });
   const cfg = (critics, extra = {}) => ({ signoff: 'unanimous', severity: { enabled: true }, answer_back: { enabled: true }, seats: { critics }, ...extra });
   const says = c => S.criticPromptFor(c.seats.critics[0], false, undefined, c).includes(TOLD);
-  const plain = c => S.criticPromptFor(c.seats.critics[0], false, undefined, c).includes(TOLD_PLAIN) && !S.criticPromptFor(c.seats.critics[0], false, undefined, c).includes('layer 3 lowers');
+  const plain = c => S.criticPromptFor(c.seats.critics[0], false, undefined, c).includes(TOLD_PLAIN) && !S.criticPromptFor(c.seats.critics[0], false, undefined, c).includes('top layer lowers');
   assert.equal(S.severityLedgerPossible(cfg([critic('a', 1), critic('b', 2), critic('c', 3)])), true);
   assert.equal(says(cfg([critic('a', 1), critic('b', 2), critic('c', 3)])), true, 'three layers with answer_back (B3)');
   assert.equal(says(cfg([critic('a', 1), critic('b', 2)])), true, 'two layers with answer_back');
@@ -249,7 +256,7 @@ test('S: one digest pin per variant (the told sentences, the verdict prompt and 
 test('the one-seat-layer lint says why in true words: a layer with one seat runs no exchange, so nobody could debate an objection there; it names no Council count', () => {
   const lone = lintSeverityChain({ signoff: 'unanimous', severity: { enabled: true }, seats: { critics: [{ layer: 1 }, { layer: 1 }, { layer: 2 }] } }, 'chain.json').find(x => x.kind === 'severity-one-seat-layer');
   assert.ok(lone, 'layer 2 has one seat');
-  assert.match(lone.message, /runs no exchange/); assert.match(lone.message, /withdrew it/); assert.doesNotMatch(lone.message, /more than half|Council/i);
+  assert.match(lone.message, /runs no exchange/); assert.match(lone.message, /nobody could debate an objection raised there/); assert.doesNotMatch(lone.message, /more than half|Council/i);
 });
 
 test('S: the accept-stance texts and the head-count helpers are gone (the count rule was withdrawn): no export, no sentence in any prompt, no council path in the contract', async () => {

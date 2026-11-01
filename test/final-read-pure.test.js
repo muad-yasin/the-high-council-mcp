@@ -50,12 +50,12 @@ test('the record, the block, the board and the log say "did NOT read" for an unr
   const rec = finalReadRecord({ ran: true, finalSha: 'ccc', seats: [ok, bad] });
   const log = finalReadLogLines(rec.seats).join('\n');
   assert.match(log, /terra: did NOT read the final plan: unreadable reply after one re-ask/);
-  assert.match(log, /LAYER 3 DID NOT READ THE FINAL PLAN \(terra\)/);
+  assert.match(log, /NOT EVERY LAYER-3 SEAT READ THE FINAL PLAN after its last change \(terra did not\)/);
   const block = renderFinalReadBlock(rec);
   assert.match(block, /### opus5\.5: objected/);
-  assert.match(block, /- Scope: It adds a billing system nobody asked for\./);
+  assert.match(block, /- "Scope": It adds a billing system nobody asked for\./);
   assert.match(block, /### terra: DID NOT READ/);
-  assert.match(block, /\*\*Layer 3 did not read the final plan \(terra\)\.\*\*/);
+  assert.match(block, /\*\*Not every layer-3 seat read the final plan \(terra did not\)\.\*\*/);
   const board = renderFinalReadBoard(rec);
   assert.match(board, /## Final read by layer 3/);
   assert.match(board, /\*\*DID NOT READ\*\* - terra \(layer 3\), asked twice/);

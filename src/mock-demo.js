@@ -230,7 +230,7 @@ export function demoReply({ model, system, user }) {
     return reply(JSON.stringify({ replies }));
   }
   if (system.startsWith('You write the handoff file')) return reply(HANDOFF);
-  if (system.startsWith('You are an independent critic')) return reply(JSON.stringify(critic(model, user)));
+  if (/(^|\n)You are an independent critic/.test(system)) return reply(JSON.stringify(critic(model, user)));
   if (system.startsWith('You are the builder in a multi-model review chain,\nrevising')) return reply(plan(user, true));
   if (system.startsWith('You are the builder in a multi-model review chain.')) return reply(plan(user, false));
   return null;

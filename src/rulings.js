@@ -28,3 +28,20 @@ export function parseWithdrawalGateText(bytes) {
   const pass = Number(m[2]);
   return Number.isInteger(pass) && pass >= 1 ? { gate: m[1], pass } : null;
 }
+
+/**
+ * A handler re-tag (B3 prep, JUDGE 4b, 1 Nov 2026; Muad: "handler too"): the person's decision, relayed by the handler session, to change the rating of ONE objection from a fixed pass on. A gate of kind `retag` (src/gate.js); its text is the
+ * change exactly as it will be recorded. Same record rules as a ruling: the pass is fixed in the text, an approval stays in force whatever the clock says, and a prompt for pass R is the same whether it is built now or on a resume.
+ */
+export const retagGateText = ({ pass, id, severity, reason }) => `Re-tag from pass ${pass}\nobjection: ${id}\nnew severity: ${severity}\nreason: ${String(reason).replace(/\s+/g, ' ').trim()}\n`;   // A-DRAFT (read by a person at the gate)
+
+/** { pass, id, severity, reason } from the bytes of a re-tag gate's text, or null when they are not exactly that shape (a re-tag that cannot be read is never dropped silently: the caller refuses). */
+export function parseRetagGateText(bytes) {
+  const m = /^Re-tag from pass (\d+)\nobjection: (O-\w+)\nnew severity: (\d+(?:\.\d)?)\nreason: (\S[^\n]*)\n$/.exec(Buffer.isBuffer(bytes) ? bytes.toString('utf8') : String(bytes));
+  if (!m) return null;
+  const pass = Number(m[1]); const severity = Number(m[3]);
+  return Number.isInteger(pass) && pass >= 1 && severity >= 1 && severity <= 10 && m[4].trim() === m[4] ? { pass, id: m[2], severity, reason: m[4] } : null;
+}
+
+/** The re-tags that apply AT pass `round` (each one takes effect once, at the top of its own pass; the rating it sets stays in force after that through the severity run). */
+export const retagsAtPass = (retags, round) => (Array.isArray(retags) ? retags : []).filter(r => Number.isInteger(r?.pass) && r.pass === round);

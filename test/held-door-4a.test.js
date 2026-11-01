@@ -61,11 +61,13 @@ const go = async (extra = {}) => {
   return { r, seen };
 };
 const MARK = '[no quote]';
+// The 4d sentence itself (src/roles.js debatePostQuoteRule), not the bare words "inside backticks": the judge reply template has carried those words since 55fe47cd (the `answers` key, 28 Okt 2026), in every chain, so the shorter check read the template, not the door.
+const RULE_4D = 'For object and merge, copy the phrase you are talking about from the proposal, inside backticks.';
 
 test('4a-4d before the re-record: the prompts of a noQuoteMarks chain are the ones that were always sent (no mark, no gloss, no poster sentence), and the canary record says no mark was rendered', BEFORE, async () => {
   const { r, seen } = await go();
   assert.ok(seen.length > 5);
-  assert.ok(seen.every(p => !p.user.includes(MARK) && !p.system.includes(MARK) && !p.system.includes('inside backticks')));
+  assert.ok(seen.every(p => !p.user.includes(MARK) && !p.system.includes(MARK) && !p.system.includes(RULE_4D)));
   assert.equal(r.canary?.no_quote_mark, false);
 });
 
@@ -89,7 +91,7 @@ test('4a-4d door: in a noQuoteMarks chain the author\'s reply prompt carries the
 test('4a-4d: a chain without noQuoteMarks gets none of it, even when the sentences exist', async () => {
   setHeldForTest(ALL);
   const { seen, r } = await go({ debate_hygiene: undefined });
-  assert.ok(seen.every(p => !p.user.includes(MARK) && !p.system.includes(MARK) && !p.system.includes('inside backticks')));
+  assert.ok(seen.every(p => !p.user.includes(MARK) && !p.system.includes(MARK) && !p.system.includes(RULE_4D)));
   assert.equal(r.canary?.no_quote_mark, undefined);
 });
 

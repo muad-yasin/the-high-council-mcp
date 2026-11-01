@@ -69,12 +69,12 @@ test('RFH-1: the host picture is the eligible hosts only (tiers, the length boun
   assert.deepEqual(row.hosts.in, { low: 0.1, median: 0.2, high: 0.25 });
   assert.deepEqual(row.hosts.out, { low: 0.4, median: 0.8, high: 1 });
   assert.equal(row.hosts.filters.length, 5);
-  assert.match(row.hosts.filters[3], /priced at its dearest figure/);
+  assert.match(row.hosts.filters[3], /counts in this host picture at its dearest figure/);
   assert.match(row.hosts.filters[4], /Open Inference included/);
-  assert.match(row.hosts.filters[0], /tiers left out \(2\)/);
-  assert.match(row.hosts.filters[1], /at least 360000 tokens.*1 left out; 1 publish no limit and are counted/);
+  assert.match(row.hosts.filters[0], /tiers left out \(2 host\(s\)\)/);
+  assert.match(row.hosts.filters[1], /at least 360000 tokens.*1 host\(s\) left out; 1 publish no limit and are counted/);
   assert.match(row.hosts.filters[2], /1 host\(s\) the page marks "Not used in Standard routing" left out/);
-  assert.match(r.stdout, /vendor\/alpha: file 0\.3\/1\.2 -> 0\.25\/1  dearest eligible host 0\.25\/1 \(n=3; lowest 0\.1\/0\.4, median 0\.2\/0\.8; dearest: fff fp8 ctx 262144\)  LOWERED NOT APPLIED \(--hosts-only\)  evidence vendor__alpha\.json/);
+  assert.match(r.stdout, /vendor\/alpha: file 0\.3\/1\.2 -> 0\.25\/1  dearest eligible host 0\.25\/1 \(input\/output per Mtok; 3 hosts; lowest 0\.1\/0\.4, median 0\.2\/0\.8; dearest: fff fp8 ctx 262144\)  LOWERED NOT APPLIED \(--hosts-only\)  evidence vendor__alpha\.json/);
 });
 
 test('RFH-2: every other row stays byte-identical (a row without an answer, a row with `expires`, a direct row, the header keys), and a second run replaces the block instead of stacking it', () => {
@@ -187,7 +187,7 @@ test('RFH-8: an endpoint\'s own service_tier excludes it only when it is one of 
   const h = rowsOf(dir)['openrouter/vendor/alpha'].hosts;
   assert.equal(h.count, 4, 'Aaa, Std, Def and the unknown "turbo" stay; priority, Flex and ultrafast go');
   assert.deepEqual(h.in, { low: 0.1, median: 0.25, high: 0.6 });
-  assert.match(h.filters[0], /tiers left out \(3\)/);
+  assert.match(h.filters[0], /tiers left out \(3 host\(s\)\)/);
 });
 
 test('RFH-9: a page that has no endpoints table at all is "routing flag not read", never "no host is marked"; a page with the table and no divider still says so', () => {

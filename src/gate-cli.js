@@ -55,17 +55,20 @@ const isTreeGate = gate => typeof gate.kind === 'string' && gate.kind.startsWith
 // 0.8.3 M6 typed cap T3b: a run_cap gate asks for a TYPED limit in US dollars; answering sends nothing and spends nothing, and the answer is the number (no y/N after it). The prompt below is the only line this file adds for it.
 const isCapGate = gate => gate.kind === RUN_CAP_KIND;
 export const CAP_PROMPT = 'Type your limit in US dollars, then Enter: ';
+/** The prompt of a limit gate: under the per-provider caps it opens with the cap's name in capitals, so the two questions differ in their first word (DUALCAP milestone 2, A-DRAFT); a
+ * limit gate with no cap keeps the reviewed CAP_PROMPT. */
+export const capPromptOf = gate => (typeof gate?.cap?.cap_name === 'string' && gate.cap.cap_name ? `${gate.cap.cap_name.toUpperCase()} limit in US dollars, then Enter: ` : CAP_PROMPT);
 
 /** What approving a tree gate DOES, for the kinds whose effect is not the frontier approval's (the other kinds keep the line below). */
 const TREE_APPROVAL_LINE = Object.freeze({ tree_check: 'Approving records the result of an integration check; it starts no run and spends nothing.' });
 
 function describeLines(gate, p, masks, seats, startsRun = false) {
+  // DUALCAP milestone 2 (C&C, 1 Nov: Muad found the limit screen cluttered): a limit gate shows no file/bytes/sha256 header and no expiry line; both stay in the gate record
+  // and the ledger, switch on or off. Every other gate kind keeps them.
   if (isCapGate(gate)) {
     return [
-      `gate ${gate.id} (${gate.kind}): ${gate.text}, ${gate.bytes} bytes, sha256 ${gate.sha256}`,
       // E 154 says typing sends nothing and spends nothing; that is true of `council gate answer`. When the START of a run asks (startsRun, src/cli.js through src/start-cap.js), typing begins the run: the line says so instead (E 157 g).
       startsRun ? 'answering records the limit you type for this run; if the start\'s other checks pass, this run then starts and spends against it' : 'answering records the limit you type for this run; typing it sends nothing to any model and spends nothing',
-      `expires: ${gate.expires_at}`,
     ];
   }
   if (isTreeGate(gate)) {
@@ -100,13 +103,13 @@ function describeLines(gate, p, masks, seats, startsRun = false) {
 // so the person knows the bytes they approve are not all visible. They are counted, not removed: a joiner
 // inside an emoji is legitimate, and the hash covers the bytes as they are.
 // Audit item 7 (0.8.3): the count is src/hidden-chars.js's (everything that renders as nothing; the quiet joiners ZWNJ, ZWJ, soft hyphen, the emoji selector ... are counted unless an emoji sequence explains them; a leading byte-order mark is ordinary).
-function printText(out, bytes) {
+function printText(out, bytes, { limitScreen = false } = {}) {   // limitScreen (DUALCAP milestone 2): the fences of a limit gate carry a short label; they stay (audit A3-4)
   const text = bytes.toString('utf8');
   const safe = terminalSafe(text);
   const fence = dashFence(safe, 5);   // audit A3-4: longer than any dash run in the text, so the text cannot fake its own end
-  out(`${fence} the exact text (begin) ${fence}`);
+  out(limitScreen ? `${fence} screen ${fence}` : `${fence} the exact text (begin) ${fence}`);
   out(safe.endsWith('\n') ? safe.slice(0, -1) : safe);
-  out(`${fence} the exact text (end) ${fence}`);
+  out(limitScreen ? `${fence} end of screen ${fence}` : `${fence} the exact text (end) ${fence}`);
   const removed = [...text].length - [...safe].length;
   const invisible = countHidden(stripLeadingBom(safe));
   if (removed > 0) out(`note: the text holds ${removed} control or direction character(s) that are not shown above; they are part of what would be sent.`);
@@ -161,7 +164,7 @@ export async function gateCommand(args, { work = process.cwd(), stdin = process.
     out(`status: ${state.status}${state.reason ? ` (${state.reason})` : ''}${usable}`);
     for (const l of describe(state.gate)) out(l);
     const bytes = readGateText(runDir, state.gate.text);
-    if (bytes) printText(out, bytes); else out(terminalSafe(`(the text file ${state.gate.text} cannot be read inside the run folder)`));
+    if (bytes) printText(out, bytes, { limitScreen: isCapGate(state.gate) }); else out(terminalSafe(`(the text file ${state.gate.text} cannot be read inside the run folder)`));
     return 0;
   }
 
@@ -223,16 +226,16 @@ export async function answerAtTerminal(runDir, gateArg, { decline = false, typed
     if (!decline) { err(terminalSafe(`${policyCheck.refused}. Nothing was written; the gate stays pending.`)); return 1; }
     out(terminalSafe(`Note: ${policyCheck.refused}. Declining is always allowed.`));
   }
-  printText(out, bytes);
+  printText(out, bytes, { limitScreen: isCapGate(state.gate) });
   // A limit is answered by TYPING it (answerGate parses the text against the ceiling bound in the gate and writes the figure itself): no y/N after it, and a bare "y" is refused there. Declining keeps its y/N.
   if (isCapGate(state.gate) && !decline) {
-    const got = await ask(CAP_PROMPT, { input: stdin, output: stdout });
+    const got = await ask(capPromptOf(state.gate), { input: stdin, output: stdout });
     let actor = null;
     try { actor = userInfo().username; } catch { /* no user name on this system; recorded as null */ }
     const res = answerGate(runDir, gateArg, { channel: 'cli', shownSha256, decision: 'approved', actor, tty: true, typedCap: got }, opts);
     if (!res.ok) { err(terminalSafe(`gate ${gateArg}: refused (${res.code}): ${res.message}`)); return 1; }
     const recorded = readGateAnswer(runDir, gateArg, opts);
-    out(`gate ${gateArg}: ${res.status} (ledger line ${res.seq}); limit $${recorded.answer?.cap_usd ?? '?'}`);
+    out(`Limit recorded: $${recorded.answer?.cap_usd ?? '?'}.`);   // DUALCAP milestone 2 (A-DRAFT): the ledger line stays in the record, not in the person's view
     if (res.warning) err(`gate ${gateArg}: note: ${res.warning}`);
     return 0;
   }
@@ -252,7 +255,8 @@ export async function answerAtTerminal(runDir, gateArg, { decline = false, typed
   try { actor = userInfo().username; } catch { /* no user name on this system; recorded as null */ }
   const res = answerGate(runDir, gateArg, { channel: 'cli', shownSha256, decision: decline ? 'declined' : 'approved', actor, tty: true }, opts);
   if (!res.ok) { err(`gate ${gateArg}: refused (${res.code}): ${res.message}`); return 1; }
-  out(`gate ${gateArg}: ${res.status} (ledger line ${res.seq})`);
+  // DUALCAP milestone 2: a limit gate reaches this line only when declined (a typed limit returns above); its ledger line stays in the record (A-DRAFT words)
+  out(isCapGate(state.gate) ? 'Declined: no limit was recorded.' : `gate ${gateArg}: ${res.status} (ledger line ${res.seq})`);
   if (res.warning) err(`gate ${gateArg}: note: ${res.warning}`);
   return 0;
 }

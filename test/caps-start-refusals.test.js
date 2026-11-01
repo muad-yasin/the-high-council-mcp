@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import * as caps from '../src/caps.js';
 import * as uncovered from '../src/uncovered.js';
+import { readGateAnswer } from '../src/gate.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -139,32 +140,37 @@ test('C2 SWITCH ON, option B: COUNCIL_MAX_USD_LIMIT set and a cap in force witho
   assert.equal(existsSync(join(work, 'runs')), false, 'nothing was written');
 });
 
-test('C3 SWITCH ON, a start the caps cover still meets the not-armed line, until the caps are armed: the two-cap chain (no main limit; every ceiling set) and a plain mock chain; nothing is written', () => {
+test('C3 SWITCH ON, a start the caps cover no longer meets the not-armed line (unit 4b2 arms it): without a terminal it waits at exit 21 for one typed limit per cap, with every ceiling set as with none; nothing is spent (a plain mock chain keeps today\'s path: test/caps-switch-start.test.js W6)', () => {
   const { work, run } = project([TWO_CAPS]);
-  for (const [chain, env] of [[TWO_CAPS.name, BOTH], [TWO_CAPS.name, { ...BOTH, ...LIMITS, COUNCIL_MAX_USD_LIMIT_ANTHROPIC: '2' }], ['mock', BOTH]]) {
-    const r = run(start(chain), env);
-    assert.equal(r.code, 2, `${chain} ${JSON.stringify(env)}\n${r.out}`);
-    assert.match(r.out, NOT_ARMED, `${chain} ${JSON.stringify(env)}`);
+  const ceilings = { ...BOTH, ...LIMITS, COUNCIL_MAX_USD_LIMIT_ANTHROPIC: '2' };
+  for (const [i, env] of [BOTH, ceilings].entries()) {
+    const id = `2026-11-01T00-00-0${i}-000Z`;
+    const r = run(['--task', 'tasks/x.md', '--chain', TWO_CAPS.name, '--run-id', id], env);   // no --max-usd: under the switch a run-wide figure is refused (Q1, test/caps-arming.test.js)
+    assert.equal(r.code, 21, `${JSON.stringify(env)}\n${r.out}`);
+    assert.doesNotMatch(r.out, NOT_ARMED, JSON.stringify(env));
+    assert.match(r.out, /anthropic/, JSON.stringify(env));
+    assert.match(r.out, /openrouter/, JSON.stringify(env));
+    assert.equal(readdirSync(join(work, 'runs', id)).some(n => n.endsWith('.usage.json') || n === 'spend-reservations.jsonl'), false, `${JSON.stringify(env)}: nothing spent or reserved`);
   }
-  assert.equal(existsSync(join(work, 'runs')), false, 'nothing was written');
+  // with every ceiling set, each gate is bounded by ITS cap's own ceiling, never by COUNCIL_MAX_USD_LIMIT (5): anthropic 2, openrouter 3
+  const bounded = ['g1', 'g2'].map(g => readGateAnswer(join(work, 'runs', '2026-11-01T00-00-01-000Z'), g).gate.cap);
+  assert.deepEqual(bounded.map(c => [c.cap_name, c.ceiling_usd, c.ceiling_source]), [['anthropic', 2, 'COUNCIL_MAX_USD_LIMIT_ANTHROPIC'], ['openrouter', 3, 'COUNCIL_MAX_USD_LIMIT_OPENROUTER']]);
 });
 
 // No CLI test of the mockBills refusal: on every main-path line (a start, a resume, a dry run) the chain lint answers first (src/cli.js exitOnLint, run on resume
 // too since the 2026-09-23 audit; chain-lint `invalid-mock-bills`, read on the rerouted roster the run uses), exit 1, whatever the switch says. The run-time
 // refusal behind it is pinned where it lives (P3: capsStartRefusals, switch off and on); C1, C2 and C9 drive the list it belongs to through the CLI.
 
-test('C5 SWITCH ON, a plain layered run paused at an external seat (as B3 pauses) resumes into the not-armed line and nothing earlier: the class comes from the run folder, never from the --resume flag; a folder that is no run meets the resume\'s own refusal; nothing is written', () => {
+test('C5 SWITCH ON, a plain layered run paused at an external seat (as B3 pauses) bills through no capped account, so its resume keeps today\'s path (4c1; as a start of such a chain, caps-switch-start W6): it is no refused class and no mode flip; it pauses again at the seat still unanswered; a folder that is no run meets the resume\'s own refusal', () => {
   const { work, run } = project([LAYERED_PAUSE]);
   const paused = run(start(LAYERED_PAUSE.name, '--run-id', RUN));   // switch OFF: the run pauses at the session seat
   assert.equal(paused.code, 3, paused.out);
-  const dir = join(work, 'runs', RUN);
-  const before = listing(dir);
   const resumed = run(['--resume', `runs/${RUN}`], BOTH);
-  assert.equal(resumed.code, 2, resumed.out);
-  assert.match(resumed.out, NOT_ARMED);
+  assert.equal(resumed.code, 3, resumed.out);
+  assert.doesNotMatch(resumed.out, NOT_ARMED);
   assert.doesNotMatch(resumed.out, CLASS, 'a plain run\'s resume is no refused class');
-  assert.deepEqual(listing(dir), before, 'the paused run folder is untouched');
-  const nothing = run(['--resume', 'runs/no-such-run'], BOTH);   // before 3b the top not-armed refusal answered this line
+  assert.doesNotMatch(resumed.out, /COUNCIL_SPEND_CAPS/, 'no cap is in force for this chain, so the switch does not touch it');
+  const nothing = run(['--resume', 'runs/no-such-run'], BOTH);
   assert.equal(nothing.code, 2, nothing.out);
   assert.match(nothing.out, /has no readable run\.json/);
   assert.doesNotMatch(nothing.out, NOT_ARMED);
@@ -214,8 +220,9 @@ test('C9 a DRY RUN of a start reports its start refusals and calls nothing (Q1b)
   assert.match(text.out, /A real start would be refused/);
   assert.match(text.out, /anthropic/);
   for (const [chain, env, want] of [
-    [TWO_CAPS.name, { COUNCIL_SPEND_CAPS: 'openrouter' }, ['uncovered_seats:5']],
-    [TWO_CAPS.name, { ...BOTH, ...LIMITS }, ['cap_ceiling_missing:2']],
+    // start() passes --max-usd 1: with a cap in force that run-wide figure is refused too (Q1, unit 4b2), LAST, so each row's first refusal is unchanged
+    [TWO_CAPS.name, { COUNCIL_SPEND_CAPS: 'openrouter' }, ['uncovered_seats:5', 'max_usd_refused:2']],
+    [TWO_CAPS.name, { ...BOTH, ...LIMITS }, ['cap_ceiling_missing:2', 'max_usd_refused:2']],
   ]) {
     const r = run(start(chain, '--dry-run', '--json'), env);
     assert.equal(r.code, 0, `${chain} ${JSON.stringify(env)}\n${r.out}`);

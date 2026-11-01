@@ -160,7 +160,7 @@ test('L8: usage: --ladder-credit and --ladder-exchange need --ladder and a whole
     assert.equal(p.run(['--chain', 'lad', '--task', 'tasks/t.md', '--ladder', '--ladder-exchange', '9']).status, 2);
     const r = plain.run(['--chain', 'lad', '--task', 'tasks/t.md', '--ladder']);
     assert.equal(r.status, 2, r.stdout + r.stderr);
-    assert.match(r.stderr, /--ladder: this chain has no three layers with overseer rounds/);
+    assert.match(r.stderr, /--ladder: this chain does not have exactly three layers with overseer rounds \(maxOverseerRounds and layerRevisions\), which the ladder needs\. Nothing was run and nothing was spent\./);
     assert.equal(existsSync(join(plain.dir, 'runs')) && readdirSync(join(plain.dir, 'runs')).some(d => existsSync(join(plain.dir, 'runs', d, 'criteria.md'))), false, 'refused before any stage ran');
   } finally { p.done(); plain.done(); }
 });
@@ -170,7 +170,7 @@ test('L9: a stall escalation still in force when the ladder begins is refused, n
   try {
     const r = p.run(['--chain', 'lad', '--task', 'tasks/t.md', '--ladder', '--ladder-credit', '2']);
     assert.notEqual(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout + r.stderr, /the ladder cannot start at pass 3: a stall escalation from an earlier pass \(round 2\) is still in force/);
+    assert.match(r.stdout + r.stderr, /the ladder cannot start at pass 3: in round 2 the plan was passed up a layer because objections stood unchanged, and that is still in force; the ladder never passes the plan up\. No model was called and nothing was spent after pass 2\./);
     assert.equal(readdirSync(p.runDir()).some(f => /^(panel|rule)-3-/.test(f)), false, 'nothing was asked in pass 3');
   } finally { p.done(); }
 });

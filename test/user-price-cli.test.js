@@ -136,9 +136,9 @@ test('the typed-limit screen shows the hosts a person approves (0.8.4 unit 3): w
     const a = await withFile.run(START); const b = await without.run(START);
     assert.equal(a.status, 21, a.stdout + a.stderr); assert.equal(b.status, 21, b.stdout + b.stderr);
     const screen = readFileSync(join(withFile.runDir, 'cap-screen-1.md'), 'utf8');
-    assert.match(screen, /Host preference from provider-preference\.json in your project folder .*: openrouter\/vendor\/not-in-the-price-table: azure\/us, wafer\/mxfp4\. .*regional endpoints.*never a price\./);
+    assert.match(screen, /Host preference \(provider-preference\.json in your project folder\): openrouter\/vendor\/not-in-the-price-table: azure\/us, wafer\/mxfp4\. .*regional endpoints.*each host keeps its own listed price\./);
     assert.ok(!screen.includes('another/model'), 'only the chain\'s own models are shown');
-    assert.doesNotMatch(readFileSync(join(without.runDir, 'cap-screen-1.md'), 'utf8'), /Host preference from/);
+    assert.doesNotMatch(readFileSync(join(without.runDir, 'cap-screen-1.md'), 'utf8'), /Host preference \(/);
     assert.equal(withFile.count() + without.count(), 0);
   } finally { withFile.srv.close(); without.srv.close(); }
 });

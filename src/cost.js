@@ -2,10 +2,11 @@ import { isFreeProvider } from './providers.js';
 import { cacheReadMultiplierOf, cacheWriteMultiplierOf } from './cache-prices.js';
 import { promptCacheTtl, exchangeCallCarriesHead, isDirectAnthropicSeat } from './prompt-cache.js';
 import { notesConfigOf, reviewNotesActive } from './review-notes-lane.js';
-import { SHIPPED_PRICES as PRICES, effectiveRow } from './price-table.js';
+import { SHIPPED_PRICES as PRICES, effectiveRow, rateFor } from './price-table.js';
 import * as R from './roles.js';
 import { retryCapFor, retryCeilingOf } from './reasoning.js';
 import { ownPinOf } from './price-pin.js';
+import { billingAccountOf } from './caps.js';   // DUALCAP milestone 2: the per-cap figure of the limit screen (caps.js imports nothing of this file)
 import { roundLimitsOf } from './overseer-rounds.js';
 import { deciderActive, deciderSeatOf } from './conflict-decider.js';
 import { systemTextsFor } from './stage-system.js';
@@ -92,6 +93,16 @@ export function priceOf(provider, model) {
   const row = effectiveRow(provider, model);   // the shipped row merged with the project's own (never lower than shipped): src/price-table.js
   return usablePrice(row) ? row : null;
 }
+/**
+ * The price of ONE CALL at the size of its prompt (DUALCAP 4d): the row as the project sees it (shipped merged with the project's own), at the tier the call's prompt reaches (src/price-table.js rateFor).
+ * `promptTokens` undefined = the caller has no figure: the base row. A size that was asked for and is not finite (NaN, null, Infinity) = the dearest tier. A finite size is ceiled, then tested against each tier.
+ * A caller with no figure passes undefined on purpose; it never turns "no figure" into NaN or null (that would land on the dearest tier by accident). priceOf stays the base row: the readers that ask "is this seat priced" do not need a size.
+ */
+export function priceAt(provider, model, promptTokens) {
+  if (isFreeProvider(provider)) return { in: 0, out: 0 };
+  const row = rateFor(provider, model, promptTokens);
+  return usablePrice(row) ? row : null;
+}
 /** Why a seat has no usable price: 'missing' (no row) or 'unusable' (a row that is not two finite numbers >= 0); null when it is priced or free. Pure. */
 export function priceProblemOf(provider, model) {
   if (isFreeProvider(provider) || priceOf(provider, model)) return null;
@@ -148,7 +159,10 @@ export function readUsd(v) {
 // CR-1F-001: `pin` is the seat's OWN provider.max_price (ownPinOf), and the recorded cost uses the same per-field max(row, own pin) as worstCaseOf's projection: OpenRouter may route a pinned call to any host up to the pin,
 // so a call recorded at the lower row could be billed more than the cap was told (budget.spent, the usage file, report totals and --spend all read this figure). A pin below the row never lowers it.
 export function costOf(provider, model, usage, pin = null) {
-  const p = priceOf(provider, model);
+  // The size the provider billed as the prompt: input + cacheRead + cacheWrite as reported (Anthropic's input_tokens excludes the cached part; the OpenAI-compatible adapter reports neither cache field and its
+  // prompt_tokens is the whole prompt, so nothing counts twice). A field not reported counts 0; no input figure at all = no size (undefined: the base row).
+  const size = usage.input == null ? undefined : usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+  const p = priceAt(provider, model, size);
   if (!p) return { usd: 0, priced: false };
   const pIn = Math.max(p.in, pin?.prompt ?? 0), pOut = Math.max(p.out, pin?.completion ?? 0);
   const outUsd = (usage.output / 1e6) * pOut;
@@ -307,14 +321,14 @@ export function expectedOutputTokensOf(label, seat, estimate = {}) {
 export function expectedCallUsd(seat, { system = '', user = '', label, estimate = {}, cache = null } = {}) {
   const out = expectedOutputTokensOf(label, seat, estimate);
   if (out === null) return null;
-  const promptChars = (system || '').length + (user || '').length;
+  const promptChars = promptCharsOf({ system, user });
   return worstCaseOf(seat.provider, seat.model, { promptChars, maxTokens: out, pin: ownPinOf(seat), cache: cache ? { headTokens: Math.ceil(cache.headChars / CHARS_PER_TOKEN), ttl: cache.ttl } : null }).usd;
 }
 
 // `maximum: true` (0.8.2 item 8c; ChatGPT review 1 #5, owner 7 Oct 2026) prices the SAME planned calls at their whole output allowance instead of the typical output: each row's output is the call's own cap
 // (the seat's maxTokens, its panelMaxTokens for a review, the stage's own smaller cap for proposals and architectures) and an Anthropic seat's one same-effort retry is added, as the spend cap's projection
 // (projectAttempts) does. Calls the plan does not list are not in it either way: a re-ask of a refused table, the cut-off retry of a seat that is not Anthropic, an answer-back call. The cap stops those.
-export function estimateChainRows(config, { fromRun = false, maximum = false } = {}) {
+export function estimateChainRows(config, { fromRun = false, maximum = false, accounts = false } = {}) {   // accounts (DUALCAP milestone 2): each row also names the per-provider cap its call bills through (billingAccountOf), for the limit screen's per-cap figure; off: the rows are unchanged
   // A partial estimate block is filled from the defaults (M2 review: { promptTokens } alone priced NaN).
   const a = { ...DEFAULT_ESTIMATE, ...(config.estimate || {}) };
   const reviewOut = seat => critiqueTokensFor(seat, a.critiqueTokens);
@@ -332,6 +346,7 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
   // row can send is priced), counted with the estimator invoke() projects with (estimateTokens: characters / 4). Before this, a row priced only the declared sizes, so a grant sized from the figure could be smaller
   // than the projection of the real call (tree-whole-mock legs 9, 9b, 10 stopped at their cap). The advise rows add their own system text and are skipped there. The USER side stays declared.
   const systemTokens = (label, seat) => Math.max(0, ...systemTextsFor(label, config, seat).map(estimateTokens));
+  const accountField = seat => { if (!accounts) return {}; const account = billingAccountOf(seat); return account ? { account } : {}; };
   const push = (label, seat, input, output, callCap, times = 1, cache = null) => {   // cache: { headTokens, ttl } for a call that carries a prompt-cache marker (maximum figure only)
     if (!seat) return;
     input += systemTokens(label, seat);
@@ -340,11 +355,11 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
     if (maximum && !external) {
       const out = callCap ?? seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS;
       const att = p ? projectAttemptsTokens(seat, { inputTokens: input, maxTokens: out, cache }) : { first: 0, retry: 0 };
-      rows.push({ label, seat: `${seat.provider}/${seat.model}`, input: input * times, output: out * times, usd: (att.first + att.retry) * times, priced: !!p, ...(times > 1 ? { times } : {}) });
+      rows.push({ label, seat: `${seat.provider}/${seat.model}`, ...accountField(seat), input: input * times, output: out * times, usd: (att.first + att.retry) * times, priced: !!p, ...(times > 1 ? { times } : {}) });
       return;
     }
     const usd = p ? (input / 1e6) * p.in + (output / 1e6) * p.out : 0;
-    rows.push({ label, seat: `${seat.provider}/${seat.model}`, input: input * times, output: output * times, usd: usd * times, priced: !!p, ...(times > 1 ? { times } : {}) });
+    rows.push({ label, seat: `${seat.provider}/${seat.model}`, ...accountField(seat), input: input * times, output: output * times, usd: usd * times, priced: !!p, ...(times > 1 ? { times } : {}) });
   };
   // A review's own output cap in the UNANIMOUS panel: panelMaxTokens when the seat sets one, else its maxTokens (chain.js, the panel stage). First-mode critiques and dispute reviews call at maxTokens.
   const reviewCap = seat => seat?.panelMaxTokens ?? seat?.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS;
@@ -444,7 +459,7 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
       const projected = att ? att.first + att.retry : capUsd;
       if (p && projected > left) break;
       const usd = maximum && att ? att.first + att.retry : firstUsd;
-      rows.push({ label: `deep-dive-${seat.lab || seat.provider}-${n}`, seat: `${seat.provider}/${seat.model}`, input: inTok, output: typOut, usd, priced: !!p });
+      rows.push({ label: `deep-dive-${seat.lab || seat.provider}-${n}`, seat: `${seat.provider}/${seat.model}`, ...accountField(seat), input: inTok, output: typOut, usd, priced: !!p });
       left -= capUsd;   // BOTH passes subtract the cap-based figure, so they plan the same rows (audit fix cnc-money F2): the typical size changes only this row's printed output and usd
     }
     push('deep-dive-revise', config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens + a.critiqueTokens, a.draftTokens);
@@ -579,8 +594,13 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
 // the code and JSON these prompts are full of.
 const CHARS_PER_TOKEN = 4;
 
+/** The size of one call's prompt in tokens: ceil(chars / 4). The ONE formula: estimateTokens, worstCaseOf, the rate lookups (priceAt) and invoke()'s price pin all use it, so a call lands on one tier everywhere. */
+export const promptTokensOfChars = chars => Math.ceil(chars / CHARS_PER_TOKEN);
+/** The characters of one call's prompt: system + user. The ONE expression every site reads (projectAttempts, expectedCallUsd, invoke()'s projection and price pin, the cache-miss worst case), so the sites cannot drift apart. */
+export const promptCharsOf = ({ system = '', user = '' } = {}) => (system || '').length + (user || '').length;
+
 export function estimateTokens(text) {
-  return Math.ceil((text || '').length / CHARS_PER_TOKEN);
+  return promptTokensOfChars((text || '').length);
 }
 
 /**
@@ -593,9 +613,9 @@ export function estimateTokens(text) {
  * with a bigger cap, so its worst case is the first attempt plus a bigger second one, not twice the first.
  */
 export function worstCaseOf(provider, model, { promptChars = 0, maxTokens = 8000, retries = 1, retryMaxTokens = null, pin = null, cache = null } = {}) {
-  const p = priceOf(provider, model);
+  const input = promptTokensOfChars(promptChars);   // the call's prompt size: the one figure the rate is looked up at (DUALCAP 4d), and the one the input cost uses
+  const p = priceAt(provider, model, input);
   if (!p) return { usd: 0, priced: false };
-  const input = Math.ceil(promptChars / CHARS_PER_TOKEN);
   // Prompt caching: a call that carries a marker is projected with its cached head (system text + the plan, `cache.headTokens`) at the WRITE price and the rest at the input price. The projection never
   // assumes a hit: a hit can only make the call cheaper, a miss rewrites the entry.
   const headTokens = cache ? Math.min(input, Math.max(0, Math.ceil(cache.headTokens ?? 0))) : 0;
@@ -617,7 +637,7 @@ export function worstCaseOf(provider, model, { promptChars = 0, maxTokens = 8000
 export const isAnthropicSeat = seat => (seat?.originalProvider ?? seat?.provider) === 'anthropic';
 
 export function projectAttempts(seat, { system = '', user = '', cache = null } = {}) {
-  const promptChars = (system || '').length + (user || '').length;
+  const promptChars = promptCharsOf({ system, user });
   return projectAttemptsTokens(seat, { inputTokens: Math.ceil(promptChars / CHARS_PER_TOKEN), maxTokens: seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS, cache: cache ? { headTokens: Math.ceil(cache.headChars / CHARS_PER_TOKEN), ttl: cache.ttl } : null });
 }
 

@@ -41,7 +41,7 @@ test('E2: setCapBudgets refuses what cannot be a cap (an unknown account, an amo
       assert.equal('caps' in budgetState(), false, `nothing armed after ${JSON.stringify(bad)}`);
     }
     setBudget(5);
-    assert.throws(() => chain.setCapBudgets({ anthropic: 5 }), /no third total|run cap|setBudget\(null\)/);
+    assert.throws(() => chain.setCapBudgets({ anthropic: 5 }), /no third total|per-run spend cap|setBudget\(null\)/);
     assert.equal('caps' in budgetState(), false);
     assert.equal(budgetState().cap, 5, 'the run cap is left as it was');
   } finally { reset(); }

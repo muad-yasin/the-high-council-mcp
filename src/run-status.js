@@ -109,6 +109,32 @@ export function awaitingUserCap(dir) {
   }
   return waiting ? { gate: waiting } : null;
 }
+/**
+ * DUALCAP 4c2: every limit a run waits for, ONE per cap: [{ gate, capName }] sorted by cap (capName null for a run with one limit). Per cap, the newest run_cap gate of
+ * that cap that is pending, or approved and not yet used, requested after that cap's last consumption (awaitingUserCap's rule, read per cap). [] when none.
+ */
+export function awaitingUserCaps(dir) {
+  const gates = listGates(dir);
+  if (!gates) return [];
+  const byCap = new Map();
+  for (const g of gates) {
+    const st = readGateAnswer(dir, g.id);
+    if (st.gate?.kind !== RUN_CAP_KIND) continue;
+    const capName = typeof st.gate.cap?.cap_name === 'string' ? st.gate.cap.cap_name : null;
+    if (!byCap.has(capName)) byCap.set(capName, []);
+    byCap.get(capName).push({ id: g.id, st });
+  }
+  const out = [];
+  for (const [capName, list] of byCap) {
+    const auth = runCapAuthority(dir, { capName });
+    if (auth.status === 'invalid') continue;
+    const since = auth.status === 'ok' ? auth.seq : 0;
+    let waiting = null;
+    for (const { id, st } of list) if (st.gate.seq > since && (st.status === 'pending' || (st.status === 'approved' && st.usable))) waiting = id;
+    if (waiting) out.push({ gate: waiting, capName });
+  }
+  return out.sort((a, b) => String(a.capName ?? '').localeCompare(String(b.capName ?? '')));
+}
 
 export function deriveRunStatus(dir, runMeta) {
   if (existsSync(join(dir, 'report.json'))) return 'done';
@@ -226,8 +252,10 @@ export function runResumability(dir, runMeta) {
     const stoppedAt = readJsonSafe(join(dir, 'STOPPED-budget.json'));
     // Cost-unit U1 split (14 Oct 2026): `spentUsd` in that file is the RECORDED spend; the cap also counted a worst case for replayed stages with no recorded figure (`assumedAtWorstCase.usd`). `suggestedMaxUsd` is the ceiling that gets past this stop, computed
     // exactly as the CLI's printed resume command is (src/cost.js resumeCeilingUsd), so "above what was spent" cannot under-shoot. Additive; null when the file does not hold the figures.
-    const suggestedMaxUsd = stoppedAt ? resumeCeilingUsd({ cap: stoppedAt.capUsd, spent: stoppedAt.spentUsd + (stoppedAt.assumedAtWorstCase?.usd || 0), projected: stoppedAt.projectedStageUsd, gate: stoppedAt.gateStageUsd }) : null;
-    return out(true, 'budget', 'higher_cap', { stoppedAt, suggestedMaxUsd });
+    // DUALCAP 4c2: a stop at ONE per-provider cap suggests from that cap's own figures (capSpentUsd + capAssumedUsd), never the run total, and names the cap.
+    const capStop = stoppedAt && typeof stoppedAt.capName === 'string' && Number.isFinite(stoppedAt.capSpentUsd);
+    const suggestedMaxUsd = !stoppedAt ? null : capStop ? resumeCeilingUsd({ cap: stoppedAt.capUsd, spent: stoppedAt.capSpentUsd + (stoppedAt.capAssumedUsd || 0), projected: stoppedAt.projectedStageUsd, gate: stoppedAt.gateStageUsd }) : resumeCeilingUsd({ cap: stoppedAt.capUsd, spent: stoppedAt.spentUsd + (stoppedAt.assumedAtWorstCase?.usd || 0), projected: stoppedAt.projectedStageUsd, gate: stoppedAt.gateStageUsd });
+    return out(true, 'budget', 'higher_cap', { stoppedAt, suggestedMaxUsd, ...(capStop ? { capName: stoppedAt.capName } : {}) });
   }
   if (status === 'paused') return out(true, 'external_pause', 'answer', { waiting: waitingStages(dir) });
   if (status === 'blocked') return out(true, 'artifacts_blocked', 'fix_task');

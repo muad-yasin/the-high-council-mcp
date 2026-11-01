@@ -175,10 +175,10 @@ function hostPicture(id) {
   if (!eligible.length) return { eligible: [], note: `NO ELIGIBLE HOST: ${all.length} endpoint(s) listed, ${notTier.length} outside the fast tiers, ${able.length} able to return ${need} tokens` };
   const side = k => { const v = eligible.map(e => e[k]).sort((a, b) => a - b); const n = v.length; return { low: v[0], median: n % 2 ? v[(n - 1) / 2] : r6((v[n / 2 - 1] + v[n / 2]) / 2), high: v[n - 1] }; };
   const filters = [
-    `fast, ultrafast, priority and flex tiers left out (${all.length - notTier.length})`,
-    `output limit of at least ${need} tokens (the smallest maxTokens a shipped chain gives this model; ${notTier.length - able.length} left out${unpublished ? `; ${unpublished} publish no limit and are counted` : ''})`,
+    `fast, ultrafast, priority and flex tiers left out (${all.length - notTier.length} host(s))`,
+    `output limit of at least ${need} tokens (the smallest maxTokens a shipped chain gives this model; ${notTier.length - able.length} host(s) left out${unpublished ? `; ${unpublished} publish no limit and are counted` : ''})`,
     routingNote,
-    'a host with price overrides (by prompt size or by time of day) is priced at its dearest figure',
+    'a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure',
     'hosts of every provider are counted, Open Inference included (a chain\'s own extra.provider.ignore is not applied to these figures)',
   ];
   // A row is TIER-DRIVEN when counting the dearest prompt-size / time-of-day tier gives a different figure than the base prices do: no single figure prices such a row right (the dearest tier refuses a call that cannot reach the tier,
@@ -204,7 +204,7 @@ for (const [key, row] of Object.entries(table)) {
   const pic = row.expires ? null : hostPicture(id);
   const h = pic?.hosts;
   const dearest = h ? pic.eligible.filter(e => same(e.out, h.out.high) || same(e.in, h.in.high)).map(e => `${e.tag} ${e.quant} ctx ${e.ctx ?? '?'}`).join(', ') : '';
-  const note = pic?.note ? `  ${pic.note}` : h ? `  dearest eligible host ${h.in.high}/${h.out.high} (n=${h.count}; lowest ${h.in.low}/${h.out.low}, median ${h.in.median}/${h.out.median}; dearest: ${dearest})` : '';
+  const note = pic?.note ? `  ${pic.note}` : h ? `  dearest eligible host ${h.in.high}/${h.out.high} (input/output per Mtok; ${h.count} hosts; lowest ${h.in.low}/${h.out.low}, median ${h.in.median}/${h.out.median}; dearest: ${dearest})` : '';
   if (h) hostEdits.push({ key, hosts: h, tiers: pic.rowTiers });
   else if (!row.expires) noHosts.push(id);
   if (listHosts && pic?.all) for (const e of [...pic.all].sort((x, y) => x.out - y.out)) hostLines.push(`    ${id}  ${e.tag.padEnd(30)} ${e.quant.padEnd(10)} ctx ${String(e.ctx ?? '?').padEnd(8)} max ${String(e.maxc ?? 'unpublished').padEnd(11)} ${e.in}/${e.out}${e.tiers.length ? `   (base ${e.bin}/${e.bout}; tier from ${e.tiers.map(t => `${t.from} tokens ${t.in}/${t.out}`).join(', ')})` : ''}${e.out_reason ? `   OUT: ${e.out_reason}` : ''}`);
@@ -229,14 +229,14 @@ for (const [key, row] of Object.entries(table)) {
       lines.push(`${id}: file ${row.in}/${row.out} -> ${newIn}/${newOut}${note}  ${hostsOnly ? `${dir} NOT APPLIED (--hosts-only)` : dir}  evidence ${evidence}`);
       if (!hostsOnly) changes.push({ key, row, newIn, newOut, evidence, n: h.count, dir });
     } else lines.push(`${id}: file ${row.in}/${row.out} = dearest eligible host${note}`);
-    if (li > newIn * 1.05 || lo > newOut * 1.05) lines.push(`    (the list's headline ${r6(li)}/${r6(lo)} is above the dearest eligible host: a tier or a host the eligibility rules leave out)`);
+    if (li > newIn * 1.05 || lo > newOut * 1.05) lines.push(`    (the list's headline ${r6(li)}/${r6(lo)} is above the dearest eligible host: a price tier, or a host the eligibility rules leave out, can account for the difference)`);
     continue;
   }
   const newIn = li > row.in * 1.05 ? r6(li) : row.in, newOut = lo > row.out * 1.05 ? r6(lo) : row.out;
   if (newIn !== row.in || newOut !== row.out) {
     lines.push(`${id}: file ${row.in}/${row.out} -> ${newIn}/${newOut} (list ${r6(li)}/${r6(lo)})${note}  ${hostsOnly ? 'RAISE NOT APPLIED (--hosts-only)' : 'RAISED'}`);
     if (!hostsOnly) changes.push({ key, row, newIn, newOut, li, lo, dir: 'RAISED' });
-  } else if (row.in > li * 1.05 || row.out > lo * 1.05) lines.push(`${id}: file ${row.in}/${row.out} ABOVE list ${r6(li)}/${r6(lo)}: kept (no host picture, so the old rule: never lowered)${note}`);
+  } else if (row.in > li * 1.05 || row.out > lo * 1.05) lines.push(`${id}: file ${row.in}/${row.out} ABOVE list ${r6(li)}/${r6(lo)}: kept (no host picture for this row, so it is never lowered)${note}`);
   else lines.push(`${id}: file ${row.in}/${row.out} = list${note}`);
 }
 const proposals = {}; const proposalLines = [];
@@ -287,13 +287,13 @@ if (proposeArg) {
     proposals[key] = { prefer: kept.map(e => e.tag) };
     // a bare tag (no variant or region) matches every region and variant of that provider at OpenRouter, but NOT a service-tier endpoint (docs read 2026-11-01): list the siblings it would also pull in
     const sibs = t => pic.all.filter(e => e.tag.startsWith(`${t}/`) && !e.tier && !isFastTierValue(e.tier) && !FAST_TIER.test(e.tag));
-    const bareLines = kept.filter(e => !e.tag.includes('/')).flatMap(e => { const sb = sibs(e.tag); return sb.length ? [`      BARE TAG ${e.tag} also matches: ${sb.map(x => `${x.tag} (base ${x.bin}/${x.bout}${x.out_reason ? `, OUT: ${x.out_reason}` : ''}${aboveRow(x) ? ', ABOVE THE ROW' : ''})`).join(', ')}`] : []; });
+    const bareLines = kept.filter(e => !e.tag.includes('/')).flatMap(e => { const sb = sibs(e.tag); return sb.length ? [`      BARE TAG ${e.tag} also matches: ${sb.map(x => `${x.tag} (base ${x.bin}/${x.bout}${x.out_reason ? `, excluded: ${x.out_reason}` : ''}${aboveRow(x) ? ', ABOVE THE ROW' : ''})`).join(', ')}`] : []; });
     proposalLines.push(`${id}: base median ${r6(mIn)}/${r6(mOut)}${row ? `; effective row ${row.in}/${row.out}` : '; no row (price it in pricing.user.json)'}; ${pic.eligible.length} eligible hosts (at or below the median: ${usable(atOrBelow).length} usable, strictly below: ${usable(below).length} usable); prefer ${kept.length} (${strictBelow ? 'strictly below' : 'at or below'}; order: native first, then quantization high to low, then OUTPUT price (input price breaks ties)${big !== null ? `, hosts too slow for ${big} tokens inside ${wallSeconds} s last` : ''}):${kept.map(e => `\n      ${e.tag}  ${e.quant}  ctx ${e.ctx ?? '?'}  base ${e.bin}/${e.bout}${tpsOf(e) !== null ? `  ${tpsOf(e)} tok/s${slow(e) ? ' (TOO SLOW, last)' : ''}` : ''}${aboveRow(e) ? '  ABOVE THE ROW (filtered out by the price limit)' : ''}`).join('')}${bareLines.length ? `\n${bareLines.join('\n')}` : ''}${dropped.length ? `\n    left off (context shorter than ${largestCall}, output limit below ${needOut ?? '(not given)'}, or ignored): ${dropped.map(e => e.tag).join(', ')}` : ''}`);
   }
 }
 console.log(lines.join('\n'));
 if (proposeArg) {
-  console.log(`\nproposed provider-preference.json (A-DRAFT; below-or-at the base median on both sides; native endpoints first, then quantization high to low, then price; the operator copies and edits it):\n${proposalLines.join('\n')}`);
+  console.log(`\nproposed provider-preference.json (hosts at or below the base median on both input and output price; native endpoints first, then quantization high to low, then price; copy it and edit it by hand):\n${proposalLines.join('\n')}`);
   const outDir = args.includes('--propose-out') ? resolve(args[args.indexOf('--propose-out') + 1]) : epDir;   // default: beside the fetched answers; --propose-out names another folder
   { const rel = args.includes('--propose-out') ? relative(root, outDir) : null; if (rel !== null && (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)))) { console.error(`\nrefused: the proposal folder ${outDir} is inside the repository. Name a folder outside it (the proposal is the operator's input, not source).`); process.exit(2); } }
   if (outDir && Object.keys(proposals).length) { mkdirSync(outDir, { recursive: true }); const out = join(outDir, 'proposed-provider-preference.json'); writeFileSync(out, `${JSON.stringify(proposals, null, 2)}\n`); console.log(`\nwrote ${out}`); }

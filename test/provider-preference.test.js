@@ -83,9 +83,9 @@ test('PF-5: the start scope carries ONE additive part: absent when the project n
   assert.deepEqual(rows, [{ key: `openrouter/${MODEL}`, prefer: ['azure/us', 'wafer/mxfp4'] }], 'only the chain\'s own models, each once');
   const withPref = buildStartScope({ ...base, providerPreference: rows });
   assert.deepEqual(withPref.provider_preference, rows);
-  assert.deepEqual(changedParts(without, withPref), ['the host preference of the project\'s provider-preference.json']);
+  assert.deepEqual(changedParts(without, withPref), ['the project\'s host preferences (provider-preference.json)']);
   const edited = buildStartScope({ ...base, providerPreference: [{ key: `openrouter/${MODEL}`, prefer: ['wafer/mxfp4', 'azure/us'] }] });
-  assert.deepEqual(changedParts(withPref, edited), ['the host preference of the project\'s provider-preference.json'], 'an edited order is a changed screen');
+  assert.deepEqual(changedParts(withPref, edited), ['the project\'s host preferences (provider-preference.json)'], 'an edited order is a changed screen');
   assert.throws(() => buildStartScope({ ...base, providerPreference: [{ key: 'anthropic/x', prefer: ['a'] }] }), /start scope: providerPreference must be/);
   assert.throws(() => buildStartScope({ ...base, providerPreference: [{ key: `openrouter/${MODEL}`, prefer: [] }] }), /start scope: providerPreference must be/);
 });
@@ -115,7 +115,7 @@ test('PF-8: a preference file that cannot be read is its OWN problem: every comm
   assert.equal(dry.status, 2, dry.stdout + dry.stderr);
   assert.match(dry.stderr, /provider-preference\.json: openrouter\/a\/b: "Bad Tag" is not an endpoint tag.*nothing was started/s);
   const doctor = spawnSync(process.execPath, [cli, 'doctor'], { cwd: dir, env, encoding: 'utf8' });
-  assert.match(doctor.stdout, /WARNING: provider-preference\.json is not used at all/);
+  assert.match(doctor.stdout, /WARNING: provider-preference\.json cannot be read in full, so it is not used at all\. The reason: /);
   assert.doesNotMatch(doctor.stdout, /WARNING: pricing\.user\.json is not used at all/, 'the price rows are still read');
 });
 
@@ -125,6 +125,6 @@ test('PF-9: the cap screen shows the hosts a person approves: one printed line p
   assert.equal(buildCapScreen({ ...base, preferences: [] }).text, plain.text, 'without a file the screen is byte for byte what it was');
   assert.equal(plain.fields.preferences, null);
   const shown = buildCapScreen({ ...base, userPrices: [{ key: 'openrouter/x/y', in: 1, out: 2 }], preferences: [{ key: `openrouter/${MODEL}`, prefer: ['azure/us', 'wafer/mxfp4'] }, { key: 'openrouter/z/w', prefer: ['openai'] }] });
-  assert.match(shown.text, /Host preference from provider-preference\.json in your project folder \(OpenRouter is asked to try these hosts first, in this order, and any other host only if none of them can serve a call\): openrouter\/qwen\/qwen3\.7-plus: azure\/us, wafer\/mxfp4; openrouter\/z\/w: openai\. A bare tag also covers that provider's regional endpoints, and a host the chain ignores is skipped\. It changes the order hosts are tried in, never a price\./);
-  assert.ok(shown.text.indexOf('Priced from pricing.user.json') < shown.text.indexOf('Host preference from'), 'beside the price-row line, after it');
+  assert.match(shown.text, /Host preference \(provider-preference\.json in your project folder\): openrouter\/qwen\/qwen3\.7-plus: azure\/us, wafer\/mxfp4; openrouter\/z\/w: openai\. OpenRouter is asked to try these hosts first, in this order, and any other host only if none of them can serve the call\. A bare tag also covers that provider's regional endpoints, and a host the chain ignores is skipped\. The preference changes only the order hosts are tried in; each host keeps its own listed price\./);
+  assert.ok(shown.text.indexOf('Priced from pricing.user.json') < shown.text.indexOf('Host preference ('), 'beside the price-row line, after it');
 });

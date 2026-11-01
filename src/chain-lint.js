@@ -1084,7 +1084,7 @@ export function lintChain(config, filePath = '<chain>') {
     });
   }
   if (config?.layer_debate?.rounds !== undefined && !(Number.isInteger(config.layer_debate.rounds) && config.layer_debate.rounds >= 1 && config.layer_debate.rounds <= 7)) {
-    findings.push({ kind: 'layer-debate-rounds', message: `layer_debate.rounds is ${JSON.stringify(config.layer_debate.rounds)}: it must be a whole number from 1 to 7 (7 is the safety net, not the plan).`, fix: `Set "layer_debate": { "rounds": <1 to 7> } in ${filePath}.` });
+    findings.push({ kind: 'layer-debate-rounds', message: `layer_debate.rounds is ${JSON.stringify(config.layer_debate.rounds)}: it must be a whole number from 1 to 7 (7 is the upper limit, not a recommended setting).`, fix: `Set "layer_debate": { "rounds": <1 to 7> } in ${filePath}.` });
   }
   findings.push(...lintSeverityChain(config, filePath));
   findings.push(...lintFinalReadChain(config, filePath));
@@ -1093,13 +1093,13 @@ export function lintChain(config, filePath = '<chain>') {
   // B3 prep (unit H): the marker marks where the plan ends before the harness's own asks; with no notes lane there is no ask to bound, so the switch would silently do nothing.
   if (config?.draft_end_marker?.enabled === true && config?.reviewNotes?.enabled !== true) {
     // A-DRAFT (the words a person reads)
-    findings.push({ kind: 'draft-end-marker-needs-notes', message: 'draft_end_marker.enabled is true but this chain has no reviewNotes lane switched on: the marker is written only where the review harness adds its own asks after the draft, so here it would silently do nothing.', fix: `Set "reviewNotes": { "enabled": true } in ${filePath}, or remove draft_end_marker.` });
+    findings.push({ kind: 'draft-end-marker-needs-notes', message: 'draft_end_marker.enabled is true but this chain does not switch reviewNotes on: the marker is written only where the harness adds its own instructions after the draft, which reviewNotes does, so here it would silently do nothing.', fix: `Set "reviewNotes": { "enabled": true } in ${filePath}, or remove draft_end_marker.` });
   }
   // B2 (debate-084/b2): the exchange runs inside the lowest layer of the unanimous panel loop only; on any other chain the switch would silently do nothing.
   if (config?.layer_debate?.enabled === true && (config.signoff !== 'unanimous' || !(Array.isArray(config.seats?.critics) && config.seats.critics.length && config.seats.critics.every(c => c.layer !== undefined)))) {
     findings.push({
       kind: 'layer-debate-needs-layers',
-      message: 'layer_debate.enabled is true but this chain is not a layered chain with "signoff": "unanimous" (every seats.critics entry needs a "layer"): the exchange runs inside the lowest layer of that panel loop, so it never happens.',
+      message: 'layer_debate.enabled is true but this chain is not a layered chain with "signoff": "unanimous" (every seats.critics entry needs a "layer"): the exchange runs inside the layers of such a panel, so here it would never happen.',
       fix: `Give every critic a "layer" and set "signoff": "unanimous" in ${filePath}, or remove layer_debate.`,
     });
   }

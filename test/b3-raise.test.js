@@ -89,8 +89,8 @@ const refused = (id, name, setup, expectCode, expectMessage) => test(`${id}: a r
   assert.equal(ledger(d).length, before, 'nothing appended');
 });
 const open = over => Object.assign(async d => { await call(d, { history: () => hist, forceRaise: true, relayed: true }); }, { over });
-refused('R5a', 'no words of his', open({ personWords: '' }), 'person_words_required', /answered by the session only on the person's permission, with his own words as he typed them in the handler's window\. None were given\. Nothing was recorded\./);
-refused('R5b', 'his words do not contain the figure', open({ personWords: 'Yes, go ahead and raise it' }), 'person_words_total', /the total 30 does not appear in the person's words as given, so the limit was not recorded\. Quote his words with the figure in digits\./);
+refused('R5a', 'no words of his', open({ personWords: '' }), 'person_words_required', /the session answers this gate only on the person's permission, with the person's own words as typed in the handler's window\. None were given\. Nothing was recorded\./);
+refused('R5b', 'his words do not contain the figure', open({ personWords: 'Yes, go ahead and raise it' }), 'person_words_total', /the total 30 does not appear in the person's words as given, so the limit was not recorded\. Quote the person's words with the figure in digits\. Nothing was recorded\./);
 refused('R5c', 'his words name another figure', open({ personWords: 'Raise it to $25' }), 'person_words_total', /the total 30 does not appear/);
 refused('R5d', 'the gate was asked for by a person, not by the session (no --relayed on the resume that opened it)', async d => { await call(d, { history: () => hist, forceRaise: true }); }, 'gate_not_session_requested', /was asked for by a person: only the person answers it/);
 test('R5e: a relay is refused for the FIRST limit and for an amendment: only a raise may be relayed', async () => {

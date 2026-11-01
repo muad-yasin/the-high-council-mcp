@@ -19,6 +19,14 @@ import { ARGUED_SYSTEM } from './argued.js';
 import { SECURITY_REVIEW_SYSTEM, SECURITY_REVIEW_LABEL } from './security-review.js';
 export const labOf = seat => seat.lab || seat.provider;
 export const noQuoteMarksOn = config => config?.debate_hygiene?.noQuoteMarks === true;
+/** TAGS SHOWN (A-DRAFT): under the chain's severity switch the writer's revise and dispute prompts say once what the number on an objection is (roles.js SEVERITY_WRITER_SENTENCE). Without the switch: the system text unchanged. */
+/** The dispute stage's system text: with the severity switch it is edited (milestone 2, A-DRAFT) and, when a final read follows (final_read on, layered), says so. Same text for the call and for the estimator's row. */
+export const disputeSystemFor = config => withSeveritySentence(config, R.DISPUTE_SYSTEM, 'dispute');
+export const withSeveritySentence = (config, system, kind = 'reviser') => {
+  if (config?.severity?.enabled !== true) return system;
+  const finalRead = kind === 'dispute' && config.final_read?.enabled === true && Array.isArray(config.seats?.critics) && config.seats.critics.length > 0 && config.seats.critics.every(c => c.layer !== undefined);
+  return `${R.severityWriterEdits(system, kind, { finalRead })}\n\n${R.SEVERITY_WRITER_SENTENCE}`;
+};
 export const withHeldNote = (config, system, name) => { const text = noQuoteMarksOn(config) ? held(name)?.() : null; return text ? `${system}\n\n${text}` : system; };
 
 export const PREFLIGHT_SYSTEM = `You review a task description before any code change is proposed against it. You never see, write, or evaluate a diff - only the text below. Your only job is to catch a task framing that would be unsafe or nonsensical to start building against: contradictory requirements, a missing or unnamed target, an acceptance test that cannot be satisfied as stated. Do not comment on style or completeness beyond that. Reply as JSON only: {"verdict": "pass" | "object", "objections": ["one sentence per real problem, empty if verdict is pass"]}`;
@@ -27,6 +35,11 @@ export const PREFLIGHT_SYSTEM = `You review a task description before any code c
 // R.criticSystem( anywhere else in this file). A seat with no lane gets R.criticSystem's text unchanged.
 // Item 28 (Muad's yes 7 Oct 2026 via C&C): in a chain with "selfReview": "allowed", the critic seat that wrote the draft gets the self-review opening (R.criticSystem's `selfReview`).
 /** Can the chain's TOP layer be shown an objection ledger (src/chain.js ledgerOn: a layered chain with answer_back and at least two layers)? Only then can a layer-3 re-tag lower a rating, so only then does the told sentence say so. */
+/** Can the handler session re-tag on this chain (B3 prep, JUDGE 4b)? `council retag-add` works at a revise pause, which only a reviser seat of provider "external" has (the handler session is that reviser). Only then does the told sentence say "or the handler". */
+export function severityHandlerPossible(config) {
+  const reviser = config?.seats?.reviser || config?.seats?.builder;
+  return config?.severity?.enabled === true && reviser?.provider === 'external';
+}
 export function severityLedgerPossible(config) {
   const critics = Array.isArray(config?.seats?.critics) ? config.seats.critics : [];
   const layered = critics.length > 0 && critics.every(c => c.layer !== undefined);
@@ -37,8 +50,8 @@ export function criticPromptFor(seat, open, opts, config) {
   const o = self ? { ...(opts || {}), selfReview: true } : opts;
   // B3 prep (unit V): the severity flag comes from the CHAIN's switch only, set after the user's freedoms are read; a `severity` in a user's freedoms asks for nothing (unit 2 would drop the tags it got).
   const sevOn = config?.severity?.enabled === true;
-  const own = o && ('severity' in o || 'severityLedger' in o) ? (({ severity, severityLedger, ...rest }) => rest)(o) : o;
-  const o2 = sevOn ? { ...(own || {}), severity: true, ...(severityLedgerPossible(config) ? { severityLedger: true } : {}) } : own;
+  const own = o && ('severity' in o || 'severityLedger' in o || 'severityHandler' in o) ? (({ severity, severityLedger, severityHandler, ...rest }) => rest)(o) : o;
+  const o2 = sevOn ? { ...(own || {}), severity: true, ...(severityLedgerPossible(config) ? { severityLedger: true } : {}), ...(severityHandlerPossible(config) ? { severityHandler: true } : {}) } : own;
   return withLane(seat, personaSystemFor(seat, o2 === undefined ? R.criticSystem(open) : R.criticSystem(open, o2), config));
 }
 
@@ -60,8 +73,8 @@ export function personaSystemFor(seat, system, config) {
   const nameOnly = (Array.isArray(cfg.name_only) ? cfg.name_only : []).some(n => String(n).trim().toLowerCase() === name.trim().toLowerCase());
   return withJudgePersona(system, name, cfg.form, nameOnly);
 }
-export const layerDebateSystemFor = (config, seat, again) => personaSystemFor(seat, R.layerDebateSystem(again, config?.severity?.enabled === true ? { severity: true, ...(severityLedgerPossible(config) ? { severityLedger: true } : {}) } : null), config);
-export const layerReplySystemFor = (config, seat, again) => personaSystemFor(seat, R.layerReplySystem(again), config);
+export const layerDebateSystemFor = (config, seat, again) => personaSystemFor(seat, R.layerDebateSystem(again, config?.severity?.enabled === true ? { severity: true, ...(severityLedgerPossible(config) ? { severityLedger: true } : {}), ...(severityHandlerPossible(config) ? { severityHandler: true } : {}) } : null), config);
+export const layerReplySystemFor = (config, seat, again) => personaSystemFor(seat, R.layerReplySystem(again, config?.severity?.enabled === true ? { severity: true } : null), config);
 
 // The model a seat actually runs, provider prefix and :variant dropped, so `anthropic/claude-sonnet-5` on OpenRouter and `claude-sonnet-5` direct are one model. Mock and external seats
 // have no real model identity (mock chains reuse names on purpose), so they return null and never match. (Moved here from src/chain-lint.js, which re-exports it.)
@@ -97,9 +110,9 @@ export const reviserSystemFor = (answerBackOn, patch) => (answerBackOn ? held(pa
 
 const BOOL = [false, true];
 // The writer's reviser text over what a run decides later: a quoted source in the request (fenced), a tree member, the patch mode. The longest of them is what the estimate prices.
-const reviserTexts = config => {
+const reviserTexts = (config, sev = true) => {
   const { open, answerBackOn, promptOpts } = settingsOf(config);
-  return BOOL.flatMap(fenced => BOOL.flatMap(member => (config.revise?.mode === 'patch' ? BOOL : [false]).map(patch => withSplitNote(member, reviserSystemFor(answerBackOn, patch)(open, fenced, promptOpts), 'treeSplitWriterNote'))));
+  return BOOL.flatMap(fenced => BOOL.flatMap(member => (config.revise?.mode === 'patch' ? BOOL : [false]).map(patch => { const t = withSplitNote(member, reviserSystemFor(answerBackOn, patch)(open, fenced, promptOpts), 'treeSplitWriterNote'); return sev ? withSeveritySentence(config, t) : t; })));
 };
 const replyTexts = (config, name, fn) => BOOL.map(g => withHeldNote(config, fn(g), name));
 
@@ -127,14 +140,14 @@ const RULES = [
   [/^ldebate-/, (config, seat) => BOOL.map(again => layerDebateSystemFor(config, seat, again))],   // both rounds: the later-round text is longer, and the persona block (if any) rides on both   // B2 (debate-084/b2): the exchange inside layer 1
   [/^lreply-/, (config, seat) => BOOL.map(again => layerReplySystemFor(config, seat, again))],
   [/^build$/, config => { const { open, promptOpts } = settingsOf(config); return BOOL.map(m => withSplitNote(m, R.builderSystem(open, promptOpts), 'treeSplitWriterNote')); }],
-  [/^deep-dive-revise$/, config => reviserTexts(config)],
+  [/^deep-dive-revise$/, config => reviserTexts(config, false)],   // the deep dive's findings carry no severity, so its revise prompt carries no sentence about one
   [/^deep-dive-/, () => R.DEEP_DIVE_JOBS.map(j => R.deepDiveSystem(j))],
   [/^final-read-/, (config, seat) => BOOL.flatMap(f => BOOL.map(k => finalReadSystemFor(seat, config, { fencedSource: f, criteriaKinds: k })))],
   [/^(panel|critique)-/, (config, seat) => { const { open } = settingsOf(config); return BOOL.map(k => criticPromptFor(seat, open, { ...(config.freedoms || null), fencedSource: true, ...(k ? { criteriaKinds: true } : {}) }, config)); }],
   [/^revise-/, config => reviserTexts(config)],
   [/^conflict(-|$)/, () => { const t = held('conflictDeciderSystem')?.(); return t ? [t] : []; }],
   [/^dispute-review-/, () => [R.DISPUTE_REVIEW_SYSTEM]],
-  [/^dispute$/, () => [R.DISPUTE_SYSTEM]],
+  [/^dispute$/, config => [disputeSystemFor(config)]],
   [/^claims$/, () => [R.CLAIM_EXTRACTION_SYSTEM]],
   [/^challenge-revise$/, config => reviserTexts(config)],
   [/^challenge$/, () => [R.CHALLENGE_SYSTEM]],

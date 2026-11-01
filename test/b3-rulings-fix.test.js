@@ -164,7 +164,7 @@ test('W4: a resume refused for a waiting ruling or withdrawal names the way out 
     ruleAt2(p);
     const held = p.run(['--resume', p.runDir()]);
     assert.equal(held.status, 2);
-    assert.match(held.stderr, /A ruling for pass 2 waits for his answer \(gate g1\)/);
+    assert.match(held.stderr, /A ruling for pass 2 waits for the person's answer \(gate g1\)/);
     assert.match(held.stderr, new RegExp(`council ruling-withdraw ${p.runDir().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} g1 --relayed`));
     assert.match(held.stderr, /council gate answer .* g1 --decline/);
     assert.match(held.stderr, /Nothing was run and nothing was spent\./);
@@ -173,7 +173,7 @@ test('W4: a resume refused for a waiting ruling or withdrawal names the way out 
     assert.equal(readGateAnswer(p.runDir(), 'g1').status, 'pending', 'nothing was written');
     const out = p.run(['ruling-withdraw', p.runDir(), 'g1', '--relayed']);
     assert.equal(out.status, 0, out.stdout + out.stderr);
-    assert.match(out.stdout, /ruling-withdraw: gate g1 is declined; it set no ruling and the run can go on\./);
+    assert.match(out.stdout, /ruling-withdraw: gate g1 is declined; it set no ruling, and the run no longer waits for it\./);
     const go = p.run(['--resume', p.runDir()]);
     assert.equal(go.status, 3, go.stdout + go.stderr);
     assert.ok(existsSync(join(p.runDir(), 'NEEDS-revise-2.md')));
@@ -193,12 +193,12 @@ test('W5: the whole withdrawal through the CLI: pass 2 carries the ruling; withd
     p.answer('revise-2', plan(3));
     const ask = p.run(['ruling-withdraw', p.runDir(), 'g1', '--relayed']);
     assert.equal(ask.status, 0, ask.stdout + ask.stderr);
-    assert.match(ask.stdout, /the withdrawal of ruling g1 from pass 3 waits for his answer as gate g2\./);
+    assert.match(ask.stdout, /the withdrawal of ruling g1 from pass 3 waits for the person's answer as gate g2\./);
     const waits = p.run(['--resume', p.runDir()]);
     assert.equal(waits.status, 2);
-    assert.match(waits.stderr, /The withdrawal of ruling g1 from pass 3 waits for his answer \(gate g2\)/);
+    assert.match(waits.stderr, /The withdrawal of ruling g1 from pass 3 waits for the person's answer \(gate g2\)/);
     const dup = p.run(['ruling-withdraw', p.runDir(), 'g1', '--relayed']);
-    assert.equal(dup.status, 2); assert.match(dup.stderr, /already withdrawn, or a withdrawal of it is waiting/);
+    assert.equal(dup.status, 2); assert.match(dup.stderr, /already withdrawn, or a withdrawal of it is already waiting for the person's answer\./);
     const none = p.run(['relay-answer', p.runDir(), 'g2']);
     assert.equal(none.status, 1);
     const ok = p.run(['relay-answer', p.runDir(), 'g2', '--person-words', 'Drop the black tea ruling.']);

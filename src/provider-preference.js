@@ -33,7 +33,7 @@ let rows = new Map();
 export function parsePreference(data, file = PREFERENCE_FILE) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new PreferenceFileError(file, null, 'the file must be one JSON object of "openrouter/<model>" rows');
   const entries = Object.entries(data);
-  if (entries.length > MAX_ROWS) throw new PreferenceFileError(file, null, `more than ${MAX_ROWS} rows`);
+  if (entries.length > MAX_ROWS) throw new PreferenceFileError(file, null, `it has more than ${MAX_ROWS} rows`);
   const out = new Map();
   for (const [key, row] of entries) {
     if (!key.startsWith('openrouter/') || key.length === 'openrouter/'.length) throw new PreferenceFileError(file, key, 'the key must be "openrouter/<model id>" (only OpenRouter routes by host)');
@@ -53,7 +53,7 @@ export function setProviderPreference(folder) {
   try {
     const st = statSync(file);
     if (!st.isFile()) throw new PreferenceFileError(file, null, 'it is not a plain file');
-    if (st.size > MAX_FILE_BYTES) throw new PreferenceFileError(file, null, `larger than ${MAX_FILE_BYTES} bytes`);
+    if (st.size > MAX_FILE_BYTES) throw new PreferenceFileError(file, null, `it is larger than ${MAX_FILE_BYTES} bytes`);
     text = readFileSync(file, 'utf8');   // fs-ok: the project's own preference file, read once per process
   } catch (e) {
     if (e instanceof PreferenceFileError) throw e;

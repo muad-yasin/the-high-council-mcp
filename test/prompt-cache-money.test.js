@@ -6,6 +6,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exchangeRound, setBudget, setCapBudgets, setCache, budgetState, BudgetExceeded } from '../src/chain.js';
+import { COUNCIL_INTRO } from '../src/roles.js';
 import { costOf, readUsage, worstCaseOf, projectAttempts, priceOf, estimateChainRows } from '../src/cost.js';
 import { cacheReadMultiplierOf, cacheWriteMultiplierOf } from '../src/cache-prices.js';
 import { setUserPrices, resetUserPrices } from '../src/price-table.js';
@@ -106,7 +107,7 @@ const reply = (text, usage) => ({ content: [{ type: 'text', text }], stop_reason
 const standing = (n, body) => {
   const text = JSON.stringify(body.messages);
   const user = typeof body.messages[0].content === 'string' ? body.messages[0].content : body.messages[0].content.map(b => b.text).join('');
-  if (body.system.startsWith('You are one reviewer on a panel. You and the other reviewers')) {
+  if (body.system.startsWith(`${COUNCIL_INTRO}\n\nYou are one reviewer on a panel. You and the other reviewers`)) {   // the post prompt now opens with the Council introduction, a blank line, then this sentence
     const ids = [...user.matchAll(/^Objection (O-[0-9a-f]{8})$/gm)].map(m => m[1]);
     const first = (((user.split('# Draft under review\n\n')[1] || '').split('\n').find(l => l.trim().length >= 8)) || '').trim().slice(0, 40);
     return reply(JSON.stringify({ posts: ids.map(id => ({ on: id, stance: 'contest', quote: first, text: 'The plan already answers this where it says so.' })), new_objections: [] }), {});

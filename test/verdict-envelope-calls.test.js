@@ -60,7 +60,8 @@ test('E3b c1: each critic call records its own pair BEFORE the prompt exists, th
   assert.notEqual(a.review_id, b.review_id, 'a pair per call, never shared');
   for (const [label, r] of [['panel-1-la', a], ['panel-1-lb', b]]) {
     assert.ok(prompts.get(label).endsWith(H.verdictEnvelopeSection({ review_id: r.review_id, draft_id: r.draft_id })), `${label}: the section is last`);
-    assert.equal(prompts.get(label).split(r.review_id).length - 1, 1, `${label}: the id appears once, in the appended section`);
+    const section = H.verdictEnvelopeSection({ review_id: r.review_id, draft_id: r.draft_id });   // the section names the id twice since the "Start your object like this" paragraph (0.8.4 wording)
+    assert.equal(prompts.get(label).split(r.review_id).length - 1, section.split(r.review_id).length - 1, `${label}: the id appears only inside the appended section`);
   }
   assert.ok(rows(result).every(v => v.envelope === undefined));
 });
@@ -129,7 +130,7 @@ test('E3b c7: the order trap: after a re-run through path B (prompt changed, dra
   assert.ok(existsSync(join(dir, 'superseded', 'panel-1-la.1.md')), 'the old stage text was archived by the existing cache');
   const prompt = second.prompts.get('panel-1-la');
   assert.equal(prompt.includes(oldReply), false, 'nothing of the archived reply is in the rebuilt prompt');
-  assert.equal(prompt.split(pairBefore.review_id).length - 1, 1, 'the pair appears once, in the appended section');
+  assert.equal(prompt.split(pairBefore.review_id).length - 1, H.verdictEnvelopeSection(pairBefore).split(pairBefore.review_id).length - 1, 'the pair appears only inside the appended section');
   const third = await sitting(dir, { criteria: ['The plan states its assumptions.', 'The plan names an owner.'] });
   assert.deepEqual(third.real, [], 'resume again: zero new calls');
 });

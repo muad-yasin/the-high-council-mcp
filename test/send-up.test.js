@@ -1,4 +1,4 @@
-// The "send up" stop choice (0.8.4 debate trees; A-DRAFT wording): at a layer-1 revision-bound stop, `--resume <run> --send-up` passes layer 1's open objections up to layer 2 through the stall escalation's own path. It uses no revision;
+// The "send up" stop choice (0.8.4 debate trees; A-DRAFT wording). Since 1 Nov 2026 it is turned off: a typed `--send-up` is refused (SU-2) and nothing offers it (SU-5, SU-11). What stays is the replay of a choice an older run folder recorded: at a layer-1 revision-bound stop, a recorded send-up passes layer 1's open objections up to layer 2 through the stall escalation's own path (SU-1, SU-3, SU-4, SU-6 to SU-10). It uses no revision;
 // layer 2 reviews the plan blind, then rules with the raiser hidden. Offline, $0: mock judges (a layer-1 judge that always objects, layers 2 and 3 that sign off) and the cache stub of test/stall-escalation.test.js.
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -33,17 +33,20 @@ const project = (critics, over = {}) => {
 // layer 1 objects in every pass, layer 2 and layer 3 sign off whenever they are asked: the run stops at layer 1's revision bound (1 revision) in pass 2.
 const layerOneStop = id => { const p = project([judge('x', `${id}a`, 'l1', 1), judge('o', `${id}b`, 'l2', 2), judge('o', `${id}c`, 'l3', 3)]); const r = p.run(['--chain', 'sup', '--task', 'tasks/t.md']); assert.equal(r.status, 23, r.stdout + r.stderr); p.runDir = join(p.dir, 'runs', readdirSync(join(p.dir, 'runs'))[0]); return p; };
 const partialStop = p => JSON.parse(readFileSync(join(p.runDir, 'report-partial.json'), 'utf8')).stop;
+// the choice an older run's person typed back then, as run.json holds it: the replay of a recorded send-up is what stays (a typed one is refused, SU-2)
+const recordSendUp = p => { const meta = JSON.parse(readFileSync(join(p.runDir, 'run.json'), 'utf8')); meta.roundChoices = [roundChoiceEntry(partialStop(p), 'send_up')]; writeFileSync(join(p.runDir, 'run.json'), JSON.stringify(meta, null, 2)); };
 const schemaOk = report => { const v = new Ajv2020({ strict: false, allErrors: true }).compile(JSON.parse(readFileSync(join(root, 'schemas', 'report-v1.json'), 'utf8'))); const ok = v(JSON.parse(JSON.stringify(report))); return { ok, errors: v.errors }; };
 
-test('SU-1 end to end: stopped at layer 1\'s revision bound, --send-up passes the plan up: no revision is used, layer 2 reviews and the ruling stage runs, the row says trigger send_up', () => {
+test('SU-1 end to end: an older run folder that recorded a send-up at layer 1\'s revision bound still goes on from it: no revision is used, layer 2 reviews and the ruling stage runs, the row says trigger send_up', () => {
   const p = layerOneStop('su1');
   try {
     const stop = partialStop(p);
     assert.deepEqual({ kind: stop.kind, why: stop.why, layer: stop.layer, pass: stop.pass }, { kind: 'layer_bound', why: 'revisions', layer: 1, pass: 2 });
     const again = p.run(['--resume', p.runDir]);
     assert.equal(again.status, 23);
-    assert.match(again.stdout + again.stderr, /--send-up \(layer 1's open objections go up to layer 2/, 'the stop screen names the choice');
-    const r = p.run(['--resume', p.runDir, '--send-up']);
+    assert.doesNotMatch(again.stdout + again.stderr, /--send-up/, 'the stop screen no longer offers the choice');
+    recordSendUp(p);
+    const r = p.run(['--resume', p.runDir]);
     assert.ok(r.status === 0 || r.status === 22, r.stdout + r.stderr);
     const choices = JSON.parse(readFileSync(join(p.runDir, 'run.json'), 'utf8')).roundChoices;
     assert.deepEqual(choices.map(c => [c.stop, c.choice]), [[stopIdOf(stop), 'send_up']]);
@@ -71,26 +74,35 @@ test('SU-1 end to end: stopped at layer 1\'s revision bound, --send-up passes th
   } finally { p.done(); }
 });
 
-test('SU-2 refusals leave nothing behind: with --continue, without --resume, at the overseer-round limit, and for a finished run', () => {
+// every file of a temp project: its path and size, and the bytes of every run.json (a refused command must leave all of it as it was)
+const snapshot = dir => {
+  const out = [];
+  const walk = (d, rel) => { for (const e of readdirSync(d, { withFileTypes: true })) { const path = join(d, e.name); const r = join(rel, e.name); if (e.isDirectory()) walk(path, r); else out.push(`${r}:${readFileSync(path).length}${e.name === 'run.json' ? `:${readFileSync(path, 'utf8')}` : ''}`); } };
+  walk(dir, '');
+  return out.sort();
+};
+const TURNED_OFF = /--send-up is turned off in this version: to answer a stopped run, use --continue or --finish\. Nothing was run and nothing was spent\./;
+
+test('SU-2 a typed --send-up is refused in every mode and writes nothing: at a layer-1 stop, with --continue, on a start, on a dry run, at another stop, on a subcommand and with --help', () => {
   const p = layerOneStop('su2');
   const cap = project([judge('o', 'su2a', 'l1', 1), judge('o', 'su2b', 'l2', 2), judge('x', 'su2c', 'l3', 3)]);
   try {
-    const runJson = () => readFileSync(join(p.runDir, 'run.json'), 'utf8');
-    const before = runJson();
-    let r = p.run(['--resume', p.runDir, '--send-up', '--continue']);
-    assert.equal(r.status, 2); assert.match(r.stdout + r.stderr, /third choice beside --continue and --finish: give one\. Nothing was run and nothing was spent/);
-    r = p.run(['--chain', 'sup', '--task', 'tasks/t.md', '--send-up']);
-    assert.equal(r.status, 2); assert.match(r.stdout + r.stderr, /--send-up answers a stopped run: use it with --resume <run folder>\. Nothing was run and nothing was spent/);
-    assert.equal(runJson(), before, 'a refused command wrote nothing');
     const first = cap.run(['--chain', 'sup', '--task', 'tasks/t.md']);
     assert.equal(first.status, 23, first.stdout + first.stderr);
     const capDir = join(cap.dir, 'runs', readdirSync(join(cap.dir, 'runs'))[0]);
-    r = cap.run(['--resume', capDir, '--send-up']);
-    assert.equal(r.status, 2); assert.match(r.stdout + r.stderr, /offered only when layer 1 has used its revisions and still objects; this run is stopped for another reason \(the overseer-round limit\)\. Choose --continue or --finish/);
-    assert.equal('roundChoices' in JSON.parse(readFileSync(join(capDir, 'run.json'), 'utf8')), false, 'nothing recorded at the wrong stop');
+    const before = snapshot(p.dir); const beforeCap = snapshot(cap.dir);
+    const refused = [[p, ['--resume', p.runDir, '--send-up']], [p, ['--resume', p.runDir, '--send-up', '--continue']], [p, ['--chain', 'sup', '--task', 'tasks/t.md', '--send-up']],
+      [p, ['--chain', 'sup', '--task', 'tasks/t.md', '--dry-run', '--send-up']], [cap, ['--resume', capDir, '--send-up']], [p, ['gate', 'answer', p.runDir, 'x', '--send-up']], [p, ['--help', '--send-up']]];
+    for (const [who, args] of refused) {
+      const r = who.run(args);
+      assert.equal(r.status, 2, `${args.join(' ')}: ${r.stdout}${r.stderr}`);
+      assert.match(r.stdout + r.stderr, TURNED_OFF, args.join(' '));
+    }
+    assert.deepEqual(snapshot(p.dir), before, 'a refused command wrote nothing (the layer-1 stop project)');
+    assert.deepEqual(snapshot(cap.dir), beforeCap, 'a refused command wrote nothing (the overseer-round stop project)');
     const fin = p.run(['--resume', p.runDir, '--finish']);
     assert.ok(fin.status === 0 || fin.status === 22, fin.stdout + fin.stderr);
-    assert.equal(existsSync(join(p.runDir, 'report.json')), true);
+    assert.equal(existsSync(join(p.runDir, 'report.json')), true, 'the choices that stay still work');
   } finally { p.done(); cap.done(); }
 });
 
@@ -148,10 +160,24 @@ test('SU-4 the pass ceiling: a recorded send-up grants layer 2 its passes on the
   assert.equal(canSendUp(stop), true); assert.equal(canSendUp({ ...stop, layer: 2 }), false); assert.equal(canSendUp({ kind: 'overseer_cap' }), false); assert.equal(canSendUp({ ...stop, why: 'unheard' }), false);
 });
 
-test('SU-5 the stop sentence names --send-up at a layer-1 revision stop only', () => {
+test('SU-5 no stop sentence offers --send-up: not at a layer-1 revision stop, not at any other', () => {
   const stop = { kind: 'layer_bound', why: 'revisions', layer: 1, overseer_round: 1, pass: 2, bound: 1, used: 1 };
-  assert.match(stopSentence(stop), /--send-up/);
-  for (const other of [{ ...stop, layer: 2 }, { kind: 'overseer_cap', overseer_round: 1, pass: 2, cap: 1, rounds: 1 }, { kind: 'layer_bound', why: 'unheard', layer: 1, passes: 3, reasks: 2, overseer_round: 1, pass: 2 }]) assert.ok(!/--send-up/.test(stopSentence(other)), JSON.stringify(other));
+  for (const at of [stop, { ...stop, layer: 2 }, { kind: 'overseer_cap', overseer_round: 1, pass: 2, cap: 1, rounds: 1 }, { kind: 'layer_bound', why: 'unheard', layer: 1, passes: 3, reasks: 2, overseer_round: 1, pass: 2 }]) {
+    const text = stopSentence(at, { runDir: 'runs/x' });
+    assert.ok(!/--send-up|pass the plan up/.test(text), JSON.stringify(at));
+    assert.match(text, /--continue/); assert.match(text, /--finish/);
+  }
+});
+
+test('SU-11 the usage text no longer lists --send-up', () => {
+  const p = project([judge('o', 'su11a', 'l1', 1)]);
+  try {
+    const r = p.run(['--help']);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const text = r.stdout + r.stderr;
+    assert.ok(text.includes('--continue | --finish'), 'the usage text is printed');
+    assert.ok(!/send-up/.test(text), 'and it does not mention --send-up');
+  } finally { p.done(); }
 });
 
 test('SU-6 the four texts: a send-up reads truthfully, a stall reads byte for byte as it did', async () => {
@@ -170,12 +196,13 @@ test('SU-6 the four texts: a send-up reads truthfully, a stall reads byte for by
   assert.equal(layerStateWord({ state: 'objected' }), LAYER_STATE_WORDS.objected);
 });
 
-test('SU-7 the dissent block of a run that went on after a send-up says layer 1 had used its revisions, not that the objection stood unchanged', () => {
+test('SU-7 the dissent block of a run that went on after a recorded send-up says layer 1 had used its revisions, not that the objection stood unchanged', () => {
   const p = project([judge('x', 'su7a', 'l1', 1), judge('o', 'su7b', 'l2', 2), judge('o', 'su7c', 'l3', 3)], { dispute: { enabled: true, stall_rounds: 9 } });
   try {
     assert.equal(p.run(['--chain', 'sup', '--task', 'tasks/t.md']).status, 23);
     p.runDir = join(p.dir, 'runs', readdirSync(join(p.dir, 'runs'))[0]);
-    const r = p.run(['--resume', p.runDir, '--send-up']);
+    recordSendUp(p);
+    const r = p.run(['--resume', p.runDir]);
     assert.ok(r.status === 0 || r.status === 22, r.stdout + r.stderr);
     const deliverable = readFileSync(join(p.runDir, 'deliverable.md'), 'utf8');
     assert.match(deliverable, /it was still open when layer 1 had used its revisions in round 2 and was sent up a layer, where no ruling closed it/);

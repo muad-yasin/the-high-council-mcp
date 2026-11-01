@@ -11,15 +11,11 @@
 
 ### Changed
 
-- **A stall on a layered chain passes the plan up a layer.** When the same objections from a lower layer stand for `dispute.stall_rounds` rounds, the next layer up reviews the plan, and its judges then
-  sustain or overrule each stuck objection; an objection closes only when every judge of that layer overrules it. If the top layer then signs off with lower layers passed over, the run ends as an
-  escalated sign-off, which is not agreement (`passed` is false, exit 22), with an "Escalated sign-off" block above the plan and the dispute stage over what no ruling closed. New records:
-  `escalations[]`, `escalated_signoff`, `panelVerdicts[].sustained` and `escalated_standing` on open objections. A stall at the top layer, on a chain without layers or in the last round ends the review
-  as before. No efficacy claim.
+- **A stall below the top layer of a layered chain passes the plan up a layer** (with the dispute stage on, `dispute.enabled`, and a pass left). When the same objections from a lower layer stand for `dispute.stall_rounds` rounds, the next layer up reviews the plan, and its judges then sustain or overrule each stuck objection; a passed-up objection is closed only when every judge of that layer overrules it. If the top layer then signs off with lower layers passed over, the run ends as an escalated sign-off, which is not agreement (`passed` is false, exit 22), with an "Escalated sign-off" block above the plan and the dispute stage listing what no ruling closed. New records: `escalations[]`, `escalated_signoff`, `panelVerdicts[].sustained` and `escalated_standing` on open objections. A stall at the top layer, on a chain without layers or in the last round ends the review as before. No efficacy claim.
 
 ### Not verified in this release (stated, not hidden)
 
-- The stall escalation's ruling by a real model, the writer's prompt after an escalation, a sign-off after one and a stopped run after one have run only with mock seats.
+- The stall escalation has run only with mock seats: a ruling, the writer's prompt after a ruling, a sign-off after the plan was passed up and a run that stops after the plan was passed up have not yet been seen with a real model.
 
 ## 0.8.3 - 2026-10-26 (BREAKING for scripts and clients that rely on the changes listed under "Changes that can break a script or a client")
 

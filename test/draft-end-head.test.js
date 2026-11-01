@@ -142,5 +142,10 @@ test('source scan: every unanimous-loop R.criticUser( call in chain.js passes th
   const unanimous = calls.filter(c => /answeredQuestion/.test(c));
   assert.equal(unanimous.length, 2, 'the two unanimous-loop call sites (first ask and the bigger-cap retry)');
   for (const c of unanimous) assert.match(c, /endMarker/, c);
-  for (const c of calls.filter(c => !/answeredQuestion/.test(c))) assert.doesNotMatch(c, /endMarker/, `first mode never carries the marker: ${c}`);
+  // the final read (runFinalRead) is the one other call that carries it: it passes its own `endMarker` parameter, which the call site fills with the same endMarkerOn (the notes lane + draft_end_marker switch)
+  const finalRead = calls.filter(c => !/answeredQuestion/.test(c) && /endMarker/.test(c));
+  assert.equal(finalRead.length, 1, 'exactly one call outside the unanimous loop carries the marker: the final read');
+  assert.match(finalRead[0], /endMarker \}\)$/, finalRead[0]);
+  for (const c of calls.filter(c => !/answeredQuestion/.test(c) && !/endMarker/.test(c))) assert.doesNotMatch(c, /endMarker/, `first mode never carries the marker: ${c}`);
+  assert.match(src, /endMarker: endMarkerOn, invoke, record, log,/, 'the final read is handed the same endMarkerOn');
 });

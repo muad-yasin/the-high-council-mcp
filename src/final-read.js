@@ -97,9 +97,9 @@ const verdictWord = e => (!e.read ? 'DID NOT READ' : e.meets ? 'no objection' : 
 export function finalReadLogLines(entries, runEnd = 'not_agreed') {
   const lines = entries.map(e => `  ${e.lab}: ${e.read ? (e.meets ? 'read the final plan and raised no objection.' : `read the final plan and objected (${e.failures.length} objection(s)).`) : `did NOT read the final plan: ${e.why}.`}`);
   const unread = entries.filter(e => !e.read).map(e => e.lab);
-  if (unread.length) lines.push(`  LAYER 3 DID NOT READ THE FINAL PLAN (${unread.join(', ')}): the plan below was not read by every layer-3 seat after its last change.${runEnd === 'agreed' ? '' : ' This is not agreement.'}`);
-  if (runEnd === 'agreed' && entries.some(seatObjects)) lines.push('  LAYER 3 OBJECTED TO THE FINAL PLAN: every layer had signed off on an earlier text, but this run is NOT agreement.');
-  else if (runEnd === 'agreed' && unread.length) lines.push('  This run is NOT agreement: every layer had signed off on an earlier text, but layer 3 did not read the final plan.');
+  if (unread.length) lines.push(`  NOT EVERY LAYER-3 SEAT READ THE FINAL PLAN after its last change (${unread.join(', ')} did not).${runEnd === 'agreed' ? '' : ' The run ended without agreement.'}`);
+  if (runEnd === 'agreed' && entries.some(seatObjects)) lines.push('  LAYER 3 OBJECTED TO THE FINAL PLAN with an objection that holds the sign-off: every layer had signed off on an earlier text, but this run is NOT agreement.');
+  else if (runEnd === 'agreed' && unread.length) lines.push('  This run is NOT agreement: every layer had signed off on an earlier text, but not every layer-3 seat read the final plan.');
   return lines;
 }
 
@@ -114,12 +114,12 @@ export function renderFinalReadBlock(record) {
     out.push(`### ${e.lab}: ${verdictWord(e)}`, '');
     if (!e.read) out.push(`This seat did not read the final plan: ${e.why}.`, '');
     else if (e.meets) out.push(agreedEnd ? 'Read the final plan and raised no objection.' : 'Read the final plan and raised no objection. This is not agreement: the run ended without it.', '');
-    else for (const f of e.failures) out.push(`- ${f.criterion}: ${f.problem}`, '');
+    else for (const f of e.failures) out.push(`- "${f.criterion}": ${f.problem}`, '');
   }
   const unread = record.seats.filter(e => !e.read).map(e => e.lab);
-  if (unread.length) out.push(`**Layer 3 did not read the final plan (${unread.join(', ')}).**`, '');
-  if (finalReadObjected(record)) out.push('**Layer 3 objected to the final plan' + (agreedEnd ? ', so this run is NOT agreement.**' : '.**'), '');
-  else if (agreedEnd && unread.length) out.push('**This run is NOT agreement: layer 3 did not read the final plan.**', '');
+  if (unread.length) out.push(`**Not every layer-3 seat read the final plan (${unread.join(', ')} did not).**`, '');
+  if (finalReadObjected(record)) out.push('**Layer 3 objected to the final plan' + (agreedEnd ? ' with an objection that holds the sign-off, so this run is NOT agreement.**' : '.**'), '');
+  else if (agreedEnd && unread.length) out.push('**This run is NOT agreement: not every layer-3 seat read the final plan.**', '');
   return `${out.join('\n')}\n`;
 }
 
@@ -127,7 +127,7 @@ export function renderFinalReadBlock(record) {
 export function renderFinalReadBoard(record) {
   if (!record?.ran || !record.seats.length) return '';
   const rows = record.seats.map(e => `- **${verdictWord(e)}** - ${e.lab} (layer ${e.layer})${e.reasked ? ', asked twice' : ''}${e.read ? (e.meets ? '' : `: ${e.failures.map(f => f.criterion).join('; ')}`) : `: ${e.why}`}`);
-  return `\n## Final read by layer 3\n\n${record.run_end === 'agreed' ? 'Every layer had signed off, but the plan changed after layer 3 last read it' : 'The run ended without agreement'}; layer 3 read the final plan (${record.final_sha}).\n\n${rows.join('\n')}\n`;
+  return `\n## Final read by layer 3\n\n${record.run_end === 'agreed' ? 'Every layer had signed off, but the plan changed after layer 3 last read it' : 'The run ended without agreement'}; layer 3 was asked to read the final plan (plan id ${record.final_sha}).\n\n${rows.join('\n')}\n`;
 }
 
 /** Chain lint: a switch that would silently do nothing is refused (this repo's rule). A-DRAFT (the words a person reads). */
@@ -136,7 +136,7 @@ export function lintFinalReadChain(config, filePath = 'the chain file') {
   const critics = config.seats?.critics;
   const layered = Array.isArray(critics) && critics.length > 0 && critics.every(c => c?.layer !== undefined);
   if (config.signoff !== 'unanimous' || !layered) {
-    return [{ kind: 'final-read-needs-layers', message: `final_read.enabled is true but this chain ${config.signoff !== 'unanimous' ? 'is not "signoff": "unanimous"' : 'has no layered panel (every seat in seats.critics needs a "layer")'}: the final read is layer 3 reading the plan when a layered unanimous run ends without agreement, so here it would do nothing.`, fix: `Remove "final_read" from ${filePath}, or make the panel layered and unanimous.` }];
+    return [{ kind: 'final-read-needs-layers', message: `final_read.enabled is true but this chain ${config.signoff !== 'unanimous' ? 'is not "signoff": "unanimous"' : 'has no layered panel (every seat in seats.critics needs a "layer")'}: the final read comes at the end of a layered unanimous run, agreed or not, and asks the top-layer seats that have not yet read the plan as it stands to read it, so here it would do nothing.`, fix: `Remove "final_read" from ${filePath}, or make the panel layered and unanimous.` }];
   }
   return [];
 }

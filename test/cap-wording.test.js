@@ -55,14 +55,14 @@ test('start_run and resume_run: max_usd is the figure suggested, never the limit
   const a = descOf(start.inputSchema.properties.max_usd);
   assert.equal(typeof a, 'string', 'the description sits on the property');
   assert.ok(a.startsWith("the figure to suggest as the run's spending limit"), a);
-  assert.ok(a.includes('For a paid chain the limit is the number the person types in the dialog; this figure is only the suggestion, and "none" is refused (nothing started).'), a);
+  assert.ok(a.includes('Otherwise, for a paid chain the limit is the number the person types in the dialog; this figure is only the suggestion, and "none" is refused (nothing started).'), a);
   assert.ok(a.includes(`(a user who set COUNCIL_MAX_USD_LIMIT gets the lesser of the two, with $${DEFAULT_MAX_USD} for an unset MAX_USD_PER_RUN); with neither set it suggests nothing.`), a);
   assert.ok(a.includes('A figure above COUNCIL_MAX_USD_LIMIT is refused, and so is "none" on a chain with no paid seat where the user set that limit; 0 is refused.'), a);
   assert.doesNotMatch(a, /Defaults to MAX_USD_PER_RUN|per-run spend ceiling in USD/, 'the old claim of a default ceiling is gone');
   const b = descOf(resume.inputSchema.properties.max_usd);
   assert.equal(typeof b, 'string', 'the description sits on the property');
   assert.ok(b.startsWith("the figure to suggest as the run's new total"), b);
-  assert.ok(b.includes('A paid run its limit stopped asks the person for the new total in the dialog; this figure is only the suggestion.'), b);
+  assert.ok(b.includes('Otherwise, a paid run that stopped at its limit asks the person for the new total in the dialog; this figure is only the suggestion.'), b);
   assert.doesNotMatch(b, /raise the per-run ceiling for the rest of this run, a positive number/);
   assert.ok(resume.description.includes('or a run its spending limit stopped (a paid run asks the person for a new, higher total; max_usd is the figure suggested)'), resume.description);
 });

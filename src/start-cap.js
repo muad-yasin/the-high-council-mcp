@@ -21,6 +21,12 @@ import { join } from 'node:path';
 import { requestGate, readGateAnswer, listGates, consumeRunCap, runCapAuthority, capScopeSha256, RUN_CAP_KIND } from './gate.js';
 import { changedParts } from './start-scope.js';
 import { formatUsd } from './cost.js';
+import { CAP_RECORD_FIELDS } from './caps.js';
+
+// 0.8.4 DUALCAP unit 4b1 (src/caps.js RECORDS, "run_cap gate"): `capName` = the per-provider cap this limit is for (null: the run's one limit, as before). Everything below then
+// reads and writes THAT cap only: its authority (gate.js runCapAuthority per cap), its gates (cap.cap_name equal), its stop (a stop file whose capName is this cap AND whose capUsd
+// is this cap's consumed limit: two caps with the same figure never raise the wrong one), its screen bound (MAX_LIMIT_SCREENS counts this cap's screens), and the new gate names it.
+const CAP_NAME_KEY = CAP_RECORD_FIELDS.gate;
 
 /** How long a limit screen stays answerable: a run that exited 21 may be answered later in the day; a later start shows a fresh screen. 24 hours (the advice gate's TTL is shorter because its text is sent; this text is only read). */
 /** At most this many limit screens (gates) for one run id; the next change ends in a plain refusal that points at a new run. 5: the first screen, then four changes of task, settings or ceiling is already unusual; the number is a bound, not a measurement. */
@@ -39,21 +45,21 @@ const authorized = (auth, gate, via) => ({ status: 'authorized', capUsd: Number(
 //   not above the floor leaves a NOTE and a NEW gate, and the number of screens since the last consumption is bounded.
 //   `history()` (the caller, cli.js) gives { spentUsd, unsettledUsd, floorUsd, suggestedUsd, projectedStageUsd, stopped: { capUsd } | null }: the figures of the run folder, the floor and suggestion from STOPPED-budget.json through src/resume-ceiling.js.
 //   `buildScreen(kind, { history })` returns the screen text (kind run | side | legacy | raise | amend); `scope` is the scope object, written beside the screen as cap-scope-<n>.json so a later amend screen can name what changed.
-export async function authorizeStart({ runDir, runId, resume = false, sideVerb = null, scopeSha256, scope = null, screenText = '', buildScreen = null, history = null, ceiling, interactive, ask, forceRaise = false, relayed = false, now = () => Date.now() }) {
-  const auth = runCapAuthority(runDir, { runId, now });
+export async function authorizeStart({ runDir, runId, resume = false, sideVerb = null, scopeSha256, scope = null, screenText = '', buildScreen = null, history = null, ceiling, interactive, ask, forceRaise = false, relayed = false, capName = null, now = () => Date.now() }) {
+  const auth = runCapAuthority(runDir, { runId, capName, now });
   if (auth.status === 'invalid') return { status: 'refused', code: auth.reason, message: `the record of this run's limit cannot be used (${auth.reason}). Nothing was started.` };
 
   const hist = history ? history() : {};
   const listed = listGates(runDir, { now });
   if (listed === null) return { status: 'refused', code: 'gate_ledger_corrupt', message: 'the approval record of this run cannot be read (gate_ledger_corrupt). Nothing was started.' };
-  const all = listed.map(g => ({ id: g.id, state: readGateAnswer(runDir, g.id, { now }) })).filter(g => g.state.gate?.kind === RUN_CAP_KIND && g.state.gate.cap.run_id === runId);
+  const all = listed.map(g => ({ id: g.id, state: readGateAnswer(runDir, g.id, { now }) })).filter(g => g.state.gate?.kind === RUN_CAP_KIND && g.state.gate.cap.run_id === runId && (g.state.gate.cap[CAP_NAME_KEY] ?? null) === capName);
 
   // T5: a paid side command's first limit is its own operation (gate.js CAP_OPERATION already allows side:<verb>) and screen kind.
   let operation = sideVerb ? `side:${sideVerb}` : 'start'; let kind = sideVerb ? 'side' : 'run'; let since = 0; let previousCapUsd = null; let changed = null;
   if (auth.status === 'ok') {
     const lastGate = readGateAnswer(runDir, auth.gate, { now }).gate;
     const bound = lastGate?.cap?.scope_sha256;
-    const stoppedAtActive = hist.stopped && Number.isFinite(hist.stopped.capUsd) && Math.round(hist.stopped.capUsd * 1e6) === auth.capMicroUsd;
+    const stoppedAtActive = hist.stopped && (hist.stopped.capName ?? null) === capName && Number.isFinite(hist.stopped.capUsd) && Math.round(hist.stopped.capUsd * 1e6) === auth.capMicroUsd;
     // B3 prototype: `forceRaise` (--raise-cap on a resume) opens a raise although the run has not stopped at its limit; `relayed` makes the gate one the handler session may answer on the person's permission (gate.js, the relay answer).
     if (bound === scopeSha256 && !stoppedAtActive && !forceRaise) return authorized(auth, auth.gate, 'continued');
     since = auth.seq; previousCapUsd = Number(auth.capUsd);
@@ -73,7 +79,7 @@ export async function authorizeStart({ runDir, runId, resume = false, sideVerb =
   const consume = gate => {
     const used = consumeRunCap(runDir, gate, { runId, scopeSha256, committedMicroUsd: floorMicro }, { now });
     if (!used.ok) return { status: 'refused', code: used.code, message: used.message };
-    const after = runCapAuthority(runDir, { runId, now });
+    const after = runCapAuthority(runDir, { runId, capName, now });   // DUALCAP: read back THIS cap's limit
     return after.status === 'ok' ? authorized(after, gate, 'answered') : { status: 'refused', code: after.reason ?? 'cap_record_mismatch', message: 'the limit was recorded but cannot be read back. Nothing was started.' };
   };
 
@@ -109,10 +115,10 @@ export async function authorizeStart({ runDir, runId, resume = false, sideVerb =
   else {
     const n = listed.length + 1;
     const file = `cap-screen-${n}.md`;
-    const text = buildScreen ? buildScreen(kind, { history: { ...hist, previousCapUsd, changed } }) : screenText;
+    const text = buildScreen ? buildScreen(kind, { history: { ...hist, previousCapUsd, changed }, ...(capName !== null ? { capName } : {}) }) : screenText;
     writeFileSync(join(runDir, file), text);   // fs-ok: the run folder, a new name per gate (an older gate's text must keep its bytes)
     if (scope) writeFileSync(join(runDir, `cap-scope-${n}.json`), JSON.stringify(scope));   // fs-ok: the scope object this gate is bound to, verifiable against its digest; a later amend screen names what changed from it
-    const cap = { operation, run_id: runId, scope_sha256: scopeSha256, ceiling_usd: ceiling ? ceiling.usd : null, ceiling_source: ceiling ? ceiling.source : null };
+    const cap = { operation, run_id: runId, scope_sha256: scopeSha256, ceiling_usd: ceiling ? ceiling.usd : null, ceiling_source: ceiling ? ceiling.source : null, ...(capName !== null ? { [CAP_NAME_KEY]: capName } : {}) };
     const made = requestGate(runDir, { kind: RUN_CAP_KIND, textPath: file, cap, expiresAt: now() + CAP_GATE_TTL_MS, ...(relayed ? { requestedBy: 'session' } : {}) }, { now });
     if (!made.ok) return { status: 'refused', code: made.code, message: `the limit screen could not be recorded (${made.code}: ${made.message}). Nothing was started.` };
     gateId = made.gate.id;

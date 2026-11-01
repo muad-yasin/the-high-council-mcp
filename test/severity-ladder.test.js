@@ -42,7 +42,7 @@ test('the floor jump FIRES with a 4+ open: with the switch ON and a 5 kept at la
   } finally { p.done(); }
 });
 
-test('where it does not apply the cycle is today\'s: the switch OFF with the same objections (a 5 is an ordinary objection) climbs on the count, pass 4 starts at layer 2', () => {
+test('switch OFF, same objections (a 5 is an ordinary objection): the ladder climbs on the count, pass 4 starts at layer 2', () => {
   const p = project(chainOf(seatsOf('x-sev5', 'm'), { maxOverseerRounds: 1 }));
   try {
     const r = p.run(['--chain', 'strict', '--task', 'tasks/t.md', '--ladder']);
@@ -72,7 +72,7 @@ test('--next-pass-layer-3 still starts a pass at layer 3 with a 5 open at layer 
   } finally { setPromptSpy(null); setCache(null); setBudget(null); }
 });
 
-test('below 4 does not hold the climb: with the switch on and a layer-1 judge whose only objection is rated 3, layer 1 signs off and the plan climbs in the same pass (layers 2 and 3 are asked in pass 1), exactly as without the switch', () => {
+test('a rating below 4 does not hold the sign-off: with the switch on and a layer-1 judge whose only objection is rated 3, layer 1 signs off and the plan climbs in the same pass (layers 2 and 3 are asked in pass 1), exactly as without the switch', () => {
   const p = project(chainOf(seatsOf('x-sev3', 'w'), { severity: { enabled: true }, maxOverseerRounds: 1 }));
   try {
     const r = p.run(['--chain', 'strict', '--task', 'tasks/t.md', '--ladder']);
