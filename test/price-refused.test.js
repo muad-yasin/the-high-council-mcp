@@ -197,11 +197,13 @@ test('PR-8 (source scan, C&C C2): every catch in src/chain.js around a provider 
   lines.forEach((l, i) => {
     if (!/\bcatch\s*\(err\)\s*\{/.test(l)) return;
     let j = i; while (j > Math.max(0, i - 80) && !/\btry\s*\{/.test(lines[j])) j--;
-    if (!/\binvoke\(|runSingleStage\(|callSeat\(|await ask\(/.test(lines.slice(j, i).join('\n'))) return;
+    if (!/\binvoke\(|runSingleStage\(|callSeat\(|await ask\(|askOnceMore\(/.test(lines.slice(j, i).join('\n'))) return;   // askOnceMore: the exchange's call helper (B2), which calls invoke() itself
     sites.push({ at: i + 1, window: lines.slice(i, i + 6).join('\n') });
   });
   // CHANGED ACCEPTED (E4b unit 2 fix-up, 18 Okt 2026). OLD: 14 sites. NEW: 15. WHY: the decider stage's catch (chain.js decideConflicts) is a catch around a provider call; it records the swing (a record, not an abstention) and then runs rethrowControlFlow, so the rule this test pins still holds.
-  assert.equal(sites.length, 15, `15 catch sites around provider calls (found ${sites.length}: ${sites.map(s => s.at)})`);
+  // CHANGED ACCEPTED (B2 exchange, 29 Okt 2026, debate-084/b2). OLD: 15. NEW: 17. WHY: the exchange inside layer 1 (exchangeRound) makes two provider calls, each in its own try; both catches run rethrowControlFlow first and say that the judge gave no reply (their posts or answers do not count), as the debate stage's catches do.
+  // CHANGED ACCEPTED (B3 prep unit D, 1 Nov 2026). OLD: 17. NEW: 18. WHY: the final read (runFinalRead, the layer-3 read at the end of a run) makes one provider call per seat through invoke(); its catch is the 18th site and runs rethrowControlFlow(err) first, which the next assertion checks for every site.
+  assert.equal(sites.length, 18, `18 catch sites around provider calls (found ${sites.length}: ${sites.map(s => s.at)})`);
   const unguarded = sites.filter(s => !/rethrowControlFlow\(err\)/.test(s.window) && !/settled = \{ outcome: err\?\.maybeBilled/.test(s.window));
   assert.deepEqual(unguarded.map(s => s.at), [], 'every site except invoke()\'s own catch rethrows control flow first');
   const src = lines.join('\n');

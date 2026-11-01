@@ -46,14 +46,14 @@ Three commands from nothing to a priced run of your own idea (no key needed unti
 
 | Chain | Who does what | Needs | Expected / upper estimate |
 |---|---|---|---|
-| `plan-mini-council` | The default chain, and the smallest of three planning chains (0.8.3): three proposers and a layered review panel of six judges from four companies in three layers (at least two judges in every layer), one overseer round, no alternatives stage and no deep dive. Compared with `plan-high-council` it asks fewer models, runs fewer rounds and allows fewer revisions. A Claude Code session writes the skeleton, the plan and the handoff, and answers the Claude Haiku judge at layer 2 and the Claude Opus judge at layer 3 on your Claude subscription (GPT-6.1 Sol is a paid API seat). Every figure fits under the default cap of $7. This roster has not run. | OpenRouter key + a Claude subscription + a Claude Code session | $1.51 / $5.27 |
-| `plan-default-opro-council` | The quick-start chain (0.8.3), for a first run with one OpenRouter key: three proposers (MiMo V2.6 Pro, GPT-6 Luna, GLM-5.3) and a layered review panel of nine judges from seven companies in three layers (five, two, two), one overseer round, no alternatives stage and no deep dive. DeepSeek V4.1 Flash writes the criteria, skeleton, build, revise and handoff stages, so no subscription is needed and none of those stages is answered by you; a swing between judge layers pauses the run (exit 3) and leaves a file for the Claude Code session, or you, to answer. Every seat reasons at high (GLM-5.3 and GLM-5.3 Flash, whose own default is above high, are sent nothing and run at it) and writes up to the largest reply the harness knows for its model (the seat cap of 128,000 where no published limit was found), Claude Opus 5.5 at layer 3 included (128,000 tokens). Its upper estimate is above the default cap of $7, so the quick start runs it with `--max-usd 10`. This roster has not run, and none of its mechanisms has been measured. | OPENROUTER_API_KEY | $2.95 / $16.26 |
-| `plan-mini-council-sol-session` | The Mini roster with GPT-6.1 Sol answered through your own ChatGPT plan instead of a paid API seat, for people with a Claude plan and a ChatGPT plan: layer 3 pauses twice in every round the climb reaches it, the price shows $0 for every judge you answer yourself, and nothing in the harness checks who answered. Up to two overseer rounds. Compared with `plan-high-council` it asks fewer models, runs fewer rounds and allows fewer revisions. This roster has not run. | OpenRouter key + a Claude subscription + a ChatGPT subscription + a Claude Code session | $1.41 / $4.46 |
-| `plan-medium-council` | The middle of three planning chains (0.8.3): three proposers, three architecture authors whom every proposer also debates, a deep dive, and a layered review panel of seven judges from five companies in three layers; up to three overseer rounds. Claude Haiku 5.5 (layer 2) and Claude Opus 5.5 (layer 3) judge on your Claude subscription, and a Claude Code session writes the skeleton, the plan and the handoff. This roster has not run. Its upper estimate ($23.04) is above the default cap of $7; the cheapest end ($6.75) fits under it. | OpenRouter key + a Claude subscription + a Claude Code session | $7.16 / $23.04 |
-| `plan-high-council` | The most thorough of three planning chains (0.8.3), with the strongest models: six proposers, three architecture authors whom every proposer also debates, a deep dive, and a layered review panel of twelve named judges in three layers, asked from layer 1 up; the plan's writer and the proposers do not vote unless they are one of the twelve. Up to seven overseer rounds. Claude Haiku 5.5 (layer 1), Claude Opus 5.5 (layer 2) and Claude Fable 5.1 (layer 3) judge on your Claude subscription, and a Claude Code session writes the skeleton, the plan and the handoff. This roster has not run. Its upper estimate ($272.24) and cheapest end ($17.29) are above the default cap of $7. | OpenRouter key + a Claude subscription + a Claude Code session | $25.89 / $272.24 |
-| `plan-china-mini-council` | An alternative to `plan-mini-council` (0.8.3), not a replacement: three proposers and a layered review panel of six judges in three layers, all models from Chinese companies (Tencent HY4 Preview and StepFun Step 5 Preview are preview models). The criteria stage is answered through your Claude subscription and the skeleton, build, revise, handoff and decider stages by your Claude Code session. One overseer round. This roster has not run. | OpenRouter key + a Claude subscription + a Claude Code session | $1.69 / $6.15 |
-| `plan-china-medium-council` | An alternative to `plan-medium-council` (0.8.3), not a replacement: four proposers, an alternatives stage the proposers debate, a deep dive and a layered review panel of six judges in three layers, all models from Chinese companies. Claude-backed stages as in `plan-china-mini-council`. Up to three overseer rounds. This roster has not run. | OpenRouter key + a Claude subscription + a Claude Code session | $5.78 / $17.71 |
-| `plan-china-high-council` | An alternative to `plan-high-council` (0.8.3), not a replacement: six proposers, an alternatives stage, a deep dive and a layered review panel of twelve judge seats in three layers, nine models from Chinese companies. Claude-backed stages as in `plan-china-mini-council`. Up to seven overseer rounds. The upper estimate is not a spending ceiling. This roster has not run. | OpenRouter key + a Claude subscription + a Claude Code session | $18.64 / $175.72 |
+| `plan-mini-council` | The default chain, and the smallest of three planning chains (0.8.3): three proposers and a layered review panel of six judges from four companies in three layers (at least two judges in every layer), one overseer round, no alternatives stage and no deep dive. Compared with `plan-high-council` it asks fewer models, runs fewer rounds and allows fewer revisions. A Claude Code session writes the skeleton, the plan and the handoff, and answers the Claude Haiku judge at layer 2 and the Claude Opus judge at layer 3 on your Claude subscription (GPT-6.1 Sol is a paid API seat). Every figure fits under the default cap of $7. This roster has not run. | OpenRouter key + a Claude subscription + a Claude Code session | $1.85 / $6.27 |
+| `plan-default-opro-council` | The quick-start chain (0.8.3), for a first run with one OpenRouter key: three proposers (MiMo V2.6 Pro, GPT-6 Luna, GLM-5.3) and a layered review panel of nine judges from seven companies in three layers (five, two, two), one overseer round, no alternatives stage and no deep dive. DeepSeek V4.1 Flash writes the criteria, skeleton, build, revise and handoff stages, so no subscription is needed and none of those stages is answered by you; a swing between judge layers pauses the run (exit 3) and leaves a file for the Claude Code session, or you, to answer. Every seat reasons at high (GLM-5.3 and GLM-5.3 Flash, whose own default is above high, are sent nothing and run at it) and writes up to the largest reply the harness knows for its model (the seat cap of 128,000 where no published limit was found), Claude Opus 5.5 at layer 3 included (128,000 tokens). Its upper estimate is above the default cap of $7, so the quick start runs it with `--max-usd 10`. This roster has not run, and none of its mechanisms has been measured. | OPENROUTER_API_KEY | $2.93 / $16.68 |
+| `plan-mini-council-sol-session` | The Mini roster with GPT-6.1 Sol answered through your own ChatGPT plan instead of a paid API seat, for people with a Claude plan and a ChatGPT plan: layer 3 pauses twice in every round the climb reaches it, the price shows $0 for every judge you answer yourself, and nothing in the harness checks who answered. Up to two overseer rounds. Compared with `plan-high-council` it asks fewer models, runs fewer rounds and allows fewer revisions. This roster has not run. | OpenRouter key + a Claude subscription + a ChatGPT subscription + a Claude Code session | $1.77 / $5.79 |
+| `plan-medium-council` | The middle of three planning chains (0.8.3): three proposers, three architecture authors whom every proposer also debates, a deep dive, and a layered review panel of seven judges from five companies in three layers; up to three overseer rounds. Claude Haiku 5.5 (layer 2) and Claude Opus 5.5 (layer 3) judge on your Claude subscription, and a Claude Code session writes the skeleton, the plan and the handoff. This roster has not run. Its upper estimate ($25.49) and the cheapest end ($7.20) are above the default cap of $7. | OpenRouter key + a Claude subscription + a Claude Code session | $7.64 / $25.49 |
+| `plan-high-council` | The most thorough of three planning chains (0.8.3), with the strongest models: six proposers, three architecture authors whom every proposer also debates, a deep dive, and a layered review panel of twelve named judges in three layers, asked from layer 1 up; the plan's writer and the proposers do not vote unless they are one of the twelve. Up to seven overseer rounds. Claude Haiku 5.5 (layer 1), Claude Opus 5.5 (layer 2) and Claude Fable 5.1 (layer 3) judge on your Claude subscription, and a Claude Code session writes the skeleton, the plan and the handoff. This roster has not run. Its upper estimate ($264.32) and cheapest end ($17.36) are above the default cap of $7. | OpenRouter key + a Claude subscription + a Claude Code session | $25.57 / $264.32 |
+| `plan-china-mini-council` | An alternative to `plan-mini-council` (0.8.3), not a replacement: three proposers and a layered review panel of six judges in three layers, all models from Chinese companies (Tencent HY4 Preview and StepFun Step 5 Preview are preview models). The criteria stage is answered through your Claude subscription and the skeleton, build, revise, handoff and decider stages by your Claude Code session. One overseer round. This roster has not run. | OpenRouter key + a Claude subscription + a Claude Code session | $2.03 / $7.22 |
+| `plan-china-medium-council` | An alternative to `plan-medium-council` (0.8.3), not a replacement: four proposers, an alternatives stage the proposers debate, a deep dive and a layered review panel of six judges in three layers, all models from Chinese companies. Claude-backed stages as in `plan-china-mini-council`. Up to three overseer rounds. This roster has not run. | OpenRouter key + a Claude subscription + a Claude Code session | $6.52 / $20.52 |
+| `plan-china-high-council` | An alternative to `plan-high-council` (0.8.3), not a replacement: six proposers, an alternatives stage, a deep dive and a layered review panel of twelve judge seats in three layers, nine models from Chinese companies. Claude-backed stages as in `plan-china-mini-council`. Up to seven overseer rounds. The upper estimate is not a spending ceiling. This roster has not run. | OpenRouter key + a Claude subscription + a Claude Code session | $20.16 / $262.99 |
 | `local-ollama` | Every seat on your own machine, through Ollama. | Ollama and the models pulled | $0 / $0 |
 
 The first figure is what the chain's own assumptions expect (the typical output of a review, every round up to the cap); the second is the most the planned calls could cost
@@ -99,7 +99,7 @@ before anything is spent.
        npx the-high-council --task tasks/my-first-task.md --chain plan-default-opro-council --dry-run
        npx the-high-council --task tasks/my-first-task.md --chain plan-default-opro-council --max-usd 10
 
-   `plan-default-opro-council` expects $2.95, with an upper estimate of $16.26. The expected figure is under the default cap and the upper estimate is not,
+   `plan-default-opro-council` expects $2.93, with an upper estimate of $16.68. The expected figure is under the default cap and the upper estimate is not,
    so the run command carries `--max-usd 10`: the screen that asks for your limit suggests $10, and you type the number you accept (10 is also Claude Desktop's setting; the figures leave out re-asks and some other calls, so only the limit is a bound). Every paid run stops before it would pass the limit you typed. A run stopped at its limit keeps what it paid for but has no plan yet; a limit below the upper estimate can stop a run that uses a lot of its allowance (resume it: the screen asks for a new, higher total). The expected figure is the run in which every judge layer signs off the first time it is asked, the cheapest end for this chain; every revision adds to it, and the upper estimate counts every revision the chain allows. A swing between judge layers also pauses the run (exit 3) and leaves a file for the Claude Code session, or you, to answer.
 
    The plan lands in `runs/<time>/deliverable.md`; the argument behind it is in `BOARD.md`.
@@ -267,7 +267,10 @@ when the action is `withdraw`. `proposals[]` likewise carries `withdrawn` / `ame
 
 Chains with newer, opt-in stages add their own fields (`deep_dive`, `notQuorate`, `dispute`,
 `security_review`, ...); [docs/report-format.md](docs/report-format.md) lists which are stable and
-which experimental. With the majority guard on, a withdrawal that does not quote the argument it
+which experimental. A run whose stall was passed up a layer has `escalations`: each escalation's
+rounds and layers, every judge's ruling, and what became of each objection, with the id it lives on
+under when a judge took it over (`report-partial.json` carries it too), and a passed-over layer's
+`layers` row reads `escalated`. With the majority guard on, a withdrawal that does not quote the argument it
 concedes to carries `unargued: true` in `debate.replies[]` and its proposal stays for the builder.
 
 `signoff[].lab` is the seat's lab; `signoff[].provider` holds the same value under an older,
@@ -319,7 +322,7 @@ seat's `baseUrl` anywhere else is refused before any call (see
 [Local models](#local-models-ollama-lm-studio-)).
 
 Other settings, all optional, read from the environment or `.env` (except `COUNCIL_ADVICE_SENSITIVITY_FLOOR`,
-`COUNCIL_ADVICE_CHAINS_DIR`, `COUNCIL_WORKDIR`, `COUNCIL_PERSONAS_FILE`, `COUNCIL_PII_GATE` and
+`COUNCIL_ADVICE_CHAINS_DIR`, `COUNCIL_WORKDIR`, `COUNCIL_PERSONAS_FILE`, `COUNCIL_PII_GATE`, `COUNCIL_SPEND_CAPS` and
 `COUNCIL_ALLOW_LOOPBACK_KEY_HOST`, which only the real environment sets: a project's `.env` is
 something the session can write, so the CLI prints a notice and ignores them there):
 
@@ -501,6 +504,16 @@ This costs no tokens you were not already spending: the task file is already in 
 prompt. It is the difference between *"write a test for this"* and *"run `scope-gate` on this
 before building it."*
 
+### Your host preference (`provider-preference.json`, 0.8.4)
+
+Optional, in your project folder next to `pricing.user.json`: for a model that runs on OpenRouter, the hosts to try first, by their endpoint tags exactly as OpenRouter writes them (`azure/us`, `wafer/mxfp4`; a base endpoint is named by its bare tag such as `azure`, and a bare tag also matches that provider's regional and variant endpoints such as `azure/us` unless a chain ignores them with `extra.provider.ignore`, which takes full tags too; it does not match a service-tier endpoint such as `openai/flex`):
+
+```json
+{ "openrouter/z-ai/glm-5.3-flash": { "prefer": ["wafer/nvfp4", "novita/fp8"] } }
+```
+
+THC sends the list as `provider.order` and leaves fallbacks on, so any other host can still serve a call that none of yours can; a seat's own `extra.provider.order` wins, and a host a chain bans with `extra.provider.ignore` is never preferred. The file never changes a price or the price limit, and the spend cap counts the same figures with or without it. A file that cannot be read in full is not used at all and the command that sends says why. Changing it changes the screen you typed your limit under. `node scripts/refresh-openrouter-prices.mjs ... --for-chain <chain.json> --propose all` (from a clone, after a `--fetch`) writes a PROPOSED file next to the fetched answers: the eligible hosts at or below the median of the base prices, cheapest first, left off when their context or output limit cannot serve the chain; you copy and edit it.
+
 ### The spend cap
 
 Every paid run has a spending limit in USD that you type before it starts (a tree member runs under its grant from the tree's cap you typed; an advice call under the ceiling you approve in its quote), and it is checked *before* each paid
@@ -530,7 +543,10 @@ and the stage's own prompt must all match what it answered (the two numbers of a
 or an earlier stage came out differently this time), the stage runs again and its old files move
 into `superseded/` inside the run folder. What the old answer cost still counts toward the ceiling,
 `--spend` and `report.json`'s `totals.usd` (shown separately as `totals.supersededUsd`), so a resume
-cannot spend past the cap. An answer you wrote for an external stage is never re-used against a
+cannot spend past the cap. A stage an earlier sitting paid for that the finishing sitting never asks again
+(the chain now gives its criteria itself, say) stays in the run folder. Since 0.8.4 it counts in `report.json`'s
+`totals.usd` (shown as `totals.unreplayedUsd`, listed in `unreplayed[]`), in `council --spend` and in `run_status`;
+the cap of a resumed sitting does not count it yet. An answer you wrote for an external stage is never re-used against a
 changed prompt: it is set aside the same way and the run asks you again.
 
 The cap governs one run. To see what you have spent across all of them:
@@ -856,13 +872,19 @@ for any model the table has a field for.
   source-level guard, not just an intention. A chain with no `role` set is byte-identical to
   before. **No efficacy claim**: this ships the mechanism, not evidence that it helps - see
   CHANGELOG.md's 0.6.0 entry.
+- **`persona`** (a different carrier from `role.persona` above) - optional, on any `seats.critics` entry only (set anywhere else and `council doctor` rejects it fail-loud, since it would silently do
+  nothing there; a seat never carries both `role` and `persona`): a plain name for a judge. It is read only with the chain switch **`judge_personas`** `{ enabled, form, name_only? }` (opt-in, no default;
+  needs `"signoff": "unanimous"`). With the switch on, a short block naming the persona is written into that judge's OWN system prompts: the verdict prompt and the two layer-exchange prompts, before the reply
+  format. `form` is `voice` or `method`; a name listed in `name_only` gets only the name line in both forms. The name is a bare string and is never looked up in the shipped persona set. `report.json` gets an
+  optional `judge_personas` key: the seats and every place a persona name appears in judge-written text (counted, not removed). The debate stage's `role.persona` is unchanged and the panel still never sees
+  it; this is a second route with its own source-level guard (`test/stage-isolation.test.js`). Off, or a seat without a `persona`: every prompt is byte-identical to before. **No efficacy claim.**
 - **`layer`** - optional, on any `seats.critics` entry only (set anywhere else and `council
   doctor` rejects it fail-loud, since it would silently do nothing there): a whole number from 1
   to 3. Either every critic has one or none does, and each layered critic needs its own `lab`.
   With layers the panel reviews in steps: layer 1 reviews the draft first, and a higher layer is
   asked only when every seat of the layers below it signed off on that same draft. Any objection
   ends the round's climb, the reviser gets the objections, and the next round starts again at
-  layer 1. With two or more layers, the top layer needs an explicit sign-off from every seat: a
+  layer 1 (a stall below the top layer is the exception: see "When a layered panel stalls" below). With two or more layers, the top layer needs an explicit sign-off from every seat: a
   stated pass there stops the run as not agreement. `report.json` gets a `layers` list (one row
   per round per layer; a layer that was not asked is a row, `not_asked`, never a gap). Layers need
   a unanimous, non-relay panel without `quorum`. With `answer_back`, a judge keeps its own open
@@ -878,6 +900,31 @@ for any model the table has a field for.
   is one of the labs in the conflict. The nine layered planning chains (`plan-mini-council`, `plan-mini-council-sol-session`, `plan-medium-council`, `plan-high-council`, `plan-china-mini-council`, `plan-china-medium-council`, `plan-china-high-council`, `plan-claude-council`, `plan-default-opro-council`) name the Claude Code session as their decider.
   A decider that is the Claude Code session pauses the run (exit 3) and leaves a file to answer. A chain without a decider records each conflict as `no_decider_seat`.
   For each requested choice, `<n>` is the conflict number and `<choice>` is an objection id listed for that conflict, or `neither`. When the decider asks for your choice, the run stops at exit 25. For a plain run, record and apply the choice with `council --resume <run folder> --prevail <n>=<choice>`. For a tree member, record it with `council tree decide <tree id> --prevail-node <node> --prevail <n>=<choice>`, then apply it with `council tree resume <tree id>`. Supply a choice for every conflict that asks for one.
+- **When a layered panel stalls** (0.8.4) - on a chain whose critics all have a `layer` and whose
+  dispute stage is on (`dispute.enabled`), a stall below the top layer no longer ends the review. A
+  stall is the same objections from the same judges for `dispute.stall_rounds` rounds running. The
+  plan is passed up instead: in the next round the layers from the next one up review it as they
+  always do, the layers below wait until the top layer has given a verdict, and each judge of the
+  layer the plan went up to then rules on every stuck objection in a call of its own (stage
+  `rule-<round>-<lab>`, under your spending limit). This is not the decider's ruling: the decider
+  rules on a swing between layers and closes nothing, while here a judge either sustains an
+  objection, which makes it that judge's own, or overrules it with a reason. An objection is closed
+  only when every judge of that layer overrules it; one without a readable ruling stays open as the
+  objection of the judge who raised it. The ruling prompt names neither the lab nor the layer of
+  that judge.
+
+  If the top layer then signs off while the layers below were passed over, the run ends as an
+  *escalated sign-off*, which is not agreement of the whole panel: `passed` is false, `outcome` is
+  `no_consensus`, the run exits 22, `report.json` has `escalated_signoff`, the plan opens with an
+  "Escalated sign-off" block that says what became of each passed-up objection, and the dispute
+  stage lists the ones no ruling closed. If the top layer objects instead, the next round climbs from
+  layer 1 again, and a round in which every judge signs the same draft is an ordinary sign-off. A
+  stall at the top layer, on a chain without layers, or in the last round the chain allows ends the
+  review as before. Without a quote, an objection's id stands only for its judge and its criterion,
+  so when that judge raises it again after a ruling closed it, nobody can tell it from another
+  problem under the same criterion: it counts as a live objection, and the plan can stall and be
+  passed up again within the run's round limits. The top layer still sees every judge's lab in its
+  objection ledger (with `answer_back`). **No efficacy claim**: this ships the mechanism, not evidence that it helps.
 - **`quorum: { "minHeard": N }`** - opt-in, unanimous chains only, set in no shipped chain. A
   round's sign-off counts only when at least N reviewers gave a verdict (signed off or objected);
   a round short of it is recorded as `notQuorate`, the run does not pass, and the loop stops.

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { lintChain } from '../src/chain-lint.js';
 import { panelLabCount } from '../src/chain.js';
 import { pinnedExtra } from '../src/price-pin.js';
+import { effectiveRow } from '../src/price-table.js';
 import { dryRunReport } from '../src/dry-run.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,21 +26,25 @@ test('PCH-1: the roster is the High shape with twelve judge seats on nine models
 });
 
 // CHANGED ACCEPTED TEST (HIGH unit, 23 Okt 2026). OLD: the DeepSeek V4 Pro 0813 seat is at effort max. NEW: effort high. WHY: Muad, 23 Okt 2026 20:44: "High should be *our* default setting. Some models are so cheap that *their* default is Max effort, and we can go with that" (DeepSeek V4 Pro's own default is high, so the seat states high).
-test('PCH-2: the DeepSeek V4 Pro seat is the 0813 build at effort high with 384,000 output (the owner\'s pick; none found on DeepSeek\'s pages), and its request carries the listed price 0.66/1.98 as the pin', () => {
+test('PCH-2: the DeepSeek V4 Pro seat is the 0813 build at effort high with 384,000 output (the owner\'s pick; none found on DeepSeek\'s pages), and its request carries the table price as the pin', () => {
   const s = critics.find(x => x.model === 'deepseek/deepseek-v4-pro-0813');
   assert.ok(s, 'the 0813 id');
   assert.equal(critics.some(x => x.model === 'deepseek/deepseek-v4-pro'), false, 'the 0423 build is not used');
   assert.equal(s.maxTokens, 384000); assert.equal(s.extra.reasoning.effort, 'high');
-  assert.deepEqual(pinnedExtra(s, s.extra).provider.max_price, { prompt: 0.66, completion: 1.98 });
+  // CHANGED ACCEPTED TEST (price refresh, 1 Nov 2026), classified by purpose: a RELATION (the request carries the table row as its pin), so it reads the row. OLD bar: the pin is the literal 0.66/1.98. NEW bar: the pin equals the shipped row, whatever the refresh sets it to. WHY: the refresh set the row to the dearest eligible host (1.45/8); the literal would fail on every refresh.
+  const row = effectiveRow('openrouter', 'deepseek/deepseek-v4-pro-0813');
+  assert.deepEqual(pinnedExtra(s, s.extra).provider.max_price, { prompt: row.in, completion: row.out });
 });
 
-test('PCH-3: the dry run prints the two figures the description and the Pricing table carry, and the Known limit says five hosts serve the 0813 seat', () => {
+test('PCH-3: the dry run prints the two figures the description and the Pricing table carry, and the five-host Known limit is gone', () => {
   const est = dryRunReport(chain).estimate;
   const usd = n => `$${n.toFixed(2)}`;
   assert.ok(chain.description.includes(`${usd(est.expectedUsd)} expected`) && chain.description.includes(`${usd(est.maximumUsd)}`), 'the description carries the dry run');
   // CHANGED ACCEPTED (Pricing table layout, 26 Okt 2026): OLD the row read `| name | not run yet | expected | upper estimate |`; NEW the columns are Chain | Expected | Upper estimate | Tested, and an unrun chain's tested cell is an en dash.
   assert.ok(readme.includes(`| \`plan-china-high-council\` | ${usd(est.expectedUsd)} | ${usd(est.maximumUsd)} | \u2013 |`), 'the Pricing table row');
-  assert.ok(readme.includes('has five hosts at its price (0.8.3)'), 'the Known limit');
+  // CHANGED ACCEPTED TEST (price refresh, 1 Nov 2026). OLD bar: the README's Known limits say the seat "has five hosts at its price (0.8.3)". NEW bar: that limit is gone, and the seat's row is the dearest eligible host of the 1 Nov read, with the host picture on the row (count above five). WHY: the limit was true only while the row sat at the listed 0.66/1.98; the refresh set the row to what the dearest eligible host charges, so the filter no longer narrows the seat to five hosts (a limit is deleted when the code makes it untrue, in the same commit).
+  assert.equal(readme.includes('has five hosts at its price'), false, 'the Known limit is gone');
+  assert.ok(effectiveRow('openrouter', 'deepseek/deepseek-v4-pro-0813').hosts.count > 5, 'the row is backed by more than the five hosts the old limit named');
   assert.ok(chain.description.includes('nine models from seven companies'), 'the description says what it counts');
 });
 

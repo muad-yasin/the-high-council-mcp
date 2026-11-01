@@ -17,7 +17,9 @@ import { injectCanary } from '../src/canary.js';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DRAFT = 'REVISED MOCK DELIVERABLE\n\nBody text.\n\nAssumptions: none.';
 // mock/mock-priced is $1000/Mtok; 50000 max tokens projects ~$50 for one call.
-const pricey = lab => ({ provider: 'mock', model: 'mock-priced', maxTokens: 50000, lab });
+// CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: the seat's worst case (its 50000-token cap) put it over the cap. NEW: its own
+// estimate.critiqueTokens is its whole cap, so its EXPECTED review (critiqueTokensFor) is ~$50 too and the gate still refuses it. WHY: these tests are about the refusal escaping the catches, not about its figure.
+const pricey = lab => ({ provider: 'mock', model: 'mock-priced', maxTokens: 50000, estimate: { critiqueTokens: 50000 }, lab });
 const cheap = lab => ({ provider: 'mock', model: 'mock-priced', maxTokens: 10, lab });
 
 test('unanimous panel: a critic over the cap stops the run with BudgetExceeded, not SEAT_UNREACHABLE', async () => {
@@ -44,7 +46,9 @@ test('non-unanimous critique with degrade_on_provider_error: a capped critic sti
 });
 
 test('ambiguity union: a capped ambiguity seat stops the run instead of being logged as "no ambiguity reply"', async () => {
-  setCache(null); setBudget(5);
+  // CHANGED (expected-cost gate, 27 Okt 2026). OLD: a $5 cap, below the seat's worst case. NEW: $0.50: an ambiguity call's expected output is the dry run's fixed 800 tokens (no per-seat key), at least $0.80 at the fixture price,
+  // so the gate refuses it on its expected cost (the only priced seat here). WHY: as above.
+  setCache(null); setBudget(0.5);
   const config = { name: 'amb', maxRounds: 1, ambiguity_union: { enabled: true },
     seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'mock', model: 'mock-builder' },
       critics: [{ provider: 'mock', model: 'mock-critic-a', lab: 'a' }], ambiguity: [pricey('pricey')] } };

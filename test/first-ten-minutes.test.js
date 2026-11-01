@@ -102,7 +102,7 @@ test('a refused key reaches the user with the hint attached, and is still not re
 });
 
 test('a local model server that is not running is named, with what to start', async () => {
-  const refused = () => { const e = new TypeError('fetch failed'); e.cause = { code: 'ECONNREFUSED' }; throw e; };
+  const refused = () => { const e = new TypeError('fetch failed'); e.cause = { code: 'ECONNREFUSED', syscall: 'connect' }; throw e; };
   await withFetch(refused, async () => {
     await assert.rejects(
       call('ollama', { model: 'llama3.1', system: 's', messages: [{ role: 'user', content: 'u' }], maxTokens: 10 }),
@@ -126,7 +126,9 @@ test('dry run with --task: a task larger than the assumed prompt is priced again
 // Changed by the owner's decision of 7 Oct 2026 ("build it tonight", item 8c: the dry run shows two figures, expected and maximum): the note and the doctor line say "expected" and "at most" instead of "worst case".
 test('a run whose expected cost is above the cap says so before spending, and still stops at the cap', () => {
   const dir = mkdtempSync(join(tmpdir(), 'thc-cap-'));
-  writeFileSync(join(dir, 'task.md'), 'Plan a habit tracker.\n');
+  // CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: the one-line task; the build's WORST case crossed the $7 default. NEW: a task of about 40,000
+  // characters, so the first call's EXPECTED cost alone (~$10 at the fixture price) crosses it and the run still stops at the cap. WHY: on the one-line task every call now fits.
+  writeFileSync(join(dir, 'task.md'), 'Plan a habit tracker.\n' + 'x'.repeat(40000) + '\n');
   const r = spawnSync('node', [cli, '--task', 'task.md', '--chain', 'mock-budget'], { encoding: 'utf8', cwd: dir, env: noKeys });
   assert.equal(r.status, 4);
   const note = r.stdout.indexOf('note:  this chain\'s expected cost is');

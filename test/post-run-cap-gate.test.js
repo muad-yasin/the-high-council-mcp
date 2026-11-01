@@ -239,3 +239,27 @@ test('DIGEST with an unpriced seat is refused with exit 5 even with `none` (no g
     assert.equal(r.status, 5, r.stdout + r.stderr); assert.equal(existsSync(join(f.rd, 'side')), false);
   } finally { f.srv.close(); }
 });
+
+// The invariant of "the smallest total that gets past this stop" on the post-run path (S5-05; the obligation of the review of 2bbe2e3d): the call is outside runChain, so it is gated at its worst case and the figure is that worst case on top of
+// the spend: typing the printed total sends the call, one cent less stops again. The stub answers 500, so a call that is SENT is only counted.
+test('HANDOFF: the total a stop prints gets past it (the call is sent) and one cent less stops again', async () => {
+  const f = await fixture();
+  try {
+    const first = await f.run(f.handoff());
+    assert.equal(first.status, 21, first.stdout + first.stderr);
+    const d = f.gateDir('handoff');
+    typeCap(d, '0.001');
+    const stop = await f.run(printedArgs(first.stderr));
+    assert.equal(stop.status, 4, stop.stdout + stop.stderr); assert.equal(f.count(), 0);
+    const figure = Number((stop.stderr.match(/the smallest that gets past this stop is \$([0-9]+\.[0-9]+)\)/) ?? [])[1]);
+    assert.ok(figure > 0.001, `the stop names a total (${stop.stderr})`);
+    const screen2 = await f.run(printedArgs(stop.stderr)); assert.equal(screen2.status, 21, screen2.stdout + screen2.stderr);
+    typeCap(d, String(Math.round((figure - 0.01) * 100) / 100));
+    const below = await f.run(printedArgs(screen2.stderr));
+    assert.equal(below.status, 4, `one cent under ${figure} stops again: ${below.stdout + below.stderr}`); assert.equal(f.count(), 0);
+    const screen3 = await f.run(printedArgs(below.stderr)); assert.equal(screen3.status, 21, screen3.stdout + screen3.stderr);
+    typeCap(d, String(figure));
+    await f.run(printedArgs(screen3.stderr));
+    assert.ok(f.count() >= 1, `typing the printed ${figure} sends the call`);
+  } finally { f.srv.close(); }
+});

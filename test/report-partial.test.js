@@ -192,7 +192,10 @@ test('report-partial: a stop before any stage ran still validates (every field a
 
 test('report-partial: a descending-mode run carries every stage of the whole descending run', async () => {
   const config = { ...chain('mock-budget'), name: 'mock-budget-descending', descending: true };
-  setBudget(9);
+  // CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: $9, where critique-1's WORST case (~$9.21 with what was spent) stopped the run after the
+  // descending stages. NEW: $8.40. The planned stages now pass at their expected cost (critique-1 at ~$1.51), so no cap stops the run after the descending stages; the descending-* calls are not planned by the dry
+  // run and keep their worst case (~$8.26 to ~$8.53 with what was spent), so $8.40 stops it inside them, after at least one. WHY: the test is about the partial record carrying both parts of the run.
+  setBudget(8.4);
   let err;
   try {
     await runChain({ config, request: 'Plan a small offline tool.', log: () => {} });

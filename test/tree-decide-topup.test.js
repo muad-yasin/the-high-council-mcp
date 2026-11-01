@@ -16,7 +16,7 @@ import { trackedRealRoot } from './helpers/temp-trees.js';
 import { approvePending, eventsOf, phases } from './helpers/sitting.js';
 import { terminal } from './helpers/terminal.js';
 import { ROOT_ID, SPLIT_ROOT_HANDOFF_USD, claim, hostnameOf } from './helpers/tree-fixture.js';
-import { stoppedChildFixture, usdRx } from './helpers/money-figures.js';
+import { stoppedChildFixture, stoppedChildStarter, usdRx } from './helpers/money-figures.js';
 import { assertBoundTextClean, assertRefusedWithoutAsking, dirty, dirtyMarked } from './helpers/bound-text.js';
 
 const treeJson = r => readFileSync(join(r.t.rootDir, TREE_DIR, TREE_FILE));
@@ -40,7 +40,7 @@ const gateFiles = r => { try { return readdirSync(join(r.t.rootDir, 'gates')).le
 async function stopped() {
   const r = await trackedRealRoot({ childChain: 'mock-budget', cap: CAP });      // CHANGED (money-test template): CAP is derived from the chain's own dry run by stoppedChildFixture() (the grant floorCents((CAP - 0.04) / 3) is G, just over mock-budget's cheapest end); it was a typed 20, then a typed 26
   approvePending(r);
-  const out = await runTree(r.t.rootDir, { work: r.t.work });
+  const out = await runTree(r.t.rootDir, { work: r.t.work, startRun: stoppedChildStarter({ work: r.t.work }) });
   assert.equal(out.status, 'budget_stop', JSON.stringify(out)); assert.equal(out.node, 'R/M1');
   assert.equal(phases(r)['R/M1'], 'stopped', 'a budget stop is not active');
   return r;

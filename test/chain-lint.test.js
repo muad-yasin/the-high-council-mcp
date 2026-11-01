@@ -346,3 +346,15 @@ test('signoff_table.required needs signoff "unanimous": refused otherwise, clean
   assert.ok(lintChain({ ...base, signoff_table: { require: true } }, 'chains/fixture.json').some(f => /signoff-table/.test(f.kind)), 'a typo in the key is caught');
   assert.deepEqual(lintChain({ ...base, signoff: 'first', signoff_table: { required: false } }, 'chains/fixture.json'), []);
 });
+
+// B3 prep, JUDGE lane (severity tags, unit 1): the switch `severity: { enabled }` is for a unanimous panel only, a closed key set, and absent in every chain written before it.
+test('severity.enabled needs signoff "unanimous": clean with it, refused on "first", a typo and a non-boolean caught, and an off or absent switch changes nothing', () => {
+  const base = JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8'));
+  const kinds = c => lintChain(c, 'chains/fixture.json').map(f => f.kind);
+  assert.deepEqual(kinds({ ...base, severity: { enabled: true } }), []);
+  assert.deepEqual(kinds({ ...base }), []);
+  assert.ok(kinds({ ...base, signoff: 'first', severity: { enabled: true } }).includes('severity-needs-unanimous'));
+  assert.deepEqual(kinds({ ...base, signoff: 'first', severity: { enabled: false } }).filter(k => /severity/.test(k)), []);
+  assert.ok(kinds({ ...base, severity: { enable: true } }).includes('invalid-severity-config'), 'a typo in the key is caught');
+  assert.ok(kinds({ ...base, severity: { enabled: 'yes' } }).includes('invalid-severity-config'), 'a non-boolean is refused');
+});

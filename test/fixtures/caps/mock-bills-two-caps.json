@@ -1,0 +1,15 @@
+{
+  "name": "mock-bills-two-caps",
+  "description": "Test fixture (0.8.4 per-provider spend caps): offline seats that declare the account they count against, so one mock seat lands in the Anthropic cap and another in the OpenRouter cap with no key. The criteria seat declares none and counts in no cap.",
+  "maxRounds": 2,
+  "stopOnPass": true,
+  "estimate": { "promptTokens": 1000, "draftTokens": 1000, "critiqueTokens": 300 },
+  "seats": {
+    "criteria": { "provider": "mock", "model": "mock-priced", "maxTokens": 100 },
+    "builder":  { "provider": "mock", "model": "mock-priced", "maxTokens": 8000, "mockBills": "anthropic" },
+    "reviser":  { "provider": "mock", "model": "mock-priced", "maxTokens": 8000, "mockBills": "anthropic" },
+    "critics": [
+      { "provider": "mock", "model": "mock-priced", "maxTokens": 8000, "lab": "mock-a", "mockBills": "openrouter" }
+    ]
+  }
+}

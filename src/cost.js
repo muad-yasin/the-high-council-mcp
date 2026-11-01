@@ -1,4 +1,6 @@
 import { isFreeProvider } from './providers.js';
+import { cacheReadMultiplierOf, cacheWriteMultiplierOf } from './cache-prices.js';
+import { promptCacheTtl, exchangeCallCarriesHead, isDirectAnthropicSeat } from './prompt-cache.js';
 import { notesConfigOf, reviewNotesActive } from './review-notes-lane.js';
 import { SHIPPED_PRICES as PRICES, effectiveRow } from './price-table.js';
 import * as R from './roles.js';
@@ -13,6 +15,7 @@ import { systemTextsFor } from './stage-system.js';
 // price a stage at the same cap runChain uses without a circular import.
 export const SEAT_DEFAULT_MAX_TOKENS = 36000;
 import { DEFAULT_SECURITY_REVIEWER_SEAT, SECURITY_REVIEW_LABEL } from './security-review.js';
+import { ARGUED_LABEL } from './argued.js';
 
 // PRICES is the SHIPPED table (src/price-table.js, the one price source): the "as of" line, the expiry checks and the unusable-row report stay about the package's own table; a project's rows (pricing.user.json) enter only through priceOf below.
 
@@ -124,6 +127,13 @@ export function readUsage(usage) {
     const n = tokenCount(usage[k]);
     if (n === null) { bad.push(k); clean[k] = 0; } else clean[k] = n;
   }
+  // Prompt caching (src/prompt-cache.js): the cache counts are whole numbers >= 0 or ABSENT. A malformed count is not zeroed (that would understate a call that was cached): it is dropped and
+  // the usage is reported unreadable, so the cap charges the call's worst case. `cacheAsked` ('5m' | '1h') says the call carried a marker; costOf reads it.
+  for (const k of ['cacheRead', 'cacheWrite', 'cacheWrite1h']) {
+    if (usage[k] == null) { delete clean[k]; continue; }
+    if (!Number.isInteger(usage[k]) || usage[k] < 0) { bad.push(k); delete clean[k]; }
+  }
+  if (usage.cacheAsked != null && usage.cacheAsked !== '5m' && usage.cacheAsked !== '1h') { bad.push('cacheAsked'); delete clean.cacheAsked; }
   const why = [...(usage.unreadable ? [String(usage.unreadable)] : []), ...(bad.length ? [`unreadable ${bad.join(', ')}`] : [])];
   return { usage: clean, unreadable: why.length ? why.join('; ') : null };
 }
@@ -141,7 +151,17 @@ export function costOf(provider, model, usage, pin = null) {
   const p = priceOf(provider, model);
   if (!p) return { usd: 0, priced: false };
   const pIn = Math.max(p.in, pin?.prompt ?? 0), pOut = Math.max(p.out, pin?.completion ?? 0);
-  const usd = (usage.input / 1e6) * pIn + (usage.output / 1e6) * pOut;
+  const outUsd = (usage.output / 1e6) * pOut;
+  const asked = usage.cacheAsked;
+  if (!asked) return { usd: (usage.input / 1e6) * pIn + outUsd, priced: true };
+  // A call that carried a cache marker (src/prompt-cache.js). Anthropic's input_tokens EXCLUDES the cached part: read tokens at the model's read multiplier, written tokens at 1.25x (5m) or 2x (1h)
+  // of the input price. A response that carried NO cache counts at all is UNKNOWN, not zero: the whole input is charged as a write of the asked lifetime (the cap errs high) and the caller records it.
+  const known = usage.cacheRead !== undefined || usage.cacheWrite !== undefined;
+  if (!known) return { usd: (usage.input / 1e6) * pIn * cacheWriteMultiplierOf(asked) + outUsd, priced: true, cacheUnknown: true };
+  const read = usage.cacheRead ?? 0, written = usage.cacheWrite ?? 0;
+  const written1h = usage.cacheWrite1h === undefined ? (asked === '1h' ? written : 0) : Math.min(usage.cacheWrite1h, written);   // no split reported: all writes at the asked lifetime
+  const written5m = written - written1h;
+  const usd = (usage.input / 1e6) * pIn + (read / 1e6) * pIn * cacheReadMultiplierOf(`${provider}/${model}`) + (written5m / 1e6) * pIn * cacheWriteMultiplierOf('5m') + (written1h / 1e6) * pIn * cacheWriteMultiplierOf('1h') + outUsd;
   return { usd, priced: true };
 }
 
@@ -186,7 +206,7 @@ export function formatUsd(n) {
 //      (pricing.json `critiqueTokens`, from real runs) - it can raise the chain's figure, never
 //      lower it;
 // and never more than the seat's review cap (panelMaxTokens, else maxTokens), which it cannot
-// exceed. The spend cap does not use this: it projects the full maxTokens, as it always has.
+// exceed. Since 27 Okt 2026 the spend cap's pre-call gate decides on this size too (expectedOutputTokensOf); the worst case a call reserves still projects the full maxTokens.
 export function critiqueTokensFor(seat, chainCritiqueTokens) {
   const cap = seat?.panelMaxTokens ?? seat?.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS;
   const own = seat?.estimate?.critiqueTokens;
@@ -223,6 +243,74 @@ function adviseRows(config, a, push) {
 // (0.8.1 FX-3: it spread an empty estimate instead and summed NaN).
 export const DEFAULT_ESTIMATE = Object.freeze({ promptTokens: 4000, draftTokens: 6000, critiqueTokens: 1200 });
 
+// The typical output of the planned calls whose size is a fixed number (tokens), where the chain's `estimate` block has no key for them. One table for the two readers:
+// the dry run's expected figure (estimateChainRows below) and invoke()'s pre-call spend gate (src/chain.js, through expectedOutputTokensOf; owner, 27 Okt 2026), so the
+// two cannot drift. The values are the literals estimateChainRows priced with before 27 Okt 2026, unchanged (debate/reply/alt-debate/alt-reply: the 7 Oct 2026 derivation, see stageOutOf).
+export const TYPICAL_OUTPUT_TOKENS = Object.freeze({ ambiguity: 800, preflight: 800, questions: 800, criteria: 400, skeleton: 1200, judge: 300, debate: 1500, reply: 800, altDebate: 1500, altReply: 800, canaryReply: 800, handoff: 1200, argued: 1500 });
+
+// The seven `estimate` keys that size one kind of call's typical output (0.8.3 estimator unit, 15 Oct 2026): a key counts when it is a finite number above 0. Shared by the expected figure and the gate.
+const estimateKeyOf = (estimate, key) => (Number.isFinite(estimate?.[key]) && estimate[key] > 0 ? estimate[key] : null);
+// alternativeOutTokens, proposalOutTokens, deepDiveOutTokens, notesAnswerOutTokens: absent = the call's own cap; set = min(key, cap).
+function typicalOutOf(estimate, key, cap) { const k = estimateKeyOf(estimate, key); return k === null ? cap : Math.min(k, cap); }
+// debateOutTokens, replyOutTokens, altDebateOutTokens, altReplyOutTokens: absent = the constant the expected figure always used; set = min(key, the seat's cap).
+function stageOutOf(estimate, key, seat, constant) { const k = estimateKeyOf(estimate, key); return k === null ? constant : Math.min(k, seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS); }
+
+/**
+ * The output one call is EXPECTED to write, in tokens: the size the dry run's expected figure (estimateChainRows, not `maximum`) gives the planned call of that kind - the
+ * same table, the same `estimate` keys and fallbacks, critiqueTokensFor for a review - looked up by the call's stage label, and never above the call's own cap (a call
+ * cannot write more than its cap; the estimator's fixed sizes are not clamped, e.g. criteria's 400 on a 100-token seat). `seat` is the seat as the call is asked: its
+ * maxTokens is already the stage's cap (a proposal's, an alternative's, a panel review's panelMaxTokens), as chain.js passes it to invoke().
+ * null for a call the dry run does not plan - a cut-off or unreadable retry (`-retry`), a re-ask (`-reask<n>`, `-answered`, `-question`), a merge, a `-full` revise, the
+ * conflict decider, the allocator, a descending stage, any label not named here: the estimator has no expected size for those (its own rule: "Calls the plan does not
+ * list are not in it either way. The cap stops those."), so the gate keeps their worst case. Also null for a size that is not a number >= 0 (a malformed estimate block).
+ */
+export function expectedOutputTokensOf(label, seat, estimate = {}) {
+  if (typeof label !== 'string' || !seat) return null;
+  if (/-(retry|merge|full|question|answered)$/.test(label) || /-reask\d+(-|$)/.test(label)) return null;
+  const a = { ...DEFAULT_ESTIMATE, ...(estimate || {}) };
+  const cap = seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS;
+  const T = TYPICAL_OUTPUT_TOKENS;
+  const exact = {
+    questions: T.questions, criteria: T.criteria, skeleton: T.skeleton, handoff: T.handoff, [ARGUED_LABEL]: T.argued,
+    build: a.draftTokens, final: a.draftTokens, dispute: a.draftTokens, 'challenge-revise': a.draftTokens, 'deep-dive-revise': a.draftTokens,
+    claims: a.critiqueTokens, challenge: a.critiqueTokens, 'cold-read': a.critiqueTokens, [SECURITY_REVIEW_LABEL]: a.critiqueTokens,
+    'notes-answer': typicalOutOf(estimate, 'notesAnswerOutTokens', cap), 'advise-synthesis': cap,
+  };
+  let out;
+  if (Object.hasOwn(exact, label)) out = exact[label];
+  else if (/^revise-(\d+|all)$/.test(label)) out = a.draftTokens;
+  else if (/^(panel|dispute-review|final-read)-./.test(label) || /^critique-\d+$/.test(label)) out = critiqueTokensFor(seat, a.critiqueTokens);
+  else if (/^rule-\d+-./.test(label)) out = critiqueTokensFor(seat, a.critiqueTokens);   // stall escalation: a floor-layer seat's ruling on the passed-up objections is a judge's short JSON verdict, sized like its review (the dry run does not list it: it is conditional, like the decider)
+  else if (label.startsWith('ambiguity-')) out = T.ambiguity;
+  else if (label.startsWith('preflight-')) out = T.preflight;
+  else if (label.startsWith('alternative-')) out = typicalOutOf(estimate, 'alternativeOutTokens', cap);
+  else if (label.startsWith('alt-debate-')) out = stageOutOf(estimate, 'altDebateOutTokens', seat, T.altDebate);
+  else if (label.startsWith('alt-reply-')) out = stageOutOf(estimate, 'altReplyOutTokens', seat, T.altReply);
+  else if (label.startsWith('propose-')) out = typicalOutOf(estimate, 'proposalOutTokens', cap);
+  else if (label.startsWith('judge-')) out = T.judge;
+  else if (label.startsWith('debate-')) out = stageOutOf(estimate, 'debateOutTokens', seat, T.debate);
+  else if (label.startsWith('reply-')) out = stageOutOf(estimate, 'replyOutTokens', seat, T.reply);
+  else if (label.startsWith('canary-reply-')) out = T.canaryReply;
+  else if (/^deep-dive-.+-\d+$/.test(label)) out = typicalOutOf(estimate, 'deepDiveOutTokens', cap);
+  else if (label.startsWith('advise-')) out = cap;   // adviseRows: the expected figure of an advice call is its whole cap (one attempt)
+  else return null;
+  if (!(typeof out === 'number' && Number.isFinite(out) && out >= 0)) return null;
+  return Math.min(out, cap);
+}
+
+/**
+ * The EXPECTED cost of one call in dollars, the figure invoke()'s pre-call spend gate decides on (owner, 27 Okt 2026): the call's real prompt as input (four characters a
+ * token, as the worst case counts it) and expectedOutputTokensOf as output, ONE attempt (the dry run's expected figure prices no Anthropic retry), at the price the worst
+ * case uses (worstCaseOf: the table row, raised per field by the seat's own pin, never lowered). null when the call has no expected size: the caller uses the worst case.
+ * Never above projectStage for the same call (the same input and price, an output no bigger than the cap, one attempt of at most two).
+ */
+export function expectedCallUsd(seat, { system = '', user = '', label, estimate = {}, cache = null } = {}) {
+  const out = expectedOutputTokensOf(label, seat, estimate);
+  if (out === null) return null;
+  const promptChars = (system || '').length + (user || '').length;
+  return worstCaseOf(seat.provider, seat.model, { promptChars, maxTokens: out, pin: ownPinOf(seat), cache: cache ? { headTokens: Math.ceil(cache.headChars / CHARS_PER_TOKEN), ttl: cache.ttl } : null }).usd;
+}
+
 // `maximum: true` (0.8.2 item 8c; ChatGPT review 1 #5, owner 7 Oct 2026) prices the SAME planned calls at their whole output allowance instead of the typical output: each row's output is the call's own cap
 // (the seat's maxTokens, its panelMaxTokens for a review, the stage's own smaller cap for proposals and architectures) and an Anthropic seat's one same-effort retry is added, as the spend cap's projection
 // (projectAttempts) does. Calls the plan does not list are not in it either way: a re-ask of a refused table, the cut-off retry of a seat that is not Anthropic, an answer-back call. The cap stops those.
@@ -233,25 +321,25 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
   // Typical output sizes (0.8.3 estimator unit, 15 Oct 2026): the EXPECTED figure prices alternatives, proposals and deep-dive calls at the chain's typical size when `estimate.alternativeOutTokens` / `proposalOutTokens` / `deepDiveOutTokens` is set
   // (never above the call's own cap), and at the whole cap when the key is absent - today's behaviour, byte for byte. The MAXIMUM figure always uses the caps. The keys change only what is PRINTED; the runtime cap is the seat's maxTokens
   // and alternatives.maxTokens, which these keys never touch. Calibration is the chain author's: a dated derivation in the chain's description (src/cost.js is not told where the number came from).
-  const typicalOut = (key, cap) => (maximum || !Number.isFinite(config.estimate?.[key]) || config.estimate[key] <= 0 ? cap : Math.min(config.estimate[key], cap));
+  const typicalOut = (key, cap) => (maximum ? cap : typicalOutOf(config.estimate, key, cap));
   // The debate, reply, alt-debate and alt-reply calls (0.8.3 estimator follow-up, 15 Oct 2026; C&C PASS ON CONDITIONS): ONE rule for all seven `estimate` keys, "absent = today's figure". The first three keys fall back to the cap (typicalOut above);
   // these four fall back to the CONSTANT the expected figure always used (1500 / 800 / 1500 / 800). A valid key prices the call at min(key, the seat's cap) - the cap the maximum pass uses, `seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS`.
   // The MAXIMUM pass ignores `output` for these rows (push takes the seat cap), so the maximum is untouched. External seats are priced $0 either way. The 7 Oct 2026 derivation of typical sizes is the chain author's (est_calib_7oct.py).
-  const stageOut = (key, seat, constant) => (maximum || !Number.isFinite(config.estimate?.[key]) || config.estimate[key] <= 0 ? constant : Math.min(config.estimate[key], seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS));
+  const stageOut = (key, seat, constant) => (maximum ? constant : stageOutOf(config.estimate, key, seat, constant));
   const rows = [];
   // `times` (round-semantics 2a): one row stands for that many identical calls; input, output and usd are the TOTALS of the repeats (so every sum over rows stays right) and the row carries `times`. Absent for a single call.
   // 0.8.3 estimator unit (C&C thcmcp-6d, 19 Okt 2026): every row's input also carries the SYSTEM text its call will send, from the one place that composes it (src/stage-system.js systemTextsFor; the LONGEST text a
   // row can send is priced), counted with the estimator invoke() projects with (estimateTokens: characters / 4). Before this, a row priced only the declared sizes, so a grant sized from the figure could be smaller
   // than the projection of the real call (tree-whole-mock legs 9, 9b, 10 stopped at their cap). The advise rows add their own system text and are skipped there. The USER side stays declared.
   const systemTokens = (label, seat) => Math.max(0, ...systemTextsFor(label, config, seat).map(estimateTokens));
-  const push = (label, seat, input, output, callCap, times = 1) => {
+  const push = (label, seat, input, output, callCap, times = 1, cache = null) => {   // cache: { headTokens, ttl } for a call that carries a prompt-cache marker (maximum figure only)
     if (!seat) return;
     input += systemTokens(label, seat);
     const external = seat.provider === 'external';
     const p = external ? { in: 0, out: 0 } : priceOf(seat.provider, seat.model);
     if (maximum && !external) {
       const out = callCap ?? seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS;
-      const att = p ? projectAttemptsTokens(seat, { inputTokens: input, maxTokens: out }) : { first: 0, retry: 0 };
+      const att = p ? projectAttemptsTokens(seat, { inputTokens: input, maxTokens: out, cache }) : { first: 0, retry: 0 };
       rows.push({ label, seat: `${seat.provider}/${seat.model}`, input: input * times, output: out * times, usd: (att.first + att.retry) * times, priced: !!p, ...(times > 1 ? { times } : {}) });
       return;
     }
@@ -270,15 +358,15 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
   // planning stage, so it is priced by itself and nothing below applies to it.
   if (config.advise?.enabled === true) { adviseRows(config, a, push); return rows; }
   if (config.ambiguity_union?.enabled && !fromRun) {
-    for (const seat of config.seats.ambiguity || (config.seats.critics || []).slice(0, 3)) push(`ambiguity-${lab(seat)}`, seat, a.promptTokens, 800);
+    for (const seat of config.seats.ambiguity || (config.seats.critics || []).slice(0, 3)) push(`ambiguity-${lab(seat)}`, seat, a.promptTokens, TYPICAL_OUTPUT_TOKENS.ambiguity);
   }
   if (config.preflight && !fromRun) {
     const seats = (config.preflight.seats && config.preflight.seats.length) ? config.preflight.seats : (config.seats.critics || []);
-    for (const seat of seats) push(`preflight-${lab(seat)}`, seat, a.promptTokens, 800);
+    for (const seat of seats) push(`preflight-${lab(seat)}`, seat, a.promptTokens, TYPICAL_OUTPUT_TOKENS.preflight);
   }
-  if (config.questions && !fromRun) push('questions', config.seats.questions || config.seats.criteria, a.promptTokens, 800);
+  if (config.questions && !fromRun) push('questions', config.seats.questions || config.seats.criteria, a.promptTokens, TYPICAL_OUTPUT_TOKENS.questions);
   // A chain with hand-written criteria skips that stage entirely.
-  if (!config.criteria?.length) push('criteria', config.seats.criteria, a.promptTokens, 400);
+  if (!config.criteria?.length) push('criteria', config.seats.criteria, a.promptTokens, TYPICAL_OUTPUT_TOKENS.criteria);
   // Whole alternative architectures (config.alternatives.enabled): one architecture per proposer
   // lab, then the same debate + reply rounds proposals get. Its board is read by the skeleton and
   // the builder, so it is added to both inputs below. Output per alternative is the stage's own
@@ -301,8 +389,8 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
     // fields were cut at 2,000 characters).
     alternativeTokens = seats.reduce((n, seat) => n + altOut(seat), 0);   // what the board holds: the typical size in the expected figure, the cap in the maximum
     if (seats.length > 1) {
-      for (const seat of posters) push(`alt-debate-${seat.lab || seat.provider}`, seat, a.promptTokens + 1600 + alternativeTokens, stageOut('altDebateOutTokens', seat, 1500));
-      for (const seat of seats) push(`alt-reply-${seat.lab || seat.provider}`, seat, a.promptTokens + 3000, stageOut('altReplyOutTokens', seat, 800));
+      for (const seat of posters) push(`alt-debate-${seat.lab || seat.provider}`, seat, a.promptTokens + 1600 + alternativeTokens, stageOut('altDebateOutTokens', seat, TYPICAL_OUTPUT_TOKENS.altDebate));
+      for (const seat of seats) push(`alt-reply-${seat.lab || seat.provider}`, seat, a.promptTokens + 3000, stageOut('altReplyOutTokens', seat, TYPICAL_OUTPUT_TOKENS.altReply));
       alternativeTokens += alternativeTokens; // the board roughly doubles what the next stages read
     }
   }
@@ -313,11 +401,11 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
     // parts x per, unclamped, and without the 300).
     const propCap = seat => Math.min(seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS, parts * per + 300);
     const propOut = seat => typicalOut('proposalOutTokens', propCap(seat));
-    push('skeleton', config.seats.skeleton || config.seats.builder, a.promptTokens + 400 + alternativeTokens, 1200);
+    push('skeleton', config.seats.skeleton || config.seats.builder, a.promptTokens + 400 + alternativeTokens, TYPICAL_OUTPUT_TOKENS.skeleton);
     const samples = config.proposals.samples ?? 1, keep = config.proposals.keep ?? parts;
     for (const seat of config.seats.proposers || config.seats.critics) {
       for (let k = 0; k < samples; k++) push(`propose-${seat.lab || seat.provider}${samples > 1 ? `-${k + 1}` : ''}`, seat, a.promptTokens + 1600, propOut(seat), propCap(seat));
-      if (samples > 1) push(`judge-${seat.lab || seat.provider}`, config.seats.judge || seat, a.promptTokens + 1600 + samples * propCap(seat), 300);
+      if (samples > 1) push(`judge-${seat.lab || seat.provider}`, config.seats.judge || seat, a.promptTokens + 1600 + samples * propCap(seat), TYPICAL_OUTPUT_TOKENS.judge);
       // On the board: a lab's whole proposal set (one call's output), or with samples the `keep` single proposals a judge
       // keeps (about one part each), never more than all its attempts produced.
       proposalTokens += samples > 1 ? Math.min(keep * per, samples * propOut(seat)) : propOut(seat);
@@ -325,8 +413,8 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
   }
   if (config.debate && !fromRun) {
     for (const seat of config.seats.proposers || config.seats.critics) {
-      push(`debate-${seat.lab || seat.provider}`, seat, a.promptTokens + 1600 + proposalTokens, stageOut('debateOutTokens', seat, 1500));
-      push(`reply-${seat.lab || seat.provider}`, seat, a.promptTokens + 3000, stageOut('replyOutTokens', seat, 800));
+      push(`debate-${seat.lab || seat.provider}`, seat, a.promptTokens + 1600 + proposalTokens, stageOut('debateOutTokens', seat, TYPICAL_OUTPUT_TOKENS.debate));
+      push(`reply-${seat.lab || seat.provider}`, seat, a.promptTokens + 3000, stageOut('replyOutTokens', seat, TYPICAL_OUTPUT_TOKENS.reply));
     }
     proposalTokens += proposalTokens; // the board roughly doubles what the builder reads
   }
@@ -374,6 +462,24 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
     const n = limits.overseer; const { 1: b1, 2: b2 } = limits.layerRevisions;
     const timesOf = layer => (maximum ? n * ({ 1: b1 + b2 + 1, 2: b2 + 1 }[layer] ?? 1) : n);
     for (const critic of config.seats.critics) push(`panel-L${critic.layer}-${critic.lab || critic.provider}`, critic, a.promptTokens + a.draftTokens, reviewOut(critic), reviewCap(critic), timesOf(critic.layer));
+    // B2 (debate-084/b2): the exchange inside the lowest layer is one post call and one answer call per layer-1 judge per pass, on the same pass count as the layer-1 reviews. The prompt carries the other judges' objections (about 400 tokens each, one per other judge).
+    if (config.layer_debate?.enabled === true) {
+      const lowest = Math.min(...config.seats.critics.map(c => c.layer));
+      const judges = config.seats.critics.filter(c => c.layer === lowest);
+      const exchangeRounds = maximum ? Math.min(Math.max(Number.isInteger(config.layer_debate.rounds) ? config.layer_debate.rounds : 1, 1), 7) : 1;   // the maximum counts every allowed round; the expected figure one
+      const cacheTtl = maximum ? promptCacheTtl(config) : null;   // prompt caching (src/prompt-cache.js): only the MAXIMUM figure carries the write premium of a marked call; the expected figure has one exchange round, which is never marked
+      for (const critic of judges) {
+        const input = a.promptTokens + a.draftTokens + 400 * Math.max(judges.length - 1, 1);
+        for (const kind of ['ldebate', 'lreply']) {
+          const label = `${kind}-L${lowest}-${critic.lab || critic.provider}`;
+          if (cacheTtl && isDirectAnthropicSeat(critic) && exchangeCallCarriesHead({ ttl: cacheTtl, k: 2, rounds: exchangeRounds })) {
+            // ruling B: round 1 is not marked; rounds 2..R are, each projected with the plan (and the system text) at the write price
+            push(label, critic, input, reviewOut(critic), reviewCap(critic), timesOf(lowest));
+            push(`${label}-x2`, critic, input, reviewOut(critic), reviewCap(critic), timesOf(lowest) * (exchangeRounds - 1), { headTokens: a.promptTokens + a.draftTokens + estimateTokens(systemTextsFor(label, config, critic).sort((x, y) => y.length - x.length)[0] ?? ''), ttl: cacheTtl });
+          } else push(label, critic, input, reviewOut(critic), reviewCap(critic), timesOf(lowest) * exchangeRounds);
+        }
+      }
+    }
     const revises = maximum ? n * (b1 + b2) + (n - 1) : n - 1;
     if (revises > 0) push('revise-all', config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens + a.critiqueTokens + proposalTokens + reviseNotesTokens, a.draftTokens, undefined, revises);
     // E4b unit 2: at most one decider call per revise (a conflict is found just before a revise). Only in the MAXIMUM, and only once the decider's prompt is recorded (a held prompt makes no call, so it prints no dollar); an external decider is $0.
@@ -397,6 +503,12 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
   //    agreement; needs unanimous sign-off, as runChain does);
   //  - dispute-review: each critic re-reads the draft before and after that pass;
   //  - canary-reply: one extra reply from the author of the probed proposal, when sampled.
+  // Unit D (src/final-read.js): at the end of a run (agreed or not) every top-layer seat that has not read the final plan reads it once. In the plain agreed run nothing changes the plan after the sign-off, so the EXPECTED figure has no such read unless the chain has a stage that rewrites it (a final edit seat or a post-signoff challenge); the MAXIMUM always counts it (a not-agreed end, or a dispute rewrite):
+  // one call per top-layer seat on a plan of the final size, priced like that seat's panel review. A re-ask on an unreadable reply is not in it (the estimator leaves in-pass re-asks out everywhere; the cap stops those).
+  if ((maximum || config.seats.finalist || config.challenge?.enabled === true) && config.final_read?.enabled === true && unanimous && (config.seats.critics || []).length && config.seats.critics.every(c => c.layer !== undefined)) {
+    const top = Math.max(...config.seats.critics.map(c => c.layer));
+    for (const critic of config.seats.critics.filter(c => c.layer === top)) push(`final-read-L${top}-${critic.lab || critic.provider}`, critic, a.promptTokens + a.draftTokens, reviewOut(critic), reviewCap(critic), 1);
+  }
   if (config.dispute?.enabled === true && unanimous) {
     const critics = config.seats.critics || [];
     push('dispute', config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens + critics.length * a.critiqueTokens, a.draftTokens);
@@ -406,7 +518,7 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
   }
   if (config.canary?.enabled && config.debate && !fromRun) {
     const author = (config.seats.proposers || config.seats.critics || [])[0];
-    push(`canary-reply-${author ? (author.lab || author.provider) : 'author'}`, author, a.promptTokens + 3000, 800);
+    push(`canary-reply-${author ? (author.lab || author.provider) : 'author'}`, author, a.promptTokens + 3000, TYPICAL_OUTPUT_TOKENS.canaryReply);
   }
   if (config.claims?.enabled) push('claims', config.seats.claims || config.seats.reviser || config.seats.builder, a.promptTokens + a.draftTokens, a.critiqueTokens);
   if (config.challenge?.enabled === true) {
@@ -428,12 +540,12 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
   const notesRounds = maximum ? Math.max(1, limits.overseer ?? limits.passes ?? 1) : 1;
   const notesItemChars = notesCfg ? (maximum ? notesCfg.textMax + notesCfg.aboutMax : notesCfg.itemChars + notesCfg.aboutChars) : 0;
   const notesItemTokens = notesCfg ? Math.ceil((notesItemChars * notesCfg.perKind * 2 * (config.seats.critics || []).length * notesRounds) / 4) : 0;
-  if (config.handoff) push('handoff', notesHandoffSeat, a.promptTokens + a.draftTokens + (notesFolded ? notesItemTokens : 0), 1200);
+  if (config.handoff) push('handoff', notesHandoffSeat, a.promptTokens + a.draftTokens + (notesFolded ? notesItemTokens : 0), TYPICAL_OUTPUT_TOKENS.handoff);
   if (notesCfg && !notesFolded) push('notes-answer', notesWriter, a.promptTokens + a.draftTokens + notesItemTokens, typicalOut('notesAnswerOutTokens', notesWriter?.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS));
   // "How this plan was argued" (src/argued.js): the request, the final plan and a fact pack about
   // the size of one critique round's worth of posts, out as a short section (under 700 words). $0 on
   // an external handoff seat, like the handoff row above; priced when that seat is billed.
-  if (config.argued?.enabled === true && !config.descending) push('argued', config.seats.handoff || config.seats.builder, a.promptTokens + a.draftTokens + a.critiqueTokens, 1500);
+  if (config.argued?.enabled === true && !config.descending) push('argued', config.seats.handoff || config.seats.builder, a.promptTokens + a.draftTokens + a.critiqueTokens, TYPICAL_OUTPUT_TOKENS.argued);
   // The final security review reads the request plus the finished draft (promptTokens +
   // draftTokens, same input as a panel critique) and replies with a findings list, which is
   // critique-shaped output - so it uses the chain's own critiqueTokens assumption, not a new number.
@@ -453,6 +565,14 @@ export function estimateChainRows(config, { fromRun = false, maximum = false } =
 // never spends its whole output budget, so this over-estimates on purpose - a
 // cap that occasionally stops a run slightly early is a working cap, and one
 // that lets a run slip past the ceiling is not.
+//
+// 27 Okt 2026 (owner: "going by the expected-maximum is absolutely stupid. Stop this"): invoke()'s gate
+// no longer decides on this worst case. It decides on the call's EXPECTED cost (expectedCallUsd above)
+// plus the expected cost of the calls in flight; a call the dry run does not plan keeps its worst case
+// there. The worst case below is still what a call reserves on disk before it is sent
+// (spend-reservations.jsonl), what a call in flight at a crash is charged, and what an unreadable or
+// billed-but-failed reply counts. Since the gate admits on the expected size, a run can now end above
+// its cap by what its last calls wrote past their expected sizes.
 
 // Characters per token. Real tokenisers vary by model and language; 4 is the
 // usual English rule of thumb and errs low (i.e. estimates MORE tokens) on
@@ -472,13 +592,17 @@ export function estimateTokens(text) {
  * with its own, larger output cap: the Anthropic thinking retry in chain.js invoke() (0.8.1 milestone R) retries at the SAME effort
  * with a bigger cap, so its worst case is the first attempt plus a bigger second one, not twice the first.
  */
-export function worstCaseOf(provider, model, { promptChars = 0, maxTokens = 8000, retries = 1, retryMaxTokens = null, pin = null } = {}) {
+export function worstCaseOf(provider, model, { promptChars = 0, maxTokens = 8000, retries = 1, retryMaxTokens = null, pin = null, cache = null } = {}) {
   const p = priceOf(provider, model);
   if (!p) return { usd: 0, priced: false };
   const input = Math.ceil(promptChars / CHARS_PER_TOKEN);
+  // Prompt caching: a call that carries a marker is projected with its cached head (system text + the plan, `cache.headTokens`) at the WRITE price and the rest at the input price. The projection never
+  // assumes a hit: a hit can only make the call cheaper, a miss rewrites the entry.
+  const headTokens = cache ? Math.min(input, Math.max(0, Math.ceil(cache.headTokens ?? 0))) : 0;
+  const headMult = cache ? cacheWriteMultiplierOf(cache.ttl) : 1;
   // A3a: `pin` is the seat's OWN provider.max_price (ownPinOf). Per field the call is priced at the higher of the table row and that pin: a pin above the row raises the projection, a pin below never lowers it.
   const pIn = Math.max(p.in, pin?.prompt ?? 0), pOut = Math.max(p.out, pin?.completion ?? 0);
-  const attempt = out => (input / 1e6) * pIn + (out / 1e6) * pOut;
+  const attempt = out => ((input - headTokens) / 1e6) * pIn + (headTokens / 1e6) * pIn * headMult + (out / 1e6) * pOut;
   const usd = attempt(maxTokens) * retries + (retryMaxTokens ? attempt(retryMaxTokens) : 0);
   return { usd, priced: true };
 }
@@ -492,20 +616,20 @@ export function worstCaseOf(provider, model, { promptChars = 0, maxTokens = 8000
 // is Anthropic, whichever transport carries it.
 export const isAnthropicSeat = seat => (seat?.originalProvider ?? seat?.provider) === 'anthropic';
 
-export function projectAttempts(seat, { system = '', user = '' } = {}) {
+export function projectAttempts(seat, { system = '', user = '', cache = null } = {}) {
   const promptChars = (system || '').length + (user || '').length;
-  return projectAttemptsTokens(seat, { inputTokens: Math.ceil(promptChars / CHARS_PER_TOKEN), maxTokens: seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS });
+  return projectAttemptsTokens(seat, { inputTokens: Math.ceil(promptChars / CHARS_PER_TOKEN), maxTokens: seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS, cache: cache ? { headTokens: Math.ceil(cache.headChars / CHARS_PER_TOKEN), ttl: cache.ttl } : null });
 }
 
 // The same two attempts from a token count instead of a prompt: the dry run's "maximum" (estimateChainRows, maximum: true) prices each planned call exactly as the cap would project it. `maxTokens` is the call's own output cap.
-export function projectAttemptsTokens(seat, { inputTokens = 0, maxTokens = SEAT_DEFAULT_MAX_TOKENS } = {}) {
+export function projectAttemptsTokens(seat, { inputTokens = 0, maxTokens = SEAT_DEFAULT_MAX_TOKENS, cache = null } = {}) {
   const promptChars = inputTokens * CHARS_PER_TOKEN;
   const pin = ownPinOf(seat);
-  const first = worstCaseOf(seat.provider, seat.model, { promptChars, maxTokens, pin }).usd;
+  const first = worstCaseOf(seat.provider, seat.model, { promptChars, maxTokens, pin, cache }).usd;
   if (!isAnthropicSeat(seat)) return { first, retry: 0 };
   const retryCap = retryCapFor(maxTokens, retryCeilingOf(seat));
   if (retryCap <= maxTokens) return { first, retry: 0 };
-  return { first, retry: worstCaseOf(seat.provider, seat.model, { promptChars, maxTokens: retryCap, pin }).usd };
+  return { first, retry: worstCaseOf(seat.provider, seat.model, { promptChars, maxTokens: retryCap, pin, cache }).usd };
 }
 
 /**

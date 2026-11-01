@@ -116,6 +116,13 @@ const STAGE_DEFS = {
     required_sections: ['tasks'],
     return_instructions: 'Return the handoff document as plain text/markdown.',
   },
+  // Stall escalation (27 Okt 2026): the floor layer's ruling on the objections passed up to it (labels rule-<pass>-<seat>). Without a kind here prepare_stage_prompt refuses the label and an external ruling seat cannot answer it.
+  // The words are an E item (A-DRAFT: an external session reads them); the reply format is the recorded ruling prompt's (src/roles.js escalationRulingSystem), which src/escalation.js readRulings parses.
+  rule: {
+    role: 'Rule on each objection passed up to your layer: sustain it if it names a real defect in the plan, overrule it if it does not, with a reason for every overrule.',
+    required_sections: ['rulings'],
+    return_instructions: 'Return JSON: { "rulings": [{ "id": string, "ruling": "sustain"|"overrule", "reason": string }] }, one entry for each listed objection id.',
+  },
   // 0.8.3 notes lane 2b-1b: the standalone notes-answer stage (a chain with no handoff stage, or a handoff seat that is not the writer). Without a kind here prepare_stage_prompt refuses the label and an external writer cannot answer it.
   // The wording is an E item (a person or an external session reads it).
   'notes-answer': {
@@ -165,12 +172,14 @@ const STAGE_KIND_PATTERNS = [
   [/^cold-read(-retry)?$/, 'cold-read'],
   [/^build(-retry)?$/, 'build'],
   [/^panel-/, 'panel'],
+  [/^final-read-/, 'panel'], // unit D: the layer-3 final read is asked in the panel's shape (a verdict reply); its label is not a panel pass
   [/^critique-/, 'critique'],
   [/^revise-/, 'revise'],
   [/^final(-retry)?$/, 'final'],
   [/^handoff(-retry)?$/, 'handoff'],
   [/^argued(-retry)?$/, 'argued'],
   [/^notes-answer$/, 'notes-answer'],
+  [/^rule-/, 'rule'], // stall escalation: the floor layer's ruling (rule-<pass>-<seat>)
 ];
 
 /** Map a chain.js stage label (e.g. "propose-glm", "panel-2-mistral") to a canonical stage kind, or null if unrecognised. */
@@ -215,7 +224,7 @@ export function requiredSectionsFor(stageKind) {
 // check for) vs. freeform markdown/text (required_sections names a single symbolic slot,
 // satisfied by any non-empty text). Used by partial-deliverable detection (§7.1) to know how
 // to validate a stage's raw output without re-deriving it from return_instructions text.
-const STRUCTURED_STAGE_KINDS = new Set(['questions', 'criteria', 'alternative', 'alt-debate', 'alt-reply', 'propose', 'judge', 'debate', 'reply', 'panel', 'critique', 'cold-read']);
+const STRUCTURED_STAGE_KINDS = new Set(['questions', 'criteria', 'alternative', 'alt-debate', 'alt-reply', 'propose', 'judge', 'debate', 'reply', 'panel', 'critique', 'cold-read', 'rule']);
 export function isStructuredStage(stageKind) {
   return STRUCTURED_STAGE_KINDS.has(stageKind);
 }

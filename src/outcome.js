@@ -11,6 +11,7 @@
 // signals, not just `dropouts`, so a run degraded by unreadable replies isn't mislabeled
 // consensus/no_consensus - the exact gap v5's own planning run exposed (Kimi never returned a
 // verdict, an infra failure with no dropouts entry).
+import { finalReadObjected, finalReadBlocksAgreement } from './final-read.js';
 export function computeOutcome(result) {
   const hasDropout = Array.isArray(result?.dropouts) && result.dropouts.length > 0;
   // An advice run (src/advise.js) has no sign-off: `consensus` means every seat that answered gave the
@@ -31,5 +32,7 @@ export function computeOutcome(result) {
   const lastUnheard = !Array.isArray(result?.signoff) && verdicts.length > 0 && verdicts[verdicts.length - 1].verdict === 'unheard';
   // A round that fell short of the chain's quorum (0.7.8) is degraded the same way: too few verdicts.
   if (hasDropout || hasAbstention || lastUnheard || result?.noHeardReviewer || result?.notQuorate) return 'degraded';
+  // Unit D (src/final-read.js): a layer-3 seat that read the FINAL plan and objected, or did not read it, ends the run as not agreed even when every layer had signed off on an earlier text (fail closed); passed and signoff[] stay as they were.
+  if (result?.passed === true && finalReadBlocksAgreement(result.finalRead ?? result.final_read)) return finalReadObjected(result.finalRead ?? result.final_read) ? 'no_consensus' : 'degraded';   // an objection: no_consensus; a top-layer seat that did not read: degraded (a verdict never reached)
   return result?.passed === true ? 'consensus' : 'no_consensus';
 }

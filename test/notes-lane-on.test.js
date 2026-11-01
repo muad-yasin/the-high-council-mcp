@@ -13,6 +13,7 @@ import { reportJsonShape } from '../src/report-shape.js';
 import * as R from '../src/roles.js';
 import { noteId, MEMORY_MAX_TOKENS_EST } from '../src/review-notes.js';
 import { priceOf } from '../src/cost.js';
+import { reviewNotesBound } from '../scripts/regen-derived-figures.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const chainOf = f => JSON.parse(readFileSync(join(ROOT, 'chains', f), 'utf8'));
@@ -87,9 +88,8 @@ test('NL-4b: the README known-limit bullet carries the same memory-block token c
   assert.ok(readme.includes(`up to ${MEMORY_MAX_TOKENS_EST} tokens per call`), 'README: the token count');
   for (const f of LANE_CHAINS) {
     const c = chainOf(f); const name = f.replace('.json', '');
-    const block = c.seats.critics.reduce((n, s) => n + (s.provider === 'external' ? 0 : (MEMORY_MAX_TOKENS_EST / 1e6) * priceOf(s.provider, s.model).in), 0);
-    const passes = 1 + Object.values(c.layerRevisions ?? {}).reduce((a, b) => a + b, 0);
-    const bound = (block * (c.maxOverseerRounds - 1) * passes).toFixed(2);
+    // CHANGED ACCEPTED TEST (PRICES lane, 1 Nov 2026; C&C's FIX: "the test's expected figure and the README figure must come from the same code path"). OLD bar: the test computes the bound itself (block x judges x later rounds x passes). NEW bar: it calls reviewNotesBound from scripts/regen-derived-figures.mjs, the function that WRITES the README figure. WHY: two copies of one formula let the README go stale unseen when a price moved (this test went red only in a later batch); one function cannot drift from itself, and the README figure is still checked against it.
+    const bound = reviewNotesBound(c);
     assert.ok(readme.includes(`$${bound} for \`${name}\``), `README: "$${bound} for ${name}"`);
   }
 });

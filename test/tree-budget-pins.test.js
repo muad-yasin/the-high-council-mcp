@@ -183,8 +183,8 @@ async function memberRunningScenario({ parentDelayMs = 0 }) {
   assert.equal(root.exitCode, 0, root.outputTail);
   const key = approveFrontier(t.rootDir, ['R/M1', 'R/M2']);
   registerKid(t, key, 'R/M1', IDS[0], 40);
-  const stop = await api.run({ chain: t.childChain, task: 'tasks/x.md', cwd: t.work, runId: IDS[0], treeNode: lineageFile(t.work, 'R/M1'), maxUsd: 9 });
-  assert.equal(stop.exitCode, 4, stop.outputTail);                                           // R/M1 is budget-stopped: spent about 9, holds the rest of its 40
+  const stop = await api.run({ chain: t.childChain, task: 'tasks/x.md', cwd: t.work, runId: IDS[0], treeNode: lineageFile(t.work, 'R/M1'), maxUsd: 1 });
+  assert.equal(stop.exitCode, 4, stop.outputTail);                                           // R/M1 is budget-stopped (OLD: asked 9, which stopped it under the worst-case gate; NEW: asked 1, since the expected-case gate lets the whole $0.7 run through under 9: criteria $0.70 expected fits, the build's $1.23 does not after the $0.05 spent), holds the rest of its 40
   registerKid(t, key, 'R/M2', IDS[1], 40);
   const before = assertInvariant(t.rootDir, 'before the member runs');
   const room = before.availableUsd;

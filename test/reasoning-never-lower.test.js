@@ -177,7 +177,10 @@ test('money: the projection is the first attempt plus a BIGGER retry, not twice 
   assert.ok(projectAttempts({ provider: 'openrouter', model: 'anthropic/claude-sonnet-5', originalProvider: 'anthropic', maxTokens: 36000 }, opts).retry > 0);
 });
 
-test('money: the cap refuses a call whose first attempt plus its bigger retry would breach it, before any request is sent', async () => {
+// CHANGED (expected-cost gate, 27 Okt 2026; owner: "going by the expected-maximum is absolutely stupid. Stop this", "changed to the expected-case not worst-case"). OLD: 'money: the cap refuses a call whose first
+// attempt plus its bigger retry would breach it, before any request is sent' (a ceiling between one attempt and both was refused, calls 0). NEW: the gate decides on the call's expected cost, one attempt at the dry run's
+// expected output size, so the same ceiling lets the call through. WHY: the owner ruled the worst-case gate out. The worst case with the retry is still what the call reserves (projectAttempts, the test above).
+test('money: the gate does not count an Anthropic seat\'s bigger retry: a ceiling between one attempt and first + retry lets the call through (the expected case decides)', async () => {
   await withKey(async () => {
     let calls = 0;
     const restore = stubFetch(async () => { calls++; return complete(CRITERIA_REPLY); });
@@ -185,11 +188,10 @@ test('money: the cap refuses a call whose first attempt plus its bigger retry wo
       const seat = SEAT({ maxTokens: 36000 });
       const { first, retry } = projectAttempts(seat, { system: '', user: '' });
       assert.ok(first > 0 && retry > first);
-      // A ceiling above one attempt but below both: under the old "twice the first" rule this would still have been refused only above 2 x first;
-      // a ceiling of first + 0.5 x (retry - first) sits between the two readings and must refuse.
       setCache(null); setBudget(first + (retry - first) / 2);
-      await assert.rejects(() => runChain({ request: 'A request.', config: config(seat), log: () => {} }), BudgetExceeded);
-      assert.equal(calls, 0, 'refused before the call');
+      const r = await runChain({ request: 'A request.', config: config(seat), log: () => {} });
+      assert.equal(calls, 1, 'the call was sent, once');
+      assert.deepEqual(r.criteria, ['A real criterion, produced on the retry.']);
     } finally { restore(); setBudget(null); }
   });
 });

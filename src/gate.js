@@ -53,10 +53,11 @@
 //
 // This module is the only writer of `gate_answered` and of a gate file's `approved`; it reads no
 // environment variable and no command-line flag (test/gate-answer.test.js scans for both).
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { withLedger, readLedger, sha256Hex, LedgerBusyError, LedgerCorruptError, LedgerWriteError } from './gate-ledger.js';
 import { parseCapInput } from './cap-input.js';
+import { rulingGateText, parseRulingGateText, withdrawalGateText, parseWithdrawalGateText } from './rulings.js';
 // The two ledger functions the contract record (src/contract-record.js) reads and appends through, so that only the gate modules name the ledger file: the verified ledger, and the public events (appendEvent refuses every other).
 export { readLedger, appendEvent } from './gate-ledger.js';
 
@@ -71,7 +72,128 @@ export const SESSION_ELIGIBLE_KINDS = Object.freeze(['tree_decide', 'tree_fronti
 export function answerGateAsSession(runDir, gateId, { shownSha256, reason }, opts) {
   return answerGate(runDir, gateId, { channel: SESSION_CHANNEL, shownSha256, decision: 'approved', actor: 'main-session', reason, tty: false }, opts);
 }
-const answeredOnAllowedChannel = (channel, kind) => PERSON_CHANNELS.includes(channel) || (channel === SESSION_CHANNEL && SESSION_ELIGIBLE_KINDS.includes(kind));
+// B3 PROTOTYPE (pinned branch only, 30 Okt 2026; the person's word, relayed by C&C): the handler session may also relay two answers on the person's permission, each with the person's own words as a REQUIRED field
+// (`person_words`): a typed total that RAISES a run's limit (a run_cap gate whose operation is `raise`; never a first limit or an amendment), and a `ruling`. The tool cannot verify the permission; the record shows who relayed it.
+export const RULING_KIND = 'ruling';
+export const RULING_WITHDRAWAL_KIND = 'ruling_withdrawal';   // the person's decision to take an approved ruling out of force from a later pass on; its own kind, so no reader of a ruling mistakes it for one
+const RULING_TTL_MS = 24 * 60 * 60 * 1000;   // a ruling gate may wait a day for his answer; after that it can never be approved (answerGate refuses an expired gate)
+const isRulingKind = kind => kind === RULING_KIND || kind === RULING_WITHDRAWAL_KIND;
+const relayedKind = (kind, record) => isRulingKind(kind) || (kind === RUN_CAP_KIND && record?.cap?.operation === 'raise');
+const answeredOnAllowedChannel = (channel, kind, record = null) => PERSON_CHANNELS.includes(channel) || (channel === SESSION_CHANNEL && (SESSION_ELIGIBLE_KINDS.includes(kind) || relayedKind(kind, record)));
+/**
+ * Every answer the session relayed on a person's permission (B3 prototype): [{ gate, kind, channel, actor, person_words, at, total_usd? }], oldest first; [] when there is none or the ledger cannot be read.
+ * report.json `relayed` lists them, so a reader sees who relayed what, in whose words.
+ */
+export function relayedAnswersOf(runDir) {
+  const ledger = readLedger(runDir);
+  if (!ledger.ok) return [];
+  return ledger.lines.filter(l => l.event === 'gate_answered' && l.channel === SESSION_CHANNEL && typeof l.person_words === 'string').map(l => {
+    const rec = readRecord(runDir, l.gate);
+    return { gate: l.gate, kind: rec?.kind ?? null, channel: l.channel, actor: l.actor, person_words: l.person_words, at: l.ts, ...(Number.isFinite(l.cap_usd) || typeof l.cap_usd === 'string' ? { total_usd: Number(l.cap_usd) } : {}) };
+  });
+}
+/**
+ * Every request the session declined itself (B3 prototype): [{ gate, kind, actor, reason, at }], oldest first; [] when there is none or the ledger cannot be read. It carries no person_words (a refusal sets nothing), so `relayedAnswersOf`
+ * does not list it; report.json `declined_requests` does, so a reader finds it without opening the gate ledger.
+ */
+export function declinedBySessionOf(runDir) {
+  const ledger = readLedger(runDir);
+  if (!ledger.ok) return [];
+  return ledger.lines.filter(l => l.event === 'gate_answered' && l.channel === SESSION_CHANNEL && l.decision === 'declined').map(l => ({ gate: l.gate, kind: readRecord(runDir, l.gate)?.kind ?? null, actor: l.actor ?? null, reason: l.reason ?? null, at: l.ts })).filter(r => isRulingKind(r.kind));   // only a ruling or a withdrawal: no other kind of gate surfaces here
+}
+/**
+ * A ruling is asked for (B3 prototype): its text file is written into the run folder and a gate of kind `ruling` is requested for it (as a session gate when `relayed`, so the handler session can relay his answer). Refuses, writing
+ * nothing: ruling_empty, ruling_duplicate (the same text for the same pass is already pending or approved), and whatever requestGate refuses.
+ */
+export function requestRuling(runDir, { pass, text, relayed = false }, { now = () => Date.now() } = {}) {
+  if (!Number.isInteger(pass) || pass < 1 || typeof text !== 'string' || !text.trim()) return refuse('ruling_empty', 'a ruling needs a pass number and its text');   // A-DRAFT
+  const body = rulingGateText(pass, text);
+  const have = rulingsOf(runDir, { now });
+  if (!have.ok) return refuse('gate_ledger_corrupt', 'the approval record of this run cannot be read');
+  if ([...have.rulings, ...have.pending].some(r => r.pass === pass && rulingGateText(r.pass, r.text) === body)) return refuse('ruling_duplicate', `this ruling is already recorded or waiting for pass ${pass}`);   // A-DRAFT
+  const file = `ruling-${pass}-${textSha256(Buffer.from(body)).slice(0, 8)}.md`;
+  return askForGate(runDir, RULING_KIND, file, body, relayed, now);
+}
+/** The text file of a ruling or a withdrawal is written, then its gate is requested; when requestGate refuses, the file it wrote is removed again (a refused request leaves nothing behind). */
+function askForGate(runDir, kind, file, body, relayed, now) {
+  writeAtomic(join(runDir, file), body);
+  const res = requestGate(runDir, { kind, textPath: file, expiresAt: now() + RULING_TTL_MS, ...(relayed ? { requestedBy: 'session' } : {}) }, { now });
+  if (!res.ok) { try { unlinkSync(join(runDir, file)); } catch { /* already gone */ } }
+  return res;
+}
+/**
+ * A withdrawal is asked for (B3 prototype, 31 Okt 2026): the person may take an APPROVED ruling out of force from pass `pass` on (a pass with no stage on disk, so no earlier prompt changes). It is a gate of its own kind; the ruling stays in the
+ * record and `rulingsOf` shows the withdrawal beside it. Refuses, writing nothing: withdrawal_not_a_ruling (the target is not an approved, readable ruling), withdrawal_duplicate (already withdrawn, or one is waiting), whatever requestGate refuses.
+ */
+export function requestWithdrawal(runDir, { gate, pass, relayed = false }, { now = () => Date.now() } = {}) {
+  if (typeof gate !== 'string' || !GATE_ID.test(gate) || !Number.isInteger(pass) || pass < 1) return refuse('withdrawal_not_a_ruling', 'a withdrawal needs the gate of an approved ruling and a pass number');   // A-DRAFT
+  const have = rulingsOf(runDir, { now });
+  if (!have.ok) return refuse('gate_ledger_corrupt', 'the approval record of this run cannot be read');
+  const target = have.rulings.find(r => r.gate === gate);
+  if (!target) return refuse('withdrawal_not_a_ruling', `gate ${gate} is not an approved ruling of this run${have.pending.some(r => r.gate === gate) ? ' (it is still waiting for his answer: decline it instead)' : ''}`);   // A-DRAFT
+  if (target.withdrawn || have.pending.some(r => r.kind === RULING_WITHDRAWAL_KIND && r.target === gate)) return refuse('withdrawal_duplicate', `ruling ${gate} is already withdrawn, or a withdrawal of it is waiting for his answer`);   // A-DRAFT
+  const body = withdrawalGateText(gate, pass);
+  return askForGate(runDir, RULING_WITHDRAWAL_KIND, `ruling-withdrawal-${gate}-${pass}-${textSha256(Buffer.from(body)).slice(0, 8)}.md`, body, relayed, now);
+}
+/**
+ * The session declines a ruling or a withdrawal IT asked for and that still waits (B3 prototype): a refusal can set no ruling, so it takes no person_words, only the written reason. A gate a person asked for is declined only by the person
+ * (`council gate answer <run> <gate> --decline`); a cap raise is not touched by this call at all.
+ */
+export function declineOwnRequest(runDir, gateId, { reason }, opts) {
+  const state = readGateAnswer(runDir, gateId, opts);
+  if (state.gate && !isRulingKind(state.gate.kind)) return refuse('decline_not_a_ruling', `gate ${gateId} is a ${state.gate.kind} gate: only a ruling or a withdrawal can be declined by the session that asked for it`);   // A-DRAFT
+  return answerGate(runDir, gateId, { channel: SESSION_CHANNEL, shownSha256: state.gate?.sha256, decision: 'declined', actor: 'main-session', reason, tty: false }, opts);
+}
+
+/**
+ * The rulings of a run, from its gate ledger (B3 prototype): { ok, rulings: [{ gate, pass, text, channel, actor, person_words, at }], pending: [{ gate, pass, text }], unreadable: [gate] }, oldest first.
+ * `rulings` = approved ones, in force from their pass on whatever the clock says (an approval does not lapse); `pending` = asked for and not answered yet, not expired; `unreadable` = a ruling gate whose text is not a ruling or cannot
+ * be read: the caller refuses to go on, because dropping it silently would change prompts that are already on disk. { ok: false } when the ledger cannot be read.
+ */
+export function rulingsOf(runDir, { now = () => Date.now() } = {}) {
+  const listed = listGates(runDir, { now });
+  if (listed === null) return { ok: false, rulings: [], pending: [], unreadable: [], unreadableInfo: [] };
+  const out = { ok: true, rulings: [], pending: [], unreadable: [], unreadableInfo: [] };
+  const withdrawals = [];
+  const asked = readLedger(runDir).lines.filter(l => l.event === 'gate_requested');
+  for (const g of listed) {
+    const st = readGateAnswer(runDir, g.id, { now });
+    const kind = asked.find(l => l.gate === g.id)?.kind ?? st.gate?.kind;   // the kind is the ledger's: a damaged gate file has no readable kind
+    if (!isRulingKind(kind)) continue;
+    if (st.status === 'invalid') { const rec = readRecord(runDir, g.id); out.unreadable.push(g.id); out.unreadableInfo.push({ gate: g.id, file: typeof rec?.text === 'string' ? rec.text : null, sha256: typeof rec?.sha256 === 'string' ? rec.sha256 : null }); continue; }   // a text changed after approval is 'invalid' with the record still readable: the record names the file and the bytes it was approved for
+    if (st.status !== 'approved' && st.status !== 'pending') continue;   // declined or expired: no ruling
+    const bytes = readGateText(runDir, st.gate.text);
+    const parsed = bytes && textSha256(bytes) === st.gate.sha256 ? (kind === RULING_KIND ? parseRulingGateText(bytes) : parseWithdrawalGateText(bytes)) : null;   // the bytes must be the ones the gate was asked and answered for, pending or approved
+    if (!parsed) { out.unreadable.push(g.id); out.unreadableInfo.push({ gate: g.id, file: st.gate.text, sha256: st.gate.sha256 }); continue; }
+    if (st.status === 'pending') { out.pending.push(kind === RULING_KIND ? { gate: g.id, kind, ...parsed } : { gate: g.id, kind, target: parsed.gate, pass: parsed.pass }); continue; }
+    const a = st.gate.answer || {};
+    const who = { channel: a.channel ?? null, actor: a.actor ?? null, person_words: typeof a.person_words === 'string' ? a.person_words : null, at: a.at ?? null };
+    if (kind === RULING_KIND) out.rulings.push({ gate: g.id, ...parsed, ...who });
+    else withdrawals.push({ gate: g.id, target: parsed.gate, from_pass: parsed.pass, ...who });
+  }
+  for (const w of withdrawals) {   // an approved withdrawal is attached to its ruling; one that names no approved, readable ruling (or a second one for the same ruling) is never dropped: it is listed as unreadable
+    const target = out.rulings.find(r => r.gate === w.target);
+    if (!target || target.withdrawn) { out.unreadable.push(w.gate); out.unreadableInfo.push({ gate: w.gate, file: null, sha256: null }); continue; }
+    const { target: _t, ...rest } = w;
+    target.withdrawn = rest;
+  }
+  return out;
+}
+/** The whole numbers and decimals written in `words` ("$30", "30 dollars", "12.5"), as numbers. */
+export const figuresIn = words => {
+  // A whole run of digits, dots and commas is ONE token. A comma-free token is a number when it has at most one dot ("30", "12.5"). A token with a comma is read only as valid thousand grouping ("$1,000", "12,345,678.5"); any other ("12,50", "1,5",
+  // "1.000,50", "1,0000") is ambiguous between a decimal comma and a separator, so NO figure is read from it, not even a part. A token with two dots ("1.000.000") likewise yields none. The total must then come from his words written with a dot or
+  // without a separator.
+  const out = [];
+  for (const [tok] of String(words).matchAll(/\d(?:[\d.,]*\d)?/g)) {
+    if (tok.includes(',') ? /^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(tok) : /^\d+(?:\.\d+)?$/.test(tok)) out.push(Number(tok.replace(/,/g, '')));
+  }
+  return out.filter(Number.isFinite);
+};
+/** The ONE call that answers a gate on the session channel on a person's relayed permission (B3 prototype): the person's words verbatim are required, and for a limit the typed total must appear in them. */
+export function answerGateAsRelay(runDir, gateId, { shownSha256, reason, personWords, typedCap }, opts) {
+  return answerGate(runDir, gateId, { channel: SESSION_CHANNEL, shownSha256, decision: 'approved', actor: 'main-session', reason, tty: false, personWords, typedCap }, opts);
+}
 export const GATE_SCHEMA = 'gate/1';
 export const GATES_DIR = 'gates';
 // Ten minutes: the life of a council_quote (QUOTE_TTL_MS in src/mcp/advice.js), the thing an advice gate
@@ -277,7 +399,7 @@ function stateOf(runDir, id, lines, t) {
     return { status: 'pending', gate: record };
   }
   if (!DECISIONS.includes(answered.decision) || answered.sha256 !== requested.sha256 || answered.meta_sha256 !== requested.meta_sha256
-    || !answeredOnAllowedChannel(answered.channel, requested.kind)
+    || !answeredOnAllowedChannel(answered.channel, requested.kind, record)
     || (answered.channel === SESSION_CHANNEL && requested.requested_by !== 'session')) return mismatch;
   // The typed amount: present, consistent and inside the bound ceiling on an approved run_cap answer; on no other answer. (A consistent edit of BOTH fields on the LAST ledger line is not detected: the chain cannot see it, decided rule 9.)
   if (isCap && answered.decision === 'approved' ? capAnswerProblem(answered, record.cap) : (Object.hasOwn(answered, 'cap_usd') || Object.hasOwn(answered, 'cap_micro_usd'))) return mismatch;
@@ -330,7 +452,7 @@ export function listGates(runDir, { now = () => Date.now() } = {}) {
  * `gate_answered` line, then the gate file rewritten; if that rewrite fails the answer stands (the ledger
  * holds it) and the result carries a `warning`.
  */
-export function answerGate(runDir, gateId, { channel, shownSha256, decision, actor = null, reason = null, tty = null, typedCap, client = null } = {}, { now = () => Date.now() } = {}) {
+export function answerGate(runDir, gateId, { channel, shownSha256, decision, actor = null, reason = null, tty = null, typedCap, client = null, personWords } = {}, { now = () => Date.now() } = {}) {
   if (!PERSON_CHANNELS.includes(channel) && channel !== SESSION_CHANNEL) return refuse('channel_not_person', `a gate is answered only through a channel a person uses (${PERSON_CHANNELS.join(', ')}), not ${JSON.stringify(channel)}`);
   if (!DECISIONS.includes(decision)) return refuse('bad_decision', `the decision must be one of ${DECISIONS.join(', ')}`);
   if (typeof gateId !== 'string' || !GATE_ID.test(gateId)) return refuse('gate_not_found', `no gate ${JSON.stringify(gateId)}`);
@@ -346,10 +468,13 @@ export function answerGate(runDir, gateId, { channel, shownSha256, decision, act
       if (state.status === 'expired') return refuse('gate_expired', `gate ${gateId} expired at ${state.gate.expires_at}`);
       const record = state.gate;
       if (channel === SESSION_CHANNEL) {
-        if (!SESSION_ELIGIBLE_KINDS.includes(record.kind)) return refuse('channel_not_session_eligible', `a ${record.kind} gate is answered only by a person (${PERSON_CHANNELS.join(' or ')}): the session may answer ${SESSION_ELIGIBLE_KINDS.join(' and ')} gates only`);       // B-DRAFT
+        if (relayedKind(record.kind, record)) {
+          if ((decision === 'approved' || !isRulingKind(record.kind)) && (typeof personWords !== 'string' || !personWords.trim())) return refuse('person_words_required', `gate ${gateId} is answered by the session only on the person's permission, with his own words as he typed them in the handler's window. None were given. Nothing was recorded.`);   // A-DRAFT
+        } else if (!SESSION_ELIGIBLE_KINDS.includes(record.kind)) return refuse('channel_not_session_eligible', `a ${record.kind} gate is answered only by a person (${PERSON_CHANNELS.join(' or ')}): the session may answer ${SESSION_ELIGIBLE_KINDS.join(' and ')} gates only`);       // B-DRAFT
         if (lines.find(l => l.event === 'gate_requested' && l.gate === gateId)?.requested_by !== 'session') return refuse('gate_not_session_requested', `gate ${gateId} was asked for by a person: only the person answers it (the session answers a gate it asked for itself)`);       // B-DRAFT
         if (typeof reason !== 'string' || !reason.trim()) return refuse('session_reason_required', 'the session answers a gate with its written reason: none was given');       // B-DRAFT
       }
+      if (personWords !== undefined && channel !== SESSION_CHANNEL) return refuse('person_words_not_asked', `gate ${gateId} takes the person's words only from the session that relays them; a person answers it himself. Nothing was recorded.`);   // A-DRAFT
       const shown = typeof shownSha256 === 'string' ? shownSha256.slice(0, 12) : 'none';
       if (shownSha256 !== record.sha256) return refuse('hash_mismatch', `the text shown (${shown}) is not the text of gate ${gateId} (${record.sha256.slice(0, 12)})`);
       if (decision === 'approved') {
@@ -364,14 +489,16 @@ export function answerGate(runDir, gateId, { channel, shownSha256, decision, act
         const parsed = parseCapInput(typedCap, { ceilingUsd: record.cap.ceiling_usd, ceilingSource: record.cap.ceiling_source, paid: true });
         if (!parsed.ok) return refuse(`cap_${parsed.code}`, parsed.sentence);
         capFields = { cap_usd: parsed.capUsd, cap_micro_usd: parsed.capMicroUsd };
+        if (channel === SESSION_CHANNEL && !figuresIn(personWords).some(x => Math.round(x * 1e6) === parsed.capMicroUsd)) return refuse('person_words_total', `the total ${parsed.capUsd} does not appear in the person's words as given, so the limit was not recorded. Quote his words with the figure in digits. Nothing was recorded.`);   // A-DRAFT
         if (channel === 'elicitation' && client && typeof client === 'object') {
           const cn = typeof client.name === 'string' ? client.name.slice(0, 100) : null; const cv = typeof client.version === 'string' ? client.version.slice(0, 100) : null;
           if (cn) capFields.client_name = cn;
           if (cv) capFields.client_version = cv;
         }
-      } else if (typedCap !== undefined) return refuse('cap_not_asked', `gate ${gateId} does not ask for a typed limit with this answer. Nothing was recorded.`);
-      const line = append('gate_answered', { gate: gateId, decision, sha256: record.sha256, meta_sha256: record.meta_sha256, channel, actor, reason, tty, ...capFields });
-      const answered = { ...record, status: decision, answer: { decision, channel, actor, reason, tty, at: line.ts, seq: line.seq, ...(capFields.cap_usd ? { cap_usd: capFields.cap_usd, cap_micro_usd: capFields.cap_micro_usd } : {}) } };
+      } else if (personWords !== undefined && !(channel === SESSION_CHANNEL && relayedKind(record.kind, record))) return refuse('person_words_not_asked', `gate ${gateId} does not take the person's words with this answer. Nothing was recorded.`);   // A-DRAFT
+      else if (typedCap !== undefined) return refuse('cap_not_asked', `gate ${gateId} does not ask for a typed limit with this answer. Nothing was recorded.`);
+      const line = append('gate_answered', { gate: gateId, decision, sha256: record.sha256, meta_sha256: record.meta_sha256, channel, actor, reason, tty, ...(channel === SESSION_CHANNEL && typeof personWords === 'string' && personWords.trim() ? { person_words: personWords } : {}), ...capFields });
+      const answered = { ...record, status: decision, answer: { decision, channel, actor, reason, tty, ...(channel === SESSION_CHANNEL && typeof personWords === 'string' && personWords.trim() ? { person_words: personWords } : {}), at: line.ts, seq: line.seq, ...(capFields.cap_usd ? { cap_usd: capFields.cap_usd, cap_micro_usd: capFields.cap_micro_usd } : {}) } };
       try {
         writeAtomic(gatePath(runDir, gateId), `${JSON.stringify(answered, null, 2)}\n`);
       } catch (err) {

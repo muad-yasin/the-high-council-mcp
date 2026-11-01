@@ -21,7 +21,11 @@ export const LAYER_STATE_WORDS = {
   abstained: 'no usable verdict',
   not_asked: 'not asked (a layer below did not sign off)',
   unfinished: 'interrupted before it finished',
+  escalated: 'not asked (objections that stood unchanged were passed up a layer)',   // stall escalation, A-DRAFT
 };
+
+/** The words for one layer row: LAYER_STATE_WORDS, except that a layer left unasked because the person SENT THE PLAN UP does not say the objections stood unchanged (A-DRAFT). */
+export const layerStateWord = r => (r?.state === 'escalated' && r.escalated_by === 'send_up' ? 'not asked (the plan was sent up a layer while its objections were still open)' : (LAYER_STATE_WORDS[r?.state] || r?.state));
 
 /**
  * Every misuse of the per-seat `layer` key, as { message, fix } (the fix names `filePath`). A panel with no `layer` anywhere has no problems. Each rule exists because the key would otherwise
@@ -75,21 +79,22 @@ export function layerProblems(config, filePath = '<chain>') {
 
 /**
  * One sentence about how the last round of a layered run ended, from the `layers[]` rows (shape: { round, layer, labs: [lab...], state }, state one of signed_off, objected, unheard, abstained, not_asked,
- * unfinished). Every layer is named, so a layer that was never asked reads as never asked, not as missing. Pure; the callers (the CLI's headline, the run status, the board export) decide where it is shown.
+ * unfinished, escalated). Every layer is named, so a layer that was never asked reads as never asked, not as missing. Pure; the callers (the CLI's headline, the run status, the board export) decide where it is shown.
  */
 export function layersHeadline(layers) {
   if (!Array.isArray(layers) || layers.length === 0) return null;
   const last = Math.max(...layers.map(r => r.round));
   const rows = layers.filter(r => r.round === last).sort((a, b) => a.layer - b.layer);
   const count = r => `${r.labs.length} lab${r.labs.length === 1 ? '' : 's'}`;
-  if (rows.every(r => r.state === 'signed_off')) return `every layer signed off (${rows.map(r => `layer ${r.layer}: ${count(r)}`).join(', ')})`;
+  if (rows.every(r => r.state === 'signed_off') && !rows.some(r => r.raised_again?.length)) return `every layer signed off (${rows.map(r => `layer ${r.layer}: ${count(r)}`).join(', ')})`;
   const say = {
-    signed_off: r => `layer ${r.layer} signed off`,
+    signed_off: r => (r.raised_again?.length ? `layer ${r.layer} signed off apart from ${r.raised_again.join(', ')}, closed by an earlier ruling` : `layer ${r.layer} signed off`),   // the raised_again words: stall escalation, A-DRAFT
     objected: r => `layer ${r.layer} objected`,
     unheard: r => `layer ${r.layer} was not fully heard`,
     abstained: r => `layer ${r.layer} gave no usable verdict`,
     not_asked: r => `layer ${r.layer} was never asked`,
     unfinished: r => `layer ${r.layer} was interrupted`,
+    escalated: r => `layer ${r.layer} was passed over (its objections went up a layer)`,   // stall escalation, A-DRAFT
   };
   return `round ${last}: ${rows.map(r => (say[r.state] || (() => `layer ${r.layer} is ${r.state}`))(r)).join(', ')} - not agreement`;
 }

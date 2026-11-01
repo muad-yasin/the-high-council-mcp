@@ -12,6 +12,7 @@ import * as R from './roles.js';
 import { held } from './held-roles.js';
 import { withLane } from './lanes.js';
 import { applySeatRole } from './seat-role.js';
+import { personaOf, PERSONA_FORMS } from './judge-persona.js';
 import { loadPersonas } from './personas.js';
 import { handoffPrompt } from './handoff-prompt.js';
 import { ARGUED_SYSTEM } from './argued.js';
@@ -25,11 +26,42 @@ export const PREFLIGHT_SYSTEM = `You review a task description before any code c
 // 0.8.2 item 7: the ONE door every critic system prompt goes through, so a lane paragraph (src/lanes.js) can never be applied at some call sites and missed at others (a source-scan test fails on a bare
 // R.criticSystem( anywhere else in this file). A seat with no lane gets R.criticSystem's text unchanged.
 // Item 28 (Muad's yes 7 Oct 2026 via C&C): in a chain with "selfReview": "allowed", the critic seat that wrote the draft gets the self-review opening (R.criticSystem's `selfReview`).
+/** Can the chain's TOP layer be shown an objection ledger (src/chain.js ledgerOn: a layered chain with answer_back and at least two layers)? Only then can a layer-3 re-tag lower a rating, so only then does the told sentence say so. */
+export function severityLedgerPossible(config) {
+  const critics = Array.isArray(config?.seats?.critics) ? config.seats.critics : [];
+  const layered = critics.length > 0 && critics.every(c => c.layer !== undefined);
+  return layered && config?.answer_back?.enabled === true && new Set(critics.map(c => c.layer)).size >= 2;
+}
 export function criticPromptFor(seat, open, opts, config) {
   const self = config?.selfReview === 'allowed' && isWriterSeat(seat, config.seats);
   const o = self ? { ...(opts || {}), selfReview: true } : opts;
-  return withLane(seat, o === undefined ? R.criticSystem(open) : R.criticSystem(open, o));
+  // B3 prep (unit V): the severity flag comes from the CHAIN's switch only, set after the user's freedoms are read; a `severity` in a user's freedoms asks for nothing (unit 2 would drop the tags it got).
+  const sevOn = config?.severity?.enabled === true;
+  const own = o && ('severity' in o || 'severityLedger' in o) ? (({ severity, severityLedger, ...rest }) => rest)(o) : o;
+  const o2 = sevOn ? { ...(own || {}), severity: true, ...(severityLedgerPossible(config) ? { severityLedger: true } : {}) } : own;
+  return withLane(seat, personaSystemFor(seat, o2 === undefined ? R.criticSystem(open) : R.criticSystem(open, o2), config));
 }
+
+// B3 prep (JUDGE lane, unit P; C&C ruling 1 Nov 2026). A judge's persona (chain switch `judge_personas`, seat field `persona`) is composed in ONE place. withJudgePersona is the only function that inserts the block and personaSystemFor
+// is its only caller; criticPromptFor (the verdict prompt) and layerDebateSystemFor / layerReplySystemFor (the two exchange prompts) are the only callers of personaSystemFor. test/stage-isolation.test.js pins all of it. The block goes
+// directly before the prompt's own reply-format sentence, found by text; a missing or doubled sentence throws, so switch-off bytes can never be touched and a template change cannot slip the block to the wrong place.
+const REPLY_FORMAT_ANCHOR = 'Reply with a single JSON object and nothing else:';
+function withJudgePersona(system, name, form, nameOnly) {
+  const at = system.indexOf(REPLY_FORMAT_ANCHOR);
+  if (at === -1 || system.indexOf(REPLY_FORMAT_ANCHOR, at + 1) !== -1) throw new Error('a judge prompt must carry its reply-format sentence exactly once for the persona block to be placed before it');
+  return `${system.slice(0, at)}${R.judgePersonaBlock({ name, form, nameOnly })}\n\n${system.slice(at)}`;
+}
+export function personaSystemFor(seat, system, config) {
+  const cfg = config?.judge_personas;
+  if (cfg?.enabled !== true) return system;
+  const name = personaOf(seat);
+  if (name === null) return system;
+  if (!PERSONA_FORMS.includes(cfg.form)) throw new Error(`judge_personas.form must be one of ${PERSONA_FORMS.join(', ')}, not ${JSON.stringify(cfg.form)}`);
+  const nameOnly = (Array.isArray(cfg.name_only) ? cfg.name_only : []).some(n => String(n).trim().toLowerCase() === name.trim().toLowerCase());
+  return withJudgePersona(system, name, cfg.form, nameOnly);
+}
+export const layerDebateSystemFor = (config, seat, again) => personaSystemFor(seat, R.layerDebateSystem(again, config?.severity?.enabled === true ? { severity: true, ...(severityLedgerPossible(config) ? { severityLedger: true } : {}) } : null), config);
+export const layerReplySystemFor = (config, seat, again) => personaSystemFor(seat, R.layerReplySystem(again), config);
 
 // The model a seat actually runs, provider prefix and :variant dropped, so `anthropic/claude-sonnet-5` on OpenRouter and `claude-sonnet-5` direct are one model. Mock and external seats
 // have no real model identity (mock chains reuse names on purpose), so they return null and never match. (Moved here from src/chain-lint.js, which re-exports it.)
@@ -71,6 +103,11 @@ const reviserTexts = config => {
 };
 const replyTexts = (config, name, fn) => BOOL.map(g => withHeldNote(config, fn(g), name));
 
+// The system text of a FINAL-READ call (unit D, src/final-read.js): the seat's panel text for the same request, without the freedoms the stage does not honour
+// (a stated pass, a blocking question). chain.js sends it and systemTextsFor prices it from this one function; the four variants are what a run decides later.
+export const finalReadSystemFor = (seat, config, { fencedSource = false, criteriaKinds = false } = {}) =>
+  criticPromptFor(seat, settingsOf(config).open, { fencedSource: !!fencedSource, ...(criteriaKinds ? { criteriaKinds: true } : {}) }, config);
+
 /** Rules by row label, first match wins. Each returns the list of system texts that row's call can send. */
 const RULES = [
   [/^advise-/, () => []],                                                       // the advise rows add their own system text (src/cost.js adviseRows)
@@ -87,9 +124,12 @@ const RULES = [
   [/^canary-reply-/, config => replyTexts(config, 'noQuoteGloss', R.replySystem)],
   [/^debate-/, (config, seat) => [debateSystemFor(config, seat)]],
   [/^reply-/, config => replyTexts(config, 'noQuoteGloss', R.replySystem)],
+  [/^ldebate-/, (config, seat) => BOOL.map(again => layerDebateSystemFor(config, seat, again))],   // both rounds: the later-round text is longer, and the persona block (if any) rides on both   // B2 (debate-084/b2): the exchange inside layer 1
+  [/^lreply-/, (config, seat) => BOOL.map(again => layerReplySystemFor(config, seat, again))],
   [/^build$/, config => { const { open, promptOpts } = settingsOf(config); return BOOL.map(m => withSplitNote(m, R.builderSystem(open, promptOpts), 'treeSplitWriterNote')); }],
   [/^deep-dive-revise$/, config => reviserTexts(config)],
   [/^deep-dive-/, () => R.DEEP_DIVE_JOBS.map(j => R.deepDiveSystem(j))],
+  [/^final-read-/, (config, seat) => BOOL.flatMap(f => BOOL.map(k => finalReadSystemFor(seat, config, { fencedSource: f, criteriaKinds: k })))],
   [/^(panel|critique)-/, (config, seat) => { const { open } = settingsOf(config); return BOOL.map(k => criticPromptFor(seat, open, { ...(config.freedoms || null), fencedSource: true, ...(k ? { criteriaKinds: true } : {}) }, config)); }],
   [/^revise-/, config => reviserTexts(config)],
   [/^conflict(-|$)/, () => { const t = held('conflictDeciderSystem')?.(); return t ? [t] : []; }],

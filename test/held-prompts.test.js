@@ -82,6 +82,8 @@ import * as H083 from './held-prompts/held-083.js';
 import * as HNOTES from './held-prompts/held-083-notes.js';
 import * as HDEC from './held-prompts/held-083-decider.js';
 import * as HEARLY from './held-prompts/held-083-early.js';
+import * as HESC from './held-prompts/held-escalation.js';
+import { RULING_HELD } from '../src/escalation.js';
 const CALLS_083 = {
   treeSplitWriterNote: [[]],
   treeSplitHandoffNote: [[]],
@@ -154,4 +156,22 @@ test('the early-finish batch (held-083-early.js): recorded all together or not a
   const recorded = names.filter(n => n in R);
   assert.ok(recorded.length === 0 || recorded.length === names.length, `a partial early-finish re-record: ${recorded.join(', ')} are in src/roles.js, ${names.filter(n => !(n in R)).join(', ')} are not (the feature stays off)`);
   for (const name of recorded) for (const args of CALLS_EARLY[name]) assert.equal(R[name](...args), HEARLY[name](...args), `${name}: src/roles.js renders differently from test/held-prompts/held-083-early.js`);
+});
+
+// Stall escalation (shape B, 27 Okt 2026): the ruling words and the ledger's rulings section, recorded all together or not at all (src/escalation.js rulingActive asks for all three; C&C ruling 2: one batch, one yes), each rendering exactly
+// as drafted. The ledger filter in src/chain.js removes ruled ids from the ledger rows only when a ruling was made, which needs all three, so the rows and the section that lists what was removed never come apart.
+const CALLS_ESC = {
+  escalationRulingSystem: [[]],
+  escalationRulingUser: [[{ request: 'Write a worker plan.', plan: 'The worker retries failed requests.', items: [{ id: 'O-aaaaaaaa', first_round: 1, rounds: [1, 2], criterion: 'The plan defines a retry limit.', problem: 'No limit.', quote: 'retries failed requests', declined_reason: 'Section two sets it.', declined_round: 1 }, { id: 'O-bbbbbbbb', first_round: 2, rounds: [1, 2], criterion: 'C', problem: 'P' }] }]],
+  ledgerRulingsSection: [[{ rows: [{ id: 'O-aaaaaaaa', lab: 'la', layer: 1, first_round: 1, ruled_round: 3, ruled_layer: 2, outcome: 'overruled', reasons: [{ lab: 'lb', text: 'Section two sets it.' }] }, { id: 'O-bbbbbbbb', lab: 'la', layer: 1, first_round: 2, ruled_round: 3, ruled_layer: 2, outcome: 'sustained', reasons: [], adopted_as: [{ lab: 'lb', id: 'O-cccccccc' }] }] }]],
+};
+
+test('the stall-escalation batch (held-escalation.js): recorded all together or not at all, a recorded one renders exactly as drafted, and no name is drafted in two batches', () => {
+  const names = Object.keys(HESC);
+  assert.deepEqual(names.slice().sort(), [...RULING_HELD].sort(), 'the drafted names are exactly the ones the ruling stage asks for');
+  assert.deepEqual(Object.keys(CALLS_ESC).sort(), names.slice().sort(), 'every drafted escalation function has calls here: add one when you draft one');
+  assert.deepEqual(names.filter(n => n in H083 || n in HNOTES || n in HDEC || n in HEARLY || n in H || n in HN), [], 'a name drafted in more than one batch');
+  const recorded = names.filter(n => n in R);
+  assert.ok(recorded.length === 0 || recorded.length === names.length, `a partial escalation re-record: ${recorded.join(', ')} are in src/roles.js, ${names.filter(n => !(n in R)).join(', ')} are not (the ruling stays held)`);
+  for (const name of recorded) for (const args of CALLS_ESC[name]) assert.equal(R[name](...args), HESC[name](...args), `${name}: src/roles.js renders differently from test/held-prompts/held-escalation.js`);
 });

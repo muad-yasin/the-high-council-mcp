@@ -199,7 +199,9 @@ test('layers: the real CLI refuses a layered chain that breaks a layer rule (exi
 });
 
 test('layers: a spend stop between layers keeps layers[] in the partial record (the layer being asked is unfinished, the next not_asked)', async () => {
-  const critics = [judge('o', 'l1x', 'l1', 1), { provider: 'mock', model: 'mock-priced', lab: 'l2', layer: 2, maxTokens: 8000 }, judge('o', 'l3x', 'l3', 3)];
+  // CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: the layer-2 seat's worst case (8000 tokens) crossed the $1 cap. NEW: its own estimate.critiqueTokens
+  // is its whole cap, so its EXPECTED review is as big and the gate still stops the run at layer 2. WHY: the test is about the partial record's layers[], not the stop's figure.
+  const critics = [judge('o', 'l1x', 'l1', 1), { provider: 'mock', model: 'mock-priced', lab: 'l2', layer: 2, maxTokens: 8000, estimate: { critiqueTokens: 8000 } }, judge('o', 'l3x', 'l3', 3)];
   setBudget(1);
   const err = await go(chainOf(critics, { maxRounds: 1 })).then(() => null, e => e);
   assert.ok(err instanceof BudgetExceeded, String(err));

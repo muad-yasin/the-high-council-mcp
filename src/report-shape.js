@@ -6,9 +6,11 @@
 // artifact than the run it was compared against. Every writer (a normal run, `council init`,
 // --rematch, --replay) now builds from these functions.
 import { renderDeepDiveBoard } from './deep-dive.js';
-import { LAYER_STATE_WORDS } from './layers.js';
+import { LAYER_STATE_WORDS, layerStateWord } from './layers.js';
 import { stopWhyGeneral } from './overseer-rounds.js';
 import { held } from './held-roles.js';
+import { judgePersonasRecord } from './judge-persona.js';
+import { severityRecord } from './severity.js';
 import { LEDGER_MAX_CHARS } from './objection-ledger.js';
 import { renderAdviseBoard } from './advise.js';
 import { computeOutcome } from './outcome.js';
@@ -18,6 +20,7 @@ import { buildThinContract, sha256Of } from './thin-contract.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
 import { deriveDisagreementGroups } from './disagreement-groups.js';
 import { renderDisputeReviewBoard } from './chain.js';
+import { renderFinalReadBoard, finalReadObjected, finalReadBlocksAgreement } from './final-read.js';
 import { boardText } from './roles.js';
 import { summaryLine } from './criteria-kinds.js';
 import { criterionIds } from './criteria-ledger.js';
@@ -137,6 +140,8 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     totals: result.totals,
     // 0.8.3 M2 (D18, CL-117, additive, experimental): the superseded records totals.supersededUsd absorbed: { label, usd, reservationId }. Present only when something was superseded.
     ...(Array.isArray(result.superseded) && result.superseded.length ? { superseded: result.superseded } : {}),
+    // 0.8.4 S5-01 (additive, experimental): the paid stage files no `stages[]` row accounts for, which `totals.unreplayedUsd` absorbed: { label, usd, reservationId }. Present only when there were any.
+    ...(Array.isArray(result.unreplayed) && result.unreplayed.length ? { unreplayed: result.unreplayed } : {}),
     maxUsd,
     // 0.8.1 DR-13 (N4): the exact prompt's full sha256, its size, the serving endpoint and the scan result go to
     // audit.jsonl only (src/audit.js); stages[] keeps the 16-hex promptHash it always had.
@@ -178,6 +183,9 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     // 0.8.2, additive, only with debate_hygiene.shuffle: the order and lab letters each debate reader saw.
     ...(Array.isArray(result.answerBack) && result.answerBack.length ? { answer_back: result.answerBack } : {}),
     ...(Array.isArray(result.answerBackReplies) && result.answerBackReplies.length ? { answer_back_replies: result.answerBackReplies } : {}),
+    ...(Array.isArray(result.layerDebates) && result.layerDebates.length ? { layer_debates: result.layerDebates } : {}),   // B2 (debate-084/b2), additive
+    ...(severityRecord(config, result) ? { severity: severityRecord(config, result) } : {}),   // B3 prep (unit 3), additive: only with the chain's severity switch
+    ...(judgePersonasRecord(config, result) ? { judge_personas: judgePersonasRecord(config, result) } : {}),   // B3 prep (unit P), additive: only with the chain's judge_personas switch
     ...(Array.isArray(result.debateOrders) && result.debateOrders.length ? { debate_orders: result.debateOrders } : {}),
     ...(Array.isArray(result.outsideCriteriaRows) && result.outsideCriteriaRows.length ? { outside_criteria_rows: result.outsideCriteriaRows } : {}),
     ...(Array.isArray(result.missingCriteria) && Array.isArray(result.criteria) && result.criteria.length
@@ -205,6 +213,7 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     ...(disagreementMap(result.panelVerdicts) !== undefined ? { disagreement_map: disagreementMap(result.panelVerdicts) } : {}),
     ...(Array.isArray(result.regressions) ? { regressions: result.regressions } : {}),
     ...(result.dispute != null ? { dispute: result.dispute } : {}),
+    ...(result.finalRead != null ? { final_read: result.finalRead } : {}),   // unit D (src/final-read.js): additive, present only when the chain sets final_read.enabled
     ...(result.canary !== undefined ? { canary: result.canary } : {}),
     ...(result.quoteFindings !== undefined ? { quoteFindings: result.quoteFindings } : {}),
     ...(result.patchFallbacks !== undefined ? { patchFallbacks: result.patchFallbacks } : {}),
@@ -214,6 +223,11 @@ export function reportJsonShape({ runId, chain, task, taskCwd = null, taskText =
     ...(Array.isArray(result.layers) ? { layers: result.layers } : {}),
     ...(result.layerStop ? { layerStop: result.layerStop } : {}),
     ...(Array.isArray(result.decisions) && result.decisions.length ? { decisions: result.decisions } : {}), // 0.8.3 E4b, additive: one row per conflict between layers the panel found; present only when one was found
+    ...(Array.isArray(result.escalations) && result.escalations.length ? { escalations: result.escalations } : {}), // stall escalation, additive: one row per stall that was passed up a layer; present only when there was one
+    ...(Array.isArray(result.owner_rulings) && result.owner_rulings.length ? { owner_rulings: result.owner_rulings } : {}), // B3 prototype, additive: the rulings the person who owns the request gave, each with the pass it applies from (gate.js rulingsOf)
+    ...(Array.isArray(result.declined_requests) && result.declined_requests.length ? { declined_requests: result.declined_requests } : {}), // B3 prototype, additive: every ruling or withdrawal the handler session asked for and then declined itself (gate.js declinedBySessionOf); it set nothing, so it has no person_words
+    ...(Array.isArray(result.relayed) && result.relayed.length ? { relayed: result.relayed } : {}), // B3 prototype, additive: every answer the handler session relayed on a person's permission, with his words (gate.js relayedAnswersOf)
+    ...(result.escalated_signoff ? { escalated_signoff: result.escalated_signoff } : {}), // stall escalation, additive: the top layer signed off with layers passed over; `passed` stays false and `outcome` is not widened
     ...(result.stop ? { stop: result.stop } : {}), // round semantics 2b: a run the person FINISHED at an overseer limit (chosen: 'finish') or a run that finished early at the session's proposal (kind early_finish, chosen: 'early'); a stopped run has it in report-partial.json
     ...(result.reviewNotes ? { review_notes: result.reviewNotes } : {}), // notes lane unit 2, additive: only on a run whose chain had the lane on
     ...(Number.isInteger(result.overseer_rounds) ? { overseer_rounds: result.overseer_rounds } : {}), // round semantics 2b, additive: only on a chain with overseer rounds
@@ -317,7 +331,7 @@ export function renderBoardMd({ runId, result }) {
   if (result.advise) return result.advise.status === 'answered' || (result.advise.status === 'stopped' && (result.advise.opinions || []).length) ? `# Advice board - run ${runId}\n\n${renderAdviseBoard(result.advise, result.adviseRecord)}` : '';
   const disputesSection = (result.disputes?.length
     ? `\n\n## Disputed objections (declined by the builder or the reviser, kept out of the deliverable)\n\n${result.disputes.map(d => `- ${d.round === 'build' ? 'Build' : `Round ${d.round}`}: ${d.reason}`).join('\n')}`
-    : '') + renderDisputeReviewBoard(result.dispute);
+    : '') + renderDisputeReviewBoard(result.dispute) + renderFinalReadBoard(result.finalRead);
   const alternativesSection = result.alternatives?.board
     ? `## Alternative architectures\n\nEvery whole architecture a lab proposed before the plan existed, what the other labs posted on it, and the author's reply. The plan's "Decisions" section records which was chosen and why the others lost.\n\n${result.alternatives.board}\n\n`
     : '';
@@ -327,13 +341,14 @@ export function renderBoardMd({ runId, result }) {
   const deepDiveSection = renderDeepDiveBoard(result.deep_dive, { judges: [...new Set([...(result.signoff || []), ...(result.panelVerdicts || [])].map(v => v?.lab).filter(Boolean))] });
   const dropoutsSection = renderDropoutsBoard(result.dropouts);
   const answersSection = renderAnswersBoard(rosterAnswersOf(result.stages));
-  const layersSection = renderLayersBoard(result.layers, result.layerStop) + renderDecisionsBoard(result.decisions);
+  const layersSection = renderLayersBoard(result.layers, result.layerStop) + renderDecisionsBoard(result.decisions, result.escalations) + renderEscalationsBoard(result.escalations, result.escalated_signoff);
   const labelsSection = renderTextLabelsBoard({ signedText: result.signedText, deliveredText: result.deliveredText, outcome: computeOutcome(result) }); // only added to a board that exists (below)
   const notesSection = renderNotesBoard(result.reviewNotes);
   const earlyW = earlyFinishWords({ stop: result.stop, passed: result.passed });   // ROADMAP 83: the board says so at the top
   const earlySection = earlyW ? `## Finished early by the session\n\n${earlyW}.\n\n` : '';
-  if (!(result.board || disputesSection || alternativesSection || kindsSection || deepDiveSection || dropoutsSection || answersSection || layersSection || notesSection || earlySection)) return '';
-  return `# Debate board - run ${runId}\n\n${earlySection}${kindsSection}${dropoutsSection}${answersSection}${layersSection}${labelsSection}${alternativesSection}${deepDiveSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${renderDroppedBoard(result.debate?.dropped)}${disputesSection}${notesSection}`;
+  const finalReadBanner = result.passed === true && finalReadBlocksAgreement(result.finalRead) ? `## Not agreed: layer 3 ${finalReadObjected(result.finalRead) ? 'objected to' : 'did not read'} the final plan\n\nEvery layer had signed off an earlier text, but the plan changed afterwards and layer 3 ${finalReadObjected(result.finalRead) ? 'objected to the final text' : 'did not read the final text'} (see Final read by layer 3 below). The panel verdict is not the ending.\n\n` : '';   // A-DRAFT
+  if (!(result.board || disputesSection || alternativesSection || kindsSection || deepDiveSection || dropoutsSection || answersSection || layersSection || notesSection || earlySection || finalReadBanner)) return '';
+  return `# Debate board - run ${runId}\n\n${finalReadBanner}${earlySection}${kindsSection}${dropoutsSection}${answersSection}${layersSection}${labelsSection}${alternativesSection}${deepDiveSection}${result.board ? `${alternativesSection ? '## Proposals\n\n' : ''}Every proposal, what the other labs posted on it, and the author's reply.\n\n${result.board}` : 'No proposal debate ran this round.'}${renderDroppedBoard(result.debate?.dropped)}${disputesSection}${notesSection}`;
 }
 
 /** The layered panel's "Panel layers" table for BOARD.md (0.8.3), from report.json's `layers` rows; '' for an unlayered run. A layer that was never asked is a row, not a gap. */
@@ -345,27 +360,48 @@ export function ledgerOverflowWords(report) {
 
 export function renderLayersBoard(layers, layerStop = null) {
   if (!Array.isArray(layers) || !layers.length) return '';
-  const rows = layers.map(r => `| ${r.round} | ${r.layer} | ${(r.labs || []).join(', ')} | ${LAYER_STATE_WORDS[r.state] || r.state}${r.carried?.length ? ` (carried from an earlier round: ${r.carried.map(c => `${c.lab} from round ${c.from_round}`).join(', ')})` : ''} |`);
+  const rows = layers.map(r => `| ${r.round} | ${r.layer} | ${(r.labs || []).join(', ')} | ${layerStateWord(r)}${r.carried?.length ? ` (carried from an earlier round: ${r.carried.map(c => `${c.lab} from round ${c.from_round}`).join(', ')})` : ''} |`);
   // The held ledger sentence ends in its own full stop: add one only when the reason text has none, so the board never prints '..'.
   const stopWhy = layerStop ? layerStop.reason === 'top_layer_not_explicit' ? `${layerStop.labs.join(', ')} did not sign off explicitly (the top layer needs an explicit sign-off from every seat)` : layerStop.reason === 'only_stated_passes' ? 'nobody in it gave a verdict, only stated passes' : layerStop.reason === 'ledger_overflow' ? (held('ledgerOverflowExit')?.({ rows: layerStop.ledger?.rows, chars: layerStop.ledger?.chars, limit: LEDGER_MAX_CHARS }) ?? 'the open objections were too many to show the top layer in full, so nothing was sent to it') : 'nothing was objected to, so there was nothing to revise against' : '';
   const stop = layerStop ? `\n\nThe run stopped in round ${layerStop.round}, layer ${layerStop.layer}: ${stopWhy}${/[.!?]$/.test(stopWhy) ? '' : '.'} This is not agreement.` : '';
-  return `## Panel layers\n\nA layer is asked only when every seat of the layers below it signed off on the same draft. (report.json \`layers\`.)\n\n| Round | Layer | Labs | State |\n|---|---|---|---|\n${rows.join('\n')}${stop}\n\n`;
+  const pressed = layers.some(r => r.floor_by === 'request');   // A-DRAFT variant for a board that has a pass that was asked to start at the top layer (the record shows a request, not whose); any other board keeps its sentence byte for byte
+  return `## Panel layers\n\nA layer is asked only when every seat of the layers below it signed off on the same draft${pressed ? ', except a pass that was asked to start at the top layer' : ''}. (report.json \`layers\`.)\n\n| Round | Layer | Labs | State |\n|---|---|---|---|\n${rows.join('\n')}${stop}\n\n`;
 }
 
 /**
  * The conflict decider's footer for BOARD.md (0.8.3 E4b), from report.json's `decisions` rows; '' when there are none. One line per conflict: what swung, who ruled (or why nobody did), and, when the decider's lab is one of the labs
  * in the conflict, that it is. A-DRAFT wording (listed for the later Fable pass).
  */
-export function renderDecisionsBoard(decisions) {
+/**
+ * Stall escalation's BOARD.md section (A-DRAFT words), from report.json's `escalations` rows and `escalated_signoff`; '' when there are none. One line per passed-up objection: where it went, who ruled and what came of it; then, after an
+ * escalated sign-off, that it is not consensus.
+ */
+export function renderEscalationsBoard(escalations, escalatedSignoff = null) {
+  if (!Array.isArray(escalations) || !escalations.length) return '';
+  const whyWords = { prompt_held: 'the ruling words are not recorded yet', ruler_unreachable: 'a ruling seat could not be reached', unreadable_ruling: 'a ruling could not be read', no_ruling: 'not every seat ruled on it' };
+  const lines = escalations.flatMap(e => (e.outcome || []).map(o => {
+    const reasons = (e.rulings || []).filter(r => r.id === o.id && r.reason).map(r => `${r.lab} (${r.ruling}): ${r.reason}`).join('; ');
+    const result = o.result === 'sustained' ? `sustained; from then on the objection of ${(o.adopted_as || []).map(a => `${a.lab} (${a.id})`).join(' and ')}`
+      : o.result === 'overruled' ? 'overruled; closed, although its raiser did not withdraw it' : `no ruling closed it (${whyWords[o.why] ?? o.why}); it stands as ${o.lab}'s`;
+    const again = (e.raised_again || []).filter(r => r.id === o.id && !r.counted).map(r => r.pass);
+    const reopened = (e.raised_again || []).filter(r => r.id === o.id && r.counted).map(r => r.pass);
+    return `- ${o.id} (${o.lab}, layer ${o.layer ?? '?'}): ${e.trigger === 'send_up' ? `still open when layer 1 had used its revisions in pass ${e.round}` : `stood unchanged up to pass ${e.round}`}, passed up to layer ${e.to_layer}, ruled on in pass ${e.pass}: ${result}.${reasons ? ` ${reasons}` : ''}${again.length ? ` Raised again by ${o.lab} in pass ${again.join(', ')}; not counted.` : ''}${reopened.length ? ` Raised again by ${o.lab} in pass ${reopened.join(', ')} without a quote, so it counted as a live objection again.` : ''}`;   // the reopened words: FIX F1, A-DRAFT
+  }));
+  const end = escalatedSignoff ? `\n\n**Escalated sign-off:** the top layer (layer ${escalatedSignoff.layer}) signed off in pass ${escalatedSignoff.pass} ${escalatedSignoff.below.length ? `with layer ${escalatedSignoff.below.join(', ')} passed over` : `while ${(escalatedSignoff.raised_again || []).join(', ')} ${(escalatedSignoff.raised_again || []).length === 1 ? 'was' : 'were'} still raised by a judge, after a ruling had closed ${(escalatedSignoff.raised_again || []).length === 1 ? 'it' : 'them'}`}. This is not consensus: \`passed\` is false.` : '';
+  return `## Objections passed up a layer\n\n${(() => { const up = escalations.filter(e => e.trigger === 'send_up').length; return up === 0 ? "A lower layer's objections stood unchanged for the stall rule's rounds, so instead of ending the run the plan was passed up a layer, " : up === escalations.length ? "A lower layer's objections were still open after layer 1 had used its revisions, so instead of ending the run the plan was sent up a layer, " : "Some of a lower layer's objections stood unchanged for the stall rule's rounds and some were still open after layer 1 had used its revisions, so instead of ending the run the plan was passed up a layer, "; })()}whose judges reviewed it and then ruled on them. Details are in report.json under \`escalations\`.\n\n${lines.join('\n')}${end}\n\n`;
+}
+
+export function renderDecisionsBoard(decisions, escalations = []) {
   if (!Array.isArray(decisions) || !decisions.length) return '';
-  const why = { no_decider_seat: 'this chain names no decider', prompt_held: "the decider's prompt is not recorded yet", last_round: 'it came in the last pass, which has no revise', loop_ended: 'the review loop ended before the revise it would have shaped (a stop, the person\'s finish, or the dispute rule)', over_limit: 'more conflicts than one decider call takes', person_asked: 'the decider asked for the person to choose and the run stopped for the answer', tree_member: 'the decider asked for the person, which a tree member is not offered, so neither side was applied and both objections stand', unreadable_ruling: "the decider's answer could not be read", decider_unreachable: 'the decider gave no reply' };
+  const escalatedWhy = d => ((Array.isArray(escalations) ? escalations : []).find(e => e.round === d.pass)?.trigger === 'send_up' ? "the pass that found it ended at layer 1's revision limit, and its objections were sent up a layer instead (see the escalations section)" : 'the pass that found it stalled, and its objections were passed up a layer instead (see the escalations section)');   // per decision: the escalation row of THAT pass says which (a run can have both)
+  const why = { escalated: 'the pass that found it stalled, and its objections were passed up a layer instead (see the escalations section)', no_decider_seat: 'this chain names no decider', prompt_held: "the decider's prompt is not recorded yet", last_round: 'it came in the last pass, which has no revise', loop_ended: 'the review loop ended before the revise it would have shaped (a stop, the person\'s finish, or the dispute rule)', over_limit: 'more conflicts than one decider call takes', person_asked: 'the decider asked for the person to choose and the run stopped for the answer', tree_member: 'the decider asked for the person, which a tree member is not offered, so neither side was applied and both objections stand', unreadable_ruling: "the decider's answer could not be read", decider_unreachable: 'the decider gave no reply' };
   const lines = decisions.map(d => {
     const swing = `${d.ids[0]} (${d.labs[0]}, layer ${d.layers[0]}) came back in pass ${d.pass}, after the writer revised the plan in response to ${d.ids.slice(1).map((id, i) => `${id} (${d.labs[i + 1]}, layer ${d.layers[i + 1]})`).join(', ')}. The judge that raised ${d.ids[0]} was asked in pass ${d.silent_round} and did not list it`;      // no last full stop: the line's own comes after the ruling clause (B-DRAFT join)
     const lean = d.decider_prevail !== undefined ? ` The decider leaned to ${d.decider_prevail === 'neither' ? 'neither side' : d.decider_prevail}${d.decider_reason ? ` (${d.decider_reason})` : ''}.` : '';
     const sideWords = d.prevail === 'neither' ? 'neither side prevails' : `${d.prevail} prevails`;
     const ruled = d.why === 'tree_member' ? `${why.tree_member}; the person was not asked`
       : d.decided ? (d.via ? `chosen ${d.via === 'tree' ? 'through the tree' : 'with --prevail at the terminal'}: ${sideWords}` : `${d.decider_lab ?? 'the decider'} ruled: ${sideWords}${d.reason ? ` (${d.reason})` : ''}${d.ask_person ? '; it asked for the person to choose' : ''}`)
-      : `nobody ruled: ${why[d.why] ?? d.why}`;
+      : `nobody ruled: ${d.why === 'escalated' ? escalatedWhy(d) : (why[d.why] ?? d.why)}`;
     const shared = d.shares_lab_with?.length ? ` The decider's lab (${d.shares_lab_with.join(', ')}) is one of the labs in this conflict.` : '';
     return `- Pass ${d.pass}: ${swing}; ${ruled}.${lean}${shared}`;
   });

@@ -12,6 +12,7 @@
 //
 // Cost: the gate reads every member folder (a few small files each) while the caller holds the tree lock, and a running member's mirror write waits only about 2 s for that lock before it fails closed ("not sent"). The
 // gate is therefore kept to plain reads; test/tree-budget.test.js times it on a 13-member tree and the numbers are in the M2 report.
+import { unreplayedOf } from './unreplayed.js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { runSpentUsd } from './spend.js';
@@ -114,8 +115,13 @@ function evidenceOf(runDir, problems) {
     stages.forEach(s => record(`report.stages:${s?.label}`, s));
     const absorbed = Array.isArray(rep.value.superseded) ? rep.value.superseded : [];
     absorbed.forEach(s => record(`report.superseded:${s?.label}`, s));
-    if (isMoney(totals.usd) && stages.every(s => isMoney(s?.usd)) && !near(totals.usd, stages.reduce((n, s) => n + s.usd, 0) + (isMoney(totals.supersededUsd) ? totals.supersededUsd : 0))) {
-      bad('report_totals', `report.json totals.usd (${totals.usd}) is not the sum of its stages plus supersededUsd`);
+    if (totals.unreplayedUsd !== undefined && !isMoney(totals.unreplayedUsd)) bad('report_totals', 'report.json totals.unreplayedUsd is not a finite number of zero or more');
+    const unreplayed = Array.isArray(rep.value.unreplayed) ? rep.value.unreplayed : [];   // 0.8.4 S5-01: paid stage files no stage row accounts for, absorbed into totals.usd
+    unreplayed.forEach(s => record(`report.unreplayed:${s?.label}`, s));
+    const heldLabels = new Set(unreplayed.map(s => s?.label));
+    for (const o of unreplayedOf(runDir, stages)) if (!heldLabels.has(o.label)) record(`unreplayed:${o.label}`, o);   // a report from before 0.8.4, or a file that arrived after it: attributed from the file, as spend.js adds it
+    if (isMoney(totals.usd) && stages.every(s => isMoney(s?.usd)) && !near(totals.usd, stages.reduce((n, s) => n + s.usd, 0) + (isMoney(totals.supersededUsd) ? totals.supersededUsd : 0) + (isMoney(totals.unreplayedUsd) ? totals.unreplayedUsd : 0))) {
+      bad('report_totals', `report.json totals.usd (${totals.usd}) is not the sum of its stages plus supersededUsd plus unreplayedUsd`);
     }
     const labels = new Set(absorbed.map(s => s?.label));
     for (const f of supFiles) {                                                               // records written after the report was built (a post-run call): attributed from the file

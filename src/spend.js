@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import { supersededSpendOf, supersededStagesOf, supersededUnknownFilesOf } from './superseded.js';
 import { unsettledUsd } from './spend-reservations.js';
 import { usdFigure } from './usd-figure.js';
+import { unreplayedOf } from './unreplayed.js';
 import { deriveRunStatus, APPROVAL_STATUSES, stoppedShortFile, waitingStages } from './run-status.js';
 import { readStoppedMarker, waitsForPerson, ROUND_STOPPED_STATE } from './stop-files.js';
 import { runFolderKind } from './run-files.js';
@@ -120,7 +121,12 @@ function costOfRunSettled(dir) {
       const handoff = usdFigure(readJson(join(dir, 'handoff-from-run.usage.json'))?.usd);
       if (handoff === null) unknownFiles.push('handoff-from-run.usage.json');
       unknownFiles.push(...supersededUnknownFilesOf(dir));
-      return { usd: total + (handoff ?? 0) + later, chain: report.chain ?? null, complete: true, unknownFigures: unknownFiles.length, unknownFiles };
+      // 0.8.4 S5-01: paid stage files no stage row of the report accounts for. A report written since this change holds them (totals.unreplayedUsd); one written before does not, and a file that arrived after the report is
+      // not in it either. Only what the report does not hold is added, so nothing is counted twice and `--spend` reads the same before and after report.json exists.
+      // A report with no `stages` array (not a shape this harness writes) gives no basis for saying what it holds, so nothing is added for it.
+      const orphans = Array.isArray(report.stages) ? unreplayedOf(dir, report.stages).reduce((n, o) => n + o.usd, 0) : 0;
+      const laterOrphans = Math.max(0, orphans - (usdFigure(report.totals.unreplayedUsd) ?? 0));
+      return { usd: total + (handoff ?? 0) + later + laterOrphans, chain: report.chain ?? null, complete: true, unknownFigures: unknownFiles.length, unknownFiles };
     }
     // a total that is there and is not a number (a string, a negative): the report cannot be trusted for the figure; the stage files below give a floor and the count says so
     unknownFiles.push('report.json');

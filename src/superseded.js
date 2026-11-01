@@ -43,7 +43,7 @@ export function archiveSuperseded(runDir, label) {
  * thinking attempt whose retry failed) is written here too, as `<label>.charge-<n>.usage.json`, so
  * every spend reader that adds this folder in counts it - and the cap does on resume.
  */
-export function recordLostCharge(runDir, label, { provider = null, model = null, usd = 0, reason = '', reservationId = null, kind = null } = {}) {
+export function recordLostCharge(runDir, label, { provider = null, model = null, usd = 0, reason = '', reservationId = null, kind = null, ms = null, cause = null, host = null, providerCode = null, endpoint = null } = {}) {
   if (!(Number(usd) > 0)) return null;
   const dir = join(runDir, SUPERSEDED_DIR);
   mkdirSync(dir, { recursive: true });
@@ -51,7 +51,11 @@ export function recordLostCharge(runDir, label, { provider = null, model = null,
   while (existsSync(join(dir, `${label}.charge-${n}.usage.json`))) n++;
   const path = join(dir, `${label}.charge-${n}.usage.json`);
   // 0.8.3 M2 (D18): the reservation the charge belongs to, and whether it is the discarded attempt's waste or the billed, unreadable call itself. Both additive; absent when the call wrote no reservation.
-  writeFileSync(path, JSON.stringify({ provider, model, usage: { input: 0, output: 0 }, usd: Number(usd), reason, ...(reservationId ? { reservationId } : {}), ...(kind ? { kind } : {}) }));
+  writeFileSync(path, JSON.stringify({ provider, model, usage: { input: 0, output: 0 }, usd: Number(usd), reason, ...(reservationId ? { reservationId } : {}), ...(kind ? { kind } : {}),
+    // 0.8.4 S5-04 (additive): `ms`, measured as a stage's own usage file measures it (from the start of the invoke(), retries and waits included). Absent when the caller measured none (a waste charge).
+    ...(Number.isFinite(ms) && ms >= 0 ? { ms } : {}),
+    // 0.8.4 S6-01 (additive): what the failed call said about itself (providers.js failureFactsOf: tokens only, no message text): the cause chain, the request host, a 200 body's error code. Absent when the failure said none.
+    ...(cause ? { cause } : {}), ...(host ? { host } : {}), ...(endpoint ? { endpoint } : {}), ...(providerCode !== null && providerCode !== undefined ? { providerCode } : {}) }));
   return path;
 }
 

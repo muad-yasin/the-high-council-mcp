@@ -42,6 +42,9 @@ export const CUT_MARK = ' [cut]';
 export const OMITTED_IDS_MAX = 20;
 
 const utf8 = new TextEncoder();
+// A readable severity tag, as src/severity.js readSeverity reads it (a number 1 to 10 in steps of 0.1); mirrored here because this file is a leaf with no imports (test/objection-ledger.test.js). Anything else is null.
+const tagOf = v => (typeof v === 'number' && Number.isFinite(v) && v >= 1 && v <= 10 && Math.abs(v * 10 - Math.round(v * 10)) < 1e-9 ? v : null);
+
 /**
  * An ESTIMATE of tokens: ceil(UTF-8 bytes / 4). Equal to the harness's chars/4 for ASCII; it counts a multi-byte character by its bytes. It is an estimate that under-counts non-Latin text; tuned when an input-window table exists.
  * (CJK is about 3 bytes per character and roughly one token or more each, so it under-counts by about 25%.) No claim about quality or about any one model's tokenizer.
@@ -63,6 +66,7 @@ export function objectionLedger({ openByRound = [], replies = [], reviserByRound
       // `closed` and the observation). But it still APPEARS in later rounds, and the reviser answers it there: `seen` (every round it appears in, own or carried) decides the reviser lookup.
       const own = Number.isFinite(f.carried_from_round) ? f.carried_from_round : r.round;
       e.rounds.add(own); e.seen.add(r.round);
+      { const t = tagOf(f.severity); if (t !== null && (e.sevRound === undefined || own < e.sevRound || (own === e.sevRound && t > e.sev))) { e.sevRound = own; e.sev = t; } }   // unit 3: the FIRST readable tag stands (the earliest round that carries one; the highest within that round); an unreadable copy never replaces it
       if (own > e.latestRound) { e.latestRound = own; e.latest = [f]; } else if (own === e.latestRound) e.latest.push(f);
       raised.set(k, e);
     }
@@ -95,14 +99,14 @@ export function objectionLedger({ openByRound = [], replies = [], reviserByRound
       ...(typeof got.evidence === 'string' && got.evidence.trim() ? { reasoning: cap(got.evidence, EVIDENCE_CAP_CHARS) } : {}),
     } : null;
     const latest = [...e.latest].sort((x, y) => byCode(x.problem ?? '', y.problem ?? ''))[0]; // several failures under one id in a round: stable order, the problems are joined below
-    const closed = judge?.last_disposition === 'withdrawn' && judge.round > last;
+    const closed = (judge?.last_disposition === 'withdrawn' || judge?.last_disposition === 'withdrawn_exchange') && judge.round > last;   // B2: `withdrawn_exchange` = withdrawn with a reason in the layer's exchange (no quote required); the ledger says which
     const observed = {};
     if (!closed) {
       const later = []; // the rounds after the last time it was raised, up to the round just before the one about to be asked, that the run actually recorded
       for (let r = last + 1; r <= upto; r++) later.push(r);
       // A round in which the judge ANSWERED this id (any effect but `unanswered`: withdrawn, refused, sustained, stated_pass_open, unreadable_answer) is spoken for by the disposition field, so it is no "not raised again"
       // round: a sustained answer is carried by the harness and would otherwise read as "looks fixed" beside "still open". Silence (`unanswered`) is the observation left.
-      const answered = r => replies.some(p => p?.lab === e.lab && p.id === e.id && p.round === r && p.effect && p.effect !== 'unanswered' && p.effect !== 'unknown_id');
+      const answered = r => replies.some(p => p?.lab === e.lab && p.id === e.id && p.round === r && p.effect && p.effect !== 'unanswered' && !(p.effect === 'swept_carried' && p.path !== 'stated_pass') && p.effect !== 'unknown_id');
       const heard = later.find(r => (heardByRound[r] || []).includes(e.lab) && !answered(r));
       if (heard !== undefined) observed.not_raised_again_in = heard;
       else if (later.some(r => (notAskedByRound[r] || []).includes(e.lab))) observed.not_asked_since = last;
@@ -111,6 +115,7 @@ export function objectionLedger({ openByRound = [], replies = [], reviserByRound
     rows.push({
       id: e.id, raised_by: { lab: e.lab, layer: layerOf[e.lab] ?? null }, source: { round: first, draft_sha12: draftShaByRound[first] ?? null }, first_round: first, last_raised_round: last,
       criterion: latest.criterion ?? '', problem: [...new Set(e.latest.map(x => x.problem ?? '').filter(Boolean))].sort(byCode).join(' / '), ...(latest.quote ? { quote: latest.quote } : {}), reviser, judge, observed, status: closed ? 'closed' : 'active',
+      ...(e.sev !== undefined ? { severity: e.sev } : {}),
     });
   }
   rows.sort((a, b) => a.first_round - b.first_round || byCode(a.raised_by.lab, b.raised_by.lab) || byCode(a.id, b.id));

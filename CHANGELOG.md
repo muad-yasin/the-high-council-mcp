@@ -5,6 +5,21 @@
 ### Changes that can break a script or a client
 
 - **Node.js 24 or newer is the supported version** (0.8.3 supported Node.js 20 or newer). The tests run on Node.js 24 and 26, and the binaries are built on Node.js 24. An older Node.js may still work, but it is untested, and npm warns at install.
+- **A stall below the top layer of a layered chain no longer ends the review** (`dispute.enabled`): the plan is passed up a layer (see Changed). `dispute.reason: "stalled"` now means a stall that ended the
+  review. Closed value lists gain `escalated_signoff` (`dispute.reason`), `escalated` (`layers[].state`, `decisions[].why`) and `escalated_signoff_block` (`delivered_text.harness_notes`): a reader that
+  validates them strictly must accept the new values. A new stage label, `rule-<round>-<lab>`, maps to the stage kind `rule`.
+
+### Changed
+
+- **A stall on a layered chain passes the plan up a layer.** When the same objections from a lower layer stand for `dispute.stall_rounds` rounds, the next layer up reviews the plan, and its judges then
+  sustain or overrule each stuck objection; an objection closes only when every judge of that layer overrules it. If the top layer then signs off with lower layers passed over, the run ends as an
+  escalated sign-off, which is not agreement (`passed` is false, exit 22), with an "Escalated sign-off" block above the plan and the dispute stage over what no ruling closed. New records:
+  `escalations[]`, `escalated_signoff`, `panelVerdicts[].sustained` and `escalated_standing` on open objections. A stall at the top layer, on a chain without layers or in the last round ends the review
+  as before. No efficacy claim.
+
+### Not verified in this release (stated, not hidden)
+
+- The stall escalation's ruling by a real model, the writer's prompt after an escalation, a sign-off after one and a stopped run after one have run only with mock seats.
 
 ## 0.8.3 - 2026-10-26 (BREAKING for scripts and clients that rely on the changes listed under "Changes that can break a script or a client")
 

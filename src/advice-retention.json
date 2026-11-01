@@ -248,7 +248,7 @@
     },
     "openrouter/anthropic/claude-opus-5.5": {
       "lab": "anthropic",
-      "class": "B",
+      "class": "A",
       "zdrTags": [
         "amazon-bedrock",
         "google-vertex/global",
@@ -263,7 +263,7 @@
       ],
       "labRetention": "inputs and outputs deleted within 30 days; up to 2 years if flagged for a Usage Policy violation",
       "labTraining": "not used to train by default",
-      "wording": "Claude Opus 5.5 via OpenRouter, routed to Bedrock or Vertex endpoints OpenRouter tags zero-data-retention (the EU-tagged endpoints cost 10% more than the shipped price limit of $4 in / $20 out per million tokens, so a seat at that limit does not reach them). Anthropic's own API, not used here, deletes within 30 days by default."
+      "wording": "Claude Opus 5.5 via OpenRouter, routed to Bedrock or Vertex endpoints OpenRouter tags zero-data-retention (two of them EU-tagged: amazon-bedrock/eu-west-1 and google-vertex/europe). That is OpenRouter's record. Anthropic's own API, not used here, deletes within 30 days by default."
     },
     "openrouter/anthropic/claude-sonnet-5.5": {
       "lab": "anthropic",

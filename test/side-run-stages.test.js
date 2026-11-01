@@ -32,9 +32,12 @@ function original() {
 }
 const withOriginal = fn => { const o = original(); try { return fn(o); } finally { rmSync(o.dir, { recursive: true, force: true }); } };
 const replay = (o, cap) => sh(o.dir, ['--replay', o.run, '--replay-date', DATE, '--max-usd', String(cap)]);
+// CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: a $3 cap stopped a side run before the build (the build's WORST case, ~$8.28). NEW: $1: the
+// criteria call fits at its expected cost (~$0.70) and the build's EXPECTED cost (~$1.28 with what was spent) does not. WHY: under $3 every call of this run now fits. Same stop, same stage on disk.
+const CRITERIA_ONLY_CAP = 1;
 
 test('SR-1 a replay stopped at its cap keeps every stage it paid for as <label>.md + <label>.usage.json, and its spend is the usage records\' sum (the stop file\'s figure, not twice that)', () => withOriginal(o => {
-  const r = replay(o, 3);                                                                            // stops before the build stage: only the criteria stage was paid
+  const r = replay(o, CRITERIA_ONLY_CAP);                                                                            // stops before the build stage: only the criteria stage was paid
   assert.equal(r.status, 4, r.stdout + r.stderr);
   assert.ok(existsSync(join(o.replayDir, 'criteria.md')) && existsSync(join(o.replayDir, 'criteria.usage.json')), 'the paid stage is on disk');
   const stop = readJson(join(o.replayDir, 'STOPPED-budget.json'));
@@ -43,7 +46,7 @@ test('SR-1 a replay stopped at its cap keeps every stage it paid for as <label>.
 }));
 
 test('SR-2 a stopped replay is RESUMED, not refused and not re-paid: the paid stages replay from disk and the finished replay costs what one replay costs', () => withOriginal(o => {
-  assert.equal(replay(o, 3).status, 4);
+  assert.equal(replay(o, CRITERIA_ONLY_CAP).status, 4);
   const paidSoFar = runSpentUsd(o.replayDir);
   const r = replay(o, 'none');
   assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -72,7 +75,7 @@ test('SR-4 a stage whose chain changed between sittings is STALE: it re-runs and
   mkdirSync(join(o.dir, 'chains'));
   const chain = readJson(join(root, 'chains', 'mock-budget.json'));
   writeFileSync(join(o.dir, 'chains', 'mock-budget.json'), JSON.stringify(chain));
-  assert.equal(replay(o, 3).status, 4);
+  assert.equal(replay(o, CRITERIA_ONLY_CAP).status, 4);
   const first = runSpentUsd(o.replayDir);
   chain.seats.builder = { ...chain.seats.builder, maxTokens: 20000 };                                    // an edited chain: the inputs fingerprint differs
   writeFileSync(join(o.dir, 'chains', 'mock-budget.json'), JSON.stringify(chain));
@@ -146,7 +149,7 @@ test('SR-7 control: a replay killed while a priced call is in flight leaves a re
 });
 
 test('SR-8 a REMATCH stopped at its cap is resumed the same way: its paid stages replay from disk', () => withOriginal(o => {
-  const first = sh(o.dir, ['--rematch', o.run, '--rematch-seed', '1', '--max-usd', '3']);
+  const first = sh(o.dir, ['--rematch', o.run, '--rematch-seed', '1', '--max-usd', String(CRITERIA_ONLY_CAP)]);
   assert.equal(first.status, 4, first.stdout + first.stderr);
   assert.ok(existsSync(join(o.rematchDir, 'criteria.usage.json')));
   const r = sh(o.dir, ['--rematch', o.run, '--rematch-seed', '1', '--max-usd', 'none']);
@@ -165,7 +168,7 @@ test('SR-9 the side-run stage writer is atomic and cost first (a source scan, as
 });
 
 test('SR-10 the standing question on a SIDE folder: a stage whose usage record exists and whose text is gone (the process ended between the writes) keeps its first payment when the replay resumes', () => withOriginal(o => {
-  assert.equal(replay(o, 3).status, 4);                                                                 // criteria paid, text and cost on disk
+  assert.equal(replay(o, CRITERIA_ONLY_CAP).status, 4);                                                                 // criteria paid, text and cost on disk
   const first = runSpentUsd(o.replayDir);
   const aside = join(o.dir, 'aside'); mkdirSync(aside);
   writeFileSync(join(aside, 'criteria.md'), readFileSync(join(o.replayDir, 'criteria.md')));

@@ -26,8 +26,8 @@
             "zdr": true,
             "data_collection": "deny",
             "max_price": {
-              "prompt": 4,
-              "completion": 20
+              "prompt": 4.4,
+              "completion": 22
             }
           },
           "reasoning": {

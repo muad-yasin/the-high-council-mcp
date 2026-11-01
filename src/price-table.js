@@ -11,6 +11,10 @@
 //   ignoredUserFields(provider, model)  -> ['in' | 'out'] fields where the file's figure is BELOW the shipped one and was not used
 //   setUserPrices(folder)               reads <folder>/pricing.user.json once (no file = no user rows); a file that cannot be read IN FULL throws UserPriceFileError and installs NOTHING (fail closed)
 //   resetUserPrices()                   forget the user rows (tests restore with it; a resume whose recorded folder differs calls setUserPrices again)
+//   rateFor(provider, model, promptTokens)  -> { in, out } | null   (0.8.4 PRICES unit 2b) the price per million tokens of ONE CALL whose prompt is `promptTokens` long: the effective row's figure (its `in`/`out`, which for a tier-driven row is the higher of the figure it had and the dearest eligible host at base price), raised by
+//                                       the SHIPPED row's `tiers`: each { from, in, out } says "from `from` prompt tokens a host can charge in/out", and the call is priced at the highest tier its prompt reaches (a tier below the base never lowers it).
+//                                       A row with NO tiers, NO size asked (promptTokens undefined) and a size under every threshold all give exactly effectiveRow's { in, out }, so every caller that does not pass a size gets the answer it always got. A size is rounded UP to a whole token (271999.5 reaches a 272000 tier). A size that WAS passed but is not a finite number (NaN, null from a failed estimate, Infinity) prices at the dearest tier, like a malformed list: it errs high.
+//                                       A user row (pricing.user.json) can still only RAISE, field by field. A row whose `tiers` is malformed prices at its DEAREST tier for every size (fail closed). `tiersOf(provider, model)` -> the valid tiers, ascending, or [].
 //   userPriceLines()                    the doctor / dry-run lines about user rows ("provider/model: your price row ...") or []
 //   UserPriceFileError                  .message is the sentence a person reads (HELD as an E item), .file, .row, .why
 // MERGE RULE (per field, both `in` and `out`): when the shipped table has a usable row for the key, the effective figure is the HIGHER of the two; a user figure below the shipped one is ignored and named by ignoredUserFields. A model the shipped
@@ -97,6 +101,33 @@ export function effectiveRowByKey(key) {
   return { ...s, in: Math.max(s.in, u.in), out: Math.max(s.out, u.out) };
 }
 export const effectiveRow = (provider, model) => effectiveRowByKey(`${provider}/${model}`);
+
+const validTier = t => !!t && typeof t === 'object' && Number.isInteger(t.from) && t.from > 0 && Number.isFinite(t.in) && t.in > 0 && Number.isFinite(t.out) && t.out > 0;
+/** Pure: the tiers of a row as { tiers: [valid, ascending], malformed } (a row without `tiers` is { tiers: [], malformed: false }). */
+export function parseTiers(row) {
+  if (!row || row.tiers === undefined) return { tiers: [], malformed: false };
+  if (!Array.isArray(row.tiers) || !row.tiers.every(validTier) || row.tiers.some((t, i) => i > 0 && t.from <= row.tiers[i - 1].from)) return { tiers: Array.isArray(row.tiers) ? row.tiers.filter(validTier) : [], malformed: true };
+  return { tiers: row.tiers.map(t => ({ from: t.from, in: t.in, out: t.out })), malformed: false };
+}
+/** Pure: the rate of one call from an effective base { in, out }, a shipped row's tiers and the prompt size. See rateFor above. */
+export function rateOfRow(base, shippedRow, promptTokens) {
+  if (!base) return null;
+  const { tiers, malformed } = parseTiers(shippedRow);
+  if (!tiers.length && !malformed) return base;
+  let hit = null;
+  const dearest = () => tiers.reduce((a, t) => ({ in: Math.max(a.in, t.in), out: Math.max(a.out, t.out) }), { in: 0, out: 0 });
+  if (malformed) hit = dearest();   // fail closed: the dearest tier for every size
+  else if (promptTokens === undefined) hit = null;   // no size asked: the base, as every caller that does not pass one always got
+  else if (!Number.isFinite(promptTokens)) hit = dearest();   // a size that was asked for and is broken (NaN, null from a failed estimate, Infinity): the dearest tier, the same branch as a malformed list
+  else { const n = Math.ceil(promptTokens); for (const t of tiers) if (n >= t.from) hit = t; }   // a fractional size rounds UP, so the cap's projection and the pin's limit can never land on different tiers
+  if (!hit) return base;
+  return { ...base, in: Math.max(base.in, hit.in), out: Math.max(base.out, hit.out) };
+}
+export function rateFor(provider, model, promptTokens) {
+  const key = `${provider}/${model}`; const base = effectiveRowByKey(key);
+  return rateOfRow(base, shippedUsable(key), promptTokens);
+}
+export const tiersOf = (provider, model) => parseTiers(shippedUsable(`${provider}/${model}`)).tiers;
 
 export function priceSource(provider, model) {
   const key = `${provider}/${model}`; const s = shippedUsable(key); const u = userRows.get(key) ?? null;

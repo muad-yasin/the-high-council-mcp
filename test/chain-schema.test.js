@@ -70,3 +70,19 @@ test('chain-schema: "max_proposals_per_seat" is a positive integer at the top le
   assert.ok(validate({ ...base, proposals: { parts: 3, maxProposalsPerSeat: 2 } }), JSON.stringify(validate.errors));
   assert.equal(validate({ ...base, proposals: { maxProposalsPerSeat: 0 } }), false);
 });
+
+// B3 prep, JUDGE lane (severity tags, unit 1): the published schema knows the switch and closes its key set.
+test('chain-schema: severity { enabled } validates; a non-boolean and an extra key do not', () => {
+  const base = JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8'));
+  assert.equal(validate({ ...base, severity: { enabled: true } }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...base, severity: { enabled: 'yes' } }), false);
+  assert.equal(validate({ ...base, severity: { enabled: true, extra: 1 } }), false);
+});
+
+// B3 prep, JUDGE lane (unit H): the published schema knows the end-marker switch and closes its key set.
+test('chain-schema: draft_end_marker { enabled } validates; a non-boolean and an extra key do not', () => {
+  const base = JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8'));
+  assert.equal(validate({ ...base, draft_end_marker: { enabled: true } }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ ...base, draft_end_marker: { enabled: 'yes' } }), false);
+  assert.equal(validate({ ...base, draft_end_marker: { enabled: true, extra: 1 } }), false);
+});

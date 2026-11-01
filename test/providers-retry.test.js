@@ -40,7 +40,7 @@ test('a truncated or HTML 200 is not re-sent, and is marked maybeBilled', async 
 });
 
 test('a failure after sending (reset / headers timeout) is not retried; a refused connection is', async () => {
-  const fail = code => { const e = new TypeError('fetch failed'); e.cause = { code }; return e; };
+  const fail = code => { const e = new TypeError('fetch failed'); e.cause = { code, ...(code === 'ECONNREFUSED' ? { syscall: 'connect' } : {}) }; return e; };   // the observed shape of a refused connection carries its syscall
   await withStub(() => { throw fail('UND_ERR_HEADERS_TIMEOUT'); }, async ({ calls }) => {
     await assert.rejects(ask, err => err.maybeBilled === true);
     assert.equal(calls(), 1);

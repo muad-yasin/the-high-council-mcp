@@ -227,7 +227,8 @@ test('the price at the brief cap: the default seat and the council match the dry
   const council = priceOfChain(chain('advise-standard'), text);
   // The decided council (Sol, GLM-5.3, Gemini 3.8 Flash) at a 3,000-token brief.
   // 2026-10-06 audit: GLM-5.3's output row 4.4 -> 7.0 (the live list), so the council is $1.147 at this brief (was $0.866) and $1.2253 at the cap (was $0.945); the ceiling went $1.20 -> $1.40 (chains/advise-standard.json: it covers the worst case at a 30,000-token brief, $1.382).
-  assert.ok(Math.abs(council.worst - 1.147) < 0.001, `council worst ${council.worst}`);
+  // CHANGED ACCEPTED TEST (price refresh, 1 Nov 2026; "this figure IS $X" against silent drift, so the literal stays). OLD bar: the council is $1.147 worst at this brief and $1.2253 at the cap. NEW bar: $0.9636 and $1.0470. WHY: the refresh set GLM-5.3's rows to 1.68 in / 5.28 out (was 1.4 / 7.0: the dearest eligible host charges less on output than the 0.8.1 audit row said); the ceiling of chains/advise-standard.json stays $1.40 (it still covers the worst case).
+  assert.ok(Math.abs(council.worst - 0.9636) < 0.001, `council worst ${council.worst}`);
   assert.ok(council.floor < council.expected && council.expected < council.worst);
   for (const n of [...Object.values(SEAT_CHAINS), COUNCIL_CHAIN]) {
     const c = chain(n); const p = priceOfChain(c, text);
@@ -238,7 +239,7 @@ test('the price at the brief cap: the default seat and the council match the dry
     const p = priceOfChain(chain(n), 'x'.repeat(BRIEF_MAX_CHARS));
     assert.ok(p.ceiling >= p.worst, `${n}: ceiling ${p.ceiling} covers worst ${p.worst} at the cap`);
   }
-  assert.ok(Math.abs(priceOfChain(chain(COUNCIL_CHAIN), 'x'.repeat(BRIEF_MAX_CHARS)).worst - 1.2253) < 0.002, 'council worst at the cap');
+  assert.ok(Math.abs(priceOfChain(chain(COUNCIL_CHAIN), 'x'.repeat(BRIEF_MAX_CHARS)).worst - 1.0470) < 0.002, 'council worst at the cap');
   assert.equal(priceOfChain(chain('advise-single'), text, { maxUsd: 0.05 }).ceiling, 0.05, 'a caller can only lower the ceiling');
   assert.equal(priceOfChain(chain('advise-single'), text, { maxUsd: 99 }).ceiling, chain('advise-single').advise.usd);
 });
@@ -488,7 +489,7 @@ test('answer: structured fields name the leaning enum, the dissent ids, cost, se
   assert.equal(s.dissent[0].top_risk.quote_status, 'verified');
   assert.equal(s.cost_usd, 0.1234); assert.equal(s.wall_ms, 61000);
   assert.equal(s.brief_sha256, 'a'.repeat(64));
-  assert.deepEqual(s.untrusted_fields, ['answer', 'next_step', 'dissent', 'missing_from_brief', 'dropouts']);
+  assert.deepEqual(s.untrusted_fields, ['answer', 'next_step', 'dissent', 'missing_from_brief', 'dropouts', 'sent_to']);
   assert.match(s.untrusted_notice, /written by AI models/);
   assert.deepEqual(adviceResult({ run: 'R1', report: REPORT(adviseOf({ dissent: [], verdict: 'split' })) }).structuredContent.leaning_words, 'split, no lean');
 });

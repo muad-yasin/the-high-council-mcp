@@ -53,3 +53,7 @@ safely carry. `.gitignore` covers a `.council/` directory as the suggested place
 and your own `COUNCIL_PERSONAS_FILE` - that's a convention, not an enforced one: the environment
 variable accepts any path, and only the `.council/` directory specifically is protected from an
 accidental `git add`.
+
+## Two carriers: debating seats and judges
+
+A persona reaches a prompt by one of two routes, and a seat never uses both. A debating seat (`seats.proposers`) takes `role.persona`: a name resolved against this set, with its voice, used in the debate stage only. A judge (`seats.critics`) takes the field `persona` together with the chain switch `judge_personas`: a plain name that is never looked up in this set, written into the judge's own system prompts (see AI-README, `persona`). The judge route never uses the voices on this page.

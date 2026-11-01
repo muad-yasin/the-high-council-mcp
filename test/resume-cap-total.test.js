@@ -26,12 +26,15 @@ test('--resume --max-usd N is a total: it must cover what is already spent plus 
   assert.equal(run(dir, ['--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '1', '--run-id', RUN]).status, 4);
   const first = stopped(dir);
   assert.equal(first.stoppedAt, 'build');
-  assert.ok(first.spentUsd > 0 && first.projectedStageUsd > 1, 'fixture: something was spent, and the build projects far above the cap');
+  // CHANGED (the expected-cost gate, 27 Okt 2026, and S5-05, 28 Okt 2026). OLD: the next sitting's caps were built from `projectedStageUsd`, the build's WORST case ("above the build alone, below spent + the build"), because the gate refused
+  // on that figure. NEW: the gate decides on the build's EXPECTED cost, and STOPPED-budget.json carries it as `gateStageUsd` next to the worst case (`projectedStageUsd`, which keeps its meaning). WHY: the caps are now derived from the
+  // figure the gate decided on, read from the record, so no number is typed and a change of the mock's expected sizes moves them with it.
+  assert.ok(first.spentUsd > 0 && first.projectedStageUsd > 1 && first.gateStageUsd > 1 && first.gateStageUsd <= first.projectedStageUsd, 'fixture: something was spent, the build would cost more than the cap at its expected figure too, and the gate figure is not above the worst case');
 
-  // Sitting 2: a cap that would be plenty if it were EXTRA spend (it is above the build's projection alone),
-  // but is below spent + projection. It stops at the same stage: the replayed criteria count.
-  const extraWouldFit = first.projectedStageUsd + first.spentUsd / 2;
-  assert.ok(extraWouldFit > first.projectedStageUsd && extraWouldFit < first.spentUsd + first.projectedStageUsd);
+  // Sitting 2: a cap that would be plenty if it were EXTRA spend (it is above the build's gate figure alone),
+  // but is below spent + that figure. It stops at the same stage: the replayed criteria count.
+  const extraWouldFit = first.gateStageUsd + first.spentUsd / 2;
+  assert.ok(extraWouldFit > first.gateStageUsd && extraWouldFit < first.spentUsd + first.gateStageUsd);
   const second = run(dir, ['--resume', `runs/${RUN}`, '--max-usd', String(extraWouldFit)]);
   assert.equal(second.status, 4, second.stdout + second.stderr);
   assert.match(second.stdout, /criteria: .*from disk .*already spent/, 'the replayed stage is shown as already spent');
@@ -39,9 +42,9 @@ test('--resume --max-usd N is a total: it must cover what is already spent plus 
   assert.equal(stopped(dir).capUsd, extraWouldFit);
   assert.ok(Math.abs(stopped(dir).spentUsd - first.spentUsd) < 1e-9, 'nothing new was spent');
 
-  // Sitting 3: a total that covers spent + projection lets the build through, and the run stops at the next
+  // Sitting 3: a total that covers spent + the gate figure lets the build through, and the run stops at the next
   // stage it cannot cover - the cap is still one number for the whole run.
-  const covers = Math.ceil((first.spentUsd + first.projectedStageUsd) * 100) / 100;
+  const covers = Math.ceil((first.spentUsd + first.gateStageUsd) * 100) / 100;
   const third = run(dir, ['--resume', `runs/${RUN}`, '--max-usd', String(covers)]);
   assert.equal(third.status, 4, third.stdout + third.stderr);
   assert.notEqual(stopped(dir).stoppedAt, 'build', 'the build was paid for');

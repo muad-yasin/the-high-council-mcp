@@ -10,9 +10,14 @@ import { approvalValid, foldRecord } from '../src/tree-transitions.js';
 import { MONEY_EPS, acceptAccounting, admitAgainstLimits, budgetOf, effectiveLimits, gateTree, lifetimeCapOf, proposeGrants, topUp } from '../src/tree-budget.js';
 import { registerRoot } from '../src/tree-register.js';
 import { capFor, ceilCents, mockBudgetFigures, shareOver } from './helpers/money-figures.js';
+import { expectedCallUsd } from '../src/cost.js';
 import { GATE_FIELDS, IDS, ROOT_ID, SPLIT_ROOT_HANDOFF_USD, approveFrontier, claim, closedChildTree, closedRootTree, hostnameOf, newTree, reservedLine, registerKid, settledLine, syntheticRun, writeLines } from './helpers/tree-fixture.js';
 
 const cents = n => Math.round(n * 1e6) / 1e6;
+// CHANGED (27 Okt gate, 28 Okt 2026), the cap a member is asked to run under when the test needs it to STOP on a cap. OLD: 9, the member stopped before a call whose WORST case (about 8.5 for the 8000-token build at the
+// $1000/Mtok fixture price) did not fit. NEW: 1. WHY: the gate decides on the expected case, and the whole mock-budget run costs about $0.7, so 9 lets it finish (exit 0). Measured on mock-budget with this file's task: criteria
+// expected $0.70 fits under 1, the build's expected $1.23 does not fit after the $0.05 already spent, so the run stops before the build with a paid stage behind it (test 19 needs one: heldUsd between 30 and 40).
+const STOP_ASK_USD = 1;
 const codes = g => g.problems.map(p => p.code);
 const events = rootDir => readTreeRecord(rootDir).events;
 
@@ -167,6 +172,16 @@ test('the accounting cases (a)-(g), each asserting treeSpent to the cent: no cha
   g = gateTree(k.t.rootDir);
   assert.equal(g.ok, true, JSON.stringify(g.problems));
   assert.equal(cents(g.treeSpentUsd), 0.8); assert.equal(g.addedUsd, 0);
+  // (h) 0.8.4 S5-01: a paid stage file no stage row accounts for is absorbed into totals.usd as unreplayedUsd and attributed through report.json unreplayed[]: the sum check holds, the evidence matches the reservation, counted once
+  k = kid({ run: { report: { totals: { usd: 0.9, unreplayedUsd: 0.3 }, stages: [{ label: 'a', provider: 'openrouter', usd: 0.6, reservationId: 'r1' }], unreplayed: [{ label: 'p', usd: 0.3, reservationId: 'r2' }] } }, lines: [[[reservedLine('r1', 1, 'a'), settledLine('r1', 'recorded', 0.6), reservedLine('r2', 0.5, 'p'), settledLine('r2', 'recorded', 0.3)]]] });
+  g = gateTree(k.t.rootDir);
+  assert.equal(g.ok, true, JSON.stringify(g.problems));
+  assert.equal(cents(g.treeSpentUsd), 0.9); assert.equal(g.addedUsd, 0);
+  // (i) the same paid file under a report from before 0.8.4 (no unreplayed[]): the member's spend adds it (spend.js), so the tree attributes it from the file and counts it once
+  k = kid({ run: { report: { totals: { usd: 0.6 }, stages: [{ label: 'a', provider: 'openrouter', usd: 0.6, reservationId: 'r1' }] }, usage: [{ file: 'p', usd: 0.3, reservationId: 'r2' }] }, lines: [[[reservedLine('r1', 1, 'a'), settledLine('r1', 'recorded', 0.6), reservedLine('r2', 0.5, 'p'), settledLine('r2', 'recorded', 0.3)]]] });
+  g = gateTree(k.t.rootDir);
+  assert.equal(g.ok, true, JSON.stringify(g.problems));
+  assert.equal(cents(g.treeSpentUsd), 0.9); assert.equal(g.addedUsd, 0);
   // (g) a recorded settlement of zero with zero-valued evidence: accepted, contributes nothing
   k = kid({ run: { usage: [{ file: 'x', usd: 0, reservationId: 'r1' }] }, lines: [[[reservedLine('r1', 1, 'x'), settledLine('r1', 'recorded', 0)]]] });
   g = gateTree(k.t.rootDir);
@@ -427,10 +442,10 @@ const usageFiles = dir => readdirSync(dir).filter(f => f.endsWith('.usage.json')
 test('the claim carries the cap: the run is held to min(asked, lifetime cap), both on the event; a cap stop writes node_stopped, keeps the grant held, and a resume asking more is clamped to the grant (C12, C24, C25)', async () => {
   const t = await liveTree();
   const key = approveFrontier(t.rootDir, ['R/M1']); registerKid(t, key, 'R/M1', IDS[0], 40);
-  const first = await kid(t, 'R/M1', IDS[0], { maxUsd: 9 });
+  const first = await kid(t, 'R/M1', IDS[0], { maxUsd: STOP_ASK_USD });
   assert.equal(first.exitCode, 4, first.outputTail);                       // exit 4: the spend cap, and only that
   const claim = nodeEvents(t.rootDir).find(e => e.event === 'node_started' && e.node === 'R/M1');
-  assert.deepEqual([claim.capAskedUsd, claim.lifetimeCapUsd, claim.capUsd], [9, 40, 9], 'asked 9, lifetime cap 40 (the grant): held to 9');
+  assert.deepEqual([claim.capAskedUsd, claim.lifetimeCapUsd, claim.capUsd], [STOP_ASK_USD, 40, STOP_ASK_USD], `asked ${STOP_ASK_USD}, lifetime cap 40 (the grant): held to ${STOP_ASK_USD}`);
   assert.equal(nodeEvents(t.rootDir).at(-1).event, 'node_stopped');
   assert.ok(!nodeEvents(t.rootDir).some(e => e.event === 'node_closed' && e.node === 'R/M1'), 'a cap stop is not a close');
   let b = budgetOf(t.rootDir);
@@ -454,7 +469,7 @@ test('the claim carries the cap: the run is held to min(asked, lifetime cap), bo
 test('a refused start and a cap stop never use each other\'s exit code; api.resume names exit 19 `tree_refused` (C25)', async () => {
   const t = await liveTree();
   const key = approveFrontier(t.rootDir, ['R/M1']); registerKid(t, key, 'R/M1', IDS[0], 40);
-  const stopped = await kid(t, 'R/M1', IDS[0], { maxUsd: 9 });
+  const stopped = await kid(t, 'R/M1', IDS[0], { maxUsd: STOP_ASK_USD });
   assert.equal(stopped.exitCode, 4); assert.notEqual(stopped.status, 'tree_refused');
   // a stale mark: the next resume is a tree refusal, never "raise --max-usd"
   appendTreeEvent(t.rootDir, { event: 'needs_decision_opened', node: 'R/M1', generation: 1, runId: IDS[0], source: 'integration', affected: [{ node: 'R/M1', generation: 1 }] });
@@ -479,7 +494,7 @@ test('the continuation checks: a resume (direct CLI and api.resume) of a member 
     const t = await liveTree();
     const { key, extra = {}, after, reapprove } = await build(t);
     registerChildExtra(t, key, 'R/M1', IDS[0], 40, extra);
-    const first = await kid(t, 'R/M1', IDS[0], { maxUsd: 9 });
+    const first = await kid(t, 'R/M1', IDS[0], { maxUsd: STOP_ASK_USD });
     assert.equal(first.exitCode, 4, `${check}: ${first.outputTail}`);
     const usageBefore = usageFiles(join(t.runsDir, IDS[0])).length;
     after();
@@ -506,7 +521,7 @@ test('the continuation checks: a resume (direct CLI and api.resume) of a member 
   syntheticRun(t, IDS[1], {});
   appendTreeEvent(t.rootDir, { event: 'node_closed', node: 'R/M2', generation: 1, runId: IDS[1], outcome: 'passed', passed: true, status: null, share: 'released' });
   registerChildExtra(t, key1, 'R/M1', IDS[0], 40, { dependsOn: [{ node: 'R/M2', generation: 1 }] });
-  assert.equal((await kid(t, 'R/M1', IDS[0], { maxUsd: 9 })).exitCode, 4);
+  assert.equal((await kid(t, 'R/M1', IDS[0], { maxUsd: STOP_ASK_USD })).exitCode, 4);
   const key2 = approveFrontier(t.rootDir, ['R/M2'], { generation: 2, openedBy: 'e900' });
   registerKid(t, key2, 'R/M2', IDS[2], 10, 2);
   appendTreeEvent(t.rootDir, { event: 'node_started', ...claim('R/M2', IDS[2], process.pid, 2, hostnameOf()) });
@@ -533,6 +548,17 @@ import { root as repoRoot } from './helpers/tree-fixture.js';
 const mockDebate = () => JSON.parse(readFileSync(join(repoRoot, 'chains', 'mock-debate.json'), 'utf8'));
 const pricedSeat = { provider: 'mock', model: 'mock-priced', maxTokens: 50 };
 const hangSeat = port => ({ provider: 'openrouter', model: 'anthropic/claude-opus-5', originalProvider: 'anthropic', maxTokens: 500, baseUrl: `http://127.0.0.1:${port}` });
+// CHANGED (27 Okt gate, 28 Okt 2026), the grant of a member killed mid-call. OLD: 1.4 W, because a second call at its WORST case (W again) could not fit: 2W > 1.4W. NEW: the resume gate prices that second call at its
+// EXPECTED cost E (one attempt, the typical criteria output), and E is far below W (W holds an Anthropic seat's retry at a bigger cap), so 1.4 W held it, the resume sent a call to the server that never answers, and the test waited
+// out its 60 s and 300 s limits instead of stopping with exit 4. WHY a derived grant: it must satisfy W < grant < W + E (the first call fits, a second after the kill does not, and the node still has a live grant), so it is
+// computed from W and from the call's own expected price, never typed: Efloor is expectedCallUsd of an EMPTY prompt, a lower bound of the real E (a real prompt only adds input), and grant = W + Efloor / 2 sits inside the window for any
+// prompt size. The assertion fails loudly if the mock's expected sizes drift, instead of bringing the hang back.
+const hungGrant = W => {
+  const Efloor = expectedCallUsd(hangSeat(1), { system: '', user: '', label: 'criteria' });
+  const grant = W + Efloor / 2;
+  assert.ok(Efloor > 0 && Efloor <= grant && W < grant && grant < W + Efloor, `fixture: W ${W} < grant ${grant} < W + Efloor ${W + Efloor}, so the first call fits and a second one after the kill does not`);
+  return grant;
+};
 const withSeats = (extra) => { const c = mockDebate(); return { ...c, seats: { ...c.seats, ...extra } }; };
 const chainSet = port => ({
   'priced-debate': withSeats({ handoff: pricedSeat }),
@@ -562,7 +588,7 @@ test('`--max-usd none` is refused for a member on every path (the flag, api, a r
   assert.equal(viaApi.exitCode, 19); assert.equal(viaApi.status, 'tree_refused');
   assert.equal(events(t.rootDir).length, before, 'nothing was written to the record');
   // a member stopped at its cap whose run.json says "no cap" (a hand edit, or an old file): a resume without --max-usd inherits it and is refused
-  assert.equal((await kid(t, 'R/M1', IDS[0], { maxUsd: 9 })).exitCode, 4);
+  assert.equal((await kid(t, 'R/M1', IDS[0], { maxUsd: STOP_ASK_USD })).exitCode, 4);
   const rj = join(t.runsDir, IDS[0], 'run.json');
   writeFileSync(rj, JSON.stringify({ ...JSON.parse(readFileSync(rj, 'utf8')), maxUsd: null }));
   const n = events(t.rootDir).length;
@@ -582,7 +608,7 @@ test('one active node: a registration while another node is active is refused, o
   const t = await liveTree();
   const key = approveFrontier(t.rootDir, ['R/M1', 'R/M2']);
   registerKid(t, key, 'R/M1', IDS[0], 60);
-  assert.equal((await kid(t, 'R/M1', IDS[0], { maxUsd: 9 })).exitCode, 4);                    // R/M1 is budget-stopped: not active
+  assert.equal((await kid(t, 'R/M1', IDS[0], { maxUsd: STOP_ASK_USD })).exitCode, 4);                    // R/M1 is budget-stopped: not active
   assert.equal(stateOf(readTreeRecord(t.rootDir)).active, null);
   registerKid(t, key, 'R/M2', IDS[1], 60);                                                    // accepted: the only other open node is stopped
   assert.equal(stateOf(readTreeRecord(t.rootDir)).active, 'R/M2@g1');
@@ -740,7 +766,7 @@ test('SIGKILL a member mid-call, then resume it through the CLI asking --max-usd
     const probe = await killedMidCall({ chainName: 'hang-first', grantOf: () => 50, srv, port });
     const W = unsettledOf(probe.lines)[0].usd;
     assert.ok(W > 0);
-    const grant = W * 1.4;                                                                    // after the kill, a second call (W) cannot fit: 2W > 1.4W
+    const grant = hungGrant(W);                                                               // after the kill, a second call (its expected cost E) cannot fit: W + E > grant (the note above hungGrant)
     const { t, lines } = await killedMidCall({ chainName: 'hang-first', grantOf: () => grant, srv, port });
     const left = unsettledOf(lines); assert.equal(left.length, 1); assert.ok(Math.abs(left[0].usd - W) < 1e-9);
     const g = gateTree(t.rootDir);
@@ -762,7 +788,7 @@ test('SIGKILL a member mid-call, then resume it through the CLI asking --max-usd
     assert.equal(after.addedUsd, 0, 'the tree adds nothing of its own to the unsettled reservation');
     // the stop file holds the total at the stop and runSpentUsd no longer adds the same reservation again (M2e, test/spend-stopped-in-flight.test.js): exactly W, as the plan's check says
     assert.equal(cents(after.treeSpentUsd), cents(W + SPLIT_ROOT_HANDOFF_USD), 'and it is STILL counted once after a capped resume (C1: "its unsettled reservation counted once in treeSpent")');
-    // a second resume of the same node: its only charge is the one in-flight W, so it has a live grant (1.4W - W > 0) and stops at the cap again, exit 4 -- not "no live grant" (exit 19)
+    // a second resume of the same node: its only charge is the one in-flight W, so it has a live grant (grant - W = Efloor / 2 > 0) and stops at the cap again, exit 4 -- not "no live grant" (exit 19)
     const again = await api.resume({ runDir: join(t.runsDir, IDS[0]), cwd: t.work, maxUsd: 30, env: ENV(t.work) });
     assert.equal(again.exitCode, 4, again.outputTail);
     const c3 = nodeEvents(t.rootDir).filter(e => e.event === 'node_resumed' && e.node === 'R/M1').at(-1);
@@ -795,7 +821,7 @@ test('the same kill and resume through api.resume is clamped identically (C2)', 
   const { srv, port } = await hangingServer();
   try {
     const probe = await killedMidCall({ chainName: 'hang-first', grantOf: () => 50, srv, port });
-    const W = unsettledOf(probe.lines)[0].usd; const grant = W * 1.4;
+    const W = unsettledOf(probe.lines)[0].usd; const grant = hungGrant(W);
     const { t } = await killedMidCall({ chainName: 'hang-first', grantOf: () => grant, srv, port });
     const res = await api.resume({ runDir: join(t.runsDir, IDS[0]), cwd: t.work, maxUsd: 30, env: ENV(t.work) });
     assert.equal(res.exitCode, 4, res.outputTail);
@@ -859,7 +885,7 @@ test('a resume of the root, through the CLI and through api.resume, asking a cap
   for (const via of ['cli', 'api']) {
     const t = newTree({ cap: 60, rootChain: 'mock-budget' });
     registerRoot(t.rootDir);
-    const first = await api.run({ chain: 'mock-budget', task: 'tasks/x.md', cwd: t.work, runId: ROOT_ID, treeNode: lineageFile(t.work, 'R'), maxUsd: 9 });
+    const first = await api.run({ chain: 'mock-budget', task: 'tasks/x.md', cwd: t.work, runId: ROOT_ID, treeNode: lineageFile(t.work, 'R'), maxUsd: STOP_ASK_USD });
     assert.equal(first.exitCode, 4, first.outputTail);
     const done = via === 'api'
       ? await api.resume({ runDir: join(t.runsDir, ROOT_ID), cwd: t.work, maxUsd: 1000 })

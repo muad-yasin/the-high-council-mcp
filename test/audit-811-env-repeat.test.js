@@ -23,7 +23,8 @@ test('applyEnvFile reports each repeated MONEY name once, counted with the sette
     MAX_USD_PER_RUN: SENTENCE('MAX_USD_PER_RUN', '/proj/.env', '1, 2 and 3'),
     COUNCIL_MAX_USD_LIMIT: SENTENCE('COUNCIL_MAX_USD_LIMIT', '/proj/.env', '4 and 5'),
   }, 'once each, the export form counts, and the caller gets the one sentence (so every entry says the same)');
-  assert.deepEqual(MONEY_NAMES, ['COUNCIL_MAX_USD_LIMIT', 'MAX_USD_PER_RUN']);
+  // 0.8.4 DUALCAP unit 2: one ceiling setting per billing provider (src/caps.js CAP_CEILING_NAMES, in src/providers.js order) joins the two; a new provider moves this list in the same commit.
+  assert.deepEqual(MONEY_NAMES, ['COUNCIL_MAX_USD_LIMIT', 'MAX_USD_PER_RUN', 'COUNCIL_MAX_USD_LIMIT_ANTHROPIC', 'COUNCIL_MAX_USD_LIMIT_OPENAI', 'COUNCIL_MAX_USD_LIMIT_GOOGLE', 'COUNCIL_MAX_USD_LIMIT_MISTRAL', 'COUNCIL_MAX_USD_LIMIT_DEEPSEEK', 'COUNCIL_MAX_USD_LIMIT_GROQ', 'COUNCIL_MAX_USD_LIMIT_COHERE', 'COUNCIL_MAX_USD_LIMIT_OPENROUTER', 'COUNCIL_MAX_USD_LIMIT_TOGETHER', 'COUNCIL_MAX_USD_LIMIT_ZAI']);
   const none = []; applyEnvFile('MAX_USD_PER_RUN=2\nMAX_USD_PER_RUN=20\n', {}, { onRepeatedMoney: (n, sentence) => none.push(sentence) });
   assert.ok(none[0].startsWith('.env: MAX_USD_PER_RUN is written on lines 1 and 2,'), 'without a label the file is called .env');
 });

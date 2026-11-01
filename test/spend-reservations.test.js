@@ -140,7 +140,9 @@ test('a resume counts it toward the cap: `handoff --from-run` under a cap below 
 
 test('--resume counts an earlier sitting\'s unsettled reservation toward the cap and says so in the log', () => {
   const dir = tmp(); mkdirSync(join(dir, 'tasks'));
-  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a habit tracker.\n');
+  // CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: the one-line task; the build's WORST case crossed the $7 default. NEW: a task of about 40,000
+  // characters, so the first call's EXPECTED cost alone (~$10 at the fixture price) crosses it. WHY: on the one-line task every call now fits, and the run finishes.
+  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a habit tracker.\n' + 'x'.repeat(40000) + '\n');
   const env = { PATH: process.env.PATH, HOME: dir };
   const first = spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 });
   assert.equal(first.status, 4, 'mock-budget stops at the default cap: the fixture the cap tests use');
@@ -189,8 +191,10 @@ test('reservationId (0.8.3 M2, D18): every paid call\'s usage file, its report.j
   const dir = tmp(); mkdirSync(join(dir, 'tasks'));
   writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a habit tracker.\n');
   const env = { PATH: process.env.PATH, HOME: dir };
-  const first = spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '9'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 });
-  assert.equal(first.status, 4, 'mock-budget (fixture prices) stops at a $9 cap, four stages in');
+  // CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: a $9 cap, four stages in (critique-2's WORST case crossed it). NEW: $1.50, three stages in:
+  // criteria, build and critique-1 fit at their EXPECTED cost, revise-1 (~$1.78 with what was spent) does not. WHY: under $9 every call now fits; no cap stops this run four stages in (revise-1's figure is above critique-2's).
+  const first = spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '1.5'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 });
+  assert.equal(first.status, 4, 'mock-budget (fixture prices) stops at a $1.50 cap, three stages in');
   const id = readdirSync(join(dir, 'runs'))[0]; const run = join(dir, 'runs', id);
   const reserved = lines(run).filter(l => l.event === 'reserved');
   const settled = lines(run).filter(l => l.event === 'settled');
@@ -263,7 +267,8 @@ test('reservationId: `superseded[]` in report.json attributes the superseded rec
   const dir = tmp(); mkdirSync(join(dir, 'tasks'));
   writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a habit tracker.\n');
   const env = { PATH: process.env.PATH, HOME: dir };
-  assert.equal(spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '9'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 }).status, 4);
+  // CHANGED (expected-cost gate, 27 Okt 2026): OLD $9, NEW $1.50 (the stop three stages in, as in the test above). WHY: under $9 every call now fits at its expected cost.
+  assert.equal(spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '1.5'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 }).status, 4);
   const id = readdirSync(join(dir, 'runs'))[0]; const run = join(dir, 'runs', id);
   // a stage set aside and paid for again: plant a superseded record with a known id and amount, then finish the run
   mkdirSync(join(run, 'superseded'), { recursive: true });

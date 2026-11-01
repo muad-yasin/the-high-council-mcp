@@ -159,6 +159,16 @@
         "properties": { "label": { "type": "string" }, "usd": { "type": "number", "minimum": 0 }, "reservationId": { "type": ["string", "null"] }, "kind": { "enum": ["waste", "billed"], "description": "Present on a charge record: waste (a discarded attempt) or billed (a call that was sent and may have been billed)." } }
       }
     },
+    "unreplayed": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "Optional. Present only when paid stage files that no stages[] row accounts for were found: the files `totals.unreplayedUsd` absorbed when this report was written, one { label, usd, reservationId } each (reservationId is null for a file written before 0.8.3). Added in 0.8.4.",
+      "items": {
+        "type": "object",
+        "required": ["label", "usd"],
+        "properties": { "label": { "type": "string" }, "usd": { "type": "number", "minimum": 0 }, "reservationId": { "type": ["string", "null"] } }
+      }
+    },
     "maxUsd": {
       "x-stability": "stable",
       "type": ["number", "null"],
@@ -307,7 +317,7 @@
           "round": { "type": "integer" },
           "lab": { "type": "string" },
           "model": { "type": "string" },
-          "verdict": { "enum": ["signed_off", "objected", "passed", "unheard"] },
+          "verdict": { "enum": ["signed_off", "objected", "passed", "unheard"] }, "exchange_cleared": { "type": "boolean", "description": "0.8.4 debate trees, additive: the verdict is signed_off because every objection of this judge was withdrawn in its layer's exchange (B2); on a carried verdict, cleared in the pass it came from." }, "swept_only": { "type": "boolean", "description": "0.8.4, additive, only with the chain's severity switch: the verdict is signed_off although it lists objections, every one rated below the line that holds a sign-off (swept); told apart from a clean sign-off." }, "exchange_changed": { "type": "boolean", "description": "0.8.4 debate trees, additive: a verdict carried from an earlier pass that THIS pass's exchange changed (a new objection named in a post)." }, "sustained": { "type": "array", "items": { "type": "string" }, "description": "Stall escalation: the passed-up objection ids this seat sustained in its ruling; it then holds them as its own, so its verdict reads objected whatever its blind review said." },
           "lane": { "enum": ["correctness_interfaces", "security_failure", "implementation_verification"], "description": "0.8.2 (item 7): the review lane of this seat, present only when the seat has one (the optional plan-lanes-4 chain)." },
           "reason_code": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/abstentionReason" }] },
           "envelope": { "enum": ["missing", "wrong_id"], "description": "Present only on an unheard row of a run that used the verdict envelope (see `verdict_envelope`), and only when the reply was a complete JSON object that carried no review_id and draft_id for this call (`missing`) or ids that were not this call's (`wrong_id`). A reply that was cut off, ended by an error, ran out of reasoning or was not a JSON object at all keeps its `reason_code` and has no `envelope`: its absence never means the ids were fine. `reason_code` keeps its own value." },
@@ -335,13 +345,44 @@
       },
       "description": "Criteria that had been met and then failed again in a later round, with the labs that failed them."
     },
+    "final_read": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["ran", "run_end", "final_sha", "seats"],
+      "description": "B3 prep unit D (additive; present only when the chain sets final_read.enabled): the final read by the top layer at the end of a run, agreed or not. ran false carries a reason (every_top_seat_read_this_plan: every top-layer seat had already read exactly this plan); otherwise each seat that had not read the final plan was asked once (re-asked once on an unreadable reply). A record of what each seat said: it never changes the ending, signoff[], panelVerdicts or passed. final_sha is the 12-hex id of the plan body that was read (the same hash as the verdict envelopes' draft_id).",
+      "properties": {
+        "ran": { "type": "boolean" },
+        "reason": { "enum": ["every_top_seat_read_this_plan"] },
+        "run_end": { "enum": ["agreed", "not_agreed"], "description": "How the run had ended BEFORE the final read: every layer signed off (agreed) or the run ended without agreement. A layer-3 objection in the final read turns an agreed ending into not agreed (outcome, exit code, BOARD banner); passed and signoff[] are never changed." },
+        "final_sha": { "type": "string" },
+        "seats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["lab", "layer", "label", "read", "reasked"],
+            "properties": {
+              "lab": { "type": "string" },
+              "seat": { "type": "string" },
+              "layer": { "type": "integer" },
+              "label": { "type": "string" },
+              "last_read_sha": { "type": ["string", "null"] },
+              "reasked": { "type": "boolean" },
+              "read": { "type": "boolean" },
+              "meets": { "type": "boolean" },
+              "failures": { "type": "array", "items": { "type": "object", "properties": { "criterion": { "type": "string" }, "problem": { "type": "string" }, "fix": { "type": "string" }, "id": { "type": "string" }, "severity": { "$ref": "#/$defs/objection/properties/severity" } } } },
+              "why": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
     "dispute": {
       "x-stability": "experimental",
       "type": "object",
       "required": ["ran", "reason"],
       "properties": {
         "ran": { "type": "boolean" },
-        "reason": { "enum": ["stalled", "round_cap", "no_heard_reviewer", "not_quorate", "panel_signed_off", "no_open_objections", "layer_not_signed_off", "early_finish", "finish_chosen"], "description": "early_finish (0.8.3, a closed enum widened: a reader that validates `reason` strictly must accept it): the run finished early at the session's proposal with the overseer layer's yes (see `stop`); no round cap was reached. layer_not_signed_off (0.8.3): a layered run stopped because a layer gave no usable verdict or the top layer did not sign off explicitly (see layerStop). finish_chosen (0.8.3): the person chose to finish after the run stopped at an overseer or layer limit (see `stop`)." },
+        "reason": { "enum": ["stalled", "round_cap", "no_heard_reviewer", "not_quorate", "panel_signed_off", "no_open_objections", "layer_not_signed_off", "early_finish", "finish_chosen", "escalated_signoff"], "description": "escalated_signoff (stall escalation, 27 Okt 2026, a closed enum widened): the top layer signed off with lower layers passed over (see escalated_signoff); the dispute stage runs over the passed-up objections no ruling closed. stalled now means a stall that ENDED the loop (at the top layer, on an unlayered chain, or on the last pass); a stall that was passed up is in escalations. early_finish (0.8.3, a closed enum widened: a reader that validates `reason` strictly must accept it): the run finished early at the session's proposal with the overseer layer's yes (see `stop`); no round cap was reached. layer_not_signed_off (0.8.3): a layered run stopped because a layer gave no usable verdict or the top layer did not sign off explicitly (see layerStop). finish_chosen (0.8.3): the person chose to finish after the run stopped at an overseer or layer limit (see `stop`)." },
         "stall_rounds": { "type": ["integer", "null"] },
         "stopped_at_round": { "type": ["integer", "null"] },
         "open_objections": {
@@ -354,8 +395,10 @@
               "lab": { "type": ["string", "null"] },
               "problem": { "type": ["string", "null"] },
               "id": { "type": "string", "pattern": "^O-[0-9a-f]{8}$" }, "first_raised_round": { "type": ["integer", "null"] },
+              "severity": { "$ref": "#/$defs/objection/properties/severity" },
               "unheard_in_final_round": { "type": "boolean" },
               "not_asked_in_final_round": { "type": "boolean", "description": "0.8.3, layered chains: the lab raised this in last_raised_round and its layer was not asked in the final round, so it may already be fixed in the final draft." },
+              "escalated_standing": { "type": "boolean", "description": "Stall escalation: this objection stood unchanged up to last_raised_round, was passed up a layer, and no ruling closed it (see escalations)." },
               "last_raised_round": { "type": ["integer", "null"] }
             }
           }
@@ -460,6 +503,37 @@
       },
       "description": "Present only when a policy.json was in force: the checks it configured. Absent means no policy."
     },
+    "judge_personas": {
+      "x-stability": "experimental",
+      "type": "object",
+      "description": "B3 prep (JUDGE lane), additive, present only when the chain's judge_personas switch is on: which persona each judge carried and every place a persona name appears in judge-written text (counted, never redacted).",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "form": { "type": "string" },
+        "name_only": { "type": "array", "items": { "type": "string" } },
+        "seats": { "type": "array", "items": { "type": "object", "properties": { "seat": { "type": "string" }, "layer": { "type": ["integer", "null"] }, "persona": { "type": "string" } } } },
+        "names_in_text": { "type": "array", "items": { "type": "object", "properties": { "where": { "type": "string" }, "seat": { "type": "string" }, "id": { "type": "string" }, "pass": { "type": "integer" }, "name": { "type": "string" }, "own": { "type": "boolean" } } } }
+      }
+    },
+    "severity": {
+      "x-stability": "experimental",
+      "type": "object",
+      "description": "B3 prep (JUDGE lane), additive, present only when the chain's severity switch is on: the severity record of the run. An objection rated 7 or above holds a sign-off until it is fixed, 4 to 6.9 until the debate settles it, below 4 does not hold it (swept). `computed` is false when the run stopped before the end of its last pass was reached: `open_at_end` is then the last pass that was computed (`as_of_pass`), or null with `not_computed` saying why; it is never an empty list that reads as clean. `overrides` lists every later claim of another value for an objection whose first valid tag stands (a downgrade is a judge lowering its own objection and being refused). `withdrawn` lists each withdrawal with the ORIGINAL tag. `retags` lists layer 3's re-tags (each seat's row, the value that applied) and `retags_refused` the ones refused, with why.",
+      "properties": {
+        "lines": { "type": "object", "properties": { "settle": { "type": "number" }, "fix": { "type": "number" } } },
+        "computed": { "type": "boolean" },
+        "as_of_pass": { "type": ["integer", "null"] },
+        "not_computed": { "type": "string" },
+        "unheard_at_end": { "type": "array", "items": { "type": "string" }, "description": "The seats that gave no usable reply in the last pass: their last known objections are in the list, anything new they would have said is not." },
+        "invariant": { "type": "string", "description": "Set when a run that PASSED still lists an objection that holds a sign-off: a defect of the harness, recorded loudly." },
+        "open_at_end": { "type": ["array", "null"], "items": { "$ref": "#/$defs/severityRow" } },
+        "swept": { "type": "array", "items": { "$ref": "#/$defs/severityRow" } },
+        "withdrawn": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "lab": { "type": "string" }, "severity": { "type": ["number", "null"], "minimum": 1, "maximum": 10 }, "band": { "type": "string" }, "state": { "type": "string" }, "how": { "enum": ["exchange", "answer_back"] }, "pass": { "type": "integer" } } } },
+        "overrides": { "type": "object", "properties": { "by_direction": { "type": "object", "properties": { "downgrade": { "type": "integer" }, "upgrade": { "type": "integer" } } }, "rows": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "lab": { "type": "string" }, "first": { "type": "number" }, "claimed": { "type": "number" }, "direction": { "enum": ["downgrade", "upgrade"] }, "pass": { "type": "integer" } } } } } },
+        "retags": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "lab": { "type": "string" }, "seat": { "type": "string" }, "from": { "type": ["number", "null"] }, "to": { "type": "number" }, "applied_to": { "type": "number" }, "by": { "enum": ["layer3", "handler"] }, "pass": { "type": "integer" }, "reason": { "type": "string" } } } },
+        "retags_refused": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": ["string", "null"] }, "seat": { "type": "string" }, "pass": { "type": "integer" }, "why": { "type": "string" } } } }
+      }
+    },
     "security_review": {
       "x-stability": "experimental",
       "type": "object",
@@ -562,7 +636,11 @@
           "layer": { "type": "integer", "minimum": 1 },
           "overseer_round": { "type": "integer", "minimum": 1, "description": "0.8.3, present only on a chain with overseer rounds (maxOverseerRounds): the overseer round this pass belongs to. A round ends only when the top layer gives a verdict; `round` stays the pass number and the stage labels never change." },
           "labs": { "type": "array", "items": { "type": "string" } },
-          "state": { "enum": ["signed_off", "objected", "unheard", "abstained", "not_asked", "unfinished"], "description": "signed_off: every seat of the layer was heard and clear. objected: a seat objected. unheard: nobody objected but a seat was not heard. abstained: asked, but no usable verdict (only stated passes, or in the top layer a seat that did not sign off explicitly). not_asked: a layer below did not sign off, so this one was not started. unfinished: asked and interrupted (a stop, a cap, a wall clock) before it finished." },
+          "state": { "enum": ["signed_off", "objected", "unheard", "abstained", "not_asked", "unfinished", "escalated"], "description": "signed_off: every seat of the layer was heard and clear. objected: a seat objected. unheard: nobody objected but a seat was not heard. abstained: asked, but no usable verdict (only stated passes, or in the top layer a seat that did not sign off explicitly). not_asked: a layer below did not sign off, so this one was not started. unfinished: asked and interrupted (a stop, a cap, a wall clock) before it finished. escalated (stall escalation, 27 Okt 2026; a closed enum widened: a reader that validates `state` strictly must accept it): not asked because objections that stood unchanged were passed up from this layer or one below it; the layers below the floor wait until the top layer gives a verdict (see escalations)." },
+          "sustained": { "type": "array", "items": { "type": "string" }, "description": "Stall escalation, on the row of the layer that ruled: the passed-up objection ids one of its seats sustained (the layer counts as objecting)." },
+          "floor_by": { "enum": ["request"], "description": "B3 prototype, additive, present only on the rows of a pass that a request (--next-pass-layer-3, run.json `ladderSteps`), not the ladder's own count, asked to start at layer 3; the re-ask of such a pass after a layer-3 judge was not heard carries it too." },
+          "escalated_by": { "enum": ["send_up"], "description": "0.8.4, additive, present only on a layer row with state escalated that was left unasked because the person sent the plan up (--send-up); a stall escalation leaves it out." },
+          "raised_again": { "type": "array", "items": { "type": "string" }, "description": "Stall escalation, after the floor reset: ids a judge of this layer raised again although a ruling had closed them; not counted (see escalations[].raised_again)." },
           "ledger": { "type": "object", "required": ["rows", "active", "closed_cut", "chars", "tokens_est"], "properties": { "rows": { "type": "integer" }, "active": { "type": "integer" }, "closed_cut": { "type": "integer" }, "chars": { "type": "integer" }, "tokens_est": { "type": "integer" } }, "description": "Present only on a row of the TOP layer that was shown the objection ledger (a layered chain with answer_back): how many objection rows the section held (rows), how many were open (active), how many closed ones were left out (closed_cut), and the size of the section as sent (chars, and tokens_est = an estimate from UTF-8 bytes / 4 that under-counts non-Latin text). Counts only: the text is in the stage prompt, never copied here." },
           "carried": { "type": "array", "items": { "type": "object", "required": ["lab", "from_round"], "properties": { "lab": { "type": "string" }, "from_round": { "type": "integer" } } }, "description": "Seats of this layer whose verdict is carried from an earlier round on the same unchanged draft (no new call, no new charge)." }
         }
@@ -612,7 +690,7 @@
           "prevail": { "type": "string", "description": "An id from ids, or \"neither\". A ruling annotates; it never closes an objection." },
           "reason": { "type": "string" },
           "ask_person": { "type": "boolean" },
-          "why": { "enum": ["no_decider_seat", "prompt_held", "last_round", "loop_ended", "over_limit", "unreadable_ruling", "decider_unreachable", "person_asked", "tree_member"], "description": "Present when decided is false: why nobody ruled; person_asked: the decider asked for the person and the run stopped for the answer. Present with decided true on tree_member: the ask is not offered to a tree member, so the applied side is neither." },
+          "why": { "enum": ["no_decider_seat", "prompt_held", "last_round", "loop_ended", "over_limit", "unreadable_ruling", "decider_unreachable", "person_asked", "tree_member", "escalated"], "description": "Present when decided is false: why nobody ruled; escalated (stall escalation, a closed enum widened): the pass that found the swing stalled and its objections were passed up a layer instead of going to the decider; person_asked: the decider asked for the person and the run stopped for the answer. Present with decided true on tree_member: the ask is not offered to a tree member, so the applied side is neither." },
           "via": { "type": "string", "description": "Present when the person chose (the channel: cli); no actor is claimed." },
           "decider_prevail": { "type": "string", "description": "What the decider leaned to when it asked for the person (or when the applied side is not its own)." },
           "decider_reason": { "type": "string" }
@@ -625,6 +703,52 @@
       "type": "integer",
       "minimum": 0,
       "description": "0.8.3, present only on a chain with overseer rounds: how many overseer rounds are complete (the top layer gave a verdict in each)."
+    },
+    "escalations": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "Stall escalation (27 Okt 2026), present only when a stall below the top layer was passed up a layer instead of ending the run: one row per escalation. The stalled pass (`round`) made no revise; in `pass` the layers from `to_layer` up were asked, and right after its blind review each seat of `to_layer` ruled on the stuck objections (stage rule-<pass>-<seat>). A sustained objection became the sustaining seat's own (adopted_as); an overruled one is closed for the rest of the run although its raiser did not withdraw it; an undecided one stays standing as its raiser's.",
+      "items": {
+        "type": "object",
+        "required": ["round", "pass", "from_layer", "to_layer", "ids", "rulings", "outcome"],
+        "properties": {
+          "round": { "type": "integer", "minimum": 1, "description": "The pass in which the stall fired." },
+          "pass": { "type": "integer", "minimum": 1, "description": "The pass in which the plan was passed up and ruled on." },
+          "from_layer": { "type": "integer", "minimum": 1, "description": "The highest layer among the labs of the stalled signature." },
+          "to_layer": { "type": "integer", "minimum": 1 },
+          "trigger": { "enum": ["stall", "send_up"], "description": "Why the plan was passed up (0.8.4, additive): stall = the stall rule (the same objections for the stall rule's rounds); send_up = the person sent layer 1's open objections up at a layer-1 revision-bound stop (--send-up); no revision was used." },
+          "ids": { "type": "array", "items": { "type": "string" } },
+          "labs": { "type": "array", "items": { "type": "string" } },
+          "rulings": { "type": "array", "items": { "type": "object", "required": ["seat", "lab", "id", "ruling"], "properties": { "seat": { "type": "string" }, "lab": { "type": "string" }, "id": { "type": "string" }, "ruling": { "enum": ["sustain", "overrule", null] }, "reason": { "type": "string" }, "why": { "type": "string", "description": "Why there is no ruling: prompt_held, ruler_unreachable, unreadable_ruling, unknown_id, overrule_without_reason, conflicting_rulings, no_ruling." } } } },
+          "raised_again": { "type": "array", "description": "After the floor reset: the raiser raised an id again that this escalation's ruling had closed or moved. A quoted re-raise is recorded and not counted; an unquoted one (counted: true) is a live objection again, since its id cannot tell it from another problem under the same criterion.", "items": { "type": "object", "required": ["pass", "lab", "id"], "properties": { "pass": { "type": "integer" }, "lab": { "type": "string" }, "seat": { "type": "string" }, "id": { "type": "string" }, "counted": { "type": "boolean" } } } },
+          "outcome": { "type": "array", "items": { "type": "object", "required": ["id", "lab", "result"], "properties": { "id": { "type": "string" }, "lab": { "type": "string" }, "seat": { "type": "string" }, "layer": { "type": ["integer", "null"] }, "first_round": { "type": ["integer", "null"] }, "problem": { "type": ["string", "null"], "description": "The raiser's words for the objection (model text)." }, "result": { "enum": ["sustained", "overruled", "undecided"] }, "adopted_as": { "type": "array", "items": { "type": "object", "properties": { "lab": { "type": "string" }, "seat": { "type": "string" }, "id": { "type": "string" } } } }, "why": { "type": "string" } } } }
+        }
+      }
+    },
+    "owner_rulings": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "B3 prototype, additive, present only when the person who owns the request gave rulings during the run: one row per approved ruling, oldest first, with the pass it applies from, the ruling as it was shown to him and, when the handler session relayed it, his answer as quoted.",
+      "items": { "type": "object", "required": ["gate", "pass", "text"], "properties": { "gate": { "type": "string" }, "pass": { "type": "integer", "minimum": 1 }, "text": { "type": "string" }, "channel": { "type": ["string", "null"] }, "actor": { "type": ["string", "null"] }, "person_words": { "type": ["string", "null"] }, "at": { "type": ["string", "null"] }, "withdrawn": { "type": "object", "description": "Present when the person took this ruling out of force from a later pass on. The ruling stays in the record: the passes before from_pass carried it.", "required": ["gate", "from_pass"], "properties": { "gate": { "type": "string" }, "from_pass": { "type": "integer", "minimum": 1 }, "channel": { "type": ["string", "null"] }, "actor": { "type": ["string", "null"] }, "person_words": { "type": ["string", "null"] }, "at": { "type": ["string", "null"] } } } } }
+    },
+    "declined_requests": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "B3 prototype, additive, present only when the handler session declined a request it had asked for (a ruling or a withdrawal that was never answered by the person). Such a request set nothing, so it has no person_words and is not in `relayed`; the gate ledger holds the same line.",
+      "items": { "type": "object", "required": ["gate"], "properties": { "gate": { "type": "string" }, "kind": { "type": ["string", "null"] }, "actor": { "type": ["string", "null"] }, "reason": { "type": ["string", "null"] }, "at": { "type": ["string", "null"] } } }
+    },
+    "relayed": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "B3 prototype, additive, present only when the handler session relayed an answer on a person's permission (council relay): one row per relayed answer, oldest first, with the person's words as the handler quoted them. The tool cannot verify the permission; the record shows who relayed it.",
+      "items": { "type": "object", "required": ["gate", "channel", "actor", "person_words", "at"], "properties": { "gate": { "type": "string" }, "kind": { "type": ["string", "null"] }, "channel": { "const": "session" }, "actor": { "type": "string" }, "person_words": { "type": "string" }, "at": { "type": "string" }, "total_usd": { "type": "number" } } }
+    },
+    "escalated_signoff": {
+      "x-stability": "experimental",
+      "type": "object",
+      "required": ["pass", "layer", "below"],
+      "description": "Stall escalation: the ending in which every layer the climb asked signed off, the top layer included, while the layers in `below` were passed over. It is NOT consensus: `passed` stays false (the judges below did not sign off) and `outcome` is not widened; the dispute stage runs over the standing passed-up objections.",
+      "properties": { "pass": { "type": "integer", "minimum": 1 }, "layer": { "type": "integer", "minimum": 1 }, "overseer_round": { "type": "integer", "minimum": 1 }, "below": { "type": "array", "items": { "type": "integer" } }, "requested": { "const": true, "description": "B3 prototype, additive: present (true) when the pass that ended the run was asked to start at layer 3 by a request (--next-pass-layer-3), not by the ladder's own count." }, "ladder": { "const": true, "description": "Present (true) when the run ran under the ladder (run.json `ladder`) and the top layer signed off in a pass that did not ask every layer: the layers in `below` did not read that text." }, "raised_again": { "type": "array", "items": { "type": "string" }, "description": "Present when the sign-off came while a judge still raised ids a ruling had closed (see escalations[].raised_again); below is then empty." } }
     },
     "stop": {
       "x-stability": "experimental",
@@ -753,6 +877,12 @@
       "description": "Table rows a reply carried that named none of the criteria (ticket 16): recorded, never counted for or against any seat. Present only when there were some. Added in 0.8.2.",
       "items": { "type": "object", "required": ["round", "lab", "rows"], "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "rows": { "type": "array", "items": { "type": "string" } } } }
     },
+    "layer_debates": {
+      "x-stability": "experimental",
+      "type": "array",
+      "description": "B2/B3, additive, present only when a layer exchange ran: per pass and layer, the rounds and each objection with its posts, the raiser's answers and the outcome (and, with the severity switch, the objection's severity). Written since 0.8.4's exchange; declared here so a reader can rely on its shape being named.",
+      "items": { "type": "object", "properties": { "pass": { "type": "integer" }, "layer": { "type": "integer" }, "rounds": { "type": "array" }, "objections": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "severity": { "type": ["number", "null"], "minimum": 1, "maximum": 10 } } } } } }
+    },
     "answer_back": {
       "x-stability": "experimental",
       "type": "array",
@@ -771,7 +901,7 @@
       "type": "object",
       "required": ["sha256", "body_sha256", "same_as_signed", "changed_by", "harness_notes"],
       "description": "0.8.2 (A3/F1): the text delivered (deliverable.md). sha256 is of the whole file; body_sha256 of the model-written body without the harness's own blocks. same_as_signed is true when no model stage changed the body after the panel's last review (a harness note alone does not count). changed_by names the model stages that did (dispute, challenge, final_edit); harness_notes the blocks the harness wrote (dissent_block, cold_read_block). re_reviewed is false: the panel is not re-run on a changed text.",
-      "properties": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "body_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "same_as_signed": { "type": "boolean" }, "changed_by": { "type": "array", "items": { "enum": ["dispute", "challenge", "final_edit"] } }, "harness_notes": { "type": "array", "items": { "enum": ["dissent_block", "cold_read_block"] } }, "re_reviewed": { "type": "boolean" } }
+      "properties": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "body_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "same_as_signed": { "type": "boolean" }, "changed_by": { "type": "array", "items": { "enum": ["dispute", "challenge", "final_edit"] } }, "harness_notes": { "type": "array", "items": { "enum": ["dissent_block", "cold_read_block", "escalated_signoff_block", "final_read_block"] } }, "re_reviewed": { "type": "boolean" } }
     },
     "handoff_milestones": {
       "x-stability": "experimental",
@@ -846,7 +976,7 @@
       "x-stability": "experimental",
       "type": "array",
       "description": "With answer_back.enabled: what each judge said about its own earlier objections (the `answers` array of its reply) and what the harness did with it: withdrawn (a quote from the draft was given), withdrawal_refused (no quote found in the draft: the objection stays open), sustained, unknown_id, unreadable_answer (a status that is neither sustained nor withdrawn: the objection stays open), unanswered (no answer at all: since the release after 0.8.2 the judge is asked once more when it signed off clean, and an objection still unanswered stays open, in signoff[].objections with carried_from_round). Present only when there were answers or own objections to answer. Added in 0.8.2. stated_pass_open (0.8.3, layered chains): the judge stated a pass while it still held this objection; a pass is not a withdrawal, so the objection stays open and that pass does not count as sign-off. quoted_from, quoted_ref, quoted_layer (0.8.3, layered chains with answer_back): on a withdrawn row, no quoted_from means the quote was found in the current draft; quoted_from \"reviewer\" means it was found in another judge's recorded row, named by quoted_ref (the lab) and quoted_layer (that row's layer), and the three appear together or not at all.",
-      "items": { "type": "object", "required": ["round", "lab", "id", "effect"], "dependentRequired": { "quoted_from": ["quoted_ref", "quoted_layer"], "quoted_ref": ["quoted_from"], "quoted_layer": ["quoted_from"] }, "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "id": { "type": "string" }, "status": { "type": ["string", "null"] }, "quoted": { "type": "boolean" }, "effect": { "enum": ["withdrawn", "withdrawal_refused", "sustained", "unknown_id", "unreadable_answer", "unanswered", "stated_pass_open"] }, "quoted_from": { "enum": ["reviewer"] }, "quoted_ref": { "type": "string" }, "quoted_layer": { "type": "integer" }, "ask": { "enum": ["asked", "reask_spent", "own_verdict_objects", "layer_objected", "words_not_recorded", "run_stopped"] } } }
+      "items": { "type": "object", "required": ["round", "lab", "id", "effect"], "dependentRequired": { "quoted_from": ["quoted_ref", "quoted_layer"], "quoted_ref": ["quoted_from"], "quoted_layer": ["quoted_from"] }, "properties": { "round": { "type": "integer" }, "lab": { "type": "string" }, "id": { "type": "string" }, "status": { "type": ["string", "null"] }, "quoted": { "type": "boolean" }, "effect": { "enum": ["withdrawn", "withdrawal_refused", "sustained", "unknown_id", "unreadable_answer", "unanswered", "stated_pass_open", "withdrawn_exchange", "swept_carried"], "description": "swept_carried (0.8.4, additive, only with the chain's severity switch; a closed enum widened: a reader that validates `effect` strictly must accept it): the judge left an earlier objection rated below the line that holds a sign-off without an answer; it blocks nothing and the judge is not asked again; `path` says whether a verdict or a stated pass carried it. withdrawn_exchange (0.8.4 debate trees, additive; a closed enum widened: a reader that validates `effect` strictly must accept it): the judge withdrew the objection in its layer's exchange, giving a reason and no quote; it closes the objection like withdrawn, and the objection ledger says so." }, "quoted_from": { "enum": ["reviewer"] }, "quoted_ref": { "type": "string" }, "quoted_layer": { "type": "integer" }, "ask": { "enum": ["asked", "reask_spent", "own_verdict_objects", "layer_objected", "words_not_recorded", "run_stopped"] }, "path": { "enum": ["answer_back", "stated_pass"], "description": "0.8.4, additive, only on a swept_carried row: how the objection was carried without an answer (a verdict that left it unanswered, or a stated pass that carried it)." } } }
     },
     "debate_orders": {
       "x-stability": "experimental",
@@ -1032,6 +1162,7 @@
   },
 
   "$defs": {
+    "severityRow": { "type": "object", "description": "One objection in the severity record: its id, the seat that raised it, the tag in force and the tag as first valid (`original`), the band (fix, settle, sweep or unreadable) and the state.", "properties": { "id": { "type": "string" }, "lab": { "type": "string" }, "original": { "type": ["number", "null"], "minimum": 1, "maximum": 10 }, "severity": { "type": ["number", "null"], "minimum": 1, "maximum": 10 }, "band": { "enum": ["fix", "settle", "sweep", "unreadable"] }, "state": { "type": "string" }, "changes": { "type": "array" } } },
     "abstentionReason": {
       "enum": ["SEAT_UNREACHABLE", "PROVIDER_ERROR", "REPLY_TRUNCATED", "REPLY_UNPARSEABLE", "REASONING_EXHAUSTED", "INCOMPLETE_TABLE"],
       "description": "Closed set (RESERVED_ABSTENTION_REASONS in src/chain.js): why a seat gave no usable reply."
@@ -1055,6 +1186,7 @@
         "lab": { "type": "string", "description": "Present in lastCritique.failures on unanimous chains: the lab that raised it." },
         "quote": { "type": "string" },
         "quote_status": { "enum": ["verified", "unverified", "unquoted"] },
+        "severity": { "type": ["number", "null"], "minimum": 1, "maximum": 10, "description": "B3 prep (JUDGE lane), additive, present only with the chain's severity switch: the raiser's own tag, a number from 1 to 10 in steps of 0.1 (null where an objection has no readable tag). Never a default." },
         "id": { "type": "string", "pattern": "^O-[0-9a-f]{8}$", "description": "0.8.2, additive: a stable id for the problem, the same in every round the same lab raises the same criterion about the same quoted text (src/objection-ids.js)." }
       }
     },
@@ -1224,6 +1356,11 @@
         "input": { "type": "integer", "minimum": 0 },
         "output": { "type": "integer", "minimum": 0 },
         "thinking": { "type": "integer", "minimum": 0 },
+        "cacheAsked": { "enum": ["5m", "1h"], "description": "B3 prep (prompt caching, additive): present only on a call that carried a prompt-cache marker; its lifetime. input then counts only the tokens AFTER the cached head (Anthropic's own figure)." },
+        "cacheRead": { "type": "integer", "minimum": 0, "description": "Tokens read from the cache on a marked call; absent when the response carried no count (unknown, never zero)." },
+        "cacheWrite": { "type": "integer", "minimum": 0, "description": "Tokens written to the cache on a marked call (both lifetimes); absent when unreported." },
+        "cacheWrite1h": { "type": "integer", "minimum": 0, "description": "The 1-hour part of cacheWrite, present only when the response split the write by lifetime." },
+        "cacheCounts": { "enum": ["unknown"], "description": "Present on a marked call whose response carried no cache counts: the call was charged as a full write of its lifetime (the cap errs high)." },
         "stop": { "type": "string", "description": "Provider stop reason, when reported (e.g. 'length', 'max_tokens', 'error')." }
       }
     },
@@ -1265,7 +1402,8 @@
         "total": { "type": "integer", "minimum": 0 },
         "usd": { "type": "number", "minimum": 0, "description": "Priced spend only; includes supersededUsd when present." },
         "unpriced": { "type": "array", "items": { "type": "string" }, "description": "provider/model pairs with no price: their spend is not in usd." },
-        "supersededUsd": { "type": "number", "minimum": 0, "description": "Present when stages were paid for and later superseded (a resume that re-ran them)." }
+        "supersededUsd": { "type": "number", "minimum": 0, "description": "Present when stages were paid for and later superseded (a resume that re-ran them)." },
+        "unreplayedUsd": { "type": "number", "minimum": 0, "description": "Present when paid stage files that no stages[] row accounts for were found when this report was written (an earlier sitting paid for a label the finishing sitting never asked again); included in usd. Added in 0.8.4." }
       }
     },
     "alternatives": {

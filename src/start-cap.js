@@ -39,7 +39,7 @@ const authorized = (auth, gate, via) => ({ status: 'authorized', capUsd: Number(
 //   not above the floor leaves a NOTE and a NEW gate, and the number of screens since the last consumption is bounded.
 //   `history()` (the caller, cli.js) gives { spentUsd, unsettledUsd, floorUsd, suggestedUsd, projectedStageUsd, stopped: { capUsd } | null }: the figures of the run folder, the floor and suggestion from STOPPED-budget.json through src/resume-ceiling.js.
 //   `buildScreen(kind, { history })` returns the screen text (kind run | side | legacy | raise | amend); `scope` is the scope object, written beside the screen as cap-scope-<n>.json so a later amend screen can name what changed.
-export async function authorizeStart({ runDir, runId, resume = false, sideVerb = null, scopeSha256, scope = null, screenText = '', buildScreen = null, history = null, ceiling, interactive, ask, now = () => Date.now() }) {
+export async function authorizeStart({ runDir, runId, resume = false, sideVerb = null, scopeSha256, scope = null, screenText = '', buildScreen = null, history = null, ceiling, interactive, ask, forceRaise = false, relayed = false, now = () => Date.now() }) {
   const auth = runCapAuthority(runDir, { runId, now });
   if (auth.status === 'invalid') return { status: 'refused', code: auth.reason, message: `the record of this run's limit cannot be used (${auth.reason}). Nothing was started.` };
 
@@ -54,14 +54,15 @@ export async function authorizeStart({ runDir, runId, resume = false, sideVerb =
     const lastGate = readGateAnswer(runDir, auth.gate, { now }).gate;
     const bound = lastGate?.cap?.scope_sha256;
     const stoppedAtActive = hist.stopped && Number.isFinite(hist.stopped.capUsd) && Math.round(hist.stopped.capUsd * 1e6) === auth.capMicroUsd;
-    if (bound === scopeSha256 && !stoppedAtActive) return authorized(auth, auth.gate, 'continued');
+    // B3 prototype: `forceRaise` (--raise-cap on a resume) opens a raise although the run has not stopped at its limit; `relayed` makes the gate one the handler session may answer on the person's permission (gate.js, the relay answer).
+    if (bound === scopeSha256 && !stoppedAtActive && !forceRaise) return authorized(auth, auth.gate, 'continued');
     since = auth.seq; previousCapUsd = Number(auth.capUsd);
     if (bound !== scopeSha256) {
       operation = 'amend_scope'; kind = 'amend';
       // what changed: the scope object of that gate, kept beside its screen (cap-scope-<n>.json) and verified against the digest it was bound to; missing or altered -> the screen says it cannot be shown
       const m = /^cap-screen-(\d+)\.md$/.exec(lastGate?.text ?? '');
       if (m && scope) { try { const old = JSON.parse(readFileSync(join(runDir, `cap-scope-${m[1]}.json`), 'utf8')); if (capScopeSha256(old) === bound) changed = changedParts(old, scope); } catch { /* absent or unreadable: changed stays null */ } }
-    } else { operation = 'raise'; kind = 'raise'; }
+    } else { operation = 'raise'; kind = stoppedAtActive ? 'raise' : 'raise_early'; }
   } else if (resume && !all.length) { operation = 'resume_legacy'; kind = 'legacy'; }
 
   const floorMicro = Number.isFinite(hist.floorUsd) && hist.floorUsd > 0 ? Math.ceil(hist.floorUsd * 1e6) : 0;
@@ -89,6 +90,10 @@ export async function authorizeStart({ runDir, runId, resume = false, sideVerb =
     } else if (status === 'approved' && usable && floorMicro > 0 && answer.cap_micro_usd <= floorMicro) {
       note = { code: 'below_floor', message: `the limit typed for this run (${formatUsd(Number(answer.cap_usd))}) is not above what the run has already counted (${formatUsd(hist.floorUsd)}), so it was not used. Nothing was started.` };
       reuse = null;
+    } else if (forceRaise && status === 'approved' && usable && operation === 'raise' && previousCapUsd !== null && Number(answer.cap_usd) <= previousCapUsd) {
+      // raise only: the floor above is the counted spend; a raise must also be above the limit the run has now (a total between the two would LOWER the limit)
+      note = { code: 'not_above_current', message: `the limit typed for this run (${formatUsd(Number(answer.cap_usd))}) is not above the limit it has now (${formatUsd(previousCapUsd)}), so it was not used. Nothing was started.` };   // A-DRAFT
+      reuse = null;
     } else if (status === 'pending' && ceiling && (gate.cap.ceiling_usd === null || ceiling.usd < gate.cap.ceiling_usd)) reuse = null;
   }
   if (reuse?.state.status === 'approved' && reuse.state.usable) return consume(reuse.id);
@@ -108,12 +113,12 @@ export async function authorizeStart({ runDir, runId, resume = false, sideVerb =
     writeFileSync(join(runDir, file), text);   // fs-ok: the run folder, a new name per gate (an older gate's text must keep its bytes)
     if (scope) writeFileSync(join(runDir, `cap-scope-${n}.json`), JSON.stringify(scope));   // fs-ok: the scope object this gate is bound to, verifiable against its digest; a later amend screen names what changed from it
     const cap = { operation, run_id: runId, scope_sha256: scopeSha256, ceiling_usd: ceiling ? ceiling.usd : null, ceiling_source: ceiling ? ceiling.source : null };
-    const made = requestGate(runDir, { kind: RUN_CAP_KIND, textPath: file, cap, expiresAt: now() + CAP_GATE_TTL_MS }, { now });
+    const made = requestGate(runDir, { kind: RUN_CAP_KIND, textPath: file, cap, expiresAt: now() + CAP_GATE_TTL_MS, ...(relayed ? { requestedBy: 'session' } : {}) }, { now });
     if (!made.ok) return { status: 'refused', code: made.code, message: `the limit screen could not be recorded (${made.code}: ${made.message}). Nothing was started.` };
     gateId = made.gate.id;
   }
 
-  if (!interactive) return { status: 'pending', gate: gateId, ...(note ? { note } : {}) };
+  if (!interactive || relayed) return { status: 'pending', gate: gateId, ...(note ? { note } : {}) };   // a relayed gate is answered by the handler session (council gate answer --relayed), never by a prompt in this process
   const code = await ask(runDir, gateId);
   const now2 = readGateAnswer(runDir, gateId, { now });
   if (code === 0 && now2.status === 'approved' && now2.usable) return consume(gateId);

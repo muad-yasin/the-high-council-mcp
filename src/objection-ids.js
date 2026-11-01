@@ -10,11 +10,15 @@
 import { createHash } from 'node:crypto';
 
 const norm = s => String(s ?? '').toLowerCase().replace(/[`*_"'‘’“”]/g, '').replace(/\s+/g, ' ').trim();
+/** A leading list marker a judge copies from the NUMBERED criteria list ("7. The plan ...", "7) ...", "(7) ...", "7: ...") is not part of the criterion: the same criterion, with and without it, is one criterion for the id, the key and the stall signature (found 29 Okt 2026: one objection stood under five ids once a judge began numbering its criteria). Up to three digits and a following space, so "3.5 seconds" and "2024. The plan" are untouched. */
+export const stripListMarker = s => String(s ?? '').replace(/^\s*\(?\d{1,3}[.):]\s+/, '');
 /** The part of the draft an objection is about: its normalised quote, cut at 160 characters ('' when it quotes nothing, which falls back to the old, coarser key). */
 export const problemKey = f => norm(f?.quote).slice(0, 160);
 
 /** The criterion as the id reads it (audit fix 73-verdicts 4): trimming, case, inner spacing, quote marks and a closing full stop do not make a different criterion, so a judge that lists a sustained objection again with a drifted criterion is not given a second id. */
-const criterionKey = f => norm(f?.criterion).replace(/[.;:,]+$/, '');
+/** The identity read of a criterion TEXT: the list marker, case, inner spacing, quote marks and a closing full stop do not make another criterion. The id hashes it; the two other places that compare criterion texts in src/chain.js (pickContestedCriterion, normaliseCritique) read it too. */
+export const criterionKeyOf = c => norm(stripListMarker(c)).replace(/[.;:,]+$/, '');
+const criterionKey = f => criterionKeyOf(f?.criterion);
 
 /** O-xxxxxxxx: the same for the same (lab, criterion, quoted text) in every round. */
 export function objectionId(lab, f) {
@@ -22,7 +26,7 @@ export function objectionId(lab, f) {
 }
 
 /** The key a "first raised" map uses: lab, criterion and problem, so two defects under one criterion keep their own first round. */
-export const objectionKey = f => `${f.lab}\u0000${f.criterion}\u0000${problemKey(f)}`;
+export const objectionKey = f => `${f.lab}\u0000${stripListMarker(f.criterion)}\u0000${problemKey(f)}`;
 
 /** What the stall rule compares round to round (sorted, so seat order never changes it). */
 export const stallSignature = failures => failures.map(objectionKey).sort().join('\n');

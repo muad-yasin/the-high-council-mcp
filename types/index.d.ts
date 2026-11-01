@@ -63,7 +63,10 @@ export interface BudgetStop {
   seat: string;
   spentUsd: number;
   capUsd: number;
+  /** The stopped call's worst case (what is reserved and charged). */
   projectedStageUsd: number;
+  /** The figure the next resume must clear at this stage: the call's expected cost, or the whole worst case when the stage re-runs both attempts. Absent in a record written before 28 Oct 2026 (read it as projectedStageUsd). */
+  gateStageUsd?: number;
 }
 
 export interface RunFolder {

@@ -37,6 +37,7 @@ test('one phrase per unverified item U1-U7, and per limit plan section 7 names',
     ['untested on case-insensitive file systems', /Untested on case-insensitive file systems \(macOS, Windows\)/],
     ['the dry run does not price every cap', /dry run's expected figure does not price every cap/],
     // owner decision 6 Oct 2026 ("2h is OK"): the request deadline went from 45 minutes to 2 hours, so the pinned sentence changed with it.
+    ['with severity on a plan can be signed off while objections rated below 4 stay open', /a plan can be signed off while objections rated below 4 stay open/],
     ['a retry past the request deadline', /whether a reply that long fits inside the 2-hour request deadline is not known/],
     // Moved to the current version by the audit finding cnc-cli-resume F1 (a run paused under 0.8.1 is re-paid on 0.8.2): the sentence names both causes.
     ['a run paused under 0.8.1 is re-paid', /paused under 0\.8\.1 on a chain or a prompt that 0\.8\.2 changed/],
@@ -64,6 +65,14 @@ test('one phrase per unverified item U1-U7, and per limit plan section 7 names',
     ['plugin strict validation warning', /claude plugin validate --strict \.` fails on it: "CLAUDE\.md at the plugin root is not loaded as project context"/],
     // 0.8.3 (lane T, LB group, READ-B LB-2, C&C ruling (ii) 25 Okt 2026): a smaller plan of a tree gets the goal only from a heading of the task, and a task with no heading that can hold the goal (none at all, or only exclusions headings) is given whole.
     ['a smaller plan gets the goal only from a heading; a task with no goal heading is given whole', /A task with no headings at all, or whose only headings are exclusions headings, is given whole\./],
+    // 0.8.4 DUALCAP unit 3a (C&C's rulings of 1 Nov 2026): with per-provider spend caps on, three command classes are refused before anything is sent (src/caps.js capsRefusedClassOf).
+    ['per-provider caps: a tree does not run', /With per-provider spend caps on \(`COUNCIL_SPEND_CAPS`\), a recursive-council tree does not run/],
+    ['per-provider caps: the advice add-on does not run', /With per-provider spend caps on, the advice add-on does not run/],
+    ['per-provider caps: the paid side commands do not run', /With per-provider spend caps on, the paid side commands do not run/],
+    // 0.8.4 (PRICES unit 3, 1 Nov 2026): the host preference file and the one thing about it nobody documents.
+    // 0.8.4 (PRICES unit 2b, 1 Nov 2026): long-prompt price steps are recorded, the cap does not read them yet.
+    ['the spend cap does not yet count long-prompt price steps', /the spend cap and the price limit sent with a call still use the row's base figure/],
+    ['a host preference rests on documented ordering and one undocumented interaction', /does not say how `order` combines with `provider\.max_price`/],
   ];
   const missing = must.filter(([, re]) => !re.test(limits)).map(([name]) => name);
   assert.deepEqual(missing, []);

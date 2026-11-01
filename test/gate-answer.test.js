@@ -226,8 +226,9 @@ const IMPORTERS = {
   // back with the tree's extra rules (channel cli at a terminal only, unused, unexpired: readGateAnswer) and spends it once (recordUse), and it takes the person's answer ONLY through gate-cli.js's answerAtTerminal.
   // It never imports answerGate itself (ANSWERERS below is unchanged) and reads no environment or argv (R1 below scans for that). Every other tree module goes through it, so this is the single added importer.
   // 0.8.3 M6 typed cap T4a (14 Oct 2026): src/start-cap.js is the ONE module of the start path that talks to the gate (find the run's typed limit, request the limit screen's gate, consume the answer once), like src/tree-gate.js for the tree. It never imports answerGate (ANSWERERS is unchanged: the person's
+  // B3 prototype (30 Okt 2026): src/gate-relay-cli.js is the one module that relays a person's permission on the session channel (answerGateAsRelay), kept out of src/gate-cli.js so that file keeps its one-option shape (R7).
   // answer comes through gate-cli.js's answerAtTerminal, passed in by cli.js), reads no environment or argv (R1) and is called only by src/cli.js.
-  'gate.js': ['src/gate-cli.js', 'src/send-path.js', 'src/cli.js', 'src/advice-run.js', 'src/run-status.js', 'src/contract-record.js', 'src/tree-gate.js', 'src/start-cap.js'],
+  'gate.js': ['src/gate-cli.js', 'src/send-path.js', 'src/cli.js', 'src/advice-run.js', 'src/run-status.js', 'src/contract-record.js', 'src/tree-gate.js', 'src/start-cap.js', 'src/gate-relay-cli.js'],
   'gate-ledger.js': ['src/gate.js', 'src/gate-cli.js'],
   // 0.8.2 item 6d: src/contract-cli.js answers its lock and amendment gates through gate-cli.js's terminal answer (answerAtTerminal), never through answerGate itself. 0.8.3 M5b: so does src/tree-gate.js (above).
   'gate-cli.js': ['src/cli.js', 'src/contract-cli.js', 'src/tree-gate.js'],

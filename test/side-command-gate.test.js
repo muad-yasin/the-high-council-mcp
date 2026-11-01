@@ -133,7 +133,9 @@ test('SG-5 a policy that does not apply to mock seats (allowed_providers exempts
 }));
 
 test('SG-6 a replay folder that was started and did not finish: the dry run names the stages already on disk and what a real run would still pay, and changes nothing', () => withOriginal(o => {
-  assert.equal(sh(o.dir, [...COMMANDS.replay(o), '--max-usd', '3']).status, 4);   // stops before the build stage: only the criteria stage was paid
+  // CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: $3 (the build's WORST case, ~$8.28, crossed it). NEW: $1: criteria fits at its expected cost
+  // (~$0.70), the build's EXPECTED cost (~$1.28 with what was spent) does not. WHY: under $3 every call of this run now fits. Same stop, same stage on disk.
+  assert.equal(sh(o.dir, [...COMMANDS.replay(o), '--max-usd', '1']).status, 4);   // stops before the build stage: only the criteria stage was paid
   const before = snapshot(join(o.dir, 'runs'));
   const r = sh(o.dir, [...COMMANDS.replay(o), '--dry-run']);
   assert.equal(r.status, 0, r.stdout + r.stderr);

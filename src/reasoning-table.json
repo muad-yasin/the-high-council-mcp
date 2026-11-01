@@ -742,6 +742,44 @@
       "mandatory": true,
       "source": "openrouter-models",
       "defaultAboveHigh": true
+    },
+    "openrouter/openai/gpt-6.1-terra": {
+      "form": "openrouter-effort",
+      "maxOutput": 128000,
+      "defaultEffort": "medium",
+      "supportedEfforts": [
+        "max",
+        "xhigh",
+        "high",
+        "medium",
+        "low",
+        "none"
+      ],
+      "mandatory": false,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
+    "openrouter/minimax/minimax-m3.1-flash": {
+      "form": "openrouter-effort",
+      "maxOutput": 524288,
+      "defaultEffort": "max",
+      "supportedEfforts": [
+        "max",
+        "xhigh",
+        "high",
+        "medium",
+        "low"
+      ],
+      "mandatory": true,
+      "source": "openrouter-models",
+      "defaultAboveHigh": true
+    },
+    "anthropic/claude-sonnet-5-5": {
+      "form": "anthropic-effort",
+      "maxOutput": 128000,
+      "defaultEffort": "high",
+      "source": "anthropic-effort",
+      "defaultAboveHigh": false
     }
   },
   "unlisted": {

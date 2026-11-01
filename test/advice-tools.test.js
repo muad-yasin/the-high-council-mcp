@@ -330,10 +330,12 @@ test('the default single seat at the real brief cap: GPT-6.1 Sol, priced from th
     // The decided council (decided rule 4, DR-7): Sol, GLM-5.3, Gemini 3.8 Flash; brief 31's table prices it at $0.748 worst.
     assert.deepEqual(sc(c).seats.map(x => x.lab), ['gpt6.1-sol', 'glm5.3', 'gemini3.8-flash']);
     // 2026-10-06 audit: GLM-5.3's output row 4.4 -> 7.0 (the live list), so the council's worst case is about $1.14 at this brief (was $0.87).
-    assert.ok(sc(c).price.worst_usd > 1.05 && sc(c).price.worst_usd < 1.2, `council worst ${sc(c).price.worst_usd}`);
+    // CHANGED ACCEPTED TEST (price refresh, 1 Nov 2026). OLD bar: the council's worst case at this brief is between $1.05 and $1.2. NEW bar: between $0.9 and $1.0 ($0.954). WHY: GLM-5.3's rows moved to the dearest eligible host (1.68 in / 5.28 out, was 1.4 / 7.0).
+    assert.ok(sc(c).price.worst_usd > 0.9 && sc(c).price.worst_usd < 1.0, `council worst ${sc(c).price.worst_usd}`);
     const tools = await s.list();
     assert.match(tools.find(t => t.name === 'council_advise').description, /about \$0\.08\d expected and an upper estimate of \$1\.32 with a brief at the 48,000-character limit/);
-    assert.match(tools.find(t => t.name === 'council_advise').description, /about \$0\.75 expected and an upper estimate of \$1\.40/);
+    // CHANGED ACCEPTED TEST (price refresh, 1 Nov 2026; the description's figure IS what the council costs). OLD bar: about $0.75 expected. NEW bar: about $0.63 expected (the upper estimate stays $1.40). WHY: GLM-5.3's rows moved to the dearest eligible host (1.68 in / 5.28 out, was 1.4 / 7.0), so the council's expected cost fell.
+    assert.match(tools.find(t => t.name === 'council_advise').description, /about \$0\.63 expected and an upper estimate of \$1\.40/);
   } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 

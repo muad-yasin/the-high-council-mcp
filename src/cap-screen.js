@@ -31,9 +31,9 @@ export const ENFORCEMENT_SENTENCES = Object.freeze({
 });
 export const COMPLETION_SENTENCE = 'The run may stop unfinished when the limit that is left cannot cover the next call.';
 
-export function buildCapScreen({ kind = 'run', subject = {}, notesMemory = '', estimate = null, maximum = { unknown: 'it was not computed' }, ceilings = [], suggestion = null, priceAsOf = null, landed = COST_UNIT_LANDED, userPrices = [], history = null } = {}) {
+export function buildCapScreen({ kind = 'run', subject = {}, notesMemory = '', estimate = null, maximum = { unknown: 'it was not computed' }, ceilings = [], suggestion = null, priceAsOf = null, landed = COST_UNIT_LANDED, userPrices = [], preferences = [], history = null } = {}) {
   const what = kind === 'tree' ? 'tree' : kind === 'side' && subject.verb ? subject.verb : 'run';
-  const later = kind === 'legacy' || kind === 'raise' || kind === 'amend';   // T4b2: a run's limit AFTER the first one (or for a run made before the typed limit existed): the figures are what it has already counted
+  const later = kind === 'legacy' || kind === 'raise' || kind === 'raise_early' || kind === 'amend';   // T4b2: a run's limit AFTER the first one (or for a run made before the typed limit existed): the figures are what it has already counted
   const enforcement = enforcementState(landed);
   const fields = {
     estimate: estimate && Number.isFinite(estimate.usd)
@@ -47,6 +47,8 @@ export function buildCapScreen({ kind = 'run', subject = {}, notesMemory = '', e
     suggestion: suggestion && Number.isFinite(suggestion.usd) ? `Configured suggestion: ${formatUsd(suggestion.usd)}${suggestion.source ? ` (from ${suggestion.source})` : ''}. It is shown only; it is not your limit until you type it.` : null,
     // The figures a person is about to rely on, from the project's own price file (never only a label: $0.01 must be visible before typing). The wording is HELD (E item).
     userPrices: userPrices.length ? `Priced from pricing.user.json in your project folder: ${userPrices.map(r => `${r.key} in ${r.in} / out ${r.out} per million tokens${r.src && r.src.in !== r.src.out ? ` (the ${r.src.in === 'shipped' ? 'in' : 'out'} figure is the package's, the higher one)` : ''}`).join('; ')}. THC's cost projection is only as good as those figures.` : null,
+    // 0.8.4 PRICES unit 3: the hosts the project's provider-preference.json asks OpenRouter to try first for this chain's models (the start scope binds the approval to them, so the screen shows them). Omitted when the file names none. The wording is HELD (E item).
+    preferences: preferences.length ? `Host preference from provider-preference.json in your project folder (OpenRouter is asked to try these hosts first, in this order, and any other host only if none of them can serve a call): ${preferences.map(r => `${r.key}: ${r.prefer.join(', ')}`).join('; ')}. A bare tag also covers that provider's regional endpoints, and a host the chain ignores is skipped. It changes the order hosts are tried in, never a price.` : null,
     enforcement: ENFORCEMENT_SENTENCES[enforcement],
     completion: COMPLETION_SENTENCE,
   };
@@ -56,8 +58,9 @@ export function buildCapScreen({ kind = 'run', subject = {}, notesMemory = '', e
   const lines = [];
   if (kind === 'legacy') lines.push(`This run was started before a typed limit existed.`, `Already counted: ${money(h.spentUsd)}${h.unsettledUsd > 0 ? `, of which ${money(h.unsettledUsd)} is for calls that were still running when the run stopped and may or may not have been billed` : ''}.`);
   if (kind === 'raise') lines.push(`This run stopped at its limit of ${money(h.previousCapUsd)}: ${money(h.spentUsd)} counted${Number.isFinite(h.projectedStageUsd) ? `, and the next stage could cost up to ${money(h.projectedStageUsd)}` : ''}.`, ...(Number.isFinite(h.suggestedUsd) ? [`The smallest total that gets past this stop: ${money(h.suggestedUsd)}.`] : []));
+  if (kind === 'raise_early') lines.push(`This run is under a limit of ${money(h.previousCapUsd)}: ${money(h.spentUsd)} counted.`);   // A-DRAFT (B3 prototype: a raise before the run has stopped at its limit)
   if (kind === 'amend') lines.push(Array.isArray(h.changed) && h.changed.length ? `Changed since the limit for this run was typed: ${h.changed.join('; ')}.` : 'Something this run was started with changed since its limit was typed; the earlier state of this run cannot be shown.', `Previous limit: ${money(h.previousCapUsd)}. Already counted: ${money(h.spentUsd)}.`);
-  const floorLine = later && Number.isFinite(h.floorUsd) ? ` It must be above ${money(h.floorUsd)}, what the run has already counted.` : '';
+  const floorLine = kind === 'raise_early' && Number.isFinite(h.previousCapUsd) ? ` It must be above ${money(h.previousCapUsd)}, the limit it has now.` : later && Number.isFinite(h.floorUsd) ? ` It must be above ${money(h.floorUsd)}, what the run has already counted.` : '';   // A-DRAFT for raise_early
   // T5: a side command on a folder that already spent (an earlier sitting of the same rematch or replay, or the original run for handoff / draft / digest): the limit is a TOTAL for that folder, above what it has counted.
   const sideCounted = kind === 'side' && Number.isFinite(h.floorUsd) && h.floorUsd > 0;
   if (sideCounted) { lines.push(`Already counted for this folder: ${money(h.floorUsd)}.`); fields.limit = `Your limit: type the TOTAL, in US dollars, for this run folder as a whole, counting the ${money(h.floorUsd)} the run has already counted (not extra for this ${what} alone). It must be above ${money(h.floorUsd)}. THC refuses any call that would take the total past it.`; }
@@ -67,6 +70,6 @@ export function buildCapScreen({ kind = 'run', subject = {}, notesMemory = '', e
     ? `Continue this run?${subject.chain ? ` Chain: ${subject.chain}.` : ''}${subject.task ? ` Task: ${subject.task}.` : ''}`
     : kind === 'side' ? `Run this ${what}?${subject.chain ? ` Chain: ${subject.chain}.` : ''}${subject.task ? ` Task: ${subject.task}.` : ''}`
     : `Start this ${what}?${subject.chain ? ` Chain: ${subject.chain}.` : ''}${subject.task ? ` Task: ${subject.task}.` : ''}`;
-  const text = [head, '', ...(later ? [...lines, ...fields.ceilings] : [fields.estimate, fields.maximum, ...(notesMemory ? [`Not counted in either figure: ${notesMemory}.`] : []), ...(sideCounted ? lines : []), ...fields.ceilings]), ...(fields.suggestion ? [fields.suggestion] : []), ...(fields.userPrices ? [fields.userPrices] : []), '', fields.limit, '', fields.enforcement, fields.completion].join('\n');
+  const text = [head, '', ...(later ? [...lines, ...fields.ceilings] : [fields.estimate, fields.maximum, ...(notesMemory ? [`Not counted in either figure: ${notesMemory}.`] : []), ...(sideCounted ? lines : []), ...fields.ceilings]), ...(fields.suggestion ? [fields.suggestion] : []), ...(fields.userPrices ? [fields.userPrices] : []), ...(fields.preferences ? [fields.preferences] : []), '', fields.limit, '', fields.enforcement, fields.completion].join('\n');
   return { text, fields, enforcement };
 }

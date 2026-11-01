@@ -47,6 +47,7 @@ import { BUILD_READ_SET } from '../from-run-files.js';
 import { isChainName, chainNameRefusal, DEFAULT_CHAIN, defaultChainNotice, outdatedChainHint } from '../chain-name.js';
 import { registerAdviceTools } from './advice.js';
 import { setUserPrices, resetUserPrices, UserPriceFileError } from '../price-table.js';
+import { setProviderPreference, resetProviderPreference, PreferenceFileError } from '../provider-preference.js';
 import { registerContractTools } from './contract.js';
 import { POLICY_PATH } from '../policy.js';
 import { guardToolRegistration } from './untrusted.js';
@@ -87,6 +88,9 @@ const runsDir = join(work, 'runs');
 // under-count the cap); a fix takes a server restart, because the file is read once.
 let userPriceProblem = null;
 try { setUserPrices(work); } catch (e) { if (!(e instanceof UserPriceFileError)) throw e; resetUserPrices(); userPriceProblem = e; }
+// The host preference (0.8.4 unit 3) has its OWN problem, read the same way: the advice tools refuse BEFORE a person approves when provider-preference.json cannot be read in full, because the CLI child that would run the call refuses at its start and an approved call that never started would still be counted at its full ceiling.
+let preferenceProblem = null;
+try { setProviderPreference(work); } catch (e) { if (!(e instanceof PreferenceFileError)) throw e; resetProviderPreference(); preferenceProblem = e; }
 const cli = join(pkg, 'src', 'cli.js');
 // How to start the CLI as a child process. From source that's `node src/cli.js`; inside a
 // packaged binary (`process.pkg` is set by @yao-pkg/pkg) there is no `node` or on-disk cli.js
@@ -1081,7 +1085,7 @@ server.tool('write_task', 'Write or overwrite a task file under tasks/ (the requ
 // The add-on advisor (brief 29): council_quote and council_advise. They share this server's spawn, status and hold code.
 adviceTools = registerAdviceTools(server, {
   work, runsDir, usdLimit,
-  priceProblem: () => userPriceProblem,
+  priceProblem: () => userPriceProblem ?? preferenceProblem,
   // Advice chains come from the package or the operator's folder only, never <work>/chains/ (decided rule 5d).
   loadChain: name => loadAdviceChain(name, { env: process.env, work }),
   spawnRun: (id, args) => spawnRun(id, args, { adviceStart: true }), // the only caller that can be held by the test seam

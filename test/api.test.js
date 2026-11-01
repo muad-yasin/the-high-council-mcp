@@ -82,6 +82,9 @@ test('with no maxUsd the CLI default ceiling ($7) still applies', async () => {
   const cwd = workdir();
   // mock-budget's worst case is above $7, so the default ceiling must stop it.
   assert.ok(api.price({ chain: 'mock-budget' }).totalUsd > 7);
+  // CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: the one-line task; the build's WORST case crossed $7. NEW: a task of about 40,000 characters, so
+  // the first call's EXPECTED cost alone (its prompt at four characters a token, ~$10 at the fixture price) is above $7 and the default ceiling stops the run there. WHY: on the one-line task every call now fits.
+  writeFileSync(join(cwd, 'tasks', 'x.md'), '# Task\n\nPlan a small todo app.\n' + 'x'.repeat(40000) + '\n');
   const r = await api.run({ chain: 'mock-budget', task: 'tasks/x.md', cwd, env: cleanEnv });
   assert.equal(r.status, 'budget_stopped', r.outputTail);
   assert.equal(api.readRun(r.runDir).budgetStop.capUsd, 7);

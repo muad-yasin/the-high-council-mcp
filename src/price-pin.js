@@ -11,9 +11,16 @@
 //                               both sides carry the filter). A complete pin is returned as the same object. Any other seat, or a seat with no usable row, is returned UNCHANGED. An OpenRouter seat whose
 //                               `extra.provider` or `provider.max_price` is not a plain object THROWS PinRefused (never a pass-through without a pin); chain-lint's `invalid-price-pin` says it first (pinShapeProblem).
 //                               It builds a new object; the seat and its `extra` are never written.
+//                               HOST PREFERENCE (0.8.4 unit 3, src/provider-preference.js): BEFORE any of the returns below (a seat with a complete pin of its own is a seat too), an OpenRouter seat whose model has a row in the project's
+//                               provider-preference.json and whose `extra.provider.order` is not set gets `provider.order` = those endpoint tags (minus any host its own `extra.provider.ignore` bans). A seat's own `order` always wins; `allow_fallbacks`
+//                               and `only` are never written, so the rest of the hosts stay a fallback; with no file the request is the one it always was, byte for byte. The preference changes the order hosts are tried in, never the price.
+//                               PER-CALL TIER (0.8.4 unit 2b, UNWIRED): the optional third argument { promptTokens } is the size of the prompt this call sends; given it, the limit is rateFor(provider, model, promptTokens) of src/price-table.js. NOTHING PASSES IT YET (an ABSENT size gives the base; a size that is passed but broken, NaN or null, prices at the dearest tier, so a caller that means "no size" passes undefined):
+//                               chain.js:1706 and the spend cap's worstCaseOf/costOf are DUALCAP's (4d), so today every pin and every projection is the row's figure, byte for byte as before. Once both pass the size, the pin and the projection are one
+//                               figure per call. Whichever way OpenRouter compares max_price (a host's base or its tier price; its docs do not say), a long call pinned at its tier routes inside the projected ceiling or finds no host and is refused.
 //   ownPinOf(seat)           -> { prompt?, completion? } from the seat's OWN extra.provider.max_price (finite numbers above 0 only), or null. cost.js's worstCaseOf prices a call at max(table row, own pin):
 //                               a pin ABOVE the row raises the projection, a pin below never lowers it.
-import { effectiveRow } from './price-table.js';
+import { effectiveRow, rateFor } from './price-table.js';
+import { orderFor } from './provider-preference.js';
 
 const above0 = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
 const plain = o => !!o && typeof o === 'object' && !Array.isArray(o);
@@ -55,11 +62,20 @@ export class PinRefused extends Error {
   }
 }
 
-export function pinnedExtra(seat, extra) {
+function withPreference(seat, extra) {
+  if (extra?.provider?.order !== undefined) return extra;                           // the seat's own order wins
+  const order = orderFor({ ...seat, extra });
+  if (!order) return extra;
+  const base = plain(extra) ? extra : {};
+  return { ...base, provider: { ...(base.provider ?? {}), order } };
+}
+
+export function pinnedExtra(seat, extra, size) {
   if (seat?.provider !== 'openrouter') return extra;
   const bad = pinShapeProblem({ ...seat, extra });
   if (bad) throw new PinRefused(seat, bad);
-  const row = effectiveRow(seat.provider, seat.model);                              // the shipped row merged with the project's own (a user row can only raise)
+  extra = withPreference(seat, extra);                                              // before every early return below
+  const row = rateFor(seat.provider, seat.model, size?.promptTokens);               // the shipped row merged with the project's own (a user row can only raise), at the tier THIS call's prompt reaches (0.8.4 unit 2b); with no size it is the base, as it always was
   if (!row || !above0(row.in) || !above0(row.out)) return extra;                    // no usable price: no pin (an unpriced seat is already refused under a cap)
   const own = extra?.provider?.max_price ?? {};
   if (above0(own.prompt) && above0(own.completion)) return extra;                   // a complete pin of the user's own: sent exactly as typed

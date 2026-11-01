@@ -125,6 +125,13 @@ const PLACEHOLDER_PLAN = Object.freeze({
   'mock-plan-placeholder-email': `Questions about this plan go to ${['jane.doe', '@', 'mail-corp', '.de'].join('')}.`,
 });
 
+// B3 prep (JUDGE lane, unit 2; test-only): the severity a `mock-exch-*` judge writes on its objection, from a `-sev<value>` suffix of its model string: `-sev6p5` = 6.5, `-sev9` = 9, `-sevnone` = no severity field, `-sevword` = the word "high".
+// The value comes from the model string and never from the prompt's wording. No suffix, no field: every other mock judge is unchanged.
+const mockSeverityOf = (model, ask = 0) => {
+  const m = /-sev((?:none|word|\d+(?:p\d+)?)(?:then(?:none|word|\d+(?:p\d+)?))*)(?:-|$)/.exec(model); if (!m) return {};
+  const steps = m[1].split('then'); const v = steps[Math.min(ask, steps.length - 1)];   // `-sev9then3`, `-sevnonethen6then2` (unit 3, test-only): the Nth ask of this model string in the process uses the Nth step, the last step for every later ask; give each test its own model string, the counter lives in the process
+  return v === 'none' ? {} : { severity: v === 'word' ? 'high' : Number(v.replace('p', '.')) };
+};
 // Asks so far per scripted-judge model string (`mock-critic-script-<pattern>[-suffix]`, below), in this process only.
 const scriptedAsks = new Map();
 const envelopeLastIds = new Map(); // the ids a scripted envelope judge saw on its previous ask (mode `p`), per model string
@@ -392,6 +399,35 @@ async function callMock({ model, system, messages, maxTokens }) {
       : model === 'mock-security-cannot-judge' ? { verdict: 'could_not_judge', reason: 'mock: the deliverable contains no diff to review.', findings: [] }
       : { verdict: 'pass', findings: [] };
     return { text: JSON.stringify(reply), usage: { input: 20, output: 15 }, provider: 'mock', model };
+  }
+  // B2 (debate-084/b2; test/layer-debate.test.js): the exchange inside layer 1. `mock-exch-<post>-<reply>` is a judge that objects like the default scripted critic and, in the exchange, posts <post> on every objection it is
+  // shown (`support`, `contest` quoting the first line of the draft with a reason, `doubt` = insufficient_evidence, `new` = support plus one new objection, `garbled` = no JSON) and answers its own posts with <reply> (`keep`, `withdraw`
+  // with a reason, `amend`). Every other model supports and keeps. The objection ids are read out of the prompt, never built here.
+  if (system.startsWith('You are one reviewer on a panel. You and the other reviewers')) {
+    await new Promise(r => setTimeout(r, 10));
+    const post = /^mock-exch-(support|contest|doubt|new|newlater|garbled|cut|long|flip)-/.exec(model)?.[1] || 'support';
+    // `cut`: the first ask of a prompt ends with a provider error (stop error, the kind draftIncomplete reads), the retry of it answers; `long`: a post whose reason and quote run far past any field cap.
+    if (post === 'cut' && !MOCK_DRAFT_ERROR_SEEN.has(`${model}:${user}`)) { MOCK_DRAFT_ERROR_SEEN.add(`${model}:${user}`); return { text: '', usage: { input: 30, output: 0, stop: 'error' }, provider: 'mock', model }; }
+    if (post === 'garbled') return { text: 'I agree with most of it, but not in JSON.', usage: { input: 30, output: 10 }, provider: 'mock', model };
+    const ids = [...user.matchAll(/^Objection (O-[0-9a-f]{8})$/gm)].map(m => m[1]);
+    const first = (((user.split('# Draft under review\n\n')[1] || '').split('\n').find(l => l.trim().length >= 8)) || '').trim();
+    const later = user.includes('Earlier in this exchange');   // a later round of the exchange: the prompt carries the earlier posts
+    const posts = ids.map(id => post === 'long' ? { on: id, stance: 'support', text: 'y'.repeat(300000) } : (post === 'contest' || (post === 'flip' && !later)) ? { on: id, stance: 'contest', quote: first, text: 'The plan already answers this where it says so.' }
+      : post === 'doubt' ? { on: id, stance: 'insufficient_evidence', text: 'What is shown does not establish it.' } : { on: id, stance: 'support', text: 'It holds against the criteria.' });
+    // `newlater`: support on every ask, and a new defect named from its second exchange call on (the counter lives in the process: give each test its own model suffix)
+    const postCalls = post === 'newlater' ? (scriptedAsks.get(`${model}:post`) ?? 0) : 0; if (post === 'newlater') scriptedAsks.set(`${model}:post`, postCalls + 1);
+    const new_objections = (post === 'new' || (post === 'newlater' && postCalls >= 1)) ? [{ criterion: 'It adds no scope the request did not ask for.', problem: 'The plan names a second deliverable nobody asked for.' }] : [];
+    return { text: JSON.stringify({ posts, new_objections }), usage: { input: 30, output: 30 }, provider: 'mock', model };
+  }
+  if (system.startsWith('You are a reviewer on a panel. Earlier you objected to a plan.')) {
+    await new Promise(r => setTimeout(r, 10));
+    const reply = /^mock-exch-[a-z]+-(keepthenwithdraw|amendonce|keep|withdraw-unargued|withdraw|amend)(?:-short)?(?:-always)?(?:-noanswers)?(?:-late-[a-z0-9]+|-id-[a-z0-9]+)?(?:-sev[a-z0-9]+)?(?:-selfname-[A-Za-z]+)?$/.exec(model)?.[1] || 'keep';
+    const ids = [...user.matchAll(/^Your objection (O-[0-9a-f]{8})$/gm)].map(m => m[1]);
+    const later2 = user.includes('Earlier in this exchange');
+    const replies = ids.map(id => (reply === 'keepthenwithdraw' && later2) ? { id, action: 'withdraw', text: 'The later posts settled it.' } : (reply === 'amendonce' && !later2) ? { id, action: 'amend', text: 'Right in part.', problem: 'Narrowed once: the assumptions section is missing.' } : reply === 'withdraw' ? { id, action: 'withdraw', text: 'The quoted passage settles it.' }
+      : reply === 'withdraw-unargued' ? { id, action: 'withdraw', text: '' }
+      : reply === 'amend' ? { id, action: 'amend', text: 'Right in part.', problem: 'Narrowed: the assumptions section is missing.' } : { id, action: 'keep', text: 'The posts do not change it.' });
+    return { text: JSON.stringify({ replies }), usage: { input: 30, output: 20 }, provider: 'mock', model };
   }
   // Dispute review (2026-09-23): the seat that raised an open objection checks the reviser's last
   // pass. Scripted by a marker in the request, like TRIGGER_DECLINED_TEST, because the seat is a
@@ -661,6 +697,28 @@ async function callMock({ model, system, messages, maxTokens }) {
     if (!cut) return { text: verdict, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(verdict.length / 4), stop: 'stop' }, provider: 'mock', model };
     return { text: `${verdict}\n\nNotes on the remaining sections: the rollout order in sect`, usage: { input: 10, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model };
   }
+  // B2 (test/layer-debate.test.js): the judge family `mock-exch-*` as a critic: it objects to the first draft under the second default criterion WITH a full table (FAILED on that criterion, MET on the others, evidence on every row), and
+  // once the draft is revised it signs off with a full MET table. With answer_back on it answers each earlier objection id its prompt lists, withdrawing with a quote of the revised draft.
+  if (isCritic && model.startsWith('mock-exch-')) {
+    await new Promise(r => setTimeout(r, 10));
+    // `-cutreask` (unit V fix, test-only): the SECOND ask of this model string in the process (a re-ask) is cut off at the cap, so the bigger-cap retry of a re-ask can be driven; every other ask answers as the mode says. Give each test its own suffix, the counter lives in the process.
+    if (model.includes('-cutreask')) { const asked = scriptedAsks.get(model) ?? 0; scriptedAsks.set(model, asked + 1); if (asked === 1) return { text: '{"meets": false, "failures": [{"criterion": "It states', usage: { input: 30, output: maxTokens ?? 8000, stop: 'length' }, provider: 'mock', model }; }
+    const listed = (user.match(/# Acceptance criteria\n\n([\s\S]*?)\n\n#/) || [])[1] || '';
+    const names = listed.split('\n').map(l => l.replace(/^\d+\.\s*/, '').trim()).filter(Boolean);
+    const bad = 'It states the assumptions it was written under.';
+    const revised = user.includes('REVISED MOCK DELIVERABLE') && !model.includes('-always');   // `-always`: objects to every draft, revised or not (a judge that raises the same point again)
+    // `-late-<id>`: the first ask of this model string in the process is unreadable (an unheard judge), later asks answer as the mode says; give each test its own id, the counter lives in the process
+    if (model.includes('-late-')) { const asked = scriptedAsks.get(model) ?? 0; scriptedAsks.set(model, asked + 1); if (asked === 0) return { text: 'I could not finish my review.', usage: { input: 30, output: 10 }, provider: 'mock', model }; }
+    const sevAsk = /-sev[^-]*then/.test(model) ? (scriptedAsks.get(`${model}:sev`) ?? 0) : 0; if (/-sev[^-]*then/.test(model)) scriptedAsks.set(`${model}:sev`, sevAsk + 1);
+    const full = names.map(criterion => ({ criterion, verdict: !revised && criterion === bad ? 'FAILED' : 'MET', evidence: 'Section 1 states it.' }));
+    const rows = model.includes('-short') ? full.slice(0, -1) : full;   // `-short`: the table skips the last criterion
+    const section = user.split('# Your objections from the last round, and what happened')[1] || '';
+    const answers = revised && !model.includes('-noanswers') ? [...section.matchAll(/^- (O-[0-9a-f]{8}):/gm)].map(m => ({ id: m[1], status: 'withdrawn', evidence: 'It now reads "REVISED MOCK DELIVERABLE" at the top.' })) : [];
+    const body = revised ? { meets: true, criteria: rows, failures: [], ...(answers.length ? { answers } : {}), verdict_line: 'All criteria met.' }
+      : { meets: false, criteria: rows, failures: [{ criterion: bad, problem: model.includes('-selfname-') ? `${model.split('-selfname-')[1]} reports: No assumptions section.` : 'No assumptions section.', fix: 'Add one.', ...mockSeverityOf(model, sevAsk) }], verdict_line: 'One criterion failed.' };   // `-selfname-<Name>` (unit P, test-only): the judge writes the name it was given into its own objection, so the detector and the anonymity path can be exercised; the name comes from the model string, never from the prompt wording
+    const text = JSON.stringify(body);
+    return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
+  }
   // Criterion kinds (src/criteria-kinds.js): a critic that signs off with every criterion MET and
   // no evidence at all - the "met on trust" reply the chain must record on a checkable criterion.
   if (isCritic && model === 'mock-critic-bare-met') {
@@ -781,8 +839,8 @@ async function callMock({ model, system, messages, maxTokens }) {
       scriptedAsks.set(model, asked + 1);
       const objects = script[Math.min(asked, script.length - 1)] === 'x';
       const text = JSON.stringify(objects
-        ? { meets: false, criteria: [], failures: [{ criterion: 'It states the assumptions it was written under.', problem: 'No assumptions section.', fix: 'Add one.' }], verdict_line: 'One criterion failed.' }
-        : { meets: true, criteria: [], failures: [], verdict_line: 'All criteria met.' });
+        ? { meets: false, criteria: [], failures: [{ criterion: 'It states the assumptions it was written under.', problem: 'No assumptions section.', fix: 'Add one.', ...mockSeverityOf(model) }], verdict_line: 'One criterion failed.' }
+        : { meets: true, criteria: [], failures: [], verdict_line: 'All criteria met.' });   // `-sev<N>` in the suffix (test-only) tags the objection, as for the mock-exch judges
       return { text, usage: { input: Math.ceil(user.length / 4), output: Math.ceil(text.length / 4) }, provider: 'mock', model };
     }
     // The scripted critic fails the first draft and passes the revision, so a
@@ -973,12 +1031,28 @@ export function envKeyName(provider) {
 // - a failure after the request went out is thrown at once, marked `maybeBilled` - invoke() in
 //   chain.js charges it to the run's spend at its projected cost, because its usage is unreadable;
 // - a 429/5xx `Retry-After` header is honoured (capped), and there is no sleep after the last try.
-const PRE_SEND_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'UND_ERR_CONNECT_TIMEOUT']);
+// S6-10 (0.8.4): "nothing was sent" is decided by WHAT FAILED, not by a list of error codes. A failure of the name lookup (`getaddrinfo`) or of the connect (`connect`) cannot have put the request on the wire, whatever its code
+// (EADDRNOTAVAIL was observed and was on no list, so it was charged as a possibly billed send). Undici's connect timeout carries no syscall, so it stays by name. A dual-stack name fails as an AggregateError (one error per address
+// tried) whose own `.code` is only the FIRST member's: it counts only if EVERY member qualifies. Everything else - a read, a reset, a headers or body timeout, an error with no syscall and a code we do not know, a getter that
+// throws - is not proven pre-send, so it is post-send: marked `maybeBilled`, never re-sent. `explainFetchFailure` wraps the fetch error, so the walk goes down `.cause` to the first level that says what failed.
+const PRE_SEND_SYSCALLS = new Set(['getaddrinfo', 'connect']);
+const connectStage = e => PRE_SEND_SYSCALLS.has(e?.syscall) || e?.code === 'UND_ERR_CONNECT_TIMEOUT';
+function failedBeforeSend(err) {
+  try {
+    const seen = new Set();
+    for (let node = err, depth = 0; node && typeof node === 'object' && !seen.has(node) && depth < 8; node = node.cause, depth++) {
+      seen.add(node);
+      if (Array.isArray(node.errors)) return node.errors.length > 0 && node.errors.every(m => m && typeof m === 'object' && connectStage(m));
+      if (node.syscall !== undefined || node.code === 'UND_ERR_CONNECT_TIMEOUT') return connectStage(node);
+    }
+  } catch { /* a throwing getter: unknown, so not proven pre-send */ }
+  return false;
+}
 const RETRY_AFTER_MAX_MS = 120_000;
 export function isRetryable(err) {
   if (err.status) return err.status === 429 || err.status >= 500;
   if (err.maybeBilled) return false;
-  return PRE_SEND_CODES.has(err.cause?.code ?? err.code);
+  return failedBeforeSend(err);
 }
 
 // Test seam, same setter style as chain.js's setBudget/setCache: lets the retry tests run without
@@ -1069,16 +1143,26 @@ async function post(url, headers, body, label) {
     } catch (err) {
       // No response. Only a failure to connect proves the request never reached the provider;
       // anything else (reset mid-request, headers timeout) may have started a billed generation.
-      if (!PRE_SEND_CODES.has(err.cause?.code ?? err.code)) err.maybeBilled = true;
-      const explained = explainFetchFailure(err, label, parsed);
-      explained.message = scrubSecrets(explained.message, headers);   // audit A2-1: the fetch layer can echo a rejected header value, i.e. the key
-      throw explained;
+      const billed = !failedBeforeSend(err);   // never throws
+      let thrown;
+      try {
+        if (billed) err.maybeBilled = true;
+        const explained = explainFetchFailure(err, label, parsed);
+        explained.message = scrubSecrets(explained.message, headers);   // audit A2-1: the fetch layer can echo a rejected header value, i.e. the key
+        explained.causeText = causeTextOf(err); explained.failureHost = parsed.hostname; explained.causeClass = 'transport';   // S6-01: tokens only, no message text
+        thrown = explained;
+      } catch {
+        // S6-10: reading the error (a getter that throws on its name or message) must never replace it with the getter's error, which would carry no `maybeBilled`: the call would be lost from the cap. The fallback says the label
+        // only (no text from the error, so nothing to scrub), and keeps the flag decided above.
+        thrown = Object.assign(new Error(`${label}: the request failed`), { causeClass: 'transport', failureHost: parsed.hostname, ...(billed ? { maybeBilled: true } : {}) });
+      }
+      throw thrown;
     }
     if (!res.ok) {
       const detail = (await res.text().catch(() => '')).slice(0, 600);
       const hint = accountHint(res.status, label);
       const err = new Error(`HTTP ${res.status} ${detail}${hint ? `\n  what to do: ${hint}` : ''}`);
-      err.status = res.status;
+      err.status = res.status; err.failureHost = parsed.hostname;
       err.retryAfterMs = retryAfterMs(res.headers?.get?.('retry-after'));
       throw err;
     }
@@ -1088,12 +1172,12 @@ async function post(url, headers, body, label) {
     catch (cause) {
       if (cause?.name === 'TimeoutError' || signal.aborted) {
         const err = new Error(`${label}: no complete response within ${Math.round(requestDeadlineMs / 1000)} s (request deadline) - not retried, the generation was probably already billed`);
-        err.cause = cause; err.maybeBilled = true;
+        err.cause = cause; err.maybeBilled = true; err.causeText = causeTextOf(cause); err.failureHost = parsed.hostname; err.causeClass = 'transport';
         throw err;
       }
       const what = cause?.name === 'SyntaxError' ? `HTTP 200 but the body is not JSON (${cause.message})` : `the connection dropped while reading a 200 response (${cause?.message})`;
       const err = new Error(`${label}: ${what} - not retried, the generation was probably already billed`);
-      err.cause = cause; err.maybeBilled = true;
+      err.cause = cause; err.maybeBilled = true; err.causeText = causeTextOf(cause); err.failureHost = parsed.hostname; err.causeClass = cause?.name === 'SyntaxError' ? 'unreadable_reply' : 'transport';
       throw err;
     }
   }, { label });
@@ -1111,6 +1195,52 @@ function scrubSecrets(message, headers) {
   return out;
 }
 
+// S6-01 (0.8.4): the facts of a failed call, said once. Node's fetch hides the real cause one or two levels down ("fetch failed" is a TypeError whose `cause` is the error that says what happened, or an
+// AggregateError of one per address tried), and a run's stop line, STOPPED-error.json and a charge file all printed only the top message. causeTextOf walks the cause chain and says each level as tokens
+// (error name, code, syscall) and, for an AggregateError, its members. It is built from those tokens ONLY, never from a `message`: a message can echo a header value (the key) or a URL, and that is the one thing
+// this text must not do. A token that is not plain letters, digits and `_ . -` is dropped. Everything the CLI and the charge file print comes through failureFactsOf, so the rule lives here.
+const FACT_TOKEN = /^[A-Za-z0-9_.-]{1,64}$/;
+const factToken = v => { try { return typeof v === 'string' && FACT_TOKEN.test(v) ? v : null; } catch { return null; } };
+const levelText = x => [factToken(x?.name), factToken(x?.code), factToken(x?.syscall)].filter(Boolean).join(' ');
+export function causeTextOf(err) {
+  const levels = [];
+  const seen = new Set();
+  for (let x = err, depth = 0; x && typeof x === 'object' && !seen.has(x) && depth < 6; depth++) {
+    seen.add(x);
+    try {   // S6-10: a getter that throws (on name, code, syscall or errors) ends the text; it must never replace the error being explained, which is the one carrying `maybeBilled`
+      let text = levelText(x);
+      if (Array.isArray(x.errors) && x.errors.length) text += ` [${x.errors.slice(0, 6).map(levelText).filter(Boolean).join(', ')}]`;
+      if (text && text !== levels.at(-1)) levels.push(text);
+      x = x.cause;
+    } catch { break; }
+  }
+  return levels.join(' > ').slice(0, 300);
+}
+// S6-02 (0.8.4): what KIND of failure a thrown provider error is, for STOPPED-error.json's `causeClass`, from flags only, never from message text. `transport`: no answer came back, or the connection dropped or timed out while one was read
+// (set where post() throws). `http_status`: the provider answered with a non-2xx status. `provider_body`: the provider answered 200 and the body is an error. `unreadable_reply`: the provider answered 200 and the reply could not be read (a body that is not JSON, or one the adapter's own parsing threw on: the marked-billed path). `other`: no flag reached this throw (a guard, a lint, a mock, a crash).
+// `transient` keeps its meaning (the same call may pass if asked again, and never for a call that may have been billed); this says what happened, so a person or an agent can tell a dropped connection from a refusal.
+export const CAUSE_CLASSES = Object.freeze(['transport', 'http_status', 'provider_body', 'unreadable_reply', 'other']);
+export function causeClassOf(err) {
+  if (CAUSE_CLASSES.includes(err?.causeClass)) return err.causeClass;
+  if (Number.isInteger(err?.status)) return 'http_status';
+  if (err?.errorBody || err?.providerCode !== undefined) return 'provider_body';
+  return 'other';
+}
+// The ONE rule for a serving-endpoint name (OpenRouter's `provider` field): router-written text, so only a plain short name passes: letters, digits, space and . _ - / ( ) : +, 1-64 characters, at least one letter or digit,
+// no space at either end. Anything else is left out, never cleaned. The usage file, the audit line, the advice report's `served_by`, a charge file and the stop record all take the name from here.
+export const endpointNameOf = v => (typeof v === 'string' && /^[A-Za-z0-9 ._\-/():+]{1,64}$/.test(v) && /[A-Za-z0-9]/.test(v) && v === v.trim() ? v : null);
+export const hostOfUrl = url => { try { return new URL(url).hostname || null; } catch { return null; } };
+/** What a thrown provider error says about itself, for the stop line, STOPPED-error.json and a charge file: `cause` (causeTextOf), `host` (the request URL's hostname: never userinfo, path or query) and `providerCode` (a 200 body's error code: a number or a plain token). Empty when none is known. */
+export function failureFactsOf(err) {
+  const out = {};
+  if (typeof err?.causeText === 'string' && /^[A-Za-z0-9_.\-\s>\[\],]{1,300}$/.test(err.causeText)) out.cause = err.causeText;
+  if (typeof err?.failureHost === 'string' && /^[A-Za-z0-9.\-:\[\]]{1,255}$/.test(err.failureHost)) out.host = err.failureHost;
+  const code = err?.providerCode;
+  if (Number.isFinite(code) || factToken(code)) out.providerCode = code;
+  const served = endpointNameOf(err?.failureEndpoint); if (served) out.endpoint = served;
+  return out;
+}
+
 // Turns the two opaque no-response failures into something an operator can act on, and keeps
 // any URL credentials out of the message. The error object (flags, cause) is preserved.
 //
@@ -1120,7 +1250,7 @@ function scrubSecrets(message, headers) {
 // `maybeBilled`, so a possibly-billed stalled call went uncounted by the cap. It now returns a new
 // Error that carries the original as `cause`, plus the flags and codes the retry logic reads.
 function explainFetchFailure(err, label, url = null) {
-  const code = err.cause?.code ?? err.code;
+  let code; try { code = err.cause?.code ?? err.code; } catch { /* a throwing getter: no code, and the error still gets explained (S6-10) */ }
   let message = err.message;
   if (code === 'ECONNREFUSED' && url) {
     // "fetch failed" was all a first-time user saw when Ollama was not running (walked 2026-09-25).
@@ -1140,11 +1270,52 @@ function explainFetchFailure(err, label, url = null) {
 
 // BUG-C-032: the mark post() puts on a failure after a 200 (see there), for an adapter's own parsing of that 200. Never throws itself: a thrown non-object is returned as it is.
 function markBilled(err) {
-  if (err !== null && typeof err === 'object') { try { err.maybeBilled = true; } catch { /* a frozen error object keeps its own flags */ } }
+  if (err !== null && typeof err === 'object') { try { err.maybeBilled = true; err.causeClass ??= 'unreadable_reply'; } catch { /* a frozen error object keeps its own flags */ } }   // S6-02: a 200 the adapter could not read
   return err;
 }
 
-async function callAnthropic({ model, system, messages, maxTokens, temperature, extra }) {
+// Prompt caching, off unless a caller passes `cache` (nothing in production does yet, 0.8.4 B3 prep unit 1).
+// Shape read from https://platform.claude.com/docs/en/build-with-claude/prompt-caching on 2026-11-01: a content block carries
+// cache_control { type: 'ephemeral' } (5-minute lifetime, the default) or { type: 'ephemeral', ttl: '1h' } (no beta header);
+// the breakpoint caches system + messages up to and including that block; Anthropic's usage.input_tokens then counts only the
+// tokens AFTER the last breakpoint, so a cached call's input is no longer the whole prompt (the cost side prices the three
+// counts below; until it does, a caller must not turn this on for a paid call - cost.js costOf still prices input/output only).
+// `cache` = { head, ttl }: `head` is the leading text of the LAST user message that the cache covers (the caller knows where
+// its stable part ends; this adapter never searches the prompt for a heading); `ttl` is '5m' or '1h' (default '1h').
+export const CACHE_TTLS = ['5m', '1h'];
+export function anthropicMessages(messages, cache) {
+  const plain = messages.map(m => ({ role: m.role, content: m.content }));
+  if (cache === undefined || cache === null) return plain;
+  const { head, ttl = '1h' } = cache;
+  if (typeof head !== 'string' || head === '') throw new Error('cache: "head" must be the non-empty leading text of the user message to cache (nothing was sent)');
+  if (!CACHE_TTLS.includes(ttl)) throw new Error(`cache: ttl must be one of ${CACHE_TTLS.join(', ')}, got ${JSON.stringify(ttl)} (nothing was sent)`);
+  const at = plain.length - 1;
+  const last = plain[at];
+  if (!last || last.role !== 'user' || typeof last.content !== 'string' || !last.content.startsWith(head)) {
+    throw new Error('cache: the last message is not a user message that starts with "head", so no breakpoint can be placed (nothing was sent)');
+  }
+  const marker = { type: 'ephemeral', ...(ttl === '1h' ? { ttl: '1h' } : {}) };
+  const rest = last.content.slice(head.length);
+  // The API refuses an empty text block, so a head that is the whole message carries the marker alone.
+  plain[at] = { role: 'user', content: [{ type: 'text', text: head, cache_control: marker }, ...(rest === '' ? [] : [{ type: 'text', text: rest }])] };
+  return plain;
+}
+
+// The cache counts of an Anthropic usage object, named apart from readUsage's `cached` key. A count the response does not carry is
+// ABSENT, never 0 (brief 48 R3: unknown is not zero); a value that is not a whole non-negative number is treated as not carried.
+// cacheRead = cache_read_input_tokens; cacheWrite = cache_creation_input_tokens (all lifetimes); cacheWrite1h = the 1-hour part of
+// cache_creation, present only when the response splits by lifetime (the 5-minute part is cacheWrite - cacheWrite1h).
+export function cacheCountsOfAnthropic(u) {
+  const count = v => (Number.isInteger(v) && v >= 0 ? v : undefined);
+  const out = {};
+  const read = count(u?.cache_read_input_tokens), write = count(u?.cache_creation_input_tokens), h1 = count(u?.cache_creation?.ephemeral_1h_input_tokens);
+  if (read !== undefined) out.cacheRead = read;
+  if (write !== undefined) out.cacheWrite = write;
+  if (h1 !== undefined) out.cacheWrite1h = h1;
+  return out;
+}
+
+async function callAnthropic({ model, system, messages, maxTokens, temperature, extra, cache }) {
   const key = keyFor('anthropic');
   if (!key) throw new Error(keyProblem('ANTHROPIC_API_KEY') ? `ANTHROPIC_API_KEY is set but not usable: ${MALFORMED_KEY_HINT}` : 'ANTHROPIC_API_KEY not set');
   const json = await post(
@@ -1159,7 +1330,7 @@ async function callAnthropic({ model, system, messages, maxTokens, temperature, 
       ...(extra || {}),
       model,
       system,
-      messages: messages.map(m => ({ role: m.role, content: m.content })),
+      messages: anthropicMessages(messages, cache),
       max_tokens: maxTokens,
       ...(temperature === undefined ? {} : { temperature }),
     },
@@ -1178,6 +1349,8 @@ async function callAnthropic({ model, system, messages, maxTokens, temperature, 
         input: json.usage?.input_tokens ?? 0,
         output: json.usage?.output_tokens ?? 0,
         thinking: json.usage?.output_tokens_details?.thinking_tokens ?? 0,
+        // Only for a call that asked for caching: a call without `cache` keeps the usage object it always had (no new keys in <label>.usage.json).
+        ...(cache ? { cacheAsked: cache.ttl ?? '1h', ...cacheCountsOfAnthropic(json.usage) } : {}),   // cacheAsked: the call carried a marker (its lifetime), so a response without counts is UNKNOWN to costOf, not zero
         stop: normaliseStop(json.stop_reason),
       },
       provider: 'anthropic',
@@ -1223,8 +1396,16 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
       const detail = typeof json.error === 'string' ? json.error : (json.error.message || JSON.stringify(json.error));
       const err = new Error(redactUrlCredentials(`${provider}/${model}: HTTP 200 carrying an error instead of a reply - ${String(detail).slice(0, 600)}`));
       if (json.error.code !== undefined) err.providerCode = json.error.code;
+      err.failureHost = hostOfUrl(base);
+      { const served = endpointNameOf(json.provider); if (served) err.failureEndpoint = served; }   // the name the error reply gave for the host that answered, when it gave a plain one
+      // S5-03 (owner's pick, 28 Okt 2026): this reply is the provider SAYING what happened, so it is not marked maybeBilled (the catch below leaves it alone) and is not charged one attempt's worst case. It carries the usage the body
+      // reported (null when it reported none or one that cannot be read); invoke() charges that figure, else a typical cost for the call. Every other throw after a 200 stays marked (BUG-C-032).
+      const u = json.usage;
+      const readable = u && typeof u === 'object' && !usageGap(u, 'prompt_tokens', 'completion_tokens').unreadable && [u.prompt_tokens, u.completion_tokens].every(n => Number.isFinite(n) && n >= 0);
+      err.errorBody = { usage: readable ? usageOfOpenAICompat(u) : null };
       throw err;
     }
+    const servedBy = endpointNameOf(json.provider);   // the checked value is what is spread below, so the check and the field cannot drift apart
     return {
       text: json.choices?.[0]?.message?.content ?? '',
       usage: { ...usageOfOpenAICompat(json.usage), stop: normaliseStop(json.choices?.[0]?.finish_reason), ...usageGap(json.usage, 'prompt_tokens', 'completion_tokens') },
@@ -1237,9 +1418,9 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
       model: json.model ?? model,
       // OpenRouter names the host that served the call in the response's `provider` field (brief 29: the audit
       // line and the run record say where a brief went). Absent on every other OpenAI-compatible API.
-      ...(typeof json.provider === 'string' && json.provider ? { endpoint: json.provider } : {}),
+      ...(servedBy ? { endpoint: servedBy } : {}),
     };
-  } catch (err) { throw markBilled(err); }
+  } catch (err) { throw err?.errorBody ? err : markBilled(err); }
 }
 
 // Providers audit #5: the chain recognises only `length`/`max_tokens` as "cut off", so a cut

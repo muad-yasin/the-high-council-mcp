@@ -103,3 +103,26 @@ test('test_stage_split: the panel-stage prompt builders take no seat or role par
 test('test_stage_split: applySeatRole is not imported anywhere in src/roles.js', () => {
   assert.doesNotMatch(rolesSrc, /applySeatRole/, 'roles.js (where every prompt, debate and panel, is built) must never import applySeatRole directly - only chain.js\'s debate-stage call site may call it');
 });
+
+// B3 prep, JUDGE lane, unit P (a DELIBERATE change to this guard, C&C ruling 1 Nov 2026): this file's header says no role reaches the panel/critique stage. Muad's headings of 28 Okt 2026 (a persona per seat; the persona names of the layer-3 judges)
+// and his 1 Nov 2026 amendment on judge personas supersede that for the switch-on case only (chain switch `judge_personas`, seat field `persona`). Every assertion above is unchanged and stays green: applySeatRole still has one call site,
+// in the debate stage. The persona is a SECOND route with its own pin, so it cannot spread: one inner function, one composition function, three callers.
+test('test_stage_split (judge persona route): withJudgePersona has ONE call site, inside personaSystemFor; personaSystemFor is called from exactly criticPromptFor, layerDebateSystemFor and layerReplySystemFor; nothing else in src/ names either', () => {
+  const srcDir = join(repoRoot, 'src'); const files = []; const stack = [srcDir];
+  while (stack.length) { const d = stack.pop(); for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) stack.push(p); else if (n.endsWith('.js')) files.push(p); } }
+  const callsOf = word => files.flatMap(f => [...readFileSync(f, 'utf8').matchAll(new RegExp(`\\b${word}\\s*\\(`, 'g'))].map(m => ({ f: f.slice(srcDir.length + 1), at: m.index })));
+  const stageSrc = readFileSync(join(srcDir, 'stage-system.js'), 'utf8');
+  const innerDecl = stageSrc.indexOf('function withJudgePersona(');
+  assert.notEqual(innerDecl, -1, 'withJudgePersona is declared in stage-system.js');
+  const outerDecl = stageSrc.indexOf('export function personaSystemFor(');
+  assert.notEqual(outerDecl, -1, 'personaSystemFor is declared and exported in stage-system.js');
+  const inner = callsOf('withJudgePersona').filter(c => !(c.f === 'stage-system.js' && c.at === innerDecl + 'function '.length));
+  assert.equal(inner.length, 1, JSON.stringify(inner));
+  assert.ok(inner[0].f === 'stage-system.js' && inner[0].at > outerDecl && inner[0].at < outerDecl + 1500, 'the one call is inside personaSystemFor');
+  const outer = callsOf('personaSystemFor').filter(c => !(c.f === 'stage-system.js' && c.at === outerDecl + 'export function '.length));
+  assert.deepEqual(outer.map(c => c.f), ['stage-system.js', 'stage-system.js', 'stage-system.js'], JSON.stringify(outer));
+  for (const name of ['criticPromptFor', 'layerDebateSystemFor', 'layerReplySystemFor']) {
+    const at = [`function ${name}(`, `const ${name} =`].map(k => stageSrc.indexOf(k)).find(k => k >= 0);
+    assert.ok(at >= 0 && outer.some(c => c.at > at && c.at < at + 900), `${name} calls personaSystemFor`);
+  }
+});

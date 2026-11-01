@@ -8,6 +8,7 @@
 // N tokens over a whole run, what does the run cost?
 
 import { effectiveRowByKey } from './price-table.js';
+import { cacheReadMultiplierOf } from './cache-prices.js';
 
 
 export const ROSTERS = {
@@ -59,7 +60,8 @@ export const ROSTERS = {
 // prompt cache hits. The multiplier differs per lab (Anthropic reads at 0.1x
 // and writes at 1.25x, OpenAI and Google land near 0.1x-0.25x). One number
 // here is a deliberate simplification; treat cached figures as a floor.
-const CACHE_READ_MULTIPLIER = 0.1;
+// The per-model cache-read multiplier lives in src/cache-prices.js (one table for this estimator and the cost module); re-exported here for the callers that import it from budget.js.
+export { cacheReadMultiplierOf };
 
 export function priceRoster({ perModel, roster, inputShare, cacheHitRate = 0 }) {
   const rows = roster.map(key => {
@@ -70,7 +72,7 @@ export function priceRoster({ perModel, roster, inputShare, cacheHitRate = 0 }) 
     const cached = input * cacheHitRate;
     const fresh = input - cached;
     const usd = (fresh / 1e6) * p.in
-              + (cached / 1e6) * p.in * CACHE_READ_MULTIPLIER
+              + (cached / 1e6) * p.in * cacheReadMultiplierOf(key)
               + (output / 1e6) * p.out;
     return { key, input, output, usd, rate: p };
   });

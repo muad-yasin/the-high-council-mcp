@@ -14,6 +14,7 @@ import { readModelDraft } from '../src/draft-disputes.js';
 import { dashFence } from '../src/text-fence.js';
 import { priceOfChain } from '../src/send-path-refusals.js';
 import { runChain, setBudget, setCache, cutOffRetryCap } from '../src/chain.js';
+import { RA7_RAISED } from '../scripts/regen-derived-figures.mjs';
 import { requestGate } from '../src/gate.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -96,7 +97,8 @@ test('RA-6: calls_at_most is a bound that fails on the old row count: three seat
 
 test('RA-7: every advice seat whose price row was not raised in the audit pins max_price EQUAL to its row (a lower max_price could leave no endpoint to route to)', () => {
   // 1017 unit (23 Okt 2026): advise-single-deepseek seats the 1017 build, whose price row (lane D, 477c30a) is the dearest endpoint ($0.30 / $1.20) like the undated row's, while the chain pins the cheapest ($0.15 / $0.60); the endpoint list read 2026-10-23 has 9 providers with a zero-data-retention endpoint inside that pin, so the pin leaves endpoints to route to.
-  const RAISED = new Set(['deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash-1017', 'z-ai/glm-5.3', 'z-ai/glm-5.2', 'meta-llama/llama-3.3-70b-instruct']);
+  // CHANGED ACCEPTED TEST (PRICES lane, 1 Nov 2026; C&C ruling: one source of truth). OLD bar: this test holds the list of advice models exempt from "the pin equals the row" (the 0.8.1 audit's raised rows): deepseek-v4.1-flash, deepseek-v4.1-flash-1017, glm-5.3, glm-5.2, llama-3.3-70b-instruct. NEW bar: the same five models, read from RA7_RAISED in scripts/regen-derived-figures.mjs, the generator that MOVES the pins. WHY: the generator kept a copy of this list; two copies of an exemption list can drift apart without a test noticing.
+  const RAISED = RA7_RAISED;
   const pricing = JSON.parse(readFileSync(join(root, 'src', 'pricing.json'), 'utf8'));
   const bad = [];
   for (const f of readdirSync(join(root, 'chains')).filter(f => /^advise-/.test(f))) for (const s of chain(f.slice(0, -5)).seats.critics) {

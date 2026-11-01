@@ -10,6 +10,8 @@
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { countEarlierSpend } from './chain.js';
+import { endpointNameOf } from './providers.js';
+import { foldUnreplayedInto } from './unreplayed.js';
 import { archiveSuperseded, supersededSpendOf, supersededStagesOf } from './superseded.js';
 
 const SUPERSEDED_HINT = (label, n) => n ? `superseded/${label}.${n}.*` : '(no files)';
@@ -69,6 +71,9 @@ function writeFileAtomic(path, data) {
   renameSync(tmp, path);
 }
 
+// The serving endpoint a reply named, as a record field: the one rule is providers.js endpointNameOf (a name that is not plain is left out, never cleaned).
+export const endpointField = s => { const e = endpointNameOf(s?.endpoint); return e ? { endpoint: e } : {}; };
+
 /**
  * The lean onStage of a side run (--rematch, --replay): `<label>.usage.json` then `<label>.md`, atomically, COST FIRST and text last, as the main run writes a stage (src/cli.js onStage): a crash between the two leaves a payment
  * with no text, which the cache getter above keeps (superseded/) instead of overwriting. `fingerprint` is stored so a changed chain or task makes the stage STALE on a later sitting. A cached stage (replayed from disk) writes nothing.
@@ -77,7 +82,7 @@ export function writeSideStage(dir, s, { fingerprint }) {
   if (s.cached) return;
   writeFileAtomic(join(dir, `${s.label}.usage.json`), JSON.stringify({
     provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: fingerprint, promptHash: s.promptHash,
-    ...(Number.isFinite(s.cappedAt) ? { cappedAt: s.cappedAt } : {}), ...(s.noAnswer ? { noAnswer: s.noAnswer } : {}), ...(s.reservationId ? { reservationId: s.reservationId } : {}),
+    ...(Number.isFinite(s.cappedAt) ? { cappedAt: s.cappedAt } : {}), ...(s.noAnswer ? { noAnswer: s.noAnswer } : {}), ...(s.reservationId ? { reservationId: s.reservationId } : {}), ...endpointField(s),
   }));
   writeFileAtomic(join(dir, `${s.label}.md`), s.text);
 }
@@ -89,8 +94,10 @@ export function writeSideStage(dir, s, { fingerprint }) {
  */
 export function foldSupersededInto(result, dir) {
   const supersededUsd = supersededSpendOf(dir);
-  if (!(supersededUsd > 0)) return result;
-  result.totals = { ...result.totals, usd: (result.totals.usd || 0) + supersededUsd, supersededUsd };
-  result.superseded = supersededStagesOf(dir).map(({ label, usd, reservationId, kind }) => ({ label, usd, reservationId, ...(kind ? { kind } : {}) }));
+  if (supersededUsd > 0) {
+    result.totals = { ...result.totals, usd: (result.totals.usd || 0) + supersededUsd, supersededUsd };
+    result.superseded = supersededStagesOf(dir).map(({ label, usd, reservationId, kind }) => ({ label, usd, reservationId, ...(kind ? { kind } : {}) }));
+  }
+  foldUnreplayedInto(result, dir);   // 0.8.4 S5-01: the same fold the main run does, so a side run's report is not lower than its folder either
   return result;
 }

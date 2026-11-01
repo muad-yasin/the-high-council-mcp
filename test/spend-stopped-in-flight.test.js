@@ -13,6 +13,7 @@ import { runSpentUsd, spendReport } from '../src/spend.js';
 import { budgetOf } from '../src/run-budget.js';
 import { RESERVATIONS_FILE, unsettledReservations } from '../src/spend-reservations.js';
 import { typeCap } from './helpers/typed-cap.js';
+import { expectedCallUsd } from '../src/cost.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -51,7 +52,14 @@ test('a run killed with a call in flight, then stopped at its cap before any sta
     const probe = await sitting(mkWork(), '2026-10-08T11-00-00-000Z', '30');
     const W0 = unsettledReservations(probe).reduce((n, r) => n + r.usd, 0);
     assert.ok(W0 > 0);
-    const runDir = await sitting(work, ID, (Math.ceil(W0 * 1.4 * 10000) / 10000).toFixed(4));
+    // CHANGED (27 Okt gate, 28 Okt 2026). OLD: the limit was ceil4(1.4 W): after the kill (W counted once) a second call at its WORST case (W again) could not fit. NEW: the resume gate prices that second call at its EXPECTED cost E (one
+    // attempt, the typical criteria output; W holds the Anthropic seat's retry at a bigger cap too), far below W, so 1.4 W held it, the resume sent a call to the server that never answers and waited out the 60 s of spawnSync (status null)
+    // instead of stopping with exit 4. WHY this limit: it must satisfy E <= limit (the first call fits) and W + E > limit (a second after the kill does not). Efloor is expectedCallUsd of an EMPTY prompt, a lower bound of the real E, and
+    // limit = ceil4(W + Efloor / 2) sits inside that window for any prompt size. The assertion fails loudly if the expected sizes drift.
+    const Efloor = expectedCallUsd({ provider: 'openrouter', model: 'anthropic/claude-opus-5', originalProvider: 'anthropic', maxTokens: 500 }, { system: '', user: '', label: 'criteria' });
+    const limit = Math.ceil((W0 + Efloor / 2) * 10000) / 10000;
+    assert.ok(Efloor > 0 && Efloor <= limit && W0 < limit && limit < W0 + Efloor, `fixture: W ${W0} < limit ${limit} < W + Efloor ${W0 + Efloor}: the first call fits, a second after the kill does not`);
+    const runDir = await sitting(work, ID, limit.toFixed(4));
     const W = unsettledReservations(runDir).reduce((n, r) => n + r.usd, 0);
     assert.ok(W > 0 && Math.abs(W - W0) < 1e-9, 'the same call reserves the same worst case');
     const now = Date.parse('2026-10-08T13:00:00Z');

@@ -127,3 +127,18 @@ test('every command that PRICES refuses an unreadable pricing.user.json before i
     assert.equal(f.count(), 0);
   } finally { f.srv.close(); }
 });
+
+test('the typed-limit screen shows the hosts a person approves (0.8.4 unit 3): with a provider-preference.json row for the chain\'s model the screen file carries the line, in order; without the file it does not; zero requests', async () => {
+  const withFile = await fixture(); const without = await fixture();
+  try {
+    ROW(withFile.file); ROW(without.file);
+    writeFileSync(join(withFile.work, 'provider-preference.json'), JSON.stringify({ [`openrouter/${MODEL}`]: { prefer: ['azure/us', 'wafer/mxfp4'] }, 'openrouter/another/model': { prefer: ['x'] } }));
+    const a = await withFile.run(START); const b = await without.run(START);
+    assert.equal(a.status, 21, a.stdout + a.stderr); assert.equal(b.status, 21, b.stdout + b.stderr);
+    const screen = readFileSync(join(withFile.runDir, 'cap-screen-1.md'), 'utf8');
+    assert.match(screen, /Host preference from provider-preference\.json in your project folder .*: openrouter\/vendor\/not-in-the-price-table: azure\/us, wafer\/mxfp4\. .*regional endpoints.*never a price\./);
+    assert.ok(!screen.includes('another/model'), 'only the chain\'s own models are shown');
+    assert.doesNotMatch(readFileSync(join(without.runDir, 'cap-screen-1.md'), 'utf8'), /Host preference from/);
+    assert.equal(withFile.count() + without.count(), 0);
+  } finally { withFile.srv.close(); without.srv.close(); }
+});

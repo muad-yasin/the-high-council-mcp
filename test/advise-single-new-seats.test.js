@@ -85,7 +85,8 @@ test('council_quote advisor "glm-flash": quoted at the default floor, with its o
   assert.ok(!r.isError, textOf(r));
   assert.match(textOf(r), /GLM-5\.3 Flash via OpenRouter/);
   assert.match(textOf(r), /\[class B\]/);
-  assert.match(textOf(r), /cannot spend more than \$0\.1600/);
+  // CHANGED ACCEPTED TEST (price refresh, 1 Nov 2026; "the ceiling IS $X" in the quote a person approves, so the literal stays). OLD bar: $0.1600. NEW bar: $0.3900. WHY: the glm-5.3-flash row moved 0.15 / 0.5 -> 0.35 / 1.25 (sail-research/fp4 charges 1.25 on output), so the ceiling that covers its first call and one retry rose by script.
+  assert.match(textOf(r), /cannot spend more than \$0\.3900/);
 });
 
 test('council_quote advisor "qwen": refused for an internal brief at the default floor (no zero-retention endpoint), quoted for a public brief when the operator set the floor to public', async () => {

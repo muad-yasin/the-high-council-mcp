@@ -3,6 +3,7 @@
 // disk right now. One module so src/cli.js (item 3's state.json writer) and src/mcp/server.js
 // (list_runs, run_status) can't drift on what "running" means.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { finalReadBlocksAgreement } from './final-read.js';
 import { hostname } from 'node:os';
 import { join, basename } from 'node:path';
 import { listGates, readGateAnswer, runCapAuthority, RUN_CAP_KIND } from './gate.js';
@@ -141,6 +142,7 @@ export function finishedRunState(report) {
   if (report?.advise?.status === 'answered') {
     return `done: ${adviceWords(report.advise)}`;
   }
+  if (finalReadBlocksAgreement(report?.final_read)) return 'done: not agreed (layer 3 did not clear the final plan; see final_read in report.json)';   // unit D, A-DRAFT: an agreed run that layer 3 objected to, or did not read, at the end
   if (!report?.passed) return earlyFinishWords(report) ? 'done: open objections; finished early by the session (not agreed)' : 'done: open objections';
   // 0.8.2 item 4: the panel signed one draft and a later model stage changed what is delivered. ADDITIVE (C&C ruling, 6 Oct 2026): the old sentence stays the start, so a matcher on it still matches.
   const d = report.delivered_text;
@@ -224,7 +226,7 @@ export function runResumability(dir, runMeta) {
     const stoppedAt = readJsonSafe(join(dir, 'STOPPED-budget.json'));
     // Cost-unit U1 split (14 Oct 2026): `spentUsd` in that file is the RECORDED spend; the cap also counted a worst case for replayed stages with no recorded figure (`assumedAtWorstCase.usd`). `suggestedMaxUsd` is the ceiling that gets past this stop, computed
     // exactly as the CLI's printed resume command is (src/cost.js resumeCeilingUsd), so "above what was spent" cannot under-shoot. Additive; null when the file does not hold the figures.
-    const suggestedMaxUsd = stoppedAt ? resumeCeilingUsd({ cap: stoppedAt.capUsd, spent: stoppedAt.spentUsd + (stoppedAt.assumedAtWorstCase?.usd || 0), projected: stoppedAt.projectedStageUsd }) : null;
+    const suggestedMaxUsd = stoppedAt ? resumeCeilingUsd({ cap: stoppedAt.capUsd, spent: stoppedAt.spentUsd + (stoppedAt.assumedAtWorstCase?.usd || 0), projected: stoppedAt.projectedStageUsd, gate: stoppedAt.gateStageUsd }) : null;
     return out(true, 'budget', 'higher_cap', { stoppedAt, suggestedMaxUsd });
   }
   if (status === 'paused') return out(true, 'external_pause', 'answer', { waiting: waitingStages(dir) });

@@ -13,11 +13,16 @@ import { dirname, join, resolve } from 'node:path';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { LANE_IDS } from './lanes.js';
+import { lintSeverityChain } from './severity.js';
+import { lintFinalReadChain } from './final-read.js';
+import { lintPromptCache } from './prompt-cache.js';
+import { lintJudgePersonas } from './judge-persona.js';
 import { layerProblems, overseerKeyProblems } from './layers.js';
 import { labProblem, labUnsafeMessage, labSuggestion } from './lab-safety.js';
 import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots, everySeatOf, SIGNOFF_MODES, modelIdentity, seatIdentity } from './chain.js';
 import { deniedSeatsOf } from './denied-models.js';
 import { pinShapeProblem, pinExampleOf } from './price-pin.js';
+import { seatBillingRefusal, BILLING_CAP_IDS, MOCK_BILLS_FIELD } from './caps.js';
 
 // Labs the source procurement report names as not EU-based (v7.x compliance
 // chains). Used only to enforce an EU-region compliance claim against the
@@ -190,6 +195,22 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
+  // 3b. mockBills (0.8.4 DUALCAP unit 1, src/caps.js; C&C's pin, 1 Nov 2026): the billing account an OFFLINE mock seat counts against when per-provider spend caps are on, so a test chain can put one
+  // mock seat in the OpenRouter cap and another in the Anthropic cap with no key. Honoured only on a mock seat: on any other seat the cap follows the seat's own provider, so the field would look as if it
+  // moved the spend while doing nothing. Refused there whatever it names, and on a mock seat when it names no provider that bills; refused again at run time (seatBillingRefusal) whatever the switch
+  // says. Read on the rerouted roster, the one the run uses (a real seat keeps the field through a reroute). A-DRAFT sentences.
+  for (const s of routedSeats) {
+    const refusal = seatBillingRefusal(s);
+    if (!refusal) continue;
+    findings.push({
+      kind: 'invalid-mock-bills',
+      message: refusal.sentence,
+      fix: refusal.code === 'mock_bills_on_real_seat'
+        ? `Remove "${MOCK_BILLS_FIELD}" from that seat in ${filePath}: only a mock seat may carry it.`
+        : `Set "${MOCK_BILLS_FIELD}" to one of ${BILLING_CAP_IDS.join(', ')} in ${filePath}, or remove it.`,
+    });
+  }
+
   // 4. Invalid seat role (v6 §1): an unknown `role.lens`, a `role.persona`
   // of the wrong type, an empty `role: {}`, or a stray field on `role`
   // would otherwise only surface as a wrong or missing debate-stage
@@ -277,6 +298,18 @@ export function lintChain(config, filePath = '<chain>') {
     debate_hygiene: { shuffle: 'boolean', noQuoteMarks: 'boolean' },
     // 0.8.2 (owner decision 3): the answer-back data for the next round's judges. Off in every chain written before it existed.
     answer_back: { enabled: 'boolean' },
+    // B2 (debate-084/b2): the exchange inside the lowest layer of a layered chain. Off in every chain written before it existed.
+    layer_debate: { enabled: 'boolean', rounds: 'positive-integer' },
+    // B3 prep (JUDGE lane, src/severity.js): severity tags 1-10 on objections. Off in every chain written before it existed; a unanimous panel only.
+    severity: { enabled: 'boolean' },
+    // B3 prep (CACHE lane, src/final-read.js): layer 3 reads the final plan once at a not-agreed end. Off in every chain written before it existed; a layered unanimous panel only.
+    final_read: { enabled: 'boolean' },
+    // B3 prep (CACHE lane unit 2, src/prompt-cache.js): cache markers on the direct Anthropic seats' calls. Off in every chain written before it existed.
+    prompt_cache: { enabled: 'boolean', ttl: 'cache-ttl' },
+    // B3 prep (JUDGE lane, unit H): a marker line after the draft in a judge's user prompt. Off in every chain written before it existed; needs the notes lane.
+    draft_end_marker: { enabled: 'boolean' },
+    // B3 prep (JUDGE lane, unit P): a named persona in a judge's own system prompts. Off in every chain written before it existed.
+    judge_personas: { enabled: 'boolean', form: 'persona-form', name_only: 'string-array' },
     // Notes lane (0.8.3 notes lane unit 2): capped proposals and improvement ideas in every review round. Off in every chain written before it existed.
     reviewNotes: { enabled: 'boolean', perKind: 'positive-integer', itemChars: 'positive-integer', aboutChars: 'positive-integer', textMax: 'positive-integer', aboutMax: 'positive-integer' },
     // The council advisor (thc-research brief 27, src/advise.js). Experimental; off in every chain written before it.
@@ -296,6 +329,8 @@ export function lintChain(config, filePath = '<chain>') {
     : want === 'debaters' ? v === 'authors' || v === 'all'
     : want === 'job' ? v === 'sources' || v === 'subsystem'
     : want === 'string-array' ? Array.isArray(v) && v.every(x => typeof x === 'string' && x.trim())
+    : want === 'persona-form' ? v === 'voice' || v === 'method'
+    : want === 'cache-ttl' ? v === '5m' || v === '1h'
     : want === 'positive-number' ? typeof v === 'number' && Number.isFinite(v) && v > 0
     : want === 'chunk' ? Number.isInteger(v) && v >= 1000
     : want === 'advise-rounds' ? Number.isInteger(v) && v >= 0 && v <= 2
@@ -303,7 +338,7 @@ export function lintChain(config, filePath = '<chain>') {
     : want === 'advise-samples' ? Number.isInteger(v) && v >= 1 && v <= 5
     : want === 'advise-wall' ? Number.isInteger(v) && v >= 1000
     : true;
-  const typeText = { boolean: 'true or false', 'positive-integer': 'a whole number of at least 1', array: 'an array', rate: 'a number from 0 to 1', debaters: '"authors" or "all"', job: '"sources" or "subsystem"', 'string-array': 'a list of non-empty strings', 'positive-number': 'a dollar amount above 0', chunk: 'a whole number of at least 1000', 'advise-rounds': 'a whole number from 0 to 2', 'advise-synthesis': '"none" or "seat"', 'advise-samples': 'a whole number from 1 to 5', 'advise-wall': 'a whole number of milliseconds, at least 1000' };
+  const typeText = { boolean: 'true or false', 'positive-integer': 'a whole number of at least 1', array: 'an array', rate: 'a number from 0 to 1', debaters: '"authors" or "all"', job: '"sources" or "subsystem"', 'cache-ttl': '"5m" or "1h"', 'string-array': 'a list of non-empty strings', 'persona-form': '"voice" or "method"', 'positive-number': 'a dollar amount above 0', chunk: 'a whole number of at least 1000', 'advise-rounds': 'a whole number from 0 to 2', 'advise-synthesis': '"none" or "seat"', 'advise-samples': 'a whole number from 1 to 5', 'advise-wall': 'a whole number of milliseconds, at least 1000' };
   for (const [block, keys] of Object.entries(FLAG_BLOCKS)) {
     const value = config?.[block];
     if (value === undefined) continue;
@@ -1046,6 +1081,26 @@ export function lintChain(config, filePath = '<chain>') {
       kind: 'answer-back-needs-unanimous',
       message: 'answer_back.enabled is true but this chain does not set "signoff": "unanimous": the answer-back exists only in the panel loop that unanimous sign-off runs, so it never happens.',
       fix: `Set "signoff": "unanimous" in ${filePath}, or remove answer_back.`,
+    });
+  }
+  if (config?.layer_debate?.rounds !== undefined && !(Number.isInteger(config.layer_debate.rounds) && config.layer_debate.rounds >= 1 && config.layer_debate.rounds <= 7)) {
+    findings.push({ kind: 'layer-debate-rounds', message: `layer_debate.rounds is ${JSON.stringify(config.layer_debate.rounds)}: it must be a whole number from 1 to 7 (7 is the safety net, not the plan).`, fix: `Set "layer_debate": { "rounds": <1 to 7> } in ${filePath}.` });
+  }
+  findings.push(...lintSeverityChain(config, filePath));
+  findings.push(...lintFinalReadChain(config, filePath));
+  findings.push(...lintPromptCache(config, filePath));
+  findings.push(...lintJudgePersonas(config, filePath));
+  // B3 prep (unit H): the marker marks where the plan ends before the harness's own asks; with no notes lane there is no ask to bound, so the switch would silently do nothing.
+  if (config?.draft_end_marker?.enabled === true && config?.reviewNotes?.enabled !== true) {
+    // A-DRAFT (the words a person reads)
+    findings.push({ kind: 'draft-end-marker-needs-notes', message: 'draft_end_marker.enabled is true but this chain has no reviewNotes lane switched on: the marker is written only where the review harness adds its own asks after the draft, so here it would silently do nothing.', fix: `Set "reviewNotes": { "enabled": true } in ${filePath}, or remove draft_end_marker.` });
+  }
+  // B2 (debate-084/b2): the exchange runs inside the lowest layer of the unanimous panel loop only; on any other chain the switch would silently do nothing.
+  if (config?.layer_debate?.enabled === true && (config.signoff !== 'unanimous' || !(Array.isArray(config.seats?.critics) && config.seats.critics.length && config.seats.critics.every(c => c.layer !== undefined)))) {
+    findings.push({
+      kind: 'layer-debate-needs-layers',
+      message: 'layer_debate.enabled is true but this chain is not a layered chain with "signoff": "unanimous" (every seats.critics entry needs a "layer"): the exchange runs inside the lowest layer of that panel loop, so it never happens.',
+      fix: `Give every critic a "layer" and set "signoff": "unanimous" in ${filePath}, or remove layer_debate.`,
     });
   }
   // Notes lane: the judges' notes ride in the unanimous panel loop only; and the length limit the judge is asked to keep may not exceed the read cap that cuts it (gate note addendum 1, R2).

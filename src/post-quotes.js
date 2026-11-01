@@ -6,6 +6,9 @@
 // The harness's own escapes in text a poster was shown (boardText: a leading `#` becomes `\#`, a defused tag starts with `&lt;`) are undone, so a phrase copied from what the poster saw still matches.
 // 0.8.2 audit fixes (cnc-prompts F1, cnc-debate F1, 73-verdicts 1 + 3, 73-config F1): straight and curly quotes and apostrophes are one thing on both sides of a comparison.
 export const normQuote = s => String(s ?? '').toLowerCase().replace(/\\#/g, '#').replace(/&lt;/g, '<').replace(/[`*_"'\u201c\u201d\u00ab\u00bb\u2018\u2019]/g, '').replace(/\s+/g, ' ').trim();
+// The comparison a judge's WITHDRAWAL evidence uses (src/answer-back.js, against the draft and against a peer's text): normQuote, then the whitespace next to punctuation or a symbol is dropped, on both sides, so
+// a quote that wrote `{2,2}` finds a draft that has `{2, 2}`. Whitespace between two words is kept ("ab cd" never matches "abcd"). normQuote itself is not changed: the debate-post quote marks keep their own comparison.
+export const normQuoteTight = s => normQuote(s).replace(/\s*([\p{P}\p{S}])\s*/gu, '$1');
 const norm = normQuote;
 const CLOSER = { '"': '"', '\u201c': '\u201d', '`': '`', '\u00ab': '\u00bb' };
 

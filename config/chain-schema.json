@@ -322,6 +322,58 @@
         "enabled": { "type": "boolean" }
       }
     },
+    "prompt_cache": {
+      "type": "object",
+      "description": "B3 prep (CACHE lane unit 2, src/prompt-cache.js, experimental). With enabled true, a layer-debate exchange call (the post and the answer) from round 2 on, at a layer whose exchange runs three rounds or more, to a seat that calls Anthropic directly (provider anthropic) carries a prompt-cache marker after the plan under review: the round-2 call writes the cache and rounds 3 on read it at the cache-read price. No review (panel) call and no round-1 call carries a marker. The spend cap projects every marked call with the plan and system text at the cache-WRITE price (it never assumes a hit; a marker below the model's minimum cacheable length is ignored by Anthropic, so that projection then errs high). ttl is the cache's lifetime, 5m (written at 1.25 times the input price) or 1h (2 times); default 1h. A seat whose extra carries its own cache_control is refused. Off in every chain written before it existed.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ttl": { "enum": ["5m", "1h"] }
+      }
+    },
+    "final_read": {
+      "type": "object",
+      "description": "B3 prep (CACHE lane, src/final-read.js, experimental). With enabled true, a layered unanimous run has each top-layer seat that has not read the final plan read it once at the end (one call each, one re-ask on an unreadable reply), whether the run ended agreed or not: a text changed after the sign-off is a text layer 3 has not read. The reply is recorded as a closing statement in report.json final_read and in the block above the plan; a layer-3 objection to the final plan ends an agreed run as not agreed (outcome, exit code, BOARD banner), and nothing else about the verdict changes. Off in every chain written before it existed.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "severity": {
+      "type": "object",
+      "description": "B3 prep (JUDGE lane, experimental). With enabled true every objection a judge raises carries a severity, a number from 1 to 10 in steps of 0.1 (a verdict whose objection has no readable severity is unreadable and asked again, never given a default): 7 to 10 blocks sign-off until fixed, 4 to 6.9 until the debate settles it, below 4 goes to the closing round; a plan climbs a layer only when no objection rated 4 or above is open; only the handler session or layer 3 may change a tag. Allowed only on a chain whose signoff is unanimous. Absent or false: nothing changes.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "draft_end_marker": {
+      "type": "object",
+      "description": "B3 prep (JUDGE lane, experimental). With enabled true, and the review notes lane on, a judge's user prompt carries one marker line directly after the draft, so the review harness's own asks that follow cannot be read as plan text. Absent or false: every prompt is today's, byte for byte.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "judge_personas": {
+      "type": "object",
+      "description": "B3 prep (JUDGE lane, experimental). With enabled true, each critic that carries a persona (a plain name) gets a short block naming it in its own system prompts: the verdict prompt and the two layer-exchange prompts. form is voice or method; a name listed in name_only gets only the name-only line in both forms (a living person is never given a voice, method or views). Allowed only on a chain whose signoff is unanimous. Absent or false: every prompt is today's, byte for byte.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "form": { "type": "string", "enum": ["voice", "method"] },
+        "name_only": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "layer_debate": {
+      "type": "object",
+      "description": "B2 (debate-084/b2, experimental). With enabled true, after the lowest layer's blind verdicts of a pass the judges of that layer read each other's objections with the raiser hidden and post support / contest / insufficient_evidence / no_view on each, and each raiser answers the posts on its own objections (keep / amend / withdraw). Only a raiser's argued withdrawal closes an objection. Needs a layered chain with signoff unanimous. rounds (1 to 7, default 1): at most this many exchange rounds per pass; a further round runs only while a disposition changed in the round before (a withdrawal, an amendment, a new objection, or a judge's stance differing from its own in the round before).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "rounds": { "type": "integer", "minimum": 1, "maximum": 7 }
+      }
+    },
     "debate_hygiene": {
       "type": "object",
       "description": "0.8.2 (owner decision 2, 5 Oct 2026). shuffle: true gives every debate reader its own seeded order of the proposals and its own lab letters, and picks the canary target by seed (a pure function of the run id, so a resume replays it); the order each reader saw is recorded in report.json. noQuoteMarks: true marks, for the author, an objection or merge that quotes nothing of the proposal it is about. Both change what seats see; off in every chain written before them.",
@@ -450,6 +502,10 @@
         "stall_rounds": {
           "type": "integer",
           "minimum": 2
+        },
+        "review": {
+          "type": "boolean",
+          "description": "Opt-in dispute review (src/chain.js runDisputeReview, 2026-09-23): after the dispute rewrite, each seat that raised an open objection is asked whether the rewrite handles it honestly. src/chain-lint.js accepts this key (DISPUTE_KEYS); this schema listed it only from B3 prep unit D on."
         }
       },
       "description": "Dispute stage and its stall rule (src/chain.js, 2026-09-20). src/chain-lint.js rule 11b hard-validates this - only these two keys, stall_rounds at least 2, and signoff must be 'unanimous' - and this schema mirrors that shape. The stage runs once when a unanimous chain stops WITHOUT agreement, records the unresolved dissent at the top of the deliverable, and never re-opens the vote; that bound is hard-coded rather than configurable, same stance as challenge's one-round bound."

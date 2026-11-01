@@ -10,12 +10,14 @@
 // `run_status` and the spend report add it to the run's cost, until the run folder is gone. There is no command to reconcile one (0.8.2): the cap errs high, never low. A call that settles normally
 // leaves two lines and costs nothing extra anywhere. Mock runs and every call projected at $0 write nothing, so their run folders are unchanged.
 //
-// What it carries: an id, the stage label, the seat (provider/model), amounts and times. Never task text, prompts or run content (test/spend.test.js pins this). It is the ONE recorded figure in a spend
+// What it carries: an id, the stage label, the seat (provider/model), amounts and times, and (0.8.4 DUALCAP, src/caps.js) on a `reserved` line the cap the call counts against when per-provider spend caps are
+// on: `capName`, a provider id, absent otherwise, so a line written with the switch OFF is byte for byte today's. Never task text, prompts or run content (test/spend.test.js pins this). It is the ONE recorded figure in a spend
 // derivation that is otherwise read back from the run folder (CLAUDE.md "Cross-run spend"): it records a moment nothing else can reconstruct (a call sent, not yet answered), it lives and dies with the run
 // folder, and a missing, torn or corrupt file reads as "no unsettled reservations", which is today's behaviour. Writing is the opposite: if a reservation cannot be written, the call is NOT sent.
 // Tamper-evident? No, and it does not claim to be: whoever can write the run folder can edit it.
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
+import { BILLING_CAP_IDS } from './caps.js';
 
 export const RESERVATIONS_FILE = 'spend-reservations.jsonl';
 export const RESERVATIONS_SCHEMA = 'spend-reservations/1';
@@ -36,12 +38,14 @@ function readLines(runDir) {
   return out;
 }
 
-/** The reservations no `settled` line closed: [{ id, label, seat, usd }]. Never throws; a missing, torn or corrupt file reads as none. */
+const isCapName = v => typeof v === 'string' && BILLING_CAP_IDS.includes(v);
+
+/** The reservations no `settled` line closed: [{ id, label, seat, usd, capName? }] (capName only on a line that carries a valid one). Never throws; a missing, torn or corrupt file reads as none. */
 export function unsettledReservations(runDir) {
   const lines = readLines(runDir);
   const settled = new Set(lines.filter(l => l.event === 'settled').map(l => l.id));
   return lines.filter(l => l.event === 'reserved' && !settled.has(l.id) && Number.isFinite(l.usd) && l.usd > 0)
-    .map(l => ({ id: clip(l.id, 40), label: clip(l.label), seat: clip(l.seat), usd: l.usd }));
+    .map(l => ({ id: clip(l.id, 40), label: clip(l.label), seat: clip(l.seat), usd: l.usd, ...(isCapName(l.capName) ? { capName: l.capName } : {}) }));
 }
 export const unsettledUsd = runDir => unsettledReservations(runDir).reduce((n, r) => n + r.usd, 0);
 
@@ -73,9 +77,12 @@ export function openReservations(runDir, { now = () => Date.now(), mirror = null
     if (mirror) mirror(line);
   };
   return {
-    reserve({ label, seat, usd }) {
+    reserve({ label, seat, usd, capName }) {
+      // DUALCAP: `capName` is OMITTED by a caller whose call counts in no cap (never null). One that is not a provider that bills throws BEFORE an id is taken or a line written, so the call is not
+      // sent (invoke() reports "the spend reservation could not be written"): a reservation no cap could be given is never on disk.
+      if (capName !== undefined && !isCapName(capName)) throw new Error(`spend reservation: capName ${JSON.stringify(capName)} is not a provider that bills (${BILLING_CAP_IDS.join(', ')})`);
       const id = `r${++n}`;
-      write({ event: 'reserved', id, label: clip(label), seat: clip(seat), usd });
+      write({ event: 'reserved', id, label: clip(label), seat: clip(seat), usd, ...(capName !== undefined ? { capName } : {}) });
       return id;
     },
     settle(id, { outcome, usd = null }) {

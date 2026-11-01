@@ -1,0 +1,20 @@
+[
+ {
+  "url": "https://api.anthropic.com/v1/messages",
+  "headers": [
+   "anthropic-version",
+   "content-type",
+   "x-api-key"
+  ],
+  "body": "{\"model\":\"claude-opus-5-5\",\"system\":\"You are a judge.\",\"messages\":[{\"role\":\"user\",\"content\":\"# Original request\\nBuild it.\\n# Draft under review\\nthe draft\\n# Objections\\n1. x\"}],\"max_tokens\":1000}"
+ },
+ {
+  "url": "https://api.anthropic.com/v1/messages",
+  "headers": [
+   "anthropic-version",
+   "content-type",
+   "x-api-key"
+  ],
+  "body": "{\"output_config\":{\"effort\":\"high\"},\"model\":\"claude-sonnet-5-5\",\"system\":\"S\",\"messages\":[{\"role\":\"user\",\"content\":\"a\"},{\"role\":\"assistant\",\"content\":\"b\"},{\"role\":\"user\",\"content\":\"c \\\"quoted\\\" é\"}],\"max_tokens\":64,\"temperature\":0.2}"
+ }
+]

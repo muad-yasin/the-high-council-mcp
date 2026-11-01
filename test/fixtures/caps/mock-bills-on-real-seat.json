@@ -1,0 +1,15 @@
+{
+  "name": "mock-bills-on-real-seat",
+  "description": "Test fixture (0.8.4 per-provider spend caps): a real OpenRouter seat that carries mockBills. Refused: a real seat's spend always counts against the cap of its own provider, so the field could only look as if it moved the spend.",
+  "maxRounds": 2,
+  "stopOnPass": true,
+  "estimate": { "promptTokens": 1000, "draftTokens": 1000, "critiqueTokens": 300 },
+  "seats": {
+    "criteria": { "provider": "mock", "model": "mock-priced", "maxTokens": 100 },
+    "builder":  { "provider": "mock", "model": "mock-priced", "maxTokens": 8000, "mockBills": "anthropic" },
+    "reviser":  { "provider": "mock", "model": "mock-priced", "maxTokens": 8000, "mockBills": "anthropic" },
+    "critics": [
+      { "provider": "openrouter", "model": "z-ai/glm-5.3-flash", "maxTokens": 8000, "lab": "glm", "mockBills": "anthropic" }
+    ]
+  }
+}

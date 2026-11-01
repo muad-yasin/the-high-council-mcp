@@ -114,7 +114,7 @@ be reviewed before the real release, not as a push plus release. Every step that
 1. The integration branch lands on `release/0.8.3` in one move, after the maintainer's reviews and one full test
    run (`npm test`, the whole suite, from a clean checkout). One linear history on `release/0.8.3`.
 2. The dated tables are regenerated, never patched: `scripts/refresh-reasoning-table.mjs` and
-   `scripts/refresh-openrouter-prices.mjs` (the failing test names the table). `.github/workflows/test.yml` runs
+   `scripts/refresh-openrouter-prices.mjs --fetch <a folder outside the repository> --write` (the failing test names the table; the plain command writes no host pictures). After ANY price move run `node scripts/regen-derived-figures.mjs`: every figure that derives from a row (README and AI-README tables and sentences, the landing page, the planning chains' descriptions, the advice pins and ceilings, the review-notes bounds, MODEL-CAPS.md) is rewritten from the same code the tests use; `--check` names what is stale. `.github/workflows/test.yml` runs
    `npm test` on every pull request, so a stale table turns the pull request red. If a shipped seat's price moves,
    the work stops there: every typed figure that came from a dry run (the README's "Which chain" table, the
    over-$7 paragraph, `docs/index.html`, the `chains/*.json` descriptions that carry one) is regenerated as its own unit and shown to the owner before anything is

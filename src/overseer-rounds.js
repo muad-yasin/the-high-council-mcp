@@ -125,10 +125,13 @@ export function stopSentence(stop, { spentUsd = null, draftFile = null, runDir =
   if (memberTail) return `${head}\n\n${memberTail}`;
   return head
     + `To go on: council --resume ${runDir} --continue (${extendWords(stop, add)}; the run's spending limit still applies). To end it here: council --resume ${runDir} --finish (the dispute stage and the handoff run, the open objections are handed over, the result stays "not agreed"). `
+    + (canSendUp(stop) ? `To pass the plan up: council --resume ${runDir} --send-up (layer 1's open objections go up to layer 2, which reviews the plan and rules on them; it uses no revision). ` : '')   // A-DRAFT
     + `Or take the draft and revise it yourself outside the Council.`;
 }
 
 // ---- Round semantics 2b-ii: the person's choice at a stop (continue / finish), recorded in run.json `roundChoices` and applied on the replay.
+/** True for the one stop where `--send-up` is offered: a layer-1 stop for its revision bound (not the overseer-round cap, not a silent seat, not layer 2). */
+export const canSendUp = stop => stop?.kind === 'layer_bound' && stop.why === 'revisions' && stop.layer === 1;
 /** The identity of one stop: its kind, overseer round and pass. A choice names it, so re-typing the same command (after the limit screen, say) never counts twice. */
 export const stopIdOf = stop => `${stop.kind}:${stop.overseer_round}:${stop.pass}`;
 
@@ -157,8 +160,10 @@ export function effectiveLimits(config, choices = []) {
   const layerAdd = layer => sum(c => c.kind === 'layer_bound' && c.why === 'revisions' && c.layer === layer);
   const silentAdd = sum(c => c.kind === 'layer_bound' && c.why === 'unheard');
   const total = { maxOverseerRounds: base.overseer + capAdd, layerRevisions: { 1: base.layerRevisions[1] + layerAdd(1), 2: base.layerRevisions[2] + layerAdd(2) }, reasks: REASKS_NO_REVISE + silentAdd };
+  // A send-up uses no revision (layerRevisions are unchanged) but the escalation it makes needs passes: one for layer 2 to review and rule, the layer-2 loop it may still need (b2), and the top layer's read. Each recorded send-up grants layerRevisions[2] + 2 passes on the backstop ceiling.
+  const sendUps = (Array.isArray(choices) ? choices : []).filter(c => c?.choice === 'send_up' && c.kind === 'layer_bound' && c.why === 'revisions' && c.layer === 1).length;
   return {
-    passes: passCeiling(total), overseer: total.maxOverseerRounds, layerRevisions: total.layerRevisions,
+    passes: passCeiling(total) + sendUps * (base.layerRevisions[2] + 2), overseer: total.maxOverseerRounds, layerRevisions: total.layerRevisions,
     advanceConfigAt: round => ({
       maxOverseerRounds: total.maxOverseerRounds,
       layerRevisions: {
@@ -174,8 +179,9 @@ export function effectiveLimits(config, choices = []) {
  * What ended the run's panel, as ONE plain word (report.json answer.ending, beside an answer given after the panel). It was a chain of ternaries inside runChain; moved here so a test can ask it. ROADMAP 83: an EARLY FINISH is its own
  * ending, `early_finish`, and it is never `finish_chosen` (that word says a PERSON chose to finish at a limit; nobody did). Order matters only for the endings that cannot coincide.
  */
-export function panelEnding({ passed, finishedStop = null, earlyFinish = null, layerStop = null, noHeardReviewer = null, notQuorate = null }) {
+export function panelEnding({ passed, finishedStop = null, earlyFinish = null, layerStop = null, noHeardReviewer = null, notQuorate = null, escalatedEnd = null }) {
   if (passed === true) return 'signed_off';
+  if (escalatedEnd) return 'escalated_signoff';   // stall escalation: the top layer signed off with layers passed over; never `signed_off` (passed stays false)
   if (earlyFinish) return 'early_finish';
   if (finishedStop) return 'finish_chosen';
   if (layerStop) return 'layer_stop';

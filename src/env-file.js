@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { keyPresent, PLUGIN_ENV_PREFIX } from './key-env.js';
 import { OPERATOR_ONLY_ENV } from './send-profiles.js';
+import { CAPS_SETTING, CAP_CEILING_NAMES } from './caps.js';
 
 // NODE_ENV is a common application setting that loads no code: it stays allowed. Every other NODE_* name (NODE_OPTIONS, NODE_EXTRA_CA_CERTS, NODE_USE_ENV_PROXY...) is refused.
 // Also (re-audit 3): what changes how a child process starts or whom it trusts: OpenSSL's config and modules (a conf that names a provider without `default` makes every child node abort),
@@ -35,7 +36,9 @@ const HOST_LEVEL = /^(XDG_.*|USERPROFILE|HOMEDRIVE|HOMEPATH|TEMP|TMP|APPDATA|LOC
 // switch; set it in the real environment or the Claude Desktop field. Refusing is the strict direction: the run still stops.
 // COUNCIL_WORKDIR (14 Oct 2026, C&C's entry 12): the folder the MCP server writes tasks and runs in. src/mcp/server.js reads it when it is imported, which is BEFORE src/cli.js applies a .env (a static import), so a .env value
 // never moved the work folder of this process; but it did reach every child the server starts and any later reader, and a project-writable file must not choose where the person's runs are written. Refused by name, so the notice says so.
-const NEVER_FROM_ENV_FILE = Object.freeze(['COUNCIL_ALLOW_LOOPBACK_KEY_HOST', 'COUNCIL_MOCK_HOLD_FILE', 'COUNCIL_TEST_SPAWN_HOLD_FILE', 'COUNCIL_PERSONAS_FILE', 'COUNCIL_WORKDIR', 'COUNCIL_PII_GATE']);
+// COUNCIL_SPEND_CAPS (0.8.4 DUALCAP unit 2, C&C's ruling 2 of 1 Nov 2026; src/caps.js): the per-provider caps switch is the operator's. With it on, the operator's COUNCIL_MAX_USD_LIMIT bounds no cap (each cap has
+// its own ceiling), so a project-writable file that could turn it on could set that ceiling aside. Refused here like COUNCIL_PII_GATE; set it in the real environment or the Claude Desktop field.
+const NEVER_FROM_ENV_FILE = Object.freeze(['COUNCIL_ALLOW_LOOPBACK_KEY_HOST', 'COUNCIL_MOCK_HOLD_FILE', 'COUNCIL_TEST_SPAWN_HOLD_FILE', 'COUNCIL_PERSONAS_FILE', 'COUNCIL_WORKDIR', 'COUNCIL_PII_GATE', CAPS_SETTING]);
 
 /**
  * WHICH .env file is read for a folder (13 Oct 2026, Haiku job 8, C&C): the folder's own `.env`, else the package's (the clone's: `cp .env.example .env` in a cloned checkout), else the folder's (which does not exist). ONE function for
@@ -48,7 +51,7 @@ export function envFilePathFor(folder, pkg) {
 /** True when a project .env may not set `name` (the caller tells the user to set it in the real environment). Operator-only advice settings are refused too. */
 export const envFileRefuses = name => PROCESS_LEVEL.test(name) || HOST_LEVEL.test(name) || name.startsWith(PLUGIN_ENV_PREFIX) || NEVER_FROM_ENV_FILE.includes(name) || OPERATOR_ONLY_ENV.includes(name);
 
-// The spend settings (13 Oct 2026, audit item 11, S02-2). A name written on two lines keeps its FIRST value and the second is dropped without a word: for these two that is a cap the person may have meant the other way
+// The spend settings (13 Oct 2026, audit item 11, S02-2). A name written on two lines keeps its FIRST value and the second is dropped without a word: for these names that is a cap the person may have meant the other way
 // round (`MAX_USD_PER_RUN=2` ... `MAX_USD_PER_RUN=20` runs at 2). Their repeat is reported to `onRepeatedMoney` and the caller refuses to start; any other name keeps the old, silent rule.
 // The one sentence for a repeated spend setting, shared by every entry that reads a .env (src/cli.js, and the direct MCP entry in src/mcp/server.js), so the two never say different things. It names the FILE and BOTH
 // (all) line numbers, because it is the diagnostic itself: it stops every command, `council doctor` included (13 Oct 2026, C&C's condition for the stop).
@@ -58,9 +61,11 @@ export const repeatedMoneySentence = (name, label = '.env', lines = []) => `${la
 export const conflictSentence = (name, pathA, pathB) => `${pathA} and ${pathB} both set ${name}, to different values, so nothing started rather than guess which file you meant. Keep it in one file and run the command again.`;
 /** The settings a .env text holds, read by the same rules as applyEnvFile into a scratch object (never process.env). */
 export function envFileValues(text) { const values = {}; applyEnvFile(text, values); return values; }
-export const MONEY_NAMES = Object.freeze(['COUNCIL_MAX_USD_LIMIT', 'MAX_USD_PER_RUN']);
+// 0.8.4 DUALCAP unit 2: each per-provider cap's ceiling (src/caps.js CAP_CEILING_NAMES, COUNCIL_MAX_USD_LIMIT_<ID>) is a spend setting too: the same repeated-line, malformed-line and two-files rules. Like
+// COUNCIL_MAX_USD_LIMIT it may FILL from a project .env (a ceiling where none was set only tightens).
+export const MONEY_NAMES = Object.freeze(['COUNCIL_MAX_USD_LIMIT', 'MAX_USD_PER_RUN', ...CAP_CEILING_NAMES]);
 // A spend setting written in a form the line rule does not read (14 Oct 2026, C&C's entry 5): `"COUNCIL_MAX_USD_LIMIT"=5`, `COUNCIL_MAX_USD_LIMIT: 5`, `max_usd_per_run=2`. The reader skipped such a line without a word, so a cap the person
-// believed they had set was not there. A line that starts (after an optional `export` and an optional quote) with one of the two names, in any case, and was not read as NAME=value, is reported to `onMalformedMoney` and the caller refuses to start.
+// believed they had set was not there. A line that starts (after an optional `export` and an optional quote) with one of these names (MONEY_NAMES), in any case, and was not read as NAME=value, is reported to `onMalformedMoney` and the caller refuses to start.
 // A comment line starts with `#` and never matches; `NAME=` with nothing after it is a line the rule reads (blank = absent) and is not reported.
 const MONEY_ELSEWHERE = new RegExp(`^\\s*(?:export\\s+)?["']?(${MONEY_NAMES.join('|')})["']?(?![A-Za-z0-9_])`, 'i');
 export const malformedMoneySentence = (name, label = '.env', lineNo = 0) => `${label}: line ${lineNo} names ${name} but is not written as ${name}=<value>, so it sets nothing. It is a spend setting, so nothing started rather than guess what you meant. Write it as ${name}=<value> on one line and run the command again.`;

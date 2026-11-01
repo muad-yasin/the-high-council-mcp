@@ -16,7 +16,17 @@ const norm = s => String(s ?? '').toLowerCase().replace(/[`*_"'‘’“”]/g, 
 
 // A row names its criterion when it equals it after normalisation, or (a reviewer that trims or
 // extends a long criterion) one contains the other and the shorter side is at least 12 characters,
-// or it is the id itself ("C3").
+// or it is the id itself ("C3"), or (a reviewer that drops a word in the middle: a debate run lost a whole sign-off
+// table to "shows a declared model as declared rather than verified" for "... rather than as verified") the shorter
+// text of at least 8 words is the longer one with at most 2 words removed, in order. Only `names` reads this; the
+// exact match and the one-criterion-per-row rule in rowsPerCriterion are untouched, so a row that fits two criteria names none.
+const wordsDropped = (a, b) => {
+  const [s, l] = a.length <= b.length ? [a, b] : [b, a];
+  if (s.length < 8 || l.length - s.length > 2) return false;
+  let i = 0;
+  for (const w of l) if (i < s.length && w === s[i]) i++;
+  return i === s.length;
+};
 const names = (row, text, id) => {
   const r = norm(row);
   if (!r) return false;
@@ -24,7 +34,7 @@ const names = (row, text, id) => {
   const c = norm(text);
   if (r === c) return true;
   const [short, long] = r.length <= c.length ? [r, c] : [c, r];
-  return short.length >= 12 && long.includes(short);
+  return (short.length >= 12 && long.includes(short)) || wordsDropped(r.split(' '), c.split(' '));
 };
 
 // Audit fix cnc-prompts F4 / 73-verdicts 2: for GATING, a row belongs to at most ONE criterion. An exact match (the criterion's own text, or its id) wins; a row that only contains or is contained in criteria

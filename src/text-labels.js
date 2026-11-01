@@ -12,7 +12,7 @@ export const textSha256 = s => createHash('sha256').update(String(s ?? ''), 'utf
  *   reviewedDraft  the draft the panel last reviewed (the text it signed, or failed to)       signed   did the panel sign it (`passed` at that point)
  *   round          the last panel round (null when none ran)                                   openObjections  how many objections were still open when the panel stopped
  *   bodyChanges    the model-written stages that changed the body after the review, in order: 'dispute', 'challenge', 'final_edit'
- *   harnessNotes   the harness-written blocks put above the body: 'dissent_block', 'cold_read_block'
+ *   harnessNotes   the harness-written blocks put above the body: 'dissent_block', 'cold_read_block', 'escalated_signoff_block' (stall escalation), 'final_read_block' (unit D)
  *   body           the model-written text as delivered (before any harness block)             deliverable  the text as written to deliverable.md
  *   handoffMadeFrom the text the handoff stage was given (the deliverable at that point), or null when the chain has no handoff
  */
@@ -43,7 +43,7 @@ export function buildTextLabels({ reviewedDraft, signed, round, openObjections, 
   };
 }
 
-const NOTE_WORDS = { dissent_block: 'the unresolved-dissent block', cold_read_block: 'the cold-reader block' };
+const NOTE_WORDS = { dissent_block: 'the unresolved-dissent block', cold_read_block: 'the cold-reader block', escalated_signoff_block: 'the escalated sign-off block', final_read_block: 'the layer-3 final-read block' };   // the last: stall escalation, A-DRAFT
 
 /**
  * The BOARD.md section (A3/F1): '' when the panel signed and the delivered text is the signed text with no harness note; otherwise what is true, in plain words. Only a board that
