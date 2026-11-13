@@ -146,17 +146,12 @@ test('decision records: the reviser keeps records true and may not delete one to
     'patch mode is a reviser too');
 });
 
-// The council advisor (2026-09-30, src/advise.js). The advisor's stance and its fixed verdict field are
-// deliberate instructions; test/advise.test.js pins the rest of the family and the engine around it.
-test('the advisor is told to answer the question asked, use a fixed verdict, quote the brief and never invent', async () => {
-  const { ADVISOR_SYSTEM, ADVISOR_DEBATE_SYSTEM, ADVISE_SYNTHESIS_SYSTEM } = await import('../src/roles.js');
-  assert.match(ADVISOR_SYSTEM, /answer the question that was asked/i);
-  assert.match(ADVISOR_SYSTEM, /Do not redesign the project/);
-  assert.match(ADVISOR_SYSTEM, /proceed[\s\S]*change[\s\S]*stop[\s\S]*need_information/);
-  assert.match(ADVISOR_SYSTEM, /copied character for character/, 'a risk quote is exact, or it is checked and marked');
-  assert.match(ADVISOR_SYSTEM, /Never invent a tool, file, function, command, flag, number or fact that is not in the brief/);
-  assert.match(ADVISOR_SYSTEM, /at most 120 words/);
-  assert.match(ADVISOR_DEBATE_SYSTEM, /is not evidence/);
-  assert.match(ADVISOR_DEBATE_SYSTEM, /not recorded as a change/);
-  assert.match(ADVISE_SYNTHESIS_SYSTEM, /claim agreement that is not there/);
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): DELETED 'the advisor is told to answer the question asked, use a fixed verdict, quote the brief and never invent' (it pinned ADVISOR_SYSTEM, ADVISOR_DEBATE_SYSTEM and ADVISE_SYNTHESIS_SYSTEM). WHY: the three prompts left with the advice add-on (src/prompts/advise.js is deleted, REM-w29); no prompt that stays is pinned by it.
+
+// 084/glm-format, 2 Nov 2026: the closing sentence of both layer-exchange user messages is the owner's own wording, approved by him, pinned WHOLE (one sentence, these bytes).
+import { layerExchangeClosing } from '../src/roles.js';
+test('the closing sentence of the layer-exchange user messages is pinned whole: the owner\'s own words, one sentence, no dash', () => {
+  assert.equal(layerExchangeClosing(), 'Reply as a reviewer on this panel with the single JSON object described in your instructions, and double-check that the JSON format is correct before you reply.');
+  assert.equal(layerExchangeClosing().split(/(?<=[.!?])\s+/).length, 1, 'one sentence');
+  assert.ok(!/[\u2013\u2014]/.test(layerExchangeClosing()), 'no dash');
 });

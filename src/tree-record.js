@@ -216,7 +216,7 @@ export function appendTreeEventLocked(rootDir, event, { facts = {}, now = () => 
  * Writes `tree.json` (PLAN 4.2): once, atomically (temp file, fsync, rename, directory fsync), never edited. `none` is refused for a tree (the root cap is finite). The tree id is the root run's id, which is
  * the name of the folder holding `tree/`. Returns { tree, sha256 } with the hash of the file as written. `rootTask` ({ task, cwd, taskHash }, src/tree-task-pin.js) is the optional, additive pin of the root's task; `piiGate` ('warn' | 'hard-stop', src/tree-pii-mode.js) the optional, additive personal-data mode of the whole tree.
  */
-export function createTreeFile(rootDir, { rootCapUsd, chains, limits = DEFAULT_LIMITS, rootTask, piiGate, piiAllow, bundleAllowanceBytes, now = () => Date.now() } = {}) {
+export function createTreeFile(rootDir, { rootCapUsd, chains, limits = DEFAULT_LIMITS, rootTask, piiGate, piiAllow, bundleAllowanceBytes, zeroRetention, now = () => Date.now() } = {}) {
   if (!Number.isFinite(rootCapUsd) || rootCapUsd <= 0) throw new RangeError('a tree needs a finite root cap above 0 (--max-usd none is refused for a tree)');
   if (!Array.isArray(chains) || !chains.some(c => c.depth === 0) || chains.some(c => !c.name || !c.sha256 || !Number.isInteger(c.depth))) throw new TypeError('chains: [{ depth, name, sha256 }, ...] with the root chain at depth 0');
   // 0.8.3: optional and additive, written once like every tree.json field: the hash of the chain file WITHOUT its seats' price limits and the limits as they were (src/price-limits.js); with them a person can accept a changed limit later (src/tree-chain-limits.js). Absent (a tree made by hand or before) = that chain's limits cannot be amended.
@@ -233,7 +233,7 @@ export function createTreeFile(rootDir, { rootCapUsd, chains, limits = DEFAULT_L
   mkdirSync(dir, { recursive: true });
   const file = join(dir, TREE_FILE);
   if (existsSync(file)) throw new Error(`${file} exists: a tree is started once and tree.json is never edited`);
-  const tree = { schema: TREE_SCHEMA, treeId: basename(rootDir), rootCapUsd, chains, ...(rootTask !== undefined ? { rootTask: { task: rootTask.task, cwd: rootTask.cwd, taskHash: rootTask.taskHash } } : {}), limits: { ...limits }, ...(piiGate !== undefined ? { piiGate } : {}), ...(piiAllow !== undefined ? { piiAllow: [...piiAllow] } : {}), ...(bundleAllowanceBytes !== undefined ? { bundleAllowanceBytes } : {}), createdAt: new Date(now()).toISOString() };
+  const tree = { schema: TREE_SCHEMA, treeId: basename(rootDir), rootCapUsd, chains, ...(rootTask !== undefined ? { rootTask: { task: rootTask.task, cwd: rootTask.cwd, taskHash: rootTask.taskHash } } : {}), limits: { ...limits }, ...(piiGate !== undefined ? { piiGate } : {}), ...(piiAllow !== undefined ? { piiAllow: [...piiAllow] } : {}), ...(bundleAllowanceBytes !== undefined ? { bundleAllowanceBytes } : {}), ...(zeroRetention === true ? { zeroRetention: true } : {}), createdAt: new Date(now()).toISOString() };      // 0.8.4 zero retention: the setting the tree began with (only when on): every run it starts later carries it (src/zero-retention.js treeZeroRetentionOption)
   const text = JSON.stringify(tree, null, 2);
   const tmp = `${file}.tmp-${process.pid}`;
   const fd = openSync(tmp, 'wx');

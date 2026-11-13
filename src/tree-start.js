@@ -1,4 +1,4 @@
-// `council tree start --task <file> --chain <root chain> --child-chain <name> --max-usd <usd>` (0.8.3 M6 S5; PLAN 8.3 step 0, 10.1, 10.3). The person's one explicit request that makes a recursive-councils tree: it makes the
+// `council tree start --task <file> --chain <root chain> [--child-chain <name>] --max-usd <usd>` (0.8.3 M6 S5; 0.8.4: `--child-chain` is optional and defaults to the root chain; PLAN 8.3 step 0, 10.1, 10.3). The person's one explicit request that makes a recursive-councils tree: it makes the
 // ROOT run folder, writes the tree's record, registers the root with the WHOLE cap as its grant and runs the root as an ordinary run (`--tree-node`), in the foreground, like `tree resume`.
 //
 // Contract: startHandler({ flags, work, stdin, stdout, stderr, now, deps }) -> exit code
@@ -9,7 +9,7 @@
 //   --dry-run (ROADMAP 56, src/tree-projection.js): the checks up to where a normal run's dry run exits (options, task, chain files, lint, milestones, policy), then the PROJECTED cost of a tree on the two chains, exit 0. It makes no run id, folder, lock or
 //     record, starts nothing, asks no key, no key scan, no personal-data check, and needs no --max-usd (checked as always when given). Its refusals are start's own, same text and exit code.
 //   3 the root paused at an external seat   4 the root stopped at its cap   19 the tree refused the root's start   anything else: the root run's own exit code, named
-//   Nothing is written, no folder is made and nothing is spent before every check below has passed. REQUIRED options are the handler's refusals (one per missing option, in the order task, chain, child-chain, max-usd);
+//   Nothing is written, no folder is made and nothing is spent before every check below has passed. REQUIRED options are the handler's refusals (one per missing option, in the order task, chain, max-usd; `--child-chain` is optional since 0.8.4 and defaults to the root chain);
 //   the parser (src/tree-cli.js) accepts a bare `start`.
 // State written, in this order, each durable before the next: runs/<id>/tree/ (a folder), the sitting lock tree/.sitting.lock (held to the end, so a `tree resume` on the same tree finds it held and starts nothing),
 // tree.json + `tree_started`, the root's lineage file tree/inputs/R@g1/node.json, ONE `node_registered` for R (generation 1, grant == the cap, no `grant_issued`), then the root's run folder (written by its own CLI).
@@ -31,15 +31,20 @@ import { typedCeilingRefusal } from './tree-ceiling.js';
 import { bundleDirOf, configSha256, limitsOnlyWords } from './tree-continuation.js';
 import { limitFreeSha256Of, priceLimitsOf } from './price-limits.js';
 import { DEFAULT_LIMITS, readTreeRecord, startTree, stateOf, treeDirOf } from './tree-record.js';
-import { projectTree, projectionLines } from './tree-projection.js';
+import { NO_CHILD_CHAIN_WORDS, projectTree, projectionLines } from './tree-projection.js';
 import { registerRoot } from './tree-register.js';
 import { DEFAULT_BUNDLE_ALLOWANCE_BYTES, budgetOf, effectiveCapUsd, lifetimeCapOf } from './tree-budget.js';
 import { TREE_FIELDS } from './tree-member.js';
 import { terminalSafe } from './terminal-safe.js';
+import { excerptApprovalLines } from './tree-ways-on.js';
+import { awaitingExcerptApproval } from './run-status.js';
 import { unpricedSeats } from './unpriced.js';
 import { formatCouncilError } from './errors.js';
 import { formatUsd } from './cost.js';
-import { everySeatOf, resolveChainSeats } from './chain.js';
+import { everySeatOf } from './chain.js';
+import { resolveRun, KEY_STOPS } from './resolve-run.js';      // 0.8.4 the Claude route
+import { routeLines } from './claude-route.js';
+import { resolveZeroRetention, zeroRetentionLines, zdrTableFor, treeZeroRetentionOption } from './zero-retention.js';      // 0.8.4 the optional zero-retention setting
 import { chainLintLines, inputSecretFindings, missingKeyLines, piiGateReport, policyGate, policyRefusalText, secretScanRefusalLines } from './run-preflight.js';
 import { TREE_PII_ALLOW_TYPES, TREE_PII_MODES, piiAllowProblem, treePiiModeFrom } from './tree-pii-mode.js';
 import { DENIED_TASK_WORDS, checkRootTaskPin, makeRootTaskPin, rootTaskPinFrom } from './tree-task-pin.js';
@@ -78,8 +83,8 @@ const writesMilestones = config => config?.handoff_contract?.milestones === true
 
 /** The first thing wrong with the options, as { code, message }, or null. Pure apart from reading the task file and the chain files. */
 /** `dry` (--dry-run, ROADMAP 56): the same questions up to where a normal run's dry run exits (options, task, chain files, lint, milestones, policy) and no further - no keys, no price-row refusal, no key scan - and `--max-usd` is optional (checked as always when given). */
-function checkOptions(flags, work, { dry = false, ceiling, piiSetting = { mode: 'hard-stop', refusal: null } } = {}) {
-  const needs = [['task', '--task <file>', 'the task the root plan answers'], ['chain', '--chain <name>', 'the chain the root plan runs on'], ['child-chain', '--child-chain <name>', 'the chain every sub-plan runs on'], ['max-usd', '--max-usd <usd>', 'the cap of the whole tree']];
+function checkOptions(flags, work, { dry = false, ceiling, piiSetting = { mode: 'hard-stop', refusal: null }, claudeRouteEnv = {} } = {}) {
+  const needs = [['task', '--task <file>', 'the task the root plan answers'], ['chain', '--chain <name>', 'the chain the root plan runs on'], ['max-usd', '--max-usd <usd>', 'the cap of the whole tree']];
   for (const [key, shown, why] of needs) if (flags[key] === undefined && !(dry && key === 'max-usd')) return { code: 2, message: `council tree start needs ${shown}: ${why}` };
   const raw = String(flags['max-usd'] ?? '').trim();
   if (raw.toLowerCase() === 'none') return { code: 2, message: 'a tree needs a finite cap: --max-usd none is refused' };
@@ -133,7 +138,11 @@ function checkOptions(flags, work, { dry = false, ceiling, piiSetting = { mode: 
   const seats = {};
   for (const [key, shown] of [['chain', 'root'], ['child-chain', 'child']]) {
     const config = { ...chains[key].config, name: chains[key].config.name || flags[key] };
-    chains[key].resolved = resolveChainSeats(config); chains[key].resolvedName = config.name; seats[key] = everySeatOf(chains[key].resolved);
+    // 0.8.4 the Claude route: the roster as the route sends it, the same decision the root run's own CLI makes (its environment is this one's: the setting COUNCIL_CLAUDE_ROUTE and the keys). A tree takes no --claude-route flag (the member runs are started
+    // with the environment, not the command line), so a setting that is not a route, or a malformed key, refuses the whole tree here, before any record is written.
+    const routing = resolveRun(config, { env: claudeRouteEnv, choose: r => `COUNCIL_CLAUDE_ROUTE=${r}`, dry });
+    if (routing.stop) return { code: KEY_STOPS.has(routing.code) ? 5 : 2, message: routing.message };      // a malformed key exits as the missing-key check below does (5); a value that is not a route is a refusal of what was typed (2)
+    chains[key].resolved = routing.config; chains[key].resolvedName = config.name; chains[key].routing = routing; seats[key] = everySeatOf(chains[key].resolved);
     chains[key].shown = shown;
   }
   const taskText = () => readFileSync(taskPath, 'utf8');
@@ -142,8 +151,14 @@ function checkOptions(flags, work, { dry = false, ceiling, piiSetting = { mode: 
     if (gate.parseError) return { code: 6, message: `the ${chains[key].shown} chain ${flags[key]} cannot start:`, lines: [policyRefusalText(gate, { work })] };
     if (gate.policy !== null && !gate.ok) return { code: 12, message: `the ${chains[key].shown} chain ${flags[key]} cannot start:`, lines: [policyRefusalText(gate, { work, chainName: chains[key].resolvedName })] };
   }
+  // 0.8.4 the optional zero-retention setting: the same decision the root run's own CLI makes (its environment is this one's: COUNCIL_ZERO_RETENTION), on the rosters of BOTH chains as the route sends them; a tree takes no flag (the member runs get the environment). A value that is not on or off
+  // refuses the whole tree (2); a seat the table cannot serve refuses a start (5) before any record is written, and a dry run reports it and goes on.
+  const zdrList = zdrTableFor(work);
+  const zero = { ...resolveZeroRetention([...seats['chain'], ...(flags['child-chain'] === flags.chain ? [] : seats['child-chain'])], { env: claudeRouteEnv, offWay: 'COUNCIL_ZERO_RETENTION=off', table: zdrList.table, future: zdrList.future }), asOf: zdrList.table.asOf, source: zdrList.source };
+  if (zero.stop) return { code: 2, message: zero.message };
+  if (zero.refusal && !dry) return { code: 5, message: zero.refusal };
   // a dry run stops here, where a normal run's dry run exits: before the keys, the price-row refusal and the key scan (the projection shows an unpriced seat instead)
-  if (dry) return { dry: true, cap, taskPath, chains, piiGate };
+  if (dry) return { dry: true, cap, taskPath, chains, piiGate, zero };
   for (const key of ['chain', 'child-chain']) {
     const lines = missingKeyLines(chains[key].resolved, seats[key]);
     if (lines) return { code: 5, message: `the ${chains[key].shown} chain ${flags[key]} cannot start:`, lines };
@@ -171,11 +186,11 @@ function checkOptions(flags, work, { dry = false, ceiling, piiSetting = { mode: 
     const refusal = typedCeilingRefusal({ capText: String(flags['max-usd']).trim(), capUsd: cap, ceiling: ceiling() });
     if (refusal) return { code: 2, message: refusal };
   }
-  return { cap, taskPath, chains, piiGate, piiAllow };
+  return { cap, taskPath, chains, piiGate, piiAllow, zero };
 }
 
 /** The line after the root run, per its exit code: what the person does next. */
-function afterRoot({ code, rootId, started }) {
+function afterRoot({ code, rootId, started, rootDir }) {
   // the root's own CLI can still refuse AFTER the records exist (a missing key, a policy file, the PII gate, the outbound key scan...): it makes no run.json then, and `tree resume` starts that root again (src/tree-resume.js, beginRoot), so the person is told the one route there is
   if (![0, 3, 4, 19].includes(code) && !started) return [`The root run did not start (exit code ${code}; no run was made, nothing was spent). Fix what the lines above say, then run: council tree resume ${rootId} (it starts the root run).`];
   switch (code) {
@@ -184,6 +199,7 @@ function afterRoot({ code, rootId, started }) {
     case 3: return [`The root run waits for an external answer. Write the reply its NEEDS file asks for into runs/${rootId}/, then run: council tree resume ${rootId}`];
     case 4: return [`The root run stopped at its cap. See: council tree status ${rootId}`];
     case 19: return [`The tree refused to start the root run (exit 19). Nothing was spent. See: council tree status ${rootId}`];
+    case 26: return excerptApprovalLines({ at: 'The root run', runId: rootId, rootId, approval: awaitingExcerptApproval(rootDir) ?? { gate: null, status: 'invalid' } });   // stopped at an approval of excerpts (the chain's approve_excerpts): it waits for the person's answers, not a crash
     default: return [`The root run ended with exit code ${code}. See: council tree status ${rootId}`];
   }
 }
@@ -201,7 +217,7 @@ function afterRoot({ code, rootId, started }) {
  *      the root is registered here; it is below it only when the root was registered earlier at a lower cap and the cap was then raised (the grant is an event and stays).
  * -> { refusal } (a plain sentence; the root run was not started), { launchError } (startRun threw; the first line), or { code } (the root run's exit code). It prints nothing and holds no lock: the caller holds the sitting lock.
  */
-export async function beginRoot(rootDir, { work, startRun, now, announce = () => {}, onOutput }) {
+export async function beginRoot(rootDir, { work, startRun, now, announce = () => {}, onOutput, env = {} }) {
   const clock = now ? { now } : {};
   const record = readTreeRecord(rootDir);
   const tree = record.tree;
@@ -236,22 +252,25 @@ export async function beginRoot(rootDir, { work, startRun, now, announce = () =>
   if (!(rootBoundUsd > 0)) return { refusal: `the root run of tree ${tree.treeId} cannot be started: nothing is left of its grant under the cap in force (${formatUsd(capInForceUsd)}). Nothing was started or spent.` };
   announce({ treeId: tree.treeId, chain: rootChain.name, task: task.path, capUsd: rootBoundUsd, capInForceUsd });
   try {
-    const res = await startRun({ chain: rootChain.name, task: task.path, cwd: work, runId: tree.treeId, treeNode: lineageFile, maxUsd: rootBoundUsd, ...(mode.status === 'on' ? { piiGate: mode.mode } : {}), onOutput });
+    const res = await startRun({ chain: rootChain.name, task: task.path, cwd: work, runId: tree.treeId, treeNode: lineageFile, maxUsd: rootBoundUsd, ...(mode.status === 'on' ? { piiGate: mode.mode } : {}), ...(treeZeroRetentionOption(tree, env) ? { zeroRetention: treeZeroRetentionOption(tree, env) } : {}), onOutput });      // 0.8.4 zero retention: the setting the tree began with, or the one the person types in this shell now
     return { code: Number.isInteger(res?.exitCode) ? res.exitCode : 1 };
   } catch (e) {
     return { launchError: terminalSafe(String(e?.message ?? e)).split('\n')[0] };
   }
 }
 
-export async function startHandler({ flags, work, stdout, stderr, now, deps = {}, ceiling, piiSetting }) {
+export async function startHandler({ flags, work, stdout, stderr, now, deps = {}, ceiling, piiSetting, claudeRouteEnv }) {
   // everything printed may quote a chain name, a path or a provider's words: control and bidi characters are removed (src/terminal-safe.js), as `tree resume` does
   const out = s => stdout.write(`${terminalSafe(s)}\n`);
   const err = s => stderr.write(`${terminalSafe(s)}\n`);
   const clock = now ? { now } : {};
   const startRun = deps.startRun ?? (opts => api.run(opts));
-  const checked = checkOptions(flags, work, { dry: flags['dry-run'] === true, ceiling, piiSetting });
+  // 0.8.4 H-CC-a (Muad's pick): `--child-chain` is optional and defaults to the root chain. `named` is read BEFORE the default is set: the start line and the dry run say which it was.
+  const named = flags['child-chain'] !== undefined;
+  if (!named && flags.chain !== undefined) flags = { ...flags, 'child-chain': flags.chain };
+  const checked = checkOptions(flags, work, { dry: flags['dry-run'] === true, ceiling, piiSetting, ...(claudeRouteEnv ? { claudeRouteEnv } : {}) });
   if (checked.message) { err(`tree start: ${checked.message}`); for (const l of checked.lines ?? []) err(l); return checked.code; }
-  const { cap, taskPath, chains, piiGate, piiAllow } = checked;
+  const { cap, taskPath, chains, piiGate, piiAllow, zero } = checked;
   // BUNDLE UNIT (C&C ruling 19 Okt 2026): a task bigger than the size a child's approval is priced for would make every child and every re-plan oversize, so it is refused here, where the person is and nothing has been spent. N is never raised per tree.
   const allowanceBytes = deps.bundleAllowanceBytes ?? DEFAULT_BUNDLE_ALLOWANCE_BYTES;
   const taskBytes = Buffer.byteLength(readFileSync(taskPath, 'utf8'), 'utf8');
@@ -259,7 +278,15 @@ export async function startHandler({ flags, work, stdout, stderr, now, deps = {}
   if (checked.dry) {
     // ROADMAP 56: print what the tree could cost and stop. Nothing below runs: no run id, no folder, no lock, no record, no starter.
     const projection = projectTree({ root: { name: flags.chain, config: chains.chain.resolved, taskChars: readFileSync(taskPath, 'utf8').length }, child: { name: flags['child-chain'], config: chains['child-chain'].resolved, taskChars: deps.bundleAllowanceBytes ?? DEFAULT_BUNDLE_ALLOWANCE_BYTES }, limits: DEFAULT_LIMITS, capUsd: cap });
-    for (const line of projectionLines(projection, { capUsd: cap })) out(line);
+    // 0.8.4 the Claude route (A-DRAFT SW2-w17): the route each chain was priced on, before the figures. One chain (the child defaults to the root chain) says it once; two different chains say it each, led by which one it is. A direct run with a usable key prints nothing.
+    const sameChain = flags['child-chain'] === flags.chain;
+    for (const [key, label] of [['chain', 'Root chain'], ['child-chain', 'Sub-plan chain']]) {
+      if (key === 'child-chain' && sameChain) continue;
+      for (const line of routeLines(chains[key].routing)) out(sameChain ? line : `${label} ${flags[key]}: ${line}`);
+    }
+    for (const line of zeroRetentionLines(zero)) out(line);      // 0.8.4 zero retention: which seats the setting reaches
+    for (const line of projectionLines(projection, { capUsd: cap, childNamed: named })) out(line);
+    if (zero.refusal) { out(''); out(`  ${zero.refusal}`); }      // what a real start would stop with (exit 5), said and gone on
     return 0;
   }
 
@@ -275,8 +302,8 @@ export async function startHandler({ flags, work, stdout, stderr, now, deps = {}
     throw e;
   }
   try {
-    startTree(rootDir, { rootCapUsd: cap, rootTask: makeRootTaskPin(taskPath, work), ...(piiGate !== null ? { piiGate } : {}), ...(piiAllow !== null ? { piiAllow } : {}), bundleAllowanceBytes: deps.bundleAllowanceBytes ?? DEFAULT_BUNDLE_ALLOWANCE_BYTES, chains: [{ depth: 0, name: flags.chain, ...limitsOf(chains.chain) }, { depth: 1, name: flags['child-chain'], ...limitsOf(chains['child-chain']) }, { depth: 2, name: flags['child-chain'], ...limitsOf(chains['child-chain']) }], ...clock });
-    const began = await beginRoot(rootDir, { work, startRun, now, announce: () => out(`Tree ${rootId} started: cap ${formatUsd(cap)} for the whole tree, root plan on ${flags.chain}, sub-plans on ${flags['child-chain']}.`), onOutput: (s, stream) => (stream === 'stderr' ? stderr : stdout).write(s) });
+    startTree(rootDir, { rootCapUsd: cap, rootTask: makeRootTaskPin(taskPath, work), ...(zero.on ? { zeroRetention: true } : {}), ...(piiGate !== null ? { piiGate } : {}), ...(piiAllow !== null ? { piiAllow } : {}), bundleAllowanceBytes: deps.bundleAllowanceBytes ?? DEFAULT_BUNDLE_ALLOWANCE_BYTES, chains: [{ depth: 0, name: flags.chain, ...limitsOf(chains.chain) }, { depth: 1, name: flags['child-chain'], ...limitsOf(chains['child-chain']) }, { depth: 2, name: flags['child-chain'], ...limitsOf(chains['child-chain']) }], ...clock });
+    const began = await beginRoot(rootDir, { work, startRun, now, env: claudeRouteEnv ?? {}, announce: () => out(`Tree ${rootId} started: cap ${formatUsd(cap)} for the whole tree, root plan on ${flags.chain}, sub-plans on ${flags['child-chain']}.${named ? '' : ` ${NO_CHILD_CHAIN_WORDS}`}`), onOutput: (s, stream) => (stream === 'stderr' ? stderr : stdout).write(s) });
     // the refusals of beginRoot cannot fire here (checkOptions has just proved the same facts); one that does is still said plainly, never a stack trace
     if (began.refusal) { err(`tree start: ${began.refusal}`); return 1; }
     if (began.launchError) {
@@ -286,7 +313,7 @@ export async function startHandler({ flags, work, stdout, stderr, now, deps = {}
     const { code } = began;
     // the root run has moved the record (this process holds the sitting lock): TREE_HANDOFF.md and tree/report.json are written from it, as a sitting's step would; a failing write is one plain line, never fatal
     for (const p of writeTreeFiles(rootDir, { work })) err(fileProblemLine(rootDir, p));
-    for (const line of afterRoot({ code, rootId, started: existsSync(join(rootDir, 'run.json')) })) out(line);
+    for (const line of afterRoot({ code, rootId, started: existsSync(join(rootDir, 'run.json')), rootDir })) out(line);
     return code;
   } finally {
     release();

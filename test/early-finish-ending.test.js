@@ -9,12 +9,16 @@ import { setHeldForTest } from '../src/held-roles.js';
 import { reportJsonShape } from '../src/report-shape.js';
 import * as H from './held-prompts/held-083.js';
 import { reviserEarlyFinishNote, earlyFinishAskSection } from './held-prompts/held-083-early.js';
+import { objectionId } from '../src/objection-ids.js';
+import { answer } from './helpers/build-check.js';
 
 afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setBudget(null); });
 const CRITERION = 'The plan defines a retry limit.';
 const DRAFT = 'The worker retries failed requests.';
 const signoff = () => JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok' });
-const objecting = extra => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [{ criterion: CRITERION, problem: 'No limit.', fix: 'Add one.' }], verdict_line: 'no', ...extra });
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: la's stub failure carried no rating, and the run ended at the early finish by itself. NEW: it carries severity 5, and the run first waits at the handler's build check (layer 3 signed off, the reviser is a session), which the stub answers with good_to_build naming la's objection (test/helpers/build-check.js answer). WHY: ratingDemand and buildCheckSystem/buildCheckUser are recorded (src/prompts/recorded-084-b.js, src/build-check.js; chain.js askBuildCheck). No relation is written: the chain has no answer_back.
+const F_LA = { criterion: CRITERION, problem: 'No limit.', fix: 'Add one.', severity: 5 };
+const objecting = extra => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [F_LA], verdict_line: 'no', ...extra });
 const A = 'N-f71370af';   // the id the lane gives the judge's proposal below (asserted in EF-E1, so a change shows there)
 const WORDS = { reviewNotesAsk: H.reviewNotesAsk, reviewNotesRevise: H.reviewNotesRevise, reviewNotesMemory: H.reviewNotesMemory, reviewNotesAnswer: H.reviewNotesAnswer, reviserEarlyFinishNote, earlyFinishAskSection };
 const config = {
@@ -26,9 +30,10 @@ const answers = {
   'panel-1-la': objecting({ proposals: [{ text: 'Add a dead-letter queue' }] }),
   'revise-1': `${DRAFT}\n\nRevision 1.\nEARLY-FINISH: only wording is open`,
   'panel-2-lc': signoff(),
+  'build-check-1': answer('good_to_build', `${objectionId('la', F_LA)}: The build can leave it.`),
   handoff: `# Plan\n\nBuild it.\n\nNOTE-TAKEN: ${A}`,
 };
-const cacheOf = store => ({ invalidate() {}, get: label => store.get(label) ?? (label === 'handoff-notes' ? null : label in answers ? { text: answers[label], provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 } : label.startsWith('panel-') ? { text: signoff(), provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 } : { text: DRAFT, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 }) });
+const cacheOf = store => ({ invalidate() {}, get: label => store.get(label) ?? (label === 'handoff-notes' ? null : label in answers ? { text: answers[label], provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 } : (label.startsWith('panel-') || label.startsWith('final-read-')) ? { text: signoff(), provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 } : { text: DRAFT, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 }) });
 const go = async store => {
   setHeldForTest(WORDS); setBudget(null); setCache(cacheOf(store));
   const rows = [];

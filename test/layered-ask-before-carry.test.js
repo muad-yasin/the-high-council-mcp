@@ -20,9 +20,10 @@ afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setB
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CRITERION = 'The plan defines a retry limit.';
-const F_A = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.' };
-const F_A2 = { criterion: CRITERION, problem: 'Layer one: the retry limit has no owner.', fix: 'Name one.', quote: 'retries failed requests' };
-const F_LB = { criterion: CRITERION, problem: 'The retry limit has no unit.', fix: 'Give it a unit.' };
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the three failure literals carried no relation and no rating. NEW: each carries relation 'new' (a first raise by that seat) and severity 5 (a layered unanimous chain demands a rating). WHY: relationRule (src/chain.js:5462) and ratingDemand are recorded; neither field is part of the objection id.
+const F_A = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.', relation: 'new', severity: 5 };
+const F_A2 = { criterion: CRITERION, problem: 'Layer one: the retry limit has no owner.', fix: 'Name one.', quote: 'retries failed requests', relation: 'new', severity: 5 };
+const F_LB = { criterion: CRITERION, problem: 'The retry limit has no unit.', fix: 'Give it a unit.', relation: 'new', severity: 5 };
 const ID_A = objectionId('la', F_A);
 const ID_A2 = objectionId('la', F_A2);
 const DRAFT = 'The worker retries failed requests.';
@@ -50,7 +51,7 @@ async function run(replies, { maxRounds = 6, critics = ['la', 'lb'], layers = [1
     if (miss(label)) return null;
     if (stages?.has(label)) return stages.get(label);
     served.push(label);
-    const text = label.startsWith('panel-') ? (replies(label) ?? signoff(EV)) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+    const text = (label.startsWith('panel-') || label.startsWith('final-read-')) ? (replies(label) ?? signoff(EV)) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
     return { text, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0, promptHash: hashes.get(label) };
   } });
   const seat = (lab, layer) => ({ provider: 'mock', model: models[lab] ?? 'mock-review-fixture', lab, maxTokens: 3000, ...(layer === undefined ? {} : { layer }) });
@@ -269,4 +270,13 @@ test('E84 earlier rounds are not a source (Muad: this round only): lb and lc sig
   assert.ok(p && !p.includes(BLOCK) && !p.includes(EV), 'the carried rows are not shown');
   assert.deepEqual(rowsOf(r, 'la', 3).map(x => [x.effect, x.quoted_from]), [['withdrawal_refused', undefined]], 'and a quote of them is refused');
   assert.equal(r.passed, false);
+});
+
+// M0 FIX-UP 2, item 3 (C&C's ruling 4 Nov 2026; the record field `raised_in`): an objection a judge gives in its RE-ASK was raised in that stage, not in its first ask. The first ask here is a clean sign-off with no answer to the judge's own objection; the re-ask comes back with a verdict that withdraws the old objection (a quote of the draft) and raises a new one. The report names the answerer of the stage that raised it, so the row has to say which stage that was.
+test('E84 raised_in (M0 FIX-UP 2): an objection a judge raises in its re-ask is recorded as raised in the re-ask stage, never in its first ask', async () => {
+  const silent = label => round1(label) ?? (label === 'panel-2-la' ? signoff(EV_LA) : undefined);
+  const { r } = await run(label => silent(label) ?? (label === 'panel-2-la-reask1' ? objecting(F_A2, withdraw(ID_A, QUOTE)) : undefined), { maxRounds: 2 });
+  assert.ok(r.stages.some(s => s.label === 'panel-2-la') && r.stages.some(s => s.label === 'panel-2-la-reask1'), 'the fixture: la was asked and re-asked in pass 2');
+  const row = r.layerDebates?.find(d => d.pass === 2)?.objections.find(o => o.raised_by === 'la');
+  assert.deepEqual([row?.id, row?.raised_in], [ID_A2, 'panel-2-la-reask1'], `the objection la gave in its re-ask names the re-ask stage: ${JSON.stringify(r.layerDebates?.map(d => [d.pass, d.objections.map(o => [o.raised_by, o.raised_in])]))}`);
 });

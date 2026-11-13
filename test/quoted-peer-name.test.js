@@ -18,8 +18,8 @@ const EV = 'Section two sets the retry limit to five attempts.';
 const meets = (ev, extra = {}) => JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: ev }], failures: [], verdict_line: 'ok', ...extra });
 const objects = f => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: f.problem }], failures: [f], verdict_line: 'no' });
 const EV_A = 'Section one lists the retry limit as a number.';   // what the layer-1 seat of the same model writes: a quote of EV can only be the layer-2 seat's
-const Y = { criterion: CRITERION, problem: 'Nobody owns the retry limit.', fix: 'Name an owner.' };
-const Z = { criterion: CRITERION, problem: 'The limit has no unit.', fix: 'Give it a unit.' };
+const Y = { criterion: CRITERION, problem: 'Nobody owns the retry limit.', fix: 'Name an owner.', severity: 5, relation: 'new' };   // K1, K3: relationRule and ratingDemand are recorded
+const Z = { criterion: CRITERION, problem: 'The limit has no unit.', fix: 'Give it a unit.', severity: 5, relation: 'new' };   // K1, K3
 const idY = objectionId('lb', Y);
 
 async function scenario() {

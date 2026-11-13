@@ -11,7 +11,7 @@ import { SEAT_DEFAULT_MAX_TOKENS } from '../cost.js';
 import { readStoppedMarker } from '../stop-files.js';
 import { readRunJson } from '../run-files.js';
 import { lockHolder } from '../run-lock.js';
-import { isAdviceFolder } from '../advice-run.js';
+import { isAdviceFolder } from '../stop-files.js';
 import { textSecretFindings } from '../run-preflight.js';
 
 export const PRICE_RAISE_DESCRIPTION = 'After a price refusal stopped a run (exit 24, run_status says so), the refused seat\'s model can be given a higher price here, in two calls. step "quote": looks up the cheapest OpenRouter host that can serve the refused seat and returns a text for the USER plus its hash `shown`; nothing is written. step "confirm": with `shown` and `reason` (the user\'s own yes, in their words), writes the price row into pricing.user.json of this project, which every later run here reads. SHOW THE USER THE QUOTED TEXT AND GET THEIR YES IN THE CHAT BEFORE YOU CALL CONFIRM. NEVER CONFIRM ON YOUR OWN: a higher price raises what every later call of that seat is counted at against the spending limit. Confirm spends nothing. Continue the run with resume_run; it stops at the spending-limit gate once more because a price changed, and the person answers that gate. Tree members, advice runs and seats whose price limit the chain itself sets are refused (a tree member goes through tree_decide).';

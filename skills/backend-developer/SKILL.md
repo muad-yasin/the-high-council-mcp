@@ -18,7 +18,7 @@ Before implementing a service, module or command, write its **contract**: public
 
 1. **Logic is interface-agnostic and testable with nothing else running.** No request objects, DOM or rendering layer inside core logic. Strongest form: a package boundary or lint rule that makes the wrong dependency direction a build error.
 2. **Configuration is data, not code.** Anything an operator might change without a redeploy is config with a documented default. Prefer **optional config with a built-in fallback**: missing config means "use the default," never a crash, and existing callers and tests keep working unchanged. Config never holds runtime state or a literal secret - secrets come from the environment or a secret store.
-3. **No just-in-case fields or endpoints.** No state, parameter or column without a concrete near-term consumer. Generated code tends to pad and duplicate where a human would reuse (GitClear's 2025 vendor analysis of 211 million changed lines found duplicated blocks up about eightfold in 2024; it is not peer-reviewed); looking complete is not a requirement.
+3. **No just-in-case fields or endpoints.** No state, parameter or column without a concrete near-term consumer. Generated code tends to pad and duplicate where a human would reuse (GitClear's 2025 vendor analysis, not peer-reviewed); looking complete is not a requirement.
 4. **One source of truth; derive, don't duplicate.** A derived value cannot drift. The exception is data whose job is capturing a moment nothing else can reconstruct - a timestamp, an audit entry, elapsed time across a restart.
 5. **Every piece of state has a tier, chosen on purpose:** persisted; runtime-only; or **re-rolled on restart as an accepted loss** (a randomized schedule position, a jitter window). The third tier says so in its doc comment so nobody "fixes" it into the schema - and the *guarantee* it served is rebuilt from persisted state on startup. Losing the roll is fine; losing the guarantee is a bug. Decide what happens on reset and on corrupt data for every new piece of state.
 6. **Loose coupling through one composition point.** Components raise events or return results; they never call each other's internals. Cross-component reactions live in one wiring or bootstrap module you can read top to bottom.
@@ -28,31 +28,32 @@ Before implementing a service, module or command, write its **contract**: public
 10. **Randomness and time are injectable** - a clock or RNG instance, or one seam. Anything checked against an expected value is only verifiable if its inputs are controllable; unseeded is unverifiable by construction.
 11. **A stricter entry point is a thin wrapper that adds the policy and delegates** - never a behavior change to the permissive original others depend on. A wrapper that only renames hides nothing; delete it. One implementation is a hypothetical seam; two is a real one.
 12. **A design-level asymmetry found mid-change doesn't have to be fixed by that change.** Record it with a name; rebalance later with existing knobs. Never bake a special case into the change that surfaced it.
-13. **Every number carries its derivation** in a comment; a value with no trace is presumed invented. **Derive against a self-contained anchor**, never another component's unbuilt ceiling (a ~60x error shipped in a draft that derived a gate from a ceiling reachable only after spending far more than the gate protected). Two tunables that could drift get two names and a decoupling test.
-14. **Every hard gate or filter is paired with a loud check on the output invariant it could break.** Gates fail by producing nothing: a tightened eligibility check once rejected every candidate and silently split a generated graph in half. State the invariant, **floors and ceilings both**: connectivity, minimum count, coverage, and a size or count budget measured against a known control (a generated mesh class once came out over twelve times a control's size and was found only by measuring). A run that blows a budget fails like one that produces nothing, and the violation is a hard error. When a gate cuts a count below target, **prefer fewer correct instances over loosening the gate**, and record which knobs would raise it.
+13. **Every number carries its derivation** in a comment; a value with no trace is presumed invented. **Derive against a self-contained anchor**, never another component's unbuilt ceiling (the ~60x error: generator reference). Two tunables that could drift get two names and a decoupling test.
+14. **Every hard gate or filter is paired with a loud check on the output invariant it could break.** Gates fail by producing nothing: a tightened eligibility check once rejected every candidate and silently split a generated graph in half. State the invariant, **floors and ceilings both** - connectivity, minimum count, coverage, and a size or count budget measured against a known control - and make its violation a hard error: a run that blows a budget fails like one that produces nothing. When a gate cuts a count below target, **prefer fewer correct instances over loosening the gate**, and record which knobs would raise it.
 15. **Throttle cross-component polls and repeated external calls out of hot loops** - and sweep every similar loop in the same pass, recording the negative results too (an unrecorded clearance gets re-investigated).
-16. **Every swallowed exception, null/default/empty error return and silent fallback is a presumptive defect until a comment justifies it.** Studies of generated code find missing checks and error handling to be the dominant robustness gap, and code that keeps the surface appearance of working while doing nothing passes casual review. Where silence is right, say why at the site; otherwise fail loudly - and fail *closed*: an exception on a security or policy path denies, never allows (OWASP Top 10:2025 now lists mishandled exceptional conditions as its own category).
+16. **Every swallowed exception, null/default/empty error return and silent fallback is a presumptive defect until a comment justifies it.** Code that keeps the surface appearance of working while doing nothing passes casual review. Where silence is right, say why at the site; otherwise fail loudly - and fail *closed*: an exception on a security or policy path denies, never allows.
 17. **The script is the artifact; session state is lost.** Migrations, bulk edits, data fixes and generation runs are committed, deterministic, re-runnable code - never a sequence of interactive commands nobody can replay. Destructive operations run only against an **explicit, enumerated target list confirmed against live state first**. Write against the installed version's docs or source and feed real error output back, rather than recalling an API from memory.
-18. **Every quantity crossing a boundary carries its unit and reference frame in its type or name** - metres or engine units, world or local or origin-shifted coordinates, UTC or local time, per second or per day. A comparison across frames is a defect a type or an assertion should catch; the textbook case is the 1999 Mars Climate Orbiter loss, attributed to pound-force-seconds supplied where newton-seconds were specified (NASA's mishap board report, seen here only through summaries). **A feature whose trigger count stays at zero through a run where it should fire is a failure, not a quiet run:** one feature never fired because two positions in different frames were compared, and its log said "0 shown" through two builds before anyone read it. Assert the count; do not leave it in a log.
+18. **Every quantity crossing a boundary carries its unit and reference frame in its type or name** - metres or engine units, world or local or origin-shifted coordinates, UTC or local time, per second or per day. A comparison across frames is a defect a type or an assertion should catch; the textbook case is the 1999 Mars Climate Orbiter loss. **A feature whose trigger count stays at zero through a run where it should fire is a failure, not a quiet run:** one feature never fired because two positions in different frames were compared, and its log said "0 shown" through two builds before anyone read it. Assert the count; do not leave it in a log.
 
 ## Security baseline
 
-Not a substitute for a security review; the floor every change meets. Categories follow the OWASP Top 10:2025.
+The floor every change meets, not a security review. Each rule in full, with figures and sources: `references/security-and-evidence.md`.
 
-- **Authorize every request on the server**, per object, not just per route; the client's view of what a user may do is a hint, not a control (broken access control, including SSRF: validate and allow-list any URL the server fetches).
-- **Treat all input as data.** Parameterized queries, no string-built shell or SQL, output encoded for its context, schemas validated at the boundary.
-- **Verify every new dependency exists and is the one you meant** before installing it - code models regularly suggest package names that don't exist (a USENIX Security 2025 study measured this across 16 models: 5.2% of suggested packages from commercial models and 21.7% from open ones; a 2026 single-author preprint still found about 5% on frontier models, not yet peer-reviewed), and attackers register those names (OWASP A03:2025, Software Supply Chain Failures). Pin versions with a lockfile; review what a new dependency pulls in.
-- **Third-party data, models and assets get the same gate.** Read the licence for the intended use (machine processing, derived data, redistribution) before ingesting, and prefer an openly licensed equivalent you already hold - one research shortcut pointed at a data source whose terms forbid machine interpretation while an open equivalent sat unused. Reading the terms is `research-and-sourcing`'s; the gate sits here.
-- **Ship no debug or default configuration.** Debug modes, default credentials, sample endpoints, permissive CORS and verbose error pages are off in anything deployed (A02:2025, Security Misconfiguration).
-- **Secrets never appear** in code, config literals, logs, error messages, URLs or test fixtures.
-- **Errors to callers are generic and structured** (for HTTP APIs, RFC 9457 problem details); detail goes to logs, never the stack trace to the client. Log security-relevant events so an incident can be reconstructed.
-- **Every external call has a timeout and a defined failure behavior**; a write that may be retried carries an idempotency key or is naturally idempotent.
+- Authorize every request on the server, per object, not just per route; allow-list any URL the server fetches.
+- Treat all input as data: parameterized queries, no string-built shell or SQL, output encoded for its context, schemas validated at the boundary.
+- Verify that a new dependency exists and is the one you meant (models suggest package names that don't exist, and attackers register them); pin it.
+- Read the licence of third-party data, models and assets for the intended use before ingesting.
+- Ship no debug or default configuration.
+- Keep secrets out of code, config literals, logs, error messages, URLs and test fixtures.
+- Errors to callers are generic and structured; detail and security-relevant events go to logs.
+- Every external call has a timeout and a defined failure behavior; a write that may be retried is idempotent.
 
 ## Persistence integrity - run exactly when anything persistent changes shape
 
 - **Version the schema or format; migrate stepwise** (vN to vN+1, new fields get defaults), never one big-bang converter.
-- **Atomic writes:** write a temp file, flush it to disk, rename over the target, then sync the directory; keep a last-good backup the loader can fall back to; a corrupt file loads as a recoverable "no data," not a throw. Rename-over-existing is atomic on POSIX but not guaranteed on every platform (Windows replace APIs make no atomicity promise) - know your target.
+- **Atomic writes:** write a temp file, flush it to disk, rename over the target, then sync the directory; keep a last-good backup the loader can fall back to; a corrupt file loads as a recoverable "no data," not a throw. Rename-over is not atomic on every platform: know your target.
 - **Golden fixtures prove compatibility; a careful read-through does not.** Freeze one real example per meaningful state at the current version and load each in a test.
+- **Round-trip and count:** after a save, an export or a migration, load the result and compare its counts with the source - a serializer can succeed and drop items.
 - **Decide tamper-resistance once, against the real trust model, and say why.** A local single-user file needs none; anything shared, multi-tenant or economically meaningful needs server-side validation. Reflexive checksums only complicate recovery.
 
 ## Verification traps - each looked like success
@@ -61,28 +62,18 @@ Not a substitute for a security review; the floor every change meets. Categories
 - **A changed default never reaches already-serialized data.** Read the live stored value back.
 - **A registry kept in data (a content list, a seed file, a table) is invisible to unit tests** - check each new entry actually landed.
 - **Instrument before tuning a threshold.** One rejection counter showed a single gate eating 93% of candidates after three blind tune-and-rerun loops had failed.
-- **Judge a change by its worst segment, not its average.** A quota, credit or reward system can balance in total while every individual session ends in the red; a fix can make the common case fivefold better and a rarer category much worse (a smoothing fix did exactly that, and the worse category had not been re-measured). Re-measure the whole output split by category and report the worst one.
+- **Judge a change by its worst segment, not its average.** A quota, credit or reward system can balance in total while every individual session ends in the red; a fix can make the common case fivefold better and a rarer category much worse. Re-measure the whole output split by category and report the worst.
 
 ## Testing discipline
 
-- When decoupling two behaviors, a regression test proves the old one is unaffected.
+- **Every fix gets two checks:** the failure no longer happens, and the intended use still works - a guard that also blocks the good input passes the first alone (`verification-and-critique`, item 9). When decoupling two behaviors, a regression test proves the old one is unaffected.
+- **If the third fix in a row uncovers yet another problem somewhere else, stop patching and question the design:** a fault that keeps moving sits in the structure.
 - **Find every real call site of a changed contract with the compiler, a type checker or find-references** - never recall. Missed callers grow with the size of the change.
 - **A mistake shipped twice earns a mechanical guard** (a lint rule, a source-scanning test). Enumerate the paraphrases the bug could take first - a guard with a synonym hole is confidence without coverage.
 - **Generated output is validated by invariants over golden seeds plus fresh random seeds** each run; never by eyeballing alone.
-- **A skipped check is not a pass.** A test that skips for a missing environment variable, file or key reports SKIP, and a required check that skipped fails the run - a suite once counted real-data checks as passed because they skipped silently without their environment. Name which checks are required and have the runner print the skip count.
+- **A skipped check is not a pass.** A test that skips for a missing environment variable, file or key reports SKIP, and a required check that skipped fails the run - a suite once counted real-data checks as passed because they skipped silently without their environment. Name which checks are required and have the runner print the skip count. A file that never loaded is an unreported skip: print per-file results and count them.
+- **A failure that passes on a re-run is a failure with its cause open** (timing, order, shared state), recorded as one.
 - **A check is evidence only if it can fail.** Run it once against a known-bad input before trusting a pass; a check whose result is guaranteed by how the thing was built (a test that a smoothed surface bends only where its grid lines are, which it must) is a tautology that reads as confirmation. The general rule is `verification-and-critique`'s, Part 1: "Before trusting a check, ask whether it could have come out the other way".
-
-## Definition of done
-
-- [ ] Contract written (functions/endpoints, events + payloads, owned state)
-- [ ] Logic testable with no interface, server or external service running
-- [ ] Config has real defaults; no speculative fields; every number traced
-- [ ] Security baseline met for anything touching input, auth, dependencies or secrets
-- [ ] Persistence checklist run if anything persistent changed shape
-- [ ] Every call site of a changed contract found by tooling
-- [ ] Required checks ran (none skipped) and each could fail; quantities crossing a boundary carry unit and frame
-- [ ] Output artifacts and stored values read back, not trusted from a log
-- [ ] Non-obvious design choices briefly explained
 
 ## Mistakes to flag
 
@@ -94,7 +85,8 @@ Not a substitute for a security review; the floor every change meets. Categories
 - A swallowed exception or silent fallback with no justifying comment; a policy path that fails open.
 - A gate with no loud check on the invariant it could break; an invariant with a floor and no ceiling.
 - A quantity compared across units or reference frames; a feature whose trigger count was zero in a run that should have fired it, left in a log.
-- A skipped check counted as a pass; a test that cannot fail offered as proof.
+- A skipped check counted as a pass; a test that cannot fail offered as proof; a red turned green by a re-run; a test file that never loaded.
+- A fix checked only for the failure it removes.
 - A rule change judged only at the site that prompted it, or a fix judged by its average instead of its worst category.
 - A pass-through wrapper; an interface with one implementation.
 - A bare global clock or RNG in logic that must be verifiable.
@@ -102,4 +94,4 @@ Not a substitute for a security review; the floor every change meets. Categories
 - A destructive operation aimed at a pattern instead of a confirmed list.
 - "It ran successfully" offered without the artifact read back.
 
-Further depth: `references/verification-and-review.md` (verifying and reviewing backend work), `references/generated-data-and-simulation.md` (generators, derived numbers, offline simulation, instruments that judge code past compile-and-pass).
+References: `references/verification-and-review.md` (definition of done, review), `references/security-and-evidence.md` (baseline in full, figures), `references/generated-data-and-simulation.md` (generators, simulation).

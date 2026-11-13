@@ -156,7 +156,7 @@ test('an advice result and a result with nothing signed get no thin_contract; th
   const base = { criteria: ['The plan names its assumptions.'], signedText: { sha256: h('e') }, stages: [], totals: { usd: 0 }, signoff: [], proposals: [], dropouts: [], passed: true };
   const shape = result => reportJsonShape({ runId: 'r', chain: 'c', task: 't.md', taskText: 'a task', result, config: { name: 'c' } });
   assert.ok(shape(base).thin_contract, 'control: a sealed-able result gets the record');
-  assert.equal(shape({ ...base, advise: { status: 'answered', opinions: [], dissent: [] } }).thin_contract, undefined, 'an advice run has no sign-off to seal');
+    // CHANGED ACCEPTED TEST (0.8.4 add-on removal, box set fix): OLD: an advice result (advise) gets no thin_contract. NEW: the row is gone. WHY: the advice add-on is removed; reportJsonShape no longer special-cases advise.
   assert.equal(shape({ ...base, signedText: undefined }).thin_contract, undefined, 'no signed text, no record');
   assert.equal(shape({ ...base, criteria: [] }).thin_contract, undefined, 'no criteria, no record');
 });

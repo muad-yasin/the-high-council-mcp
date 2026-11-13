@@ -1,5 +1,6 @@
 {
   "name": "mock-tiered",
+  "draft_end_marker": { "enabled": true },
   "description": "Offline. A tiered council at $0 (tiered councils, 2026-09-26): mass seats (seats.proposers) propose parts, debate them and post on the architectures; anchor seats (seats.alternatives) write the whole architectures and reply; the anchor panel (seats.critics) alone votes. The majority guard is on: authors see arguments without lab letters or counts, and a withdrawal that quotes no argument (mock-yield-unargued, mock-alt-withdraw) stays for the builder while one that does (mock-yield-argued) is honoured. A deep-dive seat reads the task in 1000-character chunks, once per focus entry, under its own cap and maxCalls, and the reviser answers its findings before the panel's first review.",
   "maxRounds": 2,
   "signoff": "unanimous",

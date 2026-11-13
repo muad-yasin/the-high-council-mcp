@@ -7,8 +7,9 @@
 // What can be known: a DECLINED line may carry the id of the objection it answers (0.8.2, owner 7 Oct, P13: `DECLINED: O-1a2b3c4d: <reason>`, src/draft-disputes.js); such a reason is attached to that objection, and a line with no
 // usable id is given as a reason for the round, matched to no objection. The changed passages are a paragraph diff of the draft
 // before and after the revise, so they work in full-rewrite mode as well as patch mode.
-import { evidenceSpans, normQuote } from './post-quotes.js';
+import { evidenceSpans, evidenceRefusal, normQuoteTight, markSpans } from './post-quotes.js';
 import { objectionId } from './objection-ids.js';
+import { mergeSeverity, readSeverity } from './severity.js';
 // The harness's own escapes in a passage it showed a judge (a leading `#` becomes `\#`, a defused tag starts with `&lt;`: src/roles.js claimText and the held writerText) are undone, so a passage copied from what the judge was shown still matches the draft.
 const norm = s => String(s ?? '').replace(/\\#/g, '#').replace(/&lt;/g, '<').replace(/[`*_\u2018\u2019]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 const paragraphs = text => String(text ?? '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
@@ -43,10 +44,14 @@ export function buildAnswerBack({ failures, declined, declinedIds = [], oldDraft
     // The id is the same for the same lab, criterion and quoted text BY DESIGN (src/objection-ids.js): two problems a judge listed under one criterion with no quote share an id. They are one objection here, with
     // the problems joined: a judge answers by id, and one id must name exactly one entry (a reviewer's review of 913ce2e..c40a25d, finding 1).
     const dup = entry.objections.find(o => o.id === f.id);
-    if (dup) { if (f.problem && !String(dup.problem).includes(f.problem)) dup.problem = `${dup.problem} / ${f.problem}`; continue; }
+    if (dup) {
+      if (f.problem && !String(dup.problem).includes(f.problem)) dup.problem = `${dup.problem} / ${f.problem}`;
+      if (f.severity !== undefined) { const m = mergeSeverity(dup.severity, f.severity); if (m.ok) dup.severity = m.value; }   // two copies of one id keep the highest readable tag (src/severity.js)
+      continue;
+    }
     // An objection kept from an earlier round for a judge that was not heard (src/chain.js, keptOpen) keeps the writer's reason from that round: this round's reviser never saw it.
     const reason = mine.length ? mine.join(' / ') : f.declined_reason;
-    entry.objections.push({ id: f.id, criterion: f.criterion, problem: f.problem, ...(f.quote ? { quote: f.quote } : {}), ...(reason ? { declined_reason: reason } : {}) });
+    entry.objections.push({ id: f.id, criterion: f.criterion, problem: f.problem, ...(f.quote ? { quote: f.quote } : {}), ...(readSeverity(f.severity).ok ? { severity: f.severity } : {}), ...(reason ? { declined_reason: reason } : {}) });
   }
   return out;
 }
@@ -65,17 +70,18 @@ export const answerBackSummary = (round, byLab) => Object.entries(byLab).map(([l
  *   round after round (test/verdict-words.test.js pins that). It is returned in `unanswered` instead, in the same shape as a carried failure, and the caller decides (Astra's 0.8.2 review,
  *   7 Oct 2026, F1: an unanswered objection under a clean sign-off used to vanish, while a withdrawal with no quote was kept; src/chain.js now re-asks that judge once and carries
  *   whatever is still unanswered, once the re-ask sentence is recorded).
+ * `texts` (0.8.4 D14, optional): src/quote-check.js spanTexts for this call; with it a `sustained` row carries `spans` ([{ text, located_in }], the quoted passages of the answer's evidence, as markSpans marks them); without it nothing differs.
  * Returns { carried: [failure...], unanswered: [failure...], records: [{ id, status, effect }] }; `carried` entries are failures the caller adds to the judge's own, `records` go to report.json (`answer_back_replies`).
  */
-export function applyAnswers({ lab, critique, own, shownDraft, round, sources = null }) {
+export function applyAnswers({ lab, critique, own, shownDraft, round, sources = null, texts = null }) {
   const answers = Array.isArray(critique?.answers) ? critique.answers.filter(a => a && typeof a === 'object' && !Array.isArray(a)) : [];
   const listed = new Set((critique?.failures || []).map(f => objectionId(lab, f)));
   const idKey = v => String(v ?? '').trim().toLowerCase(); // a padded or re-cased id is the same id (an exact match would turn a refused withdrawal into a dropped objection)
   const byId = new Map((own || []).map(o => [idKey(o.id), o]));
-  const draftText = normQuote(shownDraft); // the quote check normalises quotes and apostrophes on both sides; the paragraph diff above keeps its own norm
+  const draftText = normQuoteTight(shownDraft); // the quote check normalises quotes and apostrophes on both sides; the paragraph diff above keeps its own norm
   const records = []; const carried = [];
   const seen = new Set();
-  const asFailure = o => ({ criterion: o.criterion, problem: o.problem, fix: '', ...(o.quote ? { quote: o.quote } : {}), id: o.id, carried_from_round: o.raised_round ?? round - 1 });
+  const asFailure = o => ({ criterion: o.criterion, problem: o.problem, fix: '', ...(o.quote ? { quote: o.quote } : {}), ...(readSeverity(o.severity).ok ? { severity: o.severity } : {}), id: o.id, carried_from_round: o.raised_round ?? round - 1 });
   const carry = o => { if (!listed.has(o.id) && !carried.some(c => c.id === o.id)) carried.push(asFailure(o)); };
   for (const a of answers) {
     const id = typeof a.id === 'string' ? a.id : '';
@@ -86,14 +92,17 @@ export function applyAnswers({ lab, critique, own, shownDraft, round, sources = 
     seen.add(o.id);
     if (status === 'withdrawn') {
       const spans = evidenceSpans(a.evidence);
-      const quoted = spans.some(q => draftText.includes(normQuote(q)));
+      const quoted = spans.some(q => draftText.includes(normQuoteTight(q)));
       // ROADMAP 84 (E84): when the judge was SHOWN other judges' evidence (`sources[o.id]`: [{ lab, layer?, text }] in the order shown, built by the one function that built the prompt block), a quoted span found there also counts, and the
       // record says whose it was. The draft is checked first: a quote found in both is the draft's. Without `sources` nothing here differs from before.
-      const peer = quoted || !sources ? null : (sources[o.id] || []).find(s => spans.some(q => normQuote(s.text).includes(normQuote(q))));
+      const peer = quoted || !sources ? null : (sources[o.id] || []).find(s => spans.some(q => normQuoteTight(s.text).includes(normQuoteTight(q))));
       if (quoted) records.push({ id, status, quoted: true, effect: 'withdrawn' });
       else if (peer) records.push({ id, status, quoted: true, effect: 'withdrawn', quoted_from: 'reviewer', quoted_ref: peer.lab, ...(peer.layer !== undefined ? { quoted_layer: peer.layer } : {}) });
-      else { records.push({ id, status, quoted: false, effect: 'withdrawal_refused' }); carry(o); }
-    } else if (status === 'sustained') { records.push({ id, status, effect: 'sustained' }); carry(o); }
+      else { records.push({ id, status, quoted: false, effect: 'withdrawal_refused', refusal: evidenceRefusal(a.evidence) }); carry(o); }   // 0.8.4 S17 (S17-w1): the reason is one word on the row
+    } else if (status === 'sustained') {
+      const marks = texts ? markSpans(evidenceSpans(a.evidence), texts) : [];   // 0.8.4 D14 (plan A T7.3, WORDING U2-w4): a sustained answer's passage is marked as an objection's are, a record only (it keeps or drops nothing)
+      records.push({ id, status, effect: 'sustained', ...(marks.length ? { spans: marks } : {}) }); carry(o);
+    }
     else { records.push({ id, status, effect: 'unreadable_answer' }); carry(o); } // 3b: a word that is neither (fixed, resolved, open, "") must not drop an objection the judge did not list again
   }
   const unanswered = [];
@@ -111,6 +120,6 @@ export function applyAnswers({ lab, critique, own, shownDraft, round, sources = 
  */
 export function stillOpen(entry, replies, { round, lab }) {
   const key = v => String(v ?? '').trim().toLowerCase(); // the same id normalisation as applyAnswers
-  const closed = new Set((replies || []).filter(r => r.round === round && r.lab === lab && r.effect === 'withdrawn').map(r => key(r.id)));
+  const closed = new Set((replies || []).filter(r => r.round === round && r.lab === lab && (r.effect === 'withdrawn' || r.effect === 'withdrawn_exchange')).map(r => key(r.id)));   // B2: an objection its raiser withdrew in the layer's exchange (src/layer-debate.js) is closed for the raiser the same way
   return (entry?.objections || []).filter(o => !closed.has(key(o.id)));
 }

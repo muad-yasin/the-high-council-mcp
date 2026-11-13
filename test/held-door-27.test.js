@@ -105,7 +105,8 @@ test('27 door: a table gap and unanswered objections in one reply get ONE re-ask
 test('27 door: an EXTERNAL judge (a NEEDS file a session answers) gets the same note on its re-ask, not "could not be read"', async () => {
   on();
   const criterion = 'The plan defines a retry limit.';
-  const failure = { criterion, problem: 'No retry limit is specified.', fix: 'Specify a retry limit.' };
+  // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the scripted failures (here, F1 and F2 below) carried no `relation`. NEW: each says `relation: 'new'` (a first raise by la, in pass 1; the chain has no layers, so no rating is demanded). WHY: relationRule recorded (src/chain.js relation gate).
+  const failure = { criterion, problem: 'No retry limit is specified.', fix: 'Specify a retry limit.', relation: 'new' };
   const hashes = new Map(); const prompts = new Map();
   setBudget(null);
   setPromptSpy(p => { hashes.set(p.label, promptHashOf(p.system, p.user)); prompts.set(p.label, p.user); });
@@ -156,9 +157,9 @@ test('criticUnansweredNote: one id or several, with and without its heading; nev
 
 // Label-keyed cache runs for the review's cases (Sonnet review of item 27, 7 Oct 2026): `replies(label)` gives a judge's reply text, or null for a clean sign-off with a full table and no answers.
 const C1 = 'The plan defines a retry limit.';
-const F1 = { criterion: C1, problem: 'No retry limit is specified.', fix: 'Specify a retry limit.' };
+const F1 = { criterion: C1, problem: 'No retry limit is specified.', fix: 'Specify a retry limit.', relation: 'new' };
 const C2 = 'The plan names who is paged.';
-const F2 = { criterion: C2, problem: 'Nobody is paged.', fix: 'Name the on-call.' };
+const F2 = { criterion: C2, problem: 'Nobody is paged.', fix: 'Name the on-call.', relation: 'new' };
 const cacheRun = async (replies, extra = {}) => {
   const hashes = new Map(); const prompts = new Map();
   setBudget(null);

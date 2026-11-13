@@ -19,7 +19,9 @@ afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setB
 const CRITERION = 'The plan defines a retry limit.';
 const DRAFT = 'The worker retries failed requests.';
 const signoff = (extra = {}) => JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok', ...extra });
-const objecting = (extra = {}) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [{ criterion: CRITERION, problem: 'No limit.', fix: 'Add one.' }], verdict_line: 'no', ...extra });
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the stub failure carried no rating. NEW: it carries severity 5 (a layered unanimous chain demands a rating). WHY: ratingDemand is recorded (src/ratings-demand.js). No relation: this chain has no answer_back, so relationRule is not asked of its judges (src/chain.js:5462).
+const FAIL = { criterion: CRITERION, problem: 'No limit.', fix: 'Add one.', severity: 5 };
+const objecting = (extra = {}) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [FAIL], verdict_line: 'no', ...extra });
 const P = (...texts) => texts.map(text => ({ text }));
 const I = (...texts) => texts.map(text => ({ text, about: `about ${text}` }));
 const idP = text => noteId('proposal', text); const idI = text => noteId('idea', text);
@@ -32,8 +34,8 @@ async function run(replies, { revise = () => undefined, usage = () => ({ input: 
   setBudget(null); setPromptSpy(p => prompts.set(p.label, p.user));
   setCache({ invalidate() {}, get(label) {
     served.push(label);
-    const text = label.startsWith('panel-') ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? (revise(label) ?? `${DRAFT}\n\nRevision ${label.slice(7)}.`) : DRAFT;
-    return { text, provider: 'mock', model: 'm', usage: label.startsWith('panel-') ? usage(label) : { input: 0, output: 0 }, usd: 0 };
+    const text = (label.startsWith('panel-') || label.startsWith('final-read-')) ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? (revise(label) ?? `${DRAFT}\n\nRevision ${label.slice(7)}.`) : DRAFT;
+    return { text, provider: 'mock', model: 'm', usage: (label.startsWith('panel-') || label.startsWith('final-read-')) ? usage(label) : { input: 0, output: 0 }, usd: 0 };
   } });
   const seat = (lab, layer) => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000, layer });
   const config = { name: 'fixture-writer', criteria: [CRITERION], signoff: 'unanimous', maxOverseerRounds: 3, layerRevisions: { 1: 2, 2: 1 }, freedoms: { pass: true }, ...(notes ? { reviewNotes: notes } : {}), ...extra,

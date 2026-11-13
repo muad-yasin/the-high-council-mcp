@@ -44,14 +44,14 @@ export function checkOldPlan({ rootDir, node, restBytes = null, maxBytes = null 
  * The person's choice about the earlier plan at `tree decide`: data is the DEFAULT, `--fresh` leaves it out. `restBytes`/`maxBytes`: what the new input already holds and may hold (root route; the size check). `lenient` (a sub-plan stop): a node that never ran or has no
  * readable plan has nothing to offer: fresh, with the reason. -> { refusal } | { oldPlan: { form:'fresh' } | { form:'data', sha256, bytes }, text?, note? }. All sentences are A-DRAFT.
  */
-export function chooseOldPlan({ rootDir, node, fresh = false, lenient = false, restBytes = null, maxBytes = null, raiseHint = null, paidNote = '' }) {
+export function chooseOldPlan({ rootDir, node, fresh = false, lenient = false, restBytes = null, maxBytes = null, raiseHint = null }) {
   if (fresh) return { oldPlan: { form: 'fresh' } };
   const c = checkOldPlan({ rootDir, node, restBytes, maxBytes });
   if (c.ok) return { oldPlan: { form: 'data', sha256: c.sha256, bytes: c.bytes }, text: c.text };
   if (c.kind === 'unreadable' && lenient) return { oldPlan: { form: 'fresh' }, note: c.detail };
   if (c.kind === 'unreadable') return { refusal: `${c.detail}: run the command again with --fresh to plan without it` };
-  if (raiseHint) return { refusal: `the new plan's input would be ${c.detail} this tree's approval was priced for. Two ways on: give a shorter decision or leave the earlier plan out with --fresh;${raiseHint(c.bytes)}.${paidNote}` };
-  return { refusal: `the new plan's input would be ${c.detail} this tree's approval was priced for: give a shorter decision, or run the command again with --fresh to leave the earlier plan out${paidNote}` };
+  if (raiseHint) return { refusal: `the new plan's input would be ${c.detail} this tree's approval was priced for. Two ways on: give a shorter decision or leave the earlier plan out with --fresh;${raiseHint(c.bytes)}.` };
+  return { refusal: `the new plan's input would be ${c.detail} this tree's approval was priced for: give a shorter decision, or run the command again with --fresh to leave the earlier plan out` };
 }
 
 /**

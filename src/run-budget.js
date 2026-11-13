@@ -2,8 +2,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { supersededSpendOf, supersededUnknownFilesOf } from './superseded.js';
-import { unsettledUsd } from './spend-reservations.js';
-import { runSpendOf, usageSpendOf } from './spend.js';
+import { countedExtrasOf } from './counted-spend.js';
+import { runSpendOf, usageSpendOf, capSpentOf } from './spend.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 
@@ -30,14 +30,25 @@ export function budgetOf(dir, report) {
       // Money path #2: stages a resume re-ran keep their first payment in superseded/.
       + supersededSpendOf(dir)
       // 0.8.2 item 8b: a call in flight when the process died stays charged at its worst case, so a killed run's remaining budget is what a resume will enforce.
-      + unsettledUsd(dir);
+      + countedExtrasOf(dir).usd;   // 0.8.4 unit 6: unsettled reservations no file carries, and settled calls with no file (src/counted-spend.js)
   }
-  const cap = report?.maxUsd ?? stopped?.capUsd ?? readJson(join(dir, 'run.json'))?.maxUsd ?? null;
+  // DUALCAP 4c2: a run under per-provider caps (run.json `caps`, the limits typed for it) has no run-wide cap: `capUsd` is null and `caps` gives each cap's limit, the spend
+  // recorded through it (the stopped cap's own figure from its stop file, else derived from the folder) and what is left; the stop names its cap. Absent for any other run.
+  const meta = readJson(join(dir, 'run.json'));
+  const limits = meta?.caps && typeof meta.caps === 'object' && !Array.isArray(meta.caps) ? meta.caps : null;
+  const caps = limits ? Object.fromEntries(Object.keys(limits).sort().map(id => {
+    const capUsd = Number.isFinite(limits[id]?.maxUsd) ? limits[id].maxUsd : null;
+    const own = stopped?.capName === id && Number.isFinite(stopped.capSpentUsd) ? stopped.capSpentUsd + (stopped.capAssumedUsd || 0) : capSpentOf(dir, id);
+    const capAt = stopped?.capName === id && Number.isFinite(stopped.capUsd) ? stopped.capUsd : capUsd;
+    return [id, { capUsd: capAt, spentUsd: own, remainingUsd: capAt === null ? null : (unknownFigures ? 0 : Math.max(0, capAt - own)) }];
+  })) : null;
+  const cap = caps ? null : report?.maxUsd ?? stopped?.capUsd ?? meta?.maxUsd ?? null;
   return {
     spentUsd: spent,
     capUsd: cap,
     remainingUsd: cap === null || cap === undefined ? null : (unknownFigures ? 0 : Math.max(0, cap - spent)),
-    stoppedByCap: stopped ? { stage: stopped.stoppedAt, seat: stopped.seat, projectedStageUsd: stopped.projectedStageUsd } : null,
+    ...(caps ? { caps } : {}),
+    stoppedByCap: stopped ? { stage: stopped.stoppedAt, seat: stopped.seat, projectedStageUsd: stopped.projectedStageUsd, ...(typeof stopped.capName === 'string' ? { capName: stopped.capName } : {}) } : null,
     ...(unknownFigures ? { unknownFigures } : {}),
   };
 }

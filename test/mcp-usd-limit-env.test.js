@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { limitSource } from '../src/mcp/usd-limit.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const cliPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'cli.js');
 const serverPath = join(dirname(cliPath), 'mcp', 'server.js');
@@ -24,7 +25,7 @@ function session({ dotenv, env = {}, entry = 'cli', cwdDotenv }) {
   if (cwdDotenv !== undefined) writeFileSync(join(cwdDir, '.env'), cwdDotenv);
   mkdirSync(join(dir, 'tasks')); writeFileSync(join(dir, 'tasks', 't.md'), 'A test task.');
   if (dotenv !== undefined) writeFileSync(join(dir, '.env'), dotenv);
-  const srv = spawn(process.execPath, entry === 'direct' ? [serverPath] : [cliPath, '--mcp'], { cwd: cwdDir, env: { PATH: process.env.PATH, HOME: dir, COUNCIL_WORKDIR: dir, ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const srv = spawn(process.execPath, entry === 'direct' ? [serverPath] : [cliPath, '--mcp'], { cwd: cwdDir, env: { PATH: process.env.PATH, HOME: dir, COUNCIL_WORKDIR: dir, ...malformedProviderKeys(), ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
   let err = ''; srv.stderr.on('data', d => { err += d; });
   let buf = ''; const waiters = new Map(); let exited = null;
   srv.on('exit', (code, sig) => { exited = { code, sig }; for (const w of waiters.values()) w(null); });
@@ -112,31 +113,7 @@ test('limitSource: any non-empty value at import stays; only an unset or empty o
   assert.equal(limitSource(undefined, undefined), undefined);
 });
 
-// The advice path reads the same limit (its ctx gets `usdLimit` by value when the tools are registered, inside runMcpServer): a council_quote over a .env limit is refused before anything is written. The mock advice
-// chain's ceiling is above 0.1 (test/advice-tools.test.js asserts the same refusal for a real-environment 0.1); the control row quotes the same brief with NO limit and is not refused, so the refusal is the limit's.
-const BRIEF = {
-  schema_version: 'advice-brief/1', moment: 'before_commit',
-  question: 'Should we drop the legacy invoices column before the release?',
-  decision_at_stake: 'A dropped column cannot be restored once the migration has run in production.',
-  options_considered: [{ name: 'Drop it now', summary: 'Run the migration before the release.' }, { name: 'Do less', summary: 'Keep the column and add a new one beside it.' }],
-  tried: [{ what: 'Ran the migration on a copy of the data', result: 'It passed in 3 seconds.' }],
-  sensitivity: 'internal', not_included: ['the conversation', 'environment variables'],
-};
-test('the advice path reads the .env limit too: council_quote over a .env limit of 0.1 is refused (over_server_limit) and writes nothing; the same quote with no limit is not', async () => {
-  const limited = session({ dotenv: 'COUNCIL_MAX_USD_LIMIT=0.1\n', env: { COUNCIL_ADVISE_MOCK: '1' } });
-  const free = session({ dotenv: 'OPENROUTER_API_KEY=k\n', env: { COUNCIL_ADVISE_MOCK: '1' } });
-  try {
-    assert.ok(await limited.initialize(), limited.stderr());
-    const refused = await limited.tool('council_quote', { brief: BRIEF, mode: 'single' });
-    assert.equal(refused?.structuredContent?.code, 'over_server_limit', `refused against the .env limit: ${JSON.stringify(refused).slice(0, 300)}`);
-    assert.match(refused.structuredContent.reason, /COUNCIL_MAX_USD_LIMIT/);
-    assert.equal(existsSync(join(limited.dir, 'runs')), false, 'nothing was written');
-    assert.ok(await free.initialize(), free.stderr());
-    const quoted = await free.tool('council_quote', { brief: BRIEF, mode: 'single' });
-    assert.equal(quoted?.structuredContent?.code, undefined, `control, no limit: the quote succeeded: ${JSON.stringify(quoted).slice(0, 300)}`);
-    assert.match(String(quoted?.structuredContent?.quote_id), /^q_/, 'and it is a real quote (it carries a quote_id)');
-  } finally { limited.stop(); free.stop(); }
-});
+// 0.8.4 (the add-on removal): the row that showed the advice path reading the same .env limit (a council_quote over a .env limit of 0.1 was refused with over_server_limit) is removed with the tool; the start_run rows above and below show the same limit.
 
 // THE DIRECT ENTRY (`node src/mcp/server.js`, `npm run mcp`, the .mcpb bundle) applies no .env: a cap written there was read by nothing, and start_run max_usd "none" ran unbounded (C&C, from the Haiku diff audit). The server now reads
 // the work folder's .env through env-file's own reader when the process was given no value. Rows: the red input; PARITY with `council --mcp`; the real environment still wins; a malformed or repeated line stops it the same way.

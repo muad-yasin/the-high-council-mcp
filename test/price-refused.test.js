@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PriceRefused, priceRefusedWords, markSkippable, recommendationOf, canSkip, setSeatSkips, seatSkipChoice, seatSkipActive, skipKeyOf } from '../src/price-refused.js';
-import { runSingleStage, runChain, setCache, setBudget } from '../src/chain.js';
+import { runSingleStage, runChain, setCache, setBudget, setPromptSpy } from '../src/chain.js';
 import { call as mockCall } from '../src/providers.js';
 import { setUserPrices, resetUserPrices } from '../src/price-table.js';
 import { TOOL_TRUST } from '../src/mcp/untrusted.js';
@@ -97,7 +97,7 @@ test('PR-1: a 404 on a PINNED OpenRouter call is thrown as PriceRefused (control
   } finally { await s.close(); if (had === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = had; }
 });
 
-test('PR-2: the words a person reads: model, pin, what OpenRouter said (quoted), the recommendation by rule, the two ways on; an unrecognised 404 recommends nothing; an advice call is never told to resume', () => {
+test('PR-2: the words a person reads: model, pin, what OpenRouter said (quoted), the recommendation by rule, the two ways on; an unrecognised 404 recommends nothing; the default message (no run path) is never told to resume and names no advice call (REM-w9, REM-w10)', () => {
   const mk = over => Object.assign(new PriceRefused({ seat: `openrouter/${MODEL}`, label: 'panel-1-orx', pin: { prompt: 0.4, completion: 1.6 }, row: { in: 0.4, out: 1.6 }, said: 'No endpoints found that satisfy the max price for this request', recognised: true, lab: 'orx' }), over);
   const room = markSkippable(mk({}), { voices: 2 });   // two other judges stay
   assert.deepEqual(recommendationOf(room), { kind: 'skip' });
@@ -115,8 +115,13 @@ test('PR-2: the words a person reads: model, pin, what OpenRouter said (quoted),
   const uw = priceRefusedWords(unknown, { runPath: 'runs/R1' });
   assert.ok(!uw.includes('Recommended') && uw.includes('does not say the price is the problem') && uw.includes('Model not found'));
   const advice = priceRefusedWords(room, { runPath: null });
-  assert.ok(advice.includes('not resumed') && !advice.includes('--resume'));
-  assert.equal(room.message, priceRefusedWords(room, { runPath: null }), 'err.message is the advice-call wording (the generic failed-call path prints it)');
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD the default message (runPath null) said "An advice call is not resumed: ... ask for a new quote." and the test asserted 'not resumed'. NEW it ends "After the row is in, ask again." and says nothing about advice. WHY Muad's Q7: the message is true for any failed call, and the advice tools it spoke of are removed. (Refs: REM-w9, Q7.)
+  assert.ok(!advice.includes('--resume') && !/advice|not resumed|new quote/i.test(advice), advice);
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD (wave 1): `advice.includes('After the row is in, ask again.')` and the message called 'the advice-call wording'. NEW: REM-w9 and REM-w10 asserted WHOLE, as the last line of the default message (one open cause; then some seats refused for a cause that is not a price). WHY: the two sentences are the rows' own words and a substring check would pass with text added before it.
+  assert.equal(advice.split('\n').pop(), 'After the row is in, ask again.', 'REM-w9');
+  const mixedErr = mk({}); mixedErr.also = [mk({ seat: 'openrouter/other/model', recognised: false, said: 'Model not found' })];
+  assert.equal(priceRefusedWords(mixedErr, { runPath: null }).split('\n').pop(), 'After the row is in and the cause for openrouter/other/model is found, ask again.', 'REM-w10');
+  assert.equal(room.message, priceRefusedWords(room, { runPath: null }), 'err.message is the default wording (the generic failed-call path prints it)');
 });
 
 test('PR-3: the seat-skip choice: a recorded skip is found by the seat\'s lab/provider/model, only skips are read, and a cleared list skips nothing', () => {
@@ -197,11 +202,16 @@ test('PR-8 (source scan, C&C C2): every catch in src/chain.js around a provider 
   lines.forEach((l, i) => {
     if (!/\bcatch\s*\(err\)\s*\{/.test(l)) return;
     let j = i; while (j > Math.max(0, i - 80) && !/\btry\s*\{/.test(lines[j])) j--;
-    if (!/\binvoke\(|runSingleStage\(|callSeat\(|await ask\(/.test(lines.slice(j, i).join('\n'))) return;
+    if (!/\binvoke\(|runSingleStage\(|callSeat\(|await ask\(|askOnceMore\(/.test(lines.slice(j, i).join('\n'))) return;   // askOnceMore: the exchange's call helper (B2), which calls invoke() itself
     sites.push({ at: i + 1, window: lines.slice(i, i + 6).join('\n') });
   });
   // CHANGED ACCEPTED (E4b unit 2 fix-up, 18 Okt 2026). OLD: 14 sites. NEW: 15. WHY: the decider stage's catch (chain.js decideConflicts) is a catch around a provider call; it records the swing (a record, not an abstention) and then runs rethrowControlFlow, so the rule this test pins still holds.
-  assert.equal(sites.length, 15, `15 catch sites around provider calls (found ${sites.length}: ${sites.map(s => s.at)})`);
+  // CHANGED ACCEPTED (B2 exchange, 29 Okt 2026, debate-084/b2). OLD: 15. NEW: 17. WHY: the exchange inside layer 1 (exchangeRound) makes two provider calls, each in its own try; both catches run rethrowControlFlow first and say that the judge gave no reply (their posts or answers do not count), as the debate stage's catches do.
+  // CHANGED ACCEPTED (B3 prep unit D, 1 Nov 2026). OLD: 17. NEW: 18. WHY: the final read (runFinalRead, the layer-3 read at the end of a run) makes one provider call per seat through invoke(); its catch is the 18th site and runs rethrowControlFlow(err) first, which the next assertion checks for every site.
+  // CHANGED ACCEPTED (0.8.4 FM-critic, 08 Nov 2026). OLD: 18. NEW: 19. WHY: the first-mode loop's blocking-question block (`critique-<r>-question` and `-answered`, two provider calls through invoke()) has one catch; it runs rethrowControlFlow first and only then degrades the seat on a chain that opts in (degrade_on_provider_error), as the critique call's own catch does.
+  // CHANGED ACCEPTED (0.8.4 S16, parts of the final read). OLD: 19. NEW: 20. WHY: a LATER part of the final read's list (sort-only, W42) is its own provider call through invoke() with its own try; its catch is the 20th site and runs rethrowControlFlow first (the scan below checks it).
+  // FINDING (not on the owed list of the ladder unit; the first box run, 10 Nov 2026). OLD: 20. NEW: 22. WHY: the final read's seat loop (runFinalRead) and the re-ask of an unusable read each gained a catch that names the call not made for a finish-now (NotRunForLimit, then the ordinary rethrowControlFlow(err) on the same line), so a call the person's finish left out is recorded as not made and never as a seat that failed. Every NotRunForLimit catch of the unit passes anything else to rethrowControlFlow(err) first and then rethrows it, as the next assertion checks (two of them, the claims extraction and the challenge, were bare rethrows and did not satisfy it until the second set).
+  assert.equal(sites.length, 22, `22 catch sites around provider calls (found ${sites.length}: ${sites.map(s => s.at)})`);
   const unguarded = sites.filter(s => !/rethrowControlFlow\(err\)/.test(s.window) && !/settled = \{ outcome: err\?\.maybeBilled/.test(s.window));
   assert.deepEqual(unguarded.map(s => s.at), [], 'every site except invoke()\'s own catch rethrows control flow first');
   const src = lines.join('\n');
@@ -224,26 +234,20 @@ test('PR-9: the provider\'s text is data: control characters are stripped from w
   for (const t of ['run_status', 'list_runs']) assert.ok(TOOL_TRUST[t].fields.includes('resumable'), `${t}: resumable (it carries stoppedAt.reason) is named untrusted`);
 });
 
-test('PR-10 (advice; FLIPPED 18 Okt 2026, Muad: "judge refused for its price should fail the whole call and tell the user about it, instead of sending half a call"): an advice call cannot pause, and a seat refused at its price pin FAILS THE WHOLE CALL: it rejects with the PriceRefused, nothing is rolled up from the other voices, and a one-seat chain meets the same error (full rows: test/advice-refusal-whole-call.test.js)', async () => {
-  // OLD (C&C Q2 ruling of the morning): the refused seat was a dropout like a down lab; the other two voices were delivered (seats_asked 3, seats_answered 2, the refusal line in the dropouts), and a lone refused seat met the floor "advice failed: none of the 1 seat(s) returned a readable opinion".
-  // NEW: both calls reject with PriceRefused. WHY: Muad's ruling above reverses the Q2 ruling; "half a call" is what the dropout rule delivered.
-  const s = await stub();
-  const had = { k: process.env.OPENROUTER_API_KEY, l: process.env.COUNCIL_ALLOW_LOOPBACK_KEY_HOST };
-  process.env.OPENROUTER_API_KEY = 'sk-test'; process.env.COUNCIL_ALLOW_LOOPBACK_KEY_HOST = '1';
-  const mock = (model, lab) => ({ provider: 'mock', model, lab });
-  // advise-premium\'s shape: the OpenRouter seat carries its own max_price (a complete one, so it is sent as typed)
-  const refused = { provider: 'openrouter', model: MODEL, lab: 'orx', maxTokens: 500, baseUrl: s.url, extra: { provider: { max_price: { prompt: 0.4, completion: 1.6 } } } };
-  const cfg = critics => ({ name: 'test-advise-refused', resumeAfterStop: false, maxRounds: 1, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 }, advise: { enabled: true, usd: 1, rounds: 0, max_wall_ms: 120000 }, seats: { critics } });
-  const go = config => { setCache(null); setBudget(null); return runChain({ config, request: '# Should we cache the price list?\n\nWe plan to cache it for 24 hours.\n', log: () => {} }); };
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: PR-10 '(advice; FLIPPED 18 Okt 2026, Muad: "judge refused for its price should fail the whole call ...") an advice call cannot pause, and a seat refused at its price pin FAILS THE WHOLE CALL': a chain with an `advise` block run through runChain, a stub-served 404 on its OpenRouter seat, rejects with the PriceRefused and rolls nothing up from the other voices. NEW: PR-10 'a chain with an `advise` block is refused by runChain itself, before any seat is asked' (WORDING REM-w30): the same fixture shape (mock-advise-quick, an `advise` block with three mock seats) rejects with the whole refusal sentence and no call is made. WHY: the advice call is gone, so there is no whole-call price refusal of it to pin; what is left of this row's subject is that runChain refuses such a chain for EVERY caller (so --rematch, --replay and a direct import cannot run one), and the price refusal of a planning seat is driven by PR-1, PR-11 and PR-12 on the real verbs. (The same guard also has rows in the slice that owns test/advise.test.js.)
+test('PR-10 (REM-w30; was the advice whole-call refusal): a chain file with an `advise` block is refused by runChain itself with the whole sentence, and no seat is asked', async () => {
+  const cfg = JSON.parse(readFileSync(join(root, 'test', 'fixtures', 'advice-chains', 'mock-advise-quick.json'), 'utf8'));
+  assert.ok(cfg.advise && cfg.name === 'mock-advise-quick', 'fixture: an advice chain file');
+  let calls = 0;
+  setPromptSpy(() => { calls += 1; });
   try {
-    await assert.rejects(go(cfg([mock('mock-advisor-proceed', 'adv-a'), mock('mock-advisor-proceed', 'adv-c'), refused])), e => e instanceof PriceRefused && e.seat === `openrouter/${MODEL}` && /refused at the price limit/.test(e.message));
-    assert.equal(s.hits.length, 1, 'the refused seat was asked once');
-    await assert.rejects(go(cfg([refused])), e => e instanceof PriceRefused && !/advice failed: none of the/.test(e.message));
-  } finally {
-    await s.close();
-    if (had.k === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = had.k;
-    if (had.l === undefined) delete process.env.COUNCIL_ALLOW_LOOPBACK_KEY_HOST; else process.env.COUNCIL_ALLOW_LOOPBACK_KEY_HOST = had.l;
-  }
+    setCache(null); setBudget(null);
+    await assert.rejects(runChain({ config: cfg, request: '# Should we cache the price list?\n\nWe plan to cache it for 24 hours.\n', log: () => {} }),
+      e => e instanceof Error && e.message === 'the chain "mock-advise-quick" has an "advise" block: the advice add-on was removed in 0.8.4, so the chain cannot run. Nothing was sent and nothing was spent.');
+    const unnamed = { ...cfg }; delete unnamed.name;
+    await assert.rejects(runChain({ config: unnamed, request: 'x', log: () => {} }), e => e.message === 'this chain has an "advise" block: the advice add-on was removed in 0.8.4, so the chain cannot run. Nothing was sent and nothing was spent.');
+  } finally { setPromptSpy(null); }
+  assert.equal(calls, 0, 'no seat was called: the refusal comes before any stage');
 });
 
 test('PR-11 (real verbs): two judges of one parallel stage refused at once: ONE stop names both and says each needs a row (a panel judge is never skipped)', async () => {
@@ -284,7 +288,8 @@ test('PR-12 (real verbs): a refused DEBATE seat recommends the skip; --skip-seat
 });
 
 test('PR-13: the README Known limits no longer carry the tree-member price-refusal bullet - the tree words landed (C4b; test/tree-resume-lines.test.js drives the sitting line)', () => {
-  const readme = readFileSync(join(root, 'README.md'), 'utf8');
+  // CHANGED (0.8.4 apply, the README rework): the Known limits moved to KNOWN-LIMITS.md, so the absence is read in both files (OLD: README.md alone, which would now pass for any text kept in the limits file).
+  const readme = `${readFileSync(join(root, 'README.md'), 'utf8')}\n${readFileSync(join(root, 'KNOWN-LIMITS.md'), 'utf8')}`;
   assert.equal(readme.includes('A tree member stopped by a price refusal is described wrongly'), false);
 });
 

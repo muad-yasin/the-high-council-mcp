@@ -48,9 +48,11 @@ test('HD-3 (documentation only): nothing in the paragraph names a tool, a comman
 });
 
 test('HD-4 (README): the Known limits section says the handoff lists the dependencies and does not check them; the CHANGELOG says it lists and asks', () => {
-  const readme = readFileSync(join(root, 'README.md'), 'utf8');
-  const at = readme.indexOf('## Known limits, stated plainly');
-  const limits = readme.slice(at, readme.indexOf('\n## ', at + 10));
+  // CHANGED (0.8.4 apply, the README rework): the Known limits section is in KNOWN-LIMITS.md now (word for word); OLD: it was read from README.md.
+  const file = readFileSync(join(root, 'KNOWN-LIMITS.md'), 'utf8');
+  const at = file.indexOf('## Known limits, stated plainly');
+  const end = file.indexOf('\n## ', at + 10);
+  const limits = file.slice(at, end === -1 ? undefined : end);
   assert.match(limits, /The handoff lists the dependencies the plan names; it does not check them\./);
   assert.match(readFileSync(join(root, 'CHANGELOG.md'), 'utf8'), /It lists and asks; it does not look anything up/);
 });

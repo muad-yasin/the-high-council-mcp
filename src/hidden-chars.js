@@ -18,8 +18,6 @@
 //   stripHiddenChars(text)          the class without QUIET removed (for text going back to an agent)
 //   blankHiddenChars(text)          every run of hidden code points (QUIET ones too) and of C0/C1 control characters (tab, line feed and carriage return included) replaced by ONE space
 //                                   (for a short text that is recorded or shown whole and must read as one visible line: a session's quoted reason, a host name from the network)
-//   briefHiddenRegex()              the advice brief's refusal list: class + control characters, without U+FE0F and the line separators (what it refused before, plus the exotic invisible
-//                                   members the old hand-written list lacked)
 // Everything is built from numbers, never from escapes or pasted characters, so no invisible character is ever in this file.
 const cp = (...a) => String.fromCodePoint(...a);
 const SEPARATORS = [0x2028, 0x2029];
@@ -83,4 +81,3 @@ export function stripHiddenChars(text) {
 const ALL_CONTROLS_SOURCE = '\\x00-\\x1F\\x7F-\\x9F';
 export const blankHiddenChars = text => String(text).replace(new RegExp(`[${HIDDEN_CLASS_SOURCE}${ALL_CONTROLS_SOURCE}]+`, 'gu'), ' ');
 
-export const briefHiddenRegex = () => new RegExp(`(?![${cp(EMOJI_SELECTOR, ...SEPARATORS)}])[${HIDDEN_CLASS_SOURCE}${CONTROLS_SOURCE}]`, 'u');

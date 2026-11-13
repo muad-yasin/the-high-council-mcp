@@ -13,19 +13,24 @@ import { reportJsonShape } from '../src/report-shape.js';
 import * as R from '../src/roles.js';
 import { noteId, MEMORY_MAX_TOKENS_EST } from '../src/review-notes.js';
 import { priceOf } from '../src/cost.js';
+import { CHECK, answer as checkAnswer } from './helpers/build-check.js';
+import { reviewNotesBound } from '../scripts/regen-derived-figures.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const chainOf = f => JSON.parse(readFileSync(join(ROOT, 'chains', f), 'utf8'));
 afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setBudget(null); });
 
 // Hand-typed: the six planning chains that carry `reviewNotes` (Muad 15 Okt 23:09 "4: all three" tiers; the two Chinese chains as their siblings, China_Chains_Gate_Note, picks 59-62).
-const LANE_CHAINS = ['plan-china-high-council.json', 'plan-china-medium-council.json', 'plan-china-mini-council.json', 'plan-high-council.json', 'plan-medium-council.json', 'plan-mini-council-sol-session.json', 'plan-mini-council.json', 'plan-default-opro-council.json'];   // 0.8.3 (lane B, commit 2): the one-key chain carries `reviewNotes` like its siblings (CHANGED ACCEPTED: the list grows by the new shipped chain; hand-typed on purpose)
+// CHANGED ACCEPTED TEST (30 Okt 2026, the plan-the-high-council chain). OLD: the list stops at the chains shipped before it. NEW: plan-the-high-council.json joins. WHY: it is a shipped planning chain that carries the key (copied from plan-high-council); the list is hand-typed on purpose and grows by the chain it counts.
+// CHANGED ACCEPTED TEST (0.8.4 seats unit, Muad 10 Nov 2026 01:10): OLD: nine chains incl. plan-china-mini-council, plan-mini-council-sol-session and plan-default-opro-council. NEW: those three moved to chains/outdated/, so six remain. WHY: the list is hand-typed on purpose and shrinks by the chains it counts.
+// CHANGED ACCEPTED TEST (0.8.4 seats unit, Muad 10 Nov 2026 01:23): OLD: six chains; plan-claude-council carried the key but no paid seat, so NL-1 added it on top and NL-4 / NL-4b skipped it. NEW: seven; its eleven model seats are Anthropic API seats, so it has a paid memory block (the clause in its description, a dollar bound in the README). WHY: the list is hand-typed on purpose and the lane is paid there now.
+const LANE_CHAINS = ['plan-china-high-council.json', 'plan-china-medium-council.json', 'plan-claude-council.json', 'plan-high-council.json', 'plan-medium-council.json', 'plan-mini-council.json', 'plan-the-high-council.json'];   // 0.8.3 (lane B, commit 2): the one-key chain carries `reviewNotes` like its siblings (CHANGED ACCEPTED: the list grows by the new shipped chain; hand-typed on purpose)
 
-test('NL-1: the real src/roles.js records all four lane sentences, and the lane is active on exactly the planning chains in LANE_CHAINS plus plan-claude-council', () => {
+test('NL-1: the real src/roles.js records all four lane sentences, and the lane is active on exactly the planning chains in LANE_CHAINS', () => {
   for (const n of LANE_HELD_NAMES) assert.equal(typeof R[n], 'function', `${n} is recorded in src/roles.js`);
   const active = readdirSync(join(ROOT, 'chains')).filter(f => f.endsWith('.json') && reviewNotesActive(chainOf(f)));
   // OLD (before 18 Okt 2026): exactly LANE_CHAINS (six). NEW: those six plus plan-claude-council, which carries `reviewNotes` and has NO paid seat (every seat external, dry run $0.00): it has no paid memory block, so NL-4 and NL-4b, which require the memory clause and a dollar bound, keep reading LANE_CHAINS (six) only. WHY: a new shipped chain, 76's file, Muad's name and shape (18 Okt 14:01-14:04).
-  assert.deepEqual(active, [...LANE_CHAINS, 'plan-claude-council.json'].sort());
+  assert.deepEqual(active, [...LANE_CHAINS].sort());   // CHANGED ACCEPTED TEST (0.8.4 seats unit): OLD: [...LANE_CHAINS, 'plan-claude-council.json'] (six plus the all-external chain). NEW: LANE_CHAINS (seven). WHY: plan-claude-council is a paid lane chain now.
 });
 
 const CRITERION = 'The plan defines a retry limit.';
@@ -38,7 +43,8 @@ async function runLive({ replies = () => undefined, builder = { provider: 'mock'
     served.push(label);
     const own = cacheText(label); if (own !== undefined) return own === null ? null : { text: own, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 };
     if (builder.provider === 'external' && (label === 'handoff' || label === 'notes-answer')) return null;
-    const text = label.startsWith('panel-') ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+    if (/^build-check-\d+$/.test(label)) return { text: checkAnswer('good_to_build'), provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 };   // the test-only handler (NL-5 injects the build-check wording)
+    const text = (label.startsWith('panel-') || label.startsWith('final-read-')) ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
     return { text, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 };
   } });
   const seat = (lab, layer) => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000, layer });
@@ -67,14 +73,14 @@ test('NL-3: the retired lane-off and held-draft wording is nowhere in anything t
   const files = [];
   const walk = d => { for (const n of readdirSync(d)) { const p = join(d, n); if (n === 'node_modules' || n === 'archive') continue; if (statSync(p).isDirectory()) walk(p); else if (/\.(js|json|md|html|mjs)$/.test(n)) files.push(p); } };
   for (const dir of ['src', 'config', 'schemas', 'chains', 'mcpb', 'docs']) if (existsSync(join(ROOT, dir))) walk(join(ROOT, dir));
-  files.push(join(ROOT, 'README.md'), join(ROOT, 'AI-README.md'), join(ROOT, 'CHANGELOG.md'));   // AI-README.md: the README's moved sections (26 Okt 2026)
+  files.push(join(ROOT, 'README.md'), join(ROOT, 'AI-README.md'), join(ROOT, 'KNOWN-LIMITS.md'), join(ROOT, 'CHANGELOG.md'));   // AI-README.md: the README's moved sections (26 Okt 2026); KNOWN-LIMITS.md: the Known limits, moved out of the README (0.8.4)
   assert.ok(files.length > 100, `the scan found ${files.length} files`);
   const hits = [];
   for (const f of files) { const t = readFileSync(f, 'utf8'); for (const s of RETIRED) if (t.includes(s)) hits.push(`${f.slice(ROOT.length + 1)}: ${s}`); }
   assert.deepEqual(hits, []);
 });
 
-test('NL-4: each of the six chain descriptions carries the memory clause the code prints (one number, never a copy: a count moves with the thing it counts)', () => {
+test('NL-4: each of the seven chain descriptions carries the memory clause the code prints (one number, never a copy: a count moves with the thing it counts)', () => {
   for (const f of LANE_CHAINS) {
     const c = chainOf(f); const clause = notesMemoryClause(c);
     assert.ok(clause.includes('judge calls read from overseer round 2 on') && clause.includes('paid input that neither figure prices'), `${f}: the clause exists`);
@@ -82,20 +88,22 @@ test('NL-4: each of the six chain descriptions carries the memory clause the cod
   }
 });
 
-test('NL-4b: the README known-limit bullet carries the same memory-block token count and the same worst-case dollar bounds the code computes (block x judges x later overseer rounds x passes, at the table prices)', () => {
-  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+test('NL-4b: the known-limit bullet (KNOWN-LIMITS.md) carries the same memory-block token count and the same worst-case dollar bounds the code computes (block x judges x later overseer rounds x passes, at the table prices)', () => {
+  // CHANGED (0.8.4 apply, the README rework): the Known limits moved word for word to KNOWN-LIMITS.md; OLD: the bullet was read from README.md (`readme` below is now the limits file). scripts/regen-derived-figures.mjs step 6 writes the figure there.
+  const readme = readFileSync(join(ROOT, 'KNOWN-LIMITS.md'), 'utf8');
   assert.ok(readme.includes(`up to ${MEMORY_MAX_TOKENS_EST} tokens per call`), 'README: the token count');
   for (const f of LANE_CHAINS) {
     const c = chainOf(f); const name = f.replace('.json', '');
-    const block = c.seats.critics.reduce((n, s) => n + (s.provider === 'external' ? 0 : (MEMORY_MAX_TOKENS_EST / 1e6) * priceOf(s.provider, s.model).in), 0);
-    const passes = 1 + Object.values(c.layerRevisions ?? {}).reduce((a, b) => a + b, 0);
-    const bound = (block * (c.maxOverseerRounds - 1) * passes).toFixed(2);
+    // CHANGED ACCEPTED TEST (PRICES lane, 1 Nov 2026; C&C's FIX: "the test's expected figure and the README figure must come from the same code path"). OLD bar: the test computes the bound itself (block x judges x later rounds x passes). NEW bar: it calls reviewNotesBound from scripts/regen-derived-figures.mjs, the function that WRITES the README figure. WHY: two copies of one formula let the README go stale unseen when a price moved (this test went red only in a later batch); one function cannot drift from itself, and the README figure is still checked against it.
+    const bound = reviewNotesBound(c);
     assert.ok(readme.includes(`$${bound} for \`${name}\``), `README: "$${bound} for ${name}"`);
   }
 });
 
 test('NL-5: an external writer pauses at the folded handoff (never at handoff-notes); once the handoff is answered, the NOTE lines become a harness record, not a call', async () => {
   const external = { provider: 'external', model: 'claude-code-session', lab: 'writer' };
+  // CHANGED ACCEPTED (0.8.4 S4, C&C's Q-m migration; OLD/NEW/WHY): OLD: no build-check wording, so the layer-3 sign-off went straight to the handoff. NEW: the build-check wording (CHECK) is injected over the REAL roles and the stub holds a test-only handler's good_to_build; the run pauses at build-check-1 first, which the stub answers, and then at the handoff. WHY: with the wording recorded a chain with an external writer waits at the build check after layer 3's sign-off; the rows' assertions are unchanged.
+  setHeldForTest(CHECK);
   const notes = l => (l === 'panel-1-la' ? signoff({ proposals: [{ text: 'Add a queue' }] }) : undefined);
   let pause = null;
   try { await runLive({ replies: notes, builder: external, withHandoff: true }); } catch (e) { pause = e; }

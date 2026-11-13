@@ -2,8 +2,7 @@
 //
 //   council gate show <run> [gate]          the gates of a run and their status; with a gate, its whole text
 //   council gate answer <run> <gate> [--decline]
-//                                           prints the whole text, the mask counts, the price and the seats,
-//                                           then asks y/N. Needs a terminal on stdin AND stdout.
+//                                           prints the whole text, then asks y/N. Needs a terminal on stdin AND stdout.
 //   council gate verify <run>               recomputes the ledger's hash chain
 //
 // Exit codes (the 0/1/2 of check-lock): 0 done (show; verify: the chain holds; answer: the answer was
@@ -20,13 +19,11 @@ import { existsSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { userInfo } from 'node:os';
 import { createInterface } from 'node:readline';
-import { answerGate, listGates, readGateAnswer, readGateText, textSha256, GATES_DIR, RUN_CAP_KIND } from './gate.js';
+import { answerGate, listGates, readGateAnswer, readGateText, textSha256, GATES_DIR, RUN_CAP_KIND, EXCERPT_APPROVAL_KIND, STOP_DECISION_KIND, ACCEPTANCE_KIND } from './gate.js';
+import { answerControl, isRaiseGate, isRulingGate } from './run-controls.js';
 import { verifyLedger, LEDGER_FILE } from './gate-ledger.js';
 import { terminalSafe } from './terminal-safe.js';
-import { loadPolicy } from './policy.js';
-import { advicePolicyVerdict } from './send-path-refusals.js';
-import { loadAdviceChain } from './send-profiles.js';
-import { readAdviceMeta, ADVICE_META_FILE } from './advice-run.js';
+import { screenExcerptsOf, hiddenLinesMarkerRecorded, editedText } from './excerpt-approval.js';
 import { countHidden, stripLeadingBom } from './hidden-chars.js';
 
 const USAGE = [
@@ -35,15 +32,10 @@ const USAGE = [
   '       council gate verify <run folder>',
 ];
 
-const money = v => (typeof v === 'number' && Number.isFinite(v) ? `$${v.toFixed(2)}` : 'unpriced');
-
 // Every field shown before the y/N goes through terminalSafe: seats, labels and the file name come from
 // the caller and could carry escape sequences that recolour or hide what follows (M3 review M3).
 function describe(gate, { startsRun = false } = {}) {
-  const p = gate.price && typeof gate.price === 'object' ? gate.price : {};
-  const masks = gate.masks && typeof gate.masks === 'object' ? Object.entries(gate.masks).filter(([, n]) => Number(n) > 0) : [];
-  const seats = Array.isArray(gate.seats) ? gate.seats : [];
-  return describeLines(gate, p, masks, seats, startsRun).map(terminalSafe);
+  return describeLines(gate, startsRun).map(terminalSafe);
 }
 
 // A contract gate (0.8.2 item 6d) sends nothing to any model and spends nothing: approving records the text as the contract (or an amendment of it). Saying "price: up to unpriced" there would be false comfort.
@@ -54,24 +46,54 @@ export const TREE_VERB_OF = Object.freeze({ tree_frontier: 'approve', tree_decid
 const isTreeGate = gate => typeof gate.kind === 'string' && gate.kind.startsWith('tree_');
 // 0.8.3 M6 typed cap T3b: a run_cap gate asks for a TYPED limit in US dollars; answering sends nothing and spends nothing, and the answer is the number (no y/N after it). The prompt below is the only line this file adds for it.
 const isCapGate = gate => gate.kind === RUN_CAP_KIND;
+// 0.8.4 D10 slice 2c-4 (T5.5): an excerpt_approval gate sends nothing by itself; the person answers EACH excerpt of the screen (approve it, edit it, or refuse it), and declining the gate refuses all of them (A-DRAFT, WORDING_0.8.4.md).
+const isExcerptGate = gate => gate.kind === EXCERPT_APPROVAL_KIND;
+// 0.8.4 D5a: a stop_decision gate is the handling session's question about a round stop (src/stop-gate.js). A person answers the STOP (a resume with the continue or finish choice), not this gate: showing it is fine, approving it here is refused.
+const isStopDecisionGate = gate => gate.kind === STOP_DECISION_KIND;
+// 0.8.4 D2: an acceptance gate (src/acceptance.js) is answered by `council accept`, which carries the written reason; a bare `council gate answer` of it is refused (the reason would be missing from the record)
+const isAcceptanceGate = gate => gate.kind === ACCEPTANCE_KIND;
 export const CAP_PROMPT = 'Type your limit in US dollars, then Enter: ';
+/** The prompt of a limit gate: under the per-provider caps it opens with the cap's name in capitals, so the two questions differ in their first word (DUALCAP milestone 2, A-DRAFT); a
+ * limit gate with no cap keeps the reviewed CAP_PROMPT. */
+export const capPromptOf = gate => (typeof gate?.cap?.cap_name === 'string' && gate.cap.cap_name ? `${gate.cap.cap_name.toUpperCase()} limit in US dollars, then Enter: ` : CAP_PROMPT);
 
 /** What approving a tree gate DOES, for the kinds whose effect is not the frontier approval's (the other kinds keep the line below). */
 const TREE_APPROVAL_LINE = Object.freeze({ tree_check: 'Approving records the result of an integration check; it starts no run and spends nothing.' });
 
-function describeLines(gate, p, masks, seats, startsRun = false) {
-  if (isCapGate(gate)) {
+function describeLines(gate, startsRun = false) {
+  if (isAcceptanceGate(gate)) {
     return [
       `gate ${gate.id} (${gate.kind}): ${gate.text}, ${gate.bytes} bytes, sha256 ${gate.sha256}`,
+      'nothing is sent to any model and nothing is spent: approving records that you accept this plan as it stands, with the reason you wrote; it agrees with no judge and changes no objection',   // WORDING U3-w16
+      `expires: ${gate.expires_at}`,
+    ];
+  }
+  // DUALCAP milestone 2 (C&C, 1 Nov: Muad found the limit screen cluttered): a limit gate shows no file/bytes/sha256 header and no expiry line; both stay in the gate record
+  // and the ledger, switch on or off. Every other gate kind keeps them.
+  if (isCapGate(gate)) {
+    return [
       // E 154 says typing sends nothing and spends nothing; that is true of `council gate answer`. When the START of a run asks (startsRun, src/cli.js through src/start-cap.js), typing begins the run: the line says so instead (E 157 g).
       startsRun ? 'answering records the limit you type for this run; if the start\'s other checks pass, this run then starts and spends against it' : 'answering records the limit you type for this run; typing it sends nothing to any model and spends nothing',
-      `expires: ${gate.expires_at}`,
     ];
   }
   if (isTreeGate(gate)) {
     return [
       `gate ${gate.id} (${gate.kind}): ${gate.text}, ${gate.bytes} bytes, sha256 ${gate.sha256}`,
       TREE_APPROVAL_LINE[gate.kind] ?? 'approving records your decision on exactly this text, once; the tree then acts on it (a frontier approval lets the runs it lists start, and spend, up to the figures shown)',
+      `expires: ${gate.expires_at}`,
+    ];
+  }
+  if (isStopDecisionGate(gate)) {
+    return [
+      `gate ${gate.id} (${gate.kind}): ${gate.text}, ${gate.bytes} bytes, sha256 ${gate.sha256}`,   // A-DRAFT
+      'this is the handling session\'s question about a stop of the run; the stop itself is answered with council --resume and the continue or finish choice, and declining here only closes the session\'s question',   // A-DRAFT
+      `expires: ${gate.expires_at}`,
+    ];
+  }
+  if (isExcerptGate(gate)) {
+    return [
+      `gate ${gate.id} (${gate.kind}): ${gate.text}, ${gate.bytes} bytes, sha256 ${gate.sha256}`,   // A-DRAFT
+      'your answers are recorded for exactly this text, once: you approve, edit or refuse each excerpt of your project shown below; nothing is sent to any model until the answers are applied',   // A-DRAFT
       `expires: ${gate.expires_at}`,
     ];
   }
@@ -84,11 +106,6 @@ function describeLines(gate, p, masks, seats, startsRun = false) {
   }
   return [
     `gate ${gate.id} (${gate.kind}): ${gate.text}, ${gate.bytes} bytes, sha256 ${gate.sha256}`,
-    `price: up to ${money(p.ceiling_usd)}${typeof p.expected_usd === 'number' ? ` (expected ${money(p.expected_usd)})` : ''}`,
-    `seats: ${seats.length ? seats.map(s => (typeof s === 'string' ? s : [s.lab ?? s.model, s.retention].filter(Boolean).join(': '))).join('; ') : 'none named'}`,
-    `sensitivity: ${gate.sensitivity && typeof gate.sensitivity === 'object' ? `${gate.sensitivity.label ?? '?'} (set by ${gate.sensitivity.set_by ?? '?'})` : gate.sensitivity ?? 'not given'}`,
-    `masked before sending: ${masks.length ? masks.map(([k, n]) => `${n} ${k}`).join(', ') : 'nothing'}`,
-    ...(typeof gate.follow_up === 'string' ? [`follow-up: ${gate.follow_up}`] : []),
     `expires: ${gate.expires_at}`,
   ];
 }
@@ -100,13 +117,13 @@ function describeLines(gate, p, masks, seats, startsRun = false) {
 // so the person knows the bytes they approve are not all visible. They are counted, not removed: a joiner
 // inside an emoji is legitimate, and the hash covers the bytes as they are.
 // Audit item 7 (0.8.3): the count is src/hidden-chars.js's (everything that renders as nothing; the quiet joiners ZWNJ, ZWJ, soft hyphen, the emoji selector ... are counted unless an emoji sequence explains them; a leading byte-order mark is ordinary).
-function printText(out, bytes) {
+function printText(out, bytes, { limitScreen = false } = {}) {   // limitScreen (DUALCAP milestone 2): the fences of a limit gate carry a short label; they stay (audit A3-4)
   const text = bytes.toString('utf8');
   const safe = terminalSafe(text);
   const fence = dashFence(safe, 5);   // audit A3-4: longer than any dash run in the text, so the text cannot fake its own end
-  out(`${fence} the exact text (begin) ${fence}`);
+  out(limitScreen ? `${fence} screen ${fence}` : `${fence} the exact text (begin) ${fence}`);
   out(safe.endsWith('\n') ? safe.slice(0, -1) : safe);
-  out(`${fence} the exact text (end) ${fence}`);
+  out(limitScreen ? `${fence} end of screen ${fence}` : `${fence} the exact text (end) ${fence}`);
   const removed = [...text].length - [...safe].length;
   const invisible = countHidden(stripLeadingBom(safe));
   if (removed > 0) out(`note: the text holds ${removed} control or direction character(s) that are not shown above; they are part of what would be sent.`);
@@ -120,6 +137,49 @@ function ask(question, { input, output }) {
     rl.question(question, a => { done = true; rl.close(); res(a); });
     rl.on('close', () => { if (!done) res(''); });
   });
+}
+
+// 0.8.4 D10 slice 2c-4 (A-DRAFT, WORDING_0.8.4.md): the questions of an excerpt approval, one excerpt at a time. Returns the answers in the gate's shape, or null after saying why nothing was written. An edit is
+// shown as it will be sent BEFORE anything is recorded: its text is cut from the screen text the gate stored (screenExcerptsOf checks it against the excerpts the gate bound), never from a second copy.
+const NUMBER_LIST = /^[1-9][0-9]{0,5}(-[1-9][0-9]{0,5})?(,[1-9][0-9]{0,5}(-[1-9][0-9]{0,5})?)*$/;
+function numbersOf(typed) {   // "2" "2-4" "1,3-4" -> [2] [2,3,4] [1,3,4]; null when it is not that
+  const t = String(typed).replace(/\s+/g, '');
+  if (!NUMBER_LIST.test(t)) return null;
+  const all = new Set();
+  for (const part of t.split(',')) { const [a, b = a] = part.split('-').map(Number); if (a > b || b - a > 100000) return null; for (let n = a; n <= b; n += 1) all.add(n); }
+  return [...all].sort((x, y) => x - y);
+}
+async function excerptAnswersAtTerminal(bound, screenText, { ask: say, out }) {
+  const stop = sentence => { out(`${sentence} Nothing was written; the gate stays pending.`); return null; };
+  const answers = [];
+  let texts;   // read back from the screen only when an edit is chosen
+  for (const [k, ex] of bound.entries()) {
+    const choice = String(await say(`Excerpt ${k + 1} of ${bound.length} (${terminalSafe(ex.id)}): approve, edit or refuse? [a/e/r] `)).trim().toLowerCase();
+    if (choice === 'a' || choice === 'approve') { answers.push({ id: ex.id, decision: 'approve' }); continue; }
+    if (choice === 'r' || choice === 'refuse') {
+      const reason = String(await say('Why do you refuse it? Press Enter to give no reason: ')).trim();
+      answers.push(reason ? { id: ex.id, decision: 'refuse', reason } : { id: ex.id, decision: 'refuse' });
+      continue;
+    }
+    if (choice !== 'e' && choice !== 'edit') return stop('That is not a choice.');
+    const keepTyped = String(await say(`Which lines of ${terminalSafe(ex.id)} (1-${ex.shown_lines}) do you keep? For example 2-3. Press Enter to keep them all: `)).trim();
+    const kept = keepTyped ? numbersOf(keepTyped) : [...Array(ex.shown_lines).keys()].map(n => n + 1);
+    if (!kept || kept[0] < 1 || kept[kept.length - 1] > ex.shown_lines || kept.length !== kept[kept.length - 1] - kept[0] + 1) return stop(`Those are not lines of ${terminalSafe(ex.id)}: keep one run of its lines 1-${ex.shown_lines}.`);
+    const hideTyped = String(await say('Which of the kept lines do you hide? For example 3 or 2,4. Press Enter to hide none: ')).trim();
+    const hide = hideTyped ? numbersOf(hideTyped) : [];
+    if (!hide || hide.some(n => n < kept[0] || n > kept[kept.length - 1])) return stop('Those are not among the lines you keep.');
+    if (hide.length === kept.length) return stop('That hides every line: to send nothing, refuse the excerpt.');
+    if (kept.length === ex.shown_lines && !hide.length) return stop('That keeps every line and hides none: to send everything, approve the excerpt.');
+    if (hide.length && !hiddenLinesMarkerRecorded()) return stop('Hiding lines is not available yet: keep a narrower run of lines without hiding any, or approve or refuse the excerpt.');
+    texts ??= screenExcerptsOf(screenText, bound);
+    if (!texts) return stop('The text of this excerpt cannot be checked against the text the gate asked about, so it cannot be edited here.');
+    const lines = kept.length === ex.shown_lines ? undefined : `${kept[0]}-${kept[kept.length - 1]}`;
+    const sent = editedText(texts[k], { lines, hide });
+    out(`This is exactly what would be sent for ${terminalSafe(ex.id)}:`);
+    printText(out, Buffer.from(sent, 'utf8'));   // the same rendering as the screen above, its notes about hidden characters included
+    answers.push({ id: ex.id, decision: 'edit', ...(lines ? { lines } : {}), ...(hide.length ? { hide } : {}) });
+  }
+  return answers;
 }
 
 /**
@@ -161,7 +221,7 @@ export async function gateCommand(args, { work = process.cwd(), stdin = process.
     out(`status: ${state.status}${state.reason ? ` (${state.reason})` : ''}${usable}`);
     for (const l of describe(state.gate)) out(l);
     const bytes = readGateText(runDir, state.gate.text);
-    if (bytes) printText(out, bytes); else out(terminalSafe(`(the text file ${state.gate.text} cannot be read inside the run folder)`));
+    if (bytes) printText(out, bytes, { limitScreen: isCapGate(state.gate) }); else out(terminalSafe(`(the text file ${state.gate.text} cannot be read inside the run folder)`));
     return 0;
   }
 
@@ -169,31 +229,12 @@ export async function gateCommand(args, { work = process.cwd(), stdin = process.
   return answerAtTerminal(runDir, gateArg, { decline: args.includes('--decline'), stdin, stdout, stderr, now });
 }
 
-// 0.8.2 (owner via C&C, 7 Oct 2026): an ADVICE gate answered at the terminal gets the policy re-check the quote and the start already do (src/send-path-refusals.js advicePolicyVerdict: the one rule). The policy is the
-// project's policy.json, in the folder that holds this run's `runs/` (the folder the adopted call will run in); the chain is the one the run's own advice.meta.json names, loaded the way the adopt path loads it
-// (the package's chains or the operator's folder, never the project's); the ceiling is the gate's recorded one. null = no policy.json, nothing to check (output unchanged). A policy file or chain that
-// cannot be read refuses an approval (fail closed).
-function advicePolicyAtTerminal(runDir, gate) {
-  // The project's folder is the one that holds `runs/`: a run folder copied somewhere else has no project whose policy.json can be located, so an approval is refused (a policy path fails closed); declining stays allowed.
-  if (basename(dirname(resolve(runDir))) !== 'runs') return { refused: 'this advice run is not inside a runs/ folder, so its project\'s policy.json cannot be located', warnings: [] };
-  const work = resolve(runDir, '..', '..');
-  const { policy, error } = loadPolicy(work);
-  if (error) return { refused: `policy.json cannot be read (${error})`, warnings: [] };
-  if (!policy) return null;
-  const meta = readAdviceMeta(join(runDir, ADVICE_META_FILE));
-  const config = meta.error ? null : loadAdviceChain(meta.meta.chain, { work });
-  const ceiling = gate.price && typeof gate.price === 'object' ? gate.price.ceiling_usd : undefined;
-  if (!config || !(typeof ceiling === 'number' && ceiling > 0)) return { refused: 'policy.json is set but this advice call\'s chain or price cannot be read, so the policy cannot be checked', warnings: [] };
-  const ev = advicePolicyVerdict(policy, config, ceiling, { runsDir: join(work, 'runs') });
-  return { refused: ev.ok ? null : `policy.json refuses this call: ${ev.reasons.join(' ')}`, warnings: ev.warnings };
-}
-
 /**
  * The terminal answer to one gate: the whole text, then y/N, bound to the hash of the exact bytes printed. The one place a person's terminal answer is made (`council gate answer` calls it; so do
  * `council contract lock` and `council contract amend --decide`, 0.8.2 item 6d, which therefore have no prompt of their own). Returns an exit code: 0 the answer was recorded, 1 refused or not confirmed
  * (nothing written), 2 no terminal.
  */
-export async function answerAtTerminal(runDir, gateArg, { decline = false, typed = null, startsRun = false, stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, now, onNotApproved = null } = {}) {       // onNotApproved: called when the PERSON answered and did not approve (a wrong typed word, or no at the confirmation), never for an expired, unreadable or refused gate (GAP A: the draft screen goes on to ask what should change only then)
+export async function answerAtTerminal(runDir, gateArg, { decline = false, reason = null, typed = null, startsRun = false, stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, now, onNotApproved = null } = {}) {       // onNotApproved: called when the PERSON answered and did not approve (a wrong typed word, or no at the confirmation), never for an expired, unreadable or refused gate (GAP A: the draft screen goes on to ask what should change only then)
   const out = s => stdout.write(`${s}\n`);
   const err = s => stderr.write(`${s}\n`);
   const opts = now ? { now } : {};
@@ -204,6 +245,7 @@ export async function answerAtTerminal(runDir, gateArg, { decline = false, typed
     return 2;
   }
   if (state.status !== 'pending') { err(`gate ${gateArg} is ${state.status}${state.reason ? ` (${state.reason})` : ''}; only a pending gate can be answered`); return 1; }
+  if (isAcceptanceGate(state.gate) && !decline && typeof reason !== 'string') { err(`gate ${gateArg}: this is the acceptance of a plan as it stands. Answer it with council accept ${terminalSafe(join('runs', basename(runDir)))} --reason "<why>", which records your reason. Nothing was written.`); return 2; }   // WORDING U3-w17
   const bytes = readGateText(runDir, state.gate.text);
   if (!bytes) { err(terminalSafe(`gate ${gateArg}: cannot read ${state.gate.text} inside the run folder`)); return 1; }
   const shownSha256 = textSha256(bytes);
@@ -217,23 +259,41 @@ export async function answerAtTerminal(runDir, gateArg, { decline = false, typed
     }
   }
   for (const l of describe(state.gate, { startsRun })) out(l);
-  const policyCheck = state.gate.kind === 'advice' ? advicePolicyAtTerminal(runDir, state.gate) : null;
-  for (const w of policyCheck?.warnings ?? []) out(terminalSafe(`Policy warning: ${w}`));
-  if (policyCheck?.refused) {
-    if (!decline) { err(terminalSafe(`${policyCheck.refused}. Nothing was written; the gate stays pending.`)); return 1; }
-    out(terminalSafe(`Note: ${policyCheck.refused}. Declining is always allowed.`));
-  }
-  printText(out, bytes);
+  printText(out, bytes, { limitScreen: isCapGate(state.gate) });
   // A limit is answered by TYPING it (answerGate parses the text against the ceiling bound in the gate and writes the figure itself): no y/N after it, and a bare "y" is refused there. Declining keeps its y/N.
   if (isCapGate(state.gate) && !decline) {
-    const got = await ask(CAP_PROMPT, { input: stdin, output: stdout });
+    const got = await ask(capPromptOf(state.gate), { input: stdin, output: stdout });
     let actor = null;
     try { actor = userInfo().username; } catch { /* no user name on this system; recorded as null */ }
-    const res = answerGate(runDir, gateArg, { channel: 'cli', shownSha256, decision: 'approved', actor, tty: true, typedCap: got }, opts);
+    // S20 slice 1: a RAISE is recorded through the one interface (src/run-controls.js); a first limit or an amendment keeps its writer
+    const res = isRaiseGate(state.gate)
+      ? answerControl(runDir, gateArg, { control: 'raise', channel: 'cli', shownSha256, decision: 'approved', actor, tty: true, typedCap: got }, opts)
+      : answerGate(runDir, gateArg, { channel: 'cli', shownSha256, decision: 'approved', actor, tty: true, typedCap: got }, opts);
     if (!res.ok) { err(terminalSafe(`gate ${gateArg}: refused (${res.code}): ${res.message}`)); return 1; }
     const recorded = readGateAnswer(runDir, gateArg, opts);
-    out(`gate ${gateArg}: ${res.status} (ledger line ${res.seq}); limit $${recorded.answer?.cap_usd ?? '?'}`);
+    out(`Limit recorded: $${recorded.answer?.cap_usd ?? '?'}.`);   // DUALCAP milestone 2 (A-DRAFT): the ledger line stays in the record, not in the person's view
     if (res.warning) err(`gate ${gateArg}: note: ${res.warning}`);
+    return 0;
+  }
+  // 0.8.4 D5a (A-DRAFT, WORDING_0.8.4.md): approving the session's question about a stop is not an answer to the stop; nothing is written. Declining it is allowed (it closes the question).
+  if (isStopDecisionGate(state.gate) && !decline) { err(`gate ${gateArg}: this is the handling session's question about a stop. Answer the stop itself with council --resume ${terminalSafe(join('runs', basename(runDir)))} and the continue or finish choice. Nothing was written.`); return 1; }
+  // 0.8.4 D10 slice 2c-4 (A-DRAFT words, WORDING_0.8.4.md): an excerpt approval asks for ONE answer per excerpt the gate binds: approve it, edit it (keep fewer lines, hide some) or refuse it. A choice that is not one of the three,
+  // or an edit that cannot be made, writes nothing and leaves the gate pending (no second try inside the route, like a wrong typed step above). The answers go to answerGate, which checks them against the excerpts bound in the
+  // gate AND the text shown against the sha256 its request line recorded; this route never builds a row (that is the pause's, through applyApproval).
+  if (isExcerptGate(state.gate) && !decline) {
+    const bound = Array.isArray(state.gate.excerpts) ? state.gate.excerpts : [];
+    const picked = await excerptAnswersAtTerminal(bound, bytes.toString('utf8'), { ask: q => ask(q, { input: stdin, output: stdout }), out });
+    if (!picked) { onNotApproved?.(); return 1; }
+    const answers = picked;
+    for (const [k, a] of answers.entries()) out(terminalSafe(`${a.id}: ${a.decision === 'approve' ? 'approved' : a.decision === 'edit' ? `edited, lines ${a.lines ?? `1-${bound[k].shown_lines}`} kept${a.hide ? `, ${a.hide.length} hidden` : ''}` : `refused${a.reason ? `: ${a.reason}` : ''}`}`));
+    const okay = await ask('Record these answers? [y/N] ', { input: stdin, output: stdout });
+    if (!/^\s*y(es)?\s*$/i.test(okay)) { out('Not confirmed. Nothing was written; the gate stays pending.'); onNotApproved?.(); return 1; }
+    let who = null;
+    try { who = userInfo().username; } catch { /* no user name on this system; recorded as null */ }
+    const done = answerGate(runDir, gateArg, { channel: 'cli', shownSha256, decision: 'approved', actor: who, tty: true, excerptAnswers: answers }, opts);
+    if (!done.ok) { err(terminalSafe(`gate ${gateArg}: refused (${done.code}): ${done.message}`)); return 1; }
+    out(`gate ${gateArg}: ${done.status} (ledger line ${done.seq})`);
+    if (done.warning) err(`gate ${gateArg}: note: ${done.warning}`);
     return 0;
   }
   const contract = isContractGate(state.gate);
@@ -245,14 +305,19 @@ export async function answerAtTerminal(runDir, gateArg, { decline = false, typed
     if (String(got).trim() !== typed.expect) { out('That is not what the text asks you to type. Nothing was written; the gate stays pending.'); onNotApproved?.(); return 1; }
   }
   const reply = await ask(decline
-    ? `Decline gate ${gateArg}: ${isCapGate(state.gate) ? 'no limit will be recorded and nothing will be started' : tree ? 'nothing will be done for this text' : `this text will not be ${contract ? 'recorded' : 'sent'}`}. Decline? [y/N] `
+    ? `Decline gate ${gateArg}: ${isCapGate(state.gate) ? 'no limit will be recorded and nothing will be started' : tree ? 'nothing will be done for this text' : isExcerptGate(state.gate) ? 'every excerpt is refused and none will be used' : `this text will not be ${contract ? 'recorded' : 'sent'}`}. Decline? [y/N] `
+    : isAcceptanceGate(state.gate) ? 'Accept this plan as it stands, with the reason you wrote? [y/N] '   // WORDING U3-w18
     : `Approve ${tree ? 'acting on' : contract ? 'recording' : 'sending'} exactly this text? [y/N] `, { input: stdin, output: stdout });
   if (!/^\s*y(es)?\s*$/i.test(reply)) { out('Not confirmed. Nothing was written; the gate stays pending.'); onNotApproved?.(); return 1; }
   let actor = null;
   try { actor = userInfo().username; } catch { /* no user name on this system; recorded as null */ }
-  const res = answerGate(runDir, gateArg, { channel: 'cli', shownSha256, decision: decline ? 'declined' : 'approved', actor, tty: true }, opts);
+  // step 3.1 (S20 slice 2): a ruling and a withdrawal are answered through the interface, which refuses an approval whose pass already has a stage on disk (a decline is never refused)
+  const res = isRulingGate(state.gate)
+    ? answerControl(runDir, gateArg, { control: 'ruling', channel: 'cli', shownSha256, decision: decline ? 'declined' : 'approved', actor, tty: true }, opts)
+    : answerGate(runDir, gateArg, { channel: 'cli', shownSha256, decision: decline ? 'declined' : 'approved', actor, tty: true, ...(typeof reason === 'string' ? { reason } : {}) }, opts);
   if (!res.ok) { err(`gate ${gateArg}: refused (${res.code}): ${res.message}`); return 1; }
-  out(`gate ${gateArg}: ${res.status} (ledger line ${res.seq})`);
+  // DUALCAP milestone 2: a limit gate reaches this line only when declined (a typed limit returns above); its ledger line stays in the record (A-DRAFT words)
+  out(isCapGate(state.gate) ? 'Declined: no limit was recorded.' : `gate ${gateArg}: ${res.status} (ledger line ${res.seq})`);
   if (res.warning) err(`gate ${gateArg}: note: ${res.warning}`);
   return 0;
 }

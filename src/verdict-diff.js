@@ -16,14 +16,14 @@
 // for reports written before it existed.
 function objectingSeatRoles(report) {
   return (report.signoff || [])
-    .map((s, i) => ({ role: `critic-${Number.isInteger(s?.seat_index) ? s.seat_index : i}`, objecting: s.signedOff === false }))
+    .map((s, i) => ({ role: `critic-${Number.isInteger(s?.seat_index) ? s.seat_index : i}`, objecting: s.signedOff === false && !s.cut }))
     .filter(s => s.objecting)
     .map(s => s.role);
 }
 
 function objectionTexts(report) {
   const texts = [];
-  for (const s of report.signoff || []) {
+  for (const s of (report.signoff || []).filter(r => !r?.cut)) {
     for (const o of s.objections || []) {
       if (o?.problem) texts.push(String(o.problem).trim());
     }

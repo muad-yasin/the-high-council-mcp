@@ -8,13 +8,13 @@
     "source": "github"
   },
   "websiteUrl": "https://sower-industries.de/en/THC/",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "the-high-council",
-      "version": "0.8.3",
+      "version": "0.8.4",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -98,11 +98,11 @@
         },
         {
           "name": "MAX_USD_PER_RUN",
-          "description": "The figure the spending-limit screen suggests for a paid run; the limit is the number the person types. Unset, a command-line run suggests nothing, and when a client sends no max_usd the MCP server suggests the lesser of 7 and COUNCIL_MAX_USD_LIMIT where that is set. For a chain with no paid seat it is the run's ceiling (7 when unset). A run stops before any stage that could pass its limit.",
+          "description": "The figure the spending-limit screen suggests for a paid run; the limit is the number the person types. Unset, a command-line run suggests nothing, and when a client sends no max_usd the MCP server suggests the lesser of 12 and COUNCIL_MAX_USD_LIMIT where that is set. For a chain with no paid seat it is the run's ceiling (12 when unset). A run stops before any call that, by THC's estimate, would pass its limit.",
           "isRequired": false,
           "isSecret": false,
           "format": "number",
-          "default": "7"
+          "default": "12"
         },
         {
           "name": "COUNCIL_MAX_USD_LIMIT",

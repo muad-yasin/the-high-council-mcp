@@ -180,7 +180,7 @@ test('split: the same placeholder in model output (an external build answer) doe
   assert.equal(existsSync(join(dir, 'runs', id, 'STOPPED-secret.md')), false);
 });
 
-test('split: a distinctive key in model output still stops the run, and resume can override it', () => {
+test('split: a distinctive key in model output pauses the run, and a resume with --allow-secret-shaped (= --continue) goes on', () => {
   const dir = workspace('Plan a small app.\n');
   const first = council(dir, ['--chain', 'mock-external', '--task', 'tasks/x.md']);
   assert.equal(first.status, 3, first.stdout + first.stderr);
@@ -193,7 +193,10 @@ test('split: a distinctive key in model output still stops the run, and resume c
   const stopped = readFileSync(join(run, 'STOPPED-secret.md'), 'utf8');
   assert.match(stopped, /Anthropic/);
   assert.equal(stopped.includes(FORMATS[3][2]), false);
-  assert.match(stopped, /--resume runs\/\S+ --allow-secret-shaped/, 'the stop text gives the person the terminal command');
+  // CHANGED ACCEPTED (0.8.4, the found-secret pause; Muad 8 Nov 2026 "pause not stop"; C&C's rulings). OLD bar: the stop text named `--resume runs/<id> --allow-secret-shaped`. NEW bar: it names `--resume runs/<id> --continue`
+  // (the pause's one choice; on a resume --allow-secret-shaped means the same). The row below still drives the old flag and it still goes on.
+  assert.match(stopped, /--resume runs\/\S+ --continue/, 'the pause text gives the person the terminal command');
+  assert.match(stopped, /^# Run paused/);
   assert.doesNotMatch(stopped, /allow_secret_shaped|Over MCP/, 'and no longer names an MCP parameter (removed in 0.8.3)');
   const allowed = council(dir, ['--resume', join('runs', id), '--allow-secret-shaped']);
   assert.notEqual(allowed.status, 11, allowed.stdout + allowed.stderr);

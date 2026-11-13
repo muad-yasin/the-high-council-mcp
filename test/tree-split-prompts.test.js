@@ -19,15 +19,8 @@ import { registerRoot } from '../src/tree-register.js';
 import { handoffPrompt } from '../src/handoff-prompt.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const golden = JSON.parse(readFileSync(join(root, 'test', 'fixtures', 'prompt-hashes-6ee1946.json'), 'utf8'));
-// CHANGED ACCEPTED GOLDEN (dependency list, 18 Okt 2026, the owner's yes: "Yes to the two slices as you suggested"): ONE row of test/fixtures/prompt-hashes-6ee1946.json moved, mock-debate's `handoff` system-prompt hash, because HANDOFF_SYSTEM gained the approved "Dependencies to verify" paragraph at its end. Every other row is the 6ee1946 byte-for-byte. The stage cache is keyed by the task text and the chain config, not by the prompt (src/cli.js: the fingerprint), so a run begun on 0.8.2 still resumes.
-// CHANGED ACCEPTED, as a ONE-ROW DELTA in this test and NOT in the fixture (red triage, C&C thcmcp-cd 23 Okt 2026: the 6ee1946 golden is never overwritten). OLD: every row of the golden. NEW: the golden, except mock-dispute's `dispute` USER-prompt hash (OLD 36cc5ccf..., NEW 810cce33...). WHY: 6f03fe0 (20 Okt, lab identity 3b) made the dispute prompt's "Raised by:" line name the seat's MODEL (system hash unchanged); Muad 20 Okt 02:38 (FOCUS-detail, AMENDED): "Yes of course it should say the model", shipped reviser prompts change, pins re-recorded under this yes; CHANGELOG.md:9 says so. 6f03fe0 re-recorded test/prompt-pin.test.js, not this fixture. A paused run from before 6f03fe0 runs its dispute stage again on resume (run sheet line 22). The delta asserts that the OLD row is present exactly once, so it cannot go stale in silence.
-const EXPECTED = structuredClone(golden.chains);
-{
-  const row = 'dispute 190ad43df0237f40db1a7ebbfebc0a784304611f78118b33d404deaa72adbaa9 36cc5ccf115f358f54f978192e9a0221c6ae4b543368ed0a1607615090f58f57';
-  assert.equal(EXPECTED['mock-dispute'].filter(r => r === row).length, 1, 'the delta replaces exactly one golden row');
-  EXPECTED['mock-dispute'] = EXPECTED['mock-dispute'].map(r => (r === row ? row.replace('36cc5ccf115f358f54f978192e9a0221c6ae4b543368ed0a1607615090f58f57', '810cce33df1969cf33877574ed9d216fb3050a52bf5280951405da68b3fb1a79') : r));
-}
+// CHANGED ACCEPTED (0.8.4 apply, batch 1; his 12 Nov 2026 word: "I don't see why we would need a test that pins wording. That is not a test, that is bloat."; his 8:a: the wording tests that still pass go before the PR). OLD: the rows of test/fixtures/prompt-hashes-0.8.4-wording.json (the per-stage SYSTEM and USER hashes of five mock chains as the applied tree sent them; before it the 6ee1946 golden, kept unchanged as history) were compared with what the tree sends. Red on 0b9d5275 (printed, jobs 159 and 163): the tip's prompts moved after the fixture was taken (build system; critique-1/-2 and revise-1 system and user; the whole mock-debate, -unanimous, -dispute and -relay chains). NEW: no hash is compared with a fixture. What the rows keep is behaviour: the STAGE LIST of each chain (the stage labels a run sends, below), that a non-member run sends the same prompts with the tree words injected as without, and that a tree member's prompts differ from a non-member's in the right stages only (the member run is compared with the non-member run of THE SAME TREE, not with a recorded one). WHY: a recorded hash is a wording pin; the behaviour it carried is the stage list and the member/non-member difference. The fixture file has no reader left in this test (see the commit message for the grep).
+const STAGES = {"mock": ["build", "criteria", "critique-1", "critique-2", "final", "revise-1"], "mock-debate": ["build", "criteria", "debate-mock-a", "debate-mock-b", "handoff", "panel-1-mock-a", "panel-1-mock-b", "panel-2-mock-a", "panel-2-mock-b", "propose-mock-a", "propose-mock-b", "reply-mock-a", "reply-mock-b", "revise-1", "skeleton"], "mock-unanimous": ["build", "criteria", "final", "panel-1-mock-a", "panel-1-mock-b", "panel-2-mock-a", "panel-2-mock-b", "revise-1"], "mock-dispute": ["build", "criteria", "dispute", "final", "panel-1-mock-a", "panel-1-mock-holdout", "panel-2-mock-a", "panel-2-mock-holdout", "panel-3-mock-a", "panel-3-mock-holdout", "revise-1", "revise-2"], "mock-relay": ["build", "criteria", "final", "panel-1-mock-a", "panel-1-mock-b", "panel-2-mock-a", "panel-2-mock-b", "revise-1"]};
 const WORDS = { treeSplitWriterNote: H.treeSplitWriterNote, treeSplitHandoffNote: H.treeSplitHandoffNote };
 afterEach(() => { setHeldForTest(null); setPromptSpy(null); });
 
@@ -38,19 +31,18 @@ test('the 0.8.3 split-block words are recorded in src/roles.js and render exactl
   assert.equal(held('treeSplitWriterNote'), R.treeSplitWriterNote); assert.equal(held('treeSplitHandoffNote'), R.treeSplitHandoffNote);
 });
 
-test('a run that is NOT a tree member sends prompts byte-identical to 6ee1946\'s (a prompt is the stage cache key, so an old run still resumes), whether or not the 0.8.3 words are injected', async () => {
-  assert.equal(golden.commit, '6ee1946');
-  assert.deepEqual((await promptHashes({ repoRoot: root })).mock, EXPECTED.mock);
-  assert.deepEqual(await promptHashes({ repoRoot: root }), EXPECTED, 'five mock chains: criteria, proposals, debate, build, review, revise, dispute, handoff');
+test('a run that is NOT a tree member sends the stages of each chain and never asks for the tree words, whether or not they are injected', async () => {
+  const plain = await promptHashes({ repoRoot: root });
+  assert.deepEqual(Object.fromEntries(Object.entries(plain).map(([chain, rows]) => [chain, rows.map(r => r.split(' ')[0])])), STAGES, 'five mock chains: the stage labels each run sends');
   setHeldForTest(WORDS);
-  assert.deepEqual(await promptHashes({ repoRoot: root }), EXPECTED, 'with the words injected, a non-member still never asks for them');
+  assert.deepEqual(await promptHashes({ repoRoot: root }), plain, 'with the words injected, a non-member still never asks for them');
 });
 
-// FLIPPED AT THE APPLY (decider-readiness apply patch, C&C thcmcp-cd 24 Okt 2026: 'tree-split-prompts is FLIPPED, not deleted'; the 11 held prompts JOIN the 0.8.3 wording review, Muad 24 Okt 2026: "Yes, to the 11 written prompts for 0.8.3"; the final yes on the words is lane A's to record [PLACEHOLDER]). OLD: a tree member's prompts were byte-identical to 6ee1946's while the words were held. NEW: with the words recorded, ONLY a member's build, revise and handoff system prompts differ from 6ee1946's (the split note is appended), and no user prompt and no other stage does. WHY: the words are recorded in src/roles.js, so the held state no longer ships.
-test('a tree member with the words recorded: only its build, revise and handoff system prompts differ from 6ee1946\'s; every user prompt and every other stage is identical', async () => {
+test('a tree member with the words recorded: only its build, revise and handoff system prompts differ from those of a non-member run of the same tree; every user prompt and every other stage is identical', async () => {
   const got = await promptHashes({ repoRoot: root, extra: { treeMember: true } });
+  const base = await promptHashes({ repoRoot: root });   // the non-member run of THIS tree (no fixture)
   const bad = [];
-  for (const [chain, rows] of Object.entries(EXPECTED)) {
+  for (const [chain, rows] of Object.entries(base)) {
     const by = rs => new Map(rs.map(r => { const [label, sys, user] = r.split(' '); return [label, { sys, user }]; }));
     const want = by(rows), have = by(got[chain]);
     if ([...want.keys()].join() !== [...have.keys()].join()) { bad.push(`${chain}: the stage labels differ`); continue; }

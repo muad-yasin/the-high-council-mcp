@@ -1,15 +1,12 @@
 #!/usr/bin/env node
-// Writes the README's Pricing table (owner, 18 Okt 2026: the chains with their tested cost, the expected cost and the maximum; layout 26 Okt 2026: grouped, each group sorted by expected cost) between the two pricing markers. The expected and maximum figures come from
+// Writes the README's Pricing table (owner, 18 Okt 2026: the chains with their tested cost, the expected cost and the maximum; layout 26 Okt 2026: grouped, each group sorted by expected cost; 13 Nov 2026, owner: "I want it removed before the PR. This is just about the readme": the upper estimate is no longer a column of the README's table, it stays in the dry run, the manual and the chain descriptions) between the two pricing markers. The expected figure comes from
 // estimateChainRows, the function the dry run and `council doctor` print from; the tested figures from maintainers/run-costs.json (real runs only; a chain with none prints an en dash). It types no
-// figure of its own. An advice chain is priced the way the advice add-on prices it (priceOfChain with a brief at BRIEF_MAX_CHARS: the tool description's own "expected" and "at most", the
-// ceiling it enforces, one retry of a cut-off reply included), so the table and the add-on can never show two figures for one chain (C&C thcmcp-6d review, 18 Okt 2026). `node scripts/pricing-table.mjs` rewrites README.md; `--check` exits 1 when the README differs. test/pricing-table.test.js regenerates the table and fails on any difference
+// figure of its own (0.8.4: the advice add-on's chains left the package, so no chain is priced any other way). `node scripts/pricing-table.mjs` rewrites README.md; `--check` exits 1 when the README differs. test/pricing-table.test.js regenerates the table and fails on any difference
 // (the MODEL-CAPS.md pattern). Pure: reads files, calls nothing, spends nothing.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { estimateChainRows } from '../src/cost.js';
-import { priceOfChain } from '../src/send-path-refusals.js';
-import { BRIEF_MAX_CHARS } from '../src/advice-brief.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_ROOT = join(here, '..');
@@ -25,17 +22,14 @@ const testedCell = t => t ? `${t.minUsd === t.maxUsd ? usd(t.minUsd) : `${usd(t.
 /** The table, markers included, for the repository at `root`. Rows are grouped as maintainers/run-costs.json lists the groups; inside a group they are sorted by expected cost (the unrounded figure), the chain name breaking a tie. */
 export function generatePricingTable(root = DEFAULT_ROOT) {
   const data = JSON.parse(readFileSync(join(root, 'maintainers', 'run-costs.json'), 'utf8'));
-  const lines = [START, '', '| Chain | Expected | Upper estimate | Tested (real runs) |', '|---|---|---|---|'];
+  const lines = [START, '', '| Chain | Expected | Tested (real runs) |', '|---|---|---|'];
   for (const group of data.groups) {
-    lines.push(`| **${group.label}** | | | |`);
+    lines.push(`| **${group.label}** | | |`);
     const rows = group.chains.map(name => {
       const config = JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
-      const [expected, most] = config.advise?.enabled === true
-        ? (p => [p.expected, p.ceiling])(priceOfChain(config, 'x'.repeat(BRIEF_MAX_CHARS)))
-        : [sum(estimateChainRows(config)), sum(estimateChainRows(config, { maximum: true }))];
-      return { name, expected, most };
+      return { name, expected: sum(estimateChainRows(config)) };
     }).sort((a, b) => a.expected - b.expected || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-    for (const { name, expected, most } of rows) lines.push(`| \`${name}\` | ${usd(expected)} | ${usd(most)} | ${testedCell(data.tested?.[name])} |`);
+    for (const { name, expected } of rows) lines.push(`| \`${name}\` | ${usd(expected)} | ${testedCell(data.tested?.[name])} |`);
   }
   lines.push('', END);
   return lines.join('\n');

@@ -9,7 +9,7 @@ test('WC-1 each plan-china-* chain file has a row in the Which-chain table that 
   const start = readme.indexOf('**Which chain.**'); assert.ok(start > 0, 'the Which-chain section is found');
   const table = readme.slice(start, readme.indexOf('\n\n', readme.indexOf('| Chain |', start) + 10) + 1);
   const names = readdirSync(new URL('../chains/', import.meta.url)).filter(f => /^plan-china-.*\.json$/.test(f)).map(f => f.replace(/\.json$/, ''));
-  assert.ok(names.length >= 3, 'the three Chinese chains are found');
+  assert.ok(names.length >= 2, 'the two Chinese chains are found');   // CHANGED (0.8.4 seats unit, Muad 10 Nov 2026 01:56): was >= 3; plan-china-mini-council retires to chains/outdated/
   for (const n of names) {
     const row = table.split('\n').find(l => l.startsWith(`| \`${n}\` |`));
     assert.ok(row, `${n} has a row in the Which-chain table`);

@@ -76,7 +76,8 @@ test('S5-2 every refusal writes NOTHING: no runs/ folder, no tree, no lock (a be
   const cases = [
     [[], 2, /council tree start needs --task <file>: the task the root plan answers/],
     [without('--task'), 2, /needs --task <file>/], [without('--chain'), 2, /needs --chain <name>: the chain the root plan runs on/],
-    [without('--child-chain'), 2, /council tree start needs --child-chain <name>: the chain every sub-plan runs on/], [without('--max-usd'), 2, /needs --max-usd <usd>: the cap of the whole tree/],
+    // CHANGED (0.8.4 H-CC-a, Muad's pick: the child runs use the parent's chain by default). OLD: [without('--child-chain'), 2, /council tree start needs --child-chain <name>: the chain every sub-plan runs on/]. NEW: the case is gone, because a missing --child-chain is no refusal any more (it would START a tree here); test/tree-child-default.test.js pins the default.
+    [without('--max-usd'), 2, /needs --max-usd <usd>: the cap of the whole tree/],
     [swap('--max-usd', 'none'), 2, /a tree needs a finite cap: --max-usd none is refused/], [swap('--max-usd', '0'), 2, /--max-usd needs a plain number of dollars above 0/],
     [swap('--max-usd', '-1'), 2, /--max-usd needs a plain number of dollars above 0/], [swap('--max-usd', 'abc'), 2, /--max-usd needs a plain number of dollars above 0/],
     [swap('--task', 'tasks/nope.md'), 1, /--task tasks\/nope\.md: no such task file/], [swap('--task', 'tasks'), 1, /no such task file/],

@@ -1,11 +1,14 @@
 {
   "name": "mock-layered",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. Exercises the layered review panel (seats.critics[].layer): layer 1 reviews first, layer 2 is asked only when layer 1 signed off, layer 3 only when layer 2 did. The default mock critics fail an unrevised draft and pass the revised one, so round 1 stops at layer 1 (layers 2 and 3 are recorded as not asked), the reviser fixes the draft, and round 2 climbs through all three layers and signs off. The dispute stage is on so a run that does not climb all the way records what is still open.",
   "maxRounds": 3,
   "signoff": "unanimous",
   "dispute": {
     "enabled": true,
-    "stall_rounds": 2
+    "stall_rounds": 3
   },
   "estimate": {
     "promptTokens": 1000,

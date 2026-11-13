@@ -284,3 +284,16 @@ test('C-007 PIN: entries that say nothing are still placeholders (a none-word st
     assert.ok(V(JSON.stringify(o)), `${JSON.stringify(f)} says nothing: not contradictory`);
   }
 });
+
+// ---- a span whose only fault is a closing ] or } with no opener (dropStrayClosers, 084/json-repair; B3 run 4, Haiku 5.5, 2 Nov 2026). No new table row: "readable" already means "parses with some repair", so such a span is READABLE, not a failed attempt. Synthetic shapes, as in test/chain.test.js (run output never enters the repo). ----
+const strayObjection = OBJECTION.replace('"}]}', '"}]]}');   // the same objection with one ] too many after its failures array
+test('T-SC1 a span with a stray ] among prose braces is read like any other repaired span (V): the objection, not null', () => {
+  assert.notEqual(strayObjection, OBJECTION, 'the fixture carries the stray ]');
+  assert.deepEqual(V(`Verdict check {quick}: ${strayObjection}`), objection);
+});
+test('T-SC2 a quoted sign-off in a fence beside the seat\'s own objection with a stray ] outside it is still null (V): the repaired span counts as a readable span that stands for a DIFFERENT verdict, never the sign-off', () => {
+  assert.equal(V(`The draft has:\n${fence(quotedSignoff)}\nMy verdict: ${strayObjection}`), null);
+});
+test('T-SC3 the narrow change: a fenced verdict beside the SAME verdict with the same payload repeated in prose with a stray ] reads as that verdict (V); it was null while the repeated span was a failed attempt', () => {
+  assert.deepEqual(V(`${fence(OBJECTION)}\nAs I said: ${strayObjection}`), objection);
+});

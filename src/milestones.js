@@ -17,9 +17,28 @@
 // `- check: C1, C3 | <what> => <result>`; the ids before the first `|` count only when they are criterion ids, so a shell pipe in a check is not read as a list), every milestone has at least one check with an
 // expected result, a `- discharges:` line (optional now) names only criteria one of ITS checks names, and nothing names a criterion that does not exist. A finding never changes `passed`; it is written to WARNINGS.md, report.json and the "Before you build" section.
 
+import { verifyFirstGaps } from './verify-first.js';
+
 export const STATUS_VALUES = Object.freeze(['ready_for_build', 'needs_evidence', 'needs_decision', 'blocked', 'partial']);
 const MILESTONES_HEADING = /^##\s+Milestones\s*$/im;
 const NEXT_H2 = /^##\s+\S/m;
+
+// The heading roles.js gives the review judges' proposals section in the writer's and the handoff seat's prompts (reviewNotesRevise, reviewNotesAnswer). The delivered files carry the section
+// under a shorter title (BOARD.md: "Proposals and improvement ideas"), so a handoff that points at this title points at nothing the build session has. roles.js is byte-pinned, so the
+// literal is kept here and test/milestones.test.js compares it with roles.js's. A-DRAFT: the finding's sentence is public text (WARNINGS.md and the handoff's "Gaps the harness found").
+export const PROMPT_ONLY_HEADING = 'Proposals and improvement ideas from the review judges';
+const PROMPT_ONLY_AS_HEADING = new RegExp(`^[ \\t]{0,3}#{1,6}[ \\t]+${PROMPT_ONLY_HEADING}[ \\t]*$`, 'm');
+export const PROMPT_ONLY_MESSAGE = `the handoff names a section titled "${PROMPT_ONLY_HEADING}", but neither the handoff nor the plan has a section with that title (the board's is "Proposals and improvement ideas")`;
+/**
+ * The finding for a handoff that names the prompt-only heading (outside a fenced example) while neither it nor the delivered plan carries that title as a heading, else null. `planText` is the
+ * delivered plan (deliverable.md): the writer is given the same heading, and a plan that copied it makes the pointer true. `planText: null` means the plan could not be read, so nothing is claimed.
+ */
+function promptOnlySection(text, planText) {
+  if (planText === null) return null;
+  const t = maskFences(String(text ?? ''));
+  if (!t.includes(PROMPT_ONLY_HEADING)) return null;
+  return PROMPT_ONLY_AS_HEADING.test(t) || PROMPT_ONLY_AS_HEADING.test(maskFences(String(planText ?? ''))) ? null : PROMPT_ONLY_MESSAGE;
+}
 
 /** Blank out fenced code blocks (``` ... ```), so an example of the format inside one is neither read as the section nor allowed to end it. */
 export function maskFences(text) {
@@ -97,13 +116,16 @@ export function parseMilestones(text) {
 
 /**
  * The findings for a handoff text against the run's criteria ids (`C1`, `C2`, ...): [{ kind, message }]. [] means the milestones discharge every criterion with a named check.
- * `required` is whether the chain asked for milestones at all; without them the one finding is `no_milestones`.
+ * `required` is whether the chain asked for milestones at all; without them the one finding is `no_milestones`. `planText` (optional): the delivered plan, for the prompt-only-heading finding.
  */
-export function lintMilestones({ text, criteriaIds = [] }) {
+export function lintMilestones({ text, criteriaIds = [], planText, plan }) {
   const p = parseMilestones(text);
   const findings = [];
   const add = (kind, message) => findings.push({ kind, message });
-  if (!p.found || !p.milestones.length) { add('no_milestones', 'the handoff has no "## Milestones" section with "### M<n> - title" milestones'); return { ...p, findings }; }
+  const promptOnly = promptOnlySection(text, planText);
+  // 0.8.4 D17 (plan A T1.3): with the plan given, every UNVERIFIED marker of the plan's own sections that the handoff's "Verify first" section does not name is a gap. Off when `plan` is absent (both callers in src/cli.js pass it) and inert until the seat paragraph that asks for the section is recorded (src/verify-first.js).
+  if (plan !== undefined) for (const g of verifyFirstGaps({ plan, handoff: text })) add(g.kind, g.message);
+  if (!p.found || !p.milestones.length) { add('no_milestones', 'the handoff has no "## Milestones" section with "### M<n> - title" milestones'); if (promptOnly) add('names_prompt_only_section', promptOnly); return { ...p, findings }; }
   if (!p.status) add('no_status', `the handoff has no "Status:" line (one of ${STATUS_VALUES.join(', ')})`);
   else if (!STATUS_VALUES.includes(p.status)) add('bad_status', `Status "${p.status}" is not one of ${STATUS_VALUES.join(', ')}`);
   // 0.8.2 (item 10h): the seat may say the plan cannot be built as written. That used to sit in report.json and nowhere else; as a finding it reaches WARNINGS.md and the "Before you build" block of HANDOFF.md.
@@ -123,5 +145,6 @@ export function lintMilestones({ text, criteriaIds = [] }) {
   // A criterion counts as discharged only by a check that names it.
   const covered = new Set(p.milestones.flatMap(m => m.checks.flatMap(c => c.criteria)));
   for (const id of criteriaIds) if (!covered.has(id)) add('criterion_not_discharged', `${id} is not named by any check (write "- check: ${id} | <what> => <result>" in the milestone that settles it)`);
+  if (promptOnly) add('names_prompt_only_section', promptOnly);
   return { ...p, findings };
 }

@@ -15,10 +15,12 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const readme = readFileSync(join(root, 'README.md'), 'utf8');
 // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (the Which-chain table, the text around it and Your first ten minutes): the positive pins read it there, the bans read both files.
 const reference = readFileSync(join(root, 'AI-README.md'), 'utf8');
+// CHANGED (0.8.4 apply, the README rework): the Known limits moved to KNOWN-LIMITS.md; the two bans below read it too (OLD: [readme, reference]).
+const limitsFile = readFileSync(join(root, 'KNOWN-LIMITS.md'), 'utf8');
 const page = readFileSync(join(root, 'docs', 'index.html'), 'utf8');
-const figures = name => { const r = dryRunReport(readChainFile(root, name), { defaultCapUsd: 7 }); return { exp: `$${r.estimate.expectedUsd.toFixed(2)}`, max: `$${r.estimate.maximumUsd.toFixed(2)}`, e: r.estimate.expectedUsd, m: r.estimate.maximumUsd }; };
+const figures = name => { const r = dryRunReport(readChainFile(root, name), { defaultCapUsd: DEFAULT_MAX_USD }); return { exp: `$${r.estimate.expectedUsd.toFixed(2)}`, max: `$${r.estimate.maximumUsd.toFixed(2)}`, e: r.estimate.expectedUsd, m: r.estimate.maximumUsd }; };
 // 0.8.3 (lane B), CHANGED ACCEPTED TEST: old bar = the table rows of cheap-7-v2, plan-premium-7, plan-highest-7 and plan-daily-7 carried derived figures; new bar = the three retired ones left the table (chains/outdated/), cheap-7-v2 left too (Muad's D1/D2 answers of 23 Okt 2026); the first-ten-minutes text below still names it until the new one-key chain's commit.
-const CHAINS = ['plan-high-council', 'plan-medium-council', 'plan-mini-council', 'plan-mini-council-sol-session', 'plan-default-opro-council'];   // 0.8.3 (lane B, commit 2): the one-key chain's row joins
+const CHAINS = ['plan-high-council', 'plan-medium-council', 'plan-mini-council'];   // 0.8.4 seats unit (Muad 10 Nov 2026 01:10): plan-mini-council-sol-session and plan-default-opro-council retire, so their rows leave
 
 test('README: the table of recommended chains prints each chain\'s expected and maximum figure exactly as the dry run gives them', () => {
   for (const name of CHAINS) {
@@ -33,29 +35,36 @@ test('README: the table of recommended chains prints each chain\'s expected and 
 
 // 0.8.3 (W, CR-4A-003, 25 Okt 2026), NEW TEST: the "cheapest end" printed under the $7 default cap is a figure the dry run gives (its floor), in the README row AND in the chain's own description (the README printed $6.74 against the description's generated $6.75).
 test('plan-medium-council: the cheapest end the README row and the chain description print is the dry run\'s own floor', () => {
-  const floor = dryRunReport(readChainFile(root, 'plan-medium-council'), { defaultCapUsd: 7 }).estimate.floorUsd;
+  const floor = dryRunReport(readChainFile(root, 'plan-medium-council'), { defaultCapUsd: DEFAULT_MAX_USD }).estimate.floorUsd;
   assert.ok(Number.isFinite(floor), 'the dry run gives a floor');
   const row = reference.split('\n').find(l => l.startsWith('| `plan-medium-council` |'));
-  assert.ok(row.includes(`the cheapest end ($${floor.toFixed(2)})`), `the row should say "the cheapest end ($${floor.toFixed(2)})"`);
-  assert.ok(readChainFile(root, 'plan-medium-council').description.includes(`the cheapest end, $${floor.toFixed(2)},`), 'the description says the same figure');
+  // CHANGED ACCEPTED (B3 judge apply, 1 Nov 2026; decision D-110): OLD the row said "and the cheapest end ($x)"; NEW "and cheapest end ($x)" (the plan-high row's shape). The figure is still the dry run's floor.
+  // CHANGED ACCEPTED TEST (0.8.4 seats unit, Muad 10 Nov 2026 00:59: the new Medium roster). OLD: the sentences were the ones for a cheapest end ABOVE the default cap ("and cheapest end ($x)" in the row, "the cheapest end, $x," in the description). NEW: the cheapest end now fits UNDER the cap, so the row says "the cheapest end ($x) fits under it" and the description "the cheapest end ($x, one overseer round, the dry run's floor) fits under it"; the test pins the figure in both places, not the old shape. WHY: the roster changed and the sentence is the true one for the new figure (RD-5 and RD-8 in test/regen-derived-figures.test.js hold the both-ways check).
+  // CHANGED ACCEPTED TEST (0.8.4 cap sentences, 11 Nov 2026). OLD bar (the assertions below, as they stood): the row said "the expected figure ($x) and the cheapest end ($y) fit under it" and the description said "the expected figure ($x) and the cheapest end ($y, one overseer round, the dry run's floor) fit under it": both figures under the default cap. NEW bar: the expected figure is above the default cap of $12 and only the cheapest end fits under it, so the row says "Its upper estimate ($u) and expected figure ($x) are above the default cap of $12; the cheapest end ($y) fits under it" and the description says "The upper estimate ($u) and the expected figure ($x) are above the default cap of $12; the cheapest end ($y, one overseer round, the dry run's floor) fits under it". The pins still name the dry run's own figures, and they hold the cap from the code, not a typed 12. WHY: after the one regeneration of the derived figures the Medium chain's expected figure is above the cap ($14.78 against $12), so the old sentences were false and this test was holding them green; the dry run decides which side of the cap each figure is on.
+  const mediumRep = dryRunReport(readChainFile(root, 'plan-medium-council'), { defaultCapUsd: DEFAULT_MAX_USD }).estimate;
+  const mediumExp = mediumRep.expectedUsd;
+  assert.ok(mediumExp > DEFAULT_MAX_USD && mediumRep.maximumUsd > DEFAULT_MAX_USD && floor <= DEFAULT_MAX_USD, `PREMISE: the Medium chain's expected figure and upper estimate are above the default cap and its cheapest end is not (${mediumExp}, ${mediumRep.maximumUsd}, ${floor}); if a price refresh moves a figure across the cap this pin is rewritten, never loosened`);
+  assert.ok(row.includes(`Its upper estimate ($${mediumRep.maximumUsd.toFixed(2)}) and expected figure ($${mediumExp.toFixed(2)}) are above the default cap of $${DEFAULT_MAX_USD}; the cheapest end ($${floor.toFixed(2)}) fits under it`), 'the row names the upper estimate, the expected figure and the cheapest end against the cap');
+  assert.ok(readChainFile(root, 'plan-medium-council').description.includes(`The upper estimate ($${mediumRep.maximumUsd.toFixed(2)}) and the expected figure ($${mediumExp.toFixed(2)}) are above the default cap of $${DEFAULT_MAX_USD}; the cheapest end ($${floor.toFixed(2)}, one overseer round, the dry run's floor) fits under it`), 'the description says the same figures');
 });
 
 // 0.8.3 (lane B, commit 2), CHANGED ACCEPTED TEST (Muad 23 Okt 2026: cheap-7-v2 retires, the quick start names the new one-key chain and "--max-usd 10"): OLD = the example named cheap-7-v2's two figures and a cap just above its maximum; NEW = the example names plan-default-opro-council's two figures and the Claude Desktop default cap, which is above its expected figure and below its upper estimate (and the default cap of $7 is below the upper estimate, which is why the command names a cap at all).
-test('README: the first-ten-minutes example names the expected and the upper figure of plan-default-opro-council and the Desktop default cap in the run command', () => {
-  const f = figures('plan-default-opro-council');
-  assert.ok(reference.includes(`\`plan-default-opro-council\` expects ${f.exp}, with an upper estimate of ${f.max}`), 'the sentence under step 4');
-  assert.ok(reference.includes(`--chain plan-default-opro-council --max-usd ${DESKTOP_DEFAULT_MAX_USD}`), 'the command carries the Desktop default cap');
+// 0.8.4 seats unit, CHANGED ACCEPTED TEST (Muad 10 Nov 2026 01:10: plan-default-opro-council retires and the quick start names the default chain): OLD = the quick-start example, the chain's description and the landing page quoted plan-default-opro-council's two figures. NEW = the same three places quote plan-mini-council's two figures. WHY: the quick-start chain changed; the figures are still derived from the dry run.
+test('README: the first-ten-minutes example names the expected and the upper figure of plan-mini-council and the Desktop default cap in the run command', () => {
+  const f = figures('plan-mini-council');
+  assert.ok(reference.includes(`\`plan-mini-council\` expects ${f.exp}, with an upper estimate of ${f.max}`), 'the sentence under step 4');
+  assert.ok(reference.includes(`--chain plan-mini-council --max-usd ${DESKTOP_DEFAULT_MAX_USD}`), 'the command carries the Desktop default cap');
   assert.ok(f.e < DEFAULT_MAX_USD && f.m > DEFAULT_MAX_USD && f.e < DESKTOP_DEFAULT_MAX_USD && f.m > DESKTOP_DEFAULT_MAX_USD, `the text's claims hold: expected ${f.exp} under both caps, upper estimate ${f.max} above both`);
 });
 
-test('plan-default-opro-council: its description prints the dry run\'s own expected and upper-estimate figures (a public number the test can re-derive)', () => {
-  const f = figures('plan-default-opro-council');
-  const d = readChainFile(root, 'plan-default-opro-council').description;
+test('plan-mini-council: its description prints the dry run\'s own expected and upper-estimate figures (a public number the test can re-derive)', () => {
+  const f = figures('plan-mini-council');
+  const d = readChainFile(root, 'plan-mini-council').description;
   assert.ok(d.includes(`${f.exp} expected`) && d.includes(`an upper estimate of ${f.max}`), `the description should print ${f.exp} and ${f.max}`);
 });
 
 test('README: the retired chains no longer have bullets or table rows quoting figures (they are in chains/outdated/)', () => {
-  for (const n of ['plan-daily-7', 'plan-lanes-4', 'plan-premium-7', 'plan-highest-7']) for (const doc of [readme, reference]) {
+  for (const n of ['plan-daily-7', 'plan-lanes-4', 'plan-premium-7', 'plan-highest-7', 'verify', 'plan-mini-council-sol-session', 'plan-default-opro-council', 'plan-china-mini-council']) for (const doc of [readme, limitsFile, reference]) {
     assert.equal(doc.split('\n').some(l => l.startsWith(`| \`${n}\` |`)), false, `${n}: no table row`);
     assert.doesNotMatch(doc, new RegExp(`\\*\\*\`${n}\`\\*\\* -`), `${n}: no bullet`);
   }
@@ -64,13 +73,13 @@ test('README: the retired chains no longer have bullets or table rows quoting fi
 test('landing page: the chain cards print each chain\'s expected and maximum figure, and say which side of the default cap the expected one is', () => {
   // 0.8.3 (lane B): the cheap-7-v2, plan-premium-7, plan-highest-7 and plan-daily-7 cards left the page with their chains (chains/outdated/).
   for (const n of ['cheap-7-v2', 'plan-premium-7', 'plan-highest-7', 'plan-daily-7']) assert.doesNotMatch(page, new RegExp(`>${n}</div>`), `${n}: no card`);
-  const c = figures('plan-default-opro-council');
+  const c = figures('plan-mini-council');
   assert.ok(page.includes(`it is expected to cost ${c.exp}, with an upper estimate of ${c.max}`));
-  assert.ok(page.includes(`--chain plan-default-opro-council --max-usd ${DESKTOP_DEFAULT_MAX_USD}`));
+  assert.ok(page.includes(`--chain plan-mini-council --max-usd ${DESKTOP_DEFAULT_MAX_USD}`));
 });
 
 test('no public text calls the expected figure a worst case any more', () => {
-  for (const doc of [readme, reference]) assert.doesNotMatch(doc, /\$11\.22 worst case|worst-case price for your task|Worst case \|/);
+  for (const doc of [readme, limitsFile, reference]) assert.doesNotMatch(doc, /\$11\.22 worst case|worst-case price for your task|Worst case \|/);
   assert.doesNotMatch(page, /\$\d+\.\d\d worst case|worst-case price/);
 });
 
@@ -88,8 +97,9 @@ test('README: the chains said to expect more than the default cap are exactly th
   const named = [...m[1].matchAll(/`([a-z0-9-]+)`/g)].map(x => x[1]).sort();
   assert.deepEqual(named, over, 'the README names exactly the chains whose expected figure is above the default cap');
   // TROUBLESHOOTING.md says it again (the hand-typed list there went stale the same way): it must name the same set, the one-key chain is named in its own sentence (its expected figure is under the cap), not in this list.
-  const t = readFileSync(join(root, 'TROUBLESHOOTING.md'), 'utf8').match(/((?:`[a-z0-9-]+`(?:,\s+| and\s+)?)+)\s+expect more than the default \$7 cap/);
+  const t = readFileSync(join(root, 'TROUBLESHOOTING.md'), 'utf8').match(/((?:`[a-z0-9-]+`(?:,\s+| and\s+)?)+)\s+expect more than the default \$(\d+) cap/);
   assert.ok(t, 'the TROUBLESHOOTING sentence is there');
+  assert.equal(Number(t[2]), DEFAULT_MAX_USD, 'TROUBLESHOOTING names the default cap the code has');   // 10 Nov 2026 ($12): the figure is read, not typed into the pattern
   const tNamed = [...t[1].matchAll(/`([a-z0-9-]+)`/g)].map(x => x[1]).sort();
   assert.deepEqual(tNamed, over, 'TROUBLESHOOTING names the same chains');
 });

@@ -8,13 +8,14 @@ license: MIT
 
 Published benchmarks of models that write 3D code agree: running code is the easy part. VoxelCodeBench (arXiv 2604.02580) found that "producing executable code is far easier than producing spatially correct outputs"; 3DCodeBench (arXiv 2606.01057) that failures "mostly arise from API mismatches, while successful renders still suffer from disconnected or floating 3D geometric components", and that multi-turn refinement with execution feedback helps; BlenderGym (arXiv 2504.01786) that state-of-the-art vision-language systems "struggle with tasks relatively easy for human Blender users". A script whose coordinates are internally consistent proves nothing about the shape, so every step below ends in a check that can fail.
 
-**Evidence, graded.** Operator signatures, flag wording and manual warnings: Blender 5.1 API reference and manual, read 2026-10-05 (D); the four arXiv abstracts, same day (D); bridge-server facts from a source read at one commit on 2026-10-04 and a package index checked 2026-10-05 (dated where used). **Nothing in this skill's scripts has been run in Blender yet.** The pure checks have unit tests and a mutation pass that need no Blender; the Blender-facing glue and the preset were checked only against the 5.1 reference. Run `scripts/run_checks.sh` on your installed Blender once and keep its output; until then every Blender-side claim here is documentation-level.
+**Evidence, graded.** Operator signatures, flag wording and manual warnings: Blender 5.1 API reference and manual, read 2026-10-05 (D); the four arXiv abstracts, same day (D); bridge-server facts from a source read at one commit on 2026-10-04 and a package index checked 2026-10-05 (dated where used); the three command-line entries of section 1 from the 5.1 manual (D), read on 2026-11-12. **Nothing in this skill's scripts has been run in Blender yet.** The pure checks have unit tests and a mutation pass that need no Blender; the Blender-facing glue and the preset were checked only against the 5.1 reference. Run `scripts/run_checks.sh` on your installed Blender once and keep its output; until then every Blender-side claim here is documentation-level.
 
 **This skill owns** how Blender is driven and how its output is checked. **It does not own** which pipeline an asset belongs in or its budgets, rig and animation import, whether the result looks right (`visual-craft`), the engine-side editor work, or the generic rules it only points at: enumerated deletes and spend gates (`tool-and-action-discipline`), "a skipped check is not a pass" (`backend-developer`), "the author does not certify" (`verification-and-critique`).
 
 ## 1. The script is the asset
 
 - **Every asset comes from a committed, re-runnable script** run in background mode (`blender -b --python`). The `.blend` and exports are regenerable artifacts; a re-export is then a diff. The generic form is `backend-developer`'s "the script is the artifact" rule.
+- **Run it so that a failure shows.** When the `blender` binary runs the script, pass `--python-exit-code 1`: Blender then exits with that code if the script raises a Python exception. The entry does not say what the exit code is without it, so a zero from a run that did not set it is no proof that the script reached its end (the usage lines in `scripts/` do not show the flag, and how it meets the checker's own exit codes is untested). `--factory-startup` keeps the user's own startup file out of the run. Blender works through its arguments in the order written, so both go before `--python <script>` (an inference from the manual's ordering rule; the three entries: `references/evidence-and-checks.md`).
 - **A live bridge session is for exploration.** Fold what you learn into the script before moving on; GUI state dies with the session. The screenshot tools of the bridges tried had no camera or view control, so a bridge screenshot is not a render check (section 5).
 - **The script header states** the Blender version, the axis convention (which side converts Z-up to the engine's up), units (metres), and the proportions it relies on.
 - **Names are contracts.** Use a regular expression the checker enforces, no `.001` suffixes (Blender appends them silently on a clash), and treat engine-meaningful suffixes and prefixes (LOD, collision) as part of the contract. Never rename casually: rebinding and overrides key on names.
@@ -50,7 +51,7 @@ Published benchmarks of models that write 3D code agree: running code is the eas
 3. **Size is checked per world axis** (`--expect-size X Y Z`). Sorted extents are an explicit opt-in because they pass a car lying on its side.
 4. **Each check is shown to fail**: the unit tests feed one known-bad mesh per check; `run_checks.sh` repeats them on real files; a new check needs its own failing case first.
 5. **A render you actually look at, from a camera the script places.** Cycles on CPU renders with no GL context; Workbench and EEVEE need a GL library or a virtual display and can abort the process on a bare server. Render several views at a fixed size and ask: is every named part present, does anything float or intersect, do proportions match the reference. Reading the image is `visual-craft`'s protocol.
-6. **Compare with a reference**: a dimension sheet or the last accepted export, and diff the new export against the previous one before replacing it.
+6. **Compare with a reference**: a dimension sheet or the last accepted export, and diff the new export against the previous one before replacing it. Count the objects, meshes and materials handed to the exporter and again in the re-imported export, and treat a difference nobody can explain as a finding: an export can finish and leave some out (`backend-developer`).
 7. **Import into the engine and look there too.** Orientation, scale and materials only prove out in the target. Until one engine import has passed, every Blender-side result is provisional, and the report says so.
 
 ## 6. Live bridge sessions
@@ -63,6 +64,7 @@ Published benchmarks of models that write 3D code agree: running code is the eas
 
 ## Mistakes to flag
 
+- A `blender --python` run without `--python-exit-code`, its zero read as "the script finished"; an export whose object, mesh and material counts were never compared with what the exporter was given.
 - No stated Blender version; API names recalled; an unpinned `bpy` wheel.
 - Context-dependent operators in a headless script; a failure "fixed" by retrying; an operator result never read.
 - An export flag set improvised per asset, left implicit (`apply_scale_options`), or the experimental bake on a rig; one side not chosen as the converter.
@@ -73,4 +75,4 @@ Published benchmarks of models that write 3D code agree: running code is the eas
 - Custom properties trusted to survive export.
 - Work that exists only in a live session; a bridge export or asset-search tool used for a shipped file; a success flag read instead of the returned text.
 
-Depth: `references/export-pair.md`, `references/bridge-and-servers.md`, `references/evidence-and-checks.md`, `references/drift-sheet.md`; scripts in `scripts/` (start with `run_checks.sh`).
+Depth: `references/export-pair.md`, `references/bridge-and-servers.md`, `references/evidence-and-checks.md`, `references/drift-sheet.md`; scripts in `scripts/` (start with `run_checks.sh`; call each by its full path inside this skill's folder: `tool-and-action-discipline`).

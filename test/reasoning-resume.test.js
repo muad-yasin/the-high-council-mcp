@@ -66,9 +66,10 @@ test('a replayed stage that was already retried does not issue the retry again, 
     // What the stage cache returns for the panel stage on a resume: the text and the usage file's fields (src/cli.js setCache get). No promptHash: a stage
     // from before prompt hashes existed replays as it always did.
     const hit = { text: '', provider: 'anthropic', model: 'claude-sonnet-5', usage: { input: 100, output: 64000, thinking: 64000, stop: 'max_tokens' }, usd: 1.0004, ms: 5, cappedAt: 64000, noAnswer: NO_ANSWER_THINKING };
-    // The original run's stages: the panel call and its two re-asks of the unheard seat. It never made a `-retry` call (invoke() had already retried at the bigger cap).
+    // The original run's stages: the panel call, its two re-asks and its one solo ask of the unheard seat. It never made a `-retry` call (invoke() had already retried at the bigger cap).
+    // CHANGED ACCEPTED (0.8.4 ladder unit, the solo ask, 10 Nov 2026; found by the box set): OLD bar: the original run's stages were the call and its two re-asks, and the replay sent no request. NEW: the solo ask (`-solo`) is one of the original run's stages too, so its replay is free as well; without it the replay asks it live (two requests: the ask and its same-effort retry).
     const asked = [];
-    const mine = new Set(['panel-1-sonnet5', 'panel-1-sonnet5-reask1', 'panel-1-sonnet5-reask2']);
+    const mine = new Set(['panel-1-sonnet5', 'panel-1-sonnet5-reask1', 'panel-1-sonnet5-reask2', 'panel-1-sonnet5-solo']);
     setCache({ get: label => { asked.push(label); return mine.has(label) ? hit : null; }, warn() {}, invalidate() {} });
     setBudget(null);
     const cfg = { name: 'rr', signoff: 'unanimous', maxRounds: 1, criteria: ['It exists.'], seats: { critics: CHAIN.seats.critics } };

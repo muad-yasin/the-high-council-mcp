@@ -36,7 +36,7 @@ const requests = [
   { jsonrpc: '2.0', method: 'notifications/initialized' },
   { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
   { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_chains', arguments: {} } },
-  { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'dry_run', arguments: { chain: 'verify' } } },
+  { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'dry_run', arguments: { chain: 'plan-mini-council' } } },
   { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'start_run', arguments: { chain: 'mock', task: 'task.md' } } },
 ];
 writeFileSync(join(dir, 'task.md'), 'A smoke-test task.\n');

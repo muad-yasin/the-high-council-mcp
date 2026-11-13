@@ -78,7 +78,9 @@ test('DA-1 after it, the table refuses EVERY other event with the ONE sentence (
   const sentence = abandonedSentence(state);
   assert.match(sentence, /abandoned by a person \(event e90, 2026-10-13T08:00:00\.000Z\)\. It is final/);
   // OLD: exactly blocked, guard_refused, reservation_mirrored. NEW (ROADMAP 77): + advice_reservation_mirrored, the same mirrored-line record for a recommendation's run. WHY: an advice run settles after the tree is final the way a member does; the abandon is refused while one is live, so the line is a late record, not a decision.
-  const allowed = ['blocked', 'guard_refused', 'reservation_mirrored', 'advice_reservation_mirrored'];
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the allowed list held advice_reservation_mirrored (the ROADMAP 77 line above). NEW: the list is the original three again, and the removed event name is not in EVENT_NAMES. WHY: the recommendation route is removed, so no advice event exists to be allowed (a hand-written old line reads as an unknown event: test/tree-advice-pins.test.js AP-2).
+  const allowed = ['blocked', 'guard_refused', 'reservation_mirrored'];
+  assert.equal(EVENT_NAMES.includes('advice_reservation_mirrored'), false, 'the removed advice events are not event names any more');
   for (const name of EVENT_NAMES.filter(n => !allowed.includes(n))) assert.equal(why(state, { event: name }), sentence, `${name} is refused with the abandoned sentence`);
   for (const name of allowed) assert.equal(why(state, { event: name }), null, `${name} stays allowed (a record of a refused request, a guard fact, a mirrored line)`);
   assert.equal(why(state, { event: 'accounting_accepted', reservationIds: ['x:y'], unreadableReports: [{ runId: 'not-a-member' }] }), sentence, 'the unreadable-report check does not answer first: an abandoned tree gets the abandoned sentence');

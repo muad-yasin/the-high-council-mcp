@@ -41,7 +41,10 @@ test('a typed limit is the answer: the screen is shown, the prompt asks for doll
   assert.match(io.shown(), /The screen: estimate, maximum, your limit/);
   assert.match(io.shown(), /Type your limit in US dollars, then Enter:/);
   assert.doesNotMatch(io.shown(), /\[y\/N\]/, `no y/N after the number: ${io.shown().slice(-300)}`);
-  assert.match(io.shown(), /gate g1: approved \(ledger line 2\); limit \$7\.5/);
+  // OLD (0.8.3): /gate g1: approved \(ledger line 2\); limit \$7\.5/. NEW (0.8.4 DUALCAP milestone 2, C&C's ruling 1 Nov: the ledger line leaves the person's view, it stays in the
+  // record): the answer names the limit only. WHY: Muad on the limit screen, "cluttered ... no clear indication what the number is for".
+  assert.match(io.shown(), /Limit recorded: \$7\.5/);
+  assert.doesNotMatch(io.shown(), /ledger line/);
   const a = ledger(g.d).find(l => l.event === 'gate_answered');
   assert.deepEqual([a.channel, a.tty, a.decision, a.cap_usd, a.cap_micro_usd], ['cli', true, 'approved', '7.5', 7_500_000], JSON.stringify(a));
   assert.equal(readGateAnswer(g.d, g.id, { now }).status, 'approved');

@@ -8,15 +8,17 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hostname } from 'node:os';
 import { TOOL_TRUST, wrapResult, guardToolRegistration } from '../src/mcp/untrusted.js';
 import { TRUST_META_KEY } from '../src/return-path.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
 
 function mcpSession(cwd, calls, { timeoutMs = 60_000, env = {} } = {}) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_ADVISE_MOCK: '1', ...env } });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys(), ...env } });
     const want = new Set([1, ...calls.map((_, i) => i + 2)]);
     const byId = new Map();
     let buf = '';
@@ -66,7 +68,7 @@ const isWrappedText = r => {
   return !!m && r.content[r.content.length - 1].text === `<<<END THC-UNTRUSTED-TEXT ${m[1]}>>>` && r._meta?.[TRUST_META_KEY]?.trust === 'untrusted_model_output';
 };
 
-test('tools/list: every tool the server registers is classified, and there are 21', async () => {
+test('tools/list: every tool the server registers is classified, and there are 23', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'thc-untrusted-list-'));
   try {
     const res = await mcpSession(dir, [{ method: 'tools/list', params: {} }]);
@@ -74,7 +76,8 @@ test('tools/list: every tool the server registers is classified, and there are 2
     assert.deepEqual(names.filter(n => !Object.hasOwn(TOOL_TRUST, n)), [], 'unclassified tools');
     assert.deepEqual(Object.keys(TOOL_TRUST).filter(n => !names.includes(n)), [], 'classified tools the server does not register');
     // Changed by the owner's decision of 7 Oct 2026 (0.8.2 item 6d): contract_read and contract_amend, 17 -> 19; 0.8.3 M6 S7: tree_status, 19 -> 20; 0.8.3 M7 session channel: tree_decide, 20 -> 21 (EDITED, disclosed).
-    assert.equal(names.length, 22);       // 0.8.3 price_raise, 21 -> 22 (EDITED, disclosed)
+    // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD bar 25. NEW bar 23. WHY: council_quote and council_advise left the server with the add-on (21 server.tool( registrations in src/mcp/server.js + 2 registerTool in src/mcp/contract.js; 23 TOOL_TRUST rows); the count moves with the thing it counts.
+    assert.equal(names.length, 23, 'the server registers 23 tools, with pause_run and stop_decide');       // 0.8.3 price_raise, 21 -> 22 (EDITED, disclosed); 0.8.4 repair_reply, 22 -> 23 (the title said 21 until then); 0.8.4 16c-MCP pause_run, 23 -> 24 (EDITED, disclosed; OLD 23, NEW 24, WHY the tool exists and carries its own TOOL_TRUST row); 0.8.4 D5a stop_decide, 24 -> 25 (CHANGED ACCEPTED TEST: OLD 24, NEW 25, WHY stop_decide is registered and carries its own TOOL_TRUST row)
     for (const [name, rule] of Object.entries(TOOL_TRUST)) {
       assert.ok(['text', 'fields', 'own', false].includes(rule.wrap), name);
       if (rule.wrap === false || rule.wrap === 'own') assert.ok(rule.reason && rule.reason.length > 20, `${name} needs a stated reason`);
@@ -96,9 +99,12 @@ test('wrapResult: a result it cannot mark (not one text block) is refused, not p
   assert.throws(() => wrapResult('run_status', { content: [{ type: 'image', data: '' }] }), /cannot mark/);
 });
 
-test('wrapResult: errors and already-marked results pass unchanged; an absent field leaves JSON as it was', () => {
+test('wrapResult: an error result is marked as text (F3); already-marked results pass unchanged; an absent field leaves JSON as it was', () => {
+  // CHANGED ACCEPTED (0.8.4 F3). OLD: assert.equal(wrapResult('read_run_file', err), err) (an isError result came back unchanged). NEW: it comes back as a new object, still isError, with the notice, the original text and the closing marker as its three blocks. WHY: a refusal quotes file names and file values, which are run-folder text.
   const err = { isError: true, content: [{ type: 'text', text: 'REFUSED' }] };
-  assert.equal(wrapResult('read_run_file', err), err);
+  const e = wrapResult('read_run_file', err);
+  assert.notEqual(e, err);
+  assert.deepEqual({ isError: e.isError, blocks: e.content.length, body: e.content[1].text, trust: e._meta[TRUST_META_KEY].trust }, { isError: true, blocks: 3, body: 'REFUSED', trust: 'untrusted_model_output' });
   const own = { content: [{ type: 'text', text: 'x' }], _meta: { [TRUST_META_KEY]: { trust: 'untrusted_model_output' } } };
   assert.equal(wrapResult('run_status', own), own);
   const plain = { content: [{ type: 'text', text: JSON.stringify({ id: 'r', status: 'running' }) }] };
@@ -106,7 +112,7 @@ test('wrapResult: errors and already-marked results pass unchanged; an absent fi
   assert.throws(() => wrapResult('nope', plain), /TOOL_TRUST/);
 });
 
-test('a fixture run holding model text: read_run_file, run_status, list_runs, plan_outline and the advice answer come back wrapped', async () => {
+test('a fixture run holding model text: read_run_file, run_status, list_runs and plan_outline come back wrapped; an old advice folder answers like any run', async () => {
   const { dir, plan, advice } = workspace();
   try {
     const res = await mcpSession(dir, [
@@ -131,26 +137,59 @@ test('a fixture run holding model text: read_run_file, run_status, list_runs, pl
     // run_status (summary): JSON stays parseable; the log fields are named untrusted and cleaned.
     const st = JSON.parse(res.get(4).result.content[0].text);
     // Superseded by the audit decision cnc-mcp-security F3 (every run-folder string the summary returns is named untrusted and cleaned): the list grew.
-    assert.deepEqual(st.untrusted_fields, ['lastLogLines', 'keyLines', 'signoff', 'chain', 'task', 'state', 'waitingFor', 'resumable']); // the fields present in this fixture, in the rule's order. OLD: no 'resumable'. NEW: 'resumable' (its stoppedAt carries the stop marker's reason, which can quote a provider's refusal at exit 24). WHY: A3a commit 2, 18 Okt 2026, provider text now reaches a record that run_status returns
+    const stFields = st.untrusted_fields;   // compared with the list_runs row below in one deepEqual (CHANGED ACCEPTED, 0.8.4 F3: see there)
     assert.match(st.untrusted_notice, /written by AI models/);
     assert.ok(!JSON.stringify(st).includes(HIDDEN));
     assert.equal(res.get(4).result._meta[TRUST_META_KEY].trust, 'untrusted_model_output');
     // list_runs: every run's log line is named untrusted; the array shape is kept.
     const runs = JSON.parse(res.get(5).result.content[0].text);
     assert.ok(Array.isArray(runs) && runs.length === 2);
-    assert.deepEqual(runs.find(r => r.id === plan).untrusted_fields, ['lastLogLines', 'signoff', 'chain', 'task', 'state', 'waitingFor', 'resumable']);   // OLD/NEW/WHY: as the run_status line above // audit fix cnc-mcp-security F3: the fields present in this fixture
+    // CHANGED ACCEPTED (0.8.4 F3). OLD: run_status ['lastLogLines', 'keyLines', 'signoff', 'chain', 'task', 'state', 'waitingFor', 'resumable'] and list_runs the same without 'keyLines', in two assertions. NEW: both also end with 'files' (the run folder's file names) and 'budget' (values of STOPPED-budget.json / report.json), present in every run summary and listed after 'in_flight'; one deepEqual so a red run shows both. WHY: F3 table rows #25, #27.
+    assert.deepEqual({ run_status: stFields, list_runs: runs.find(r => r.id === plan).untrusted_fields }, {
+      run_status: ['lastLogLines', 'keyLines', 'signoff', 'chain', 'task', 'state', 'waitingFor', 'resumable', 'files', 'budget'],
+      list_runs: ['lastLogLines', 'signoff', 'chain', 'task', 'state', 'waitingFor', 'resumable', 'files', 'budget'],
+    });
     assert.ok(!JSON.stringify(runs).includes(HIDDEN));
     for (const r of runs) assert.ok(r.untrusted_fields.includes('lastLogLines'));
     // plan_outline: the headings are the deliverable's own words.
     const outline = JSON.parse(res.get(6).result.content[0].text);
     assert.equal(outline.sections[0].path, 'The plan');
     assert.ok(outline.untrusted_fields.includes('sections'));
-    // The advice answer: adviceResult's own wrapping, hidden characters removed.
+    // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD: run_status of the advice folder came back as the advice answer (adviceResult's own wrapping, structuredContent.untrusted_fields holding 'answer'). NEW: it answers like any run: the plain summary (JSON text, hidden characters removed, no advice answer, no structuredContent). WHY: the server no longer turns an advice folder into an answer (the tools that did are removed).
     const adv = res.get(7).result;
-    assert.ok(isWrappedText(adv), JSON.stringify(adv).slice(0, 300));
     assert.ok(!JSON.stringify(adv).includes(HIDDEN));
-    assert.ok(adv.structuredContent.untrusted_fields.includes('answer'));
+    assert.equal(adv.structuredContent, undefined, 'no advice answer shape');
+    const advSummary = JSON.parse(adv.content[0].text);
+    assert.equal(advSummary.id, advice);
+    assert.ok(!('leaning' in advSummary) && !('answer' in advSummary), 'an old advice folder is a plain run summary');
     // run_status brief: true returns text, wrapped as a whole.
     assert.ok(isWrappedText(res.get(8).result), JSON.stringify(res.get(8).result).slice(0, 300));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// 0.8.4 (S6-04): run_status lists the paid calls a RUNNING run has sent and not had settled. The labels and seat keys are read back from spend-reservations.jsonl, a project-writable run-folder file, so `in_flight` is an
+// untrusted field like every other string a run folder lends the summary (C&C ruling 28 Okt 2026: run_status names every such string as untrusted). It is left out of a run that is not running and of an answer when nothing is in flight.
+test('run_status in_flight: listed for a running run with an unsettled reservation, named in untrusted_fields, absent when settled or not running', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-inflight-'));
+  const mk = (id, { alive, lines }) => {
+    const rd = join(dir, 'runs', id); mkdirSync(rd, { recursive: true });
+    writeFileSync(join(rd, 'run.json'), JSON.stringify({ chain: 'mock', task: 'tasks/t.md' }));
+    writeFileSync(join(rd, 'run.log'), 'chain: mock\nStage: build\n');
+    if (alive) writeFileSync(join(rd, '.spawn.json'), JSON.stringify({ pid: process.pid, host: hostname(), at: new Date().toISOString() }));
+    writeFileSync(join(rd, 'spend-reservations.jsonl'), lines.map(l => JSON.stringify({ schema: 'spend-reservations/1', at: '2026-10-28T10:00:00.000Z', ...l })).join('\n') + '\n');
+  };
+  const reserved = { event: 'reserved', id: 'r1', label: 'build', seat: 'mock/mock-builder', usd: 0.5 };
+  mk('2026-10-28T10-00-00-000Z', { alive: true, lines: [reserved] });
+  mk('2026-10-28T10-00-01-000Z', { alive: true, lines: [reserved, { event: 'settled', id: 'r1', outcome: 'answered', usd: 0.1 }] });
+  mk('2026-10-28T10-00-02-000Z', { alive: false, lines: [reserved] });
+  try {
+    const res = await mcpSession(dir, ['2026-10-28T10-00-00-000Z', '2026-10-28T10-00-01-000Z', '2026-10-28T10-00-02-000Z'].map(run => ({ name: 'run_status', arguments: { run } })));
+    const [live, settled, dead] = [2, 3, 4].map(id => JSON.parse(res.get(id).result.content[0].text));
+    assert.equal(live.status, 'running');
+    assert.deepEqual(live.in_flight, [{ label: 'build', seat: 'mock/mock-builder', since: '2026-10-28T10:00:00.000Z' }]);
+    assert.equal((live.untrusted_fields || []).includes('in_flight'), true, 'the labels come from a project-writable file: untrusted');
+    assert.equal(Object.hasOwn(settled, 'in_flight'), false, 'a settled call is not in flight');
+    assert.notEqual(dead.status, 'running');
+    assert.equal(Object.hasOwn(dead, 'in_flight'), false, 'a run that is not running has nothing in flight');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -177,7 +177,10 @@ test('money: the projection is the first attempt plus a BIGGER retry, not twice 
   assert.ok(projectAttempts({ provider: 'openrouter', model: 'anthropic/claude-sonnet-5', originalProvider: 'anthropic', maxTokens: 36000 }, opts).retry > 0);
 });
 
-test('money: the cap refuses a call whose first attempt plus its bigger retry would breach it, before any request is sent', async () => {
+// CHANGED (expected-cost gate, 27 Okt 2026; owner: "going by the expected-maximum is absolutely stupid. Stop this", "changed to the expected-case not worst-case"). OLD: 'money: the cap refuses a call whose first
+// attempt plus its bigger retry would breach it, before any request is sent' (a ceiling between one attempt and both was refused, calls 0). NEW: the gate decides on the call's expected cost, one attempt at the dry run's
+// expected output size, so the same ceiling lets the call through. WHY: the owner ruled the worst-case gate out. The worst case with the retry is still what the call reserves (projectAttempts, the test above).
+test('money: the gate does not count an Anthropic seat\'s bigger retry: a ceiling between one attempt and first + retry lets the call through (the expected case decides)', async () => {
   await withKey(async () => {
     let calls = 0;
     const restore = stubFetch(async () => { calls++; return complete(CRITERIA_REPLY); });
@@ -185,11 +188,10 @@ test('money: the cap refuses a call whose first attempt plus its bigger retry wo
       const seat = SEAT({ maxTokens: 36000 });
       const { first, retry } = projectAttempts(seat, { system: '', user: '' });
       assert.ok(first > 0 && retry > first);
-      // A ceiling above one attempt but below both: under the old "twice the first" rule this would still have been refused only above 2 x first;
-      // a ceiling of first + 0.5 x (retry - first) sits between the two readings and must refuse.
       setCache(null); setBudget(first + (retry - first) / 2);
-      await assert.rejects(() => runChain({ request: 'A request.', config: config(seat), log: () => {} }), BudgetExceeded);
-      assert.equal(calls, 0, 'refused before the call');
+      const r = await runChain({ request: 'A request.', config: config(seat), log: () => {} });
+      assert.equal(calls, 1, 'the call was sent, once');
+      assert.deepEqual(r.criteria, ['A real criterion, produced on the retry.']);
     } finally { restore(); setBudget(null); }
   });
 });
@@ -240,6 +242,7 @@ test('never lower, form 1 (source scan): no line of code in src/ writes a lower 
     readFileSync(join(root, 'src', f), 'utf8').split('\n').forEach((line, i) => {
       const t = line.trim();
       if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return; // comments may name the old behaviour
+      if (f === 'providers.js' && /id: 'context-compression', enabled: false/.test(line)) return;   // CHANGED ACCEPTED (0.8.4 S16 H(c)): the router's prompt-compression plugin is switched OFF in every OpenRouter request so a too-long prompt is refused instead of shortened; it is not a reasoning setting (the pattern is for thinking switches)
       if (lowering.some(re => re.test(line))) hits.push(`src/${f}:${i + 1}: ${t.slice(0, 120)}`);
     });
   }
@@ -248,8 +251,9 @@ test('never lower, form 1 (source scan): no line of code in src/ writes a lower 
 
 test('never lower, form 2 (source scan): every call that sends a seat\'s request in invoke() sends the SAME extra', () => {
   const whole = readFileSync(join(root, 'src', 'chain.js'), 'utf8');
-  const from = whole.indexOf('async function invoke(');
-  const src = whole.slice(from, whole.indexOf('\n}\n', from)); // invoke() only: the alternatives stage has its own, unrelated `ask`
+  // CHANGED ACCEPTED (0.8.4 D38 option I, 09 Nov 2026): invoke() is now a short wrapper over invokeCall(), the function that holds the body (it remembers the text really sent for the repair pauses); the scan reads the body.
+  const from = whole.indexOf('async function invokeCall(');
+  const src = whole.slice(from, whole.indexOf('\n}\n', from)); // the body only: the alternatives stage has its own, unrelated `ask`
   const asks = [...src.matchAll(/\bask\(([^)]*)\)/g)].map(m => m[1].trim());
   assert.ok(asks.length >= 2, 'fixture: the first call and the retry');
   for (const a of asks) assert.ok(a.startsWith('sentExtra'), `ask(${a}) does not send sentExtra`);

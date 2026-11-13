@@ -55,7 +55,7 @@ test('W3: a seat of layer 2 stays unheard: after the allowed consecutive silent 
   const c = chainOf([judge('o', 'w3a', 'l1', 1), judge('o', 'w3b', 'l2', 2), { provider: 'mock', model: 'mock-unreadable', lab: 'l2b', layer: 2 }, judge('o', 'w3c', 'l3', 3)], { maxOverseerRounds: 5 });
   const { err } = await go(c);
   assert.ok(err instanceof RoundStopped, String(err?.stack || err));
-  assert.deepEqual({ kind: err.stop.kind, why: err.stop.why, layer: err.stop.layer, passes: err.stop.passes, reasks: err.stop.reasks }, { kind: 'layer_bound', why: 'unheard', layer: 2, passes: 3, reasks: 2 });
+  assert.deepEqual({ kind: err.stop.kind, why: err.stop.why, layer: err.stop.layer, passes: err.stop.passes, reasks: err.stop.reasks }, { kind: 'layer_bound', why: 'unheard', layer: 2, passes: 1, reasks: 0 });   // CHANGED ACCEPTED (0.8.4 ladder unit, the solo ask; owed list 'Solo ask', 10 Nov 2026). OLD: passes 3, reasks 2 (the stop came after two re-ask passes). NEW: one pass: the seat is re-asked inside it and asked once on its own, then the run stops.
 });
 
 test('W4: everyone signs off: the run passes, one overseer round is counted, there is no stop, and the stage labels are the unchanged pass labels', async () => {
@@ -117,8 +117,9 @@ test('W7: the CLI: a stop is exit 23 with STOPPED-overseer_cap.json and report-p
 });
 
 test('W8: the stop sentence (pure): it says NOT AGREED, why, the spend, the draft file, both commands; one variant per kind', () => {
-  const cap = stopSentence({ kind: 'overseer_cap', rounds: 7, cap: 7, pass: 20, overseer_round: 7 }, { spentUsd: 12.5, draftFile: 'revise-19.md', runDir: 'runs/x' });
-  assert.match(cap, /NOT AGREED/); assert.match(cap, /all 7 overseer rounds were used/); assert.match(cap, /\$12\.50/); assert.match(cap, /revise-19\.md in runs\/x/); assert.match(cap, /--continue/); assert.match(cap, /--finish/);
+  // CHANGED ACCEPTED (0.8.4 S4, C&C's hard stop at seven overseer rounds, T15j / T15l). OLD: the fixture was a stop at 7 of 7 rounds and the sentence had to name both --continue and --finish. NEW: the fixture is a stop at 5 of 5 rounds (below the hard stop), so the sentence still names both commands; the seven-round stop, which offers --continue and revising outside the Council and, since Muad's word of 05 Nov 2026, --finish too (with the line that the top layer did not sign off; the old "NO --finish" is gone), is pinned in test/hard-stop.test.js. WHY: at seven used overseer rounds the person decides alone and a finish is not offered (CA3/CA7), so the old fixture is now the hard stop.
+  const cap = stopSentence({ kind: 'overseer_cap', rounds: 5, cap: 5, pass: 14, overseer_round: 5 }, { spentUsd: 12.5, draftFile: 'revise-19.md', runDir: 'runs/x' });
+  assert.match(cap, /NOT AGREED/); assert.match(cap, /all 5 overseer rounds were used/); assert.match(cap, /\$12\.50/); assert.match(cap, /revise-19\.md in runs\/x/); assert.match(cap, /--continue/); assert.match(cap, /--finish/);
   const member = stopSentence({ kind: 'overseer_cap', rounds: 7, cap: 7, pass: 20, overseer_round: 7 }, { spentUsd: 1, draftFile: 'revise-3.md', runDir: 'runs/x', memberTail: 'MEMBER TEXT' });
   assert.match(member, /NOT AGREED/); assert.match(member, /MEMBER TEXT/); assert.equal(/--resume|--continue|--finish/.test(member), false, 'a tree member never gets a direct --resume line');
   assert.match(stopSentence({ kind: 'layer_bound', why: 'revisions', layer: 1, used: 5, bound: 5, pass: 9, overseer_round: 2 }), /layer 1 needed more than its 5 allowed revisions in overseer round 2/);

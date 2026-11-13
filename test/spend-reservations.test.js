@@ -12,6 +12,7 @@ import { openReservations, unsettledReservations, unsettledUsd, RESERVATIONS_FIL
 import { runSingleStage, setBudget, setReservationSink, budgetState } from '../src/chain.js';
 import { runSpentUsd, spendReport } from '../src/spend.js';
 import { budgetOf } from '../src/run-budget.js';
+import { DEFAULT_MAX_USD } from '../src/default-cap.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -140,7 +141,10 @@ test('a resume counts it toward the cap: `handoff --from-run` under a cap below 
 
 test('--resume counts an earlier sitting\'s unsettled reservation toward the cap and says so in the log', () => {
   const dir = tmp(); mkdirSync(join(dir, 'tasks'));
-  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a habit tracker.\n');
+  // CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: the one-line task; the build's WORST case crossed the $7 default. NEW: a task of about 40,000
+  // characters, so the first call's EXPECTED cost alone (~$10 at the fixture price) crosses it. WHY: on the one-line task every call now fits, and the run finishes.
+  // CHANGED ACCEPTED (default cap $12, 10 Nov 2026, Muad). OLD bar: 40,000 characters (about $10, above the $7 default). NEW bar: 5,000 characters per dollar of the default cap (60,000 for $12, about $15 at the fixture price), so the first call's expected cost crosses it again and the first sitting still stops at exit 4.
+  writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a habit tracker.\n' + 'x'.repeat(DEFAULT_MAX_USD * 5000) + '\n');
   const env = { PATH: process.env.PATH, HOME: dir };
   const first = spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 });
   assert.equal(first.status, 4, 'mock-budget stops at the default cap: the fixture the cap tests use');
@@ -189,8 +193,11 @@ test('reservationId (0.8.3 M2, D18): every paid call\'s usage file, its report.j
   const dir = tmp(); mkdirSync(join(dir, 'tasks'));
   writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a habit tracker.\n');
   const env = { PATH: process.env.PATH, HOME: dir };
-  const first = spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '9'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 });
-  assert.equal(first.status, 4, 'mock-budget (fixture prices) stops at a $9 cap, four stages in');
+  // CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: a $9 cap, four stages in (critique-2's WORST case crossed it). NEW: $1.50, three stages in:
+  // criteria, build and critique-1 fit at their EXPECTED cost, revise-1 (~$1.78 with what was spent) does not. WHY: under $9 every call now fits; no cap stops this run four stages in (revise-1's figure is above critique-2's).
+  // CHANGED ACCEPTED TEST (0.8.4 apply, C&C ruling 12 Nov 2026; the box prints of jobs 74, 75 and 79 on the tip and on 81cf65ac). OLD: --max-usd 1.5, and the comment above says "three stages in"; the run on 81cf65ac paid criteria and build and stopped before critique-1. NEW: 1.65, the same scenario (criteria and build paid, stop before critique-1). WHY: the gate prices a planned stage at its EXPECTED cost (the fixture seat bills $1000 per Mtok in and out: expected = the whole prompt + the typical output of the kind), and the prompts grew, not the sizing rule: build's gate was $1.230 on 81cf65ac (230 input tokens + 1000 typical output; worst case 8.230) and is $1.483 on the tip (483 + 1000; worst case 8.483): +253 input tokens, the typical output unchanged; critique-1's gate went from $1.461 to $1.618 (1161 + 300 to 1318 + 300 tokens). With criteria at $0.053 and build at $0.075 the run stops before build when the cap is below 0.053 + 1.483 = $1.536 (so $1.50 stopped it one stage in) and runs critique-1 when the cap is at least 0.128 + 1.618 = $1.746; $1.65 lies between, 11 and 10 cents from its two ends. The turn falls between 81cf65ac (the row passed) and 2bdc192a (it failed); 15 commits in that range change src/, chains/ or scripts/ (among them the wording apply f60ebad2, the held-name record dc60423a, the judges' voice frame 31ab9241 and 9e4c3e3c, the cache-shaped order 68538aa3, the persona-form switch and the lane A wiring e83cff33), and which of them grew which prompt is not traced. "Three stages in" was already untrue on 81cf65ac (two usage files, which is what the row asserts at least).
+  const first = spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '1.65'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 });
+  assert.equal(first.status, 4, 'mock-budget (fixture prices) stops at a $1.65 cap, two stages in (before critique-1)');
   const id = readdirSync(join(dir, 'runs'))[0]; const run = join(dir, 'runs', id);
   const reserved = lines(run).filter(l => l.event === 'reserved');
   const settled = lines(run).filter(l => l.event === 'settled');
@@ -263,7 +270,9 @@ test('reservationId: `superseded[]` in report.json attributes the superseded rec
   const dir = tmp(); mkdirSync(join(dir, 'tasks'));
   writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a habit tracker.\n');
   const env = { PATH: process.env.PATH, HOME: dir };
-  assert.equal(spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '9'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 }).status, 4);
+  // CHANGED (expected-cost gate, 27 Okt 2026): OLD $9, NEW $1.50 (the stop three stages in, as in the test above). WHY: under $9 every call now fits at its expected cost.
+  // CHANGED ACCEPTED TEST (0.8.4 apply, C&C ruling 12 Nov 2026): NEW $1.65, the cap of the test above (the stop two stages in, before critique-1; derivation there). WHY: this row only needs a stop (exit 4) and a stage set aside; it stayed green at $1.50 (the stop one stage in), and its cap moves with the one it is tied to by its own comment.
+  assert.equal(spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '1.65'], { cwd: dir, encoding: 'utf8', env, timeout: 120_000 }).status, 4);
   const id = readdirSync(join(dir, 'runs'))[0]; const run = join(dir, 'runs', id);
   // a stage set aside and paid for again: plant a superseded record with a known id and amount, then finish the run
   mkdirSync(join(run, 'superseded'), { recursive: true });

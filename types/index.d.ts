@@ -4,16 +4,17 @@
 
 /**
  * Where a run stands, derived from its run folder: every value src/run-status.js deriveRunStatus can return (test/run-status-type.test.js derives the list from the code).
- * 'awaiting_user_cap': a paid run waits for the spending limit a person types. 'awaiting_choice': the run stopped and waits for a person's choice (an overseer limit, a conflict, a refused price).
- * 'user_stopped', 'client_cancel_stopped' and 'wall_clock_stopped': the run was stopped on purpose or by its clock. The five approval values are an advice call's folder before its run has started.
+ * 'awaiting_user_cap': a paid run waits for the spending limit a person types. 'awaiting_excerpt_approval': a run is stopped at an approval of excerpts of the project; a resume of it is refused (exit 26) while the approval waits for the person or cannot be read, and with the privacy switch on, once the person's answers are in (reason `excerpt_answers_to_apply`) or the approval has expired unanswered (reason `excerpt_gate_expired`), the run is resumable (needs `resume`): the next resume applies the answers or asks again. 'awaiting_choice': the run stopped and waits for a person's choice (an overseer limit, a conflict, a refused price).
+ * 'user_stopped', 'client_cancel_stopped' and 'wall_clock_stopped': the run was stopped on purpose or by its clock. The five approval values are an advice call's folder before its run has started. Legacy since 0.8.4: the advice add-on is removed, so only an old folder or record can show these eight words; they stay in the union so code that switches on them still compiles.
+ * 'owner_paused' (0.8.4): the person or the handler session asked the running run to pause between two passes (`council pause`) and it stopped there (exit 23); a plain `council --resume` continues it, and when is the person's call.
  */
 export type RunStatus =
   | 'done' | 'budget_stopped' | 'failed' | 'blocked' | 'paused' | 'running' | 'stopped'
-  | 'awaiting_user_cap' | 'awaiting_choice' | 'user_stopped' | 'client_cancel_stopped' | 'wall_clock_stopped'
+  | 'awaiting_user_cap' | 'awaiting_excerpt_approval' | 'awaiting_choice' | 'owner_paused' | 'user_stopped' | 'client_cancel_stopped' | 'wall_clock_stopped'
   | 'awaiting_approval' | 'approved' | 'declined' | 'approval_expired' | 'approval_invalid';
 
 /**
- * Per-run spend ceiling. Omitted: the CLI default (MAX_USD_PER_RUN, else $7).
+ * Per-run spend ceiling. Omitted: the CLI default (MAX_USD_PER_RUN, else $12).
  * A positive number of US dollars, or 'none' to run without one. 0 is refused.
  */
 export type MaxUsd = number | 'none';
@@ -43,6 +44,10 @@ export interface Price {
   totalUsd: number;
   /** Real seats with no price on record (mock and external seats are never listed). */
   unpriced: string[];
+  /** Present when the chain's Claude seats go through OpenRouter, and when the chain was priced straight to Anthropic only because a key is unusable (`why` is 'key_state'; the price needs no key). */
+  claudeRoute?: { route: 'anthropic' | 'openrouter' | 'session'; why: string; seats: number };
+  /** Present only when zero retention is on: how many seats it reaches (`covered`) and how many it does not (`notCovered`), the seats it cannot serve (`stops`, each with the model, a `why` and the number of seats), the sentence a start would be refused with (`refusal`, null when none) and the lines a dry run prints. */
+  zeroRetention?: { on: true; covered: number; notCovered: number; stops: { model: string; why: string; count: number }[]; refusal: string | null; lines: string[] };
 }
 
 /** report.json. The named fields are the public contract; more fields may appear. */
@@ -63,7 +68,10 @@ export interface BudgetStop {
   seat: string;
   spentUsd: number;
   capUsd: number;
+  /** The stopped call's worst case (what is reserved and charged). */
   projectedStageUsd: number;
+  /** The figure the next resume must clear at this stage: the call's expected cost, or the whole worst case when the stage re-runs both attempts. Absent in a record written before 28 Oct 2026 (read it as projectedStageUsd). */
+  gateStageUsd?: number;
 }
 
 export interface RunFolder {
@@ -97,6 +105,10 @@ export interface CommonRunOptions {
   /** The working directory: tasks, chains/, .env and runs/ are resolved here. Default process.cwd(). */
   cwd?: string;
   maxUsd?: MaxUsd;
+  /** Where the chain's Claude seats are called: 'auto' (default: straight to Anthropic, or through OpenRouter when only an OpenRouter key is set), 'anthropic', 'openrouter' or 'session' (every Claude seat answered by the person's own Claude Code session). The same as `--claude-route`. */
+  claudeRoute?: 'auto' | 'anthropic' | 'openrouter' | 'session';
+  /** 'on' makes every call through OpenRouter name only the hosts that OpenRouter's list gives for its model as zero-retention hosts, and refuses the start, before anything is sent, for a seat that no such host serves; seats called straight to their lab are not covered. 'off' switches it off. Leave it out to keep what the run began with (a new run: off). The same as `--zero-retention`. */
+  zeroRetention?: 'on' | 'off';
   /** Added to process.env for this run only; a key set to undefined is removed. Use it for API keys. */
   env?: Record<string, string | undefined>;
   onOutput?: (text: string, stream: 'stdout' | 'stderr') => void;
@@ -130,7 +142,7 @@ export interface ResumeOptions extends CommonRunOptions {
 
 export declare function version(): string;
 export declare function listChains(options?: { cwd?: string }): ChainInfo[];
-export declare function price(options: { chain: string; cwd?: string; rounds?: number }): Price;
+export declare function price(options: { chain: string; cwd?: string; rounds?: number; claudeRoute?: 'auto' | 'anthropic' | 'openrouter' | 'session'; zeroRetention?: 'on' | 'off'; env?: Record<string, string | undefined> }): Price;
 export declare function run(options: RunOptions): Promise<RunResult>;
 export declare function resume(options: ResumeOptions): Promise<RunResult>;
 export declare function readRun(runDir: string, options?: { cwd?: string }): RunFolder;

@@ -19,8 +19,9 @@ afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setB
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const crit = (name, text) => ({ criterion: 'The plan defines a retry limit.', problem: text, fix: 'Fix it.', _name: name });
 const CRITERION = 'The plan defines a retry limit.';
-const F_A = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.' };
-const F_B = { criterion: CRITERION, problem: 'Layer two: the retry limit has no unit.', fix: 'Give it a unit.' };
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the scripted failures carried neither `relation` nor `severity`. NEW: F_A, F_B and the others carry `severity: 5` (a layered unanimous chain: the rating demand refuses a failure with none; 5 holds the sign-off as an unrated one did), and each raise carries its relation: `new` the first time, `continues <id>` for the same seat's repeat in a later pass. WHY: relationRule and ratingDemand recorded (src/chain.js relation gate; src/ratings-demand.js).
+const F_A = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.', severity: 5 };
+const F_B = { criterion: CRITERION, problem: 'Layer two: the retry limit has no unit.', fix: 'Give it a unit.', severity: 5 };
 const ID_A = objectionId('la', F_A);
 const ID_B = objectionId('lb', F_B);
 const DRAFT = 'The worker retries failed requests.';
@@ -29,9 +30,12 @@ const SECTION = '# Your objections from the last round';
 const verdict = (meets, extra = {}) => JSON.stringify({ meets, criteria: [{ criterion: CRITERION, verdict: meets ? 'MET' : 'FAILED', evidence: meets ? 'Checked.' : 'Missing.' }], failures: meets ? [] : [F_A], verdict_line: meets ? 'ok' : 'no', ...extra });
 const objecting = (f, extra = {}) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [f], verdict_line: 'no', ...extra });
 const withdraw = (id, evidence = QUOTE) => ({ answers: [{ id, status: 'withdrawn', evidence }] });
+const withRel = (f, relation) => ({ ...f, relation });
+const aNew = () => verdict(false, { failures: [withRel(F_A, 'new')] });   // la's first raise
+const aCont = () => verdict(false, { failures: [withRel(F_A, `continues ${ID_A}`)] });   // la's repeat of its standing objection in a later pass
 const PASS = JSON.stringify({ pass: true, pass_reason: 'I would rather not judge this round.' });
 
-async function run(replies, { maxRounds = 6, critics = ['la', 'lb'], layers = [1, 2], extra = {}, budget = null, models = {}, miss = () => false, stages = null } = {}) {
+async function run(replies, { maxRounds = 6, critics = ['la', 'lb'], layers = [1, 2], extra = {}, budget = null, models = {}, miss = () => false, stages = null, exchange = null } = {}) {   // `exchange` (M0 FIX-UP 2, opt-in): label -> the reply of an exchange stage (ldebate-/lreply-); without it those stages read as before (unreadable)
   const hashes = new Map(); const prompts = new Map(); const served = []; const stale = [];
   setBudget(budget);
   setPromptSpy(p => { hashes.set(p.label, promptHashOf(p.system, p.user)); prompts.set(p.label, p.user); });
@@ -41,7 +45,7 @@ async function run(replies, { maxRounds = 6, critics = ['la', 'lb'], layers = [1
     served.push(label);
     // CHANGED ACCEPTED TEST (decider-readiness apply patch, 24 Okt 2026; C&C ruling (b): the 12 incidental tests get on-state updates). OLD: the held state, where a stated pass is carried at once with no further call. NEW: with the re-ask sentence recorded (E84) a lab that states a pass while holding an objection is asked ONCE more; these E3 fixtures keep their meaning (the stated pass is carried) by letting that lab state its pass again, so a `-reask1` label replays the pass its first label gave. The E84 behaviour itself is tested in layered-ask-before-carry.test.js.
     const reply = l => { const m = /^(panel-\d+-[a-z]+)-reask\d+$/.exec(l); const base = m ? replies(m[1]) : null; let isPass = false; try { isPass = Boolean(base) && JSON.parse(base).pass === true; } catch { /* not JSON: not a stated pass */ } return isPass ? base : replies(l); };
-    const text = label.startsWith('panel-') ? (reply(label) ?? verdict(true)) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+    const text = (label.startsWith('panel-') || label.startsWith('final-read-')) ? (reply(label) ?? verdict(true)) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : (exchange && /^l(debate|reply)-/.test(label) && exchange(label)) || DRAFT;
     return { text, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0, promptHash: hashes.get(label) };
   } });
   const seat = (lab, layer) => ({ provider: 'mock', model: models[lab] ?? 'mock-review-fixture', lab, maxTokens: 3000, ...(layer === undefined ? {} : { layer }) });
@@ -55,8 +59,9 @@ async function run(replies, { maxRounds = 6, critics = ['la', 'lb'], layers = [1
 
 // la: round 1 clean, rounds 2-3 objects (same objection), round 4 withdraws it with a quote. lb: objects in round 1; `lbRound4` is what it says when it is next asked.
 const retention = lbRound4 => label => {
-  if (label === 'panel-1-lb') return objecting(F_B);
-  if (label === 'panel-2-la' || label === 'panel-3-la') return verdict(false);
+  if (label === 'panel-1-lb') return objecting(withRel(F_B, 'new'));
+  if (label === 'panel-2-la') return aNew();
+  if (label === 'panel-3-la') return aCont();
   if (label === 'panel-4-la') return verdict(true, withdraw(ID_A));
   if (/^panel-4-lb/.test(label)) return lbRound4(label);
   return null;
@@ -104,8 +109,8 @@ test('E3 unheard: a retained judge whose round-4 reply is lost keeps its objecti
 test('E3 stated pass (C&C ruling a1): a lab that states a pass while its own retained objection is open is recorded as a pass, its objection is carried at once, and the run does not pass', async () => {
   // la L1; lb and lc both L2 (freedoms.pass on). Round 1: lb objects, lc clean. Round 2: la objects (layer 2 not asked). Round 3: la withdraws, lb states a pass, lc signs off. Round 4: lb is asked and withdraws with a quote.
   const replies = label => {
-    if (label === 'panel-1-lb') return objecting(F_B);
-    if (label === 'panel-2-la') return verdict(false);
+    if (label === 'panel-1-lb') return objecting(withRel(F_B, 'new'));
+    if (label === 'panel-2-la') return aNew();
     if (label === 'panel-3-la') return verdict(true, withdraw(ID_A));
     if (label === 'panel-3-lb') return PASS;
     if (label === 'panel-4-lb') return verdict(true, withdraw(ID_B));
@@ -130,14 +135,14 @@ test('E3 stated pass (C&C ruling a1): a lab that states a pass while its own ret
 test('E3 dispute (readers audit 24): a stated pass that carried its objection, then a final round in which its layer is not asked, still sends that objection to the dispute stage', async () => {
   // Round 1: lb objects. Round 2: la objects. Round 3: la withdraws, lb states a pass, lc signs off (the objection is carried, revise-3). Round 4 (the cap): la objects, layer 2 is not asked.
   const replies = label => {
-    if (label === 'panel-1-lb') return objecting(F_B);
-    if (label === 'panel-2-la') return verdict(false);
+    if (label === 'panel-1-lb') return objecting(withRel(F_B, 'new'));
+    if (label === 'panel-2-la') return aNew();
     if (label === 'panel-3-la') return verdict(true, withdraw(ID_A));
     if (label === 'panel-3-lb') return PASS;
-    if (label === 'panel-4-la') return verdict(false, { failures: [{ criterion: CRITERION, problem: 'Layer one: a new problem in round four.', fix: 'Fix.' }] });
+    if (label === 'panel-4-la') return verdict(false, { failures: [{ criterion: CRITERION, problem: 'Layer one: a new problem in round four.', fix: 'Fix.', severity: 5, relation: 'new' }] });
     return null;
   };
-  const { r } = await run(replies, { critics: ['la', 'lb', 'lc'], layers: [1, 2, 2], maxRounds: 4, extra: { freedoms: { pass: true }, dispute: { enabled: true } } });
+  const { r } = await run(replies, { critics: ['la', 'lb', 'lc'], layers: [1, 2, 2], maxRounds: 4, extra: { freedoms: { pass: true }, dispute: { enabled: true, stall_rounds: 3 } } });   // CHANGED (0.8.4 S5 U-C fix-up, 08 Nov 2026). OLD: `dispute: { enabled: true }` (window 2). NEW: window 3. WHY: layer 2 is the top layer here; lb's objection stood in its pass-1 verdict and again in its stated pass of round 3 (a stated pass is heard since a6183384; lb sat out round 2), two consecutive verdicts of its judge: with a window of 2 that is a top-layer stall at round 3 and a stall_stop, before the final round this row is about. A window of 3 is not reached by two verdicts.
   assert.equal(r.passed, false);
   const carried = r.dispute.open_objections.find(o => o.id === ID_B);
   assert.ok(carried, `the stated-pass lab's carried objection is in the dispute record: ${JSON.stringify(r.dispute.open_objections)}`);
@@ -149,13 +154,13 @@ test('E3 dispute (readers audit 24): a stated pass that carried its objection, t
 test('E3 stated pass that also carries answers: a quoted withdrawal in the pass reply is honoured, the id that gets no answer is carried as stated_pass_open', async () => {
   // lb holds TWO retained objections (F_B and F_B2). In round 3 it states a pass whose reply withdraws F_B with a quote and says nothing about F_B2.
   // A second, distinct objection: the id is the same for the same lab, criterion and quoted text by design (src/objection-ids.js), so it carries a quote of its own.
-  const F_B2 = { criterion: CRITERION, problem: 'Layer two: the retry limit has no owner.', fix: 'Name one.', quote: 'retries failed requests' };
+  const F_B2 = { criterion: CRITERION, problem: 'Layer two: the retry limit has no owner.', fix: 'Name one.', quote: 'retries failed requests', severity: 5 };
   const ID_B2 = objectionId('lb', F_B2);
-  const two = JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [F_B, F_B2], verdict_line: 'no' });
+  const two = JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [withRel(F_B, 'new'), withRel(F_B2, 'new')], verdict_line: 'no' });
   const passWithAnswer = JSON.stringify({ pass: true, pass_reason: 'Not judging.', answers: [{ id: ID_B, status: 'withdrawn', evidence: QUOTE }] });
   const replies = label => {
     if (label === 'panel-1-lb') return two;
-    if (label === 'panel-2-la') return verdict(false);
+    if (label === 'panel-2-la') return aNew();
     if (label === 'panel-3-la') return verdict(true, withdraw(ID_A));
     if (label === 'panel-3-lb') return passWithAnswer;
     return null;
@@ -174,16 +179,10 @@ test('E3 stated pass without an open objection stays a plain pass (no carried id
   assert.equal(r.passed, true);
 });
 
-test('E3 without the held unanswered-objection sentence a layered chain carries an unanswered id at once instead of re-asking blind', async () => {
-  setHeldForTest({ criticUnansweredNote: undefined });
-  const { r, prompts } = await run(retention(() => verdict(true)), { maxRounds: 4 });
-  assert.equal(prompts.has('panel-4-lb-reask1'), false, 'no re-ask whose prompt cannot say why');
-  assert.equal(r.passed, false, 'the unanswered id is carried: the run does not pass');
-  assert.deepEqual(r.answerBackReplies.filter(x => x.lab === 'lb').map(x => x.effect), ['unanswered']);
-});
+// REMOVED (0.8.4 apply, recorded state; K7): 'E3 without the held unanswered-objection sentence a layered chain carries an unanswered id at once instead of re-asking blind'. A held-state row: criticUnansweredNote is recorded, so no shipped run lacks the re-ask. Sibling: 'E3 consumption' (a plain clean sign-off with no answers is asked once more, `panel-4-lb-reask1`, and the effect is `unanswered`).
 
 test('E3 report: a layered answer_back report validates against schemas/report-v1.json (raised_round and stated_pass_open included)', async () => {
-  const replies = label => (label === 'panel-1-lb' ? objecting(F_B) : label === 'panel-2-la' ? verdict(false) : label === 'panel-3-la' ? verdict(true, withdraw(ID_A)) : label === 'panel-3-lb' ? PASS : null);
+  const replies = label => (label === 'panel-1-lb' ? objecting(withRel(F_B, 'new')) : label === 'panel-2-la' ? aNew() : label === 'panel-3-la' ? verdict(true, withdraw(ID_A)) : label === 'panel-3-lb' ? PASS : null);
   const { r, config } = await run(replies, { critics: ['la', 'lb', 'lc'], layers: [1, 2, 2], maxRounds: 3, extra: { freedoms: { pass: true } } });
   const ajv = new Ajv2020({ strict: false, allErrors: true });
   ajv.addKeyword({ keyword: 'x-stability', schemaType: 'string' });
@@ -224,8 +223,8 @@ test('E3 resume pin (C&C condition 1): a run cut after round 2 and resumed from 
 test('E3 audit row 26: a stated pass that carries an open objection keeps its layer from passing even when the unheard peer signs off on its re-ask (the layer cannot pass, the reviser runs on the union)', async () => {
   const UNREAD = 'I could not finish my review';
   const replies = label => {
-    if (label === 'panel-1-lb') return objecting(F_B);
-    if (label === 'panel-2-la') return verdict(false);
+    if (label === 'panel-1-lb') return objecting(withRel(F_B, 'new'));
+    if (label === 'panel-2-la') return aNew();
     if (label === 'panel-3-la') return verdict(true, withdraw(ID_A));
     if (label === 'panel-3-lb') return PASS;
     if (label === 'panel-3-lc') return UNREAD;
@@ -236,4 +235,34 @@ test('E3 audit row 26: a stated pass that carries an open objection keeps its la
   assert.ok(prompts.has('revise-3'), 'the round goes to the reviser with the carried objection');
   assert.equal(r.panelVerdicts.find(v => v.round === 3 && v.lab === 'lc').verdict, 'signed_off', 'the unheard peer is re-asked and signs off (the fixture default for a label with no scripted reply): only the open objection can keep the layer from passing');
   assert.equal(r.layers.find(x => x.round === 3 && x.layer === 2).state, 'objected');
+});
+
+// M0 FIX-UP 2, item 1 (C&C's second review of the FIX series; reachable only on a user's chain that sets `freedoms.pass`, no shipped chain does). A lab that states a pass while it holds an objection of its own KEEPS its answer-back entry (chain.js, the `passedOpen` branch); the objection a stated pass names in an exchange post rides on its verdict (M0 FIX 10) but never reached that kept entry, so the lab was not shown it next time and it lapsed. The minted id joins the kept entry.
+test('M0 FIX-UP 2 (answer-back kept entry): a stated pass that holds an objection of its own and names a new one in the exchange is shown BOTH the next time it is asked', async () => {
+  const MINTED = { criterion: CRITERION, problem: 'Layer one: the retry limit has no upper bound.', quote: 'retries failed requests', severity: 5 };   // a passage of its own: an id is made from the seat, the criterion and the passage, so without one it would share F_B's id and M0 FIX 10 would not add it (a duplicate of an own objection already open)
+  const ID_N = objectionId('lb', MINTED);
+  assert.notEqual(ID_N, ID_B, 'the fixture: the objection lb names has an id of its own');
+  const post = (on, news = []) => JSON.stringify({ posts: on.map(id => ({ on: id, stance: 'support', text: 'It holds.' })), new_objections: news });
+  const exchange = label => {
+    const m = /^ldebate-(\d+)(?:-x(\d+))?-(la|lb)$/.exec(label);
+    if (!m) return null;
+    const [, pass, round, who] = m;
+    if (pass === '1') return post([who === 'la' ? ID_B : ID_A]);
+    return who === 'lb' ? post([ID_A], round ? [] : [MINTED]) : post([ID_N]);   // pass 2: lb (a stated pass, heard) names a defect in its first post; la reads it from the second round on
+  };
+  const replies = label => {
+    if (label === 'panel-1-la') return objecting(withRel(F_A, 'new'));
+    if (label === 'panel-2-la') return objecting(withRel(F_A, `continues ${ID_A}`));
+    if (label === 'panel-1-lb') return objecting(withRel(F_B, 'new'));
+    if (label === 'panel-2-lb') return PASS;
+    return null;
+  };
+  const { r, prompts } = await run(replies, { critics: ['la', 'lb'], layers: [1, 1], maxRounds: 3, extra: { freedoms: { pass: true } }, exchange });
+  const row = r.layerDebates.find(d => d.pass === 2)?.objections.find(o => o.raised_by === 'lb');
+  assert.deepEqual([row?.id, row?.from_exchange, r.panelVerdicts.find(v => v.round === 2 && v.lab === 'lb')?.verdict], [ID_N, true, 'passed'], 'the fixture: lb stated a pass in pass 2 and named a defect of its own in the exchange');
+  assert.ok((prompts.get('revise-2') ?? '').includes(MINTED.problem), 'the fixture: the objection lb named reached lb\'s own open objections, so it reached the writer (M0 FIX 10); only its way into lb\'s answer-back entry is under test');
+  const third = prompts.get('panel-3-lb') ?? '';
+  assert.ok(third.includes(SECTION), 'lb is shown its objections in pass 3');
+  assert.ok(third.includes(F_B.problem), 'the objection it already held');
+  assert.ok(third.includes(MINTED.problem), 'and the one it named in the exchange: the minted id joined the entry it kept');
 });

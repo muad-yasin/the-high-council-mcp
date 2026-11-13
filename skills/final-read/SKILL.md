@@ -40,7 +40,7 @@ List every load-bearing claim across every layer: events, figures, dates, orderi
 - **Not findings:** interpretation, analogy, arithmetic on verified numbers (check the arithmetic), rounding, staged beats that change how a scene plays rather than what happened. Genuinely unsure? **Flag it with a question mark rather than deciding** - that call belongs to whoever signs off.
 - **Hunt hardest** at the ending, absolutes, summaries standing in for documents, inherited claims on rewrites, sentence vs time served, timeline inversions, synonyms stated as the record's word, invented absences, unnamed authorities, and unaltered real names in satire (`fact-checking/references/verification.md`).
 
-**One flagged load-bearing claim sends the piece back before the panel reads it.**
+**One flagged load-bearing claim sends the piece back before the panel reads it.** The pass covers the text that will ship: an edit made after it reopens it for every sentence the edit touched (`research-and-sourcing`, Step 5, which also keeps "source not found again" apart from "source does not say it").
 
 ## Pass 2 - the reading panel
 
@@ -63,13 +63,15 @@ READER: fix - decorative cold open; the argument starts at sentence two
 ```
 
 - **FACTS always rides** - a zero-flag count is a claim about work done.
-- **READER rides only when it isn't `publish` - with one exception: a self-run Pass 2 always rides, even on `publish` (`READER (self-run): publish`).** A self-run panel returning publish is the degraded case this skill already names, and the person signing off should see it. Otherwise a line that always says the same thing stops being read.
+- **READER rides only when it isn't `publish` - with two exceptions: a self-run Pass 2 always rides, even on `publish` (`READER (self-run): publish`), and so does a panel with a skipped stance (below).** A self-run panel returning publish is the degraded case this skill already names, and the person signing off should see it. Otherwise a line that always says the same thing stops being read.
 - Verdicts: `publish` / `fix: <named finding>` / `kill: <reason>`. Use a named failure mode where one fits (`line-editing`); describe a new one plainly and flag it as a candidate.
+- **A skipped stance is named in the line, which then always rides** (`READER (QA stance not run): publish`): three stances are not the panel the person signing off thinks they got.
+- **A `fix` names what should hold the piece.** A preference is not a finding at that weight: it goes to the writer as a note outside the verdict, or nowhere (finding weights: `verification-and-critique`, Part 2).
 - **Never replacement prose.** Point at the sentence; don't write its successor.
 
 ## Honest limits
 
-This raises the detection rate and makes surviving failures cheap to kill; it doesn't promise zero bad output. A human sign-off is what makes zero *shipped* bad output reachable - this pass makes that sign-off faster and better aimed, never unnecessary. The fact pass is only as strong as its packet: a one-line note behind an eight-claim piece produces confident "traced" verdicts over untraced claims - say so, and treat the gap as the finding.
+This pass is built to find invented claims before a reader does and to leave the survivors cheap to kill; it doesn't promise zero bad output, and nothing here has measured how many it catches. A human sign-off is what makes zero *shipped* bad output reachable - this pass is there to aim that sign-off, never to replace it. The fact pass is only as strong as its packet: a one-line note behind an eight-claim piece produces confident "traced" verdicts over untraced claims - say so, and treat the gap as the finding.
 
 ## Mistakes to flag
 
@@ -78,6 +80,7 @@ This raises the detection rate and makes surviving failures cheap to kill; it do
 - Replacement prose in a verdict; a reviewer who edits.
 - "Is this good?" answered instead of the checkable questions; a lineup run against remembered examples.
 - A quote let through because a name was altered.
+- A skipped stance missing from the READER line; an edit after the pass with no re-read of what it touched.
 - A READER line that always says `publish` from an independent panel, or a FACTS line left off because nothing was flagged; a self-run READER line that does not say it was self-run.
 - The panel's own reasoning silently substituted for a stated house rule - when they disagree, the disagreement is the finding.
 

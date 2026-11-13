@@ -12,13 +12,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { DEFAULT_MAX_USD } from '../src/default-cap.js';   // 10 Nov 2026: the default cap is $12 now; every figure below that was a typed 7 is read from here
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
 const server = join(root, 'src/mcp/server.js');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 // M7 apply E102: the sentence an MCP client reads names MAX_USD_PER_RUN (pass 2 final wording), not the CLI's --max-usd
-const EXPECTED = bad => `MAX_USD_PER_RUN is "${bad}", which is not a positive number of dollars. Set a number such as 2 or 7.50 for it where it is set (the server's environment, or the work folder's .env), or remove it to use the default of $7 (or your COUNCIL_MAX_USD_LIMIT where that is lower).`;
+const EXPECTED = bad => `MAX_USD_PER_RUN is "${bad}", which is not a positive number of dollars. Set a number such as 2 or 7.50 for it where it is set (the server's environment, or the work folder's .env), or remove it to use the default of $${DEFAULT_MAX_USD} (or your COUNCIL_MAX_USD_LIMIT where that is lower).`;
 
 function mcp(work, calls, env, entry = 'direct') {
   return new Promise((done, fail) => {
@@ -40,7 +41,10 @@ function mcp(work, calls, env, entry = 'direct') {
     ].map(x => JSON.stringify(x)).join('\n') + '\n');
   });
 }
-const errorOf = a => String(a.error ?? a.raw ?? JSON.stringify(a));
+// CHANGED ACCEPTED (0.8.4 F3). OLD: errorOf was the answer's `error` as written. NEW: the markers of the value read from the .env (src/return-path.js fragment(): the value of MAX_USD_PER_RUN is the only part of the sentence read from a file) are taken out before the sentence is compared with EXPECTED, and test (1) asserts them: the value sits between this call's markers and the harness's words do not. WHY: the server's own sentence stays unmarked, only the value is a fragment.
+const MARK_RE = /<<<(?:END )?THC-UNTRUSTED-TEXT [0-9a-f]+>>>/g;
+const rawErrorOf = a => String(a.error ?? a.raw ?? JSON.stringify(a));
+const errorOf = a => rawErrorOf(a).replace(MARK_RE, '');
 const payload = m => { const t = m?.result?.content?.[0]?.text; try { return JSON.parse(t); } catch { return { raw: t ?? JSON.stringify(m) }; } };
 
 // A working folder with a task; `paused` makes it a real run paused at its external stage whose run.json has NO saved cap (the shape a cloned repository can ship).
@@ -67,21 +71,23 @@ test('(1) a limit is set and start_run names no max_usd: a MAX_USD_PER_RUN of `2
     const [r] = await mcp(w.work, [START], { COUNCIL_MAX_USD_LIMIT: '20', MAX_USD_PER_RUN: bad });
     const a = payload(r);
     assert.ok(errorOf(a).includes(EXPECTED(bad)), `${JSON.stringify(bad)} is refused with the CLI's sentence (the old server started the run under 7): ${JSON.stringify(a).slice(0, 300)}`);
+    const esc = bad.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(rawErrorOf(a), new RegExp(`^MAX_USD_PER_RUN is "<<<THC-UNTRUSTED-TEXT ([0-9a-f]+)>>>${esc}<<<END THC-UNTRUSTED-TEXT \\1>>>", which is not a positive number`), 'the value read from the .env is the marked fragment; the sentence around it is the server\'s own');
     assert.equal(existsSync(join(w.work, 'runs')), false, 'a refused start makes no run folder');
   }
 });
 
-test('(1) the same for 0 and for an EMPTY value (their own sentences), and `none` / `off` read as unset: the run is capped at min(limit, 7) = 7, as it was before', async () => {
+test('(1) the same for 0 and for an EMPTY value (their own sentences), and `none` / `off` read as unset: the run is capped at min(limit, the default cap) = the default cap, as it was before', async () => {
   const w = world();
   const [r0] = await mcp(w.work, [START], { COUNCIL_MAX_USD_LIMIT: '20', MAX_USD_PER_RUN: '0' });
   assert.ok(errorOf(payload(r0)).includes(EXPECTED('0')), JSON.stringify(payload(r0)).slice(0, 300));
   const [rEmpty] = await mcp(world().work, [START], { COUNCIL_MAX_USD_LIMIT: '20', MAX_USD_PER_RUN: '' });
-  assert.ok(errorOf(payload(rEmpty)).includes('MAX_USD_PER_RUN is set but empty. Set a number such as 2 or 7.50, or remove it to use the default of $7 (or your COUNCIL_MAX_USD_LIMIT where that is lower).'), JSON.stringify(payload(rEmpty)).slice(0, 300));
+  assert.ok(errorOf(payload(rEmpty)).includes(`MAX_USD_PER_RUN is set but empty. Set a number such as 2 or 7.50, or remove it to use the default of $${DEFAULT_MAX_USD} (or your COUNCIL_MAX_USD_LIMIT where that is lower).`), JSON.stringify(payload(rEmpty)).slice(0, 300));
   for (const word of ['none', 'off']) {
     const x = world();
     const [r] = await mcp(x.work, [START], { COUNCIL_MAX_USD_LIMIT: '20', MAX_USD_PER_RUN: word });
     assert.equal(payload(r).started, true, `${word}: ${JSON.stringify(payload(r)).slice(0, 200)}`);
-    assert.equal(await savedCap(x.work, payload(r).run), 7, `${word}: never an open ceiling and never above the default over MCP`);
+    assert.equal(await savedCap(x.work, payload(r).run), DEFAULT_MAX_USD, `${word}: never an open ceiling and never above the default over MCP`);
   }
 });
 
@@ -101,8 +107,8 @@ test('(2) NO limit, resume_run of a run with no saved cap: a malformed MAX_USD_P
   assert.equal(capLines(w).length, before, 'and no sitting started: no new cap line in the log');
 });
 
-test('(2) control: with a readable MAX_USD_PER_RUN the same resume runs under it ($3), and with none set under the default $7', async () => {
-  for (const [env, cap] of [[{ MAX_USD_PER_RUN: '3' }, /^\$3\.00 per run/], [{}, /^\$7\.00 per run/]]) {
+test('(2) control: with a readable MAX_USD_PER_RUN the same resume runs under it ($3), and with none set under the default cap', async () => {
+  for (const [env, cap] of [[{ MAX_USD_PER_RUN: '3' }, /^\$3\.00 per run/], [{}, new RegExp(`^\\$${DEFAULT_MAX_USD}\\.00 per run`)]]) {
     const w = world({ paused: true });
     const before = capLines(w).length;
     await mcp(w.work, [{ name: 'resume_run', arguments: { run: w.id } }], env);
@@ -114,12 +120,12 @@ test('(2) control: with a readable MAX_USD_PER_RUN the same resume runs under it
 
 // BUG-D-032: a limit is set, resume_run names no max_usd and the run was saved with no cap (maxUsd null): the audit fix's comment says it gets the default like a new run, min(limit, 7) = 7 here, not the limit itself (20).
 // No MAX_USD_PER_RUN is in the child's environment and world({ paused: true }) writes no .env, so the 7 is the built-in default.
-test('(3) a limit of 20, resume_run of a run saved with no cap and no max_usd: the run goes on under the default $7, not under the limit', async () => {
+test('(3) a limit of 20, resume_run of a run saved with no cap and no max_usd: the run goes on under the default cap, not under the limit', async () => {
   const w = world({ paused: true });
   const before = capLines(w).length;
   await mcp(w.work, [{ name: 'resume_run', arguments: { run: w.id } }], { COUNCIL_MAX_USD_LIMIT: '20' });
   for (let i = 0; i < 200 && capLines(w).length <= before; i++) await sleep(100);
-  assert.match(capLines(w).pop() ?? '', /^\$7\.00 per run/, 'min(20, 7); the old server passed the limit, $20');
+  assert.match(capLines(w).pop() ?? '', new RegExp(`^\\$${DEFAULT_MAX_USD}\\.00 per run`), `min(20, ${DEFAULT_MAX_USD}); the old server passed the limit, $20`);
 });
 
 // THE DIRECT ENTRY and the per-run default (found by the advisor at the 7th commit): `node src/mcp/server.js` applies no .env, so once a .env LIMIT is read there, the per-run default must come from the same file or the server passes

@@ -1,5 +1,8 @@
 {
   "name": "mock-unanimous",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. Exercises the unanimous-signoff branch (all critics review every round, not round-robin) before spending anything real on it.",
   "maxRounds": 2,
   "stopOnPass": true,

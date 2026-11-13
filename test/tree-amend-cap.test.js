@@ -20,7 +20,7 @@ import { approvePending, eventsOf, phases } from './helpers/sitting.js';
 import { terminal } from './helpers/terminal.js';
 import { GATE_FIELDS, ROOT_ID, claim, hostnameOf } from './helpers/tree-fixture.js';
 import { assertRefusedWithoutAsking } from './helpers/bound-text.js';
-import { stoppedChildFixture, usdRx } from './helpers/money-figures.js';
+import { stoppedChildFixture, stoppedChildStarter, usdRx } from './helpers/money-figures.js';
 
 const treeJson = r => readFileSync(join(r.t.rootDir, TREE_DIR, TREE_FILE));
 const decide = (r, flags, answers, extra = {}) => {
@@ -41,7 +41,7 @@ const AMEND = { gateId: GATE_FIELDS.gateId, shownSha256: GATE_FIELDS.shownSha256
 async function stopped() {
   const r = await trackedRealRoot({ childChain: 'mock-budget', cap: CAP });      // CAP is stoppedChildFixture()'s root cap (a share G just over mock-budget's cheapest end among three children; the CHANGED ACCEPTED note above); history: the estimator unit moved the typed cap 20 -> 26 (fixture-delta-trace.txt)
   approvePending(r);
-  const out = await runTree(r.t.rootDir, { work: r.t.work });
+  const out = await runTree(r.t.rootDir, { work: r.t.work, startRun: stoppedChildStarter({ work: r.t.work }) });
   assert.equal(out.status, 'budget_stop', JSON.stringify(out)); assert.equal(out.node, 'R/M1');
   assert.equal(phases(r)['R/M1'], 'stopped');
   return r;

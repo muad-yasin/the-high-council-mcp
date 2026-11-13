@@ -26,6 +26,8 @@ import { rederivationOutcome, rederivedTriggers } from './tree-ready.js';
 import { rootTaskOf } from './tree-root-task.js';
 import { DeriveRefusal, resolveContextRefs } from './tree-context-refs.js';
 import { childNode } from './tree-identity.js';
+import { agreedOf } from './ending-matrix.js';   // 0.8.4 D1: the matrix's agreed reading, the one every reader of 'did the run end agreed' shares
+import { withoutSummaryBlock } from './summary-block.js';
 
 const refuse = reason => new TreeRefusal({ code: 'transition_refused', transition: 'plan_accepted', reason });
 
@@ -39,9 +41,10 @@ export function changedPlanSnapshot(runsDir, runId) {
   if (report === null || typeof report !== 'object' || Array.isArray(report)) return { unreadable: 'report.json is missing or unreadable' };
   const deliverable = readRunFile(trusted.dir, 'deliverable.md');
   if (typeof deliverable.text !== 'string') return { unreadable: 'deliverable.md is missing or unreadable' };
+  const planText = withoutSummaryBlock(deliverable.text, report.delivered_text?.summary_block);   // 0.8.4 item 6: the handling session's summary block is not part of the plan that is hashed, scanned and accepted (a plan with no block is as it was)
   return {
-    report, text: deliverable.text, bodySha256: sha256Of(deliverable.text), notes: Array.isArray(report.delivered_text?.harness_notes) ? report.delivered_text.harness_notes.length : 0,
-    thinContractSha256: typeof report.thin_contract?.sha256 === 'string' ? report.thin_contract.sha256 : null, passed: report.passed === true,
+    report, text: planText, bodySha256: sha256Of(planText), notes: Array.isArray(report.delivered_text?.harness_notes) ? report.delivered_text.harness_notes.length : 0,
+    thinContractSha256: typeof report.thin_contract?.sha256 === 'string' ? report.thin_contract.sha256 : null, passed: agreedOf(report),
   };
 }
 

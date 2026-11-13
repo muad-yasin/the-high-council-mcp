@@ -45,7 +45,7 @@ test('L1: nothing is registered or started before approve (a sitting says what w
 });
 
 test('the exit code of a run is read and never retried: 3 ends the sitting as waiting, 4 as budget_stop, 19 as tree_refused, anything else as crashed (the STOPPED-* files named), a thrown start as start_failed; the starter is called once and no sibling is registered', async () => {
-  for (const [code, status] of [[3, 'waiting'], [4, 'budget_stop'], [19, 'tree_refused'], [23, 'awaiting_choice'], [1, 'crashed'], [16, 'crashed']]) {
+  for (const [code, status] of [[3, 'waiting'], [4, 'budget_stop'], [19, 'tree_refused'], [23, 'awaiting_choice'], [26, 'awaiting_choice'], [1, 'crashed'], [16, 'crashed']]) {
     const r = await trackedRealRoot(pricedChildren());
     approvePending(r);
     let calls = 0;

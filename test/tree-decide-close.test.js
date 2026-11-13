@@ -15,7 +15,7 @@ import { approveHandler } from '../src/tree-approve.js';
 import { apiStarter, runTree } from '../src/tree-run.js';
 import * as api from '../src/api.js';
 import { track, trackedRealRoot } from './helpers/temp-trees.js';
-import { stoppedChildFixture, usdRx } from './helpers/money-figures.js';
+import { stoppedChildFixture, stoppedChildStarter, usdRx } from './helpers/money-figures.js';
 import { externalChildren, pricedChildren, splitChildren } from './helpers/child-chains.js';
 import { block3, planWith } from './helpers/split-fixture.js';
 import { LEAF_PLAN, approvePending, draftStarter, eventsOf, phases } from './helpers/sitting.js';
@@ -91,13 +91,14 @@ test('a real node stopped at its cap: returns grant + top-ups - spent (budgetOf 
   const { G, CAP } = stoppedChildFixture();
   const r = await trackedRealRoot({ childChain: 'mock-budget', cap: CAP });      // CAP is stoppedChildFixture()'s root cap and the grant is G = floorCents((CAP - the root's handoff) / 3), just over mock-budget's cheapest end (the CHANGED ACCEPTED note above); history: the estimator unit moved the typed cap 20 -> 26 (fixture-delta-trace.txt)
   approvePending(r);
-  const out = await runTree(r.t.rootDir, { work: r.t.work }); assert.equal(out.status, 'budget_stop', JSON.stringify(out));
+  const out = await runTree(r.t.rootDir, { work: r.t.work, startRun: stoppedChildStarter({ work: r.t.work }) }); assert.equal(out.status, 'budget_stop', JSON.stringify(out));
   topUp(r.t.rootDir, { node: 'R/M1', amountUsd: 3, ...GATE_FIELDS });
   const before = budgetOf(r.t.rootDir); const n0 = before.nodes.find(n => n.node === 'R/M1');
   // the grant is an equal share of what is available: proposeGrants (src/tree-budget.js:333) proposes min(atMost, available / k) with k = 3 children, shown through floorCents (src/tree-frontier.js:261): available = 20 - 0.04 (the root's handoff), so floorCents(19.96 / 3) = 6.65 (it was floorCents(20 / 3) = 6.66 while the root's handoff cost $0), plus the $3 top-up
   assert.equal(money2(n0.grantUsd), money2(G + 3));      // OLD 9.65 = 6.65 + the $3 top-up; NEW G + 3 (G is stoppedChildFixture()'s grant)
   // CHANGED ACCEPTED (money-test conversion, lane C, 24 Okt 2026; C&C thcmcp-cd: "restore it"): the check `assert.equal(n0.phase, 'stopped')` had been swallowed into the end of the comment above by an earlier edit (history: 4dc662f9 era), so it had not run since. OLD: inside a comment. NEW: it runs again, on its own line. WHY: the test's own title says the node is STOPPED at its cap; the top-up must leave it stopped.
   assert.equal(n0.phase, 'stopped');
+  assert.ok(n0.spentUsd > 0, `fixture: the member paid for a stage before it stopped (spent ${n0.spentUsd}), so "grant + top-ups - spent" below tests the spent term, not 0`);      // NEW (28 Okt 2026): the asked cap of stoppedChildStarter() is set so the criteria stage is paid and the build is refused
   const registered = eventsOf(r).filter(e => e.event === 'node_registered').length;
   const d = decide(r.t.rootDir, r.t.work, { close: 'R/M1' }, ['R/M1', 'y']);
   assert.equal(await d.run(), 0, d.io.shown() + d.io.errors());
@@ -178,7 +179,7 @@ test('the sitting for a consumer says WHY it waits: a provider closed incomplete
   assert.match(d.io.shown(), /These wait for it and will not start[^]*- R\/M1\/M2 \(not registered yet\): [^]*- R\/M2 \(not registered yet\): it expects an agreement from R\/M1/); assert.equal(/- R\/M1\/M3|- R\/M3/.test(d.io.shown()), false);
   const next = chooseNextChild(r.t.rootDir, { work: r.t.work });
   const why = next.waiting.flatMap(w => w.why).join(' | ');
-  assert.match(why, /R\/M1\/M1 was closed incomplete by a person/); assert.equal(/R\/M1\/M1 closed but the panel did not pass it/.test(why), false);
+  assert.match(why, /R\/M1\/M1 was closed incomplete by a person/); assert.equal(/R\/M1\/M1 closed but the panel did not agree on it/.test(why), false);
   assert.equal(phases(r)['R/M1/M1'], 'closed');
 });
 

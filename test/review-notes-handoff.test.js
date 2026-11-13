@@ -13,13 +13,18 @@ import { lockBlock, parseLock, checkLock } from '../src/criteria-lock.js';
 import { parseMilestones } from '../src/milestones.js';
 import { extractSplitBlocks, SPLIT_MARKER } from '../src/tree-split.js';
 import * as H from './held-prompts/held-083.js';
+import { CHECK, answer as checkAnswer } from './helpers/build-check.js';
 
 afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setBudget(null); });
 
 const CRITERION = 'The plan defines a retry limit.';
 const DRAFT = 'The worker retries failed requests.';
 const signoff = (extra = {}) => JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok', ...extra });
-const objecting = (extra = {}) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [{ criterion: CRITERION, problem: 'No limit.', fix: 'Add one.' }], verdict_line: 'no', ...extra });
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the stub failure carried no rating. NEW: it carries severity 5 (a layered unanimous chain demands a rating). WHY: ratingDemand is recorded (src/ratings-demand.js). No relation: this chain has no answer_back, so relationRule is not asked of its judges (src/chain.js:5462).
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state), HF-1, HF-5 and HF-15: OLD: the handoff text ended with the writer's text. NEW: the plan quotes no test file, so the harness appends its line as its own paragraph after the writer's text: `<text trimmed>\n\n<line>\n`. WHY: handoffNoTestsLine is recorded (src/prompts/recorded-084-a.js:20; src/verify-first.js withNoTestsLine).
+const NOTESTS = 'None of the source blocks quoted to the Council has the path or name of a test file. Before the first step, read the tests that cover the code you will change. The Council may not have seen the checks used to judge this work.';
+const FAIL = { criterion: CRITERION, problem: 'No limit.', fix: 'Add one.', severity: 5 };
+const objecting = (extra = {}) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [FAIL], verdict_line: 'no', ...extra });
 const P = (...texts) => texts.map(text => ({ text }));
 const I = (...texts) => texts.map(text => ({ text, about: `about ${text}` }));
 const idP = text => noteId('proposal', text); const idI = text => noteId('idea', text);
@@ -36,8 +41,9 @@ async function run({ handoffReply = () => `# Plan\n\nBuild it.`, answerReply = h
   setCache({ invalidate() {}, get(label) {
     served.push(label); if (servedSink) servedSink.push(label);
     if (label === pauseAt) return null;
+    if (/^build-check-\d+$/.test(label)) return { text: checkAnswer('good_to_build'), provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 };   // the test-only handler (HF-11 injects the build-check wording)
     if (label === 'handoff-notes') return notesFile === null ? null : { text: notesFile, provider: 'harness', model: 'none', usage: { input: 0, output: 0 }, usd: 0 };
-    const text = label.startsWith('panel-') ? (replies[label] ?? (label === 'panel-1-la' ? objecting({ proposals: P('Add a dead-letter queue'), ideas: I('Name the owner', 'State the limit as a number') }) : signoff()))
+    const text = (label.startsWith('panel-') || label.startsWith('final-read-')) ? (replies[label] ?? (label === 'panel-1-la' ? objecting({ proposals: P('Add a dead-letter queue'), ideas: I('Name the owner', 'State the limit as a number') }) : signoff()))
       : label.startsWith('revise-') ? (reviseReply(label) ?? `${DRAFT}\n\nRevision ${label.slice(7)}.`) : label === 'handoff' ? handoffReply() : label === 'notes-answer' ? answerReply() : DRAFT;
     return { text, provider: 'mock', model: 'm', usage: usageOf(label), usd: 0 };
   } });
@@ -54,7 +60,7 @@ test('HF-1 (the FOLD): the handoff call carries the unanswered items, its reply 
   const { result, prompts, served, report } = await run({ handoffReply: () => `# Plan\n\nBuild it.\n\n${ALL3}` });
   assert.ok(prompts.get('handoff').user.includes(A) && prompts.get('handoff').user.includes('NOTE-TAKEN'), 'the items and the ask ride in the handoff user prompt');
   assert.ok(!prompts.get('handoff').system.includes(A), 'quoted judge text is never in the system prompt');
-  assert.equal(result.handoff, '# Plan\n\nBuild it.', 'the NOTE lines left the text every later reader sees');
+  assert.equal(result.handoff, `# Plan\n\nBuild it.\n\n${NOTESTS}\n`, 'the NOTE lines left the text every later reader sees');
   assert.equal(served.filter(l => l === 'handoff').length, 1); assert.ok(!served.includes('notes-answer'));
   assert.deepEqual(ans(report, A), { status: 'builder_task', from: 'handoff', ending: 'signed_off' });
   assert.deepEqual(ans(report, B), { status: 'declined', reason: 'out of scope', from: 'handoff', ending: 'signed_off' });
@@ -101,7 +107,7 @@ test('HF-4 (no answer lines): a fold reply with no NOTE lines leaves every item 
 test('HF-5 (known limit): NOTE lines ABOVE a multi-line trailing block are not reached by the closing walk: they ship as text and the items read unanswered', async () => {
   const reply = `# Plan\n\n${ALL3}\n\ntail one\ntail two\ntail three\ntail four`;
   const { result, report } = await run({ handoffReply: () => reply });
-  assert.equal(result.handoff, reply);
+  assert.equal(result.handoff, `${reply}\n\n${NOTESTS}\n`);
   assert.equal(ans(report, A).status, 'unanswered');
 });
 
@@ -163,7 +169,9 @@ test('HF-10 (an ending that throws): a plan whose panel stops with an error runs
 
 test('HF-11 (external writer): an external handoff seat pauses ONCE at handoff with the items in its prompt; no notes-answer pause is added', async () => {
   let pauses;
-  try { await run({ handoffSeat: 'same', writerExternal: true, pauseAt: 'handoff' }); assert.fail('expected a pause'); } catch (e) { if (e.code === 'ERR_ASSERTION') throw e; pauses = pendingPauses(e); }
+
+  // CHANGED ACCEPTED (0.8.4 S4, C&C's Q-m migration; OLD/NEW/WHY): OLD: the held map held only the notes words, so the layer-3 sign-off went straight to the handoff pause. NEW: the build-check wording (CHECK) joins the map and the stub holds a test-only handler's good_to_build for build-check-<n> (run()); the run waits at build-check-1, which the stub answers, and then pauses ONCE at the handoff. WHY: with the wording recorded a chain with an external writer waits at the build check after layer 3's sign-off; the row's assertions are unchanged.
+  try { await run({ handoffSeat: 'same', writerExternal: true, pauseAt: 'handoff', held: { ...WORDS, ...CHECK } }); assert.fail('expected a pause'); } catch (e) { if (e.code === 'ERR_ASSERTION') throw e; pauses = pendingPauses(e); }
   assert.deepEqual(pauses.map(p => p.label), ['handoff']);
   assert.ok(pauses[0].user.includes('NOTE-TAKEN') && pauses[0].user.includes(A));
 });
@@ -196,7 +204,7 @@ test('HF-15 (condition 1, case-insensitive disk): HANDOFF.md overwrote handoff.m
   assert.deepEqual(second.report.review_notes, first.report.review_notes, 'the same answers');
   assert.deepEqual(second.result.stages.map(x => x.label), first.result.stages.map(x => x.label), 'the replayed run keeps the handoff-notes row in its stages');
   assert.ok(second.result.stages.find(x => x.label === 'handoff-notes').cached === true);
-  assert.equal(second.result.handoff, '# Plan\n\nBuild it.\n', 'the harness block is not the writer\'s text');
+  assert.equal(second.result.handoff, `# Plan\n\nBuild it.\n\n${NOTESTS}\n`, 'the harness block is not the writer\'s text');
   // without the new file the same replay loses every answer (the defect this closes)
   const lost = await run({ handoffReply: () => clobbered });
   assert.equal(ans(lost.report, A).status, 'unanswered');

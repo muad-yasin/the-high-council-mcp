@@ -89,6 +89,56 @@ test('parseJson: fenced JSON with a stray inner quote is still recovered', () =>
   assert.equal(parsed.meets, true);
 });
 
+// ---- a closing ] or } with no opener of its kind open anywhere (dropStrayClosers, 084/json-repair) ----
+// The shapes below are SYNTHETIC and minimal on purpose: run output never enters this repo, so CLAUDE.md's "built from the actual broken replies" bends to that here. The incident they model (B3 run 4, Haiku 5.5, 2 Nov 2026): a
+// verdict whose criteria array was closed by `]]`; the reply ended normally (it was not cut off) and read as null, and the harness re-asked. The call-site options are the real ones: a panel verdict is read with { verdict: true } and,
+// when the run issues the reply identity, { verdict: true, expect: { review_id, draft_id } } (src/chain.js, the critic call sites).
+const SC_ENV = { review_id: 'aaaaaaaaaaaa', draft_id: 'bbbbbbbbbbbb' };
+const SC_ROW1 = '{"criterion": "C1", "verdict": "MET", "evidence": "the plan says so"}';
+const SC_ROW2 = '{"criterion": "C2", "verdict": "NOT MET", "evidence": "no owner is named"}';
+const SC_FAILURES = '[{"criterion": "C2", "problem": "the plan names no owner"}]';
+const scVerdict = closing => `{"review_id": "aaaaaaaaaaaa", "draft_id": "bbbbbbbbbbbb", "meets": false, "criteria": [${SC_ROW1}, ${SC_ROW2}${closing}, "failures": ${SC_FAILURES}}`;
+const SC_INTENDED = { ...SC_ENV, meets: false, criteria: [JSON.parse(SC_ROW1), JSON.parse(SC_ROW2)], failures: JSON.parse(SC_FAILURES) };
+
+test('SC-1 a verdict with one ] too many after its criteria array reads as the verdict, objections intact, on every way a verdict is read', () => {
+  assert.deepEqual(parseJson(scVerdict(']'), { verdict: true, expect: SC_ENV }), SC_INTENDED, 'control: the well-formed text');
+  assert.deepEqual(parseJson(scVerdict(']]'), { verdict: true, expect: SC_ENV }), SC_INTENDED, 'with the reply identity (the call site of a run that issues it)');
+  assert.deepEqual(parseJson(scVerdict(']]'), { verdict: true }), SC_INTENDED, 'verdict caller');
+  assert.deepEqual(parseJson(scVerdict(']]'), { strict: true }), SC_INTENDED, 'strict caller');
+  assert.deepEqual(parseJson(scVerdict(']]')), SC_INTENDED, 'plain caller');
+  assert.deepEqual(parseJson('```json\n' + scVerdict(']]') + '\n```', { verdict: true }), SC_INTENDED, 'in a fence');
+  assert.deepEqual(parseJson('{"a": 1}}'), { a: 1 }, 'an extra } after a complete object');
+});
+
+test('SC-2 a ] while a [ is open DEEPER stays unreadable (null): that is a closer missing, not one too many, and dropping it would move a key', () => {
+  // the row object never closes before the ]: dropping that ] would make the text valid and move "failures" INTO the criteria row (the objection would vanish from the top level)
+  const missingBrace = '{"meets": false, "criteria": [{"criterion": "C1", "verdict": "NOT MET"], "failures": [{"criterion": "C1", "problem": "p"}]}]}';
+  for (const opts of [{}, { verdict: true }, { strict: true }, { verdict: true, expect: SC_ENV }]) assert.equal(parseJson(missingBrace, opts), null, JSON.stringify(opts));
+  assert.equal(parseJson('{"a": [1, 2}'), null, 'a } while a [ is open deeper');
+  // braces stay balanced here (so the span path cannot be what returns null): the ] after "x": 1 arrives with a { open and a [ deeper in the stack, and a stray ] sits after the criteria array
+  const both = scVerdict(']]').replace('"meets": false', '"meets": false, "extra": [{"x": 1], "y": 2}]');
+  assert.equal(parseJson(both, { verdict: true }), null, 'one stray closer and one ambiguous closer in the same text: the text is left alone as a whole');
+});
+
+test('SC-3 brackets, braces and an escaped quote INSIDE a string are never touched, and a stray closer outside it is still dropped', () => {
+  const note = 'keep ] and } and " ] and \\ here ]';
+  const text = JSON.stringify({ note, list: [1, 2], n: 1 }).replace('"list":[1,2]', '"list":[1,2]]');
+  assert.notEqual(text, JSON.stringify({ note, list: [1, 2], n: 1 }), 'the fixture carries the stray ]');
+  const parsed = parseJson(text);
+  assert.ok(parsed, 'expected the stray ] to be dropped');
+  assert.equal(parsed.note, note, 'the string comes back byte for byte');
+  assert.deepEqual(parsed.list, [1, 2]);
+  assert.equal(parsed.n, 1);
+});
+
+test('SC-4 a stray closer together with a trailing comma stays unreadable (the repair is on its own on purpose) and the verdict guards still run on a repaired text', () => {
+  assert.equal(parseJson('{"a": [1, 2,]], "b": 1}'), null, 'stray ] and trailing comma: null (near-JSON, nearJsonPause)');
+  const contradicting = '{"meets": true, "criteria": [' + SC_ROW2 + ']], "failures": ' + SC_FAILURES + '}';
+  assert.equal(parseJson(contradicting, { verdict: true }), null, 'meets: true beside a failed row and failures is still contradictory after the repair');
+  const duplicate = '{"meets": true, "meets": false, "criteria": [' + SC_ROW1 + ']], "failures": []}';
+  assert.equal(parseJson(duplicate, { verdict: true }), null, 'a duplicate decision key is still null after the repair');
+});
+
 // classifyUnreadable: added 2026-09-10 after GP judging run 2026-09-10T20-01-59-545Z
 // (panel-1-glm.md) - GLM 5.3 Flash burned its entire token budget on thinking and returned an
 // empty reply with finish_reason "error". The old two-way check (token cap vs. malformed JSON)
@@ -123,12 +173,12 @@ test('classifyUnreadable: low output with no error still reads as a formatting p
 // sections wrote a criterion forbidding one - a deadlock that cost rounds and, once, could not
 // be resolved by any revision. The criteria seat now can't produce that conflict in the first
 // place, because it's told what's required before it writes anything.
-test('criteriaUserPrompt: a proposal-mode chain is told its required sections, so it cannot forbid one', () => {
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: a proposal-mode chain's criteria prompt carried '# Sections this chain always adds' naming 'Scope ledger'. NEW: it carries no such block: the ledger is its own file, so the deliverable no longer adds the section and the prompt stops announcing it. WHY: proposalsSectionLedgerOut is recorded (src/scope-ledger.js:13 ledgerOutOn; src/preflight.js:36). Flag: the requiredBlock branch of criteriaUserPrompt (src/chain.js:145) has no instance left in the shipped code.
+test('criteriaUserPrompt: a proposal-mode chain is no longer told a required Scope ledger section (the ledger is its own file)', () => {
   const config = JSON.parse(readFileSync(join(root, 'chains', 'mock-proposals.json'), 'utf8'));
   const prompt = criteriaUserPrompt('Do the thing.', config);
-  assert.match(prompt, /# Sections this chain always adds/);
-  assert.match(prompt, /Scope ledger/);
-  assert.match(prompt, /Do not write a criterion that forbids this section's presence/);
+  assert.equal(prompt, '# Request\n\nDo the thing.');
+  assert.doesNotMatch(prompt, /Sections this chain always adds|Scope ledger/);
 });
 
 test('criteriaUserPrompt: a chain with no required sections adds no block at all', () => {

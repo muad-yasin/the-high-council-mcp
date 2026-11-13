@@ -4,6 +4,7 @@
 // docs/demo.html already uses: collapsible sections are plain
 // <details>/<summary>, inline CSS only.
 import { verdictHeadline } from './verdict-headline.js';
+import { holdsLayerWords } from './decision-records.js';
 const esc = s => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -72,7 +73,7 @@ export function renderBoardHtml(report) {
   const proposals = report.proposals || [];
   const posts = report.debate?.posts || [];
   const replies = report.debate?.replies || [];
-  const signoff = report.signoff || [];
+  const signoff = (report.signoff || []).filter(s => !s?.cut);   // 0.8.4 --finish: a row marked `cut` counts for nothing
 
   const proposalsHtml = proposals.length
     ? proposals.map(p => proposalSection(p, posts, replies)).join('\n')
@@ -87,7 +88,7 @@ ${alt.items.length ? alt.items.map(a => alternativeSection(a, alt.posts || [], a
     : '';
 
   const verdictItems = signoff.map(s =>
-    `<li>${esc(s.provider)}: ${s.signedOff === null ? 'abstained' : s.signedOff ? 'signed off' : 'objected'}</li>`).join('\n') || '<li>(no panel signoff recorded)</li>';
+    `<li>${esc(s.provider)}: ${s.signedOff === null ? 'abstained' : s.signedOff ? 'signed off' : 'objected'}${esc(holdsLayerWords(s))}</li>`).join('\n') || '<li>(no panel signoff recorded)</li>';
 
   return `<!doctype html>
 <html lang="en">

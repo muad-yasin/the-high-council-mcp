@@ -26,6 +26,8 @@ Use it when **the piece's engine is someone's good choice and there is no wrongd
 3. **Humor never lands on the subject, including backhandedly** - not their manner, sincerity, size, struggle or identity. A real closer, "tells fans they're neurodivergent - and keeps working anyway," was rightly flagged as the worst line in its batch: its structure concedes the condition should have stopped them. **Test: if the subject read the line, would they laugh or flinch?**
 4. **No overstatement of a true good deed.** A bigger frame than the facts support is this register's version of inventing a figure. If the real detail isn't enough, the piece is a short item, not a bigger claim.
 5. **No moral.** The closer never names the virtue ("proof that decency still exists"). The reader draws the conclusion from the facts.
+6. **The person who was helped is real too.** A warm piece about a giver exposes a receiver: the illness, the debt or the bad day the kindness answered. Naming or identifying the receiver is a decision of its own, never a default (`fact-checking`, the legal guardrail: naming private people). This register is stricter than that guardrail's weighing of interests, because who was helped is rarely what the public needs to know: name the receiver only when they agreed or have told the story in public themselves (their own account, traced like any source); a receiver whom only others named stays a role ("a customer", "a tenant"). Either way, tell no more of their hardship than the piece needs. The subject's consent is not theirs.
+7. **A stake in the subject is stated.** If the writer or the publisher gains from the subject (a client, a sponsor, an employer, a commission), the piece says so near the top: a reader weighs praise differently when the one who praises is paid. Whether such a piece must also carry an advertising label is a legal question this skill cannot settle.
 
 ## Procedure
 
@@ -34,10 +36,10 @@ Use it when **the piece's engine is someone's good choice and there is no wrongd
 - [ ] Step 1: the warm sentence written (choice / easy version / smiling detail)
 - [ ] Step 2: honesty check - no true "easy version" means a short item
 - [ ] Step 3: draft from inside the subject's logic; the closer grants continuation
-- [ ] Step 4: hand off warm sentence + quote trace + piece for an independent read
+- [ ] Step 4: hand off warm sentence + facts packet + piece for an independent read
 ```
 
-**Step 0 - the facts packet.** Verified facts, 2-4 captured verbatim particulars, the sourcing trail, and the traced quote list (rule 1 makes it load-bearing). If the piece is partly fictionalized around a real inspiration, draw a clear line between the real person's claims and invented texture; the two never blur mid-draft.
+**Step 0 - the facts packet.** Verified facts, 2-4 captured verbatim particulars, the sourcing trail, and the traced quote list (rule 1 makes it load-bearing). Mark every claim that rests only on the subject's own account: in a warm piece the subject is the source that gains from being believed (`fact-checking` owns the rule on a source's interest). Such a claim is attributed to them, never stated in the writer's voice, and it cannot be the choice the piece turns on: that needs a source besides the subject, or the piece is their announcement retold. If the piece is partly fictionalized around a real inspiration, draw a clear line between the real person's claims and invented texture; the two never blur mid-draft.
 
 **Step 1 - the warm sentence.** Before any prose, one sentence with three parts:
 
@@ -53,16 +55,19 @@ The sentence travels with the draft into review, so the stance can be checked wi
 
 **Step 2 - honesty check.** No true answer to the second part means a short item: two or three understated sentences, then stop. Length is usually the first symptom of a small kindness inflated into a feature.
 
-**Step 3 - write from inside their logic.** Take the subject's odd, consistent reasoning seriously and narrate from inside it until it vindicates itself. Admiration stated by the writer is asked on faith; admiration the reader reaches from a specific detail is their own judgment. **The closer grants continuation, not resolution:** they are still doing it, it is working anyway, they would do it again. When no such fact exists, end on the last real thing and stop - a manufactured closer is worse than none. The devices good material reaches for on its own (with the one-"refusal"-per-batch limit) are in `references/failure-modes.md`.
+**Step 3 - write from inside their logic.** Take the subject's odd, consistent reasoning seriously and narrate from inside it until it vindicates itself. Admiration stated by the writer is asked on faith; admiration the reader reaches from a specific detail is their own judgment. **The closer grants continuation, not resolution:** they are still doing it, it is working anyway, they would do it again. A closer that says they are still doing it, or that it is working, is a claim about today: record in the facts packet the day it was checked (`research-and-sourcing`: recency), so that `final-read`'s fact pass can check it again: a program that ended last month turns the warmest line into the false one. "They would do it again" is the subject's word (rule 1). When no such fact exists, end on the last real thing and stop - a manufactured closer is worse than none. The devices good material reaches for on its own (with the one-"refusal"-per-batch limit) are in `references/failure-modes.md`.
 
-**Step 4 - hand off** the warm sentence, the quote-trace list and the piece to `final-read`. The fact pass should be *more* armed on a warm piece, not less: the subject is real, alive and named.
+**Step 4 - hand off** the warm sentence, the facts packet and the piece to `final-read`. The packet carries the source trail, the quote-trace list, the marks on the claims that rest only on the subject's account (Step 0) and the closer's check day (Step 3): a reviewer who gets the piece alone cannot see which claims were flagged. The fact pass should be *more* armed on a warm piece, not less: the subject is real, alive and named.
 
 ## Mistakes to flag
 
 - A warm piece drafted before the Step 1 sentence exists.
 - An unsourced quote, or one softened or sharpened past its primary source.
 - An absence claim that wasn't checked.
-- A closer that states the virtue instead of a fact that grants continuation.
+- A claim known only from the subject's own account, stated in the writer's voice or carrying the piece.
+- A stake of the writer or publisher in the subject, left unsaid.
+- The receiver of the good deed identified although they neither agreed nor told the story in public themselves, or their hardship told in more detail than the piece needs.
+- A closer that states the virtue instead of a fact that grants continuation; a closer that says "still" with no date on its check.
 - Any joke whose target is the subject rather than the gap between them and the default.
 - Flattering adjectives (*inspiring, heartwarming, remarkable*) standing in for a concrete detail (also a machine-writing tell; `line-editing`).
 

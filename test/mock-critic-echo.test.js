@@ -39,7 +39,8 @@ test('E3b mock echo: the failure mocks are byte-identical with or without ids an
   }
   assert.equal((await ask('mock-critic-error-signoff', WITH)).usage.stop, 'error');
   assert.equal((await ask('mock-critic-cut', WITH, CRITIC, 800)).usage.stop, 'length');
-  for (const model of ['mock-unreadable', 'mock-provider-error', 'mock-proposer-empty', 'mock-network-error']) {
+  // CHANGED ACCEPTED (0.8.4, the 5xx typical-cost fix-up, commit 2). OLD: four failing mock models. NEW: the fifth, `mock-http-503-all` (a bare 5xx thrown with the real adapter's error shape; src/providers.js). WHY: R222, any list of mock model ids gets the new id; its outcome (the thrown text) is unchanged by the ids as the others'.
+  for (const model of ['mock-unreadable', 'mock-provider-error', 'mock-proposer-empty', 'mock-network-error', 'mock-http-503-all']) {
     const system = model === 'mock-proposer-empty' ? 'You are a proposer.' : CRITIC; // mock-proposer-empty fails in the PROPOSER role; under a critic prompt it is an ordinary critic
     const outcome = async user => { try { const r = await ask(model, user, system); return { text: r.text, stop: r.usage?.stop }; } catch (e) { return `throws: ${e.message}`; } };
     assert.deepEqual(await outcome(WITH), await outcome(WITHOUT), `${model}: unchanged by the ids`);

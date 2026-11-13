@@ -1,5 +1,8 @@
 {
   "name": "mock-proposals",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. Exercises the proposal stage: skeleton, blind proposals from every critic seat (one of them unreadable), integration with a scope ledger, the scoreboard. Best-of-N: three attempts per lab, a mock judge keeps two.",
   "maxRounds": 2,
   "signoff": "unanimous",

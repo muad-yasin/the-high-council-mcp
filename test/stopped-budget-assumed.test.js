@@ -39,7 +39,8 @@ test('a resume that replays a stage whose usage record lost its cost stops on th
   const shown = s => Number((s.match(/(?:spent so far: \*\*|spent:\s+)\$([0-9.]+)/) || [])[1]);
   assert.ok(Math.abs(shown(md) - stopped.spentUsd) < 1e-4, `STOPPED-budget.md says spent ${shown(md)}, the record holds ${stopped.spentUsd}`);
   assert.ok(Math.abs(shown(r.stdout + r.stderr) - stopped.spentUsd) < 1e-4, `the stop's log line says spent ${shown(r.stdout + r.stderr)}, the record holds ${stopped.spentUsd}`);
-  const chainLine = (r.stdout + r.stderr).match(/STOPPED - \$([0-9.]+) spent/);
+  // CHANGED ACCEPTED (0.8.4 unit 6, D11; plan A T6.2: "the word 'spent' becomes 'counted'"). OLD: the stage-level stop line read `STOPPED - $X spent`. NEW: `STOPPED - $X counted`. WHY: the figure is what THC has counted (some of it an estimate), not what was paid; the rest of the line is unchanged.
+  const chainLine = (r.stdout + r.stderr).match(/STOPPED - \$([0-9.]+) counted/);
   assert.ok(chainLine && Math.abs(Number(chainLine[1]) - stopped.spentUsd) < 1e-4, `the budget check's own line says spent ${chainLine?.[1]}, the record holds ${stopped.spentUsd}`);
   // run_status's guidance (the MCP twin of the printed command) carries the same ceiling.
   const status = runResumability(rd, JSON.parse(readFileSync(join(rd, 'run.json'), 'utf8')));

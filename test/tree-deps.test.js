@@ -79,7 +79,7 @@ test('PLAN 8.1 eligibility (L7, L8): every node of the provider\'s subtree must 
   assert.equal(subtreeEligible([ok('R/A'), { ...ok('R/A/A1'), hasBlock: true, blockOk: true }]).eligible, true);
   const why = f => subtreeEligible(f).why.join(' | ');
   assert.match(why([{ ...ok('R/A'), closed: false }]), /R\/A has not closed/);
-  assert.match(why([{ ...ok('R/A'), passed: false }]), /closed but the panel did not pass it/);
+  assert.match(why([{ ...ok('R/A'), passed: false }]), /closed but the panel did not agree on it/);   // CHANGED ACCEPTED (0.8.4 D1): was /closed but the panel did not pass it/. The reason now names the cause the run had: the tree reads the agreed reading, and a run whose final read objected was passed by the panel but did not agree.
   assert.match(why([{ ...ok('R/A'), status: 'needs_decision' }]), /needs_decision/);
   assert.match(why([{ ...ok('R/A'), openStop: true }]), /open stop/);
   assert.match(why([{ ...ok('R/A'), itemsOk: false }]), /items 1-2/);

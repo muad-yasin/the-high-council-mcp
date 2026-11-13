@@ -5,7 +5,7 @@
 // conflictDeciderSystem(): what the decider is. The decider is not a judge of the plan: it rules on a swing, and the judges who raised the objections are still asked about them.
 export function conflictDeciderSystem() {
   return [
-    'You are the decider of a review panel. The panel is arranged in layers: the judges of an upper layer are asked only after the judges below them have signed off.',
+    'You are the decider of a review panel. The panel is arranged in layers: the plan is reviewed by one layer of judges at a time and passes from a lower layer to the ones above it.',
     '',
     'Sometimes, after the writer revises the plan for the objections of one layer, an objection that a judge of another layer had stopped raising comes back, and the plan swings between two sets of demands. For each such conflict below you are shown the objection that came back and the objections of other layers that stood in the rounds where the writer revised in between. Say which should prevail in the next revision: the one that came back, one of the others, or neither. A ruling removes no objection and waives no requirement of the plan or the task.',
     '',

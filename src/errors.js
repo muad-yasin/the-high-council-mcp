@@ -20,7 +20,7 @@ export const ERROR_CATALOG = {
     render: ctx => ({
       what: `The "${ctx.provider}" API key isn't set, so chain "${ctx.chain}" can't call that lab.`,
       concept: `An API key is what proves to ${ctx.provider} that a request is yours to pay for - without it, every call to that lab fails before it starts.`,
-      fix: `Set ${ctx.envVar} in your .env file.`,
+      fix: `Set ${ctx.envVar} in your .env file.${ctx.provider === 'anthropic' ? ' Or answer the Claude seats with Claude Code sessions of your own: choose the session route (--claude-route session, or the claude_route argument set to "session").' : ''}`,      // A-DRAFT (wording row SSW-w12): the way a person with no key finds the session route
       doc: 'README.md#setup',
     }),
   },

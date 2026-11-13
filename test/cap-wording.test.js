@@ -23,7 +23,7 @@ const descOf = p => p?.description ?? p?.anyOf?.find(x => typeof x.description =
 /** The server's tool list over stdio (the minimal client of test/advice-tools.test.js). */
 function toolList() {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd: work, env: { PATH: process.env.PATH, HOME: work, COUNCIL_ADVISE_MOCK: '1', ...malformedProviderKeys() } });   // only tools/list is asked: no run starts, and no key a clone holds can reach a provider (test/no-paid-chain-spawn.test.js)
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd: work, env: { PATH: process.env.PATH, HOME: work, ...malformedProviderKeys() } });   // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD the env also carried COUNCIL_ADVISE_MOCK: '1'. NEW it does not: the server no longer reads it (WHY: the mock-advice mode left with the advice tools). Only tools/list is asked: no run starts, and no key a clone holds can reach a provider (test/no-paid-chain-spawn.test.js)
     let buf = ''; const timer = setTimeout(() => { child.kill(); reject(new Error('tools/list timed out')); }, 30_000);
     const send = m => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...m })}\n`);
     child.stdout.on('data', d => {
@@ -55,16 +55,22 @@ test('start_run and resume_run: max_usd is the figure suggested, never the limit
   const a = descOf(start.inputSchema.properties.max_usd);
   assert.equal(typeof a, 'string', 'the description sits on the property');
   assert.ok(a.startsWith("the figure to suggest as the run's spending limit"), a);
-  assert.ok(a.includes('For a paid chain the limit is the number the person types in the dialog; this figure is only the suggestion, and "none" is refused (nothing started).'), a);
+  assert.ok(a.includes('Otherwise, for a paid chain the limit is the number the person types in the dialog; this figure is only the suggestion, and "none" is refused (nothing started).'), a);
   assert.ok(a.includes(`(a user who set COUNCIL_MAX_USD_LIMIT gets the lesser of the two, with $${DEFAULT_MAX_USD} for an unset MAX_USD_PER_RUN); with neither set it suggests nothing.`), a);
   assert.ok(a.includes('A figure above COUNCIL_MAX_USD_LIMIT is refused, and so is "none" on a chain with no paid seat where the user set that limit; 0 is refused.'), a);
   assert.doesNotMatch(a, /Defaults to MAX_USD_PER_RUN|per-run spend ceiling in USD/, 'the old claim of a default ceiling is gone');
+  // CHANGED ACCEPTED PINS (0.8.4 H10, C&C's G10 ruling of 4 Nov 2026). OLD: resume_run's max_usd was "the figure to suggest as the run's new total" ... "this figure is only the suggestion", and the tool text said "max_usd is the figure suggested".
+  // NEW: on a run with a paid seat the figure is the one the PERSON said, accepted only with their words (person_words); a session never suggests one (RU-S20-09). start_run's max_usd (a first limit) keeps its suggestion text above.
   const b = descOf(resume.inputSchema.properties.max_usd);
   assert.equal(typeof b, 'string', 'the description sits on the property');
-  assert.ok(b.startsWith("the figure to suggest as the run's new total"), b);
-  assert.ok(b.includes('A paid run its limit stopped asks the person for the new total in the dialog; this figure is only the suggestion.'), b);
-  assert.doesNotMatch(b, /raise the per-run ceiling for the rest of this run, a positive number/);
-  assert.ok(resume.description.includes('or a run its spending limit stopped (a paid run asks the person for a new, higher total; max_usd is the figure suggested)'), resume.description);
+  assert.ok(b.startsWith('a positive number of dollars. On a run with a paid seat this is the new total THE PERSON said, and it is used only together with person_words'), b);
+  assert.ok(b.includes('you never choose or suggest a figure. Without the person\'s words a figure is refused (nothing is started); without a figure the person types the new total in the dialog.'), b);
+  assert.doesNotMatch(b, /the figure to suggest|only the suggestion/, 'resume_run no longer suggests a figure');
+  const w = descOf(resume.inputSchema.properties.person_words);
+  assert.equal(typeof w, 'string', 'person_words is a property of resume_run');
+  assert.ok(w.includes('Never write or paraphrase these words yourself. The tool cannot check that the person said them: the record keeps the words and that you relayed them.'), w);
+  assert.ok(resume.description.includes('or a run its spending limit stopped (a paid run asks the person for a new, higher total in the dialog). To use a total the person has already said, pass it as max_usd together with their own words in person_words.'), resume.description);
+  assert.doesNotMatch(resume.description, /figure suggested/, 'the old tool text is gone');
 });
 
 test('the registry listing: MAX_USD_PER_RUN is the suggested figure (its 7 is DEFAULT_MAX_USD); COUNCIL_MAX_USD_LIMIT is the ceiling and no longer "locks the cap"', () => {
@@ -95,6 +101,6 @@ test('usage text: --max-usd is the suggestion of a paid chain and the ceiling of
   assert.ok(text.includes('council --task tasks/x.md --max-usd 2'), `the usage text is printed: ${text.slice(0, 200)}`);
   const start = text.indexOf('council --task tasks/x.md --max-usd 2');
   const block = text.slice(start, text.indexOf('council init', start)).replace(/\s+/g, ' ');
-  assert.ok(block.includes(`a paid chain asks you to type its limit and suggests $2; the run stops before any stage that could take it past that. A chain with no paid seat has no screen: $2 is its ceiling (default $${DEFAULT_MAX_USD}, or MAX_USD_PER_RUN; --max-usd none disables it). A stopped run resumes with --resume and a higher total;`), block);
+  assert.ok(block.includes(`a paid chain asks you to type its limit and suggests $2; the run stops before any call that, by THC's estimate, would take it past that. A chain with no paid seat has no screen: $2 is its ceiling (default $${DEFAULT_MAX_USD}, or MAX_USD_PER_RUN; --max-usd none disables it). A stopped run resumes with --resume and a higher total;`), block);
   assert.doesNotMatch(block, /and a higher ceiling|Default \$7, or/);
 });

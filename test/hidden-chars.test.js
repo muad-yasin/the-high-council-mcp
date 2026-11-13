@@ -1,4 +1,4 @@
-// Audit item 7 (0.8.3), commit 1: ONE definition of "hidden characters" (src/hidden-chars.js) and the producers that refuse or strip with it: the advice brief, the contract lint and request,
+// Audit item 7 (0.8.3), commit 1: ONE definition of "hidden characters" (src/hidden-chars.js) and the producers that refuse or strip with it: (the advice brief, which left in 0.8.4,) the contract lint and request,
 // the return path. Review/Build_0.8.3/m6-closing/Item7_Gate_Note.md (+ addendum). Offline, $0. EVERY payload is built with String.fromCodePoint: a `\u` escape typed through an editor or a
 // command can arrive as the literal invisible character, which would put the hidden characters into this file itself (a scan below checks that this file holds none).
 import test from 'node:test';
@@ -9,8 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as hiddenChars from '../src/hidden-chars.js';
-import { HIDDEN_CLASS_SOURCE, hiddenIn, countHidden, markHidden, stripHiddenChars, briefHiddenRegex, isHiddenPoint, isQuietPoint } from '../src/hidden-chars.js';
-import { hiddenCharacterIn, briefRefusal } from '../src/advice-brief.js';
+import { HIDDEN_CLASS_SOURCE, hiddenIn, countHidden, markHidden, stripHiddenChars, isHiddenPoint, isQuietPoint } from '../src/hidden-chars.js';
 import { hiddenCharacterReport, stripHidden } from '../src/return-path.js';
 import { terminalSafe } from '../src/terminal-safe.js';
 import { lintContractDraft } from '../src/contract-lint.js';
@@ -25,18 +24,20 @@ const range = (a, b = a) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 // THE FLOOR: the code points the advice brief refused with its hand-written list before this unit (487 of them, in this order of ranges). Nothing in it may drop out of the new class.
 const OLD_BRIEF_LIST = [[0, 8], [0xB, 0xC], [0xE, 0x1F], [0x7F, 0x9F], [0xAD], [0x34F], [0x61C], [0x115F, 0x1160], [0x17B4, 0x17B5], [0x180B, 0x180F], [0x200B, 0x200F], [0x202A, 0x202E], [0x2060, 0x206F],
   [0x2800], [0x3164], [0xFE00, 0xFE0E], [0xFEFF], [0xFFA0], [0xE0000, 0xE007F], [0xE0100, 0xE01EF]].flatMap(([a, b]) => range(a, b));
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the two floor rows below called briefHiddenRegex() from src/hidden-chars.js. NEW: they call floorRe(), a local copy of that function's one line, built from the module's own HIDDEN_CLASS_SOURCE. WHY: briefHiddenRegex left with the advice brief; the shared class stays, and its floor (nothing the old brief list refused may drop out, and only invisible members may be gained) is still worth pinning.
+const floorRe = () => new RegExp(`(?![${cp(0xFE0F, 0x2028, 0x2029)}])[${HIDDEN_CLASS_SOURCE}\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F-\\x9F]`, 'u');
 // what a pin check reports as missing from a candidate matcher (the check itself, so a row can show that it goes red)
 const missingFrom = (re, points) => points.filter(c => !re.test(cp(c)));
 
 test('the floor pin can FAIL: one code point outside the class (e with acute, U+00E9) is reported missing, a code point inside it is not', () => {
-  const re = briefHiddenRegex();
+  const re = floorRe();
   assert.deepEqual(missingFrom(re, [...OLD_BRIEF_LIST.slice(0, 5), 0xE9]), [0xE9]);
   assert.deepEqual(missingFrom(re, OLD_BRIEF_LIST.slice(0, 5)), []);
 });
 
 test('the floor: every code point the advice brief used to refuse (487) is still refused, and the new list gains only invisible members (no letter, digit, space or mark gains a refusal)', () => {
   assert.equal(OLD_BRIEF_LIST.length, 487);
-  const re = briefHiddenRegex();
+  const re = floorRe();
   assert.deepEqual(missingFrom(re, OLD_BRIEF_LIST), []);
   const gained = [];
   for (let c = 0; c <= 0x10FFFF; c++) { if (c >= 0xD800 && c <= 0xDFFF) continue; if (re.test(cp(c)) && !OLD_BRIEF_LIST.includes(c)) gained.push(c); }
@@ -88,15 +89,6 @@ test('stripHiddenChars removes the class and keeps the quiet joiners', () => {
   assert.equal(stripHiddenChars(`a${cp(0x3164, 0xFE00, 0xE0100, 0x2800, 0x34F)}b`), 'ab');
   const keep = `a${cp(0xAD, 0x200C, 0x200D, 0xFE0F, 0x180B, 0x17B4)}b`;
   assert.equal(stripHiddenChars(keep), keep);
-});
-
-test('the advice brief refuses with the module (a variation selector or a filler in any field), allows the emoji selector, and says what it found', () => {
-  const brief = tail => ({ schema_version: 'advice-brief/1', moment: 'before_commit', question: `Should we ship it${tail}?`, decision_at_stake: 'A dropped column cannot be restored once the migration has run in production.',
-    options_considered: [{ name: 'Drop it now', summary: 'Run the migration before the release.' }, { name: 'Do less', summary: 'Keep the column and add a new one beside it.' }],
-    tried: [{ what: 'Ran the migration on a copy of the data', result: 'It passed in 3 seconds.' }], sensitivity: 'internal', not_included: ['the conversation', 'environment variables'] });
-  for (const c of [0xFE00, 0x3164, 0x1D173]) assert.equal(hiddenCharacterIn(brief(cp(c)))?.code, hex(c), hex(c));
-  assert.equal(hiddenCharacterIn(brief(cp(0xFE0F))), null, 'the emoji selector was always allowed in a brief');
-  assert.match(briefRefusal(brief(cp(0xFE00))), /invisible or control character \(U\+FE00/);
 });
 
 test('return path: the report counts the whole class apart from tags and bidi, and stripHidden removes it; the quiet joiners and a real England flag stay', () => {
@@ -170,6 +162,7 @@ const EXEMPT = {
   'src/return-path.js': 'the report\'s own categories (tag block, bidi controls: both pinned below to be subsets of the class) and the flag sequence',
   'src/terminal-safe.js': 'the display filter: controls and bidi marks only; pinned below to be a subset of the class plus controls',
   'src/fence.js': 'file NAMES (controls and bidi only); countInvisible over file content asks the module',
+  'src/excerpt-extract.js': 'file NAMES (controls and bidi only), the same set as src/fence.js: a joiner stays allowed in a name',
   'src/unknown-flag.js': 'a flag-dash guard (format and space characters before a dash), not text hiding',
   'src/name-lint.js': '\\p{M} as part of WORD letters, not hiding',
 };

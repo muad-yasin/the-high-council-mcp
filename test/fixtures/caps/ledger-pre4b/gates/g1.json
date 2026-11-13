@@ -1,0 +1,35 @@
+{
+  "schema": "gate/1",
+  "id": "g1",
+  "kind": "run_cap",
+  "status": "approved",
+  "text": "cap-screen-1.md",
+  "sha256": "cf863cdbcde622828142bdf865d898b60d3b64f4b69d8c0cb220adf4fae6a248",
+  "bytes": 25,
+  "price": null,
+  "seats": [],
+  "sensitivity": null,
+  "masks": {},
+  "cap": {
+    "operation": "start",
+    "run_id": "run-1",
+    "scope_sha256": "f586b09ab4119a63b209c83c3f5df1ac39d13bf470c8151d9930e952965ecb4c",
+    "ceiling_usd": null,
+    "ceiling_source": null
+  },
+  "meta_sha256": "3b26cfc4856f0a8852e12e051f68ed434c9a5802045be3fb6e0022f12b546d78",
+  "requested_at": "2026-11-01T09:00:00.000Z",
+  "expires_at": "2026-11-02T09:00:00.000Z",
+  "answer": {
+    "decision": "approved",
+    "channel": "cli",
+    "actor": "fixture",
+    "reason": null,
+    "tty": true,
+    "at": "2026-11-01T09:01:00.000Z",
+    "seq": 2,
+    "cap_usd": "5",
+    "cap_micro_usd": 5000000
+  },
+  "seq": 1
+}

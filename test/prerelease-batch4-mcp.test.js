@@ -98,7 +98,7 @@ test('list_chains shows a user chain from the working directory\'s chains/', asy
     const mine = body(res.get(2)).find(c => c.name === 'my-own');
     assert.ok(mine, 'user chain listed');
     assert.equal(mine.source, 'user');
-    assert.ok(body(res.get(2)).some(c => c.name === 'verify'), 'package chains still listed');
+    assert.ok(body(res.get(2)).some(c => c.name === 'plan-mini-council'), 'package chains still listed');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

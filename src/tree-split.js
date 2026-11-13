@@ -9,6 +9,7 @@
 // (check 8: the open questions of the ancestors). The report.json field (`split_contract`) is the block-local result; the tree applies the rest again at expansion.
 import { canonicalJson, sha256Of } from './thin-contract.js';
 import { maskFences } from './milestones.js';
+import { withoutSummaryBlock } from './summary-block.js';
 
 export const SPLIT_MARKER = 'the-high-council:tree-split';
 export const MILESTONE_STATUSES = Object.freeze(['ready', 'decompose', 'needs-decision']);
@@ -294,7 +295,7 @@ export function splitContractOf({ text, criteriaIds = [] }) {
  * whose sha256 equals `delivered_text.body_sha256`. Returns { body } or { error }; with no match it is a refusal naming `delivered_text.body_sha256`, never a fallback to the whole file.
  */
 export function bodyOfDelivered(deliverableText, delivered) {
-  const text = String(deliverableText ?? '');
+  const text = withoutSummaryBlock(String(deliverableText ?? ''), delivered?.summary_block);   // 0.8.4 item 6: the handling session's summary block, when the report records one, is not part of the file the run wrote
   const want = delivered?.body_sha256;
   if (!isStr(want)) return { error: 'report.json has no delivered_text.body_sha256' };
   const notes = Array.isArray(delivered?.harness_notes) ? delivered.harness_notes.length : 0;

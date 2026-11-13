@@ -11,6 +11,7 @@
 import { hostname } from 'node:os';
 import { createHash } from 'node:crypto';
 import { isPidAlive } from './run-lock.js';
+import { roundStopsInWords } from './overseer-rounds.js';
 import { RUN_FOLDER } from './run-status.js';
 
 export const EVENTS_SCHEMA = 'tree-events/1';
@@ -95,19 +96,9 @@ export const EVENT_FIELDS = Object.freeze({
   accounting_accepted: { reservationIds: v => Array.isArray(v) && v.length > 0 && v.every(isStr) },   // M2: `<run id>:<reservation id>` keys (ids repeat across runs)
   // M2 (PLAN 7.2 item 6): a copy of one line of a member's own spend-reservations.jsonl, written with it. `line` is that line object, byte for byte (its `at` included), so the gate can tell the two files agree.
   reservation_mirrored: { runId: isStr, node: isNodePath, generation: isGen, line: v => isObj(v) && isStr(v.id) && (v.event === 'reserved' || v.event === 'settled') },
-  // ROADMAP 77 (the paid repair recommendation, step 1: the GRANT; plan note Review/Build_0.8.3/m7/Roadmap77_Paid_Repair_Plan_Note_2026-10-20.md section 10). A recommendation is a side request, NOT a node: it is never in `state.nodes`, never counts toward maxRuns,
-  // and its money rows live apart (adviceMoneyOf, src/tree-budget.js). `advice_registered` is the HOLD (the grant, inside the tree's typed cap; answered by the session or the person, C&C ruling 20 Okt: the session answers ONLY this grant, the person approves the brief);
-  // `expiresAtMs` bounds the wait for that approval (the hold waits on a person, so a live pid cannot be its only release). One request is ONE grant over up to two runs (the first and one re-ask: the re-ask is a second folder).
-  advice_registered: { adviceId: isStr, grantUsd: v => isPrice(v), purpose: v => v === 'recommendation', stopId: isStr, gateId: isStr, shownSha256: isSha, pid: v => Number.isInteger(v) && v > 0, host: isStr, expiresAtMs: v => Number.isFinite(v) && v > 0 },
-  advice_run_added: { adviceId: isStr, runId: isStr, kind: v => v === 'first' || v === 'reask', briefSha256: isSha, shownSha256: isSha },
-  advice_ended: { adviceId: isStr, reason: v => ADVICE_END_REASONS.includes(v), returnedUsd: v => isUsd(v) },
-  // a copy of one line of an advice run's own spend-reservations.jsonl (the sibling of `reservation_mirrored`, whose `node` field stays a node path): the gate feeds both into one run-id map
-  advice_reservation_mirrored: { adviceId: isStr, runId: isStr, line: v => isObj(v) && isStr(v.id) && (v.event === 'reserved' || v.event === 'settled') },
   readiness: { verdict: v => v === 'ready' || v === 'incomplete' || v === 'blocked', reasons: v => Array.isArray(v) && v.every(r => isObj(r) && isStr(r.severity) && isStr(r.code) && isStr(r.scope) && isStr(r.text)), inputs: isObj },   // M6 S3: the verdict, the reasons behind it and what it rests on (src/tree-readiness.js)
 });
 /** The named condition codes a deferral may carry (6d): the record can show them; "the agent thinks it matters" is not one. */
-/** How a recommendation request ends (ROADMAP 77): settled (the calls were made and paid for), declined (the person declined the brief), never_started (no run was added), expired (the brief approval did not come in time), crashed (a dead claim), stopped (a guard refused after yes). */
-export const ADVICE_END_REASONS = Object.freeze(['settled', 'declined', 'never_started', 'expired', 'crashed', 'stopped']);
 export const DEFER_CODES = Object.freeze(['over_available', 'key_scan_finding', 'pii_finding', 'accounting_gate_fails', 'person_only_form', 'plan_unclear']);
 export const EVENT_NAMES = Object.freeze(Object.keys(EVENT_FIELDS));
 const isPrice = v => typeof v === 'number' && Number.isFinite(v) && v > 0;
@@ -151,7 +142,7 @@ export const EVENT_OPTIONAL = Object.freeze({
   // M5d (PLAN 8.4, 8.5): a decision names the stop it answers and the gate whose approval authorized it. `form` is 'regenerate' (the stop is answered by this event, a new generation follows) or 'milestone' (resolve in place:
   // the stop stays open until the milestone_resolved that names this decision; node/generation/milestone say which milestone). `obligation` is the qualified identity the person said the stop is about (recorded only).
   // `covers` (M5e S5, C&C Q2): a ROOT milestone resolution answers EVERY open stop of the root in one bound decision: stopId is the primary, covers the others (all stops of the same node)
-  decision_recorded: { ...ANSWERED_BY, replansRoot: v => v === true, covers: v => Array.isArray(v) && v.every(isStr), stopId: isStr, gateId: isStr, shownSha256: isStr, form: v => v === 'regenerate' || v === 'milestone' || v === 'keep', planMode: v => v === 'fresh' || v === 'data', obligation: isStr, node: isNodePath, generation: isGen, milestone: isStr, oldPlan: v => isOldPlanChoice(v), allowanceBytes: v => Number.isInteger(v) && v > 0, fromRecommendation: v => isObj(v) && Number.isInteger(v.n) && v.n >= 1 && isStr(v.adviceId), fromSessionDraft: v => isObj(v) && isStr(v.draftId) },
+  decision_recorded: { ...ANSWERED_BY, replansRoot: v => v === true, covers: v => Array.isArray(v) && v.every(isStr), stopId: isStr, gateId: isStr, shownSha256: isStr, form: v => v === 'regenerate' || v === 'milestone' || v === 'keep', planMode: v => v === 'fresh' || v === 'data', obligation: isStr, node: isNodePath, generation: isGen, milestone: isStr, oldPlan: v => isOldPlanChoice(v), allowanceBytes: v => Number.isInteger(v) && v > 0, fromSessionDraft: v => isObj(v) && isStr(v.draftId) },
   limit_raised: { shownSha256: isStr, gateId: isStr, ...ANSWERED_BY },
   // S8: a root generation >= 2 is registered through the admitted path with the run it replaces and the sha256 of the task bytes it was planned from
   node_registered: { replacesRunId: isStr, taskSha256: isStr, builtFrom: v => Array.isArray(v) && v.every(b => b && isNodePath(b.node) && isGen(b.generation) && (b.eventId === null || isStr(b.eventId))) },
@@ -173,7 +164,6 @@ export const EVENT_OPTIONAL = Object.freeze({
   stop_draft_change_asked: { ...ANSWERED_BY },
   price_answered: { ...ANSWERED_BY },
   tree_abandoned: { ...ANSWERED_BY },
-  advice_registered: { ...ANSWERED_BY },
   cap_amended: { ...ANSWERED_BY },
   chain_limits_amended: { ...ANSWERED_BY },
   blocked: { check: isStr, detail: isStr, frontierKey: isStr, ancestor: isStr, stopId: isStr },   // frontierKey (M5c4): on parent_changed, the frontier whose approval it invalidates (see foldRecord)
@@ -269,7 +259,6 @@ export function foldRecord(events) {
   const answerStop = (id, hold = false) => { const i = openStops.indexOf(id); if (i >= 0) openStops.splice(i, 1); if (hold && stopStale.has(id)) heldStale.set(id, notRoot(stopStale.get(id))); stopStale.delete(id); };
   const parentBlocks = new Map(); const parentStale = new Map();      // M5c4: per frontier key; the stale marks of a parent_changed live apart from the stop's, so the provisional "a decision clears every stale mark" rule cannot wipe them
   let started = false; let treeId = null; let lastId = 0; let abandoned = null; const capAmendments = []; const chainAmendments = new Map();
-  const advice = new Map();        // ROADMAP 77: adviceId -> { adviceId, grantUsd, stopId, claim, expiresAtMs, runs: [{ runId, kind }], ended: null | { reason, returnedUsd }, id, answeredBy } (a side request, never a node)
   const keyOf = e => `${e.node}@g${e.generation}`;
   for (const e of events) {
     seq += 1;
@@ -397,9 +386,6 @@ export function foldRecord(events) {
       // branch of `generation_opened` above (answerStop for every open stop, the root and parent blocks lifted, their stale marks dropped); every held era is passed over as X1 passes it (heldReleasedBelow = the latest root generation) and heldEras() returns nothing for an abandoned tree, so
       // `heldKeys` is empty afterwards and the formerly held nodes fall under deadKeys' orphan clause. `record_corrupt` and the other sticky reasons are untouched. The table refuses every later event except the three plain records.
       // gate page 5: a new total for the whole tree. It changes NOTHING else in the fold: no stop is answered, no sticky reason or block cleared, no node touched (a raise ADDS authorization; a record_corrupt / privacy / human-rejection stop stands).
-      case 'advice_registered': if (!advice.has(e.adviceId)) advice.set(e.adviceId, { adviceId: e.adviceId, grantUsd: e.grantUsd, stopId: e.stopId, claim: { pid: e.pid, host: e.host }, expiresAtMs: e.expiresAtMs, runs: [], ended: null, id: e.id, answeredBy: answeredByOf(e) }); break;
-      case 'advice_run_added': { const a = advice.get(e.adviceId); if (a && !a.ended && !a.runs.some(r => r.runId === e.runId)) a.runs.push({ runId: e.runId, kind: e.kind }); break; }
-      case 'advice_ended': { const a = advice.get(e.adviceId); if (a && !a.ended) a.ended = { reason: e.reason, returnedUsd: e.returnedUsd }; break; }
       case 'cap_amended': capAmendments.push({ eventId: e.id, fromCapUsd: e.fromCapUsd, toCapUsd: e.toCapUsd }); break;
       case 'chain_limits_amended': chainAmendments.set(e.chain, { eventId: e.id, fromSha256: e.fromSha256, toSha256: e.toSha256 }); break;       // changes nothing else in the fold: no stop, block or node (it makes the tree accept a file; readTreeRecord lays it over tree.chains)
       case 'tree_abandoned': {
@@ -473,7 +459,7 @@ export function foldRecord(events) {
       if (root !== undefined) { adoptedBelow.set(k, root); changed = true; }
     }
   }
-  const state = { maxOpenedBoundary, openedAt, openingsOf, accepted, deferred, drafts, started, treeId, nodes, closedUnstarted, piiAllowed, adopted, adoptedBelow, active: activeKeys[0] ?? null, activeKeys, frontiers, decisions, openStops: [...openStops], stopMeta, restoredStops, detectedStops, maxOpened, stale, staleWhy, staleSrc, sticky, parentBlocks, heldReleasedBelow, heldReleasedKeys, abandoned, capAmendments, chainAmendments, advice, lastId };
+  const state = { maxOpenedBoundary, openedAt, openingsOf, accepted, deferred, drafts, started, treeId, nodes, closedUnstarted, piiAllowed, adopted, adoptedBelow, active: activeKeys[0] ?? null, activeKeys, frontiers, decisions, openStops: [...openStops], stopMeta, restoredStops, detectedStops, maxOpened, stale, staleWhy, staleSrc, sticky, parentBlocks, heldReleasedBelow, heldReleasedKeys, abandoned, capAmendments, chainAmendments, lastId };
   // Two things are read off the FINISHED fold, so they come after the object exists (deadKeys reads nodes, frontiers, decisions, staleSrc and the held/adopted maps; never sticky, stale, parentBlocks or active).
   const dead = deadKeys(state);
   // (1) A4 (C&C thcmcp-cd, 23 Okt 2026): a parent_changed block whose frontier's PARENT is dead guards nothing, when the parent died through a SUB-PLAN regenerate. Such a frontier can neither register nor start a child (the node_registered rows approvalValid :1214,
@@ -1097,25 +1083,6 @@ export function liveMembersOf(state, facts = {}) {
   return out;
 }
 export const claimAlive = (claim, { pidAlive = isPidAlive, host = hostname() } = {}) => !claim || claim.host !== host || pidAlive(claim.pid);
-/**
- * ROADMAP 77: the recommendation requests that still hold their grant: not ended. -> [adviceId] in record order. At most ONE is ever unended (the table refuses a second registration).
- * `liveAdviceOf` is the narrower question abandon asks: unended AND its claim alive AND the wait for the brief's approval not expired (`facts.nowMs`, default the clock); an expired or dead request is the reconcile's to end, not a reason to refuse.
- */
-export const openAdviceOf = state => [...state.advice.values()].filter(a => !a.ended).map(a => a.adviceId);
-/**
- * ROADMAP 77: the ONE release rule for a request nobody answered: not ended, NO call added, and either the wait for the brief's approval has run out (`expired`) or its claim is dead on this host (`never_started`).
- * -> [{ adviceId, reason, returnedUsd }] (the whole grant: nothing was spent). Used by reconcileAdvice (src/tree-advice-record.js) and by planRecovery (src/tree-recovery.js): one copy. A request WITH a call is not decided here
- * (a call may outlive the process that registered it; its folder says whether it ended: reconcileAdvice).
- */
-export function unansweredAdviceOf(state, facts = {}) {
-  const nowMs = facts.nowMs ?? Date.now();
-  return [...state.advice.values()].filter(a => !a.ended && a.runs.length === 0 && (nowMs >= a.expiresAtMs || !claimAlive(a.claim, facts)))
-    .map(a => ({ adviceId: a.adviceId, reason: nowMs >= a.expiresAtMs ? 'expired' : 'never_started', returnedUsd: a.grantUsd }));
-}
-export function liveAdviceOf(state, facts = {}) {
-  const nowMs = facts.nowMs ?? Date.now();
-  return [...state.advice.values()].filter(a => !a.ended && claimAlive(a.claim, facts) && nowMs < a.expiresAtMs).map(a => ({ adviceId: a.adviceId, pid: a.claim.pid, host: a.claim.host }));
-}
 
 const refuse = (event, reason) => ({ code: 'transition_refused', transition: event.event, reason });
 
@@ -1191,12 +1158,12 @@ export function answeredByRefusal(event, { sessionAllowed = false } = {}) {
 export function transitionRefusal(state, event, facts = {}) {
   const name = event.event;
   // ROADMAP 57, FIRST LINE (before the unreadable-report check below and the RECORDS return, so an abandoned tree always gets this one sentence): once abandoned, every event but the three plain records is refused
-  if (state.abandoned && !['blocked', 'guard_refused', 'reservation_mirrored', 'advice_reservation_mirrored'].includes(name)) return refuse(event, abandonedSentence(state));
-  const RECORDS = ['blocked', 'guard_refused', 'integration_recorded', 'accounting_accepted', 'reservation_mirrored', 'advice_reservation_mirrored', 'readiness'];
+  if (state.abandoned && !['blocked', 'guard_refused', 'reservation_mirrored'].includes(name)) return refuse(event, abandonedSentence(state));
+  const RECORDS = ['blocked', 'guard_refused', 'integration_recorded', 'accounting_accepted', 'reservation_mirrored', 'readiness'];
   if (name === 'accounting_accepted' && event.unreadableReports !== undefined) {
     // an acceptance of an unreadable report names a member of THIS tree and carries the key the gate gave that problem (`<run id>:report.json`); the figure itself is the writer's, re-read under the lock
     for (const u of event.unreadableReports) {
-      if (![...state.nodes.values()].some(x => x.runId === u.runId) && ![...state.advice.values()].some(x => x.runs.some(r => r.runId === u.runId))) return refuse(event, `the unreadable report of ${u.runId} is accepted for a run that is not a member of this tree`);
+      if (![...state.nodes.values()].some(x => x.runId === u.runId)) return refuse(event, `the unreadable report of ${u.runId} is accepted for a run that is not a member of this tree`);
       if (!Array.isArray(event.reservationIds) || !event.reservationIds.includes(`${u.runId}:report.json`)) return refuse(event, `the acceptance of the unreadable report of ${u.runId} names the key ${u.runId}:report.json`);
     }
   }
@@ -1210,7 +1177,7 @@ export function transitionRefusal(state, event, facts = {}) {
   if (name === 'tree_started') return state.started ? refuse(event, 'the tree is already started') : null;
   if (!state.started) return refuse(event, 'the tree has not started (no tree_started yet)');
   // No paid start or resume runs anywhere in the tree while the record is corrupt, an ancestor changed, the root is affected, or accounting is blocked (PLAN 4.3, 7.6).
-  const paid = ['node_registered', 'node_started', 'node_resumed', 'advice_registered', 'advice_run_added'].includes(name);
+  const paid = ['node_registered', 'node_started', 'node_resumed'].includes(name);
   if (paid && sticky.length) return refuse(event, `the tree is blocked: ${sticky.join(', ')}`);
   switch (name) {
     case 'frontier_previewed':
@@ -1343,7 +1310,7 @@ export function transitionRefusal(state, event, facts = {}) {
       if (deadKeys(state).has(key)) return refuse(event, `${key} is dead (${DEAD_REASON}): a choice would promise a resume that cannot happen`);
       if (heldKeys(state).has(key)) return refuse(event, `${key} is ${heldPhraseOf(state, key)}: it is neither resumed nor given a choice`);
       if (event.runId !== n.runId) return refuse(event, `run ${event.runId} is not the run registered for ${key} (${n.runId})`);
-      if (n.phase !== PHASES.running) return refuse(event, `${key} is ${n.phase}; a choice is for a node stopped at its overseer limit, which stays running`);
+      if (n.phase !== PHASES.running) return refuse(event, `${key} is ${n.phase}; a choice is for a node that is still running (its run stopped ${roundStopsInWords()})`);
       if (claimAlive(n.claim, facts)) return refuse(event, `${key} is running (pid ${n.claim?.pid} is alive)`);
       // the conflict choice carries its picks and names a conflict stop; the overseer-limit choices carry neither (a conflict stop id never names a round limit)
       if (event.choice === 'prevail' && (!Array.isArray(event.picks) || !event.picks.length || !/^conflict:/.test(event.stop))) return refuse(event, `${key}: a conflict choice names a conflict stop and carries one pick for every conflict the decider asked about`);
@@ -1519,21 +1486,13 @@ export function transitionRefusal(state, event, facts = {}) {
       if (event.form === 'keep') { const bad = keepRefusal(state, { stopId: event.stopId, node: event.node, generation: event.generation }); return bad ? refuse(event, bad) : null; }
       if (event.form === 'milestone' && !(isNodePath(event.node) && isGen(event.generation) && isStr(event.milestone))) return refuse(event, 'a milestone decision names the node, generation and milestone it resolves');
       // S8 (rulings row 130, REVERSING PLAN 8.4's "the root is never regenerated"): a regenerate answer to a ROOT stop is a root re-plan and says so (`replansRoot`); the preconditions that need files (the task bytes, the money) are the decide form's, the ones the record can judge are here
-      // ROADMAP 77 (step 4, B-DRAFT sentences): a root re-plan is decided only after the recommendation request ended (an open hold would shrink the new root's grant), and a decision that says its text is a recommendation names a request of THIS stop that ended settled.
-      if (event.replansRoot === true) { const open = openAdviceOf(state); if (open.length) return refuse(event, `a recommendation request (${open[0]}) is still open: it ends before the decision is recorded`); }
       if (event.fromSessionDraft !== undefined) {
         // GAP A (A-DRAFT sentences): the person approved the SESSION's text as written. The draft must be the newest one of this stop and the decision text its text, byte for byte, so a draft changed after it was shown can never be recorded.
         if (event.replansRoot !== true) return refuse(event, 'only a root re-plan carries a session draft (fromSessionDraft)');
-        if (event.fromRecommendation !== undefined) return refuse(event, 'a decision text comes from a recommendation or from a session draft, not both');
         if (event.actor !== 'person') return refuse(event, 'a session draft is approved by a person: the decision is the person\'s act');
         const d = state.drafts.get(event.stopId);
         if (!d || d.id !== event.fromSessionDraft.draftId) return refuse(event, `${event.fromSessionDraft.draftId} is not the newest draft of stop ${event.stopId}: the session wrote a newer one, or there is none`);
         if (event.text !== d.text) return refuse(event, 'the decision text is not the draft\'s text');
-      }
-      if (event.fromRecommendation !== undefined) {
-        if (event.replansRoot !== true) return refuse(event, 'only a root re-plan carries a recommendation (fromRecommendation)');
-        const a = state.advice.get(event.fromRecommendation.adviceId);
-        if (!a || a.ended?.reason !== 'settled' || a.stopId !== event.stopId) return refuse(event, `${event.fromRecommendation.adviceId} is not a recommendation request of this stop that was answered (settled)`);
       }
       if (event.replansRoot === true) {
         const stopNode = state.stopMeta.get(event.stopId)?.node ?? null;
@@ -1673,8 +1632,6 @@ export function transitionRefusal(state, event, facts = {}) {
       // the typed gate: a person's decision, never a bare record (the shape check has the fields; the hash is 64 hex). Not blocked by the sticky reasons: a tree under parent_changed / root_affected is exactly what a person abandons.
       if (!/^[0-9a-f]{64}$/.test(event.shownSha256 ?? '')) return refuse(event, 'an abandon is a person\'s decision: it carries the gate that was typed and the sha256 of the text that was read');
       { const bad = answeredByRefusal(event); if (bad) return refuse(event, bad); }     // K10: an abandon is a person's
-      const liveAdvice = liveAdviceOf(state, facts);
-      if (liveAdvice.length) return refuse(event, `a recommendation request (${liveAdvice[0].adviceId}) is still in progress (registered by pid ${liveAdvice[0].pid} on ${liveAdvice[0].host}): a tree cannot be abandoned while one is`);   // ROADMAP 77: the hold of an unfinished request is released first (it ends, or its wait for the brief expires)
       const live = liveMembersOf(state, facts);
       if (live.length) return refuse(event, `${live[0].key} still has a live ${live[0].kind === 'post_run' ? 'post-run call' : 'claim'} (pid ${live[0].pid} on ${live[0].host})${live.length > 1 ? ` and ${live.length - 1} more` : ''}: a tree with a running member cannot be abandoned`);
       return null;
@@ -1696,29 +1653,6 @@ export function transitionRefusal(state, event, facts = {}) {
       if (event.fromSha256 === event.toSha256) return refuse(event, 'the chain file is the one already accepted: nothing to amend');
       const last = state.chainAmendments.get(event.chain);
       if (last && last.toSha256 !== event.fromSha256) return refuse(event, `the chain's limits were amended since they were read (the tree now accepts ${last.toSha256.slice(0, 12)}, not ${String(event.fromSha256).slice(0, 12)})`);
-      return null;
-    }
-    // ROADMAP 77. The hold (the grant) is the session's OR the person's to answer (C&C ruling, 20 Okt 2026: the session answers only the grant, inside the tree's typed cap, with its reason); the brief approval that follows is the add-on's own gate and is not recorded here.
-    case 'advice_registered': {
-      { const bad = answeredByRefusal(event, { sessionAllowed: true }); if (bad) return refuse(event, bad); }
-      if (state.advice.has(event.adviceId)) return refuse(event, `${event.adviceId} is already registered`);
-      const open = openAdviceOf(state);
-      if (open.length) return refuse(event, `${open[0]} still holds its grant: one recommendation request at a time`);
-      return null;
-    }
-    case 'advice_run_added': {
-      const a = state.advice.get(event.adviceId);
-      if (!a) return refuse(event, `${event.adviceId} is not a registered recommendation request`);
-      if (a.ended) return refuse(event, `${event.adviceId} has ended (${a.ended.reason}): its grant is released and no call can be added to it`);
-      if ([...state.nodes.values()].some(x => x.runId === event.runId) || [...state.advice.values()].some(x => x.runs.some(r => r.runId === event.runId))) return refuse(event, `${event.runId} already belongs to this tree`);
-      if (event.kind === 'first' ? a.runs.length !== 0 : a.runs.length !== 1) return refuse(event, event.kind === 'first' ? `${event.adviceId} already has its first call` : `${event.adviceId} has ${a.runs.length === 0 ? 'no first call' : 'its one more ask'} already: a request is the first call and at most one more`);
-      return null;
-    }
-    case 'advice_ended': {
-      const a = state.advice.get(event.adviceId);
-      if (!a) return refuse(event, `${event.adviceId} is not a registered recommendation request`);
-      if (a.ended) return refuse(event, `${event.adviceId} has already ended (${a.ended.reason})`);
-      if (event.returnedUsd > a.grantUsd + 1e-7) return refuse(event, `${event.adviceId} cannot give back more than its grant`);
       return null;
     }
     default: return refuse(event, 'not a transition of the table');

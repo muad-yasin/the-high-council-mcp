@@ -25,8 +25,8 @@ test('a relative --task path resolves against the caller\'s cwd, not the package
   try {
     mkdirSync(join(cwd, 'tasks'));
     writeFileSync(join(cwd, 'tasks', 'probe.md'), 'A fixture task that only exists in this throwaway cwd.');
-    const out = execFileSync('node', [cli, '--task', 'tasks/probe.md', '--chain', 'verify', '--dry-run'], { cwd, encoding: 'utf8' });
-    assert.match(out, /Chain: verify/, 'the dry-run must find and price the chain');
+    const out = execFileSync('node', [cli, '--task', 'tasks/probe.md', '--chain', 'plan-mini-council', '--dry-run'], { cwd, encoding: 'utf8' });
+    assert.match(out, /Chain: plan-mini-council/, 'the dry-run must find and price the chain');
     // If `work` had resolved to the package directory instead of `cwd`, the CLI would have
     // exited with "No task file at ..." rather than pricing the chain.
     assert.doesNotMatch(out, /No task file at/);

@@ -42,6 +42,9 @@ export const CUT_MARK = ' [cut]';
 export const OMITTED_IDS_MAX = 20;
 
 const utf8 = new TextEncoder();
+// A readable severity tag, as src/severity.js readSeverity reads it (a number 1 to 10 in steps of 0.1); mirrored here because this file is a leaf with no imports (test/objection-ledger.test.js). Anything else is null.
+const tagOf = v => (typeof v === 'number' && Number.isFinite(v) && v >= 1 && v <= 10 && Math.abs(v * 10 - Math.round(v * 10)) < 1e-9 ? v : null);
+
 /**
  * An ESTIMATE of tokens: ceil(UTF-8 bytes / 4). Equal to the harness's chars/4 for ASCII; it counts a multi-byte character by its bytes. It is an estimate that under-counts non-Latin text; tuned when an input-window table exists.
  * (CJK is about 3 bytes per character and roughly one token or more each, so it under-counts by about 25%.) No claim about quality or about any one model's tokenizer.
@@ -63,6 +66,7 @@ export function objectionLedger({ openByRound = [], replies = [], reviserByRound
       // `closed` and the observation). But it still APPEARS in later rounds, and the reviser answers it there: `seen` (every round it appears in, own or carried) decides the reviser lookup.
       const own = Number.isFinite(f.carried_from_round) ? f.carried_from_round : r.round;
       e.rounds.add(own); e.seen.add(r.round);
+      { const t = tagOf(f.severity); if (t !== null && (e.sevRound === undefined || own < e.sevRound || (own === e.sevRound && t > e.sev))) { e.sevRound = own; e.sev = t; } }   // unit 3: the FIRST readable tag stands (the earliest round that carries one; the highest within that round); an unreadable copy never replaces it
       if (own > e.latestRound) { e.latestRound = own; e.latest = [f]; } else if (own === e.latestRound) e.latest.push(f);
       raised.set(k, e);
     }
@@ -95,14 +99,14 @@ export function objectionLedger({ openByRound = [], replies = [], reviserByRound
       ...(typeof got.evidence === 'string' && got.evidence.trim() ? { reasoning: cap(got.evidence, EVIDENCE_CAP_CHARS) } : {}),
     } : null;
     const latest = [...e.latest].sort((x, y) => byCode(x.problem ?? '', y.problem ?? ''))[0]; // several failures under one id in a round: stable order, the problems are joined below
-    const closed = judge?.last_disposition === 'withdrawn' && judge.round > last;
+    const closed = (judge?.last_disposition === 'withdrawn' || judge?.last_disposition === 'withdrawn_exchange') && judge.round > last;   // B2: `withdrawn_exchange` = withdrawn with a reason in the layer's exchange (no quote required); the ledger says which
     const observed = {};
     if (!closed) {
       const later = []; // the rounds after the last time it was raised, up to the round just before the one about to be asked, that the run actually recorded
       for (let r = last + 1; r <= upto; r++) later.push(r);
       // A round in which the judge ANSWERED this id (any effect but `unanswered`: withdrawn, refused, sustained, stated_pass_open, unreadable_answer) is spoken for by the disposition field, so it is no "not raised again"
       // round: a sustained answer is carried by the harness and would otherwise read as "looks fixed" beside "still open". Silence (`unanswered`) is the observation left.
-      const answered = r => replies.some(p => p?.lab === e.lab && p.id === e.id && p.round === r && p.effect && p.effect !== 'unanswered' && p.effect !== 'unknown_id');
+      const answered = r => replies.some(p => p?.lab === e.lab && p.id === e.id && p.round === r && p.effect && p.effect !== 'unanswered' && !(p.effect === 'swept_carried' && p.path !== 'stated_pass') && p.effect !== 'unknown_id');
       const heard = later.find(r => (heardByRound[r] || []).includes(e.lab) && !answered(r));
       if (heard !== undefined) observed.not_raised_again_in = heard;
       else if (later.some(r => (notAskedByRound[r] || []).includes(e.lab))) observed.not_asked_since = last;
@@ -111,6 +115,7 @@ export function objectionLedger({ openByRound = [], replies = [], reviserByRound
     rows.push({
       id: e.id, raised_by: { lab: e.lab, layer: layerOf[e.lab] ?? null }, source: { round: first, draft_sha12: draftShaByRound[first] ?? null }, first_round: first, last_raised_round: last,
       criterion: latest.criterion ?? '', problem: [...new Set(e.latest.map(x => x.problem ?? '').filter(Boolean))].sort(byCode).join(' / '), ...(latest.quote ? { quote: latest.quote } : {}), reviser, judge, observed, status: closed ? 'closed' : 'active',
+      ...(e.sev !== undefined ? { severity: e.sev } : {}),
     });
   }
   rows.sort((a, b) => a.first_round - b.first_round || byCode(a.raised_by.lab, b.raised_by.lab) || byCode(a.id, b.id));
@@ -150,4 +155,30 @@ export function fitLedger(rows, render, { maxChars = LEDGER_MAX_CHARS, maxTokens
   const left = cutIds.length ? omittedOf(cutIds, 0) : null;
   const m = measure(render({ rows: kept, omitted: left }));
   return { rows: kept, omitted: left, overflow: true, text: null, ...m, counts: { rows: kept.length, active: kept.length, closed_cut: cutIds.length, compacted: 0 } };
+}
+
+/**
+ * B3 prep, JUDGE unit L2: the open objections of layer 1 that a middle layer is shown (src/roles.js layerOneOpenSection). `render({ rows, left })` returns the exact text sent. Order: the highest rating first (an objection with no readable rating counts as the
+ * highest: it holds, as everywhere in src/severity.js), then the oldest, then the id (codepoint order). When the text is over the ledger's own budget (LEDGER_MAX_CHARS and LEDGER_MAX_TOKENS_EST above: the one existing field cap, no second figure) the LOWEST-rated rows
+ * are cut from the end and counted in `left`; the section names the count. Never a stop and never silent: even with every row cut the frame and the count are returned.
+ */
+export function fitOpenRows(rows, render, { maxChars = LEDGER_MAX_CHARS, maxTokens = LEDGER_MAX_TOKENS_EST } = {}) {
+  const rank = r => { const t = tagOf(r.severity); return t === null ? Infinity : t; };
+  const sorted = [...(rows || [])].sort((a, b) => rank(b) - rank(a) || (a.first_round ?? 0) - (b.first_round ?? 0) || byCode(String(a.id), String(b.id)));
+  const fits = text => { const m = measure(text); return m.chars <= maxChars && m.tokens_est <= maxTokens; };
+  let kept = sorted.length; let text = render({ rows: sorted, left: 0 });
+  while (!fits(text) && kept > 0) { kept -= 1; text = render({ rows: sorted.slice(0, kept), left: sorted.length - kept }); }
+  return { rows: sorted.slice(0, kept), left: sorted.length - kept, text, ...measure(text) };
+}
+
+/** Piece R, and W44 (M0 FIX 1, C&C's ruling): the writer's reason for each objection it DECLINED, id -> reason, WHOLE (his word, 1 Nov 2026: no cut at any length; nothing upstream bounds a reason, so a long one is a long block). It is read from the disputes history, not from the last answer-back: the reason follows the writer's MOST RECENT decline of that objection (a later decline replaces it; a revision that says nothing about the objection keeps it; an objection that was fixed stops standing and is not shown at all). `disputes` is the run's list of { round, reason, objection_id? } in the order it was written; the lines one revision wrote for one id are joined with ' / ', as the answer-back joins them; an entry with no id, an empty or a non-text reason is left out. */
+export function declinedReasonsFromDisputes(disputes) {
+  const byId = new Map();   // id -> { round, lines } of the latest revision that declined it
+  for (const d of disputes || []) {
+    if (!d || typeof d.objection_id !== 'string' || typeof d.reason !== 'string' || !d.reason.trim()) continue;
+    const id = d.objection_id.trim(); if (!id) continue;
+    const cur = byId.get(id);
+    if (cur && cur.round === d.round) cur.lines.push(d.reason); else byId.set(id, { round: d.round, lines: [d.reason] });
+  }
+  return new Map([...byId].map(([id, v]) => [id, v.lines.join(' / ')]));
 }

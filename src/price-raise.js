@@ -15,8 +15,9 @@ const perMillion = s => { const n = Number(s) * 1e6; return Number.isFinite(n) &
 
 /**
  * What a call of this seat really needs from a host: its output cap (`defaultCap` when the seat names none) and whether it reasons. HIGH unit fix-up (C&C thcmcp-cd, 24 Okt 2026): a seat reasons when the call carries a reasoning field
- * (the seat's own, or the harness's high default) OR when the table says the model reasons by itself above high (defaultAboveHigh: GLM-5.3, GLM-5.3 Flash, Qwen 3.8 Max). Such a seat states no effort (Muad, 23 Okt 2026: "High should be *our*
+ * (the seat's own, or the harness's high default) OR when the table says the model reasons by itself above high (defaultAboveHigh: GLM-5.3, GLM-5.3 Flash, Qwen 3.8 Max). Until 2 Nov 2026 such a seat was sent no effort (Muad, 23 Okt 2026: "High should be *our*
  * default setting. Some models are so cheap that *their* default is Max effort, and we can go with that"), so without the second test a price-stop offer would name a host that does not list `reasoning`, for a model that thinks by default.
+ * 2 Nov 2026 (Muad: "High for THC's chains, default to High on all chains, users can change it if they want to"): the harness now sends such a seat high (src/reasoning.js highExtraFor), so the first test already holds for it; the second stays as a backstop that says the same thing and changes no answer.
  */
 export function needsOfSeat(seat, defaultCap) {
   const maxTokens = seat.maxTokens ?? defaultCap;
@@ -57,9 +58,8 @@ export function offerWords({ rows, capUsd }) {
 }
 
 /** Whether to ask at all. Pure. */
-export function mayOffer({ set, tty, adviceOn, member }) {
+export function mayOffer({ set, tty, member }) {
   if (!tty) return { ok: false, why: 'no terminal' };
-  if (adviceOn) return { ok: false, why: 'an advice call has no resume' };
   if (member) return { ok: false, why: 'a tree member is answered through its tree' };
   if (!set.length || set.some(e => !e.recognised)) return { ok: false, why: 'a refusal that does not name the price gets no price remedy' };
   if (set.some(e => e.ownPin)) return { ok: false, why: "a seat's own provider.max_price is changed in the chain, not in pricing.user.json" };

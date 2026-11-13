@@ -4,10 +4,12 @@
 import { existsSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
+import { roundStopsInWords } from './overseer-rounds.js';
 import { TreeRefusal, appendTreeEventLocked, readTreeRecord, stateOf, withTreeLock } from './tree-record.js';
 import { DEAD_REASON, claimAlive, deadKeys } from './tree-transitions.js';
 import { runEndOf, pausedAtExternalSeat, waitsForChoice } from './tree-member.js';
 import { readStoppedMarker } from './stop-files.js';
+import { awaitingExcerptApproval } from './run-status.js';
 import { priceStopKindOf, priceStopStatus } from './tree-price-stop.js';
 import { closeReturnOf, unreadableFloorOf } from './tree-budget.js';
 import { affectedFor } from './tree-affected.js';
@@ -38,7 +40,7 @@ export function closeRefusal({ state, runsDir, node, generation = 1, facts = {},
 
 /**
  * What the node is doing, as one kind: the ONE reading behind describePhase's words and behind every sentence that must not steer a person to end a run that waits for THEM (a root re-plan's "a node is active" refusal,
- * src/tree-root-replan.js). 'registered' | 'stopped' (budget cap) | 'round_stopped' | 'conflict_stopped' | 'price_refused' | 'external_pause' | 'interrupted' (running on paper, process gone) | the phase itself otherwise.
+ * src/tree-root-replan.js). 'registered' | 'stopped' (budget cap) | 'round_stopped' | 'conflict_stopped' | 'price_refused' | 'excerpt_approval' | 'external_pause' | 'interrupted' (running on paper, process gone) | the phase itself otherwise.
  */
 export function phaseKindOf(n, runsDir) {
   if (n.phase === 'registered') return 'registered';
@@ -48,10 +50,11 @@ export function phaseKindOf(n, runsDir) {
   const end = runEndOf(dir)?.kind;
   if (end === 'round_stopped' || end === 'conflict_stopped') return end;
   if (readStoppedMarker(dir)?.stoppedBy === 'price_refused') return 'price_refused';
+  if (awaitingExcerptApproval(dir)) return 'excerpt_approval';   // 0.8.4 D10: stopped at an approval of excerpts (exit 26), waiting for the person's answers at the gate
   return pausedAtExternalSeat(dir) ? 'external_pause' : 'interrupted';
 }
 /** The kinds that wait for the person's answer: closing such a node ends a run that waits for them. */
-export const WAITS_FOR_PERSON = Object.freeze(['round_stopped', 'conflict_stopped', 'price_refused', 'external_pause']);
+export const WAITS_FOR_PERSON = Object.freeze(['round_stopped', 'conflict_stopped', 'price_refused', 'excerpt_approval', 'external_pause']);
 
 /** What the node is, in a few words, for the person: its phase and whether it waits for an external answer. */
 /** The name of the chain a node was registered with (its node_registered event; the fold does not keep it), or null. */
@@ -62,9 +65,10 @@ export function describePhase(n, runsDir, ctx = {}) {
   switch (phaseKindOf(n, runsDir)) {
     case 'registered': return 'registered, never started';
     case 'stopped': return 'stopped at its budget cap';
-    case 'round_stopped': return 'stopped at its overseer limit, not agreed, waiting for a choice';
+    case 'round_stopped': return `not agreed, waiting for a choice (it stopped ${roundStopsInWords()})`;
     case 'conflict_stopped': return 'stopped at a conflict the decider asked you to choose, waiting for your choice';       // B-DRAFT (member verb, conflict ask)
     case 'price_refused': return priceStopStatus(priceStopKindOf(join(runsDir, n.runId)), ctx);       // B-DRAFT (Astra 38; one rule with 31-35)
+    case 'excerpt_approval': return 'stopped at an approval of excerpts of your project, waiting for your answers';       // A-DRAFT (WORDING U1-w18)
     case 'external_pause': return 'paused, waiting for an external answer (its NEEDS file stays as it is)';
     case 'interrupted': return 'interrupted (its process is gone)';
     default: return n.phase;

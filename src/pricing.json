@@ -1,15 +1,20 @@
 {
   "_note": "USD per 1,000,000 tokens. List prices change often - re-check each lab's pricing page before quoting these to anyone. Verified against public pricing pages as of 2026-09-06 (the anthropic/* entries re-checked against Anthropic's pricing page on 2026-09-15). Bug-audit fix, 2026-09-16: together/Qwen/Qwen2.5-72B-Instruct-Turbo was missing entirely (used by src/budget.js's ROSTERS.frontier and .frontier-sonnet, silently understating priceRoster()'s total by ~14% - one of seven roster seats treated as $0), added at Together AI's public Turbo-endpoint rate for this model class (same tier as the already-listed together/meta-llama/Llama-3.3-70B-Instruct-Turbo entry, slightly above it per Together's own published per-model pricing); re-verify before quoting. Refreshed 2026-09-20 against openrouter.ai/api/v1/models directly (the live API, not a secondary aggregator): four openrouter/* entries had drifted - glm-5.3-flash and glm-5.2 were both UNDERSTATED, which understates every projection the spend cap enforces against, and glm-5.2 had been taken from an aggregator rather than the source. openrouter/mistralai/mistral-large-2512 was REMOVED: OpenRouter no longer serves the non-batch variant at all, so the entry priced a model this harness could not call. Five current-generation entries added for cheap-7-v2. Non-openrouter entries were NOT re-checked in that pass and still carry their older dates. Treat every entry as an estimate, not an invoice. 2026-09-30 (research brief 31): added gpt-6.1-sol and claude-sonnet-5.5, raised the two rows found understated against OpenRouter's model list (glm-5.2 output, kimi-k3); asOf NOT moved, because the other entries were not re-checked in that pass. 2026-10-23 (lane E, C&C thcmcp-cd's order, before the 60-day warning): every direct-provider row (23, not the openrouter/ rows) was re-read as raw text, 22 of them against their providers' own pages and the groq/ row against a secondary source (named at the end of this entry); each row's `_source` now holds the URL, the read date and the quote, and asOf moved to that date (ledger Review/Build_0.8.3/m8/E_DirectPrices_Ledger_2026-10-24.md). Two rows were below their page and were raised in their own commit (together/Qwen/Qwen3.5-9B, mistral/mistral-small-latest); mistral/mistral-large-latest is ABOVE its page and kept (this table never lowers); six rows are for models their provider has deprecated or announced as discontinued and keep their old figure; groq/llama-3.3-70b-versatile rests on a secondary source (OpenRouter's endpoint list), marked in its `_source`.",
   "asOf": "2026-10-23",
-  "_openrouterCheckedAt": "2026-10-25",
+  "_openrouterCheckedAt": "2026-11-11",
   "_openrouterStaleDays": 45,
-  "_openrouterNote": "The date every openrouter/* row WITHOUT an `expires` date was last compared with OpenRouter's live model list (scripts/refresh-openrouter-prices.mjs, which only RAISES a row below the list, and refuses to move this date while a row is not on the list; rows with `expires` are covered by test/pricing-expiry.test.js). test/pricing-freshness.test.js turns red _openrouterStaleDays after it: re-run the script before then (MAN-7). Direct-provider rows (anthropic/, openai/, google/...) are NOT covered by this date: they carry their own _source dates.",
+  "_openrouterNote": "The day every openrouter/* row WITHOUT an `expires` date was last compared with OpenRouter's endpoints (scripts/refresh-openrouter-prices.mjs --fetch <folder> --write, answers read the same day): a row WITH a host picture is the dearest eligible host per side, raised or lowered (a row whose dearest figure depends on a price tier counts the higher of today's figure and its dearest eligible host at base price; its tier part is recorded in the row's `tiers` and not yet counted by the spend cap, and its `hosts` block says `tier_driven`), and its `hosts` block records the check date, the host count, the lowest, median and highest price and the filters used. The script refuses to move this date while a row is not on OpenRouter's list or while the answers are not from today. test/pricing-freshness.test.js turns red _openrouterStaleDays + 1 days after it: re-run the script before then (MAN-7). Direct-provider rows (anthropic/, openai/, google/...) are NOT covered by this date: they carry their own _source dates.",
   "_asOf": "Machine-readable date for the table as a whole (0.7.8): the OLDEST date every entry was last checked against its price source (its lab's page, or the OpenRouter list its _source names), so it errs old. Some entries were re-checked since (see _note and their _source); none is older. `council doctor` and `--dry-run` print it and warn past 60 days. Move it forward only when every entry has been re-checked on or after the new date. A row whose provider has retired the model or no longer lists a price (the deprecated and discontinued ones) counts as checked on the read date but keeps the figure the table already had for it, and says so in its `_source`: the date records the read, not that figure. The test (test/price-table-date.test.js) binds it to real check dates: every openrouter/ row by _openrouterCheckedAt, every direct row by the newest `read YYYY-MM-DD` in its `_source`; mock rows are not priced from a page.",
   "_critiqueTokensNote": "critiqueTokens on an entry (0.7.8) is that model's typical output for one panel review, measured from the author's own runs (reasoning models spend most of it thinking, so it runs well past the old flat 5000). Used only by the dry-run and doctor estimate, and only to RAISE a chain's estimate.critiqueTokens for that seat, never to lower it; a seat's own estimate.critiqueTokens overrides both. The spend cap does not read it: it always projects the seat's full maxTokens.",
   "anthropic/claude-fable-5-1": {
     "in": 10.0,
     "out": 50.0,
     "_source": "https://platform.claude.com/docs/en/about-claude/pricing, read 2026-10-23: \"Claude Fable 5.1\", \"$10 / MTok\" in, \"$50 / MTok\" out (matched by name: the page shows no API ids)"
+  },
+  "anthropic/claude-fable-5-2": {
+    "in": 8.0,
+    "out": 40.0,
+    "_source": "https://platform.claude.com/docs/en/models/overview, read 2026-11-10: Claude Fable 5.2, API ID claude-fable-5-2, \"$8 / input MTok, $40 / output MTok\"; https://platform.claude.com/docs/en/about-claude/pricing, read 2026-11-09 (20:06Z): cache writes \"$10 / MTok\" (5m) and \"$16 / MTok\" (1h), cache hit \"$0.20\" (0.025x base input)"
   },
   "anthropic/claude-opus-5": {
     "in": 5.0,
@@ -97,9 +102,33 @@
     "_source": "https://docs.cohere.com/docs/command-r7b, read 2026-10-23: \"$ 0.0375 / 1M tokens\" (Input), \"$ 0.15 / 1M tokens\" (Output)"
   },
   "openrouter/meta-llama/llama-3.3-70b-instruct": {
-    "in": 0.22,
-    "out": 0.5,
-    "_source": "openrouter.ai/api/v1/models re-read 2026-10-06: list 0.22/0.5 per Mtok, raised from 0.1/0.32 (the cap was projecting less than the list)"
+    "in": 0.72,
+    "out": 0.72,
+    "_source": "openrouter.ai/api/v1/models re-read 2026-10-06: list 0.22/0.5 per Mtok, raised from 0.1/0.32 (the cap was projecting less than the list); openrouter.ai/api/v1/models/meta-llama/llama-3.3-70b-instruct/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 0.72/0.72 per Mtok (3 hosts), was 0.22/0.5",
+    "cache_read": 0.71,
+    "cache_basis_in": 0.72,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 3,
+      "providers": 3,
+      "in": {
+        "low": 0.2,
+        "median": 0.71,
+        "high": 0.72
+      },
+      "out": {
+        "low": 0.52,
+        "median": 0.71,
+        "high": 0.72
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 6 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "together/deepseek-ai/DeepSeek-V3.1": {
     "in": 0.6,
@@ -130,38 +159,161 @@
   },
   "openrouter/qwen/qwen3.5-plus-20260420": {
     "in": 0.3,
-    "out": 1.8
+    "out": 1.8,
+    "cache_write": 0.375,
+    "cache_basis_in": 0.3,
+    "tiers": [{"from":256000,"in":0.375,"out":2.25}],
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 1,
+      "providers": 1,
+      "in": {
+        "low": 0.375,
+        "median": 0.375,
+        "high": 0.375
+      },
+      "out": {
+        "low": 2.25,
+        "median": 2.25,
+        "high": 2.25
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/z-ai/glm-5.3-flash": {
-    "in": 0.15,
-    "out": 0.5,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22 (was 0.09/0.3 on 2026-09-20 - understated)",
+    "in": 0.175,
+    "out": 0.625,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22 (was 0.09/0.3 on 2026-09-20 - understated); openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 0.35/1.25 per Mtok (36 hosts), was 0.15/0.5; openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints and the model page, read 2026-11-11: counted price set to the dearest eligible host 0.175/0.625 per Mtok (36 hosts), was 0.35/1.25",
     "critiqueTokens": 14500,
-    "_critiqueTokens": "median panel-review output over 30 panel stages in 7 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 30 panel stages in 7 real run(s), 2026-09-20..25, rounded up to 500",
+    "cache_read": 0.064,
+    "cache_basis_in": 0.175,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 36,
+      "providers": 32,
+      "in": {
+        "low": 0.0399,
+        "median": 0.15,
+        "high": 0.175
+      },
+      "out": {
+        "low": 0.0784,
+        "median": 0.5,
+        "high": 0.625
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (1 host(s))",
+        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 4 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/meta-llama/llama-4-maverick": {
-    "in": 0.1875,
-    "out": 0.6525,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+    "in": 0.35,
+    "out": 1.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20; openrouter.ai/api/v1/models re-read 2026-11-11: list 0.35/1 per Mtok, raised from 0.1875/0.6525 (the cap was projecting less than the list)"
   },
   "openrouter/mistralai/mistral-medium-3-5": {
-    "in": 1.5,
-    "out": 7.5,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20",
+    "in": 1.65,
+    "out": 8.25,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20; openrouter.ai/api/v1/models/mistralai/mistral-medium-3-5/endpoints and the model page, read 2026-11-11: counted price set to the dearest eligible host 1.65/8.25 per Mtok (2 hosts), was 1.5/7.5",
     "critiqueTokens": 1000,
-    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500",
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 1,
+      "in": {
+        "low": 1.5,
+        "median": 1.575,
+        "high": 1.65
+      },
+      "out": {
+        "low": 7.5,
+        "median": 7.875,
+        "high": 8.25
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/mistralai/mistral-small-2603": {
-    "in": 0.15,
-    "out": 0.6,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+    "in": 0.165,
+    "out": 0.66,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20; openrouter.ai/api/v1/models/mistralai/mistral-small-2603/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 0.165/0.66 per Mtok (4 hosts), was 0.15/0.6",
+    "cache_read": 0.0165,
+    "cache_basis_in": 0.165,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 3,
+      "providers": 1,
+      "in": {
+        "low": 0.15,
+        "median": 0.165,
+        "high": 0.165
+      },
+      "out": {
+        "low": 0.6,
+        "median": 0.66,
+        "high": 0.66
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/openai/gpt-5.6-luna": {
-    "in": 0.2,
-    "out": 1.2,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20",
+    "in": 0.22,
+    "out": 1.32,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20; openrouter.ai/api/v1/models/openai/gpt-5.6-luna/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host at base price 0.22/1.32 per Mtok (5 hosts; its price tier is not counted yet), was 0.2/1.2",
     "critiqueTokens": 3000,
-    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500",
+    "cache_read": 0.022,
+    "cache_write": 0.275,
+    "cache_basis_in": 0.22,
+    "tiers": [{"from":272000,"in":0.44,"out":1.98}],
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 5,
+      "providers": 3,
+      "in": {
+        "low": 0.4,
+        "median": 0.4,
+        "high": 0.44
+      },
+      "out": {
+        "low": 1.8,
+        "median": 1.8,
+        "high": 1.98
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/google/gemini-3.8-flash": {
     "in": 0.75,
@@ -170,196 +322,1063 @@
     "critiqueTokens": 2500,
     "_critiqueTokens": "median panel-review output over 44 panel stages in 8 real run(s), 2026-09-20..25, rounded up to 500",
     "expires": "2027-01-01",
-    "_expires": "Google doubles Gemini 3.8 Flash to 1.50 / 7.50 on 2027-01-01 (thc-research 30 B6). Its advice seats carry max_price at 0.75 / 3.75, which would then exclude the standard route: re-price this row and those seats before that date."
+    "_expires": "Google doubles Gemini 3.8 Flash to 1.50 / 7.50 on 2027-01-01 (thc-research 30 B6). Re-price this row before that date."
   },
   "openrouter/deepseek/deepseek-v4.1-flash": {
-    "in": 0.3,
-    "out": 1.2,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20; openrouter.ai/api/v1/models re-read 2026-10-06: list 0.3/1.2 per Mtok, raised from 0.15/0.6 (the cap was projecting less than the list)",
+    "in": 0.45,
+    "out": 1.8,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20; openrouter.ai/api/v1/models re-read 2026-10-06: list 0.3/1.2 per Mtok, raised from 0.15/0.6 (the cap was projecting less than the list); openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 0.33/1.32 per Mtok (37 hosts), was 0.3/1.2; openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash/endpoints and the model page, read 2026-11-11: counted price set to the dearest eligible host 0.45/1.8 per Mtok (33 hosts), was 0.33/1.32",
     "critiqueTokens": 7000,
-    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500",
+    "cache_read": 0.05,
+    "cache_basis_in": 0.45,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 33,
+      "providers": 28,
+      "in": {
+        "low": 0.006,
+        "median": 0.21,
+        "high": 0.45
+      },
+      "out": {
+        "low": 0.4,
+        "median": 0.84,
+        "high": 1.8
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (3 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "0 host(s) the page marks \"Not used in Standard routing\" left out",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/deepseek/deepseek-v4.1-flash-1017": {
-    "in": 0.3,
-    "out": 1.2,
-    "_source": "openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints, read 2026-10-23: 34 endpoints, 26 of them (fast, priority and flex tiers left out) able to serve 393,216 output tokens, the dearest at 0.3/1.2 per Mtok; the model's list price is 0.15/0.6 (DeepSeek's own endpoint). The id is the 2026-10-17 snapshot that DeepSeek serves under deepseek-flash (api-docs.deepseek.com/quick_start/pricing, read 2026-10-23); output limit 384K (393216) per api-docs.deepseek.com/api/create-chat-completion, read 2026-10-23",
+    "in": 0.45,
+    "out": 1.8,
+    "_source": "openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints, read 2026-10-23: 34 endpoints, 26 of them (fast, priority and flex tiers left out) able to serve 393,216 output tokens, the dearest at 0.3/1.2 per Mtok; the model's list price is 0.15/0.6 (DeepSeek's own endpoint). The id is the 2026-10-17 snapshot that DeepSeek serves under deepseek-flash (api-docs.deepseek.com/quick_start/pricing, read 2026-10-23); output limit 384K (393216) per api-docs.deepseek.com/api/create-chat-completion, read 2026-10-23; openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 0.33/1.32 per Mtok (34 hosts), was 0.3/1.2; openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints and the model page, read 2026-11-11: counted price set to the dearest eligible host 0.45/1.8 per Mtok (33 hosts), was 0.33/1.32",
     "critiqueTokens": 7000,
-    "_critiqueTokens": "carried over on 2026-10-23 from the undated openrouter/deepseek/deepseek-v4.1-flash row: median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500. Measured on that earlier build; the 1017 build has no run of its own yet, so replace this with its own median once it has one. A dry run that errs high is the accepted direction for an expected cost"
+    "_critiqueTokens": "carried over on 2026-10-23 from the undated openrouter/deepseek/deepseek-v4.1-flash row: median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500. Measured on that earlier build; the 1017 build has no run of its own yet, so replace this with its own median once it has one. A dry run that errs high is the accepted direction for an expected cost",
+    "cache_read": 0.0105,
+    "cache_basis_in": 0.45,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 33,
+      "providers": 29,
+      "in": {
+        "low": 0.006,
+        "median": 0.18,
+        "high": 0.45
+      },
+      "out": {
+        "low": 0.294,
+        "median": 0.8,
+        "high": 1.8
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (5 host(s))",
+        "output limit of at least 393216 tokens (the smallest maxTokens a shipped chain gives this model; 9 host(s) left out)",
+        "0 host(s) the page marks \"Not used in Standard routing\" left out",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/qwen/qwen3.7-plus": {
     "in": 0.4,
     "out": 1.6,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-20; raised to the list 0.40 / 1.60 on 2026-10-03 (0.8.1 M7): the 0.32 / 1.28 read then was a 'limited-time 20% off' (thc-research 30 C9, B6), so the cap under-projected by 20%.",
     "critiqueTokens": 2500,
-    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 27 panel stages in 6 real run(s), 2026-09-20..25, rounded up to 500",
+    "cache_read": 0.064,
+    "cache_write": 0.4,
+    "cache_basis_in": 0.32,
+    "tiers": [{"from":256000,"in":0.96,"out":3.84}],
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 1,
+      "in": {
+        "low": 0.96,
+        "median": 0.96,
+        "high": 0.96
+      },
+      "out": {
+        "low": 3.84,
+        "median": 3.84,
+        "high": 3.84
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/deepseek/deepseek-v4-pro": {
-    "in": 0.96,
-    "out": 1.91,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
+    "in": 1.91,
+    "out": 3.83,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22; openrouter.ai/api/v1/models/deepseek/deepseek-v4-pro/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 1.91/3.83 per Mtok (13 hosts), was 0.96/1.91",
     "critiqueTokens": 7500,
-    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500",
+    "cache_read": 0.33,
+    "cache_basis_in": 1.91,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 13,
+      "providers": 12,
+      "in": {
+        "low": 0.894012,
+        "median": 1.3,
+        "high": 1.91
+      },
+      "out": {
+        "low": 1.5,
+        "median": 2.6,
+        "high": 3.83
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/deepseek/deepseek-v4-pro-0813": {
-    "in": 0.66,
-    "out": 1.98,
-    "_source": "openrouter.ai/api/v1/models (0.66/1.98 per Mtok) and api-docs.deepseek.com/quick_start/pricing (DeepSeek-V4-Pro-0813: off-peak 0.66 in / 1.98 out, peak 1.32 / 3.96), both read 2026-10-20; the price limit is the listed price, so the hosts at or under it serve the seat (2 of 23 endpoints at that date: DeepSeek and StreamLake). No measured critiqueTokens: no run of this build exists yet."
+    "in": 1.65,
+    "out": 8.0,
+    "_source": "openrouter.ai/api/v1/models (0.66/1.98 per Mtok) and api-docs.deepseek.com/quick_start/pricing (DeepSeek-V4-Pro-0813: off-peak 0.66 in / 1.98 out, peak 1.32 / 3.96), both read 2026-10-20; the price limit is the listed price, so the hosts at or under it serve the seat (2 of 23 endpoints at that date: DeepSeek and StreamLake). No measured critiqueTokens: no run of this build exists yet.; openrouter.ai/api/v1/models/deepseek/deepseek-v4-pro-0813/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 1.45/8.0 per Mtok (23 hosts), was 0.66/1.98; openrouter.ai/api/v1/models/deepseek/deepseek-v4-pro-0813/endpoints and the model page, read 2026-11-11: counted price set to the dearest eligible host 1.65/8.0 per Mtok (23 hosts), was 1.45/8",
+    "cache_read": 0.284,
+    "cache_basis_in": 1.65,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 23,
+      "providers": 20,
+      "in": {
+        "low": 0.0999,
+        "median": 1.32,
+        "high": 1.65
+      },
+      "out": {
+        "low": 1.97604,
+        "median": 3.96,
+        "high": 8
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (1 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/z-ai/glm-5.3": {
-    "in": 1.4,
-    "out": 7.0,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-28 (was 0.84/2.64 on 2026-09-22: understated; bug audit 2026-09-28 area 2 #7); openrouter.ai/api/v1/models re-read 2026-10-06: list 0.07/7 per Mtok, raised from 1.4/4.4 (the cap was projecting less than the list)",
+    "in": 1.68,
+    "out": 5.28,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-28 (was 0.84/2.64 on 2026-09-22: understated; bug audit 2026-09-28 area 2 #7); openrouter.ai/api/v1/models re-read 2026-10-06: list 0.07/7 per Mtok, raised from 1.4/4.4 (the cap was projecting less than the list); openrouter.ai/api/v1/models/z-ai/glm-5.3/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 1.68/5.28 per Mtok (43 hosts), was 1.4/7",
     "critiqueTokens": 36000,
-    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500",
+    "cache_read": 0.356,
+    "cache_write": 2.1,
+    "cache_basis_in": 1.68,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 38,
+      "providers": 32,
+      "in": {
+        "low": 0.0699,
+        "median": 1.0515,
+        "high": 1.68
+      },
+      "out": {
+        "low": 1.4,
+        "median": 4.29215,
+        "high": 5.28
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (5 host(s))",
+        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 2 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/qwen/qwen3.8-max-0902": {
     "in": 2.0,
     "out": 6.0,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
     "critiqueTokens": 21000,
-    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500",
+    "cache_read": 0.25,
+    "cache_write": 2.5,
+    "cache_basis_in": 2.0,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 1,
+      "in": {
+        "low": 2,
+        "median": 2,
+        "high": 2
+      },
+      "out": {
+        "low": 6,
+        "median": 6,
+        "high": 6
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/qwen/qwen3.8-flash": {
     "in": 0.15,
     "out": 0.47,
-    "_source": "openrouter.ai/api/v1/models/qwen/qwen3.8-flash/endpoints, read 2026-10-23: 2 endpoints (both Alibaba), both able to serve 131,072 output tokens and neither a fast tier, 0.15/0.47 per Mtok, the same as the model's list price. No critiqueTokens: no real run of it yet"
+    "_source": "openrouter.ai/api/v1/models/qwen/qwen3.8-flash/endpoints, read 2026-10-23: 2 endpoints (both Alibaba), both able to serve 131,072 output tokens and neither a fast tier, 0.15/0.47 per Mtok, the same as the model's list price. No critiqueTokens: no real run of it yet",
+    "cache_read": 0.016,
+    "cache_write": 0.2,
+    "cache_basis_in": 0.15,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 1,
+      "in": {
+        "low": 0.15,
+        "median": 0.15,
+        "high": 0.15
+      },
+      "out": {
+        "low": 0.47,
+        "median": 0.47,
+        "high": 0.47
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/openai/gpt-5.6-sol": {
-    "in": 2.0,
-    "out": 10.0,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
-    "expires": "2026-11-21",
-    "_promotional": "OpenAI's promotional 2 / 10 'at least through November 21, 2026' (developers.openai.com pricing, read 2026-09-30, thc-research 30 C9); the list price is 4 / 20. Re-read before the date: the cap projects with 2 / 10 until this row changes."
+    "in": 4.4,
+    "out": 22.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-22; openrouter.ai/api/v1/models/openai/gpt-5.6-sol/endpoints and the model page, read 2026-11-11: counted price set to the dearest eligible host at base price 4.4/22.0 per Mtok (5 hosts; its price tier is not counted yet), was 2/10",
+    "cache_read": 0.44,
+    "cache_write": 5.5,
+    "cache_basis_in": 4.4,
+    "tiers": [{"from":272000,"in":8.8,"out":33}],
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 5,
+      "providers": 3,
+      "in": {
+        "low": 8,
+        "median": 8,
+        "high": 8.8
+      },
+      "out": {
+        "low": 30,
+        "median": 30,
+        "high": 33
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/anthropic/claude-opus-5.5": {
-    "in": 4.0,
-    "out": 20.0,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-26"
+    "in": 4.4,
+    "out": 22.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-26; openrouter.ai/api/v1/models/anthropic/claude-opus-5.5/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 4.4/22.0 per Mtok (9 hosts), was 4/20",
+    "cache_read": 0.22,
+    "cache_write": 5.5,
+    "cache_basis_in": 4.4,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 9,
+      "providers": 5,
+      "in": {
+        "low": 4,
+        "median": 4,
+        "high": 4.4
+      },
+      "out": {
+        "low": 20,
+        "median": 20,
+        "high": 22
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (1 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 4 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/anthropic/claude-fable-5.1": {
     "in": 10.0,
     "out": 50.0,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
     "critiqueTokens": 10000,
-    "_critiqueTokens": "median panel-review output over 16 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 16 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500",
+    "cache_read": 0.25,
+    "cache_write": 12.5,
+    "cache_basis_in": 10.0,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 4,
+      "providers": 4,
+      "in": {
+        "low": 10,
+        "median": 10,
+        "high": 10
+      },
+      "out": {
+        "low": 50,
+        "median": 50,
+        "high": 50
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
+  },
+  "openrouter/anthropic/claude-fable-5.2": {
+    "in": 8.0,
+    "out": 40.0,
+    "_source": "https://openrouter.ai/api/v1/models/anthropic/claude-fable-5.2/endpoints, read 2026-11-10: four standard hosts (Google Vertex, Amazon Bedrock, Azure, Anthropic), each listing prompt 0.000008, completion 0.00004, input_cache_read 0.0000002, input_cache_write 0.00001 and input_cache_write_1h 0.000016 per token (by this table's conversion: 8 and 40 per million tokens, cache read 0.20, 5-minute write 10, 1-hour write 16); the anthropic/fast endpoint (service tier priority, prompt 0.000016, completion 0.00008: 16 and 80 per million) is left out of the counted price because it is the priority tier, as the Opus 5.5 row leaves out its own anthropic/fast endpoint (8 / 40 against its counted 4.4 / 22): the row counts the dearest ELIGIBLE standard host, and the price pin (provider.max_price from this row, src/price-pin.js) keeps an ordinary call off the priority tier; the page's routing divider was not read",
+    "cache_read": 0.2,
+    "cache_write": 10.0,
+    "cache_basis_in": 8.0,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 4,
+      "providers": 4,
+      "in": {
+        "low": 8,
+        "median": 8,
+        "high": 8
+      },
+      "out": {
+        "low": 40,
+        "median": 40,
+        "high": 40
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (1 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "0 host(s) the page marks \"Not used in Standard routing\" left out",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/openai/gpt-6-astra": {
     "in": 10.0,
     "out": 50.0,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
     "critiqueTokens": 3500,
-    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500",
+    "cache_read": 1.0,
+    "cache_write": 12.5,
+    "cache_basis_in": 10.0,
+    "tiers": [{"from":272000,"in":20,"out":75}],
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 3,
+      "providers": 3,
+      "in": {
+        "low": 20,
+        "median": 20,
+        "high": 20
+      },
+      "out": {
+        "low": 75,
+        "median": 75,
+        "high": 75
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (3 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "2 host(s) the page marks \"Not used in Standard routing\" left out",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/meta/muse-spark-1.2": {
     "in": 1.25,
     "out": 4.25,
     "_source": "openrouter.ai/api/v1/models, checked 2026-09-22",
     "critiqueTokens": 5500,
-    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 17 panel stages in 2 real run(s), 2026-09-20..25, rounded up to 500",
+    "cache_read": 0.15,
+    "cache_basis_in": 1.25,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 1,
+      "providers": 1,
+      "in": {
+        "low": 1.25,
+        "median": 1.25,
+        "high": 1.25
+      },
+      "out": {
+        "low": 4.25,
+        "median": 4.25,
+        "high": 4.25
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/minimax/minimax-m3": {
     "in": 0.3,
     "out": 1.2,
+    "_source": "openrouter.ai/api/v1/models/minimax/minimax-m3/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 0.6/2.4 per Mtok (11 hosts), was 0.3/1.2; openrouter.ai/api/v1/models/minimax/minimax-m3/endpoints and the model page, read 2026-11-11: counted price set to the dearest eligible host 0.3/1.2 per Mtok (7 hosts), was 0.6/2.4",
     "critiqueTokens": 3500,
-    "_critiqueTokens": "median panel-review output over 31 panel stages in 7 real run(s), 2026-09-20..25, rounded up to 500"
+    "_critiqueTokens": "median panel-review output over 31 panel stages in 7 real run(s), 2026-09-20..25, rounded up to 500",
+    "cache_read": 0.06,
+    "cache_basis_in": 0.3,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 7,
+      "providers": 7,
+      "in": {
+        "low": 0.23,
+        "median": 0.3,
+        "high": 0.3
+      },
+      "out": {
+        "low": 0.96,
+        "median": 1.2,
+        "high": 1.2
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "0 host(s) the page marks \"Not used in Standard routing\" left out",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/deepseek/deepseek-v3.2": {
-    "in": 0.269,
-    "out": 0.4,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20"
+    "in": 0.3,
+    "out": 0.96,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-20; openrouter.ai/api/v1/models/deepseek/deepseek-v3.2/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 1.0/1.0 per Mtok (7 hosts), was 0.269/0.4; openrouter.ai/api/v1/models/deepseek/deepseek-v3.2/endpoints and the model page, read 2026-11-11: counted price set to the dearest eligible host 0.3/0.96 per Mtok (6 hosts), was 1/1",
+    "cache_read": 0.14,
+    "cache_basis_in": 0.3,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 6,
+      "providers": 6,
+      "in": {
+        "low": 0.2088,
+        "median": 0.26,
+        "high": 0.3
+      },
+      "out": {
+        "low": 0.3096,
+        "median": 0.4,
+        "high": 0.96
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/moonshotai/kimi-k3": {
-    "in": 3.0,
-    "out": 15.0,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-30 (was 1.7/8.5 on 2026-09-20: understated; brief 31). Kept in the table only so a user-written chain that seats it is capped correctly; in no shipped chain or proposed roster"
+    "in": 4.5,
+    "out": 22.5,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-30 (was 1.7/8.5 on 2026-09-20: understated; brief 31). Kept in the table only so a user-written chain that seats it is capped correctly; in no shipped chain or proposed roster; openrouter.ai/api/v1/models/moonshotai/kimi-k3/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 4.5/22.5 per Mtok (25 hosts), was 3/15",
+    "cache_read": 0.5,
+    "cache_write": 3.75,
+    "cache_basis_in": 4.5,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 24,
+      "providers": 20,
+      "in": {
+        "low": 0.1824,
+        "median": 2.425,
+        "high": 4.5
+      },
+      "out": {
+        "low": 9.5,
+        "median": 15,
+        "high": 22.5
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (4 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/anthropic/claude-opus-5": {
-    "in": 5.0,
-    "out": 25.0,
-    "_source": "openrouter.ai/anthropic/claude-opus-5, checked 2026-09-17 - added for the debate-vs-single-model pilot (relay repo), which spawns this checkout's cli.js as its actual review engine"
+    "in": 5.5,
+    "out": 27.5,
+    "_source": "openrouter.ai/anthropic/claude-opus-5, checked 2026-09-17 - added for the debate-vs-single-model pilot (relay repo), which spawns this checkout's cli.js as its actual review engine; openrouter.ai/api/v1/models/anthropic/claude-opus-5/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 5.5/27.5 per Mtok (9 hosts), was 5/25",
+    "cache_read": 0.55,
+    "cache_write": 6.875,
+    "cache_basis_in": 5.5,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 9,
+      "providers": 5,
+      "in": {
+        "low": 5,
+        "median": 5,
+        "high": 5.5
+      },
+      "out": {
+        "low": 25,
+        "median": 25,
+        "high": 27.5
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (1 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 4 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/anthropic/claude-sonnet-5": {
-    "in": 2.0,
-    "out": 10.0,
-    "_source": "openrouter.ai/anthropic/claude-sonnet-5, checked 2026-09-17"
+    "in": 2.2,
+    "out": 11.0,
+    "_source": "openrouter.ai/anthropic/claude-sonnet-5, checked 2026-09-17; openrouter.ai/api/v1/models/anthropic/claude-sonnet-5/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 2.2/11.0 per Mtok (9 hosts), was 2/10",
+    "cache_read": 0.22,
+    "cache_write": 2.75,
+    "cache_basis_in": 2.2,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 9,
+      "providers": 5,
+      "in": {
+        "low": 2,
+        "median": 2,
+        "high": 2.2
+      },
+      "out": {
+        "low": 10,
+        "median": 10,
+        "high": 11
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 4 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/openai/gpt-5.5": {
-    "in": 5.0,
-    "out": 30.0,
-    "_source": "openrouter.ai/openai/gpt-5.5, checked 2026-09-17"
+    "in": 5.5,
+    "out": 33.0,
+    "_source": "openrouter.ai/openai/gpt-5.5, checked 2026-09-17; openrouter.ai/api/v1/models/openai/gpt-5.5/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host at base price 5.5/33.0 per Mtok (4 hosts; its price tier is not counted yet), was 5/30",
+    "cache_read": 0.55,
+    "cache_basis_in": 5.5,
+    "tiers": [{"from":272000,"in":11,"out":49.5}],
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 4,
+      "providers": 2,
+      "in": {
+        "low": 10,
+        "median": 10.5,
+        "high": 11
+      },
+      "out": {
+        "low": 45,
+        "median": 47.25,
+        "high": 49.5
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/openai/gpt-5-mini": {
     "in": 0.25,
     "out": 2.0,
-    "_source": "openrouter.ai/openai/gpt-5-mini, checked 2026-09-17"
+    "_source": "openrouter.ai/openai/gpt-5-mini, checked 2026-09-17",
+    "cache_read": 0.03,
+    "cache_basis_in": 0.25,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 2,
+      "in": {
+        "low": 0.25,
+        "median": 0.25,
+        "high": 0.25
+      },
+      "out": {
+        "low": 2,
+        "median": 2,
+        "high": 2
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (1 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/z-ai/glm-5.2": {
-    "in": 0.6496,
-    "out": 12.0,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-30 (out was 2.0416 on 2026-09-20: understated by half; model-level record now 0.432/3.99, Z.ai's own page lists 1.4/4.4; in kept at the higher old figure, never lowered; brief 31); openrouter.ai/api/v1/models re-read 2026-10-06: list 0.032/12 per Mtok, raised from 0.6496/3.99 (the cap was projecting less than the list)"
+    "in": 1.54,
+    "out": 8.0,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-30 (out was 2.0416 on 2026-09-20: understated by half; model-level record now 0.432/3.99, Z.ai's own page lists 1.4/4.4; in kept at the higher old figure, never lowered; brief 31); openrouter.ai/api/v1/models re-read 2026-10-06: list 0.032/12 per Mtok, raised from 0.6496/3.99 (the cap was projecting less than the list); openrouter.ai/api/v1/models/z-ai/glm-5.2/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 1.4/8.0 per Mtok (27 hosts), was 0.6496/12; openrouter.ai/api/v1/models/z-ai/glm-5.2/endpoints and the model page, read 2026-11-11: counted price set to the dearest eligible host 1.54/8.0 per Mtok (27 hosts), was 1.4/8",
+    "cache_read": 0.356,
+    "cache_basis_in": 1.54,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 27,
+      "providers": 23,
+      "in": {
+        "low": 0.0066,
+        "median": 1.053,
+        "high": 1.54
+      },
+      "out": {
+        "low": 1.8,
+        "median": 4.4,
+        "high": 8
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (5 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "0 host(s) the page marks \"Not used in Standard routing\" left out",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/google/gemini-3.1-pro-preview": {
     "in": 2.0,
     "out": 12.0,
-    "_source": "openrouter.ai/google/gemini-3.1-pro-preview, checked 2026-09-17"
+    "_source": "openrouter.ai/google/gemini-3.1-pro-preview, checked 2026-09-17",
+    "cache_read": 0.2,
+    "cache_write": 0.375,
+    "cache_basis_in": 2.0,
+    "tiers": [{"from":200000,"in":4,"out":18}],
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 2,
+      "in": {
+        "low": 4,
+        "median": 4,
+        "high": 4
+      },
+      "out": {
+        "low": 18,
+        "median": 18,
+        "high": 18
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (4 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "0 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/openai/gpt-6-luna": {
-    "in": 0.1,
-    "out": 0.5,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-daily-7"
+    "in": 0.11,
+    "out": 0.55,
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-daily-7; openrouter.ai/api/v1/models/openai/gpt-6-luna/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host at base price 0.11/0.55 per Mtok (4 hosts; its price tier is not counted yet), was 0.1/0.5",
+    "cache_read": 0.011,
+    "cache_write": 0.1375,
+    "cache_basis_in": 0.11,
+    "tiers": [{"from":272000,"in":0.22,"out":0.825}],
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 5,
+      "providers": 3,
+      "in": {
+        "low": 0.2,
+        "median": 0.2,
+        "high": 0.22
+      },
+      "out": {
+        "low": 0.75,
+        "median": 0.75,
+        "high": 0.825
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/anthropic/claude-haiku-5.5": {
     "in": 0.55,
     "out": 2.75,
-    "_source": "openrouter.ai/api/v1/models and its endpoint lists, checked 2026-10-15 - added for plan-high-council. The dearest figure on any endpoint, which is what the cap must project against: above 100,000 prompt tokens Haiku 5.5 costs 0.50 / 2.50 (0.55 / 2.75 on the regional endpoints, +10%); up to that it is 0.10 / 0.50 (0.11 / 0.55 regional). The cap projects this high figure until src/cost.js learns prompt-length tiers, so a dry run over-states a review under 100,000 tokens"
+    "_source": "openrouter.ai/api/v1/models and its endpoint lists, checked 2026-10-15 - added for plan-high-council. The dearest figure on any endpoint, which is what the cap must project against: above 100,000 prompt tokens Haiku 5.5 costs 0.50 / 2.50 (0.55 / 2.75 on the regional endpoints, +10%); up to that it is 0.10 / 0.50 (0.11 / 0.55 regional). The cap projects this high figure until src/cost.js learns prompt-length tiers, so a dry run over-states a review under 100,000 tokens",
+    "cache_read": 0.011,
+    "cache_write": 0.1375,
+    "cache_basis_in": 0.11,
+    "tiers": [{"from":100000,"in":0.55,"out":2.75}],
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 9,
+      "providers": 5,
+      "in": {
+        "low": 0.5,
+        "median": 0.5,
+        "high": 0.55
+      },
+      "out": {
+        "low": 2.5,
+        "median": 2.5,
+        "high": 2.75
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 4 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/mistralai/mistral-large-4-0": {
-    "in": 1.36,
-    "out": 4.18,
-    "_source": "Mistral's own price for Large 4 (docs page of 14 Oct 2026; its original price, 1.36 / 4.18). OpenRouter's list shows 0.68 / 2.09 on 2026-10-15, which Mistral's page calls a sale price with no end date; the cap projects the original price so that the end of the sale cannot push a run past its cap. Checked 2026-10-15 - added for plan-high-council"
+    "in": 0.77,
+    "out": 2.31,
+    "_source": "This row follows the dearest eligible host at each refresh: 0.7/2.1 per Mtok at the read of 2026-11-01 (openrouter.ai/api/v1/models/mistralai/mistral-large-4-0/endpoints and the model page; 2 counted hosts, 1 provider). Until that read the row held 1.36/4.18, a deliberate list price taken from Mistral's docs page of 14 Oct 2026; that price is kept here as history and is no longer applied. A host price that rises above this row is covered by the README's Known-limits bullet on the price limit. Added 2026-10-15 for plan-high-council; text corrected 2026-11-01; openrouter.ai/api/v1/models/mistralai/mistral-large-4-0/endpoints and the model page, read 2026-11-11: counted price set to the dearest eligible host 0.77/2.31 per Mtok (2 hosts), was 0.7/2.1",
+    "cache_read": 0.077,
+    "cache_basis_in": 0.77,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 1,
+      "in": {
+        "low": 0.7,
+        "median": 0.735,
+        "high": 0.77
+      },
+      "out": {
+        "low": 2.1,
+        "median": 2.205,
+        "high": 2.31
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/stepfun/step-5-preview": {
     "in": 1.0,
     "out": 2.7,
-    "_source": "OpenRouter /api/v1/models, read 2026-10-16, no StepFun page read (the stepfun/fp8 endpoint lists the same 1.00/2.70)"
+    "_source": "OpenRouter /api/v1/models, read 2026-10-16, no StepFun page read (the stepfun/fp8 endpoint lists the same 1.00/2.70)",
+    "cache_read": 0.1,
+    "cache_basis_in": 1.0,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 1,
+      "providers": 1,
+      "in": {
+        "low": 1,
+        "median": 1,
+        "high": 1
+      },
+      "out": {
+        "low": 2.7,
+        "median": 2.7,
+        "high": 2.7
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 1 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/tencent/hy4-preview": {
     "in": 0.834,
     "out": 2.501,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-daily-7"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-daily-7",
+    "cache_read": 0.042,
+    "cache_basis_in": 0.834,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 6,
+      "providers": 6,
+      "in": {
+        "low": 0.834,
+        "median": 0.834,
+        "high": 0.834
+      },
+      "out": {
+        "low": 2.501,
+        "median": 2.501,
+        "high": 2.501
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/meta/muse-spark-1.3": {
     "in": 1.25,
     "out": 4.25,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-daily-7"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-27 - added for plan-daily-7",
+    "cache_read": 0.15,
+    "cache_basis_in": 1.25,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 2,
+      "in": {
+        "low": 1.25,
+        "median": 1.25,
+        "high": 1.25
+      },
+      "out": {
+        "low": 4.25,
+        "median": 4.25,
+        "high": 4.25
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/google/gemini-3.7-flash": {
     "in": 0.75,
     "out": 3.75,
-    "_source": "openrouter.ai/google/gemini-3.7-flash, checked 2026-09-17"
+    "_source": "openrouter.ai/google/gemini-3.7-flash, checked 2026-09-17",
+    "cache_read": 0.075,
+    "cache_write": 0.041667,
+    "cache_basis_in": 0.75,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 2,
+      "in": {
+        "low": 0.75,
+        "median": 0.75,
+        "high": 0.75
+      },
+      "out": {
+        "low": 3.75,
+        "median": 3.75,
+        "high": 3.75
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (4 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 3 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/openai/gpt-5": {
     "in": 1.25,
     "out": 10.0,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-28 - coder-gate-v2's extra.models fallback (bug audit 2026-09-27 H1)"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-28 - coder-gate-v2's extra.models fallback (bug audit 2026-09-27 H1)",
+    "cache_read": 0.125,
+    "cache_basis_in": 1.25,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 2,
+      "in": {
+        "low": 1.25,
+        "median": 1.25,
+        "high": 1.25
+      },
+      "out": {
+        "low": 10,
+        "median": 10,
+        "high": 10
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/google/gemini-3.6-flash": {
     "in": 0.75,
     "out": 3.75,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-09-28 - coder-gate-v2's extra.models fallback (bug audit 2026-09-27 H1)"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-09-28 - coder-gate-v2's extra.models fallback (bug audit 2026-09-27 H1)",
+    "cache_read": 0.075,
+    "cache_write": 0.041667,
+    "cache_basis_in": 0.75,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 2,
+      "in": {
+        "low": 0.75,
+        "median": 0.75,
+        "high": 0.75
+      },
+      "out": {
+        "low": 3.75,
+        "median": 3.75,
+        "high": 3.75
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (4 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/openai/gpt-6.1-sol": {
     "in": 2.2,
     "out": 11.0,
-    "_source": "OpenAI list price is 2/10 (developers.openai.com/api/docs/pricing and OpenRouter's openai endpoint, read 2026-09-30). Priced at 2.2/11, the dearest ZDR-tagged endpoint (azure/eu and azure/us), because the advice seat's preset routes with provider.zdr or only azure/eu and priceOf prices the model id, not the endpoint; a plain first-party route (2/10) is about 9% cheaper than this row, the row being 10% dearer (the safe direction). No critiqueTokens: no measurement yet (brief 31)"
+    "_source": "OpenAI list price is 2/10 (developers.openai.com/api/docs/pricing and OpenRouter's openai endpoint, read 2026-09-30). Priced at 2.2/11, the dearest ZDR-tagged endpoint (azure/eu and azure/us); a plain first-party route (2/10) is about 9% cheaper than this row, the row being 10% dearer (the safe direction). No critiqueTokens: no measurement yet (brief 31)",
+    "cache_read": 0.11,
+    "cache_write": 2.75,
+    "cache_basis_in": 2.2,
+    "tiers": [{"from":272000,"in":4.4,"out":16.5}],
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 5,
+      "providers": 3,
+      "in": {
+        "low": 4,
+        "median": 4,
+        "high": 4.4
+      },
+      "out": {
+        "low": 15,
+        "median": 15,
+        "high": 16.5
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (3 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 2 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/anthropic/claude-sonnet-5.5": {
-    "in": 2.0,
-    "out": 10.0,
-    "_source": "openrouter.ai/api/v1/models and platform.claude.com/docs/en/about-claude/pricing, checked 2026-09-30. List price of the default route; the ZDR-tagged google-vertex/us and google-vertex/europe endpoints cost 2.2/11. No critiqueTokens: no measurement yet (brief 31)"
+    "in": 2.2,
+    "out": 11.0,
+    "_source": "openrouter.ai/api/v1/models and platform.claude.com/docs/en/about-claude/pricing, checked 2026-09-30. List price of the default route; the ZDR-tagged google-vertex/us and google-vertex/europe endpoints cost 2.2/11. No critiqueTokens: no measurement yet (brief 31); openrouter.ai/api/v1/models/anthropic/claude-sonnet-5.5/endpoints and the model page, read 2026-11-01: counted price set to the dearest eligible host 2.2/11.0 per Mtok (9 hosts), was 2/10",
+    "cache_read": 0.11,
+    "cache_write": 2.75,
+    "cache_basis_in": 2.2,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 9,
+      "providers": 5,
+      "in": {
+        "low": 2,
+        "median": 2,
+        "high": 2.2
+      },
+      "out": {
+        "low": 10,
+        "median": 10,
+        "high": 11
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "1 host(s) the page marks \"Not used in Standard routing\" left out; 4 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "_test_note": "mock/* entries below are test fixtures, not real prices. The mock provider calls nothing; these exist only so the per-run spend cap can be exercised offline, since an unpriced seat cannot be capped.",
   "mock/mock-priced": {
+    "in": 1000.0,
+    "out": 1000.0
+  },
+  "mock/mock-http-503-1": {
+    "in": 1000.0,
+    "out": 1000.0
+  },
+  "mock/mock-http-503-2": {
+    "in": 1000.0,
+    "out": 1000.0
+  },
+  "mock/mock-http-503-all": {
     "in": 1000.0,
     "out": 1000.0
   },
@@ -378,11 +1397,202 @@
   "openrouter/xiaomi/mimo-v2.6-pro": {
     "in": 0.435,
     "out": 0.87,
-    "_source": "openrouter.ai/api/v1/models, checked 2026-10-07 (public GET; matches the Xiaomi, Novita and GMICloud endpoints; DeepInfra lists 0.43)"
+    "_source": "openrouter.ai/api/v1/models, checked 2026-10-07 (public GET; matches the Xiaomi, Novita and GMICloud endpoints; DeepInfra lists 0.43)",
+    "cache_read": 0.0036,
+    "cache_basis_in": 0.435,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 3,
+      "providers": 3,
+      "in": {
+        "low": 0.32625,
+        "median": 0.387,
+        "high": 0.435
+      },
+      "out": {
+        "low": 0.6525,
+        "median": 0.783,
+        "high": 0.87
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 131072 tokens (the smallest maxTokens a shipped chain gives this model; 1 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "1 host(s) left out because every shipped seat of this model bans them in extra.provider.ignore (primalabs)",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
   },
   "openrouter/xiaomi/mimo-v2.6-flash": {
     "in": 0.175,
     "out": 0.35,
-    "_source": "openrouter.ai/api/v1/models/xiaomi/mimo-v2.6-flash/endpoints, read 2026-10-23: 10 endpoints, all able to serve 131,072 output tokens and none a fast tier, the dearest (Venice) at 0.175/0.35 per Mtok; the model's list price is 0.14/0.28. No critiqueTokens: no real run of it yet"
+    "_source": "openrouter.ai/api/v1/models/xiaomi/mimo-v2.6-flash/endpoints, read 2026-10-23: 10 endpoints, all able to serve 131,072 output tokens and none a fast tier, the dearest (Venice) at 0.175/0.35 per Mtok; the model's list price is 0.14/0.28. No critiqueTokens: no real run of it yet",
+    "cache_read": 0.004,
+    "cache_basis_in": 0.175,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 8,
+      "providers": 8,
+      "in": {
+        "low": 0.1,
+        "median": 0.14,
+        "high": 0.175
+      },
+      "out": {
+        "low": 0.224,
+        "median": 0.28,
+        "high": 0.35
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 36000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
+  },
+  "openrouter/openai/gpt-6.1-terra": {
+    "in": 1.2,
+    "out": 6.0,
+    "_source": "openrouter.ai/api/v1/models/openai/gpt-6.1-terra/endpoints and openrouter.ai/api/v1/endpoints/zdr, read 2026-10-30: list price 1.0/5.0 per Mtok; priced at 1.2/6.0, the azure/eu endpoint, the only ZDR endpoint (a ZDR-only account reaches no other), because the price pin sends this row as max_price and a row at list price would shut that endpoint out",
+    "cache_read": 0.05,
+    "cache_write": 1.25,
+    "cache_basis_in": 1.0,
+    "tiers": [{"from":272000,"in":2,"out":7.5}],
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 2,
+      "providers": 2,
+      "in": {
+        "low": 2,
+        "median": 2,
+        "high": 2
+      },
+      "out": {
+        "low": 7.5,
+        "median": 7.5,
+        "high": 7.5
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "3 host(s) the page marks \"Not used in Standard routing\" left out",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
+  },
+  "openrouter/qwen/qwen3.8-27b": {
+    "in": 0.45,
+    "out": 3.2,
+    "_source": "openrouter.ai/api/v1/models/qwen/qwen3.8-27b/endpoints and openrouter.ai/api/v1/endpoints/zdr, read 2026-10-30: list price 0.039/1.25 per Mtok; priced at 0.04/1.35, the cheapest ZDR endpoint that can serve 65,536 output tokens (near-ai/fp8; every ZDR endpoint is at or above it on both fields), because the price pin sends this row as max_price and a row at list price would shut every ZDR endpoint out; openrouter.ai/api/v1/models/qwen/qwen3.8-27b/endpoints and the model page, read 2026-11-04: counted price set to the dearest eligible host 0.45/3.2 per Mtok (21 hosts), was 0.04/1.35",
+    "cache_read": 0.25,
+    "cache_write": 0.53125,
+    "cache_basis_in": 0.45,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 16,
+      "providers": 16,
+      "in": {
+        "low": 0.04,
+        "median": 0.1775,
+        "high": 0.45
+      },
+      "out": {
+        "low": 1.05,
+        "median": 2.25,
+        "high": 3.2
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 7 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
+  },
+  "openrouter/minimax/minimax-m3.1-flash": {
+    "in": 0.15,
+    "out": 0.6,
+    "_source": "openrouter.ai/api/v1/models, read 2026-10-30: list 0.15/0.6 per Mtok",
+    "cache_read": 0.015,
+    "cache_basis_in": 0.15,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 11,
+      "providers": 10,
+      "in": {
+        "low": 0.1125,
+        "median": 0.15,
+        "high": 0.15
+      },
+      "out": {
+        "low": 0.45,
+        "median": 0.6,
+        "high": 0.6
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (0 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
+  },
+  "openrouter/moonshotai/kimi-k3.1-pro": {
+    "in": 2.3,
+    "out": 12.0,
+    "_source": "openrouter.ai/api/v1/models, read 2026-10-30: list 2.0/10.0 per Mtok; openrouter.ai/api/v1/models/moonshotai/kimi-k3.1-pro/endpoints and the model page, read 2026-11-11: counted price set to the dearest eligible host 2.3/12.0 per Mtok (19 hosts), was 2/10",
+    "cache_read": 0.23,
+    "cache_basis_in": 2.3,
+    "hosts": {
+      "checked": "2026-11-11",
+      "count": 19,
+      "providers": 16,
+      "in": {
+        "low": 0.2878,
+        "median": 1.8,
+        "high": 2.3
+      },
+      "out": {
+        "low": 8.2479,
+        "median": 10,
+        "high": 12
+      },
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (3 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "the page shows no \"Not used in Standard routing\" divider",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
+  },
+  "openrouter/google/gemini-4-argon": {
+    "in": 2.0,
+    "out": 10.0,
+    "_source": "openrouter.ai/api/v1/models, read 2026-10-30: list 2.0/10.0 per Mtok; ai.google.dev/gemini-api/docs/pricing, read 2026-10-30: \"$2.00 through November 30, 2026.\" in and \"$10.00 through November 30, 2026.\" out, then \"$4.00 starting December 1, 2026.\" and \"$20.00 starting December 1, 2026.\"",
+    "expires": "2026-12-01",
+    "_promotional": "Google's Gemini 4 Argon is 2 / 10 through 2026-11-30 and 4 / 20 from 2026-12-01 (ai.google.dev/gemini-api/docs/pricing, read 2026-10-30). Re-price this row before the date: the cap projects with 2 / 10 until it changes."
+  },
+  "anthropic/claude-opus-5-5": {
+    "in": 4.0,
+    "out": 20.0,
+    "_source": "platform.claude.com/docs/en/about-claude/pricing, read 2026-10-30: Claude Opus 5.5 \"$4 / MTok\" base input, \"$20 / MTok\" output. The page's $8 / $40 line for Opus 5.5 is fast mode (a speed the harness never sends) and is not used; there is no prompt-size tier"
+  },
+  "anthropic/claude-haiku-5-5": {
+    "in": 0.5,
+    "out": 2.5,
+    "_source": "platform.claude.com/docs/en/about-claude/pricing, read 2026-10-30: Claude Haiku 5.5 is priced by prompt length: \"for prompts up to 100,000 tokens\" $0.10 / $0.50 per MTok and \"for prompts over 100,000 tokens\" $0.50 / $2.50. Priced at the over-100,000 tier so the cap never projects less than a long prompt bills"
+  },
+  "anthropic/claude-sonnet-5-5": {
+    "in": 2.0,
+    "out": 10.0,
+    "_source": "platform.claude.com/docs/en/about-claude/pricing, read 2026-10-30: Claude Sonnet 5.5 \"$2 / MTok\" base input, \"$10 / MTok\" output; no prompt-size tier"
   }
 }

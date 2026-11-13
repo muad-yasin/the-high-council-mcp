@@ -1,11 +1,13 @@
 {
   "name": "plan-high-council",
-  "description": "The High Council (0.8.3): the most thorough of three planning chains (plan-mini-council, plan-medium-council, plan-high-council), with the strongest models. It runs the planning stages with six proposers (Tencent HY4 Preview, Gemini 3.8 Flash, DeepSeek V4.1 Flash, Muse Spark 1.3, Qwen 3.8 Max, MiMo V2.6 Pro), an alternatives stage (GPT-6.1 Sol, Claude Opus 5.5 and GLM-5.3; every proposer also debates the architectures), one deep-dive seat (DeepSeek V4.1 Flash) and a layered review panel of twelve named judges in three layers: layer 1 GLM-5.3, MiMo V2.6 Pro, DeepSeek V4.1 Flash, MiniMax M3, Claude Haiku 5.5, GPT-6 Luna; layer 2 Claude Opus 5.5, GPT-6.1 Sol, Qwen 3.8 Max, Mistral Large 4; layer 3 Claude Fable 5.1 and GPT-6 Astra. Exactly these twelve vote, twelve judges from eight companies (Claude Haiku 5.5, Claude Opus 5.5 and Claude Fable 5.1 are one company, GPT-6 Luna, GPT-6.1 Sol and GPT-6 Astra are one company); DeepSeek V4.1 Flash, Qwen 3.8 Max, MiMo V2.6 Pro, GPT-6.1 Sol, Claude Opus 5.5 and GLM-5.3 each both propose and judge, which is why \"judging\" is \"all-roles\". Every layer has at least two judges. A layer is asked only when every layer below it signed off, and a layer signs off when all its judges do. Any objection at a lower layer sends the draft to the reviser and the climb starts again at layer 1; a round ends only when layer 3 gives its verdict, a sign-off or an objection. This chain allows 7 such overseer rounds (maxOverseerRounds) and, inside one round, 5 revisions of layer 1 and 3 of layer 2 (layerRevisions). When either limit is reached the run stops, resumable and NOT agreed, and you choose: continue (it extends the limit that was reached; the run's spending limit still applies), or finish (the dispute stage and the handoff run and the result stays \"not agreed\"), or revise the draft yourself. Claude Haiku 5.5 (layer 1), Claude Opus 5.5 (layer 2) and Claude Fable 5.1 (layer 3) are answered through your own Claude subscription (provider external, subscription:haiku-5.5, subscription:opus-5.5, subscription:fable-5.1): like the criteria, skeleton, build, revise and handoff stages, each pauses the run (exit 3) until it is answered, and the answers should come from a separate fresh session, not the one that wrote the plan. Without a Claude subscription, replace each of those seats with its API seat: {\"provider\":\"openrouter\",\"model\":\"anthropic/claude-haiku-5.5\",\"maxTokens\":128000,\"lab\":\"haiku5.5\",\"extra\":{\"reasoning\":{\"effort\":\"high\"}},\"layer\":1}; {\"provider\":\"openrouter\",\"model\":\"anthropic/claude-opus-5.5\",\"maxTokens\":128000,\"lab\":\"opus5.5\",\"extra\":{\"reasoning\":{\"effort\":\"high\"}},\"layer\":2}; {\"provider\":\"openrouter\",\"model\":\"anthropic/claude-fable-5.1\",\"maxTokens\":128000,\"lab\":\"fable5.1\",\"extra\":{\"reasoning\":{\"effort\":\"high\"}},\"layer\":3}; the other stages still need a Claude Code session. answer_back is on: a judge's own earlier objection is shown back to it, and only that judge can close it. The criteria, skeleton, build, revise and handoff stages need a Claude Code session (provider external): they pause the run (exit 3) until the session answers. Every API seat reasons at high, or at the model's own default where that is higher (the harness sends these no effort setting: GLM-5.3 at max, Qwen 3.8 Max at xhigh); no Grok, no Kimi. Output caps are the largest reply the harness knows for each model: DeepSeek V4.1 Flash 393,216; Qwen 3.8 Max, MiMo V2.6 Pro and GLM-5.3 131,072; GPT-6.1 Sol, GPT-6 Luna and GPT-6 Astra 128,000; Gemini 3.8 Flash 65,536; Tencent HY4 Preview 64,000. For Muse Spark 1.3, MiniMax M3 and Mistral Large 4 no published limit was found, so the seat cap is 128,000. Dry run (0.8.3, prices of 2026-10-18, the dry run's assumed sizes): $25.89 expected (every overseer round ends after one climb through the layers) and an upper estimate of $272.24 (every allowed revision used in every overseer round), about $25.89 plus a Claude subscription. The upper estimate leaves out the in-pass re-asks (up to 2 per seat), up to 2 consecutive passes that re-ask a silent seat, the explicit asks of a silent judge, answer-back calls, the memory block judge calls read from overseer round 2 on (up to 10000 tokens per call, paid input that neither figure prices) and the larger prompt the top layer reads, so it is not a ceiling: the limit you type is what stops spending. No proposer's cap is below the most the harness will retry its model at, so a proposal cut off at its cap is not asked again with a bigger one. The upper estimate ($272.24) and the cheapest end ($17.29, one overseer round, the dry run's floor) are above the default cap of $7. On the command line that cap is only a suggestion. The Claude Desktop bundle's default Spend ceiling of $10 is a hard ceiling nobody can type above, so with that default this chain probably cannot finish (an inference from the dry run's floor, not a run): raise the ceiling setting first. This roster has not run, and none of its mechanisms has been measured. Price your task with `npm run dry` and get an explicit go before any paid run. The review judges' proposals and improvement ideas are quoted; the writer's answers are its own claim, and no judge gives a verdict on them. If the reviser is your Claude Code session, it may propose to finish early. The overseer layer decides whether to say yes. A yes ends the review as not agreed and hands every remaining open objection to the builder as a task.",
-  "summary": "Twelve judges in three layers, each asked once the one below signed off. Haiku, Opus and Fable via your Claude plan.",
-  "maxOverseerRounds": 7,
-  "layerRevisions": {
-    "1": 5,
-    "2": 3
+  "draft_end_marker": {
+    "enabled": true
+  },
+  "description": "The High Council (0.8.4): the most thorough of three planning chains (plan-mini-council, plan-medium-council, plan-high-council), with the strongest models. It runs the planning stages with three proposers (Claude Opus 5.5, DeepSeek V4.1 Flash, GPT-6.1 Sol) and a layered review panel of twelve named judges in three layers: layer 1 Claude Haiku 5.5, GPT-6 Luna, GLM-5.3 Flash, MiniMax M3.1 Flash, DeepSeek V4.1 Flash; layer 2 Claude Opus 5.5, GPT-6.1 Sol, Mistral Large 4, Kimi K3.1 Pro, Qwen 3.8 27B; layer 3 Claude Fable 5.2 and GPT-6 Astra. It is the twin of plan-the-high-council: the same fifteen seats, and each seat carries a persona name in the form title (seat_personas), which is the title of the seat and changes nothing the seat does. Exactly these twelve vote, twelve judges from eight companies (Claude Haiku 5.5, Claude Opus 5.5 and Claude Fable 5.2 are one company, GPT-6 Luna, GPT-6.1 Sol and GPT-6 Astra are one company); Claude Opus 5.5, DeepSeek V4.1 Flash and GPT-6.1 Sol each both propose and judge, which is why \"judging\" is \"all-roles\". Every layer has at least two judges. A layer signs off when all its judges do. Any objection at a lower layer sends the draft to the reviser; a round ends only when layer 3 gives its verdict, a sign-off or an objection. This chain runs the ladder (its ladder key: block 3, visits 3): layer 1 revises in blocks of 3, then layer 2 is asked (up to 3 visits), then layer 3 reads; each layer-3 visit is one top-layer read. It has no round limit: the run ends on agreement, on a stall the top layer holds, at the limit you type (--rounds counts top-layer reads) or when you stop it. When a stall at the top layer, a judge that stays silent after its solo ask, or your own stop ends the work for now, the run is stopped, resumable and NOT agreed, and you choose how to go on: continue, finish at once, finish after one last top-layer read, or revise the draft yourself; the run's spending limit still applies. On a ladder run the plan is never sent up a layer ahead of its turn: each layer is asked when the ladder's order reaches it. The four Claude seats (Claude Opus 5.5 as a proposer, Claude Haiku 5.5, Claude Opus 5.5 and Claude Fable 5.2 as judges) are called through Anthropic's API (provider anthropic) with an Anthropic key, and go through OpenRouter without one; the other eleven seats (nine models) are called through OpenRouter and need an OpenRouter key. Every OpenRouter seat asks OpenRouter not to route it to the Open Inference provider (provider.ignore). answer_back is on: a judge's own earlier objection is shown back to it, and only that judge can close it. The criteria, skeleton, build, revise and handoff stages need a Claude Code session (provider external): they pause the run (exit 3) until the session answers. Every API seat reasons at high, except Qwen 3.8 27B, which runs at xhigh because the model offers no high setting (the chain states xhigh for it); no Grok, no Kimi K3. Output caps are the largest reply the harness knows for each model: Claude Fable 5.2, Claude Opus 5.5, Claude Haiku 5.5, GPT-6.1 Sol, GPT-6 Astra, GPT-6 Luna and Qwen 3.8 27B 128,000 (for Qwen 3.8 27B the maintainer's choice; the lab's own figure is 131,072); DeepSeek V4.1 Flash 393,216; GLM-5.3 Flash 131,072. For Kimi K3.1 Pro, MiniMax M3.1 Flash and Mistral Large 4 no published limit was found, so the seat cap is 128,000. Dry run (0.8.4, prices of 2026-11-11, the dry run's assumed sizes): $31.56 expected (3 top-layer reads, the read that signs off counted, each after a climb of about 8 layer-1 passes and 1 layer-2 pass: the average of one measured run) and an upper estimate of $1749.87 (7 top-layer reads, an assumption, each with the full ladder below it), about $31.56 plus a Claude subscription. The upper estimate counts the in-pass re-asks (up to 2 per seat) and the solo ask of a silent judge at the review's expected cost, but leaves out answer-back calls, the memory block judge calls read from overseer round 2 on (up to 10000 tokens per call, paid input that neither figure prices) and the larger prompt the top layer reads, so it is not a ceiling: the limit you type is what stops spending. No proposer's cap is below the most the harness will retry its model at, so a proposal cut off at its cap is not asked again with a bigger one. The upper estimate ($1749.87) and the cheapest end ($17.34, one overseer round, the dry run's floor) are above the default cap of $12. On the command line that cap is not a limit for a paid run: it is the figure the dry run compares a chain with. The Claude Desktop bundle's default Spend ceiling of $12 is a hard ceiling nobody can type above, so with that default this chain probably cannot finish (an inference from the dry run's floor, not a run): raise the ceiling setting first. This roster has not run, and none of its mechanisms has been measured. Price your task with `npm run dry` and get an explicit go before any paid run. The review judges' proposals and improvement ideas are quoted; the writer's answers are its own claim, and no judge gives a verdict on them. If the reviser is your Claude Code session, it may propose to finish early. The overseer layer decides whether to say yes. A yes ends the review as not agreed and hands every remaining open objection to the builder as a task.",
+  "summary": "Twelve judges in three layers and three proposers. Claude seats on Anthropic's API, the rest on OpenRouter.",
+  "ladder": {
+    "block": 3,
+    "visits": 3
   },
   "signoff": "unanimous",
   "signoff_table": {
@@ -24,7 +26,11 @@
   "judging": "all-roles",
   "dispute": {
     "enabled": true,
-    "stall_rounds": 2
+    "stall_rounds": 3
+  },
+  "seat_personas": {
+    "enabled": true,
+    "form": "title"
   },
   "proposals": {
     "parts": 3,
@@ -34,17 +40,6 @@
   "decisions": {
     "enabled": true
   },
-  "alternatives": {
-    "enabled": true,
-    "debaters": "all"
-  },
-  "deep_dive": {
-    "enabled": true,
-    "job": "sources",
-    "usd": 2.5,
-    "maxCalls": 24,
-    "chunkChars": 40000
-  },
   "majority_guard": {
     "enabled": true
   },
@@ -53,6 +48,7 @@
     "sampleRate": 0.1
   },
   "handoff": true,
+  "prompt_cache": { "enabled": true, "ttl": "5m" },
   "reviewNotes": {
     "enabled": true,
     "perKind": 3
@@ -90,26 +86,16 @@
     },
     "proposers": [
       {
-        "provider": "openrouter",
-        "model": "tencent/hy4-preview",
-        "maxTokens": 64000,
-        "lab": "hy4-preview",
+        "provider": "anthropic",
+        "model": "claude-opus-5-5",
+        "maxTokens": 128000,
+        "lab": "opus5.5",
         "extra": {
-          "reasoning": {
+          "output_config": {
             "effort": "high"
           }
-        }
-      },
-      {
-        "provider": "openrouter",
-        "model": "google/gemini-3.8-flash",
-        "maxTokens": 65536,
-        "lab": "gemini3.8-flash",
-        "extra": {
-          "reasoning": {
-            "effort": "high"
-          }
-        }
+        },
+        "persona": "Noah"
       },
       {
         "provider": "openrouter",
@@ -119,39 +105,16 @@
         "extra": {
           "reasoning": {
             "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference",
+              "morph"
+            ]
           }
-        }
+        },
+        "persona": "Husayn"
       },
-      {
-        "provider": "openrouter",
-        "model": "meta/muse-spark-1.3",
-        "maxTokens": 128000,
-        "lab": "muse-spark1.3",
-        "extra": {
-          "reasoning": {
-            "effort": "high"
-          }
-        }
-      },
-      {
-        "provider": "openrouter",
-        "model": "qwen/qwen3.8-max-0902",
-        "maxTokens": 131072,
-        "lab": "qwen3.8-max"
-      },
-      {
-        "provider": "openrouter",
-        "model": "xiaomi/mimo-v2.6-pro",
-        "maxTokens": 131072,
-        "lab": "mimo-v2.6-pro",
-        "extra": {
-          "reasoning": {
-            "effort": "high"
-          }
-        }
-      }
-    ],
-    "alternatives": [
       {
         "provider": "openrouter",
         "model": "openai/gpt-6.1-sol",
@@ -160,168 +123,219 @@
         "extra": {
           "reasoning": {
             "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
           }
-        }
-      },
-      {
-        "provider": "external",
-        "model": "subscription:opus-5.5",
-        "lab": "opus5.5-sub",
-        "maxTokens": 128000
-      },
-      {
-        "provider": "openrouter",
-        "model": "z-ai/glm-5.3",
-        "maxTokens": 131072,
-        "lab": "glm5.3"
+        },
+        "persona": "Abraham"
       }
     ],
     "critics": [
       {
-        "provider": "openrouter",
-        "model": "z-ai/glm-5.3",
-        "lab": "glm5.3",
-        "maxTokens": 131072,
-        "layer": 1
-      },
-      {
-        "provider": "openrouter",
-        "model": "xiaomi/mimo-v2.6-pro",
-        "lab": "mimo-v2.6-pro",
-        "maxTokens": 131072,
-        "layer": 1,
-        "extra": {
-          "reasoning": {
-            "effort": "high"
-          }
-        }
-      },
-      {
-        "provider": "openrouter",
-        "model": "deepseek/deepseek-v4.1-flash-1017",
-        "lab": "deepseek-v4.1-flash",
-        "maxTokens": 393216,
-        "layer": 1,
-        "extra": {
-          "reasoning": {
-            "effort": "high"
-          }
-        }
-      },
-      {
-        "provider": "openrouter",
-        "model": "minimax/minimax-m3",
-        "lab": "minimax-m3",
+        "provider": "anthropic",
+        "model": "claude-haiku-5-5",
         "maxTokens": 128000,
+        "lab": "haiku5.5",
         "layer": 1,
         "extra": {
-          "reasoning": {
+          "output_config": {
             "effort": "high"
           }
-        }
-      },
-      {
-        "provider": "external",
-        "model": "subscription:haiku-5.5",
-        "lab": "haiku5.5-sub",
-        "maxTokens": 128000,
-        "layer": 1,
-        "extra": {
-          "reasoning": {
-            "effort": "high"
-          }
-        }
+        },
+        "persona": "Matthew"
       },
       {
         "provider": "openrouter",
         "model": "openai/gpt-6-luna",
-        "lab": "gpt6-luna",
         "maxTokens": 128000,
+        "lab": "gpt6-luna",
         "layer": 1,
         "extra": {
           "reasoning": {
             "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
           }
-        }
+        },
+        "persona": "Merkel"
       },
       {
-        "provider": "external",
-        "model": "subscription:opus-5.5",
-        "lab": "opus5.5-sub",
-        "maxTokens": 128000,
-        "layer": 2,
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 131072,
+        "lab": "glm5.3-flash",
+        "layer": 1,
         "extra": {
           "reasoning": {
             "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
           }
-        }
+        },
+        "persona": "Herbert"
+      },
+      {
+        "provider": "openrouter",
+        "model": "minimax/minimax-m3.1-flash",
+        "maxTokens": 128000,
+        "lab": "minimax-m3.1-flash",
+        "layer": 1,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
+          }
+        },
+        "persona": "Van Gogh"
+      },
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4.1-flash-1017",
+        "maxTokens": 393216,
+        "lab": "deepseek-v4.1-flash",
+        "layer": 1,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference",
+              "morph"
+            ]
+          }
+        },
+        "persona": "Aristotle"
+      },
+      {
+        "provider": "anthropic",
+        "model": "claude-opus-5-5",
+        "maxTokens": 128000,
+        "lab": "opus5.5",
+        "layer": 2,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Moses"
       },
       {
         "provider": "openrouter",
         "model": "openai/gpt-6.1-sol",
-        "lab": "gpt6.1-sol",
         "maxTokens": 128000,
+        "lab": "gpt6.1-sol",
         "layer": 2,
         "extra": {
           "reasoning": {
             "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
           }
-        }
-      },
-      {
-        "provider": "openrouter",
-        "model": "qwen/qwen3.8-max-0902",
-        "lab": "qwen3.8-max",
-        "maxTokens": 131072,
-        "layer": 2
+        },
+        "persona": "Einstein"
       },
       {
         "provider": "openrouter",
         "model": "mistralai/mistral-large-4-0",
-        "lab": "mistral-large4",
         "maxTokens": 128000,
+        "lab": "mistral-large4",
         "layer": 2,
         "extra": {
           "reasoning": {
             "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
           }
-        }
+        },
+        "persona": "da Vinci"
       },
       {
-        "provider": "external",
-        "model": "subscription:fable-5.1",
-        "lab": "fable5.1-sub",
+        "provider": "openrouter",
+        "model": "moonshotai/kimi-k3.1-pro",
         "maxTokens": 128000,
-        "layer": 3,
+        "lab": "kimi-k3.1-pro",
+        "layer": 2,
         "extra": {
           "reasoning": {
             "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
           }
-        }
+        },
+        "persona": "Archimedes"
+      },
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.8-27b",
+        "maxTokens": 128000,
+        "lab": "qwen3.8-27b",
+        "layer": 2,
+        "extra": {
+          "reasoning": {
+            "effort": "xhigh"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
+          }
+        },
+        "persona": "Plato"
+      },
+      {
+        "provider": "anthropic",
+        "model": "claude-fable-5-2",
+        "maxTokens": 128000,
+        "lab": "fable5.2",
+        "layer": 3,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Melchizedek"
       },
       {
         "provider": "openrouter",
         "model": "openai/gpt-6-astra",
-        "lab": "gpt6-astra",
         "maxTokens": 128000,
+        "lab": "gpt6-astra",
         "layer": 3,
         "extra": {
           "reasoning": {
             "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
           }
-        }
+        },
+        "persona": "Karpathy"
       }
-    ],
-    "deep_dive": {
-      "provider": "openrouter",
-      "model": "deepseek/deepseek-v4.1-flash-1017",
-      "maxTokens": 393216,
-      "lab": "deepseek-v4.1-flash",
-      "extra": {
-        "reasoning": {
-          "effort": "high"
-        }
-      }
-    }
+    ]
   }
 }

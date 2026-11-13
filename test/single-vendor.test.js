@@ -372,13 +372,16 @@ test('resolveChainSeats: with security_review.enabled and no explicit security_r
     security_review: { enabled: true },
     seats: {
       builder: { provider: 'anthropic', model: 'claude-sonnet-5' },
-      // no security_reviewer named - the config falls back to DEFAULT_SECURITY_REVIEWER_SEAT,
-      // whose model (claude-fable-5-1) has no vendor route today, so this must throw rather than
-      // silently keep using the raw direct-Anthropic default under single-vendor mode.
+      // no security_reviewer named - the config falls back to DEFAULT_SECURITY_REVIEWER_SEAT, which
+      // must be routed with the rest rather than silently kept on the raw direct-Anthropic default under single-vendor mode.
     },
   };
-  assert.throws(() => resolveChainSeats(config), /no route for anthropic-security under transport openrouter/,
-    'no silent fallback to direct-Anthropic under single-vendor mode - fails loud instead, same as any other unrouted seat');
+  // CHANGED ACCEPTED (0.8.4 wiring unit, 10 Nov 2026): OLD bar: this config THREW "no route for anthropic-security", because the default reviewer's model (claude-fable-5-1) had no VENDOR_MODEL_MAPS row. NEW bar: the row exists (the Claude route needs it: the default reviewer is
+  // routed with the rest), so the default seat is materialized and ROUTED, still never left on the raw direct-Anthropic default. WHY: blocker 1 of the wiring GO. An unmapped seat still fails loud (the cohere test above, and the next test's claude-not-routed model).
+  const resolved = resolveChainSeats(config);
+  assert.equal(resolved.seats.security_reviewer.provider, 'openrouter', 'no silent fallback to direct-Anthropic under single-vendor mode');
+  assert.equal(resolved.seats.security_reviewer.model, 'anthropic/claude-fable-5.1');
+  assert.equal(resolved.seats.security_reviewer.lab, 'anthropic-security');
 });
 
 test('resolveChainSeats: security_review NOT enabled - the default reviewer seat is never touched, never causes a spurious throw', () => {

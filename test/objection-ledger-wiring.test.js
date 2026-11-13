@@ -24,8 +24,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CRITERION = 'The plan defines a retry limit.';
 const DRAFT = 'The worker retries failed requests.';
 const QUOTE = '`The worker retries failed requests.`';
-const F_A = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.' };
-const F_A2 = { criterion: 'The plan names an owner.', problem: 'Layer one: nobody owns the limit.', fix: 'Name one.' };
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the stub failures (F_A, F_A2, F_B and the forty 'big' ones) carried no rating and no relation. NEW: each carries severity 5 and relation 'new' (each is a first raise by its seat). WHY: ratingDemand and relationRule are recorded (src/prompts/recorded-084-b.js): on this layered unanimous chain a failure without a rating or a relation is an unreadable reply.
+const F_A = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.', severity: 5, relation: 'new' };
+const F_A2 = { criterion: 'The plan names an owner.', problem: 'Layer one: nobody owns the limit.', fix: 'Name one.', severity: 5, relation: 'new' };
 const ID_A = objectionId('la', F_A); const ID_A2 = objectionId('la', F_A2);
 const signoff = (extra = {}) => JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok', ...extra });
 const objecting = (...fs) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: fs, verdict_line: 'no' });
@@ -41,7 +42,7 @@ async function run(replies, { maxRounds = 4, words = WORDS_ALL, extra = {} } = {
   setPromptSpy(p => { hashes.set(p.label, promptHashOf(p.system, p.user)); prompts.set(p.label, p.user); });
   setCache({ invalidate() {}, get(label) {
     served.push(label);
-    const text = label.startsWith('panel-') ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+    const text = (label.startsWith('panel-') || label.startsWith('final-read-')) ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
     return { text, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0, promptHash: hashes.get(label) };
   } });
   const seat = (lab, layer) => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000, ...(layer === undefined ? {} : { layer }) });
@@ -53,7 +54,8 @@ async function run(replies, { maxRounds = 4, words = WORDS_ALL, extra = {} } = {
   return { result, prompts, served, logs, config };
 }
 // Round 1: la objects with F_A. Round 2: la withdraws F_A quoting the draft (reasoning E1) and is clean, so lb (the top layer) is asked; lb objects with F_B. Round 3: la is clean, lb is asked again.
-const F_B = { criterion: 'The plan names an owner.', problem: 'Top layer: nobody owns the limit.', fix: 'Name one.' };
+// CHANGED ACCEPTED TEST (0.8.4 apply, job 12 rows E4 w1 and E4 w5): OLD: F_B's criterion was 'The plan names an owner.' while objecting() writes ONE table row, FAILED on CRITERION. NEW: F_B's criterion is CRITERION (the criterion of that row; the problem text is unchanged). WHY: errors "Cannot read properties of undefined (reading 'includes')" (w1: prompts.get('panel-3-lb') is undefined, test line 69) and "Cannot read properties of undefined (reading 'ledger')" (w5: no round-3 row for layer 2): lb was never asked in round 3. With the rating demand recorded, normaliseCritique (src/chain.js:1237-1250) adds a failure of its own for a FAILED table row that no failure of the reply names (src/chain.js:1224-1230, matched by criterion), and that failure carries no severity, so the whole verdict is unreadable (src/chain.js:1252-1255: 'carries no readable severity'): lb's round-2 objection was an abstention, was asked again, and its re-ask (the label 'panel-2-lb-reask1' is not scripted, so the cache answers signoff()) signed off: the run ended agreed in round 2. F_A (criterion CRITERION) matched its row, so round 1 was readable. Nothing else in the file uses F_B (grep: only climb() below).
+const F_B = { criterion: CRITERION, problem: 'Top layer: nobody owns the limit.', fix: 'Name one.', severity: 5, relation: 'new' };
 const E1 = 'It now states the limit in section one.';
 const climb = () => label => (label === 'panel-1-la' ? objecting(F_A)
   : label === 'panel-2-la' ? signoff(withdraw(ID_A, `${E1} ${QUOTE}`))
@@ -88,7 +90,7 @@ test('E4 w3: the judge\'s reasoning lives ON the in-memory answer row and never 
 });
 
 test('E4 w4: OVERFLOW of the ACTIVE rows stops the run BEFORE the top ask: layerStop ledger_overflow, the top row not_asked, nothing sent to lb, no reviser, the later block does not overwrite it', async () => {
-  const big = Array.from({ length: 40 }, (_, i) => ({ criterion: CRITERION, problem: `Open objection number ${i}: ${'x'.repeat(1400)}`, fix: 'Fix it.' }));
+  const big = Array.from({ length: 40 }, (_, i) => ({ criterion: CRITERION, problem: `Open objection number ${i}: ${'x'.repeat(1400)}`, fix: 'Fix it.', severity: 5, relation: 'new' }));
   const replies = label => (label === 'panel-1-lb' ? objecting(...big) : undefined);
   const { result, served, logs } = await run(replies);
   assert.equal(result.passed, false);
@@ -108,7 +110,7 @@ test('E4 w4: OVERFLOW of the ACTIVE rows stops the run BEFORE the top ask: layer
 
 // Bug audit 2026-10-24 C-004 (notes half): a judge reply of the stopped round carries a notes part; the stop used to skip the fold that turns the stash into items or dropped rows, so the note vanished from report.json review_notes. Same fixture as w4 with the lane on; la's round-2 sign-off carries one proposal note.
 test('E4 w4b: a ledger stop still records the review notes of the layers it asked (the item is in report.json review_notes)', async () => {
-  const big = Array.from({ length: 40 }, (_, i) => ({ criterion: CRITERION, problem: `Open objection number ${i}: ${'x'.repeat(1400)}`, fix: 'Fix it.' }));
+  const big = Array.from({ length: 40 }, (_, i) => ({ criterion: CRITERION, problem: `Open objection number ${i}: ${'x'.repeat(1400)}`, fix: 'Fix it.', severity: 5, relation: 'new' }));
   const replies = label => (label === 'panel-1-lb' ? objecting(...big) : label === 'panel-2-la' ? signoff({ proposals: [{ text: 'Add a retry queue' }] }) : undefined);
   const { result, config } = await run(replies, { extra: { reviewNotes: { enabled: true, perKind: 3 } } });
   assert.equal(result.layerStop?.reason, 'ledger_overflow');
@@ -126,7 +128,7 @@ test('E4 w5: the top layer\'s layers[] row carries the ledger COUNTS (no text), 
   const validate = ajv.compile(JSON.parse(readFileSync(join(root, 'schemas', 'report-v1.json'), 'utf8')));
   const rep = JSON.parse(JSON.stringify(reportJsonShape({ runId: 'r-e4', chain: 'fixture-e4', task: 't.md', result, config })));
   assert.ok(validate(rep), JSON.stringify(validate.errors, null, 2));
-  const big = Array.from({ length: 40 }, (_, i) => ({ criterion: CRITERION, problem: `Open ${i}: ${'x'.repeat(1400)}`, fix: 'Fix it.' }));
+  const big = Array.from({ length: 40 }, (_, i) => ({ criterion: CRITERION, problem: `Open ${i}: ${'x'.repeat(1400)}`, fix: 'Fix it.', severity: 5, relation: 'new' }));
   const over = await run(label => (label === 'panel-1-lb' ? objecting(...big) : undefined));
   const rep2 = JSON.parse(JSON.stringify(reportJsonShape({ runId: 'r-e4', chain: 'fixture-e4', task: 't.md', result: over.result, config: over.config })));
   assert.ok(validate(rep2), JSON.stringify(validate.errors, null, 2));
@@ -186,7 +188,7 @@ test('E4 w7: the named exit: the --resume refusal text for an overflow-stopped r
 
 // Bug audit 2026-10-24 C-005 (ledger half): with the dispute stage on, a ledger-overflow stop wrote "layer 2 gave no usable verdict" into the dissent block at the top of the deliverable although the top layer was never asked (the log line and the board named the ledger). The block now says what the log line says.
 test('E4 w7: a ledger-overflow stop with the dispute stage on says in the dissent block that the ledger did not fit, not that a layer gave no usable verdict', async () => {
-  const big = Array.from({ length: 40 }, (_, i) => ({ criterion: CRITERION, problem: `Open objection number ${i}: ${'x'.repeat(1400)}`, fix: 'Fix it.' }));
+  const big = Array.from({ length: 40 }, (_, i) => ({ criterion: CRITERION, problem: `Open objection number ${i}: ${'x'.repeat(1400)}`, fix: 'Fix it.', severity: 5, relation: 'new' }));
   const { result } = await run(label => (label === 'panel-1-lb' ? objecting(...big) : undefined), { extra: { dispute: { enabled: true, stall_rounds: 99 } } });
   assert.equal(result.layerStop?.reason, 'ledger_overflow');
   assert.equal(result.dispute?.ran, true, 'the dispute stage ran');

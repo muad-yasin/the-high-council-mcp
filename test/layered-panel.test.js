@@ -10,9 +10,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
-import { runChain, setCache, setBudget, setProgressHook, ExternalPause, BudgetExceeded } from '../src/chain.js';
+import { runChain, setCache, setBudget, setProgressHook, setPromptSpy, ExternalPause, BudgetExceeded } from '../src/chain.js';
 import { computeOutcome } from '../src/outcome.js';
-import { estimateChainRows } from '../src/cost.js';
+import { estimateChainRows, estimateTokens } from '../src/cost.js';
+import { systemTextsFor } from '../src/stage-system.js';
 import { layersHeadline } from '../src/layers.js';
 import { renderLayersBoard, reportJsonShape } from '../src/report-shape.js';
 
@@ -96,6 +97,17 @@ test('layers: a layer in which nobody gave a verdict (only stated passes) stops 
   assert.equal(computeOutcome(r), 'degraded');
 });
 
+// T21m (WHOLE-RUN row of the S16 fix round; 0.8.4 Q9(f) route 3): a lower layer where nobody voted (the layer abstained): the final read of the top layer runs before the not-agreed end.
+test('T21m: a layer in which nobody gave a verdict (only stated passes): the final read of the top layer runs before the run ends not agreed (layer 3, never asked in the climb, is asked once)', async () => {
+  const PASSER_MODEL = 'mock-critic-passer';
+  const critics = [judge('o', 'e1m', 'l1', 1), { provider: 'mock', model: PASSER_MODEL, lab: 'l2', layer: 2 }, { provider: 'mock', model: PASSER_MODEL, lab: 'l2b', layer: 2 }, judge('o', 'e3m', 'l3', 3)];
+  const { r } = await go(chainOf(critics, { ...PASSER, dispute: { enabled: true } }));
+  assert.deepEqual(stageLabels(r).filter(l => l.startsWith('final-read-')), ['final-read-l3'], 'T21m: layer 3 was never asked in the climb, and the final read asks it once before the end');
+  assert.equal(r.finalRead?.seats?.find(e => e.lab === 'l3')?.read, true, 'it read the plan');
+  assert.deepEqual([r.layerStop?.layer, r.layerStop?.reason, r.passed], [2, 'only_stated_passes', false], 'premise: the run ended not agreed at the abstained layer');
+  assert.deepEqual(states(r, 1), ['1:signed_off', '2:abstained', '3:not_asked'], 'premise: layer 3 was not asked in the climb');
+});
+
 test('layers: the top layer needs an explicit sign-off from every seat; a stated pass there stops the run as not agreement', async () => {
   const critics = [judge('o', 'f1', 'l1', 1), judge('o', 'f2', 'l2', 2), { provider: 'mock', model: 'mock-critic-passer', lab: 'l2b', layer: 2 }];
   const { r, log } = await go(chainOf(critics, PASSER));
@@ -132,11 +144,48 @@ test('layers: a lab whose later heard verdict signed off is NOT carried as open;
   assert.deepEqual(r.dispute.open_objections.filter(o => o.not_asked_in_final_round).map(o => [o.lab, o.last_raised_round]), [['l3', 2]], 'l2 signed off in round 2, so only l3 is carried');
 });
 
-test('layers: estimateChainRows is the same with and without layers, in both modes (a layered round asks each seat at most once)', () => {
+// CHANGED ACCEPTED TEST (0.8.4 apply, group 7, C&C RULING_STEP5_6 H; figures printed in job 97, probe_row11). OLD: "estimateChainRows is the same with and without layers, in both modes": the rows of the layered and the flat chain were EQUAL (once the final-read rows were set aside), checked as a deepEqual that stopped at the first mode. The layered judges' system texts are longer
+// than the flat ones' (the layer sentences, the answer-back and rating words): the layered panel rows carry +469 input tokens per call and the revise rows +43 (3117 vs 2648, 2676 vs 2633 at the estimate 500/500/200; criteria and build equal), in BOTH modes. NEW: the pin is "system text only": per common row the layered minus the flat per-call input is exactly the difference of the two SYSTEM texts the estimator prices
+// (the longest system text of the label, ceil(length / 4) per text), the times are equal, criteria and build carry no difference; and a prompt-spy leg (the estimate-system-text.test.js EST-1 form) compares the real system text of the first panel and revise calls of a layered and a flat RUN with the same texts. THE FLOOR IS A PIN WITH ITS LIMIT (C&C 12 Nov; printed in job 109, ROW11B, the zeroed estimate of this chain): the estimator prices the LONGEST of the eight system-text variants of a label (src/cost.js systemTokens = Math.max over systemTextsFor) and nothing else when the declared sizes are zeroed (panel-1-l1: 2117 layered / 1648 flat; revise-1: 1476 / 1433; the declared sizes are the USER side: 1000 and 1200). The call sends one variant: revise-1 sends variant 0, the shortest (430 / 387), so its gap (1046) is the max rule alone; panel-1-l1 sends 1529 / 1060 tokens, which is NONE of its eight variants (141 tokens below the shortest, 1670 / 1201), so its gap (588) is 447 from the max rule plus 141 that is not explained. The floor assertion (priced >= sent) therefore pins only the direction, an over-count: it is the dry-run figure's limit, not a claim that the priced text is the text sent. WHAT THIS DOES NOT PIN: the revise call's USER side (about +180 tokens of
+// sections the estimator has no term for) is a dry-run under-count, not priced: on the shipped chains the reviser is external, and the cap gate prices a call from its real prompt (chain.js:2321, cost.js expectedCallUsd), so the gap is a dry-run figure only (FOR_085).
+test('layers: estimateChainRows differs with and without layers by the SYSTEM text only, in both modes (a layered round asks each seat at most once)', async () => {
   const critics = [judge('o', 'j1', 'l1', 1), judge('o', 'j2', 'l2', 2), judge('o', 'j3', 'l3', 3)];
   const layered = chainOf(critics);
   const flat = chainOf(critics.map(({ layer, ...c }) => c));
-  for (const maximum of [false, true]) assert.deepEqual(estimateChainRows(layered, { maximum }), estimateChainRows(flat, { maximum }), `maximum=${maximum}`);
+  const seatOf = (cfg, label) => { const m = /^panel-(?:\d+-)?(?:L\d-)?(l\d)/.exec(label); if (m) return cfg.seats.critics.find(k => k.lab === m[1]); if (/^revise-/.test(label)) return cfg.seats.reviser; if (label === 'build') return cfg.seats.builder; if (label === 'criteria') return cfg.seats.criteria; return null; };
+  const sysOf = (cfg, label) => { const seat = seatOf(cfg, label); return seat ? Math.max(0, ...systemTextsFor(label, cfg, seat).map(t => estimateTokens(t))) : null; };
+  const perCall = r => r.input / (r.times ?? 1);
+  // CHANGED ACCEPTED (0.8.4 S16, N6). OLD: the rows of the layered and the flat chain were equal. NEW: equal once the final-read rows are set aside (`final-read-L3-<lab>` and its `-reask`): the final read exists only on a layered unanimous chain. WHY: it is part of every such run, and the flat chain has no top layer to read.
+  const noFinalRead = rows => rows.filter(r => !/^final-read-/.test(r.label));
+  let compared = 0;
+  for (const maximum of [false, true]) {
+    const L = noFinalRead(estimateChainRows(layered, { maximum })); const F = estimateChainRows(flat, { maximum });
+    assert.deepEqual(L.map(r => r.label), F.map(r => r.label), `maximum=${maximum}: the same rows in the same order`);
+    L.forEach((r, i) => {
+      assert.equal(r.times ?? 1, F[i].times ?? 1, `maximum=${maximum}: ${r.label} times`);
+      const base = r.label.replace(/-(reask3?|solo)$/, ''); const lsys = sysOf(layered, base); const fsys = sysOf(flat, base);
+      if (lsys === null) { assert.equal(perCall(r), perCall(F[i]), `maximum=${maximum}: ${r.label} (no judge or reviser system text of its own) is equal`); return; }
+      assert.equal(perCall(r) - perCall(F[i]), lsys - fsys, `maximum=${maximum}: ${r.label} differs by the system text alone (${lsys} vs ${fsys})`); compared++;
+    });
+  }
+  assert.ok(compared > 0, 'rows with a system text were compared (this row can fail)');
+  assert.equal(estimateChainRows(layered, { maximum: true }).filter(r => /^final-read-/.test(r.label)).length > 0, true, 'and the layered maximum does carry the final read');
+  // the prompt-spy leg: the system texts really SENT by the first panel and revise calls of a layered and a flat run are the texts priced (an objecting layer-1 judge makes a revise happen; each shape its own model strings: the mock counts asks per string)
+  const spied = {};
+  for (const [shape, ks] of [['layered', [judge('xooooooooo', 'r11xL', 'l1', 1), judge('o', 'r11yL', 'l2', 2), judge('o', 'r11zL', 'l3', 3)]], ['flat', [judge('xooooooooo', 'r11xF', 'l1'), judge('o', 'r11yF', 'l2'), judge('o', 'r11zF', 'l3')]]]) {
+    const cfg = chainOf(ks); const seen = new Map();
+    setPromptSpy(p => { if ((p.label === 'panel-1-l1' || p.label === 'revise-1') && !seen.has(p.label)) seen.set(p.label, p.system); });
+    try { await go(cfg); } finally { setPromptSpy(null); }
+    spied[shape] = { cfg, seen };
+    // EST-1's ground-truth form (test/estimate-system-text.test.js): the priced system text of a label is AT LEAST the system text really sent (job 103 printed the priced text of panel-1-l1 at 2117 tokens against 1529 sent: the estimator prices more than the call's system field carries), so the floor is asserted here and the DELTA below.
+    for (const label of ['panel-1-l1', 'revise-1']) { assert.ok(seen.has(label), `${shape}: ${label} was sent`); assert.ok(sysOf(cfg, label) >= estimateTokens(seen.get(label)), `${shape}: the priced (longest-variant) system text of ${label} is at least the text SENT: a floor, a pin with its limit (the estimator prices the longest variant; for panel-1-l1 the sent text is none of the variants)`); }
+  }
+  // the pin of this row: what the layers ADD is the same in the estimate and in the calls: the difference of the two shapes' priced system texts equals the difference of the system texts really SENT, for the first panel call and the first revise
+  for (const label of ['panel-1-l1', 'revise-1']) {
+    const sentDelta = estimateTokens(spied.layered.seen.get(label)) - estimateTokens(spied.flat.seen.get(label)); const pricedDelta = sysOf(spied.layered.cfg, label) - sysOf(spied.flat.cfg, label);
+    assert.ok(sentDelta > 0, `${label}: the layered run sends the longer system text`);
+    assert.equal(pricedDelta, sentDelta, `${label}: the layers add the same tokens in the estimate (${pricedDelta}) and in the call SENT (${sentDelta})`);
+  }
 });
 
 test('layers: runChain itself refuses what the lint refuses; nothing runs a chain with `layer` keys flat', async () => {
@@ -175,6 +224,7 @@ test('layers: the real CLI refuses a layered chain that breaks a layer rule (exi
   assert.match(refused.stderr, /quorum/);
   const withAnswerBack = JSON.parse(readFileSync(join(root, 'chains', 'mock-layered.json'), 'utf8'));
   withAnswerBack.answer_back = { enabled: true };
+  withAnswerBack.dispute = { ...withAnswerBack.dispute, stall_rounds: 4 };   // CHANGED (0.8.4 S5 U-C fix-up, 08 Nov 2026). OLD: the shipped window of 3. NEW: 4, above the chain's 3 passes. WHY: with answer_back the layer-1 judges' objections persist, three verdicts of the same objection in three passes are a stall at the last pass, and a stall that cannot be passed up is now a stop for the person (exit 23). This row is about a layered chain accepting answer_back, not about the stall; a window the chain cannot reach keeps its two accepted exits.
   writeFileSync(join(work, 'chains', 'ab.json'), JSON.stringify(withAnswerBack));
   const abRun = spawnSync(process.execPath, [cli, '--task', 'task.md', '--chain', 'ab'], { cwd: work, encoding: 'utf8' });
   // 0.8.3 exit 22: a finished run whose mock panel did not agree exits 22; this test is not about agreement (exit-not-agreed.test.js pins the rule), so it accepts the two finished exits.
@@ -199,7 +249,9 @@ test('layers: the real CLI refuses a layered chain that breaks a layer rule (exi
 });
 
 test('layers: a spend stop between layers keeps layers[] in the partial record (the layer being asked is unfinished, the next not_asked)', async () => {
-  const critics = [judge('o', 'l1x', 'l1', 1), { provider: 'mock', model: 'mock-priced', lab: 'l2', layer: 2, maxTokens: 8000 }, judge('o', 'l3x', 'l3', 3)];
+  // CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: the layer-2 seat's worst case (8000 tokens) crossed the $1 cap. NEW: its own estimate.critiqueTokens
+  // is its whole cap, so its EXPECTED review is as big and the gate still stops the run at layer 2. WHY: the test is about the partial record's layers[], not the stop's figure.
+  const critics = [judge('o', 'l1x', 'l1', 1), { provider: 'mock', model: 'mock-priced', lab: 'l2', layer: 2, maxTokens: 8000, estimate: { critiqueTokens: 8000 } }, judge('o', 'l3x', 'l3', 3)];
   setBudget(1);
   const err = await go(chainOf(critics, { maxRounds: 1 })).then(() => null, e => e);
   assert.ok(err instanceof BudgetExceeded, String(err));

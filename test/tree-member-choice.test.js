@@ -61,7 +61,7 @@ test('MC-2 refusals, each writes nothing: an unknown node names the waiting ones
   assert.equal(u.code, 1); assert.match(outOf(u.io), /no such node/); assert.match(outOf(u.io), /Waiting for a choice: R\/M1/); assert.equal(choices(unknown.t).length, 0);
   const notStopped = stopped({ marker: false });
   const n = await verb(notStopped.t, { 'finish-node': 'R/M1' });
-  assert.equal(n.code, 1); assert.match(outOf(n.io), /not stopped at an overseer limit/); assert.equal(choices(notStopped.t).length, 0);
+  assert.equal(n.code, 1); assert.match(outOf(n.io), /not stopped for --continue-node or --finish-node; a choice is for a node stopped at its overseer-round limit, at a layer's revision limit, because a seat of a layer stayed silent for too many passes in a row, because no seat of the top layer could read the final plan, or because an objection stood unchanged and could not be passed up/);   // CHANGED (0.8.4 S5 U-C1 fix-up 2, A-DRAFT, H-S5-e4): OLD /not stopped at an overseer limit/ assert.equal(choices(notStopped.t).length, 0);
   const live = stopped();
   const l = await verb(live.t, { 'continue-node': 'R/M1' }, { pidAlive: () => true });
   assert.equal(l.code, 1); assert.match(outOf(l.io), /is running: pid/); assert.equal(choices(live.t).length, 0);
@@ -123,7 +123,8 @@ test('MC-6 the record table itself refuses a node_choice that is not about a run
   const refused = (t, e, facts = dead) => { try { appendTreeEvent(t.rootDir, e, { facts }); return null; } catch (err) { if (err instanceof TreeRefusal) return err.message; throw err; } };
   const reg = closedRootTree({ cap: 100 }); track(reg.work);
   registerKid(reg, approveFrontier(reg.rootDir, ['R/M1', 'R/M2']), 'R/M1', IDS[0], 10);
-  assert.match(refused(reg, ev(reg)), /is registered; a choice is for a node stopped at its overseer limit/);
+  // CHANGED (0.8.4 S5 U-C1 fix-up 3, A-DRAFT, H-S5-e5): OLD /is registered; a choice is for a node stopped at its overseer limit/ (src/tree-transitions.js:1346; a stall stop is not an "overseer limit", and "which stays running" now follows the node, not the stop list)
+  assert.match(refused(reg, ev(reg)), /is registered; a choice is for a node that is still running \(its run stopped at its overseer-round limit, at a layer's revision limit, because a seat of a layer stayed silent for too many passes in a row, because no seat of the top layer could read the final plan, or because an objection stood unchanged and could not be passed up\)/);
   const { t } = stopped();
   assert.match(refused(t, ev(t, { runId: IDS[1] })), /not the run registered/);
   assert.match(refused(t, ev(t), { pidAlive: () => true }), /is running \(pid/);

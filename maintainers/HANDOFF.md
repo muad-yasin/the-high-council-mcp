@@ -83,7 +83,7 @@ descriptions — the author reviewed these and deliberately wants them public. D
   is an open secret *with no performance claims attached yet*, because nothing has been measured.
   The README is written accordingly. Do not add numbers, benchmarks or comparisons; the owner's
   approved qualitative sentences (README top, 14 Oct 2026) stay as he wrote them.
-- **Honesty about limits stays.** The README's "Known limits, stated plainly" section is
+- **Honesty about limits stays.** The "Known limits, stated plainly" section (`KNOWN-LIMITS.md`, linked from the README) is
   deliberate. Do not soften it, and do not delete a limit because it is embarrassing — delete it
   when it stops being true.
 - Never add the excluded directories listed above.
@@ -114,7 +114,7 @@ be reviewed before the real release, not as a push plus release. Every step that
 1. The integration branch lands on `release/0.8.3` in one move, after the maintainer's reviews and one full test
    run (`npm test`, the whole suite, from a clean checkout). One linear history on `release/0.8.3`.
 2. The dated tables are regenerated, never patched: `scripts/refresh-reasoning-table.mjs` and
-   `scripts/refresh-openrouter-prices.mjs` (the failing test names the table). `.github/workflows/test.yml` runs
+   `scripts/refresh-openrouter-prices.mjs --fetch <a folder outside the repository> --write` (the failing test names the table; the plain command writes no host pictures). After ANY price move run `node scripts/regen-derived-figures.mjs`: every figure that derives from a row (README and AI-README tables and sentences, the landing page, the planning chains' descriptions, the review-notes bounds, MODEL-CAPS.md) is rewritten from the same code the tests use; `--check` names what is stale. `.github/workflows/test.yml` runs
    `npm test` on every pull request, so a stale table turns the pull request red. If a shipped seat's price moves,
    the work stops there: every typed figure that came from a dry run (the README's "Which chain" table, the
    over-$7 paragraph, `docs/index.html`, the `chains/*.json` descriptions that carry one) is regenerated as its own unit and shown to the owner before anything is
@@ -144,12 +144,11 @@ no `npm publish`, no GitHub release and no merge into `master` until the owner s
 **After the review, in this order, each the owner's step:**
 
 1. Merge into `master` (the 0.8.2 shape: one commit on `master`). The sentence in `CLAUDE.md` that names the
-   latest release ("the latest release is **0.8.2**") moves to 0.8.3 with the release, not in the pull request.
+   latest release ("the latest release is **0.8.3**") moves to 0.8.4 with the release, not in the pull request.
 2. `npm publish` (needs the owner's 2FA passkey, from a real terminal).
-3. Tag `v0.8.3`. A `v*` tag push starts `.github/workflows/release-binaries.yml` ("Build binaries": it runs `npm test`,
-   builds the Linux binary, the AppImage and the Windows `.exe`, smoke-tests each and uploads workflow artifacts;
-   it does not publish a release).
-4. The GitHub release for the tag, with the `.mcpb` from `bash scripts/build-mcpb.sh` and its SHA-256, and the three
-   binaries from the tag's "Build binaries" run (`gh run download`) with one file of their SHA-256 sums (from 0.8.3 on;
-   the README's "Standalone binaries" section says each release carries them).
+3. Tag `v0.8.4`. From 0.8.4 on a tag push starts nothing: `.github/workflows/release-binaries.yml` runs only when
+   started by hand, because the release carries no standalone binaries.
+4. The GitHub release for the tag, with the `.mcpb` from `bash scripts/build-mcpb.sh` and its SHA-256. No standalone
+   binaries (the owner, 29 Oct 2026: "no binaries"; AI-README's "Standalone binaries" section says how to build them
+   from a clone).
 5. The MCP registry entry from `server.json`, last, since it points at the npm version published in step 2.

@@ -3,6 +3,7 @@
 // 8): CLI-stepped replay for a maintainer debugging a run, vs. a
 // shareable artifact for a stranger. Read-only, derived from report.json.
 import { verdictHeadline } from './verdict-headline.js';
+import { holdsLayerWords } from './decision-records.js';
 
 /**
  * An ordered list of transcript steps from a run's report.json: proposals,
@@ -27,8 +28,8 @@ export function buildTranscript(report) {
     push('stage', 0, `Stage ${s.label} (${s.provider}/${s.model})`);
   }
 
-  for (const s of report.signoff || []) {
-    push('signoff', 1, `${s.provider}: ${s.signedOff === null ? 'abstained' : s.signedOff ? 'signed off' : 'objected'}`);
+  for (const s of (report.signoff || []).filter(r => !r?.cut)) {
+    push('signoff', 1, `${s.provider}: ${s.signedOff === null ? 'abstained' : s.signedOff ? 'signed off' : 'objected'}${holdsLayerWords(s)}`);
   }
 
   push('verdict', 0, `${verdictHeadline(report).heading}: ${verdictHeadline(report).text}`);

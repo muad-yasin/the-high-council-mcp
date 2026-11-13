@@ -34,9 +34,11 @@ test('keys set: the EXPECTED rows of those three stages carry the typical size, 
   assert.ok(buildIn(typ) < buildIn(plain), 'the build reads a smaller board when the typical sizes are used');
 });
 
-test('the MAXIMUM figure is the caps with or without the keys (the keys never lower a ceiling)', () => {
-  const a = rowsOf(base(), true);
-  const b = rowsOf(withKeys({ alternativeOutTokens: 12000, proposalOutTokens: 9000, deepDiveOutTokens: 40000 }), true);
+// CHANGED ACCEPTED TEST (0.8.4 unit 4, 04 Nov 2026; his picks OWNER 5 and 6). OLD: the whole maximum is the same with or without the keys. NEW: every row except the `network-retries` row is (that row is priced at the dearest planned call's EXPECTED cost, which the keys lower). WHY: "each automatic retry after a network error at that call's expected cost" (his pick).
+test('the MAXIMUM figure is the caps with or without the keys (the keys never lower a ceiling; the network-retries row follows the expected cost)', () => {
+  const withoutRetries = rows => rows.filter(r => r.label !== 'network-retries');
+  const a = withoutRetries(rowsOf(base(), true));
+  const b = withoutRetries(rowsOf(withKeys({ alternativeOutTokens: 12000, proposalOutTokens: 9000, deepDiveOutTokens: 40000 }), true));
   assert.deepEqual(b, a);
 });
 

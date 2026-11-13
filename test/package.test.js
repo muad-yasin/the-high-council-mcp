@@ -22,6 +22,12 @@ const packed = (() => {
   return JSON.parse(out)[0].files.map(f => f.path);
 })();
 
+// NEW (0.8.4 apply, the README rework): the Known limits left README.md for KNOWN-LIMITS.md, so the file ships with the README that links to it (package.json `files`).
+test('the tarball ships KNOWN-LIMITS.md, the file the README links its Known limits to', () => {
+  assert.ok(packed.includes('README.md'), 'the check can fail: the README ships');
+  assert.ok(packed.includes('KNOWN-LIMITS.md'), 'KNOWN-LIMITS.md is missing from the tarball');
+});
+
 test('the tarball ships no private or irrelevant files', () => {
   const forbidden = packed.filter(f =>
     /^docs\//.test(f) ||        // the Pages site: 700 KB no CLI user needs
@@ -76,12 +82,12 @@ test('the tarball ships everything the CLI needs at runtime', () => {
   // first use - the packaged equivalent of the missing-tasks/ README bug.
   for (const needed of ['package.json', 'src/cli.js', 'src/chain.js', 'src/providers.js',
                         'src/roles.js', 'src/cost.js', 'src/pricing.json', 'src/mcp/server.js',
-                        'chains/verify.json', 'README.md', 'LICENSE', '.env.example']) {
+                        'chains/plan-mini-council.json', 'README.md', 'LICENSE', '.env.example']) {
     assert.ok(packed.includes(needed), `${needed} is missing from the tarball`);
   }
   // Every chain the README names must actually ship.
-  // 0.8.2 (owner, 6 Oct 2026, archive the unused chains + README promotes five): the list is now the chains the README promotes (plus verify and mock-budget).
-  for (const c of ['verify', 'plan-mini-council', 'plan-medium-council', 'plan-high-council', 'local-ollama', 'mock-budget']) {
+  // 0.8.2 (owner, 6 Oct 2026, archive the unused chains + README promotes five): the list is now the chains the README promotes (plus mock-budget; verify retired in 0.8.4 and is in chains/outdated/).
+  for (const c of ['plan-mini-council', 'plan-medium-council', 'plan-high-council', 'local-ollama', 'mock-budget']) {
     assert.ok(packed.includes(`chains/${c}.json`), `chains/${c}.json is missing from the tarball`);
   }
 });

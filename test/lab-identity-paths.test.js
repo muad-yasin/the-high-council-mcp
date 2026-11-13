@@ -19,6 +19,7 @@ import { promptHashOf } from '../src/cache-integrity.js';
 import * as H from './held-prompts/held-083.js';
 import { buildArguedFacts } from '../src/argued.js';
 import { startTyped } from './helpers/typed-cap.js';
+import { resumeThroughPauses } from './helpers/answer-pauses.js';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setBudget(null); });
@@ -31,12 +32,16 @@ const DRAFT = 'The worker retries failed requests.';
 const QUOTE = '`The worker retries failed requests.`';
 const meets = (extra = {}) => JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok', ...extra });
 const objects = (f, extra = {}) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: f.problem }], failures: [f], verdict_line: 'no', ...extra });
+// CHANGED ACCEPTED TEST (0.8.4 apply; the LI-5 ruling of C&C, 11 Nov 2026): the walk also allows the seat key at the exact paths the report schema declares as seat keys or stage labels in the layer-debate record (an objection's raised_by and raised_in, a post's by); see test/lab-identity.test.js. Any other path, `lab` and `labs` included, is still walked.
+const DECLARED_SEAT_KEY_FIELDS = /\.layer_?[dD]ebates\.\d+\.objections\.\d+\.(raised_by|raised_in)$|\.layer_?[dD]ebates\.\d+\.objections\.\d+\.posts\.\d+\.by$/;
 // every string of a JSON value whose path does not end in a seat / seats / label field
-const keyHits = (value, root0) => { const hits = []; (function walk(o, p) { if (Array.isArray(o)) o.forEach((v, i) => walk(v, `${p}.${i}`)); else if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) walk(v, `${p}.${k}`); else if (typeof o === 'string' && KEY.test(o) && !/\.(seat|seats|label|stage)(\.\d+)?$/.test(p)) hits.push(`${p} = ${o.slice(0, 70)}`); })(value, root0); return hits; };
+const keyHits = (value, root0) => { const hits = []; (function walk(o, p) { if (Array.isArray(o)) o.forEach((v, i) => walk(v, `${p}.${i}`)); else if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) walk(v, `${p}.${k}`); else if (typeof o === 'string' && KEY.test(o) && !/\.(seat|seats|label|stage)(\.\d+)?$/.test(p) && !DECLARED_SEAT_KEY_FIELDS.test(p)) hits.push(`${p} = ${o.slice(0, 70)}`); })(value, root0); return hits; };
 
 // ---- LI-9 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-const X = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.' };
-const Y = { criterion: 'The plan names an owner.', problem: 'Top layer: nobody owns the limit.', fix: 'Name one.' };
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the stub failures X and Y of LI-9 and XX and YY of LI-8 carried no rating, and LI-9's carried no relation. NEW: all carry severity 5; LI-9's (a chain with answer_back) also carry a relation: 'new' for a first raise and `continues <id>` for a repeat by the same seat key (la-l2 raises Y in pass 2 and again in pass 3). WHY: ratingDemand is recorded (src/prompts/recorded-084-b.js); relationRule (NS-0193) is asked and read only on a chain with answer_back, and LI-8's swing chain has none.
+const X = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.', severity: 5, relation: 'new' };
+// CHANGED ACCEPTED TEST (0.8.4 apply, job 16 log): OLD: Y named a criterion ('The plan names an owner.') that is not in the chain's list while the stub's table marks CRITERION failed. NEW: Y names CRITERION, as LI-8's YY does. WHY: the recorded rating demand adds a failure for the table's failed row that has none (no severity), the verdict is unreadable ('carries no readable severity') and the layer-2 seat is re-asked; the run log of job 16 shows it. Y keeps its own id: the ids hash the seat key, la-l2, as well.
+const Y = { criterion: CRITERION, problem: 'Top layer: nobody owns the limit.', fix: 'Name one.', severity: 5 };
 const idX = objectionId('la', X);
 test('LI-9 LEDGER AND NOTES ON A REPEATED-SEAT CHAIN: no prompt (the ledger sentence included), no report record and no review-notes item names the seat key; the notes keep the bare lab (red before: ledger rows and notes items carried la-l2)', async () => {
   setHeldForTest({ criticStatedPassNote: H.criticStatedPassNote, otherReviewersBlock: H.otherReviewersBlock, overseerLedgerSection: H.overseerLedgerSection, ledgerOverflowExit: H.ledgerOverflowExit });
@@ -45,7 +50,7 @@ test('LI-9 LEDGER AND NOTES ON A REPEATED-SEAT CHAIN: no prompt (the ledger sent
   const note = { proposals: [{ text: 'Add a queue' }] };
   const reply = label => (label === 'panel-1-la' ? objects(X, note)
     : label === 'panel-2-la' ? meets({ answers: [{ id: idX, status: 'withdrawn', evidence: `It now states the limit in section one. ${QUOTE}` }], ...note })
-      : label === 'panel-2-la-l2' || label === 'panel-3-la-l2' ? objects(Y, note) : undefined);
+      : label === 'panel-2-la-l2' ? objects({ ...Y, relation: 'new' }, note) : label === 'panel-3-la-l2' ? objects({ ...Y, relation: `continues ${objectionId('la-l2', Y)}` }, note) : undefined);
   setCache({ invalidate() {}, get(label) {
     const text = label.startsWith('panel-') ? (reply(label) ?? meets()) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
     return { text, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0, promptHash: hashes.get(label) };
@@ -55,7 +60,7 @@ test('LI-9 LEDGER AND NOTES ON A REPEATED-SEAT CHAIN: no prompt (the ledger sent
     seats: { builder: seat('writer'), reviser: seat('writer'), critics: [seat('la', 1), seat('la', 2)] } };
   const result = await runChain({ request: 'Write a worker plan with a retry limit.', runId: 'r-li9', log: l => logs.push(l), config });
   const ledger = prompts.filter(p => p.text.includes('# The objection ledger')).map(p => p.label);
-  assert.ok(ledger.includes('panel-3-la-l2'), `precondition: the repeated top-layer seat was shown the ledger (${ledger.join(', ')})`);
+  assert.ok(ledger.includes('panel-3-la-l2'), `precondition: the repeated top-layer seat was shown the ledger (${ledger.join(', ')}); the run said: ${(() => { const at = logs.findIndex(l => /re-asking only/.test(String(l))); return logs.slice(Math.max(0, at - 10), at + 3).map(l => String(l).trim()).join(' | '); })()}`);   // 0.8.4 apply: the message carries the log lines around the first re-ask (the 10 before it and 2 after), which name why a reply was not read (an earlier filter on words kept only the re-ask line)
   assert.deepEqual(prompts.filter(p => KEY.test(p.text)).map(p => p.label), [], 'a prompt names the seat key');
   const report = JSON.parse(JSON.stringify(reportJsonShape({ runId: 'r-li9', chain: 'fixture-li9', task: 't.md', result, config })));
   assert.ok(report.review_notes?.items?.length, 'precondition: the notes lane recorded items');
@@ -74,8 +79,8 @@ bodies.push(b); const text = echoIds(b, script[Math.min(hits.length, script.leng
 }
 const files = d => readdirSync(d).flatMap(n => { const p = join(d, n); return statSync(p).isDirectory() ? files(p) : [p]; });
 test('LI-8 CONFLICT STOP ON A REPEATED-SEAT CHAIN (real CLI, injected decider): the decider prompt, report-partial.json, the stop file and the run log name no seat key outside seat/seats/label (red before: conflict rows carried la-l2)', async () => {
-  const XX = { criterion: CRITERION, problem: 'No limit on retries.', quote: 'retries failed requests' };
-  const YY = { criterion: CRITERION, problem: 'No owner is named.', quote: 'The worker' };
+  const XX = { criterion: CRITERION, problem: 'No limit on retries.', quote: 'retries failed requests', severity: 5 };
+  const YY = { criterion: CRITERION, problem: 'No owner is named.', quote: 'The worker', severity: 5 };
   const la = await scripted([objects(XX), meets(), objects(XX), meets()]); const lb = await scripted([objects(YY), meets()]); const lc = await scripted([meets()]);
   const dec = await scripted([JSON.stringify({ rulings: [{ conflict: 1, prevail: objectionId('la-l2', YY), reason: 'The earlier fix stands.', ask_person: true }] })]);
   try {
@@ -84,10 +89,11 @@ test('LI-8 CONFLICT STOP ON A REPEATED-SEAT CHAIN (real CLI, injected decider): 
     const seat = (lab, layer, url) => ({ provider: 'openrouter', model: 'qwen/qwen3.7-plus', lab, layer, maxTokens: 4000, baseUrl: url });
     const writer = { provider: 'mock', model: 'mock-builder', lab: 'writer' };
     writeFileSync(join(dir, 'chains', 'swing.json'), JSON.stringify({ name: 'swing', description: 'A fixture.', criteria: [CRITERION], signoff: 'unanimous', maxOverseerRounds: 3, layerRevisions: { 1: 3, 2: 2 }, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 },
-      seats: { builder: writer, reviser: writer, critics: [seat('la', 1, la.url), seat('la', 2, lb.url), seat('lc', 3, lc.url)], decider: seat('dec', undefined, dec.url) } }));
+      seats: { builder: writer, reviser: { provider: 'external', model: 'claude-code-session' }, critics: [seat('la', 1, la.url), seat('la', 2, lb.url), seat('lc', 3, lc.url)], decider: seat('dec', undefined, dec.url) } }));
     const run = args => new Promise(done => { let out = ''; const child = spawn(process.execPath, ['--import', inject, cli, ...args], { cwd: dir, env: { PATH: process.env.PATH, HOME: tmpdir(), ...malformedProviderKeys(), OPENROUTER_API_KEY: 'test-key-not-real', COUNCIL_ALLOW_LOOPBACK_KEY_HOST: '1' } }); child.stdout.on('data', d => { out += d; }); child.stderr.on('data', d => { out += d; }); child.on('exit', code => done({ code, out })); });
     const rd = join(dir, 'runs', '2026-10-20T09-00-00-000Z');
-    const first = await startTyped(run, ['--chain', 'swing', '--task', 'tasks/t.md', '--run-id', '2026-10-20T09-00-00-000Z'], rd);
+    // CHANGED (0.8.4 HS, Muad 05 Nov 2026 22:19: every layered chain needs a handling session; chain-lint refuses one without). OLD: the reviser was the mock `writer`. NEW: the reviser is the external session, so the run pauses at each revision (exit 3) before the swing is reached; those pauses are answered (test/helpers/answer-pauses.js) and the run continues to the conflict stop this test is about. The critics and the decider stay the loopback stubs: that is what the test exercises.
+    const first = await resumeThroughPauses(run, rd, await startTyped(run, ['--chain', 'swing', '--task', 'tasks/t.md', '--run-id', '2026-10-20T09-00-00-000Z'], rd));
     assert.equal(first.code, EXIT_CONFLICT_ASKED, first.out);
     assert.ok(dec.bodies.length >= 1, 'precondition: the decider was asked');
     assert.ok(/conflict/i.test(dec.bodies[0]), 'precondition: the decider body is the conflict prompt');

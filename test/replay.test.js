@@ -17,7 +17,7 @@ const cli = resolve(here, '../src/cli.js');
 function fixtureReport() {
   return {
     runId: '2026-09-13T00-00-00-000Z',
-    chain: 'verify',
+    chain: 'plan-mini-council',
     passed: true,
     proposals: [
       { id: 'A-1', lab: 'a', title: 'A distinctive proposal title', what: 'Adds a counter.', withdrawn: false },

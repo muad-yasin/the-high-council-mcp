@@ -40,16 +40,18 @@ test('A4-6: the return path also removes LRM, RLM, ALM (bidi controls) and count
   assert.deepEqual(hiddenCharacterReport(emoji), { tag_characters: 0, bidi_controls: 0 });
 });
 
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD the scan covered src/mcp/server.js and src/mcp/advice.js. NEW src/mcp/server.js only. WHY src/mcp/advice.js no longer holds the advice tools' status text (it keeps adviceResult and two constants), so it has no use for stopSpendNote; the server's run_status still does.
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the corrupt marker was STOPPED-client_cancel.json and the stoppedBy of the three literal markers was 'user'. NEW: STOPPED-overseer_cap.json and 'overseer_cap'. WHY: client_cancel and user left STOP_CAUSES with the add-on, so readStoppedMarker no longer reads a file of those names (it would return null and the test would fail on marker.data); the rule (a marker that cannot be read is "spend unknown") is unchanged.
 test('A4-7: a corrupt stop marker is "spend unknown", never "nothing was spent"', () => {
   assert.equal(typeof stopFiles.stopSpendNote, 'function', 'src/stop-files.js exports stopSpendNote');
-  const dir = put(tmp('thc-a47-'), { 'STOPPED-client_cancel.json': 'garbage{' });
+  const dir = put(tmp('thc-a47-'), { 'STOPPED-overseer_cap.json': 'garbage{' });
   const marker = stopFiles.readStoppedMarker(dir);
   assert.equal(marker.data, null);
   assert.equal(stopFiles.stopSpendNote(marker), 'unknown');
-  assert.equal(stopFiles.stopSpendNote({ stoppedBy: 'user', data: { beforeFirstCall: true } }), 'none');
-  assert.equal(stopFiles.stopSpendNote({ stoppedBy: 'user', data: { beforeFirstCall: false } }), 'some');
-  assert.equal(stopFiles.stopSpendNote({ stoppedBy: 'user', data: {} }), 'unknown');
-  for (const f of ['src/mcp/server.js', 'src/mcp/advice.js']) assert.match(readFileSync(join(root, f), 'utf8'), /stopSpendNote\(/, `${f} uses it`);
+  assert.equal(stopFiles.stopSpendNote({ stoppedBy: 'overseer_cap', data: { beforeFirstCall: true } }), 'none');
+  assert.equal(stopFiles.stopSpendNote({ stoppedBy: 'overseer_cap', data: { beforeFirstCall: false } }), 'some');
+  assert.equal(stopFiles.stopSpendNote({ stoppedBy: 'overseer_cap', data: {} }), 'unknown');
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: a last assertion that src/mcp/server.js (and, before wave 1, src/mcp/advice.js) CALLS stopSpendNote( (the state text of a stopped advice call used it). NEW: removed. WHY: nothing calls stopSpendNote any more (src/mcp/server.js still imports it, unused); the function and its three answers above are all that is pinned (OPEN in the wave-2 result table).
 });
 
 test('A5-3: `council --spend` reads every stop marker deriveRunStatus reads (preflight, truncated, secret) and a NEEDS file whose answer exists is not "paused"', () => {

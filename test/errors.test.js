@@ -35,7 +35,7 @@ test('every catalog message follows the fixed tone shape and carries no jargon-a
 });
 
 test('CouncilError carries the catalog code and kind', () => {
-  const err = new CouncilError('COUNCIL-E001', { provider: 'anthropic', chain: 'verify', envVar: 'ANTHROPIC_API_KEY' });
+  const err = new CouncilError('COUNCIL-E001', { provider: 'anthropic', chain: 'plan-mini-council', envVar: 'ANTHROPIC_API_KEY' });
   assert.equal(err.code, 'COUNCIL-E001');
   assert.equal(err.kind, 'degradable');
   assert.match(err.message, /COUNCIL-E001/);

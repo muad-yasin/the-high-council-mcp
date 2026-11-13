@@ -3,7 +3,7 @@
 // URL-credentials match only (a filter after the match, so the named `secret` group and the redactor keep working); NOT an override. Every other host, every provider key format, Bearer tokens and named
 // assignments are checked as before. The "reds" are the NORMAL run's: the same text was refused before and passes now; the control hosts stay refused (a suffix match on the wrong end is the obvious bug).
 // FIX-UP (C&C ruling 12 Oct, after the advice-mask probe): the exemption is an OPTION (`exemptReservedHosts`, default OFF) passed ONLY by the refusal scans (the input scan, the PII gate); redaction and masking never pass it, so a real password on
-// `localhost` in text that is redacted or leaves the machine is still hidden (RES-3 flipped, RES-6, RES-7).
+// `localhost` in text that is redacted or leaves the machine is still hidden (RES-3 flipped, RES-6, RES-7). (The advice masker that RES-6 also read left with the add-on in 0.8.4.)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -14,7 +14,6 @@ import { secretShapesIn } from '../src/outbound-scan.js';
 import { redactText } from '../src/secret-patterns.js';
 import { redactSecrets } from '../src/tools.js';
 import { scanText } from '../src/key-redaction.js';
-import { mask } from '../src/advice-mask.js';
 import { scanForPii } from '../src/pii-gate.js';
 import { cli } from './helpers/tree-fixture.js';
 
@@ -73,15 +72,13 @@ test('RES-5 ONE list in ONE module: src/secret-patterns.js defines RESERVED_PLAC
   assert.equal(/\bphone\b|\bipv4\b|RFC ?5737|555-01/i.test(src('pii-gate.js')), false, 'no new phone or IP rule');
 });
 
-test('RES-6 the exemption is OFF by default: only a refusal scan that passes `exemptReservedHosts` skips a reserved host; masking, redaction, the artifact scanner and the advice send path\'s own key scan still see a password on `localhost`', () => {
+test('RES-6 the exemption is OFF by default: only a refusal scan that passes `exemptReservedHosts` skips a reserved host; redaction, the artifact scanner and a scan with `everyContext` (the advice brief\'s own option, which stays in the scanner) still see a password on `localhost`', () => {   // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD title and body also named the advice masker (src/advice-mask.js `mask`, asserted to hide `realpw`) and the advice send path\'s everyContext scan. NEW: the masker row is gone and the everyContext row says only that the option keeps its default of no exemption. WHY: src/advice-mask.js left with the advice add-on; the rule (the exemption is off unless a refusal scan asks for it, and redaction never asks) is unchanged and still asserted by the redactSecrets, scanText and secretShapesIn rows.
   const text = 'Config: postgres://user:realpw@localhost/db';
   assert.deepEqual(secretShapesIn(text).map(f => f.name), ['URL credentials (scheme://user:pass@)'], 'the default scan finds it');
   assert.deepEqual(secretShapesIn(text, { exemptReservedHosts: true }), [], 'a refusal scan that asks for the exemption does not');
-  assert.equal(secretShapesIn(text, { everyContext: true }).length, 1, 'the advice send path scans with everyContext and no exemption: its brief leaves the machine');
+  assert.equal(secretShapesIn(text, { everyContext: true }).length, 1, 'everyContext (the advice brief\'s option) keeps no exemption: a text that leaves the machine is scanned in full');
   assert.equal(scanText(text).length, 1, 'the artifact scanner (council doctor --scan-artifacts) has no exemption by default');
   assert.equal(scanText(text, '', { exemptReservedHosts: true }).length, 0, 'the PII gate asks for it');
-  const masked = mask(text, { repoRoot: null }).text;
-  assert.equal(masked.includes('realpw'), false, `the advice masker hides a real password on localhost: ${masked}`);
   const redacted = redactSecrets(text);
   assert.equal(redacted.text.includes('realpw'), false, 'tools.redactSecrets (fence and MCP file reads) hides it');
   assert.equal(redacted.redacted, 1);
@@ -92,5 +89,7 @@ test('RES-7 only the refusal scans ask for the exemption: the files that pass `e
   const srcFiles = readdirSync(join(import.meta.dirname, '..', 'src'), { recursive: true }).filter(f => f.endsWith('.js'));
   const passers = srcFiles.filter(f => /exemptReservedHosts\s*:\s*true/.test(strip(f))).sort();
   // 14 Oct 2026: stage-submission.js joined (submit_stage's answer scan and prepare_stage_prompt's bundle scan): a small file that only REFUSES on input, never redacts.
-  assert.deepEqual(passers, ['cli.js', 'pii-gate.js', 'run-preflight.js', 'stage-submission.js'], `the files that pass the exemption: ${JSON.stringify(passers)}`);
+  // 4 Nov 2026: repair-reply.js joined (MCP repair_reply's scan of a repaired reply's text): a refusal scan on input that never redacts; a repair refuses exactly what submit_stage refuses.
+  // 8 Nov 2026 (found-secret pause): outbound-scan.js joined (inputValueHashes hashes the values the INPUT scan refuses, with the input scan's own options, so a person's start flag allows exactly what the input scan found): it never redacts. OLD list: cli.js, pii-gate.js, repair-reply.js, run-preflight.js, stage-submission.js.
+  assert.deepEqual(passers, ['cli.js', 'outbound-scan.js', 'pii-gate.js', 'repair-reply.js', 'run-preflight.js', 'stage-submission.js'], `the files that pass the exemption: ${JSON.stringify(passers)}`);
 });

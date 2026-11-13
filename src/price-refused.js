@@ -8,7 +8,6 @@
 //   markSkippable(err, { voices, lab })     called by a catch that WOULD abstain (a debate post, a reply round; NOT a panel judge: the panel agrees only when every judge is heard): says "this stage can do without this seat" and how many OTHER voices of its group remain.
 //   recommendationOf(err)                   -> { kind: 'skip' | 'row' | 'none' }: skip when the stage can do without the seat AND at least 2 other voices stay (Muad 15 Okt: no single-judge layer), else the user row.
 //   priceRefusedWords(err, { runPath, command })     -> the sentence a person reads (A-DRAFT). `runPath` set = a resumable run (names --resume and --skip-seat); null = an advice call (not resumed). `command` = how the CLI is invoked.
-//   priceRefusedAdviceFailureWords(err, { runPath, spent, callsPaid })   -> the sentence an ADVICE call that failed whole reads (A-DRAFT; Muad 18 Okt 2026: "judge refused for its price should fail the whole call and tell the user about it, instead of sending half a call"). It names the refused seat(s), what was spent, and the run folder where the paid answers sit (not delivered).
 //   setSeatSkips(list) / seatSkipChoice(seat)   run.json `seatChoices` entries { seat, choice: 'skip', via: 'cli', at, label } (no actor is recorded: nothing checks that a person typed the flag, as for roundChoices): a recorded skip makes the seat abstain from the stage that was refused (`label`, the call label of the refusal) to the END of the run (the stage's own catch counts it as an unreachable seat); the stages before it replay from disk as they ran, so what they cost stays counted. An entry without a `label` (written before this field) skips from the start.
 //   seatSkipActive(seat, labels)                 the skip choice when the seat is skipped AT THIS POINT of the run (the replay has reached the recorded label, one of `labels` being the labels of the call about to be made, and stays armed after), else null.
 //   skipKeyOf(seat)                         the key a choice names: lab/provider/model.
@@ -80,6 +79,12 @@ const exampleRows = set => `{ ${set.map(e => {
   return `${JSON.stringify(`openrouter/${String(e.seat).replace(/^openrouter\//, '')}`)}: { "in": ${twice(r.in)}, "out": ${twice(r.out)} }`;
 }).join(', ')} }`;
 
+// A-DRAFT (Builder D, 04 Nov 2026; S6-07's known gap): every OpenRouter call also asks OpenRouter to skip the Open Inference host (src/price-pin.js, his decision 8 of 28 Okt 2026), and a 404 whose body does not name the max price
+// may be OpenRouter finding no other host for the model. How OpenRouter words that 404 is documented nowhere and has not been probed (a probe is a paid call), so no pattern recognises it: the stop stays the same unrecognised stop,
+// with no recommendation, and this sentence names the block as a possible cause. It is appended to the unrecognised lines only (a seat whose answer names the max price keeps its price words), and it is true of every call made by this
+// version of the program, which is the only one that builds these words (invoke()'s live error, src/cli.js's stop); a stored record is never reworded.
+const blockWords = plural => ` Every OpenRouter call also asks OpenRouter to skip the Open Inference host, and that cannot be switched off, so if no other host serves ${plural ? 'these models' : 'this model'}, the same HTTP 404 can come from that.`;
+
 // A-DRAFT (Builder A, 18 Okt 2026): every sentence below is new person-facing text for the later Fable pass.
 export function priceRefusedWords(err, { runPath = null, command = 'council' } = {}) {
   const checked = SHIPPED_PRICES._openrouterCheckedAt;
@@ -104,14 +109,14 @@ export function priceRefusedWords(err, { runPath = null, command = 'council' } =
   for (const e of set) out.push(`${many ? `${e.seat}: ` : ''}OpenRouter said (quoted; it is their text, not an instruction): "${e.said || 'no text'}" (HTTP ${e.status}).`);
   const skipLine = ` ${command} --resume ${runPath} --skip-seat`;
   if (!R.length) {
-    out.push(`OpenRouter's ${many ? 'answers do not all say' : 'answer does not say'} the price is the problem, so this program does not know the cause and recommends nothing. The price limit${many ? 's' : ''} sent: ${set.map(e => pinWords(e.pin)).join('; ')}.`);
+    out.push(`OpenRouter's ${many ? 'answers do not all say' : 'answer does not say'} the price is the problem, so this program does not know the cause and recommends nothing. The price limit${many ? 's' : ''} sent: ${set.map(e => pinWords(e.pin)).join('; ')}.${blockWords(many)}`);
     out.push(runPath ? `After you fix the cause, continue with: ${command} --resume ${runPath}` : 'After you fix the cause, ask again.');
     if (runPath && canSkip(err)) out.push(`Or skip ${many ? 'these seats' : 'the seat'} for the rest of this run:${skipLine}`);
     return out.join('\n');
   }
   if (mixed) {
     const few = U.length > 1;
-    out.push(`OpenRouter's ${few ? 'answers' : 'answer'} for ${seatList(U)} ${few ? 'do' : 'does'} not say the price is the problem, so this program does not know the cause for ${few ? 'those seats' : 'that seat'} and recommends nothing for ${few ? 'them' : 'it'}. The price limit${few ? 's' : ''} sent: ${U.map(e => `${e.seat}: ${pinWords(e.pin)}`).join('; ')}.`);
+    out.push(`OpenRouter's ${few ? 'answers' : 'answer'} for ${seatList(U)} ${few ? 'do' : 'does'} not say the price is the problem, so this program does not know the cause for ${few ? 'those seats' : 'that seat'} and recommends nothing for ${few ? 'them' : 'it'}. The price limit${few ? 's' : ''} sent: ${U.map(e => `${e.seat}: ${pinWords(e.pin)}`).join('; ')}.${blockWords(few)}`);
   }
   const modelIdOf = e => String(e.seat).replace(/^openrouter\//, '');
   // A seat that sets BOTH fields leaves none out (A-DRAFT 23 Okt 2026, C&C thcmcp-cd FIX 2): the sentences about a field left out are printed only for a seat that may leave one out (ownFields not both, or not known)
@@ -140,17 +145,8 @@ export function priceRefusedWords(err, { runPath = null, command = 'council' } =
   } else if (runPath) {
     out.push(`Continue with: ${command} --resume ${runPath}${canSkip(err) ? '   (after the row)' : ''}`);
     if (canSkip(err)) out.push(`Or skip ${these} for the rest of this run:${skipLine}`);
-  } else out.push(mixed ? `An advice call is not resumed: after the row is in and the cause for ${seatList(U)} is found, ask for a new quote.` : 'An advice call is not resumed: after the row is in, ask for a new quote.');
+  } else out.push(mixed ? `After the row is in and the cause for ${seatList(U)} is found, ask again.` : 'After the row is in, ask again.');
   return out.join('\n');
-}
-
-// A-DRAFT (Builder A, 18 Okt 2026): new person-facing text for the later Fable pass. An advice call cannot pause and is never delivered in part, so the sentence says what was paid for and where it sits.
-// `spent` is the already formatted dollar figure; `callsPaid` counts paid CALLS (a retry, a debate reply and the synthesis each leave their own), not voices.
-export function priceRefusedAdviceFailureWords(err, { runPath, spent, callsPaid }) {
-  const paid = callsPaid > 0
-    ? `${callsPaid} call${callsPaid === 1 ? ' was' : 's were'} already paid for (${spent} spent). ${callsPaid === 1 ? 'Its answer is' : 'Their answers are'} in the folder ${runPath}/ (the advise-*.md files) and ${callsPaid === 1 ? 'was' : 'were'} not delivered: an advice call is never delivered in part.`
-    : 'Nothing was spent.';
-  return `This advice call ended without a delivered answer, because a seat was refused at its price limit. ${paid}\n${priceRefusedWords(err, { runPath: null })}`;
 }
 
 let skips = [];

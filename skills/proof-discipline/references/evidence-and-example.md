@@ -25,6 +25,9 @@ Claim:   After fix F, the largest connected component of the lane graph holds at
 Sample:  120 tiles, 4 strata (inner city, ring, outskirts, border), 30 per stratum, seed 7.
          Not the failing tiles; those get a separate card. Includes the 5 tiles where a person
          already reported a broken route.
+         Data seen when written: none of S (the tiles are drawn, not yet run).
+         Excluded: none. A tile that fails to load stays in S and is reported by name (see the
+         verdict rule). Retried: none.
 Criteria:
   1. BLOCKING. Largest component fraction >= 0.98 per stratum (threshold: the pre-fix median 0.995
      minus a margin we accept, 0.015).

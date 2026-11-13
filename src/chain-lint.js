@@ -13,11 +13,17 @@ import { dirname, join, resolve } from 'node:path';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { LANE_IDS } from './lanes.js';
-import { layerProblems, overseerKeyProblems } from './layers.js';
+import { lintPromptCache } from './prompt-cache.js';
+import { lintExchangeJsonMode } from './exchange-json-mode.js';
+import { lintJudgePersonas, PERSONA_FORMS } from './judge-persona.js';
+import { layerProblems, overseerKeyProblems, ladderKeyProblems } from './layers.js';
+import { hasHandlingSession } from './ending.js';
 import { labProblem, labUnsafeMessage, labSuggestion } from './lab-safety.js';
-import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots, everySeatOf, SIGNOFF_MODES, modelIdentity, seatIdentity } from './chain.js';
+import { findSeatByLab, labOf, resolveChainSeats, duplicateLabSlots, everySeatOf, isOfflineMockChain, SIGNOFF_MODES, modelIdentity, seatIdentity } from './chain.js';
 import { deniedSeatsOf } from './denied-models.js';
-import { pinShapeProblem, pinExampleOf } from './price-pin.js';
+import { pinShapeProblem, pinExampleOf, ignoreShapeProblem, openRouterSeatsOf, OPEN_INFERENCE } from './price-pin.js';
+import { BUILDER_KINDS } from './builder-kind.js';
+import { seatBillingRefusal, BILLING_CAP_IDS, MOCK_BILLS_FIELD } from './caps.js';
 
 // Labs the source procurement report names as not EU-based (v7.x compliance
 // chains). Used only to enforce an EU-region compliance claim against the
@@ -68,7 +74,6 @@ export function lintChain(config, filePath = '<chain>') {
     const flat = key === 'descending' && value && typeof value === 'object' && !Array.isArray(value) && value.model === undefined ? Object.values(value) : (Array.isArray(value) ? value : [value]);
     for (const seat of flat) {
       if (!seat || typeof seat !== 'object' || seat.lane === undefined) continue;
-      if (config?.advise?.enabled === true) { if (!findings.some(f => f.kind === 'invalid-lane' && /advise chain/.test(f.message))) findings.push({ kind: 'invalid-lane', message: 'an advise chain has a "lane": the advisor builds its own prompts and carries no lanes, so it would silently do nothing.', fix: `Remove "lane" from the seats in ${filePath}.` }); continue; }
       if (key !== 'critics') findings.push({ kind: 'invalid-lane', message: `seats.${key} has a "lane": a lane is read on panel critics only, so it would silently do nothing here.`, fix: `Remove "lane" from seats.${key} in ${filePath}.` });
       else if (!LANE_IDS.includes(seat.lane)) findings.push({ kind: 'invalid-lane', message: `seats.critics has lane "${seat.lane}", which is not one of ${LANE_IDS.join(', ')}.`, fix: `Use one of ${LANE_IDS.join(', ')} in ${filePath}, or remove "lane".` });
       else if (config?.descending) findings.push({ kind: 'invalid-lane', message: 'a critic has a "lane" on a descending chain, whose critic prompt does not carry lanes: it would silently do nothing.', fix: `Remove "lane" from the critics, or turn off "descending", in ${filePath}.` });
@@ -79,6 +84,7 @@ export function lintChain(config, filePath = '<chain>') {
   // the same problems, so a chain that reaches runChain without this lint gate (a direct import, a test) is refused too. Each is a misuse that would make the key silently do nothing, or leave a seat with no place.
   for (const p of layerProblems(config, filePath)) findings.push({ kind: 'invalid-layer', ...p });
   for (const p of overseerKeyProblems(config, filePath)) findings.push({ kind: 'invalid-overseer-rounds', ...p });
+  for (const p of ladderKeyProblems(config, filePath)) findings.push({ kind: 'invalid-ladder', ...p });   // 0.8.4: the permanent ladder's key
 
   // 1e. The conflict decider (0.8.3 E4b unit 2; src/conflict-decider.js): `seats.decider` rules on a swing between LAYERS of a layered panel, so on a chain whose panel is not layered it could never be asked and would silently do nothing. The decider is not a
   // voter: it is outside the one-lab-per-seat rule on purpose (its lab is named in each decision beside the two parties').
@@ -89,6 +95,19 @@ export function lintChain(config, filePath = '<chain>') {
       findings.push({ kind: 'invalid-decider', message: 'seats.decider is not a seat (an object with provider and model).', fix: `Make "seats.decider" in ${filePath} one seat, e.g. { "provider": "external", "model": "claude-code-session" }, or remove it.` });
     } else if (!layeredPanel) {
       findings.push({ kind: 'invalid-decider', message: 'seats.decider is set, but the review panel is not layered (every critic needs a "layer"), so the conflict it rules on can never arise and the seat would silently do nothing.', fix: `Add "layer" to every seat of seats.critics in ${filePath}, or remove seats.decider.` });
+    }
+  }
+
+  // 1f. A layered chain needs a handling session (0.8.4 HS; Muad 05 Nov 2026 22:19: "THC always needs a handler or too many things will break"). `hasHandlingSession` (src/ending.js) is the ONE predicate: an external reviser, else an external builder.
+  // The one named exception: a chain whose seats are ALL mock runs the whole pipeline offline for $0 and needs no keys (CLAUDE.md), so it passes without a session. Here, not in `layerProblems`: runChain throws that list too, and the rule is "fatal at load" for the CLI, tree and send paths.
+  {
+    const panel = Array.isArray(seats.critics) ? seats.critics : [];
+    if (panel.length > 0 && panel.every(c => c && typeof c === 'object' && c.layer !== undefined) && !hasHandlingSession(config) && !isOfflineMockChain(config)) {
+      findings.push({
+        kind: 'layered-no-handling-session',
+        message: 'This chain has a layered review panel (every critic has a "layer") and no handling session: seats.reviser, or seats.builder when there is no reviser, is not an external seat. A layered run needs your own agent session, such as Claude Code, in the reviser seat, so the chain is refused. The one exception is a chain whose seats are all "mock": it runs offline for $0 and needs no session.',   // A-DRAFT (WORDING HS-1)
+        fix: `Set "seats.reviser" in ${filePath} to an external seat, e.g. { "provider": "external", "model": "claude-code-session" }, or make every seat of the chain a "mock" seat.`,
+      });
     }
   }
 
@@ -190,6 +209,22 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
+  // 3b. mockBills (0.8.4 DUALCAP unit 1, src/caps.js; C&C's pin, 1 Nov 2026): the billing account an OFFLINE mock seat counts against when per-provider spend caps are on, so a test chain can put one
+  // mock seat in the OpenRouter cap and another in the Anthropic cap with no key. Honoured only on a mock seat: on any other seat the cap follows the seat's own provider, so the field would look as if it
+  // moved the spend while doing nothing. Refused there whatever it names, and on a mock seat when it names no provider that bills; refused again at run time (seatBillingRefusal) whatever the switch
+  // says. Read on the rerouted roster, the one the run uses (a real seat keeps the field through a reroute). A-DRAFT sentences.
+  for (const s of routedSeats) {
+    const refusal = seatBillingRefusal(s);
+    if (!refusal) continue;
+    findings.push({
+      kind: 'invalid-mock-bills',
+      message: refusal.sentence,
+      fix: refusal.code === 'mock_bills_on_real_seat'
+        ? `Remove "${MOCK_BILLS_FIELD}" from that seat in ${filePath}: only a mock seat may carry it.`
+        : `Set "${MOCK_BILLS_FIELD}" to one of ${BILLING_CAP_IDS.join(', ')} in ${filePath}, or remove it.`,
+    });
+  }
+
   // 4. Invalid seat role (v6 §1): an unknown `role.lens`, a `role.persona`
   // of the wrong type, an empty `role: {}`, or a stray field on `role`
   // would otherwise only surface as a wrong or missing debate-stage
@@ -277,10 +312,16 @@ export function lintChain(config, filePath = '<chain>') {
     debate_hygiene: { shuffle: 'boolean', noQuoteMarks: 'boolean' },
     // 0.8.2 (owner decision 3): the answer-back data for the next round's judges. Off in every chain written before it existed.
     answer_back: { enabled: 'boolean' },
+    // B3 prep (CACHE lane unit 2, src/prompt-cache.js): cache markers on the direct Anthropic seats' calls. Off in every chain written before it existed.
+    prompt_cache: { enabled: 'boolean', ttl: 'cache-ttl' },
+    // 084/glm-format (src/exchange-json-mode.js): JSON mode on the layer-exchange calls of the listed seat labs. Off in every chain written before it existed.
+    exchange_json_mode: { enabled: 'boolean', labs: 'string-array' },
+    // B3 prep (JUDGE lane, unit H): a marker line after the draft in a judge's user prompt. Off in every chain written before it existed; needs the notes lane.
+    draft_end_marker: { enabled: 'boolean' },
+    // B3 prep (JUDGE lane, unit P): a named persona in a judge's own system prompts. Off in every chain written before it existed.
+    seat_personas: { enabled: 'boolean', form: 'persona-form' },
     // Notes lane (0.8.3 notes lane unit 2): capped proposals and improvement ideas in every review round. Off in every chain written before it existed.
     reviewNotes: { enabled: 'boolean', perKind: 'positive-integer', itemChars: 'positive-integer', aboutChars: 'positive-integer', textMax: 'positive-integer', aboutMax: 'positive-integer' },
-    // The council advisor (thc-research brief 27, src/advise.js). Experimental; off in every chain written before it.
-    advise: { enabled: 'boolean', usd: 'positive-number', rounds: 'advise-rounds', skipDebateWhenUnanimous: 'boolean', synthesis: 'advise-synthesis', samples: 'advise-samples', max_wall_ms: 'advise-wall' },
     deep_dive: { enabled: 'boolean', job: 'job', focus: 'string-array', usd: 'positive-number', maxCalls: 'positive-integer', chunkChars: 'chunk' },
     lints: { enabled: 'boolean', forks: 'array' },
     canary: { enabled: 'boolean', sampleRate: 'rate' },
@@ -296,14 +337,12 @@ export function lintChain(config, filePath = '<chain>') {
     : want === 'debaters' ? v === 'authors' || v === 'all'
     : want === 'job' ? v === 'sources' || v === 'subsystem'
     : want === 'string-array' ? Array.isArray(v) && v.every(x => typeof x === 'string' && x.trim())
+    : want === 'persona-form' ? PERSONA_FORMS.includes(v)
+    : want === 'cache-ttl' ? v === '5m' || v === '1h'
     : want === 'positive-number' ? typeof v === 'number' && Number.isFinite(v) && v > 0
     : want === 'chunk' ? Number.isInteger(v) && v >= 1000
-    : want === 'advise-rounds' ? Number.isInteger(v) && v >= 0 && v <= 2
-    : want === 'advise-synthesis' ? v === 'none' || v === 'seat'
-    : want === 'advise-samples' ? Number.isInteger(v) && v >= 1 && v <= 5
-    : want === 'advise-wall' ? Number.isInteger(v) && v >= 1000
     : true;
-  const typeText = { boolean: 'true or false', 'positive-integer': 'a whole number of at least 1', array: 'an array', rate: 'a number from 0 to 1', debaters: '"authors" or "all"', job: '"sources" or "subsystem"', 'string-array': 'a list of non-empty strings', 'positive-number': 'a dollar amount above 0', chunk: 'a whole number of at least 1000', 'advise-rounds': 'a whole number from 0 to 2', 'advise-synthesis': '"none" or "seat"', 'advise-samples': 'a whole number from 1 to 5', 'advise-wall': 'a whole number of milliseconds, at least 1000' };
+  const typeText = { boolean: 'true or false', 'positive-integer': 'a whole number of at least 1', array: 'an array', rate: 'a number from 0 to 1', debaters: '"authors" or "all"', job: '"sources" or "subsystem"', 'cache-ttl': '"5m" or "1h"', 'string-array': 'a list of non-empty strings', 'persona-form': PERSONA_FORMS.map(f => `"${f}"`).join(' or '), 'positive-number': 'a dollar amount above 0', chunk: 'a whole number of at least 1000' };
   for (const [block, keys] of Object.entries(FLAG_BLOCKS)) {
     const value = config?.[block];
     if (value === undefined) continue;
@@ -325,14 +364,13 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
-  // 5b2. 0.8.1 P17 (plan M6 Work 3, decided rule 6): an advice chain is a tool chain: a stopped
-  // advice call is never resumed (it is asked again), so `resumeAfterStop` must say false. A planning chain may leave it out (true).
+  // 5b2. resumeAfterStop is true or false. (Until 0.8.4 an advice chain had to say false here; the advice add-on is removed.)
   if (config?.resumeAfterStop !== undefined && typeof config.resumeAfterStop !== 'boolean') {
     findings.push({ kind: 'invalid-resume-after-stop', message: 'resumeAfterStop must be true or false.', fix: `Set "resumeAfterStop" to true or false in ${filePath}.` });
   }
-  // 0.8.2 (owner, 6 Oct 2026: "no clocks, no reason to add them"): `advise.max_wall_ms` is OPTIONAL again. Rule `advice-no-wall-clock` (0.8.1) is gone; a chain that sets it still gets its deadline.
-  if (config?.advise?.enabled === true) {
-    if (config.resumeAfterStop !== false) findings.push({ kind: 'advice-resume-after-stop', message: 'an advice chain must set "resumeAfterStop": false: a stopped advice call is asked again, never continued.', fix: `Add "resumeAfterStop": false to ${filePath}.` });
+  // 0.8.4: the advice add-on is removed, so a chain with an `advise` block is refused (src/cli.js and the MCP start_run refuse it too: it would otherwise run as a plain paid panel).
+  if (config?.advise !== undefined) {
+    findings.push({ kind: 'advise-removed', message: 'this chain has an "advise" block: the advice add-on was removed in 0.8.4, so the chain cannot run.', fix: `Remove "advise" from ${filePath}, or use a planning chain.` });
   }
 
   // 5c. "How this plan was argued" with descending mode (src/argued.js). The section needs the
@@ -952,6 +990,24 @@ export function lintChain(config, filePath = '<chain>') {
     });
   }
 
+  // builder_kind (0.8.4 D22, settled item 6): any other value would silently mean "session" (src/builder-kind.js reads only the exact word "one_shot").
+  if (config && config.builder_kind !== undefined && !BUILDER_KINDS.includes(config.builder_kind)) {
+    findings.push({
+      kind: 'builder-kind',
+      message: `builder_kind ${JSON.stringify(config.builder_kind)} is not a known kind (${BUILDER_KINDS.map(k => `"${k}"`).join(', ')}) - it would silently run as "session" (a build session that can ask a person and run council commands).`,
+      fix: `Set "builder_kind" to one of ${BUILDER_KINDS.map(k => `"${k}"`).join(' or ')} in ${filePath}, or remove it for the default ("session").`,
+    });
+  }
+
+  // approve_excerpts (0.8.4 D10, plan A T5.5): the privacy switch is turned on by the boolean true; any other value would silently mean off (src/excerpt-approval.js reads only the exact boolean).
+  if (config && config.approve_excerpts !== undefined && typeof config.approve_excerpts !== 'boolean') {
+    findings.push({
+      kind: 'approve-excerpts',
+      message: `approve_excerpts ${JSON.stringify(config.approve_excerpts)} is not true or false - it would silently leave the privacy switch off.`,
+      fix: `Set "approve_excerpts" to true or false in ${filePath}, or remove it (off unless --approve-excerpts is typed).`,
+    });
+  }
+
   // duplicate-lab (bug audit 2026-09-23, BugAudit_RunChainStages #1): seats in a lab-labelled stage
   // must not share a lab, or they share one stage label and one cached reply. See duplicateLabSlots.
   for (const { slot, labs } of duplicateLabSlots(config || {})) {
@@ -1046,6 +1102,34 @@ export function lintChain(config, filePath = '<chain>') {
       kind: 'answer-back-needs-unanimous',
       message: 'answer_back.enabled is true but this chain does not set "signoff": "unanimous": the answer-back exists only in the panel loop that unanimous sign-off runs, so it never happens.',
       fix: `Set "signoff": "unanimous" in ${filePath}, or remove answer_back.`,
+    });
+  }
+  findings.push(...lintPromptCache(config, filePath));
+  findings.push(...lintExchangeJsonMode(config, filePath));
+  findings.push(...lintJudgePersonas(config, filePath));
+  // 0.8.4 D27: the draft boundary lines (draft_end_marker) no longer need the notes lane: the switch is on in every shipped chain that reads a plan, so the rule `draft-end-marker-needs-notes` is gone; a typo'd key is still refused by the key table above.
+  // 0.8.4 (S19): ratings are recorded on every layered chain with "signoff": "unanimous"; there is no switch. A chain that still names the experimental key is refused at load (A-DRAFT, WORDING_0.8.4.md): no setting is silently ignored.
+  if (config?.severity !== undefined) {
+    findings.push({
+      kind: 'severity-switch-removed',
+      message: 'severity is not a setting any more: every layered chain with "signoff": "unanimous" records a rating on each objection, so there is nothing to switch on.',
+      fix: `Remove "severity" from ${filePath}.`,
+    });
+  }
+  // 0.8.4: the layer exchange is part of every layered chain with "signoff": "unanimous"; it has no switch and no round count. A chain that still names the block is refused at load (A-DRAFT, WORDING_0.8.4.md): no setting is silently ignored.
+  if (config?.layer_debate !== undefined) {
+    findings.push({
+      kind: 'layer-debate-removed',
+      message: 'layer_debate is not a setting any more: the exchange between the judges of the lowest layer is part of every layered chain with "signoff": "unanimous", and the harness ends it by its own rule or at its fixed limit of rounds, so there is nothing to switch on or to count.',
+      fix: `Remove "layer_debate" from ${filePath}.`,
+    });
+  }
+  // 0.8.4 S16 (N6, plan l.174 (4)): the final read has no switch; the top layer reads the final plan at the end of every layered unanimous chain. A chain that still names the key is refused (A-DRAFT, WORDING_0.8.4.md S16-w1): no setting is silently ignored.
+  if (config?.final_read !== undefined) {
+    findings.push({
+      kind: 'final-read-removed',
+      message: 'final_read is not a setting any more: the top layer reads the final plan at the end of every layered chain with "signoff": "unanimous", so there is nothing to switch on.',
+      fix: `Remove "final_read" from ${filePath}.`,
     });
   }
   // Notes lane: the judges' notes ride in the unanimous panel loop only; and the length limit the judge is asked to keep may not exceed the read cap that cuts it (gate note addendum 1, R2).
@@ -1147,79 +1231,6 @@ export function lintChain(config, filePath = '<chain>') {
     }
   }
 
-  // The council advisor (config.advise, src/advise.js). It returns before every planning stage, so a
-  // stage or seat kind set beside it would silently do nothing; its own ceiling is required, every
-  // seat must be priced for that ceiling to see it, and the synthesis seat must sit off the panel.
-  const adv = config?.advise;
-  if (adv && typeof adv === 'object' && !Array.isArray(adv) && adv.enabled === true) {
-    if (!(typeof adv.usd === 'number' && Number.isFinite(adv.usd) && adv.usd > 0)) {
-      findings.push({
-        kind: 'advise-uncapped',
-        message: 'advise.enabled is true but advise.usd (the call\'s own dollar ceiling) is not set - an advice call must have a ceiling of its own inside the run\'s.',
-        fix: `Set "advise": { ..., "usd": <dollars> } in ${filePath}.`,
-      });
-    }
-    const ignoredKeys = ['proposals', 'debate', 'alternatives', 'deep_dive', 'dispute', 'signoff_table', 'debate_hygiene', 'answer_back', 'questions', 'handoff', 'argued', 'security_review', 'descending', 'challenge', 'coldRead', 'claims', 'canary', 'lints', 'majority_guard', 'decisions', 'ambiguity_union', 'preflight', 'verify', 'signoff', 'panel', 'revise']
-      .filter(k => config[k] !== undefined && config[k] !== false && config[k]?.enabled !== false);
-    const ignoredSeats = ['criteria', 'skeleton', 'reviser', 'finalist', 'handoff', 'proposers', 'alternatives', 'deep_dive', 'questions', 'judge', 'challenger', 'coldRead', 'claims', 'ambiguity', 'descending', 'security_reviewer', 'decider'].filter(k => seats[k] !== undefined);
-    if (ignoredKeys.length || ignoredSeats.length) {
-      findings.push({
-        kind: 'advise-ignores-planning-stages',
-        message: `advise.enabled is true, and an advise chain returns before every planning stage, so ${[...ignoredKeys.map(k => `"${k}"`), ...ignoredSeats.map(k => `seats.${k}`)].join(', ')} would silently do nothing.`,
-        fix: `Remove ${ignoredKeys.length ? 'those top-level keys' : ''}${ignoredKeys.length && ignoredSeats.length ? ' and ' : ''}${ignoredSeats.length ? 'those seats' : ''} from ${filePath}. An advise chain reads only seats.critics (the advisors) and, when advise.synthesis is "seat", seats.builder.`,
-      });
-    }
-    if (adv.synthesis !== 'seat' && seats.builder !== undefined) {
-      findings.push({
-        kind: 'advise-builder-unused',
-        message: 'seats.builder is set but advise.synthesis is not "seat", so that seat is never called.',
-        fix: `Set "advise.synthesis" to "seat" in ${filePath}, or remove seats.builder.`,
-      });
-    }
-    if (adv.synthesis === 'seat') {
-      const synth = seats.builder;
-      if (!synth || Array.isArray(synth) || typeof synth !== 'object') {
-        findings.push({
-          kind: 'unreachable-stage',
-          message: 'advise.synthesis is "seat" but seats.builder (the synthesis seat) is not set.',
-          fix: `Set "seats.builder" to one seat that is not on the panel in ${filePath}, or set advise.synthesis to "none".`,
-        });
-      } else {
-        const onPanel = tierOf(seats.critics)(synth);
-        if (onPanel) {
-          findings.push({
-            kind: 'advise-synthesis-on-panel',
-            message: `seats.builder (the synthesis seat) is ${onPanel}, which also holds a seat on the advisor panel (seats.critics): that lab would write the verdict on its own answer.`,
-            fix: `Seat a model in seats.builder that is not on the panel in ${filePath}.`,
-          });
-        }
-      }
-    }
-    if (Number.isInteger(adv.rounds) && adv.rounds > 0 && Array.isArray(seats.critics) && seats.critics.filter(Boolean).length < 2) {
-      findings.push({
-        kind: 'advise-debate-one-seat',
-        message: 'advise.rounds is above 0 but seats.critics holds fewer than two seats: with one advisor there is nobody to read, so the debate never runs.',
-        fix: `Add a second advisor from another lab to "seats.critics" in ${filePath}, or set "advise.rounds" to 0.`,
-      });
-    }
-    if (Number.isInteger(adv.samples) && adv.samples > 1 && Number.isInteger(adv.rounds) && adv.rounds > 0) {
-      findings.push({
-        kind: 'advise-samples-with-debate',
-        message: 'advise.samples is above 1 and advise.rounds is above 0: the samples of one seat are one model, so a debate between them is one model arguing with itself.',
-        fix: `Set "advise.rounds" to 0 in ${filePath} for a several-samples control, or "advise.samples" to 1 for a debating panel.`,
-      });
-    }
-    for (const [where, seat] of [...(Array.isArray(seats.critics) ? seats.critics.map((s, i) => [`seats.critics[${i}]`, s]) : []), ...(adv.synthesis === 'seat' && seats.builder && !Array.isArray(seats.builder) ? [['seats.builder', seats.builder]] : [])]) {
-      if (seat && typeof seat === 'object' && seat.provider !== 'mock' && seat.provider !== 'external' && !priceOf(seat.provider, seat.model)) {
-        findings.push({
-          kind: 'advise-unpriced',
-          message: `${where} (${seat.provider}/${seat.model}) has no price in src/pricing.json, so neither the advise ceiling nor the run's cap can see what it spends.`,
-          fix: `Add "${seat.provider}/${seat.model}" to src/pricing.json, or seat a priced model in ${filePath}.`,
-        });
-      }
-    }
-  }
-
   // denied-model (2026-09-23, Muad: "No grok, ever!!!"; Kimi allowed in user chains since 2026-09-26): a hard error,
   // no opt-out. Checked on the roster AFTER resolveChainSeats, so a single-vendor rewrite cannot
   // hide one. Router ids are errors too - they can route to a denied model. See src/denied-models.js.
@@ -1265,6 +1276,32 @@ export function lintChain(config, filePath = '<chain>') {
       message: `${seat.provider}/${seat.model}: ${bad.field} is ${JSON.stringify(bad.got) ?? 'not a value'}, not an object, so the price limit that every OpenRouter call carries cannot be built (the run would stop at this seat before anything is sent).`,
       fix: `In ${filePath}, make ${bad.field} an object (for the price limit: ${pinExampleOf(seat)}, dollars per million tokens), or remove it to use the table price.`,
     });
+  }
+
+  // invalid-provider-ignore (0.8.4, his decision 8 of 28 Okt 2026): every OpenRouter call carries "open-inference" in provider.ignore (src/price-pin.js). An `extra.provider.ignore` that is not a list of strings cannot take it, so invoke() would refuse the seat at its
+  // first call (PinRefused, nothing sent): said here first, for every chain. The rule is price-pin.js's ignoreShapeProblem, so the two cannot disagree. A-DRAFT (Builder D, 04 Nov 2026): the sentences are new person-facing text for the one wording review.
+  for (const seat of everySeatOf(resolved) || []) {
+    const bad = ignoreShapeProblem(seat);
+    if (!bad) continue;
+    findings.push({
+      kind: 'invalid-provider-ignore',
+      message: `${seat.provider}/${seat.model}: ${bad.field} is ${JSON.stringify(bad.got) ?? 'not a value'}, not a list of host names, so the Open Inference block that every OpenRouter call carries cannot be added to it (the run would stop at this seat before anything is sent).`,
+      fix: `In ${filePath}, make ${bad.field} a list of host names such as ["${OPEN_INFERENCE}"], or remove it.`,
+    });
+  }
+
+  // open-inference-not-ignored (0.8.4, his decision 8 of 28 Okt 2026): a SHIPPED chain says the block in its own file, on every OpenRouter seat, wherever the seat sits in the config. The call adds the slug anyway (pinnedExtra), so a chain of the user's own needs no entry;
+  // this rule only keeps what the package ships honest. A seat whose ignore is not a list is invalid-provider-ignore's to say. A-DRAFT (Builder D, 04 Nov 2026).
+  if (isShippedChainPath(filePath)) {
+    for (const { path, seat } of openRouterSeatsOf(resolved)) {
+      if (ignoreShapeProblem(seat)) continue;
+      if ((seat.extra?.provider?.ignore ?? []).includes(OPEN_INFERENCE)) continue;
+      findings.push({
+        kind: 'open-inference-not-ignored',
+        message: `${path}: ${seat.provider}/${seat.model} does not list "${OPEN_INFERENCE}" in extra.provider.ignore. Every OpenRouter call asks OpenRouter to skip the Open Inference host, and a chain that comes with the package says so on each of its OpenRouter seats.`,
+        fix: `In ${filePath}, add "ignore": ["${OPEN_INFERENCE}"] to extra.provider of ${seat.provider}/${seat.model} (the seat's other provider keys stay).`,
+      });
+    }
   }
 
   return findings;

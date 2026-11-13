@@ -142,7 +142,7 @@ const CHAINS_WITH_ROLES_BY_DESIGN = ['plan-debate-roles-c1.json', 'plan-premium-
 
 test('test_role_compat, golden hash across every shipped chain: no seat in any non-role-bearing chains/*.json declares a role, and applying the (absent) role to each is byte-identical to DEBATE_SYSTEM', () => {
   const files = readdirSync(chainsDir).filter(f => f.endsWith('.json') && !CHAINS_WITH_ROLES_BY_DESIGN.includes(f));
-  assert.ok(files.length >= 30, `expected at least 30 shipped chains, found ${files.length}`);
+  assert.ok(files.length >= 26, `expected at least 26 shipped chains, found ${files.length}`);   // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD bar 30. NEW bar 26. WHY: the count moves with the thing it counts (chains/ holds 26 configs).
   for (const f of files) {
     const cfg = JSON.parse(readFileSync(join(chainsDir, f), 'utf8'));
     const seats = [

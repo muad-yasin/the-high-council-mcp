@@ -1,0 +1,168 @@
+{
+ "passed": false,
+ "layers": [
+  {
+   "round": 1,
+   "layer": 1,
+   "labs": [
+    "l1a",
+    "l1b"
+   ],
+   "state": "unheard"
+  },
+  {
+   "round": 1,
+   "layer": 2,
+   "labs": [
+    "l2a"
+   ],
+   "state": "not_asked"
+  },
+  {
+   "round": 1,
+   "layer": 3,
+   "labs": [
+    "l3a",
+    "l3b"
+   ],
+   "state": "not_asked"
+  }
+ ],
+ "panelVerdicts": [
+  {
+   "round": 1,
+   "lab": "l1a",
+   "model": "mock-unreadable",
+   "layer": 1,
+   "verdict": "unheard",
+   "reason_code": "REPLY_UNPARSEABLE",
+   "reasked": true
+  },
+  {
+   "round": 1,
+   "lab": "l1b",
+   "model": "mock-unreadable",
+   "layer": 1,
+   "verdict": "unheard",
+   "reason_code": "REPLY_UNPARSEABLE",
+   "reasked": true
+  }
+ ],
+ "signoff": [
+  {
+   "provider": "l1a",
+   "lab": "l1a",
+   "model": "mock-unreadable",
+   "layer": 1,
+   "seat_index": 0,
+   "signedOff": null,
+   "objections": null,
+   "passed": false,
+   "passReason": null,
+   "reason_code": "REPLY_UNPARSEABLE"
+  },
+  {
+   "provider": "l1b",
+   "lab": "l1b",
+   "model": "mock-unreadable",
+   "layer": 1,
+   "seat_index": 1,
+   "signedOff": null,
+   "objections": null,
+   "passed": false,
+   "passReason": null,
+   "reason_code": "REPLY_UNPARSEABLE"
+  }
+ ],
+ "deliverable": "MOCK DELIVERABLE for model mock-builder\n\nBody text.",
+ "stages": [
+  {
+   "label": "criteria",
+   "provider": "mock",
+   "model": "mock-criteria",
+   "usage": {
+    "input": 6,
+    "output": 44
+   },
+   "usd": 0,
+   "priced": false
+  },
+  {
+   "label": "build",
+   "provider": "mock",
+   "model": "mock-builder",
+   "usage": {
+    "input": 59,
+    "output": 13
+   },
+   "usd": 0,
+   "priced": false
+  },
+  {
+   "label": "panel-1-l1a",
+   "provider": "mock",
+   "model": "mock-unreadable",
+   "usage": {
+    "input": 10,
+    "output": 8
+   },
+   "usd": 0,
+   "priced": false
+  },
+  {
+   "label": "panel-1-l1b",
+   "provider": "mock",
+   "model": "mock-unreadable",
+   "usage": {
+    "input": 10,
+    "output": 8
+   },
+   "usd": 0,
+   "priced": false
+  },
+  {
+   "label": "panel-1-l1a-reask1",
+   "provider": "mock",
+   "model": "mock-unreadable",
+   "usage": {
+    "input": 10,
+    "output": 8
+   },
+   "usd": 0,
+   "priced": false
+  },
+  {
+   "label": "panel-1-l1b-reask1",
+   "provider": "mock",
+   "model": "mock-unreadable",
+   "usage": {
+    "input": 10,
+    "output": 8
+   },
+   "usd": 0,
+   "priced": false
+  },
+  {
+   "label": "panel-1-l1a-reask2",
+   "provider": "mock",
+   "model": "mock-unreadable",
+   "usage": {
+    "input": 10,
+    "output": 8
+   },
+   "usd": 0,
+   "priced": false
+  },
+  {
+   "label": "panel-1-l1b-reask2",
+   "provider": "mock",
+   "model": "mock-unreadable",
+   "usage": {
+    "input": 10,
+    "output": 8
+   },
+   "usd": 0,
+   "priced": false
+  }
+ ]
+}

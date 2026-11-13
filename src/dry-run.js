@@ -7,10 +7,11 @@
 // prices with cost.js's estimateChainRows, the function the human printout and `council doctor`
 // already use. No network call, no file written, nothing spent.
 import { roundLimitsOf } from './overseer-rounds.js';
-import { estimateChainRows, priceTableAge, expiredPriceRows, DEFAULT_ESTIMATE } from './cost.js';
+import { estimateChainRows, previewOfLadder, priceTableAge, expiredPriceRows, DEFAULT_ESTIMATE } from './cost.js';
 import { everySeatSlotsOf, labOf } from './chain.js';
 import { unpricedSeats } from './unpriced.js';
 import { keyFor, envKeyName, isKeyOptional } from './providers.js';
+import { callCeilingOf } from './call-ceiling.js';
 
 export const DRY_RUN_SCHEMA_VERSION = 1;
 
@@ -30,31 +31,25 @@ const sum = rows => rows.reduce((t, r) => ({ input: t.input + r.input, output: t
  * `taskChars` is the task file's length, or null when no --task was given. `history` is
  * forecastCost()'s answer for this chain on this machine, or null.
  */
-export function dryRunReport(config, { fromRun = false, taskChars = null, history = null, defaultCapUsd = null, now = Date.now() } = {}) {
-  const rows = estimateChainRows(config, { fromRun });
+export function dryRunReport(config, { fromRun = false, taskChars = null, history = null, defaultCapUsd = null, now = Date.now(), callReading = 'per_round', typedReads = null } = {}) {
+  const rows = estimateChainRows(config, { fromRun, typedReads });
   const worst = sum(rows);
   // 0.8.2 item 8c: the same planned calls at their whole output allowance (see estimateChainRows `maximum`). `worst` is what this report has always called worstCaseUsd: it prices the TYPICAL review output.
-  const maxRows = estimateChainRows(config, { fromRun, maximum: true });
+  const maxRows = estimateChainRows(config, { fromRun, maximum: true, typedReads });
   const maximum = sum(maxRows);
   const maxByLabel = new Map(maxRows.map(r => [r.label, r])); // audit fix cnc-money F2: the two passes are joined by label, never by position
-  // An advice chain (config.advise, src/advise.js) has no review rounds: maxRounds is unused, and its
-  // cheapest end is a panel whose blind answers agree, so no debate round runs (0.8.1 M1 S5; pricing it
-  // as maxRounds: 1 gave floor == worst case for every advice chain).
-  const advising = config.advise?.enabled === true;
   // The cheapest way a planning run can end: the first review round finishes it. Everything before the
   // rounds (criteria, alternatives, proposals, debate, build) is paid either way.
-  const floorConfigOf = cfg => (advising ? { ...cfg, advise: { ...cfg.advise, rounds: 0 } } : (roundLimitsOf(cfg).overseer !== null ? { ...cfg, maxOverseerRounds: 1 } : { ...cfg, maxRounds: 1 }));
-  const floor = sum(estimateChainRows(floorConfigOf(config), { fromRun }));
+  const floorConfigOf = cfg => (roundLimitsOf(cfg).overseer !== null ? { ...cfg, maxOverseerRounds: 1 } : { ...cfg, maxRounds: 1 });
+  const floor = sum(estimateChainRows(floorConfigOf(config), { fromRun }));   // the floor never takes `typedReads`: it is the cheapest end, ONE top-layer read (floorConfigOf sets maxRounds 1), whatever number a person typed as the run's bound
 
   const assumedPromptTokens = config.estimate?.promptTokens ?? DEFAULT_ESTIMATE.promptTokens;
   const taskTokens = taskChars === null ? null : Math.ceil(taskChars / 4);
-  // An advice chain's whole prompt is the brief, so the task replaces the assumed prompt instead of
-  // being added to it (the same rule as the printed dry run in src/cli.js).
   const taskConfig = taskTokens !== null && taskTokens > assumedPromptTokens
-    ? { ...config, estimate: { ...(config.estimate || DEFAULT_ESTIMATE), promptTokens: advising ? taskTokens : assumedPromptTokens + taskTokens } }
+    ? { ...config, estimate: { ...(config.estimate || DEFAULT_ESTIMATE), promptTokens: assumedPromptTokens + taskTokens } }
     : null;
-  const withTask = taskConfig ? sum(estimateChainRows(taskConfig, { fromRun })).usd : null;
-  const maximumWithTask = taskConfig ? sum(estimateChainRows(taskConfig, { fromRun, maximum: true })).usd : null;
+  const withTask = taskConfig ? sum(estimateChainRows(taskConfig, { fromRun, typedReads })).usd : null;
+  const maximumWithTask = taskConfig ? sum(estimateChainRows(taskConfig, { fromRun, maximum: true, typedReads })).usd : null;
   // bundle unit (19 Okt 2026): the cheapest end with the task's size too, so a tree's grant check (the child's cheapest end) is priced for the input it will really carry
   const floorWithTask = taskConfig ? sum(estimateChainRows(floorConfigOf(taskConfig), { fromRun })).usd : null;
 
@@ -71,6 +66,7 @@ export function dryRunReport(config, { fromRun = false, taskChars = null, histor
 
   const unpriced = [...new Set(rows.filter(r => !r.priced && !r.seat.startsWith('mock/') && !r.seat.startsWith('external/')).map(r => r.seat))];
   const table = priceTableAge();
+  const callCeiling = callCeilingOf(config, { reading: callReading });
 
   return {
     schemaVersion: DRY_RUN_SCHEMA_VERSION,
@@ -81,7 +77,11 @@ export function dryRunReport(config, { fromRun = false, taskChars = null, histor
     maxRounds: roundLimitsOf(config).overseer !== null ? null : roundLimitsOf(config).passes,   // CR-4B-007: the EFFECTIVE pass cap (a chain that leaves maxRounds out runs with the default of 2, as the dry run's figures and its "Rounds:" line say)
     // round semantics (2a): present only for a chain with overseer rounds; maxRounds is then null (the ceiling is derived, never a second key)
     ...(roundLimitsOf(config).overseer !== null ? { maxOverseerRounds: roundLimitsOf(config).overseer, passCeiling: roundLimitsOf(config).passes } : {}),
+    // 0.8.4 (commit 7; additive; schemaVersion stays 1): present only for a LADDER chain: the basis of the two figures, in top-layer reads (src/cost.js previewOfLadder). `upperIsAssumption`: the upper number of reads is the preview's assumption, not a number the person typed.
+    ...(roundLimitsOf(config).ladder ? { previewReads: { expected: previewOfLadder(roundLimitsOf(config), false, typedReads).reads, upper: previewOfLadder(roundLimitsOf(config), true, typedReads).reads, upperIsAssumption: previewOfLadder(roundLimitsOf(config), true, typedReads).assumed, expectedClimb: previewOfLadder(roundLimitsOf(config), false, typedReads).climb, upperClimb: previewOfLadder(roundLimitsOf(config), true, typedReads).climb } } : {}),
     signoff: config.signoff || 'first',
+    // 0.8.4 S11 (additive; schemaVersion stays 1): present only for a layered unanimous chain with overseer rounds and three layers (src/call-ceiling.js): the most Council CALLS its rules allow, in calls and never in money, `words` = the sentences the human dry run prints.
+    ...(callCeiling ? { callCeiling } : {}),
     estimate: {
       // Every figure prices the chain's own assumed token sizes (config.estimate) at pricing.json's
       // list prices. They are estimates, not bounds: the per-run cap is the bound.
@@ -100,8 +100,6 @@ export function dryRunReport(config, { fromRun = false, taskChars = null, histor
       outputTokens: worst.output,
       history: history && history.runsUsed ? { runs: history.runsUsed, days: history.days, lowUsd: history.low, highUsd: history.high, meanUsd: history.mean, ...(history.partial ? { partial: true } : {}) } : null,
     },
-    // Additive (0.8.1 M1 S5): an advice call's own ceiling inside the run's cap, and its debate rounds at most.
-    ...(advising ? { advise: { usd: config.advise.usd ?? null, rounds: config.advise.rounds ?? 0, seats: (config.seats.critics || []).length } } : {}),
     task: taskTokens === null ? null : { tokens: taskTokens, assumedPromptTokens, largerThanAssumed: taskTokens > assumedPromptTokens },
     // Finite numbers only (FX-3): a NaN or null worst case must never read as "under the cap".
     cap: {

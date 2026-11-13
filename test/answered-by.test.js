@@ -6,6 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cleanDeclared, declaredAnswerer, answerRecordOf, companyOfModel, companyOfSeat, rosterAnswersOf, answerNoteOf, undeclaredNoteOf, askedForOfNeeds, NO_MODEL_SEAT } from '../src/answered-by.js';
+import { renderAnswersBoard } from '../src/report-shape.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -101,6 +102,8 @@ test('rosterAnswersOf: null without a session-seat stage; each answered session 
   // panel tally: design = openai, deepseek, anthropic (opus, haiku, x asked anthropic) = 3; recorded = openai, deepseek, anthropic (haiku declared) = 3
   assert.equal(r.design_companies, 3);
   assert.deepEqual([r.recorded_companies, r.unverified_seats], [3, 2], 'the haiku hand-written seat and the unlisted model are unverified');
+  // CHANGED ACCEPTED TEST (0.8.4 session switch): OLD: the tally rows only. NEW: also `panel_session_seats` = 4 (the four external stages whose label starts with panel-; build and revise-1 are writer stages and count nowhere). WHY: the session route can seat a whole panel through sessions, and the record now says how many panel stages that was.
+  assert.equal(r.panel_session_seats, 4, 'panel-1-opus5.5-sub, panel-1-haiku5.5-sub, panel-2-haiku5.5-sub and panel-1-x; never build or revise-1');
   assert.match(r.note, /never verified/);
 });
 
@@ -110,6 +113,34 @@ test('rosterAnswersOf: a panel answered entirely by one company shows ONE record
   assert.equal(r.design_companies, 2);
   assert.equal(r.recorded_companies, 1);
   assert.equal(r.unverified_seats, 0);
+  // CHANGED ACCEPTED TEST (0.8.4 session switch): OLD: no count of panel stages answered through a session. NEW: panel_session_seats = 3. WHY: the same field as above, here for a panel answered entirely by sessions.
+  assert.equal(r.panel_session_seats, 3);
+});
+
+// 0.8.4 session switch (SSW-w4, SSW-w7): `panel_session_seats` is present ONLY when a panel stage (label panel-*) was answered through a session seat, and the BOARD sentence is appended exactly then. Each row checks the present side and the absent side together, so a version that
+// always wrote the field (or never did) fails here. The count is of STAGES (one seat answered in two rounds counts 2), as the schema text says.
+test('panel_session_seats: present with the right count only when a panel stage was answered through a session; the BOARD line carries the SSW-w4 sentence exactly then', () => {
+  const SENTENCE = 'Nothing checks that the session seats on the panel were answered by separate sessions.';
+  // ABSENT: session seats on writer stages only, an API panel
+  const writerOnly = rosterAnswersOf([api('panel-1-sol', 'openai/gpt-6.1-sol', 'sol'), api('panel-1-ds', 'deepseek/deepseek-v4.1-flash', 'ds'), sess('build', null, NO_MODEL_SEAT, said('codex', 'gpt-6.1')), sess('revise-1', null, NO_MODEL_SEAT)]);
+  assert.ok(writerOnly, 'a session seat on a writer stage still gives a roster_answers record');
+  assert.equal('panel_session_seats' in writerOnly, false, 'no panel stage was answered through a session: the key is absent, not 0');
+  const boardWriter = renderAnswersBoard(writerOnly);
+  assert.ok(boardWriter.endsWith('Companies on the panel as recorded: 2. Session seats whose company is not known: 0. The chain was designed for 2.\n\n'), boardWriter.slice(-260));
+  assert.doesNotMatch(boardWriter, /Nothing checks/);
+  // PRESENT: one seat answered in two rounds (two stages) beside an API judge and a writer session seat
+  const twoRounds = rosterAnswersOf([api('panel-1-sol', 'openai/gpt-6.1-sol', 'sol'), sess('panel-1-x', 'x', 'subscription:opus-5.5', said('claude-code', 'claude-opus-5-5')), sess('panel-2-x', 'x', 'subscription:opus-5.5', said('claude-code', 'claude-opus-5-5')), sess('build', null, NO_MODEL_SEAT)]);
+  assert.equal(twoRounds.panel_session_seats, 2, 'two panel STAGES, one seat');
+  const boardTwo = renderAnswersBoard(twoRounds);
+  assert.ok(boardTwo.endsWith(`Companies on the panel as recorded: 2. Session seats whose company is not known: 0. The chain was designed for 2. ${SENTENCE}\n\n`), boardTwo.slice(-300));
+  // PRESENT with an undeclared answer: it is still a panel stage answered through a session
+  const undeclared = rosterAnswersOf([sess('panel-1-y', 'y', 'subscription:haiku-5.5')]);
+  assert.equal(undeclared.panel_session_seats, 1);
+  assert.ok(renderAnswersBoard(undeclared).endsWith(`Companies on the panel as recorded: 0. Session seats whose company is not known: 1. The chain was designed for 1. ${SENTENCE}\n\n`));
+  // the sentence follows the count, not the key's mere presence
+  assert.doesNotMatch(renderAnswersBoard({ ...twoRounds, panel_session_seats: 0 }), /Nothing checks/);
+  // a panel row that is not answered through a session never counts
+  assert.equal('panel_session_seats' in rosterAnswersOf([sess('build', null, NO_MODEL_SEAT), { label: 'panel-1-h', provider: 'harness' }]), false);
 });
 
 test('S4 and S5 are scoped to what the tally counts: a judge answered by another company fires S4 with the independence clause; a writer stage states the fact only; S5 counts judges with no known company and never writers', () => {

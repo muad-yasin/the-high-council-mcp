@@ -7,6 +7,7 @@ import { runChain, setCache, setBudget, setPromptSpy, pendingPauses, setProgress
 import { setHeldForTest } from '../src/held-roles.js';
 import { reviserEarlyFinishNote, earlyFinishAskSection } from './held-prompts/held-083-early.js';
 import { HELD_OFF } from './helpers/held-off.js';
+import { CHECK, answer as checkAnswer } from './helpers/build-check.js';
 
 afterEach(() => { setCache(null); setBudget(null); setHeldForTest(null); setPromptSpy(null); setProgressHook(null); });
 const judge = (pattern, id, lab, layer) => ({ provider: 'mock', model: `mock-critic-script-${pattern}-${id}`, lab, layer });
@@ -19,7 +20,10 @@ const trio = id => [judge('xo', `${id}a`, 'l1', 1), judge('o', `${id}b`, 'l2', 2
 const go = async (config, answers, { held = true } = {}) => {
   setBudget(null);
   // CHANGED ACCEPTED TEST (decider-readiness unit, 24 Okt 2026). OLD: `null` was the not-recorded state (go(), used by EF-F3 and the held:false case). NEW: the explicit off map (test/helpers/held-off.js). WHY: once src/roles.js records the held names, `null` means "the real words", and the test would prove nothing about the off path; the map behaves the same today.
-  setHeldForTest(held ? { reviserEarlyFinishNote, earlyFinishAskSection } : HELD_OFF);
+  // CHANGED ACCEPTED (0.8.4 S4, C&C's Q-m migration; OLD/NEW/WHY): OLD: the held map held only the early-finish words (or HELD_OFF). NEW: it also carries the build-check wording (CHECK), and the stub holds a test-only handler's good_to_build for the first three build checks. WHY: with the wording recorded a layer-3
+  // sign-off of a chain with an external reviser WAITS at the build check (EF-F2, EF-F3 reach one); nothing else in the rows changes (an early finish is a not-agreed end that asks no check, and EF-F4's API reviser has no handler).
+  setHeldForTest({ ...CHECK, ...(held ? { reviserEarlyFinishNote, earlyFinishAskSection } : HELD_OFF) });
+  answers = { 'build-check-1': checkAnswer('good_to_build'), 'build-check-2': checkAnswer('good_to_build'), 'build-check-3': checkAnswer('good_to_build'), ...answers };
   setCache({ invalidate() {}, get: label => (label in answers ? { text: answers[label], provider: 'external', model: 'claude-code-session', usage: { input: 0, output: 0 }, usd: 0 } : null) });
   const stages = []; const logs = []; const prompts = new Map();
   setPromptSpy(p => prompts.set(p.label, { system: p.system, user: p.user }));

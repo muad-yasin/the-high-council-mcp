@@ -1,6 +1,6 @@
 // 0.8.3 GAP A (Muad 23 Okt 2026, option B; plan Review/Build_0.8.3/m8/C_GapA_Session_Draft_Plan_2026-10-23.md; C&C PASS WITH CONDITIONS): the session writes the new decision for a stuck ROOT plan as a draft (MCP tool tree_decide, step "draft");
 // `council tree decide` opens the gate on the draft IN FULL and the person approves it by typing the stop id. Offline, $0, a scripted terminal.
-// Rows: (SD-1) the draft is written, the gate shows it in full, the stop id records it as the PERSON's act with fromSessionDraft and the paid recommendation is never asked; (SD-2) a newer draft written while the person reads: the approval is NOT used;
+// Rows: (SD-1) the draft is written, the gate shows it in full, the stop id records it as the PERSON's act with fromSessionDraft; (SD-2) a newer draft written while the person reads: the approval is NOT used;
 // (SD-3) a key-shaped text or reason is refused at the draft step, and a draft that gets into the record by hand is not offered at the terminal; (SD-4) a draft over the tree's size allowance: the terminal offers --allow-size and the person's raise records;
 // (SD-5) saying no at the draft gate falls through to typing your own in the same run; (SD-6) the table: both origins, another text, a draft that is not the newest, a person writing a draft, a sub-plan stop; (SD-7) the draft step's refusals;
 // (SD-8) the draft id, the reason and the text are inside the hashed gate text.
@@ -27,11 +27,11 @@ const open = t => { appendTreeEvent(t.rootDir, { event: 'needs_decision_opened',
 function setup(opts = {}) { const t = closedRootTree({ cap: 20, ...opts }); track(t.work); return { t, stopId: open(t), rootId: ROOT_ID }; }
 const call = (s, args) => JSON.parse(treeDecideResult({ runsDir: s.t.runsDir, work: s.t.work, args: { run: s.rootId, reason: WHY, ...args } }).content[0].text);
 const draft = (s, text = DRAFT, extra = {}) => call(s, { step: 'draft', stop: s.stopId, text, ...extra });
-const NO_RECOMMEND = async () => { throw new Error('the paid recommendation must not be asked while a draft waits'); };
-const decide = (s, io, flags = { fresh: true }, extra = {}) => decideHandler({ rootDir: s.t.rootDir, rootId: s.rootId, flags, work: s.t.work, stdin: io.stdin, stdout: io.stdout, stderr: io.stderr, now: () => Date.now(), env: {}, recommend: NO_RECOMMEND, ...extra });
+const decide = (s, io, flags = { fresh: true }, extra = {}) => decideHandler({ rootDir: s.t.rootDir, rootId: s.rootId, flags, work: s.t.work, stdin: io.stdin, stdout: io.stdout, stderr: io.stderr, now: () => Date.now(), env: {}, ...extra });
 const events = s => readTreeRecord(s.t.rootDir).events;
 
-test('SD-1 the draft is written, the gate shows it in full, the typed stop id records the PERSON\'s act with fromSessionDraft, and the paid recommendation is never asked', async () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the decide helper passed `recommend: NO_RECOMMEND` (a stub that threw if the paid recommendation was asked) and SD-1's title said it is never asked. NEW: no stub and no such clause. WHY: the recommendation route is removed, so decideHandler has no `recommend` option and nothing can be asked.
+test('SD-1 the draft is written, the gate shows it in full, and the typed stop id records the PERSON\'s act with fromSessionDraft', async () => {
   const s = setup();
   const w = draft(s); assert.match(w.recorded ?? '', /Nothing is decided and nothing was spent/, JSON.stringify(w));
   assert.deepEqual(events(s).filter(e => e.event === 'decision_recorded'), [], 'writing a draft decides nothing');
@@ -96,7 +96,8 @@ test('SD-5 not approving the draft falls through to typing your own decision in 
   assert.deepEqual([d.text, d.actor, d.fromSessionDraft], ['My own plan for the billing.', 'person', undefined]);
 });
 
-test('SD-6 the table: a person cannot write a draft; a decision names the newest draft and its text byte for byte; a draft and a recommendation are not both an origin; a sub-plan stop takes no draft', () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the table row also expected a draft and `fromRecommendation` together to be refused with /not both/ and the title said so. NEW: that line and clause are removed. WHY: the table has no recommendation origin any more, so there is no second origin to refuse.
+test('SD-6 the table: a person cannot write a draft; a decision names the newest draft and its text byte for byte; a sub-plan stop takes no draft', () => {
   const s = setup(); const w = draft(s);
   const refused = ev => { try { appendTreeEvent(s.t.rootDir, ev); return null; } catch (e) { return e.reason ?? e.message; } };
   assert.match(refused({ event: 'stop_draft_written', stopId: s.stopId, text: 'x', reason: WHY, sha256: sha256Of('x'), actor: 'person', via: 'terminal' }) ?? '', /only the session writes a draft/);
@@ -104,7 +105,6 @@ test('SD-6 the table: a person cannot write a draft; a decision names the newest
   const base = { event: 'decision_recorded', form: 'regenerate', replansRoot: true, stopId: s.stopId, affected: [{ node: 'R', generation: 1 }], oldPlan: { form: 'fresh' }, ...GATE_FIELDS };
   assert.match(refused({ ...base, text: 'another text', fromSessionDraft: { draftId: w.draft } }) ?? '', /not the draft's text/);
   assert.match(refused({ ...base, text: DRAFT, fromSessionDraft: { draftId: 'e999' } }) ?? '', /not the newest draft/);
-  assert.match(refused({ ...base, text: DRAFT, fromSessionDraft: { draftId: w.draft }, fromRecommendation: { n: 1, adviceId: 'A-1' } }) ?? '', /not both/);
   const c = closedChildTree({ cap: 20 }); track(c.work);
   const rid = [...stateOf(readTreeRecord(c.rootDir)).nodes.values()].find(n => n.node === 'R/M1').runId;
   appendTreeEvent(c.rootDir, { event: 'needs_decision_opened', node: 'R/M1', generation: 1, runId: rid, source: 'blocked', affected: [{ node: 'R/M1', generation: 1 }], reason: 'the child needs a decision' });

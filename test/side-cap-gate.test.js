@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { typeCap } from './helpers/typed-cap.js';
+import { expectedCallUsd, projectAttempts } from '../src/cost.js';
 import { LEDGER_FILE } from '../src/gate-ledger.js';
 import { readGateAnswer } from '../src/gate.js';
 import { listRuns } from '../src/api.js';
@@ -106,7 +107,13 @@ test('REMATCH: a stop at the typed total writes ONE stop file in the rematch fol
     typeCap(f.rematchDir(7), '0.001');                       // below the first call's worst case: the run stops before it sends anything
     const stop = await f.run(printedArgs(first.stderr));
     assert.equal(stop.status, 4, stop.stdout + stop.stderr); assert.equal(f.count(), 0);
-    assert.match(stop.stderr, /Run the same command again: it asks for a new total above \$0\.0000 \(the smallest that gets past this stop is \$0\.0500\):\n  \S+ --rematch \S+ --rematch-seed 7/);
+    // CHANGED (S5-05, 28 Okt 2026). OLD: "the smallest total that lets the next call to a model be sent is $0.0500", the call's worst case plus the typed 0.001. NEW: the figure is the one the gate decided on (the call's expected cost, one attempt) on top of the
+    // spend so far (0), to the cent. WHY: the stop record carries the gate's figure (gateStageUsd) and the consumers read it, so the sentence names a total that really gets past this stop (test/stop-figure-invariant.test.js proves
+    // that on the CLI). The bounds are derived, not typed: at least the expected cost with an EMPTY prompt (a real prompt only adds input), under the worst case of an empty prompt with the retry.
+    // CHANGED ACCEPTED (0.8.4, commit 3 of the 5xx fix-up, C&C's (B) of R244). OLD: the stop sentence read "the smallest [total] that gets past this stop is $X". NEW: "the smallest total that lets the next call to a model be sent is $X". WHY: a counted 5xx can stop the call again at its re-send, so "gets past this stop" could be false; the figure is the total at which the NEXT call is sent, and the text now says only that.
+    const figure = Number((stop.stderr.match(/Run the same command again: it asks for a new total above \$0\.0000 \(the smallest total that lets the next call to a model be sent is \$([0-9]+\.[0-9]+)\):\n  \S+ --rematch \S+ --rematch-seed 7/) ?? [])[1]);
+    const Efloor = expectedCallUsd(PAID(0), { system: '', user: '', label: 'criteria' }); const W0 = projectAttempts(PAID(0), { system: '', user: '' });
+    assert.ok(figure >= Efloor && figure < W0.first + W0.retry, `the smallest total ${figure} is the call's expected cost to the cent (>= ${Efloor}) and under its worst case (${W0.first + W0.retry})`);
     assert.doesNotMatch(stop.stderr, /--max-usd none/);
     const d = f.rematchDir(7);
     assert.deepEqual(readdirSync(d).filter(n => /^STOPPED-budget\./.test(n)).sort(), ['STOPPED-budget.json'], 'one stop file, in the rematch folder (the original run folder is untouched)');
@@ -127,16 +134,22 @@ test('FLOOR (condition 1), rematch: the screen\'s floor IS what the armed budget
     const screen = readFileSync(join(d, 'cap-screen-1.md'), 'utf8');
     assert.match(screen, /Already counted for this folder: \$0\.5000\./);
     assert.match(screen, /It must be above \$0\.5000\./);
+    const floor = Number(screen.match(/Already counted for this folder: \$([0-9.]+)\./)[1]);
     typeCap(d, '0.5');                                        // not above the floor: set aside, a new question
     const aside = await f.run(printedArgs(first.stderr));
     assert.equal(aside.status, 21, aside.stdout + aside.stderr); assert.equal(f.count(), 0);
     assert.match(aside.stderr, /is not above what the run has already counted/);
-    typeCap(d, '0.52');                                       // above the floor, below floor + the first call's worst case: stops with the floor as its spend
+    // CHANGED (27 Okt gate, 28 Okt 2026). OLD: 0.52, above the floor (0.50) and below floor + the first call's WORST case (about 0.05). NEW: the gate decides on the call's EXPECTED cost E (the criteria call: one attempt, 400
+    // output tokens), about 0.011, so 0.52 held floor + E, the call was sent and the stub's 500 ended the run with exit 1. WHY this total: it must be above the floor and below floor + E. Efloor is expectedCallUsd of an EMPTY prompt, a
+    // lower bound of the real E, so floor + Efloor / 2 (to 4 places, as the person types it) is inside the window for any prompt size.
+    const Efloor = expectedCallUsd(PAID(0), { system: '', user: '', label: 'criteria' });
+    const TYPED = Math.ceil((floor + Efloor / 2) * 10000) / 10000;
+    assert.ok(TYPED > floor && TYPED < floor + Efloor, `fixture: ${TYPED} is above the floor ${floor} and below floor + Efloor ${floor + Efloor}`);
+    typeCap(d, String(TYPED));                                // above the floor, below floor + the first call's expected cost: stops with the floor as its spend
     const stop = await f.run(printedArgs(aside.stderr));
     assert.equal(stop.status, 4, stop.stdout + stop.stderr); assert.equal(f.count(), 0);
     const st = JSON.parse(readFileSync(join(d, 'STOPPED-budget.json'), 'utf8'));
-    const floor = Number(screen.match(/Already counted for this folder: \$([0-9.]+)\./)[1]);
-    assert.equal(st.capUsd, 0.52); assert.ok(Math.abs(st.spentUsd - floor) < 1e-9, `the armed earlier spend ${st.spentUsd} equals the floor on the screen ${floor}`);
+    assert.equal(st.capUsd, TYPED); assert.ok(Math.abs(st.spentUsd - floor) < 1e-9, `the armed earlier spend ${st.spentUsd} equals the floor on the screen ${floor}`);
   } finally { f.srv.close(); }
 });
 
@@ -276,5 +289,29 @@ test('THE PRINTED COMMAND IS THE PERSON\'S OWN: every flag typed is kept (--allo
     assert.equal(margs.filter(a => a === '--rematch-seed').length, 1, `${margs}`);
     const seeded = await f.run(['--rematch', join('runs', ID), '--rematch-seed', '9']);
     assert.equal(printedArgs(seeded.stderr).filter(a => a === '--rematch-seed').length, 1);
+  } finally { f.srv.close(); }
+});
+
+// The invariant of "the smallest total that lets the next call to a model be sent" on the rematch path (S5-05; the obligation of the review of 2bbe2e3d): the figure the stop prints sends the call when typed, and one cent less stops again. The stub answers
+// 500, so a call that is SENT is only counted.
+test('REMATCH: the total a stop prints gets past it (the call is sent) and one cent less stops again', async () => {
+  const f = await fixture();
+  try {
+    const first = await f.run(['--rematch', join('runs', ID), '--rematch-seed', '7']);
+    assert.equal(first.status, 21);
+    const d = f.rematchDir(7);
+    typeCap(d, '0.001');
+    const stop = await f.run(printedArgs(first.stderr));
+    assert.equal(stop.status, 4, stop.stdout + stop.stderr); assert.equal(f.count(), 0);
+    const figure = Number((stop.stderr.match(/the smallest total that lets the next call to a model be sent is \$([0-9]+\.[0-9]+)\)/) ?? [])[1]);
+    assert.ok(figure > 0.001, `the stop names a total (${stop.stderr})`);
+    const screen2 = await f.run(printedArgs(stop.stderr)); assert.equal(screen2.status, 21, screen2.stdout + screen2.stderr);
+    typeCap(d, String(Math.round((figure - 0.01) * 100) / 100));
+    const below = await f.run(printedArgs(screen2.stderr));
+    assert.equal(below.status, 4, `one cent under ${figure} stops again: ${below.stdout + below.stderr}`); assert.equal(f.count(), 0);
+    const screen3 = await f.run(printedArgs(below.stderr)); assert.equal(screen3.status, 21, screen3.stdout + screen3.stderr);
+    typeCap(d, String(figure));
+    await f.run(printedArgs(screen3.stderr));
+    assert.ok(f.count() >= 1, `typing the printed ${figure} sends the call`);
   } finally { f.srv.close(); }
 });

@@ -1,0 +1,12 @@
+{
+  "stoppedAt": "build",
+  "seat": "example/model-a",
+  "spentUsd": 1.25,
+  "capUsd": 2,
+  "projectedStageUsd": 3,
+  "assumedAtWorstCase": {
+    "replayedStages": 1,
+    "usd": 0.25
+  },
+  "note": "Stopped before the stage above was paid for. Completed stages are on disk and replay for free on resume."
+}

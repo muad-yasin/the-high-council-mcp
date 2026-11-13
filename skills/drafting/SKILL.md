@@ -1,6 +1,6 @@
 ---
 name: drafting
-description: Takes a brief to a first complete draft of new prose - repairing a brief that names a length but no purpose, writing the one sentence the piece exists to say before any prose, choosing a register on purpose, breaking paragraphs where the argument turns, building the ending from the reader's reaction, and keeping stacked layers (headline, subhead, opening) from rewording each other. Use whenever new text is being written - landing and product copy, documentation, announcements, emails, articles, status reports, store and help text, and prose met inside a product (dialogue, notifications, tutorial lines) - and whenever a draft "has nothing to say". Not for revising existing prose (line-editing), for verifying claims or deciding what may be said about real people (fact-checking, which runs first on anything drawn from real events), for warm coverage of a real subject (good-news-writing), or for button labels, state text and error messages (ux-design).
+description: Takes a brief to a first complete draft of new prose - repairing a brief that names a length but no purpose, writing the one sentence the piece exists to say before any prose, choosing a register on purpose, breaking paragraphs where the argument turns, building the ending from the reader's reaction, and keeping stacked layers (headline, subhead, opening) from rewording each other. Use whenever new text is written - landing and product copy, documentation, change notes, announcements, emails, articles, status reports, store and help text, and prose inside a product (dialogue, notifications, tutorial lines) - and whenever a draft "has nothing to say". Not for revising existing prose (line-editing), for verifying claims or deciding what may be said about real people (fact-checking, which runs first on anything from real events), for warm coverage of a real subject (good-news-writing), or for button labels, state text and error messages (ux-design).
 license: MIT
 ---
 
@@ -43,6 +43,7 @@ One sentence, answering the register's own question:
 | Explanatory / documentation | What does the reader believe that is costing them, and what replaces it? |
 | Promotional | What can someone now do that they could not before - the thing, not its category? |
 | Memorial | What does this detail preserve? No joke anywhere near it. |
+| Change note (commit message, changelog entry, pull-request text) | What changed for the person who uses it, what must they now do, and what can no longer be undone? |
 | Routine notice | Nothing. Write it short and stop. |
 | Status report / result summary | What did the check actually establish, what does it not establish, and what decision does it bear on? |
 
@@ -76,7 +77,7 @@ Where a piece is met in layers - headline then subhead then body, subject line t
 
 ## Step 5 - read it back once, as someone who owes you nothing
 
-Top to bottom, where and how a real reader meets it. Does each layer add something the one before didn't? Run the **deletion test on the opening sentence only**: if the piece survives without it, it was decoration. Never on the ending, which is removable by design - the ending's test is Step 3's. If something reads wrong and you can't name why, now open `line-editing`.
+Top to bottom, where and how a real reader meets it. Does each layer add something the one before didn't? Does any paragraph lean on a term or an idea this reader was never given? Step 0's first answer is the list to check against, because the writer's own familiarity hides the gap. Run the **deletion test on the opening sentence only**: if the piece survives without it, it was decoration. Never on the ending, which is removable by design - the ending's test is Step 3's. If something reads wrong and you can't name why, now open `line-editing`.
 
 ## Mistakes to flag
 
@@ -89,7 +90,9 @@ Top to bottom, where and how a real reader meets it. Does each layer add somethi
 - A status line whose verdict word ("yes", "ready", "done") is stronger than the check behind it, or carries no date and no conditions.
 - A question answered without checking the premise it presupposes.
 - A register nobody chose - house-neutral is a choice too, usually the wrong one.
+- A paragraph that leans on a term the reader was never given.
+- A change note that says the thing is better instead of what changed, or tells how the work went instead of what the reader must do.
 - A headline and an opening sentence that state the same proposition.
 - Somebody's own sincere voice (an apology, a founder's letter, a condolence) drafted for them instead of edited from their words.
 
-Registers and the rules that cross them: `references/registers.md`. Headlines and layered surfaces: `references/headline-craft.md`. Text that renders inside a product: `references/in-product-copy.md`.
+Registers and the rules that cross them: `references/registers.md`. Headlines and layered surfaces: `references/headline-craft.md`. Text that renders inside a product: `references/in-product-copy.md`. The outside source the registers name: `references/evidence.md`.

@@ -51,42 +51,34 @@ test('DC-2: in every chain that carries the retry sentence, a cut-off proposal a
 test('DC-3: the caps sentence is carried by at least one shipped chain (a ratchet)', () => {
   assert.ok(chains.some(([, c]) => (c.description || '').includes(CAPS_PREFIX)), 'no shipped chain carries the caps sentence');
 });
-// The effort sentence (HIGH unit): "Every API seat reasons at high, or at the model's own default where that is higher (the harness sends these no effort setting: LIST)". Its truth rests on the table's
-// defaultAboveHigh / defaultEffort, which scripts/refresh-reasoning-table.mjs rewrites: a refresh that flips a row makes the list, or the seats, false with nothing else red.
-const EFFORT_MARKER = "or at the model's own default where that is higher";
-const effortCarrying = chains.filter(([, c]) => (c.description || '').includes(EFFORT_MARKER));
-const DISPLAY = { 'z-ai/glm-5.3': 'GLM-5.3', 'z-ai/glm-5.3-flash': 'GLM-5.3 Flash', 'qwen/qwen3.8-max-0902': 'Qwen 3.8 Max' };   // a defaultAboveHigh model seated here without a name stops the test: add it, and the generator's NAME map
-const RANK = { minimal: 0, low: 1, medium: 2, high: 3, xhigh: 4, max: 5 };
-const listJoin = a => a.length <= 1 ? a.join('') : a.length === 2 ? `${a[0]} and ${a[1]}` : `${a.slice(0, -1).join(', ')} and ${a.at(-1)}`;
-const sentNothingText = c => {
-  const groups = {};
-  for (const seat of seatsOf(c).filter(s => s.provider !== 'external' && s.provider !== 'mock')) {
-    const row = rowOf(seat);
-    if (!row?.defaultAboveHigh) continue;
-    assert.ok(DISPLAY[seat.model], `${seat.model} has defaultAboveHigh but no display name in this test (and the generator): add it`);
-    (groups[row.defaultEffort] ??= new Set()).add(DISPLAY[seat.model]);
-  }
-  return Object.keys(groups).sort((a, b) => RANK[b] - RANK[a]).map(e => `${listJoin([...groups[e]].sort())} at ${e}`).join(', ');
-};
+// The effort sentence. HIGH unit (23 Okt 2026) it read "Every API seat reasons at high, or at the model's own default where that is higher (the harness sends these no effort setting: LIST)". CHANGED ACCEPTED TEST (2 Nov 2026,
+// owner: "High for THC's chains, default to High on all chains, users can change it if they want to"): the sentence is now "Every API seat reasons at high" (daily7-sub-a: "and it reasons at high."), and its truth is the plain one:
+// every API seat of the chain states exactly "high" in its file, with no exception for a model whose own default is above high. Nothing in it rests on the table's defaultAboveHigh any more.
+// CHANGED ACCEPTED TEST (0.8.4 seats unit, Muad 09 Nov 2026 21:51: xhigh for Qwen 3.8 27B). OLD: the sentence was "Every API seat reasons at high;" and nothing else. NEW: a chain that seats Qwen 3.8 27B says "Every API seat reasons at high, except Qwen 3.8 27B, which runs at xhigh because the model offers no high setting (the chain states xhigh for it);", and DC-6 holds it to that: every API seat states high except that one seat, which states xhigh. WHY: the model has no high setting (reasoning-table row), so the one exception is stated in the sentence and checked against the file.
+const QWEN_SENTENCE = 'Every API seat reasons at high, except Qwen 3.8 27B, which runs at xhigh because the model offers no high setting (the chain states xhigh for it);';
+const EFFORT_MARKERS = ['Every API seat reasons at high;', QWEN_SENTENCE, 'and it reasons at high.'];
+const OLD_EFFORT_WORDS = ["or at the model's own default where that is higher", 'no effort setting', 'are sent nothing'];
+const effortCarrying = chains.filter(([, c]) => EFFORT_MARKERS.some(m => (c.description || '').includes(m)));
 
-test('DC-5: the effort sentence is carried by at least one shipped chain (a ratchet)', () => {
-  assert.ok(effortCarrying.length >= 1, 'no shipped chain carries the effort sentence');
+test('DC-5: the effort sentence is carried by at least one shipped chain (a ratchet), and no shipped chain still carries the old wording', () => {
+  // CHANGED (0.8.4 seats unit): OLD bar >= 7 (a typed count, after daily7-sub-a moved to chains/outdated/). NEW: every shipped chain whose description says it "reasons at high" carries one of the known sentences, and there is at least one; derived from the files, so the count moves with the chains.
+  const saysHigh = chains.filter(([, c]) => /reasons at high/.test(c.description || '')).map(([f]) => f);
+  assert.deepEqual(effortCarrying.map(([f]) => f).sort(), saysHigh.sort(), 'every description that speaks of the effort uses one of the checked sentences');
+  assert.ok(effortCarrying.length >= 3, `the effort sentence is carried by ${effortCarrying.length} shipped chains`);
+  const old = chains.filter(([, c]) => OLD_EFFORT_WORDS.some(w => (c.description || '').includes(w))).map(([f]) => f);
+  assert.deepEqual(old, [], 'these descriptions still say some seats are sent no effort setting');
 });
 
-test('DC-6: in every chain that carries the effort sentence, no seat states max or xhigh, an API seat states high or (on a model whose own default is above high) nothing, and the sentence names exactly the models that are sent no effort setting, each with the table\'s default', () => {
+test('DC-6: in every chain that carries the effort sentence, every API seat states exactly "high" (no max, no xhigh, no seat left to the model\'s own default), except the one Qwen 3.8 27B seat that the sentence names, which states xhigh', () => {
   const bad = [];
   for (const [file, c] of effortCarrying) {
-    for (const seat of seatsOf(c).filter(s => s.provider !== 'mock')) {
+    for (const seat of seatsOf(c).filter(s => s.provider !== 'mock' && s.provider !== 'external')) {
       const eff = seat.extra?.reasoning?.effort;
-      if (eff !== undefined && eff !== 'high') bad.push(`${file}: ${seat.provider}/${seat.model} states ${eff}`);
-      if (seat.provider === 'external') continue;
-      const row = rowOf(seat);
-      if (row?.defaultAboveHigh) { if (seat.extra?.reasoning !== undefined) bad.push(`${file}: ${seat.provider}/${seat.model} is sent an effort although its own default (${row.defaultEffort}) is above high`); }
-      else if (eff !== 'high') bad.push(`${file}: ${seat.provider}/${seat.model} states ${eff ?? 'no effort'}, not high`);
+      const form = rowOf(seat)?.form;
+      const want = (c.description || '').includes(QWEN_SENTENCE) && seat.model === 'qwen/qwen3.8-27b' ? 'xhigh' : 'high';   // CHANGED (0.8.4 seats unit): the one exception the sentence names
+      if (form === 'openrouter-effort' && eff !== want) bad.push(`${file}: ${seat.provider}/${seat.model} states ${eff ?? 'no effort'}, not ${want}`);
+      if (eff !== undefined && eff !== want) bad.push(`${file}: ${seat.provider}/${seat.model} states ${eff}`);
     }
-    const text = sentNothingText(c);
-    if (!text) bad.push(`${file}: the sentence lists models sent no effort setting, but no seat is on a model whose own default is above high`);
-    else if (!c.description.includes(`no effort setting: ${text})`)) bad.push(`${file}: the list should read "${text}"`);
   }
   assert.deepEqual(bad, [], 'the effort sentence is false for:\n' + bad.join('\n'));
 });

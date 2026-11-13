@@ -17,7 +17,7 @@ const cli = resolve(here, '../src/cli.js');
 function fixtureReport() {
   return {
     runId: '2026-09-13T00-00-00-000Z',
-    chain: 'verify',
+    chain: 'plan-mini-council',
     passed: true,
     proposals: [
       {
@@ -43,7 +43,7 @@ test('test_export_board_html: contains a proposal\'s text and a reply\'s text, n
 });
 
 test('an empty/partial report renders without throwing', () => {
-  const html = renderBoardHtml({ chain: 'verify' });
+  const html = renderBoardHtml({ chain: 'plan-mini-council' });
   assert.match(html, /No proposal debate ran this run\./);
 });
 

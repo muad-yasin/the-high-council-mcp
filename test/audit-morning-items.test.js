@@ -1,5 +1,5 @@
 // 0.8.2 morning items (owner answers via C&C, 7 Oct 2026; brief Review/Build_0.8.2/BRIEF-MorningItems-20261007.md). $0, offline.
-// Item 2: the never-lower rule also refuses an explicit effort BELOW the model's own default (a model whose default is above "high").
+// Item 2: the never-lower rule. Until 2 Nov 2026 it also refused an explicit effort BELOW the model's own default (a model whose default is above "high"); the floor is now high on every model (see the CHANGED ACCEPTED TEST note below).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join, dirname, resolve } from 'node:path';
@@ -21,34 +21,45 @@ test('item 2: the table really has above-high-default rows (so the rule below is
   }
 });
 
-test('item 2: an explicit "high" on a model whose default is above high is a lowering: refused for a shipped chain, passes in a user\'s own chain', () => {
+// CHANGED ACCEPTED TEST (2 Nov 2026, owner: "High for THC's chains, default to High on all chains, users can change it if they want to"). OLD (7 Oct 2026): an explicit "high" on a model whose own default is above high was a lowering,
+// and "xhigh" below max was refused. NEW: the floor is high on every model, so high, xhigh and max pass on these models as on any other; only a level below high is refused, and no effort at all passes (the harness sends high).
+test('item 2 (2 Nov 2026): an explicit "high" on a model whose default is above high is NOT a lowering: it passes in a shipped chain and in a user\'s own chain', () => {
   for (const m of ['z-ai/glm-5.3-flash', 'z-ai/glm-5.3', 'qwen/qwen3.8-max-0902']) {
     const cfg = chainWith(m, { reasoning: { effort: 'high' } });
-    const found = hits(cfg, shippedPath);
-    assert.equal(found.length, 1, `${m}: ${JSON.stringify(found)}`);
-    assert.match(found[0].message, /own default/);
+    assert.deepEqual(hits(cfg, shippedPath), [], `${m}: high passes in a shipped chain`);
     assert.deepEqual(hits(cfg, userPath), [], `${m}: a user's own chain passes through`);
   }
 });
 
-test('item 2: below the model\'s own default is refused, at the default or above it passes, and no effort at all passes', () => {
-  assert.equal(hits(chainWith('z-ai/glm-5.3-flash', { reasoning: { effort: 'xhigh' } }), shippedPath).length, 1, 'xhigh is below this model\'s default (max)');
-  assert.deepEqual(hits(chainWith('z-ai/glm-5.3-flash', { reasoning: { effort: 'max' } }), shippedPath), [], 'the model\'s own default');
-  assert.deepEqual(hits(chainWith('qwen/qwen3.8-max-0902', { reasoning: { effort: 'xhigh' } }), shippedPath), [], 'the model\'s own default');
-  assert.deepEqual(hits(chainWith('qwen/qwen3.8-max-0902', { reasoning: { effort: 'max' } }), shippedPath), [], 'above the default is not a lowering');
+test('item 2 (2 Nov 2026): high, xhigh and max pass on these models, a level below high is refused, and no effort at all passes', () => {
+  for (const e of ['high', 'xhigh', 'max']) {
+    assert.deepEqual(hits(chainWith('z-ai/glm-5.3-flash', { reasoning: { effort: e } }), shippedPath), [], `glm-5.3-flash at ${e}`);
+    assert.deepEqual(hits(chainWith('qwen/qwen3.8-max-0902', { reasoning: { effort: e } }), shippedPath), [], `qwen3.8-max at ${e}`);
+  }
+  for (const e of ['low', 'medium']) {
+    assert.equal(hits(chainWith('z-ai/glm-5.3-flash', { reasoning: { effort: e } }), shippedPath).length, 1, `glm-5.3-flash at ${e} is below high`);
+  }
   assert.deepEqual(hits(chainWith('z-ai/glm-5.3-flash'), shippedPath), []);
   assert.deepEqual(hits(chainWith('z-ai/glm-5.3-flash', { provider: { zdr: true } }), shippedPath), []);
 });
 
-test('item 2: the same words nested under extra_body are read, and a model whose default is high is not affected', () => {
-  assert.equal(hits(chainWith('z-ai/glm-5.3-flash', { extra_body: { reasoning: { effort: 'high' } } }), shippedPath).length, 1);
+test('item 2 (2 Nov 2026): the same words nested under extra_body are read; high there is no lowering (but a shipped seat must state high in the form the table writes, so it is still refused for that, as on any model), a word below high is a lowering, once', () => {
+  // Traced through src/reasoning.js: extra_body carries a reasoning field, so the harness adds nothing; loweringReasons finds nothing; hasHighForm reads only the top-level reasoning.effort, so the form check reports "no "high" setting". The same answer
+  // as a model whose default is not above high gets (the exemption for the above-default models is gone).
+  const nested = hits(chainWith('z-ai/glm-5.3-flash', { extra_body: { reasoning: { effort: 'high' } } }), shippedPath);
+  assert.equal(nested.length, 1);
+  assert.match(nested[0].message, /no "high" setting/);
+  assert.deepEqual(hits(chainWith('z-ai/glm-5.3-flash', { extra_body: { reasoning: { effort: 'high' } } }), userPath), [], 'a user\'s own chain passes through');
+  assert.equal(hits(chainWith('openai/gpt-6.1-sol', { extra_body: { reasoning: { effort: 'high' } } }), shippedPath).length, 1, 'the same answer for a model whose default is not above high');
+  assert.equal(hits(chainWith('z-ai/glm-5.3-flash', { extra_body: { reasoning: { effort: 'low' } } }), shippedPath).length, 1);
   assert.deepEqual(hits(chainWith('openai/gpt-6.1-sol', { reasoning: { effort: 'high' } }), shippedPath), [], 'a model whose own default is not above high keeps "high" as the explicit setting');
-  // The word check is the one list: loweringReasons (and so reasoningProblems) report it, one finding per setting (a word the older check already flags is not reported twice).
+  // The word check is the one list: loweringReasons (and so reasoningProblems) report it, one finding per setting.
   const seat = { provider: 'openrouter', model: 'z-ai/glm-5.3-flash', maxTokens: 16000 };
-  assert.equal(loweringReasons({ reasoning: { effort: 'high' } }, seat).length, 1);
+  assert.equal(loweringReasons({ reasoning: { effort: 'high' } }, seat).length, 0);
   assert.equal(loweringReasons({ reasoning: { effort: 'low' } }, seat).length, 1);
-  assert.equal(loweringReasons({ reasoning: { effort: 'high' } }).length, 0, 'without a seat there is no model to compare with');
-  assert.equal(reasoningProblems({ ...seat, extra: { reasoning: { effort: 'high' } } }).length, 1);
+  assert.equal(loweringReasons({ reasoning: { effort: 'high' } }).length, 0);
+  assert.equal(reasoningProblems({ ...seat, extra: { reasoning: { effort: 'high' } } }).length, 0);
+  assert.equal(reasoningProblems({ ...seat, extra: { reasoning: { effort: 'low' } } }).length, 1);
 });
 
 // ---- Item 3a: verdictWord reads emphasis, backticks and a closing colon (cnc-prompts-parsers backlog; owner "Your recommendation to both, yes") ----
@@ -119,6 +130,8 @@ const NOT_REACHED = {
   claims: 'config.claims', challenge: 'config.challenge', 'challenge-revise': 'config.challenge', 'descending-x': 'config.descending', 'descending-x-critic-x': 'config.descending',
   // R1 (18 Okt 2026), CHANGED ACCEPTED TEST: old bar = every `label:` in chain.js is a seat call; new bar = `handoff-notes` is named as NOT a call, and the test below pins that it is only ever a harness record. why = the notes lane (0aaa6c3) writes the collected NOTE lines as a zero-cost record(), provider 'harness', after the handoff reply: no seat is called, so nothing can pause on it or be asked for through prepare_stage_prompt.
   'handoff-notes': "a harness record (record({ label: 'handoff-notes', provider: 'harness' ...})), never passed to invoke() or draftStage()",
+  // CHANGED ACCEPTED (0.8.4 T14, ca403c54 added the wording ledger's note lines; the box run of 08 Nov 2026 showed the scan finding them): `answers` is a ledger note about the saved replies of a resume, not a seat call.
+  answers: "a wording-ledger note (wordingLedger?.note({ label: 'answers', ...})), never passed to invoke() or draftStage()",
 };
 const chainSrc = readFileSync(join(root, 'src', 'chain.js'), 'utf8');
 const LABELS = callLabels(chainSrc);

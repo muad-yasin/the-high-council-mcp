@@ -15,7 +15,7 @@ import { systemTextsFor } from '../src/stage-system.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const chainFile = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
-const MOCKS = readdirSync(join(root, 'chains')).filter(f => /^mock.*\.json$/.test(f)).map(f => f.replace(/\.json$/, '')).filter(n => !n.startsWith('mock-advise'));
+const MOCKS = readdirSync(join(root, 'chains')).filter(f => /^mock.*\.json$/.test(f)).map(f => f.replace(/\.json$/, ''));   // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: a `.filter(n => !n.startsWith('mock-advise'))` after the map. NEW: no filter. WHY: no mock-advise chain is in chains/ any more (the one fixture that keeps an `advise` block lives in test/fixtures/advice-chains/, which this read never touches), so the filter could match nothing.
 // the two chains that PAUSE at an external seat: their spy calls up to the pause are still ground truth
 const PAUSES = new Set(['mock-external', 'mock-questions-wait']);
 
@@ -26,6 +26,9 @@ const rowFor = (label, rows, config) => {
   const panel = /^panel-\d+-(.+)$/.exec(label);
   if (panel) { const seat = (config.seats.critics || []).find(c => (c.lab || c.provider) === panel[1]); return seat?.layer !== undefined ? rows.get(`panel-L${seat.layer}-${panel[1]}`) : undefined; }
   if (/^revise-\d+$/.test(label)) return rows.get('revise-all');
+  // CHANGED ACCEPTED (0.8.4, `layer_debate.enabled` removed). OLD: the map joined the panel and revise calls only (no mock chain's run made an exchange call). NEW: it also joins the exchange calls, `ldebate-<pass>[-x<k>]-<lab>` and `lreply-...`, to the row that prices them: the plain chain's `<kind>-<pass>-<lab>` row (its `times` stands for the rounds), or, on a chain with overseer rounds, the layer's `<kind>-L<layer>-<lab>` row. WHY: the exchange is part of every layered unanimous chain with two judges on the lowest layer, so the run makes those calls and the dry run prices them.
+  const exch = /^(ldebate|lreply)-(\d+)(?:-x\d+)?-(.+)$/.exec(label);
+  if (exch) { const seat = (config.seats.critics || []).find(c => (c.lab || c.provider) === exch[3]); return rows.get(`${exch[1]}-${exch[2]}-${exch[3]}`) ?? (seat?.layer !== undefined ? rows.get(`${exch[1]}-L${seat.layer}-${exch[3]}`) : undefined); }
   return undefined;
 };
 // calls a run makes that have NO planned row (named, not silently skipped): a retry of a cut-off reply, the second attempt of a patch revise, a canary probe reply
@@ -58,9 +61,13 @@ test('EST-1: for every mock chain (and a mock chain with overseer rounds), each 
 
 test('EST-2: every row label of every chain file has a system-text rule: expected, maximum and fromRun all price without throwing and every row has a finite input and price', () => {
   const names = readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json'));
-  assert.ok(names.length > 40, 'the chains folder was read');
-  for (const f of names) {
-    const config = resolveChainSeats(JSON.parse(readFileSync(join(root, 'chains', f), 'utf8')));
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD bar >= 30 chain files in chains/. NEW bar >= 26. WHY the count moves with the thing it counts: four advice chains left chains/ for test/fixtures/advice-chains/ (26 .json files are in chains/ now, derived with ls). The four are still priced below, from the fixture folder, so the advise rows keep their guard.
+  assert.ok(names.length >= 26, 'the chains folder was read');   // CHANGED ACCEPTED TEST (0.8.4, 36a: the eight one-model chains left chains/): OLD bar 40. NEW bar: 30 (34 files now). WHY: the count moves with the thing it counts   // CHANGED ACCEPTED TEST (0.8.4 seats and retirements unit): OLD bar: more than 30. NEW bar: at least 30 (30 files now; the bar IS the count, so a chain file that goes missing fails). WHY: the count moves with the thing it counts
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the four advice fixture chains were priced too, "so the advise rows keep their guard". NEW: only chains/*.json. WHY: the estimator has no advise rows any more (src/cost.js plans none, src/stage-system.js has no rule for one) and a chain with an `advise` block is refused before any price is shown, so there is nothing of the add-on left to price.
+  const everyFile = names.map(f => join(root, 'chains', f));
+  for (const path of everyFile) {
+    const f = path.slice(root.length + 1);
+    const config = resolveChainSeats(JSON.parse(readFileSync(path, 'utf8')));
     for (const opts of [{}, { maximum: true }, { fromRun: true }]) {
       const rows = estimateChainRows(config, opts);
       for (const r of rows) assert.ok(Number.isFinite(r.input) && Number.isFinite(r.usd), `${f} ${JSON.stringify(opts)} row ${r.label}: a finite price`);
@@ -70,5 +77,6 @@ test('EST-2: every row label of every chain file has a system-text rule: expecte
 
 test('EST-3: a row label with no rule THROWS (a row nobody mapped is a bug, not a silent zero)', () => {
   assert.throws(() => systemTextsFor('brand-new-stage-x', chainFile('mock-debate'), null), /has no system-text rule/);
-  assert.deepEqual(systemTextsFor('advise-a', chainFile('mock-debate'), null), [], 'the advise rows add their own text and are the one named exception');
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: systemTextsFor('advise-a', ...) returned [] ("the advise rows add their own text and are the one named exception"). NEW: it throws like any unknown label. WHY: the advise rows left with the add-on, so there is no named exception to the no-silent-zero rule any more.
+  assert.throws(() => systemTextsFor('advise-a', chainFile('mock-debate'), null), /has no system-text rule/, 'an advise row has no rule now: it is an unmapped label like any other');
 });

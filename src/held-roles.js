@@ -1,7 +1,7 @@
-// The seam for prompt sentences that are DRAFTED but not yet recorded (0.8.2 wiring block). Code only: no prompt words live here, and none may (src/roles.js is the one home of every prompt).
+// The seam for prompt sentences that are DRAFTED but not yet recorded (0.8.2 wiring block). Code only: no prompt words live here, and none may (src/roles.js is the one import point of every prompt; the words are in the files under src/prompts/).
 //
-// How it works. A call site in src/chain.js that will show a seat new text asks `held('<name>')` for the function that renders it. Until the one ROLES_SHA256 re-record puts that function into
-// src/roles.js as an export of that name, `held` returns undefined and the call site adds nothing, so every prompt stays byte-identical (test/prompt-pin.test.js). After the re-record the
+// How it works. A call site in src/chain.js that will show a seat new text asks `held('<name>')` for the function that renders it. Until the release re-record of ROLES_SHA256 (the 4 Nov 2026 split of src/roles.js was the other, words unchanged) puts that function into
+// src/roles.js as an export of that name, `held` returns undefined and the call site adds nothing, so every prompt stays byte-identical. After the re-record the
 // same call site renders the recorded text: the wiring, the parser's side of it and the door tests were proven before, with the drafted words injected through `setHeldForTest`.
 // The drafted words live in test/held-prompts/ (test data, never shipped); test/held-prompts.test.js refuses a state where a name is in roles.js but its text differs from the drafted one.
 //

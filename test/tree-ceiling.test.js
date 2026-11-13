@@ -16,7 +16,7 @@ import { memberStart } from '../src/tree-member.js';
 import { decideHandler } from '../src/tree-decide.js';
 import { runTree } from '../src/tree-run.js';
 import { trackedRealRoot } from './helpers/temp-trees.js';
-import { stoppedChildFixture, usdRx } from './helpers/money-figures.js';
+import { stoppedChildFixture, stoppedChildStarter, usdRx } from './helpers/money-figures.js';
 import { approvePending, phases } from './helpers/sitting.js';
 import { terminal } from './helpers/terminal.js';
 import { ROOT_ID } from './helpers/tree-fixture.js';
@@ -181,7 +181,7 @@ test('[CEILING] TOP-UP screen (Q2): the ceiling is named ONLY when the cap in fo
   const { CAP } = stoppedChildFixture();
   const r = await trackedRealRoot({ childChain: 'mock-budget', cap: CAP });      // CAP is stoppedChildFixture()'s root cap (the CHANGED ACCEPTED note above); the 'within' ceiling below is CAP + 4, above the cap in force; history: the estimator unit moved the typed cap 20 -> 26 and the ceiling 25 -> 30 (fixture-delta-trace.txt)
   approvePending(r);
-  const out = await runTree(r.t.rootDir, { work: r.t.work });
+  const out = await runTree(r.t.rootDir, { work: r.t.work, startRun: stoppedChildStarter({ work: r.t.work }) });
   assert.equal(out.status, 'budget_stop', JSON.stringify(out)); assert.equal(phases(r)['R/M1'], 'stopped');
   const chainFile = join(r.t.work, 'chains', 'split-root.json');
   const topUp = async ceiling => { const io = terminal([]); io.stdin.end(); const code = await decideHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, flags: { 'top-up': 'R/M1', amount: '1' }, work: r.t.work, stdin: io.stdin, stdout: io.stdout, stderr: io.stderr, now: () => Date.now(), ...(ceiling === undefined ? {} : { ceiling }) }); return { code, shown: io.shown().replace(/\u001b\[[0-9;]*[A-Za-z]/g, ''), errors: io.errors() }; };

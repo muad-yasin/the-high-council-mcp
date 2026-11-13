@@ -24,7 +24,7 @@ const refused = [
   ['a layer on a seat that is not a panel critic', base([critic('a', 1), critic('b', 2)], { seats: { ...base([]).seats, critics: [critic('a', 1), critic('b', 2)], builder: { provider: 'mock', model: 'mock-builder', layer: 1 } } }), /seats\.builder.*"layer".*panel critics/],
   ['a layer on a "first" sign-off chain', base([critic('a', 1), critic('b', 2)], { signoff: 'first' }), /signs off with "first"/],
   ['a layer on a descending chain', base([critic('a', 1), critic('b', 2)], { descending: true }), /descending/],
-  ['a layer on an advice chain', base([critic('a', 1), critic('b', 2)], { advise: { enabled: true, usd: 1 } }), /advice chain/],
+    // CHANGED ACCEPTED TEST (0.8.4 add-on removal, box set fix): OLD: the row 'a layer on an advice chain' (invalid-layer). NEW: gone. WHY: an advise block is refused as a whole (advise-removed); src/layers.js no longer has an advice-chain branch.
   ['a layer with the relay panel', base([critic('a', 1), critic('b', 2)], { panel: 'relay' }), /relay/],
   ['a layer with a quorum', base([critic('a', 1), critic('b', 2)], { quorum: { minHeard: 2 } }), /quorum/],
   ['some critics layered and some not', base([critic('a', 1), critic('b')]), /1 of 2/],

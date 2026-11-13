@@ -12,6 +12,7 @@ import { resolveChainSeats } from '../../src/chain.js';
 import { chainFigures, ceilCents, floorCents, MONEY_EPS } from '../../src/tree-budget.js';
 import { FIXTURE_BUNDLE_ALLOWANCE_BYTES, SPLIT_ROOT_HANDOFF_USD, root } from './tree-fixture.js';
 import { pricedDebate } from './child-chains.js';
+import { apiStarter } from '../../src/tree-run.js';
 
 export { ceilCents, floorCents };
 /** the chain's own dry-run figures { cheapestUsd, atMostUsd }, priced for an input of `inputBytes` as the tree prices a child (the fixture's bundle allowance by default) */
@@ -31,15 +32,24 @@ export const shareOver = figures => ceilCents(figures.cheapestUsd + OVER_CHEAPES
 export const capFor = (share, k, rootSpent = 0) => Math.round((share * k + rootSpent) * 100) / 100;
 
 /** The fixture of the "child stopped at its cap" tests (tree-decide-topup, tree-amend-cap, tree-ceiling, tree-decide-close): mock-budget children, a root cap whose equal share among three children (after the split root's own handoff) is G, a share just over the
- * cheapest end, so the first child is admitted, runs and stops at its cap. G and CAP replace the typed 8.65 and 26 (typed against the cheapest end 8.064, which moved to 8.714 when the drafted words were recorded). The relation is asserted HERE. */
+ * cheapest end, so the first child is admitted and runs. It no longer stops at that grant under the expected-cost gate (see STOPPED_CHILD_ASK_USD below): the tests stop it at the cap the member is ASKED to run under. G and CAP replace the typed 8.65 and 26 (typed against the cheapest end 8.064, which moved to 8.714 when the drafted words were recorded). The relation is asserted HERE. */
 export const stoppedChildFixture = () => {
   const figures = mockBudgetFigures();
   const G = shareOver(figures);
   const CAP = capFor(G, 3, SPLIT_ROOT_HANDOFF_USD);
   assert.ok(floorCents((CAP - SPLIT_ROOT_HANDOFF_USD) / 3) + MONEY_EPS >= figures.cheapestUsd, `fixture: the share ${G} of the cap ${CAP} reaches mock-budget's cheapest end ${figures.cheapestUsd}, so R/M1 is admitted`);
-  assert.ok(G < figures.atMostUsd, 'fixture: the share is under the at-most figure, so the child can stop at its cap');
+  assert.ok(G < figures.atMostUsd, 'fixture: the share is under the at-most figure (a grant at or above it would never matter; the stop is made by STOPPED_CHILD_ASK_USD)');
   return { G, CAP };
 };
 /** a figure as the screens print it (two decimals), and the same as a regular-expression source */
 export const usd = n => n.toFixed(2);
 export const usdRx = n => usd(n).replace('.', '\\.');
+
+/** The cap a "stopped child" tests asks its member to run under: high enough that a paid stage is behind it when it stops, low enough that it stops. MEASURED on the tree's own R/M1 (mock-budget child, the bundle's task and files): asked 1.5, 2 and 2.5 stop before any paid stage (spent 0); 3 stops after the build (spent 1.41); 3.5 stops later (spent 2.14); 4 and 5 finish (the whole run costs 2.89). 3.5 is 0.5 from the nearest ask measured on either side (3 pays less, 4 finishes); a drift of the figures shows as spent 0 (decide-close's `spent > 0`) or as a status other than budget_stop (the stopped() asserts).
+ * CHANGED (27 Okt gate, 28 Okt 2026). OLD: the child stopped at its GRANT G (the cheapest end + $0.01) because the gate projected a call's worst case. NEW: the gate decides on the expected case, and actual spend never exceeds
+ * expected, so a child admitted with a grant that covers the sum of the expected rows cannot stop at that grant (each gate check is the spend so far, at most the expected rows before it, plus this call's expected, so it stays
+ * within their sum). WHY: the person's stop is made by the cap the member is ASKED to run under, which may be lower than its grant (min(asked, lifetime cap), src/tree-member.js memberStart; tree-budget's members run this way). The grant,
+ * G + every top-up and every returned figure, stays what it was; only the run's own cap is low. The resume of a topped-up node asks its whole grant (src/tree-resume.js, `maxUsd: grantTotal`). */
+export const STOPPED_CHILD_ASK_USD = 3.5;
+/** the starter of the stopped-child tests: api.run with the bundle's own files, held to STOPPED_CHILD_ASK_USD instead of the grant */
+export const stoppedChildStarter = ({ work }) => { const start = apiStarter({ work }); return o => start({ ...o, grantUsd: STOPPED_CHILD_ASK_USD }); };

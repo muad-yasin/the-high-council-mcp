@@ -13,8 +13,10 @@ import { readChainFile } from './helpers/chain-file.js';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const chain = name => readChainFile(root, name);
 afterEach(() => setPromptSpy(null));
-const SELF = 'You are a critic in a multi-model review chain.\nYou wrote the draft you are reviewing: this chain lets its writer judge too.';
-const OLD = 'You are an independent critic in a multi-model review chain.\nYou did not write the draft you are reviewing.';
+// Since the Council introduction (B3 prep, after Astra's review) every judge system prompt opens with it; the "Your value comes entirely from being harder to satisfy" clause is gone from the old opening and the self-review one.
+const HEAD = `${R.COUNCIL_INTRO}\n\n`;
+const SELF = HEAD + 'You are a critic in a multi-model review chain.\nYou wrote the draft you are reviewing: this chain lets its writer judge too.';
+const OLD = HEAD + 'You are an independent critic in a multi-model review chain.\nYou did not write the draft you are reviewing.';
 
 // Each critic's real system prompt, built by the one door every panel call site uses.
 const writersOf = cfg => cfg.seats.critics.filter(c => criticPromptFor(c, false, undefined, cfg).startsWith(SELF)).map(labOf);
@@ -51,7 +53,7 @@ test('28a: without "selfReview": "allowed" nobody gets the self-review opening, 
 test('28a: the self-review prompt differs from the old one in its opening only', () => {
   const plain = R.criticSystem(false, { fencedSource: true, criteriaKinds: true });
   const self = R.criticSystem(false, { fencedSource: true, criteriaKinds: true, selfReview: true });
-  const oldOpening = plain.slice(0, plain.indexOf('harder to satisfy than the model that wrote it.') + 'harder to satisfy than the model that wrote it.'.length);
+  const oldOpening = plain.slice(0, plain.indexOf('You did not write the draft you are reviewing.') + 'You did not write the draft you are reviewing.'.length);
   const newOpening = self.slice(0, self.indexOf('as to every other critic.') + 'as to every other critic.'.length);
   assert.equal(self.slice(newOpening.length), plain.slice(oldOpening.length));
   assert.ok(self.startsWith(SELF));

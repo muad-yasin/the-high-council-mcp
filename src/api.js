@@ -15,7 +15,9 @@ import { spawn } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveChainSeats } from './chain.js';
+import { resolveRun, mergedKeyEnv, envTextOf } from './resolve-run.js';      // 0.8.4 the Claude route
+import { everySeatOf } from './chain.js';
+import { resolveZeroRetention, zeroRetentionLines, zdrTableFor } from './zero-retention.js';      // 0.8.4 the optional zero-retention setting
 import { setRounds, roundsSetting } from './overseer-rounds.js';
 import { isChainName, outdatedChainHint } from './chain-name.js';
 import { estimateChainRows } from './cost.js';
@@ -37,7 +39,7 @@ export function version() {
 
 // Same lookup order as the CLI: the user's chains/ in `cwd` first, then the shipped ones.
 function chainPath(name, cwd) {
-  if (!isChainName(name)) throw new TypeError(`chain: a chain name such as "mock" or "plan-default-opro-council", got ${JSON.stringify(name)}`);
+  if (!isChainName(name)) throw new TypeError(`chain: a chain name such as "mock" or "plan-mini-council", got ${JSON.stringify(name)}`);
   const found = [join(cwd, 'chains', `${name}.json`), join(pkg, 'chains', `${name}.json`)].find(existsSync);
   if (!found) throw new Error(`no such chain: ${name} (looked in ${join(cwd, 'chains')} and the package's chains/).${outdatedChainHint(name)}`);
   return found;
@@ -62,7 +64,7 @@ export function listChains({ cwd = process.cwd() } = {}) {
  * Worst-case price of one run of a chain, from its own declared token assumptions - the same
  * numbers as `council --chain <name> --dry-run`. Calls nothing, needs no key, costs nothing.
  */
-export function price({ chain, cwd = process.cwd(), rounds } = {}) {
+export function price({ chain, cwd = process.cwd(), rounds, claudeRoute, zeroRetention, env } = {}) {
   const config = readJson(chainPath(chain, resolve(cwd)));
   if (!config) throw new Error(`chain ${chain} is not valid JSON`);
   // the project's own price rows (pricing.user.json in cwd, 0.8.3 user price row P2b): this call prices IN-PROCESS, so it reads them; a file that cannot be read in full throws a UserPriceFileError (nothing is priced with less than the file says). run()/resume() spawn the CLI, which reads the same file itself.
@@ -71,13 +73,22 @@ export function price({ chain, cwd = process.cwd(), rounds } = {}) {
     if (!Number.isInteger(rounds) || rounds < 1) throw new RangeError(`rounds: a whole number, 1 or more, got ${rounds}`);
     setRounds(config, rounds);
   }
-  const rows = estimateChainRows(resolveChainSeats(config)).map(r => ({ ...r }));
+  // 0.8.4 the Claude route: priced the way a run would be sent. `claudeRoute` is the person's choice (auto | anthropic | openrouter), else COUNCIL_CLAUDE_ROUTE in `env`; the keys are read from `env`, which is the process's environment with the folder's .env applied the way the CLI applies it.
+  const routing = resolveRun(config, { flag: claudeRoute, flagSource: 'the claudeRoute option', env: env ?? mergedKeyEnv(process.env, envTextOf(resolve(cwd), pkg)), choose: r => `the claudeRoute option set to "${r}"`, dry: true });
+  if (routing.stop) throw new Error(routing.message);
+  // 0.8.4 zero retention: decided on the roster the route sends; a price is a dry run, so a seat the table cannot serve is REPORTED (`zeroRetention.refusal`, what a start would stop with), never thrown; a value that is not on or off throws
+  const zeroEnv = { ...process.env, ...(env || {}) };      // what run() hands the CLI: the process environment with `env` added, a key set to undefined removed
+  for (const k of Object.keys(zeroEnv)) if (zeroEnv[k] === undefined) delete zeroEnv[k];
+  const zdrList = zdrTableFor(resolve(cwd));      // the shipped list, or the refreshed one of the folder (never wider)
+  const zero = resolveZeroRetention(everySeatOf(routing.config), { flag: zeroRetention, flagSource: 'the zeroRetention option', env: zeroEnv, offWay: 'the zeroRetention option set to "off"', table: zdrList.table, future: zdrList.future });
+  if (zero.stop) throw new Error(zero.message);
+  const rows = estimateChainRows(routing.config).map(r => ({ ...r }));
   const totalUsd = rows.reduce((s, r) => s + r.usd, 0);
   const unpriced = [...new Set(rows.filter(r => !r.priced && !/^(mock|external)\//.test(r.seat)).map(r => r.seat))];
-  return { chain: config.name ?? chain, rounds: roundsSetting(config) ?? null, rows, totalUsd, unpriced };
+  return { chain: config.name ?? chain, rounds: roundsSetting(config) ?? null, rows, totalUsd, unpriced, ...(routing.route !== 'anthropic' || ['key_state', 'recorded'].includes(routing.why) ? { claudeRoute: { route: routing.route, why: routing.why, seats: routing.routed.length } } : {}), ...(zero.on ? { zeroRetention: { on: true, covered: zero.covered, notCovered: zero.notCovered, stops: zero.stops, refusal: zero.refusal, lines: zeroRetentionLines({ ...zero, asOf: zdrList.table.asOf, source: zdrList.source }) } } : {}) };
 }
 
-// The ceiling is never silently off. undefined: the CLI's own default (MAX_USD_PER_RUN, else $7).
+// The ceiling is never silently off. undefined: the CLI's own default (MAX_USD_PER_RUN, else $12).
 // A positive number: that ceiling. 'none': no ceiling, said explicitly. 0 is refused, because a
 // caller who wrote 0 almost certainly meant "spend nothing", and reading it as "spend without limit"
 // is the costliest possible guess. Since 0.7.9 the CLI and the MCP tools refuse it too.
@@ -140,7 +151,7 @@ function refuseRemovedSecretOverride(value) {
  * spend ceiling, or refused by a guard. Resolves in every one of those cases (read `status` and
  * `exitCode`); rejects only when the child process could not be started or was aborted.
  */
-export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, draft, fromRun, context, criteria, runId, treeNode, piiGate, allowSecretShaped, env, onOutput, signal } = {}) {
+export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, draft, fromRun, context, criteria, runId, treeNode, piiGate, claudeRoute, zeroRetention, allowSecretShaped, env, onOutput, signal } = {}) {
   refuseRemovedSecretOverride(allowSecretShaped);
   const work = resolve(cwd);
   chainPath(chain, work); // a clear error here beats a CLI usage message
@@ -161,6 +172,8 @@ export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, dr
     if (piiGate !== 'warn' && piiGate !== 'hard-stop') throw new RangeError(`piiGate: 'warn' or 'hard-stop', got ${JSON.stringify(piiGate)}`);
     args.push('--pii-gate', piiGate);
   }
+  if (claudeRoute !== undefined) args.push('--claude-route', typeof claudeRoute === 'string' ? claudeRoute : String(claudeRoute));      // the CLI refuses a value that is not a route, before anything is spent
+  if (zeroRetention !== undefined) args.push('--zero-retention', typeof zeroRetention === 'string' ? zeroRetention : String(zeroRetention));      // the CLI refuses a value that is not on or off, before anything is spent
   const runDir = join(work, 'runs', id);
   // Area 4 MED-1: an aborted run's stages stay on disk and can be resumed, so the rejection says
   // which run it was (`runId`, and `runDir` once the folder exists).
@@ -175,12 +188,12 @@ export async function run({ chain, task, cwd = process.cwd(), maxUsd, rounds, dr
  * Resume a paused run (after its external stage was answered) or one the spend ceiling stopped
  * (pass a higher maxUsd). Stages already on disk replay from disk and cost nothing again.
  */
-export async function resume({ runDir, cwd = process.cwd(), maxUsd, allowSecretShaped, env, onOutput, signal } = {}) {
+export async function resume({ runDir, cwd = process.cwd(), maxUsd, claudeRoute, zeroRetention, allowSecretShaped, env, onOutput, signal } = {}) {
   refuseRemovedSecretOverride(allowSecretShaped);
   const work = resolve(cwd);
   const dir = resolve(work, runDir ?? '');
   if (!runDir || !existsSync(join(dir, 'run.json'))) throw new Error(`runDir: not a run folder with a run.json: ${dir}`);
-  const res = await runCli(['--resume', dir, ...maxUsdArgs(maxUsd)], { cwd: work, env, onOutput, signal });
+  const res = await runCli(['--resume', dir, ...maxUsdArgs(maxUsd), ...(claudeRoute !== undefined ? ['--claude-route', String(claudeRoute)] : []), ...(zeroRetention !== undefined ? ['--zero-retention', typeof zeroRetention === 'string' ? zeroRetention : String(zeroRetention)] : [])], { cwd: work, env, onOutput, signal });
   return named19({ runId: basename(dir), runDir: dir, ...res, ...statusOf(dir) });
 }
 

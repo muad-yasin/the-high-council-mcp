@@ -28,7 +28,8 @@ const INJECT = { conflictDeciderSystem: HDEC.conflictDeciderSystem, conflictDeci
 
 const CRITERION = 'The plan defines a retry limit.';
 const DRAFT = 'The worker retries failed requests.';
-const fail = (quote, problem) => ({ criterion: CRITERION, problem, quote });
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: a stub failure was { criterion, problem, quote }. NEW: it also carries a severity of 5 (the chain is layered and unanimous: the rating demand asks for a rating). WHY: ratingDemand is recorded (src/prompts/recorded-084-b.js). No relation is written: the chain has no answer_back, so no relation is asked or read there.
+const fail = (quote, problem) => ({ criterion: CRITERION, problem, quote, severity: 5 });
 const X = fail('retries failed requests', 'No limit on retries.');
 const Y = fail('The worker', 'No owner is named.');
 const idX = objectionId('la', X); const idY = objectionId('lb', Y);
@@ -45,7 +46,7 @@ async function run({ decider = null, held = INJECT, answers = {}, maxRounds = un
   setCache({ invalidate() {}, get(label) {
     served.push(label);
     if (label in answers) return answers[label] === null ? null : { text: answers[label], provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 };
-    const text = label in SCRIPT ? SCRIPT[label] : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+    const text = label in SCRIPT ? SCRIPT[label] : label.startsWith('final-read-') ? meets() : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
     return { text, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 };
   } });
   const seat = (lab, layer) => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000, layer });
@@ -303,7 +304,8 @@ test('CD-23: the README names exit 25 and the --prevail answer, and says how a t
   // README split (owner, 26 Okt 2026: "one final commit"): the section moved word for word to AI-README.md (the exit-code table, Optional chain-config fields): the pins read it there; the Known limits stay in the README, the ban reads both.
   const readme = readFileSync(join(root, 'README.md'), 'utf8'); const reference = readFileSync(join(root, 'AI-README.md'), 'utf8');
   assert.ok(reference.includes('| 25 | A layered run stopped because the conflict decider asked for you to choose') && reference.includes('Codes 19 to 25 are new in 0.8.3.'), 'the exit-code row');
-  for (const doc of [readme, reference]) assert.equal(doc.includes("the decider's ask for you is not offered"), false, 'the limit is no longer true: a member stops at exit 25');
+  // CHANGED (0.8.4 apply, the README rework): the Known limits are in KNOWN-LIMITS.md now, so the ban reads that file too (OLD: [readme, reference]).
+  for (const doc of [readme, readFileSync(join(root, 'KNOWN-LIMITS.md'), 'utf8'), reference]) assert.equal(doc.includes("the decider's ask for you is not offered"), false, 'the limit is no longer true: a member stops at exit 25');
   assert.ok(reference.includes('council tree decide <tree id> --prevail-node <node> --prevail 1=<objection id>'), 'the row names the tree verb');
   assert.ok(reference.includes('When the decider asks for your choice, the run stops at exit 25'), 'the seats.decider bullet');
 });

@@ -12,9 +12,10 @@
 //
 // Cost: the gate reads every member folder (a few small files each) while the caller holds the tree lock, and a running member's mirror write waits only about 2 s for that lock before it fails closed ("not sent"). The
 // gate is therefore kept to plain reads; test/tree-budget.test.js times it on a 13-member tree and the numbers are in the M2 report.
+import { unreplayedOf } from './unreplayed.js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { runSpentUsd } from './spend.js';
+import { runSpentUsd, settledNoFileCountedBy } from './spend.js';
 import { RESERVATIONS_FILE, RESERVATIONS_SCHEMA } from './spend-reservations.js';
 import { SUPERSEDED_DIR } from './superseded.js';
 import { canonicalJson, sha256Of } from './thin-contract.js';
@@ -114,8 +115,13 @@ function evidenceOf(runDir, problems) {
     stages.forEach(s => record(`report.stages:${s?.label}`, s));
     const absorbed = Array.isArray(rep.value.superseded) ? rep.value.superseded : [];
     absorbed.forEach(s => record(`report.superseded:${s?.label}`, s));
-    if (isMoney(totals.usd) && stages.every(s => isMoney(s?.usd)) && !near(totals.usd, stages.reduce((n, s) => n + s.usd, 0) + (isMoney(totals.supersededUsd) ? totals.supersededUsd : 0))) {
-      bad('report_totals', `report.json totals.usd (${totals.usd}) is not the sum of its stages plus supersededUsd`);
+    if (totals.unreplayedUsd !== undefined && !isMoney(totals.unreplayedUsd)) bad('report_totals', 'report.json totals.unreplayedUsd is not a finite number of zero or more');
+    const unreplayed = Array.isArray(rep.value.unreplayed) ? rep.value.unreplayed : [];   // 0.8.4 S5-01: paid stage files no stage row accounts for, absorbed into totals.usd
+    unreplayed.forEach(s => record(`report.unreplayed:${s?.label}`, s));
+    const heldLabels = new Set(unreplayed.map(s => s?.label));
+    for (const o of unreplayedOf(runDir, stages)) if (!heldLabels.has(o.label)) record(`unreplayed:${o.label}`, o);   // a report from before 0.8.4, or a file that arrived after it: attributed from the file, as spend.js adds it
+    if (isMoney(totals.usd) && stages.every(s => isMoney(s?.usd)) && !near(totals.usd, stages.reduce((n, s) => n + s.usd, 0) + (isMoney(totals.supersededUsd) ? totals.supersededUsd : 0) + (isMoney(totals.unreplayedUsd) ? totals.unreplayedUsd : 0))) {
+      bad('report_totals', `report.json totals.usd (${totals.usd}) is not the sum of its stages plus supersededUsd plus unreplayedUsd`);
     }
     const labels = new Set(absorbed.map(s => s?.label));
     for (const f of supFiles) {                                                               // records written after the report was built (a post-run call): attributed from the file
@@ -213,12 +219,11 @@ export function gateTree(rootDir, { record = readTreeRecord(rootDir) } = {}) {
   }
   const floors = unreadableFloorsOf(record);
   const mirror = new Map();                                                                    // run id -> mirrored lines
-  // ROADMAP 77: an advice run's mirror is its own event (`reservation_mirrored` keeps its node path); both feed ONE run-id map, so every check below reads an advice run exactly as it reads a member
-  for (const e of record.events) if (e.event === 'reservation_mirrored' || e.event === 'advice_reservation_mirrored') { const l = mirror.get(e.runId) || []; l.push(e.line); mirror.set(e.runId, l); }
-  const problems = []; const members = []; const reservations = []; const adviceRuns = [];
+  for (const e of record.events) if (e.event === 'reservation_mirrored') { const l = mirror.get(e.runId) || []; l.push(e.line); mirror.set(e.runId, l); }
+  const problems = []; const members = []; const reservations = [];
   const seenRun = new Set();
   let treeSpentUsd = 0; let addedUsd = 0;
-  // ONE per-run inspection for a member AND for every run of a recommendation request (ROADMAP 77): no weaker check exists for an advice folder. `subject` = { runId, phase }; `nodeKey` is how problems name it; `started`: has the run begun (a folder is then owed).
+  // ONE per-run inspection for a member. `subject` = { runId, phase }; `nodeKey` is how problems name it; `started`: has the run begun (a folder is then owed).
   const inspect = (n, nodeKey, started) => {
     if (seenRun.has(n.runId)) return null;
     seenRun.add(n.runId);
@@ -239,6 +244,8 @@ export function gateTree(rootDir, { record = readTreeRecord(rootDir) } = {}) {
     const inMirror = groupById(mirrorLines);
     const ids = new Set([...inFile.keys(), ...looseFile.keys(), ...inMirror.keys()]);
     const evidenceFor = id => evidence.filter(e => e.reservationId === id);
+    // 0.8.4 unit 6 (D11, Mini-C&C R421): a settled call with no usage file is counted by the run's own figure at its settled amount (src/counted-spend.js), so rows 4 and 5 must take that amount off what they add: the call counts ONCE, at its worst case.
+    const settledNoFileUsd = dirExists ? settledNoFileCountedBy(runDir) : new Map();
     // PLAN 7.2 items 3, 4, 6, per reservation
     for (const id of ids) {
       const key = keyOf(n.runId, id);
@@ -269,13 +276,14 @@ export function gateTree(rootDir, { record = readTreeRecord(rootDir) } = {}) {
       // PLAN 7.1: the tree adds a reservation only where the run's own record no longer accounts for it
       const worst = [f.reserved[0], m.reserved[0], lf.reserved[0]].find(l => l && Number.isFinite(l.usd) && l.usd > 0)?.usd ?? 0;
       const evUsd = ev.reduce((a, e) => a + e.usd, 0);
+      const settledOnlyUsd = settledNoFileUsd.get(id) ?? 0;   // the settled amount of a call with no usage file, which the run's own figure counts: the tree takes it off what it adds too
       let row; let added = 0;
-      if (lf.reserved.length && !lf.settled.length) { if (ev.length) { row = 3; added = -evUsd; } else row = 2; }       // 2: runSpentUsd counts the worst case; 3: it counts it twice (worst case + evidence)
-      else if (!lf.reserved.length && m.reserved.length) { row = 4; added = Math.max(0, worst - evUsd); }
-      else if (lf.reserved.length && lf.settled.length) { if (acceptedByGate) row = 1; else { row = 5; added = Math.max(0, worst - evUsd); } }
+      if (lf.reserved.length && !lf.settled.length) { if (ev.length) { row = 3; added = 0; } else row = 2; }       // 2: runSpentUsd counts the worst case; 3: runSpentUsd counts the call ONCE, at the larger of the worst case and the evidence (0.8.4 unit 6, C&C via Mini-C&C R398; it used to count worst case + evidence and the tree removed the evidence), so the tree adds nothing
+      else if (!lf.reserved.length && m.reserved.length) { row = 4; added = Math.max(0, worst - evUsd - settledOnlyUsd); }
+      else if (lf.reserved.length && lf.settled.length) { if (acceptedByGate) row = 1; else { row = 5; added = Math.max(0, worst - evUsd - settledOnlyUsd); } }
       else row = 0;
       addedUsd += added;
-      reservations.push({ key, runId: n.runId, id, node: nodeKey, worstCaseUsd: worst, row, addedUsd: added, evidenceUsd: evUsd, evidenceCount: ev.length, settledAccepted: acceptedByGate });
+      reservations.push({ key, runId: n.runId, id, node: nodeKey, worstCaseUsd: worst, row, addedUsd: added, evidenceUsd: evUsd, evidenceCount: ev.length, settledOnlyUsd, settledAccepted: acceptedByGate });
     }
     // PLAN 7.2 item 5: no paid record without a reservation
     for (const e of evidence) {
@@ -299,30 +307,19 @@ export function gateTree(rootDir, { record = readTreeRecord(rootDir) } = {}) {
     const done = inspect(n, nodeKeyOf(n), started);
     if (done) members.push({ node: n.node, generation: n.generation, runId: n.runId, runDir: done.runDir, spentUsd: done.spentUsd, started });
   }
-  // A recommendation's run is owed a folder once it is SENT (the record adds it before the send, so a missing folder of an unended request is a call not made yet); a request that ended `settled` made its calls, so a missing folder is a spend nobody can read: fail closed.
-  for (const a of state.advice.values()) {
-    for (const r of a.runs) {
-      // `started`: the folder of an advice call exists BEFORE anyone approves its brief, with no run.json yet (run-status.js DR-15), so the folder alone is not a start. The call has begun once its run.json or its reservation file exists, or the request ended `settled`.
-      // While the request is open its runs are `running` (no acceptance key is offered for a report that is still being written); after the end they are `closed`.
-      const dir = join(runsDir, r.runId);
-      const began = existsSync(join(dir, 'run.json')) || existsSync(join(dir, 'spend-reservations.jsonl'));
-      const done = inspect({ runId: r.runId, phase: a.ended ? 'closed' : 'running' }, `advice:${a.adviceId}`, a.ended?.reason === 'settled' || began);
-      if (done) adviceRuns.push({ adviceId: a.adviceId, runId: r.runId, runDir: done.runDir, spentUsd: done.spentUsd });
-    }
-  }
   treeSpentUsd += addedUsd;
   // THE LOUD INVARIANT (gate page 12.7, C&C 14 Oct): everything the tree has spent, has in flight at its bound, holds for an unreadable spend, or has granted and not yet spent must fit the cap in force. The transition table and
   // the admission keep it true on the write path; this is the check on the READ side, so a record that breaks it (a registration written by hand above the cap, a cap amended by hand below what is committed, or a future
   // writer that allocates the same free dollars twice) fails the gate - the stance `record_corrupt` takes - instead of showing a negative `available`. Not coverable by a person's acceptance (no keys): raise the cap or fix the record.
   if (record.tree) {
     const capUsd = effectiveCapUsd(record);
-    const spentOf = new Map([...members, ...adviceRuns].map(m => [m.runId, m.spentUsd]));
+    const spentOf = new Map(members.map(m => [m.runId, m.spentUsd]));
     const rows = nodeMoneyOf(state, spentOf);
-    const heldUsd = rows.reduce((a, r) => a + r.heldUsd, 0) + adviceMoneyOf(state, spentOf).reduce((a, r) => a + r.heldUsd, 0); const unknownUsd = rows.reduce((a, r) => a + r.unreturnedUsd, 0);
+    const heldUsd = rows.reduce((a, r) => a + r.heldUsd, 0); const unknownUsd = rows.reduce((a, r) => a + r.unreturnedUsd, 0);
     if (treeSpentUsd + unknownUsd + heldUsd > capUsd + MONEY_EPS) problems.push({ code: 'over_committed', detail: `the money already committed (${treeSpentUsd.toFixed(4)} spent or in flight, ${unknownUsd.toFixed(4)} held for a spend that cannot be read, ${heldUsd.toFixed(4)} granted and not yet spent) is more than the cap in force (${capUsd.toFixed(4)})`, node: null, runId: null, keys: [] });
   }
   const blocking = problems.filter(p => !(p.keys.length && covered.has(coverSig(p.code, p.keys, sha256Of(p.detail)))));
-  return { ok: blocking.length === 0, problems: blocking, allProblems: problems, accepted: [...accepted], members, adviceRuns, reservations, treeSpentUsd, addedUsd, state };
+  return { ok: blocking.length === 0, problems: blocking, allProblems: problems, accepted: [...accepted], members, reservations, treeSpentUsd, addedUsd, state };
 }
 const strip = l => { const { _at, ...rest } = l; return rest; };
 const coverSig = (code, keys, detailSha256) => `${code}\u0000${[...keys].sort().join(',')}\u0000${detailSha256}`;
@@ -392,30 +389,17 @@ function nodeMoneyOf(state, spentOf) {
   return nodes;
 }
 
-/**
- * ROADMAP 77: the money a recommendation request holds, ONE row per request, kept OUT of nodeMoneyOf's rows on purpose (AP-3: `budget.nodes` and `gate.members` stay plan-only, so no reader of either changes). held = the grant minus what its runs spent
- * (`spentOf`: run id -> USD, the gate's own figure: an unsettled reservation counts at its worst case, so the remainder is NEVER the grant plus the mirrored reservations) until the request ends, then 0; an abandoned tree holds nothing.
- * -> [{ key, adviceId, grantUsd, spentUsd, heldUsd, runIds }]
- */
-export function adviceMoneyOf(state, spentOf) {
-  return [...state.advice.values()].map(a => {
-    const spentUsd = a.runs.reduce((t, r) => t + (spentOf.get(r.runId) ?? 0), 0);
-    return { key: `advice:${a.adviceId}`, adviceId: a.adviceId, grantUsd: a.grantUsd, spentUsd, heldUsd: a.ended || state.abandoned ? 0 : Math.max(0, a.grantUsd - spentUsd), runIds: a.runs.map(r => r.runId) };
-  });
-}
-
 /** The grants, what is held and what is available (PLAN 7.3), from a gate result. A node's grant is its first grant plus every top-up. */
 export function budgetOf(rootDir, { record = readTreeRecord(rootDir), gate = gateTree(rootDir, { record }) } = {}) {
   const tree = record.tree;
   if (!tree) throw new Error(`${rootDir}: no tree.json`);
   const rootCapUsd = effectiveCapUsd(record);                      // the cap IN FORCE: the field keeps its name for the views; since gate page 5 it is the amended total when there is one
-  const spentOf = new Map([...gate.members, ...(gate.adviceRuns ?? [])].map(m => [m.runId, m.spentUsd]));
+  const spentOf = new Map(gate.members.map(m => [m.runId, m.spentUsd]));
   const nodes = nodeMoneyOf(gate.state, spentOf);
-  const advice = adviceMoneyOf(gate.state, spentOf);                    // ROADMAP 77: apart from `nodes`; their holds are in heldUsd, so lifetimeCapOf's heldUsd - n.heldUsd counts them for every node
-  const heldUsd = nodes.reduce((a, n) => a + n.heldUsd, 0) + advice.reduce((a, r) => a + r.heldUsd, 0);
+  const heldUsd = nodes.reduce((a, n) => a + n.heldUsd, 0);
   const unknownSpendHeldUsd = nodes.reduce((a, n) => a + n.unreturnedUsd, 0);
   const unknownSpendNodes = nodes.filter(n => n.unreturnedUsd > 0).length;
-  return { rootCapUsd, treeSpentUsd: gate.treeSpentUsd, heldUsd, unknownSpendHeldUsd, unknownSpendNodes, availableUsd: rootCapUsd - gate.treeSpentUsd - unknownSpendHeldUsd - heldUsd, nodes, advice };
+  return { rootCapUsd, treeSpentUsd: gate.treeSpentUsd, heldUsd, unknownSpendHeldUsd, unknownSpendNodes, availableUsd: rootCapUsd - gate.treeSpentUsd - unknownSpendHeldUsd - heldUsd, nodes };
 }
 
 /**

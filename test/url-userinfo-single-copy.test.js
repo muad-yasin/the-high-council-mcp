@@ -1,6 +1,6 @@
 // 0.8.3 M6, Builder D, key-scan regression unit, item 4 + C&C's add 2 (Haiku batch 4, A13 F3): the URL-userinfo rule had THREE copies in src/ (src/secret-patterns.js, src/providers.js's redactUrlCredentials, src/advice-brief.js's
 // ORIGIN lookahead) and two of them went stale: providers.js stopped at the first "@" (`https://u:p@ss@host/x` left `ss@host`), and neither knew a "/" in the password (`https://u:Ab/cd@host/x` passed in clear into error text and run
-// logs). There is now ONE rule, in src/secret-patterns.js: `maskUrlUserinfo(text)` (what providers.js calls) and `hasUrlUserinfo(text)` (what the advice brief's origin check calls). Part 3 is the SCANNER that makes a fourth copy
+// logs). There is now ONE rule, in src/secret-patterns.js: `maskUrlUserinfo(text)` (what providers.js calls) and `hasUrlUserinfo(text)` (what the advice brief's origin check called until 0.8.4, when the advice add-on was removed; the function stays, as the rule's detector). Part 3 is the SCANNER that makes a fourth copy
 // impossible: no regular expression in src/ outside secret-patterns.js may read the userinfo of a URL.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +13,6 @@ import * as SECRET_PATTERNS_MODULE from '../src/secret-patterns.js';
 const needed = name => typeof SECRET_PATTERNS_MODULE[name] === 'function' ? SECRET_PATTERNS_MODULE[name] : () => assert.fail(`src/secret-patterns.js does not export ${name}`);
 const maskUrlUserinfo = text => needed('maskUrlUserinfo')(text);
 const hasUrlUserinfo = text => needed('hasUrlUserinfo')(text);
-import { ADVICE_BRIEF } from '../src/advice-brief.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC = join(here, '..', 'src');
@@ -31,25 +30,17 @@ test('UUS-1 the provider error masks the WHOLE userinfo up to the last "@" befor
   for (const [input, want] of cases) assert.equal(maskUrlUserinfo(input), want, input);    // and the shared function itself gives the same answers
 });
 
-const brief = origin => ({
-  schema_version: 'advice-brief/1', moment: 'before_commit', question: 'Should we drop the legacy invoices column before the release?',
-  decision_at_stake: 'A dropped column cannot be restored once the migration has run in production.',
-  options_considered: [{ name: 'Drop it now', summary: 'Run the migration before the release.' }, { name: 'Do less', summary: 'Keep the column and add a new one beside it.' }],
-  tried: [{ what: 'Ran the migration on a copy', result: 'It passed in 3 seconds.' }], sensitivity: 'internal', not_included: ['the conversation'],
-  excerpts: [{ label: 'a', kind: 'doc', origin, why_needed: 'The question is about this line.', text: 'owner = invoices' }],
-});
-
-test('UUS-2 the advice brief\'s origin check uses the same rule: a "/" in the password and a second "@" are refused like any credentials in a URL; a plain URL and a path pass', () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: UUS-2 ran the corpus through ADVICE_BRIEF.safeParse(brief(origin)) (src/advice-brief.js, the add-on's brief schema) and UUS-4's REAL_RULES.refuses did the same. NEW: both call hasUrlUserinfo of src/secret-patterns.js directly, on the same texts. WHY: src/advice-brief.js is removed; the origin check was that one function plus a path-shape test, so the shared rule is what is left to pin.
+test('UUS-2 the detector of the shared rule (hasUrlUserinfo) refuses the same texts the advice brief\'s origin check did: a "/" in the password and a second "@" are credentials like any other; a plain URL and a path pass', () => {
   for (const bad of ['https://user:pw@host.example/x', 'https://u:Ab/cd@host.example/x', 'https://u:p@ss@host.example/x', 'ssh://git@github.com/org/repo'])
-    assert.equal(ADVICE_BRIEF.safeParse(brief(bad)).success, false, `${bad} carries credentials`);
+    assert.equal(hasUrlUserinfo(bad), true, `${bad} carries credentials`);
   for (const ok of ['https://docs.example.org/page', 'src/a.js', 'the README, section 3', 'https://github.com/org/repo@v1', 'https://registry.example.com:443/@scope/pkg'])
-    assert.equal(ADVICE_BRIEF.safeParse(brief(ok)).success, true, `${ok} is fine`);
-  assert.equal(hasUrlUserinfo('https://github.com/org/repo@v1'), false);
+    assert.equal(hasUrlUserinfo(ok), false, `${ok} is fine`);
   assert.equal(hasUrlUserinfo('ssh://git@github.com/org/repo'), true, 'the old origin rule refused any userinfo; it still does');
 });
 
 // The comparator behind UUS-4, a function so UUS-5 can prove it is able to report a difference (C&C follow-up on the key-scan PASS, 14 Oct 2026: a check that passes at the parent AND the tip is evidence only if it can fail).
-const OLD_ORIGIN_CREDENTIAL = /^.*:\/\/[^/\s]*@/;                                         // the lookahead `(?!.*:\/\/[^/\s]*@)` of ORIGIN, `git show 5b3a9e1:src/advice-brief.js` line 40
+const OLD_ORIGIN_CREDENTIAL = /^.*:\/\/[^/\s]*@/;                                         // the lookahead `(?!.*:\/\/[^/\s]*@)` of ORIGIN, `git show 5b3a9e1:src/advice-brief.js` line 40 (the file left the repository in 0.8.4; git history keeps it)
 const OLD_MASK = text => String(text).replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, '$1[redacted]@');   // `git show 5b3a9e1:src/providers.js` line 961
 const UUS4_CORPUS = [
   'https://user:pw@host.example/x', 'http://u@h', 'ssh://git@github.com/org/repo', 'postgres://u:p@w@h', 'HTTPS://U:PW@H', 'git+ssh://git@h/x', 'foo.bar://u:p@h', 'mailto://x@y', 'see a://b@c', 'https://h/x?u=a://b@c',
@@ -58,7 +49,7 @@ const UUS4_CORPUS = [
 ];
 // per text: what the OLD rules did and what the given NEW rules do
 const compare = (text, now) => ({ text, oldRefuses: OLD_ORIGIN_CREDENTIAL.test(text), newRefuses: now.refuses(text), oldMasks: OLD_MASK(text) !== text, newMasks: now.masks(text) !== text });
-const REAL_RULES = { refuses: text => ADVICE_BRIEF.safeParse(brief(text)).success === false, masks: redactUrlCredentials };
+const REAL_RULES = { refuses: text => hasUrlUserinfo(text), masks: redactUrlCredentials };
 // the texts where the OLD rules refused or hid and the NEW ones do not: the regressions UUS-4 must find none of
 const regressions = (corpus, now) => corpus.map(t => compare(t, now)).filter(c => (c.oldRefuses && !c.newRefuses) || (c.oldMasks && !c.newMasks)).map(c => c.text);
 

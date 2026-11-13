@@ -28,9 +28,11 @@ test('RL-1 (real verbs): `--dry-run --json` prints the effective maxRounds for a
   const dry = chain => JSON.parse(spawnSync(process.execPath, [cli, '--chain', chain, '--task', 'tasks/x.md', '--dry-run', '--json'], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir } }).stdout);
   assert.equal(dry('rl-omitted').maxRounds, 2);
   assert.equal(dry('rl-set').maxRounds, 3);
-  const o = dry('plan-mini-council');                                                    // a shipped chain with overseer rounds (maxOverseerRounds): a dry run calls nothing
-  assert.ok('maxOverseerRounds' in o, 'the chain has overseer rounds');
-  assert.equal(o.maxRounds, null, 'an overseer chain keeps null (its ceiling is passCeiling)');
+  const o = dry('plan-mini-council');   // a shipped chain: a ladder chain since the ladder unit; a dry run calls nothing
+  // CHANGED ACCEPTED (0.8.4 ladder unit, owed list: 'the JSON callCeiling, plus maxOverseerRounds and passCeiling' / chains that read the old round fields; 10 Nov 2026). OLD: 'maxOverseerRounds' in o (the shipped chain had overseer rounds). NEW: a ladder chain has no round count and no pass ceiling; its dry run carries the price preview's read counts (3 expected, 7 upper, an assumption).
+  assert.equal('maxOverseerRounds' in o, false, 'a ladder chain has no overseer-round count');
+  assert.equal(o.maxRounds, null, 'a ladder chain keeps null: it has no pass bound');
+  assert.deepEqual([o.previewReads?.expected, o.previewReads?.upper, o.previewReads?.upperIsAssumption], [3, 7, true]);
 });
 
 test('RL-2 (real MCP session): list_chains shows the effective maxRounds of a chain that omits it and the set value of one that does not', async () => {

@@ -1,7 +1,7 @@
 // 0.8.2 item 2, the mechanical guard (a mistake shipped twice earns one): the MCP server's run-folder reads and writes all go through src/run-files.js.
 // Any line in src/mcp/*.js or src/stage-submission.js that calls readFileSync, writeFileSync, readdirSync, openSync, appendFileSync, copyFileSync, a stream
 // constructor or the old readJson must carry `// fs-ok: <why this file is not a run-folder file>`. A new tool that reads a run folder with a bare call fails here.
-// 0.8.2 item 2 review: the scan covers src/send-path.js and src/advice-guards.js too (the dispositions write and the ledger read lived there, outside src/mcp/).
+// 0.8.2 item 2 review: the scan covers src/send-path.js too (the dispositions write lived there, outside src/mcp/). 0.8.4: src/advice-guards.js (the ledger read) is gone with the add-on, so the scan no longer lists it.
 // The paraphrases enumerated first: readFileSync(join(runsDir, ...)), readFileSync(join(dir, ...)) after dir = join(runsDir, run), a variable p built from either,
 // readJson(join(...)), writeFileSync of a path built the same way, and readdirSync of a run folder. All of them contain one of the call names below.
 import test from 'node:test';
@@ -33,8 +33,9 @@ test('the guard can fail: the pre-0.8.2 forms of every run-folder access are all
   assert.deepEqual(unmarkedFsCalls("const r = readFileSync(p, 'utf8'); // fs-ok: a chain file"), []);
 });
 
-test('src/mcp/*.js, stage-submission.js, send-path.js and advice-guards.js make no unmarked filesystem read or write', () => {
-  const files = [...readdirSync(join(root, 'src', 'mcp')).filter(f => f.endsWith('.js')).map(f => join('src', 'mcp', f)), join('src', 'stage-submission.js'), join('src', 'send-path.js'), join('src', 'advice-guards.js')];
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the scan listed src/advice-guards.js beside send-path.js (and the title named it). NEW: src/mcp/*.js, stage-submission.js and send-path.js only. WHY: src/advice-guards.js is removed; send-path.js stays (it keeps the typed-limit and raise dialogs' answerer).
+test('src/mcp/*.js, stage-submission.js and send-path.js make no unmarked filesystem read or write', () => {
+  const files = [...readdirSync(join(root, 'src', 'mcp')).filter(f => f.endsWith('.js')).map(f => join('src', 'mcp', f)), join('src', 'stage-submission.js'), join('src', 'send-path.js')];
   assert.ok(files.length >= 6, `expected the MCP modules, found ${files}`);
   const found = files.flatMap(f => unmarkedFsCalls(readFileSync(join(root, f), 'utf8')).map(x => `${f}:${x}`));
   assert.deepEqual(found, [], 'a bare file call: go through src/run-files.js (readRunFile, readRunJson, writeRunFile) or add `// fs-ok: <why>`');

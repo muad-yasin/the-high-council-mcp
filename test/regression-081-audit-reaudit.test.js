@@ -1,7 +1,7 @@
 // 0.8.1 pre-release audit round, the RE-AUDIT of the fixes (Review/Audit_0.8.1_Reaudit_Fixes_2026-10-06.md), fixed in the second pass. Each test fails on d82108e.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -12,13 +12,13 @@ import { applyEnvFile } from '../src/env-file.js';
 import { pickDraft } from '../src/handoff-from-run.js';
 import { readModelDraft } from '../src/draft-disputes.js';
 import { dashFence } from '../src/text-fence.js';
-import { priceOfChain } from '../src/send-path-refusals.js';
+import { generateResumeBrief } from '../src/resume-brief.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 import { runChain, setBudget, setCache, cutOffRetryCap } from '../src/chain.js';
 import { requestGate } from '../src/gate.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
-const chain = n => JSON.parse(readFileSync(join(root, 'chains', `${n}.json`), 'utf8'));
 const cleanEnv = () => { const e = { ...process.env }; for (const k of Object.keys(e)) if (/API_KEY/.test(k)) delete e[k]; return e; };
 const tmp = p => mkdtempSync(join(tmpdir(), p));
 
@@ -47,9 +47,10 @@ test('RA-3: the .env deny list also refuses the variables that change how the ch
   assert.deepEqual(ignored, ['NODE_OPTIONS'], 'a refused name is reported once even when it appears twice');
 });
 
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the allowed list held 'COUNCIL_ADVISE_MOCK' (a name the .env may still set). NEW: it does not. WHY: nothing reads COUNCIL_ADVISE_* any more and src/env-file.js no longer names them, so the row would pin a setting that no longer exists; the refused names and the other allowed names are unchanged.
 test('RA-15: the .env deny list also refuses where the machine\'s tools look for their configuration (XDG_*, the Windows profile and temp names, PATHEXT, the C library\'s loader paths) and the persona file; each name by name, so a dropped one goes red', () => {
   const refused = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR', 'XDG_ANYTHING', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'TEMP', 'TMP', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'PATHEXT', 'GCONV_PATH', 'LOCPATH', 'NLSPATH', 'COUNCIL_PERSONAS_FILE', 'COUNCIL_MOCK_HOLD_FILE', 'COUNCIL_TEST_SPAWN_HOLD_FILE', 'COUNCIL_WORKDIR'];
-  const allowed = ['XDG', 'XDGX_HOME', 'TEMPLATE', 'TMPFILE', 'MY_TMP', 'APPDATA_X', 'COUNCIL_PERSONAS', 'MAX_USD_PER_RUN', 'OPENROUTER_API_KEY', 'COUNCIL_ADVISE_MOCK', 'COUNCIL_MOCK_DELAY_MS', 'COUNCIL_MOCK_PRESTART_UNTIL_STOP'];
+  const allowed = ['XDG', 'XDGX_HOME', 'TEMPLATE', 'TMPFILE', 'MY_TMP', 'APPDATA_X', 'COUNCIL_PERSONAS', 'MAX_USD_PER_RUN', 'OPENROUTER_API_KEY', 'COUNCIL_MOCK_DELAY_MS', 'COUNCIL_MOCK_PRESTART_UNTIL_STOP'];
   const text = [...refused, ...allowed].map(n => `${n}=/x`).join('\n');
   const ignored = [];
   const env = {};
@@ -57,16 +58,6 @@ test('RA-15: the .env deny list also refuses where the machine\'s tools look for
   assert.deepEqual(ignored.sort(), [...refused].sort(), 'every one of them is reported once (XDG_CONFIG_HOME is written twice and named once)');
   assert.deepEqual(set.sort(), [...allowed].sort(), 'and nothing else near their names is lost');
   for (const n of refused) assert.equal(env[n], undefined, `${n} was not set`);
-});
-
-test('RA-4: advise-single-deepseek\'s ceiling covers its first call and ONE retry at the dearest brief (the rule behind every advise.usd), at the refreshed price row', () => {
-  const c = chain('advise-single-deepseek');
-  const seat = c.seats.critics[0]; const cap = seat.maxTokens ?? 36000;
-  const retryChain = structuredClone(c); retryChain.seats.critics[0].maxTokens = cutOffRetryCap(cap);
-  for (const text of ['x'.repeat(48_000), '日'.repeat(48_000), 'x'.repeat(12_000)]) {
-    const sum = priceOfChain(c, text).worst + priceOfChain(retryChain, text).worst;
-    assert.ok(sum <= c.advise.usd, `first + retry ${sum.toFixed(4)} must fit the ceiling ${c.advise.usd}`);
-  }
 });
 
 test('RA-5: a handoff of a stopped run takes the reviser\'s draft the way the reviser stage reads it (trailing Disputed block out, recorded elsewhere); a builder\'s build.md keeps a "Disputed" paragraph', () => {
@@ -81,43 +72,49 @@ test('RA-5: a handoff of a stopped run takes the reviser\'s draft the way the re
   assert.match(readModelDraft(join(dir, 'build.md')), /Disputed payments are escalated/);
 });
 
-test('RA-6: calls_at_most is a bound that fails on the old row count: three seats that all need their retry make 6 calls, the old bound said 3', async () => {
-  const mock = (model, lab) => ({ provider: 'mock', model, lab });
-  const config = { name: 'ra6', resumeAfterStop: false, maxRounds: 1, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 },
-    advise: { enabled: true, usd: 100, rounds: 0, synthesis: 'none', max_wall_ms: 120000 }, seats: { critics: [mock('mock-unreadable', 'a'), mock('mock-unreadable', 'b'), mock('mock-unreadable', 'c')] } };
-  const labels = [];
-  setCache(null); setBudget(null);
-  await runChain({ config, request: 'Should we cache it?\n\nWe plan to cache it for 24 hours.\n', log: () => {}, onStage: s => labels.push(s.label) }).catch(() => {});
-  const bound = priceOfChain(config, 'Should we cache it?\n\nWe plan to cache it for 24 hours.\n').calls;
-  assert.ok(labels.filter(l => /-retry$/.test(l)).length === 3, `fixture: every seat was retried (${labels})`);
-  assert.ok(labels.length > 3, `observed ${labels.length} calls, more than the three rows the old bound counted`);
-  assert.ok(labels.length <= bound, `${labels.length} calls made, calls_at_most said ${bound}`);
+// 0.8.4 (the add-on removal, wave 2): RA-6 (calls_at_most is a bound that fails on the old row count: three advice seats that all need their retry make 6 calls) is removed: priceOfChain (src/send-path-refusals.js) and the advise stage are gone, and a chain with an `advise` block is refused.
+
+// 0.8.4 (the add-on removal): RA-7 (every advice seat's max_price pin equals its price row, over chains/advise-*) is removed with the chains it scanned and the generator step that moved the pins (RA7_RAISED left scripts/regen-derived-figures.mjs).
+
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, REM-w3/w4/w6): OLD /new quote/ had to be in cli.js (the stopped advice call "is asked again with a new quote"). NEW the words name no quote: the CLI says "start it again (with a higher --max-usd if the limit stopped it)" and the MCP status line ends "(its approval is used up)". WHY council_quote is gone.
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2; REM-w31): OLD (wave 1): source scans of src/cli.js for the REM-w4 line ("start it again (with a higher --max-usd ...)") and of src/mcp/server.js for "(its approval is used up)". NEW: the two sentences that stay, driven on a real old folder: the folder of a run the spend cap stopped, with advise-log.json added (the file that makes it an advice folder). The resume brief says "This is an advice call, which is not resumed. Call run_status("<id>") for what it has." and run_status's state says "stopped: the run's spend cap was below this advice call's worst case; nothing was spent; an advice call is not resumed". WHY: the CLI line (REM-w4) and the brief's old "ask for a new quote" went with the code that wrote them; the two kept lines are the tombstones of an old folder and are read from the folder's own files (REM-w31).
+function mcpCall(cwd, name, args, timeoutMs = 60_000) {
+  return new Promise((done, fail) => {
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys() } });
+    let buf = '';
+    const timer = setTimeout(() => { child.kill(); fail(new Error('timed out')); }, timeoutMs);
+    child.stdout.on('data', d => {
+      buf += d; let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        try { const m = JSON.parse(line); if (m.id === 2) { clearTimeout(timer); child.stdin.end(); child.kill(); done(JSON.parse(m.result.content[0].text)); } } catch { /* not JSON-RPC */ }
+      }
+    });
+    child.stdin.write([
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'reaudit', version: '0' } } },
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } },
+    ].map(x => JSON.stringify(x)).join('\n') + '\n');
+  });
+}
+test('RA-8: an old advice folder that the run cap stopped is not resumed, in the resume brief and in the MCP status line (REM-w31, read from the folder\'s own files)', async () => {
+  const dir = tmp('thc-ra8-'); mkdirSync(join(dir, 'tasks')); writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a tiny thing.\n');
+  const id = '2026-10-03T07-00-00-008Z';
+  const r = spawnSync(process.execPath, [cli, '--chain', 'mock-budget', '--task', 'tasks/t.md', '--max-usd', '1', '--run-id', id], { cwd: dir, env: cleanEnv(), encoding: 'utf8', timeout: 60_000 });
+  assert.equal(r.status, 4, `${r.stdout}${r.stderr}`.slice(0, 400));   // fixture: a run the spend cap stopped (STOPPED-budget.json)
+  const runDir = join(dir, 'runs', id);
+  writeFileSync(join(runDir, 'advise-log.json'), '{}');   // what makes the folder an old advice call
+  const brief = generateResumeBrief({ runId: id, dir: runDir, runMeta: JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')), chainConfig: null });
+  assert.ok(brief.includes(`This is an advice call, which is not resumed. Call run_status("${id}") for what it has.`), brief);
+  assert.doesNotMatch(brief, /new quote|council_quote/);
+  const status = await mcpCall(dir, 'run_status', { run: id });
+  assert.equal(status.state, "stopped: the run's spend cap was below this advice call's worst case; nothing was spent; an advice call is not resumed");
+  assert.doesNotMatch(String(status.state), /new quote|council_quote|approval is used up/);
 });
 
-test('RA-7: every advice seat whose price row was not raised in the audit pins max_price EQUAL to its row (a lower max_price could leave no endpoint to route to)', () => {
-  // 1017 unit (23 Okt 2026): advise-single-deepseek seats the 1017 build, whose price row (lane D, 477c30a) is the dearest endpoint ($0.30 / $1.20) like the undated row's, while the chain pins the cheapest ($0.15 / $0.60); the endpoint list read 2026-10-23 has 9 providers with a zero-data-retention endpoint inside that pin, so the pin leaves endpoints to route to.
-  const RAISED = new Set(['deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash-1017', 'z-ai/glm-5.3', 'z-ai/glm-5.2', 'meta-llama/llama-3.3-70b-instruct']);
-  const pricing = JSON.parse(readFileSync(join(root, 'src', 'pricing.json'), 'utf8'));
-  const bad = [];
-  for (const f of readdirSync(join(root, 'chains')).filter(f => /^advise-/.test(f))) for (const s of chain(f.slice(0, -5)).seats.critics) {
-    const mp = s.extra?.provider?.max_price; const row = pricing[`${s.provider}/${s.model}`];
-    if (!mp || !row || RAISED.has(s.model)) continue;
-    if (mp.prompt !== row.in || mp.completion !== row.out) bad.push(`${f}: ${s.model} max_price ${JSON.stringify(mp)} vs row ${row.in}/${row.out}`);
-  }
-  assert.deepEqual(bad, []);
-});
-
-test('RA-8: an advice call stopped by the run cap is "asked again with a new quote" (its approval is used up), in the CLI text and in the MCP status line', () => {
-  const cliSrc = readFileSync(cli, 'utf8');
-  assert.doesNotMatch(cliSrc, /ask again with a higher --max-usd/);
-  assert.match(cliSrc, /new quote/);
-  const srv = readFileSync(join(root, 'src', 'mcp', 'server.js'), 'utf8');
-  assert.match(srv, /budget\.stoppedByCap \? \(isAdviceFolder\(dir\)/);
-});
-
-test('RA-9: the three label-only sites judge a reply against the cap it was asked at (advise.js, chain.js, security-review.js)', () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: three label-only sites (src/advise.js, src/chain.js, src/security-review.js). NEW: the two that are left. WHY: src/advise.js is deleted.
+test('RA-9: the two label-only sites judge a reply against the cap it was asked at (chain.js, security-review.js)', () => {
   const read = f => readFileSync(join(root, f), 'utf8');
-  assert.doesNotMatch(read('src/advise.js'), /abstentionReasonCode\(st\?\.usage \|\| \{\}, cap\)/);
   assert.doesNotMatch(read('src/chain.js'), /alt \? null : abstentionReasonCode\(st\.usage \|\| \{\}, cap\)/);
   assert.doesNotMatch(read('src/security-review.js'), /maxTokens: seat\.maxTokens, parseJson/);
 });

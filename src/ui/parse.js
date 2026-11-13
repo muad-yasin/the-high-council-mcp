@@ -1,3 +1,4 @@
+import { parseLedgerLine, ledgerLineSource } from '../scope-ledger.js';
 // Turns a markdown plan into a section tree with sizes and a rough "build
 // volume" estimate per section. Pure functions, no I/O, so the viewer's
 // numbers can be checked from a script.
@@ -87,14 +88,17 @@ export function compareDrafts(drafts) {
   return [...keys.values()];
 }
 
-// The plan's own scope ledger, if it wrote one.
-export function parseLedger(markdown) {
+// The scope ledger: from scope-ledger.md when the run kept it apart from the plan (src/scope-ledger.js, `fileText`: the harness's own pattern for any id), else the plan's own section (older runs, read
+// exactly as before: ids of the form LAB-1, through the same pattern builder).
+const PLAN_SECTION_LINE = new RegExp(ledgerLineSource('[A-Z0-9]+-\\d+'), 'i');
+export function parseLedger(markdown, fileText) {
+  if (typeof fileText === 'string') return fileText.split('\n').map(parseLedgerLine).filter(Boolean).map(e => ({ id: e.id, status: e.status, note: e.note }));
   // \Z is not a JS anchor; the section runs to the next heading or the end.
   const m = markdown.match(/^#{1,4}\s+(?:\d+\.\s*)?Scope ledger\s*$([\s\S]*?)(?=^#{1,4}\s|$(?![\s\S]))/im);
   if (!m) return [];
   const rows = [];
   for (const line of m[1].split('\n')) {
-    const r = line.match(/^[\s*_`-]*([A-Z0-9]+-\d+)[`*_]*\s*[-:–—]\s*\**(accepted|cut|withdrawn)\**\s*[-:–—]?\s*(.*)$/i);
+    const r = line.match(PLAN_SECTION_LINE);
     if (r) rows.push({ id: r[1], status: r[2].toLowerCase(), note: r[3].trim() });
   }
   return rows;

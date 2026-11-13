@@ -165,7 +165,8 @@ test('CW-7 (real verbs): a resume that passes every refusal saves what was typed
 test('CW-2 (source order): no choice is assigned into resumeMeta, and ONE flushChoices() follows the last refusal of the start (and the typed-limit wait)', () => {
   const src = readFileSync(cli, 'utf8');
   assert.deepEqual([...src.matchAll(/resumeMeta\.(roundChoices|seatChoices|conflictChoices) = (?!roundChoices;)/g)].map(m => m[1]), [], 'a new choice is held in pendingChoices, never assigned into resumeMeta (whose run.json writes come before the changed-task refusal)');
-  assert.equal([...src.matchAll(/pendingChoices\.(roundChoices|seatChoices|conflictChoices) = /g)].length, 3, 'the three sites hold their choice in pendingChoices');
+  // FINDING (not on the owed list of the ladder unit; the first box run, 10 Nov 2026). OLD: 3. NEW: 4. WHY: the owner pause's finish and the relayed choices at a stop (src/cli.js, the round-stop branch and the pause branch) hold a roundChoices entry in pendingChoices at a second site; it is held in memory and flushed by the same single flushChoices() below, never assigned into resumeMeta.
+  assert.equal([...src.matchAll(/pendingChoices\.(roundChoices|seatChoices|conflictChoices) = /g)].length, 4, 'the four sites hold their choice in pendingChoices');
   const flushes = [...src.matchAll(/^flushChoices\(\);/gm)];
   assert.equal(flushes.length, 1, 'exactly one top-level flush');
   assert.ok(flushes[0].index > src.indexOf('setBudgetOrExit(maxUsdEff);'), 'it comes after the typed-limit gate and the cap is set');

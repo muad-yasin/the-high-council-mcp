@@ -23,12 +23,14 @@
 // Privacy: chain name, cost and state only. Never the task path or any run
 // content - what a run was about is not spend data.
 
+import { providerReportedOf } from './provider-reported.js';
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { supersededSpendOf, supersededStagesOf, supersededUnknownFilesOf } from './superseded.js';
-import { unsettledUsd } from './spend-reservations.js';
+import { countedExtrasOf, countedSummaryOf, reservationRecordsOf } from './counted-spend.js';
 import { usdFigure } from './usd-figure.js';
-import { deriveRunStatus, APPROVAL_STATUSES, stoppedShortFile, waitingStages } from './run-status.js';
+import { unreplayedOf } from './unreplayed.js';
+import { deriveRunStatus, stoppedShortFile, waitingStages } from './run-status.js';
 import { readStoppedMarker, waitsForPerson, ROUND_STOPPED_STATE } from './stop-files.js';
 import { runFolderKind } from './run-files.js';
 import { readTreeRecord, stateOf as treeStateOf } from './tree-record.js';
@@ -101,11 +103,17 @@ export function usageSpendOf(dir) {
 // 0.8.2 item 8b (src/spend-reservations.js): a call that was in flight when its process ended stays charged at its worst case, here and in a resume's cap. The one recorded figure in this derivation.
 function costOfRun(dir) {
   const r = costOfRunSettled(dir);
+  // 0.8.4 unit 6 (D11): a report that carries `totals.counted` says its folder was read by the one reader (src/counted-spend.js) when it was written. The figure is then the reader's own, now or as the report froze it, whichever is larger (a file
+  // added after the report is in the first, a file deleted since is in the second), so `--spend` and the report agree across sittings. The reader's figure already holds the unsettled and settled-without-file records: no extras on top.
+  if (r.countedUsd !== undefined) return { ...r, usd: r.countedUsd };
   // 0.8.3 M2e: when STOPPED-budget.json supplied the figure (no stage finished), that figure is the TOTAL at the stop and already holds the earlier superseded records and the earlier unsettled reservations
   // (budgetState().spent, countEarlierSpend in src/cli.js). Adding them again counted an in-flight call twice: W became 2W. The larger of the stop file's total and what is on disk now is the figure: spend that
   // arrived AFTER the stop (a later superseded record) is on disk and wins; nothing is added twice.
-  if (r.stoppedUsd !== undefined) return { ...r, usd: Math.max(r.stoppedUsd, r.usd + unsettledUsd(dir)) };
-  return { ...r, usd: r.usd + unsettledUsd(dir) };
+  // 0.8.4 unit 6 (D11): "what the folder holds that the files do not" comes from the ONE reader (src/counted-spend.js): the unsettled reservations no usage or charge file carries (one a file carries was counted twice), and the settled
+  // calls whose usage file was never written. The extras are the same for the stop-file figure and the disk figure.
+  const extras = countedExtrasOf(dir, { settledOnly: !r.complete }).usd;   // r.complete: report.json holds the total, so a settled call is in it
+  if (r.stoppedUsd !== undefined) return { ...r, usd: Math.max(r.stoppedUsd, r.usd + extras) };
+  return { ...r, usd: r.usd + extras };
 }
 
 function costOfRunSettled(dir) {
@@ -120,7 +128,14 @@ function costOfRunSettled(dir) {
       const handoff = usdFigure(readJson(join(dir, 'handoff-from-run.usage.json'))?.usd);
       if (handoff === null) unknownFiles.push('handoff-from-run.usage.json');
       unknownFiles.push(...supersededUnknownFilesOf(dir));
-      return { usd: total + (handoff ?? 0) + later, chain: report.chain ?? null, complete: true, unknownFigures: unknownFiles.length, unknownFiles };
+      // 0.8.4 S5-01: paid stage files no stage row of the report accounts for. A report written since this change holds them (totals.unreplayedUsd); one written before does not, and a file that arrived after the report is
+      // not in it either. Only what the report does not hold is added, so nothing is counted twice and `--spend` reads the same before and after report.json exists.
+      // A report with no `stages` array (not a shape this harness writes) gives no basis for saying what it holds, so nothing is added for it.
+      const orphans = Array.isArray(report.stages) ? unreplayedOf(dir, report.stages).reduce((n, o) => n + o.usd, 0) : 0;
+      const laterOrphans = Math.max(0, orphans - (usdFigure(report.totals.unreplayedUsd) ?? 0));
+      const frozen = usdFigure(report.totals.counted?.usd);
+      const countedUsd = frozen !== null && frozen > 0 ? Math.max(frozen, countedSummaryOf(dir)?.usd ?? 0) : undefined;
+      return { usd: total + (handoff ?? 0) + later + laterOrphans, ...(countedUsd !== undefined ? { countedUsd } : {}), chain: report.chain ?? null, complete: true, unknownFigures: unknownFiles.length, unknownFiles };
     }
     // a total that is there and is not a number (a string, a negative): the report cannot be trusted for the figure; the stage files below give a floor and the count says so
     unknownFiles.push('report.json');
@@ -143,6 +158,17 @@ function costOfRunSettled(dir) {
   return { usd, ...(stoppedUsd !== undefined ? { stoppedUsd } : {}), chain: readJson(join(dir, 'run.json'))?.chain ?? null, complete: false, stages, unknownFigures: unknownFiles.length, unknownFiles };
 }
 
+/**
+ * The settled calls with no usage file that `runSpentUsd` of this folder counts, as a Map reservation id -> usd (0.8.4 unit 6, D11). Empty where costOfRun does not count them: a finished report with no `totals.counted` (written before this reader, or by 0.8.3)
+ * holds the total already and leaves the settled-without-file records out. The tree's accounting (src/tree-budget.js) takes exactly these off what it adds for a reservation, so a call counts once: the member, `--spend` and the tree read one figure per record.
+ */
+export function settledNoFileCountedBy(dir) {
+  const r = costOfRunSettled(dir);
+  const out = new Map();
+  if (r.complete && r.countedUsd === undefined) return out;
+  for (const x of reservationRecordsOf(dir)) if (x.source === 'settled') out.set(x.reservationId, (out.get(x.reservationId) ?? 0) + x.usd);
+  return out;
+}
 /** What one run folder has cost so far, in USD (report.json's total, else its usage files), handoff-from-run included. */
 export const runSpentUsd = dir => costOfRun(dir).usd;
 /** The same, with the count of figures that did not read and the files they are in: { usd (a floor when unknownFigures > 0), unknownFigures, unknownFiles }. */
@@ -208,24 +234,18 @@ function stateOf(dir) {
   // 0.8.1 M6: an advice call a person, its client or its wall clock stopped (exit 18); what it paid for is counted like any run's.
   const stop = readStoppedMarker(dir);
   if (stop && waitsForPerson(stop.stoppedBy)) return ROUND_STOPPED_STATE;   // a layered run stopped at an overseer limit (exit 23) or a run whose seat was price-refused (exit 24), waiting for the person's choice
-  if (stop) return `stopped: ${({ user: 'by a person', client_cancel: 'by its client', wall_clock: 'at its wall clock' })[stop.stoppedBy]}`;
   const short = stoppedShortFile(dir);
   if (short) return `stopped: ${({ 'STOPPED-preflight.md': 'task refused before any stage', 'STOPPED-secret.md': 'a key-shaped string in the prompt' })[short] ?? 'a draft did not complete'}`;
   if (waitingStages(dir).length) return 'paused';
-  // An advice call's folder before its run starts (0.8.1 DR-15): made by the server before a person answers its gate; nothing was
-  // sent or spent, so it is named for what it is rather than read as a run that died (M4 review follow-up).
-  // Only an advice folder: deriveRunStatus may look for a live process, and this report must stay a cheap read (review nit).
-  if (!existsSync(join(dir, 'run.json')) && existsSync(join(dir, 'advice.meta.json'))) {
-    const s = deriveRunStatus(dir, null);
-    if (APPROVAL_STATUSES.includes(s)) return `advice call not started: ${s.replace('_', ' ')} (nothing sent or spent)`;
-  }
   return 'incomplete';
 }
 
 // One row of either report. A folder an advice call made before its start names its chain only in advice.meta.json.
 function runRow(id, when, dir) {
   const { usd, chain, complete, unknownFigures, unknownFiles } = costOfRun(dir);
-  return { id, when, chain: chain ?? readJson(join(dir, 'advice.meta.json'))?.chain ?? null, usd, state: stateOf(dir), complete, unknownFigures, unknownFiles };
+  const estimatedUsd = countedSummaryOf(dir)?.estimatedUsd ?? 0;   // 0.8.4 unit 6 (D11): the part of this folder's counted figure that is an estimate (absent when none)
+  const providerReported = providerReportedOf(dir);   // 0.8.4 unit 2: what the provider reported beside THC's usd (unverified, counted nowhere); absent when the folder holds no paid OpenRouter record
+  return { id, when, chain: chain ?? readJson(join(dir, 'advice.meta.json'))?.chain ?? null, usd, state: stateOf(dir), complete, unknownFigures, unknownFiles, ...(providerReported ? { providerReported } : {}), ...(estimatedUsd > 0 ? { estimatedUsd } : {}) };
 }
 
 // 0.8.3 M6 S7 (d), PLAN 10.2: the per-tree subtotal of a spend report. ADDITIVE: the rows and `totalUsd` are untouched, and a subtotal is a part of that total, never added to it again. A tree's members are the
@@ -313,6 +333,7 @@ export function spendReport(runsDir, { days = 1, now = Date.now() } = {}) {
     runs,
     trees: treeSubtotals(runsDir, runs),
     totalUsd: runs.reduce((s, r) => s + r.usd, 0),
+    ...(runs.some(r => r.estimatedUsd > 0) ? { totalEstimatedUsd: runs.reduce((s, r) => s + (r.estimatedUsd || 0), 0) } : {}),   // 0.8.4 unit 6 (D11): absent when no part is an estimate
     unknownFigures: runs.reduce((s, r) => s + r.unknownFigures, 0),   // 0 when every figure read; otherwise totalUsd is a floor (usdFigure)
     count: runs.length,
     unreadable,
@@ -378,4 +399,17 @@ export function costToday(runsDir, { date = new Date(), now = Date.now() } = {})
     unreadable,
     symbolicLinksNotCounted,
   };
+}
+
+// DUALCAP (0.8.4 units 4c1, 4c2): what a run folder recorded through ONE per-provider cap: its stage usage files, its superseded and charge files, and its unsettled
+// reservations (at their worst case), each by the capName it carries. A record without one counts in no cap (the run total holds it). Derived from the folder, never
+// recorded; an unreadable usage file counts nowhere here, as the run total's reader treats it.
+export function capSpentOf(dir, capName) {
+  let names = [];
+  try { names = readdirSync(dir).filter(n => n.endsWith('.usage.json')); } catch { return 0; }
+  let usd = 0;
+  for (const n of names) { try { const u = JSON.parse(readFileSync(join(dir, n), 'utf8')); if (u?.capName === capName && Number.isFinite(u.usd) && u.usd > 0) usd += u.usd; } catch { /* unreadable: counted nowhere here */ } }
+  for (const r of supersededStagesOf(dir)) if (r.capName === capName) usd += r.usd;
+  usd += countedExtrasOf(dir, { capName }).usd;   // 0.8.4 unit 6: the unsettled reservations no file carries and the settled calls with no file, each by the capName its reserved line names
+  return usd;
 }

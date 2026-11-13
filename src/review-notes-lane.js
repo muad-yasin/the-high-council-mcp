@@ -6,7 +6,7 @@
 //   splitNotes(parsed)         -> { verdictPart, notesReply }: the two note keys taken OFF a parsed judge reply, before the verdict is read from the rest.
 import { held } from './held-roles.js';
 import { MEMORY_MAX_TOKENS_EST } from './review-notes.js';
-import { roundLimitsOf } from './overseer-rounds.js';
+import { roundLimitsOf, isOverseerChain } from './overseer-rounds.js';
 
 /** The held sentences the lane needs, all of them or none (a half-recorded set leaves the lane off). Drafted in test/held-prompts/held-083.js; recorded in src/roles.js only with Muad's yes at M7. */
 export const LANE_HELD_NAMES = Object.freeze(['reviewNotesAsk', 'reviewNotesRevise', 'reviewNotesMemory', 'reviewNotesAnswer']);
@@ -47,7 +47,7 @@ export function notesMemoryClause(config, heldFn = held) {
 
 /** The cap screen's line is for a FULL chain run only: a one-call screen (`handoff --from-run`, `contract draft`, `digest`) runs no judge, and a chain with no overseer rounds has no round 2. '' otherwise. */
 export function capScreenMemoryClause(config, { fullRun = false, heldFn = held } = {}) {
-  return fullRun && roundLimitsOf(config).overseer !== null ? notesMemoryClause(config, heldFn) : '';
+  return fullRun && isOverseerChain(roundLimitsOf(config)) ? notesMemoryClause(config, heldFn) : '';   // 0.8.4 (commit 7): a ladder chain has overseer rounds too (one per top-layer read), so it has a round 2
 }
 
 /** Take `proposals` and `ideas` off a parsed judge reply. Anything that is not a plain object is returned untouched (normaliseCritique reports it unreadable as it always did); the input is never mutated. */

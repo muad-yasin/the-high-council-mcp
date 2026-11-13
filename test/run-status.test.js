@@ -6,6 +6,7 @@ import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deriveRunStatus, isAlivePid, waitingStage } from '../src/run-status.js';
+import { readStoppedMarker } from '../src/stop-files.js';
 
 function freshDir() { return mkdtempSync(join(tmpdir(), 'thc-run-status-')); }
 
@@ -119,14 +120,16 @@ test('finishedRunState: a blocked or unjudged security gate is never reported as
   assert.equal(finishedRunState({ passed: true, signoff: [], delivered_text: { same_as_signed: false } }), 'done: every lab signed off, on the signed draft; the delivered text differs', 'a damaged record does not throw');
 });
 
-test('deriveRunStatus (0.8.1 M6): an advice run stopped at exit 18 reads <cause>_stopped from its STOPPED-<cause>.json, after a budget stop and an error', () => {
-  for (const [cause, status] of [['user', 'user_stopped'], ['client_cancel', 'client_cancel_stopped'], ['wall_clock', 'wall_clock_stopped']]) {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: "an advice run stopped at exit 18 reads <cause>_stopped from its STOPPED-<cause>.json" (user, client_cancel, wall_clock -> user_stopped, client_cancel_stopped, wall_clock_stopped, even with a live pid and a torn marker). NEW: an old STOPPED-user / -client_cancel / -wall_clock file is no longer a stop marker: readStoppedMarker finds none and deriveRunStatus never returns a `<cause>_stopped` word (a dead folder reads 'stopped'). WHY: STOP_CAUSES lost those three causes with the add-on; the words stay in types/index.d.ts only as legacy.
+test('deriveRunStatus (0.8.4): the three advice stop files of an old folder (STOPPED-user, -client_cancel, -wall_clock) are not stop markers any more; no <cause>_stopped word is returned', () => {
+  for (const cause of ['user', 'client_cancel', 'wall_clock']) {
     const dir = freshDir();
     try {
       writeFileSync(join(dir, `STOPPED-${cause}.json`), JSON.stringify({ schema: 'stopped/1', stoppedBy: cause }));
-      assert.equal(deriveRunStatus(dir, { pid: process.pid }), status, 'never running, even with a live pid');
+      assert.equal(readStoppedMarker(dir), null, `${cause}: not a marker`);
+      assert.equal(deriveRunStatus(dir, null), 'stopped', `${cause}: a folder with no live process and no known marker`);
       writeFileSync(join(dir, `STOPPED-${cause}.json`), 'torn');
-      assert.equal(deriveRunStatus(dir, null), status, 'an unreadable marker still names its cause by its file name');
+      assert.equal(deriveRunStatus(dir, null), 'stopped', `${cause}: a torn file changes nothing`);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }
 });

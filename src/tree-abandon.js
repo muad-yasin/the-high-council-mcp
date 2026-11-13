@@ -16,7 +16,6 @@ import { lockHolder } from './run-lock.js';
 import { SITTING_LOCK_FILE } from './tree-files.js';
 import { TreeRefusal, appendTreeEventLocked, readTreeRecord, stateOf, treeDirOf, withTreeLock } from './tree-record.js';
 import { abandonedSentence, liveMembersOf } from './tree-transitions.js';
-import { adviceAbandonHoldsOf } from './tree-advice-record.js';
 
 export { abandonedSentence };
 
@@ -37,15 +36,13 @@ export const finalSentenceOf = rootDir => treeFinalRefusal(stateOf(readTreeRecor
 
 /**
  * Why this tree cannot be abandoned now, or null. `record` is the record as read (its `corrupt` lines are the damaged ones), `state` its fold. Reads the sitting lock (the filesystem); everything else is the record.
- * -> { kind: 'corrupt' | 'abandoned' | 'not_started' | 'live_advice' | 'live_member' | 'sitting', reason } | null
+ * -> { kind: 'corrupt' | 'abandoned' | 'not_started' | 'live_member' | 'sitting', reason } | null
  */
 export function abandonRefusal({ rootDir, record, state, facts = {}, runStatusOf }) {
   const id = basename(rootDir);
   if (record.corrupt?.length) return { kind: 'corrupt', reason: `the record of tree ${id} has ${record.corrupt.length} damaged line${record.corrupt.length === 1 ? '' : 's'} and cannot be read, so an abandon cannot be recorded in it; restore the damaged line from a backup, or start a new tree` };
   if (state.abandoned) return { kind: 'abandoned', reason: abandonedSentence(state) };
   if (!state.started) return { kind: 'not_started', reason: `the start of tree ${id} was never recorded; run \`council tree resume ${id}\` first (it completes the start), then abandon it` };
-  // a recommendation request still holds its grant (the table refuses on the narrow rule; a call that outlives the brief wait or its registering process is caught here, BUG-B-015): the table's own sentence
-  { const advice = adviceAbandonHoldsOf(rootDir, state, { facts, ...(runStatusOf ? { runStatusOf } : {}) }); if (advice.length) return { kind: 'live_advice', reason: `a recommendation request (${advice[0].adviceId}) is still in progress (registered by pid ${advice[0].pid} on ${advice[0].host}): a tree cannot be abandoned while one is` }; }
   const live = liveMembersOf(state, facts);
   if (live.length) return { kind: 'live_member', reason: `${live.map(m => `${m.key} (${m.kind === 'post_run' ? 'a post-run call' : 'a running member'}, pid ${m.pid} on ${m.host})`).join(', ')} still ${live.length === 1 ? 'has' : 'have'} a live claim: a tree with a running member cannot be abandoned; wait for it to end` };
   const sitting = lockHolder(treeDirOf(rootDir), { file: SITTING_LOCK_FILE });

@@ -118,7 +118,8 @@ test('FLOOR (condition 1), handoff: the screen\'s floor IS the ORIGINAL folder\'
     const st = JSON.parse(readFileSync(join(d, 'STOPPED-budget.json'), 'utf8'));
     const floor = Number(screen.match(/Already counted for this folder: \$([0-9.]+)\./)[1]);
     assert.equal(st.capUsd, 0.52); assert.ok(Math.abs(st.spentUsd - floor) < 1e-9, `the armed earlier spend ${st.spentUsd} equals the floor on the screen ${floor}`);
-    assert.match(stop.stderr, /Run the same command again: it asks for a new total above \$0\.5000 \(the smallest that gets past this stop is \$[0-9.]+\):/);
+    // CHANGED ACCEPTED (0.8.4, commit 3 of the 5xx fix-up, C&C's (B) of R244). OLD: the stop sentence read "the smallest [total] that gets past this stop is $X". NEW: "the smallest total that lets the next call to a model be sent is $X". WHY: a counted 5xx can stop the call again at its re-send, so "gets past this stop" could be false; the figure is the total at which the NEXT call is sent, and the text now says only that.
+    assert.match(stop.stderr, /Run the same command again: it asks for a new total above \$0\.5000 \(the smallest total that lets the next call to a model be sent is \$[0-9.]+\):/);
     assert.equal(readFileSync(join(f.rd, 'STOPPED-budget.json'), 'utf8'), mainStop, 'the main run\'s stop file is untouched');
     assert.equal(existsSync(join(f.rd, 'HANDOFF.md')), false);
     const next = await f.run(printedArgs(stop.stderr));
@@ -218,7 +219,7 @@ test('DIGEST of a paid seat: exit 21 with the screen in side/digest-<h8>; `none`
     assert.equal(stop.status, 4, stop.stdout + stop.stderr); assert.equal(f.count(), 0);
     const st = JSON.parse(readFileSync(join(d, 'STOPPED-budget.json'), 'utf8'));
     assert.equal(st.capUsd, 0.51); assert.ok(Math.abs(st.spentUsd - 0.5) < 1e-9, `the armed earlier spend ${st.spentUsd} equals the floor 0.5`);
-    assert.match(stop.stderr, /Run the same command again: it asks for a new total above \$0\.5000 \(the smallest that gets past this stop is \$[0-9.]+\):/);
+    assert.match(stop.stderr, /Run the same command again: it asks for a new total above \$0\.5000 \(the smallest total that lets the next call to a model be sent is \$[0-9.]+\):/);
     assert.equal(existsSync(join(f.rd, 'STOPPED-budget.json')), false, 'no stop file in the run folder itself');
     const next = await f.run(printedArgs(stop.stderr));
     assert.equal(next.status, 21); assert.match(readFileSync(join(d, 'cap-screen-2.md'), 'utf8'), /stopped at its limit of \$0\.5100/);
@@ -237,5 +238,29 @@ test('DIGEST with an unpriced seat is refused with exit 5 even with `none` (no g
   try {
     const r = await f.run(['digest', '--run', f.rd, '--provider', 'openrouter', '--model', 'vendor/not-in-the-table', '--max-usd', 'none']);
     assert.equal(r.status, 5, r.stdout + r.stderr); assert.equal(existsSync(join(f.rd, 'side')), false);
+  } finally { f.srv.close(); }
+});
+
+// The invariant of "the smallest total that lets the next call to a model be sent" on the post-run path (S5-05; the obligation of the review of 2bbe2e3d): the call is outside runChain, so it is gated at its worst case and the figure is that worst case on top of
+// the spend: typing the printed total sends the call, one cent less stops again. The stub answers 500, so a call that is SENT is only counted.
+test('HANDOFF: the total a stop prints gets past it (the call is sent) and one cent less stops again', async () => {
+  const f = await fixture();
+  try {
+    const first = await f.run(f.handoff());
+    assert.equal(first.status, 21, first.stdout + first.stderr);
+    const d = f.gateDir('handoff');
+    typeCap(d, '0.001');
+    const stop = await f.run(printedArgs(first.stderr));
+    assert.equal(stop.status, 4, stop.stdout + stop.stderr); assert.equal(f.count(), 0);
+    const figure = Number((stop.stderr.match(/the smallest total that lets the next call to a model be sent is \$([0-9]+\.[0-9]+)\)/) ?? [])[1]);
+    assert.ok(figure > 0.001, `the stop names a total (${stop.stderr})`);
+    const screen2 = await f.run(printedArgs(stop.stderr)); assert.equal(screen2.status, 21, screen2.stdout + screen2.stderr);
+    typeCap(d, String(Math.round((figure - 0.01) * 100) / 100));
+    const below = await f.run(printedArgs(screen2.stderr));
+    assert.equal(below.status, 4, `one cent under ${figure} stops again: ${below.stdout + below.stderr}`); assert.equal(f.count(), 0);
+    const screen3 = await f.run(printedArgs(below.stderr)); assert.equal(screen3.status, 21, screen3.stdout + screen3.stderr);
+    typeCap(d, String(figure));
+    await f.run(printedArgs(screen3.stderr));
+    assert.ok(f.count() >= 1, `typing the printed ${figure} sends the call`);
   } finally { f.srv.close(); }
 });

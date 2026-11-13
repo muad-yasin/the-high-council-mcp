@@ -193,6 +193,22 @@ test('an approved gate whose text changed afterwards is not approved any more', 
   assert.deepEqual({ ...readGateAnswer(d, 'g1', { now: at(T0 + 2) }), gate: undefined }, { status: 'invalid', reason: 'hash_mismatch', gate: undefined });
 });
 
+// Q2 ROW (0.8.4 add-on removal, wave 2): the committed gate fixtures were written when the advice add-on existed (kind `advice`, events `sent` and `stopped`). Only the writers are gone: the ledger must still verify, byte for byte.
+test('Q2: the committed gate fixtures still verify: the legacy kind `advice` and the legacy events `sent` and `stopped` are read-only vocabulary', () => {
+  const runOk = mkdtempSync(join(tmpdir(), 'gate-legacy-'));
+  cpSync(join(FIX, 'run-ok'), runOk, { recursive: true });
+  const v = verifyLedger(runOk);
+  assert.equal(v.ok, true, JSON.stringify(v));
+  const read = readLedger(runOk);
+  assert.equal(read.ok, true);
+  assert.deepEqual([...new Set(read.lines.map(l => l.event))].sort(), ['gate_answered', 'gate_requested', 'sent', 'stopped'], 'the fixture carries the legacy words');
+  assert.equal(read.lines.find(l => l.event === 'gate_requested').kind, 'advice');
+  assert.equal(readGateAnswer(runOk, 'g1', { now: at(T0 + 3600_000) }).used, true, 'the old `sent` line still counts as the use of its approval');
+  const tampered = mkdtempSync(join(tmpdir(), 'gate-legacy-'));
+  cpSync(join(FIX, 'run-tampered'), tampered, { recursive: true });
+  assert.equal(verifyLedger(tampered).ok, false, 'and the tampered fixture still does not');
+});
+
 test('listGates names every gate with its status', () => {
   const runOk = mkdtempSync(join(tmpdir(), 'gate-list-'));
   cpSync(join(FIX, 'run-ok'), runOk, { recursive: true });
@@ -216,25 +232,31 @@ const srcFiles = (dir = src) => readdirSync(dir).flatMap(e => {
 const rel = p => relative(repo, p).split('\\').join('/');
 const realSources = () => new Map(srcFiles().map(p => [rel(p), readFileSync(p, 'utf8')]));
 
-const GATE_MODULES = ['src/gate.js', 'src/gate-ledger.js', 'src/gate-cli.js', 'src/tree-gate.js'];   // 0.8.3 M5b: the tree's gate wrapper obeys R1 (no environment, no command line) too
+const GATE_MODULES = ['src/gate.js', 'src/gate-ledger.js', 'src/gate-cli.js', 'src/tree-gate.js', 'src/stop-gate.js'];   // 0.8.3 M5b: the tree's gate wrapper obeys R1 (no environment, no command line) too
 // Who may import each gate module, on purpose and in this list, so every addition is visible in review. M4 (plan DR-15)
 // added: src/send-path.js (requests the gate, answers it with the client's dialog), src/cli.js (--advice-adopt records
-// the send), src/advice-run.js (the adoption check) and src/run-status.js (a folder awaiting approval).
+// the send), src/advice-run.js (the adoption check) and src/run-status.js (a folder awaiting approval). 0.8.4 add-on removal: --advice-adopt and src/advice-run.js are gone (see the CHANGED note on 'gate.js' below).
 const IMPORTERS = {
   // 0.8.2 item 6d (owner, 7 Oct 2026: "we go with the full one"): src/contract-record.js asks the gate for the contract's lock and amendment approvals, through gate.js only.
   // 0.8.3 M5b (C&C, 8 Oct 2026; DECISIONS Q3): src/tree-gate.js is the ONE module of the recursive-councils tree that talks to the gate. It requests the tree's gates on the root run folder (gate.js requestGate), reads the answer
   // back with the tree's extra rules (channel cli at a terminal only, unused, unexpired: readGateAnswer) and spends it once (recordUse), and it takes the person's answer ONLY through gate-cli.js's answerAtTerminal.
   // It never imports answerGate itself (ANSWERERS below is unchanged) and reads no environment or argv (R1 below scans for that). Every other tree module goes through it, so this is the single added importer.
   // 0.8.3 M6 typed cap T4a (14 Oct 2026): src/start-cap.js is the ONE module of the start path that talks to the gate (find the run's typed limit, request the limit screen's gate, consume the answer once), like src/tree-gate.js for the tree. It never imports answerGate (ANSWERERS is unchanged: the person's
+  // B3 prototype (30 Okt 2026): src/gate-relay-cli.js is the one module that relays a person's permission on the session channel (answerGateAsRelay), kept out of src/gate-cli.js so that file keeps its one-option shape (R7).
   // answer comes through gate-cli.js's answerAtTerminal, passed in by cli.js), reads no environment or argv (R1) and is called only by src/cli.js.
-  'gate.js': ['src/gate-cli.js', 'src/send-path.js', 'src/cli.js', 'src/advice-run.js', 'src/run-status.js', 'src/contract-record.js', 'src/tree-gate.js', 'src/start-cap.js'],
+  // 0.8.4 S20 slice 1 (CHANGED ACCEPTED TEST, C&C's R2 YES of 4 Nov 2026): src/run-controls.js is the ONE interface through which an answer to a run control (slice 1: a raise of the typed spending limit) is recorded, for the terminal (gate-cli.js), the window
+  // (send-path.js, channel elicitation) and the handler session's relay (gate-relay-cli.js). It records only what RU-S20-09/10 bound: the figure the person typed (cli or elicitation, no words), or the person's quoted words on the session channel; never a bare figure from a session.
+  // OLD: 'src/gate-relay-cli.js' was the last entry. WHY: the one-recorder rule needs one module to import answerGate and answerGateAsRelay for a raise; the three surfaces call IT. The fence test names it (test/run-controls.test.js).
+  'gate.js': ['src/gate-cli.js', 'src/send-path.js', 'src/cli.js', 'src/run-status.js', 'src/contract-record.js', 'src/tree-gate.js', 'src/stop-gate.js', 'src/start-cap.js', 'src/gate-relay-cli.js', 'src/run-controls.js', 'src/accept-run.js'],   // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the list held 'src/advice-run.js'. NEW: it does not. WHY: src/advice-run.js left with the advice add-on, so no file of that name can import the gate (the list is the set of files that may, and a name that cannot exist is not one of them).   // CHANGED ACCEPTED TEST (0.8.4 D2): OLD: ended at 'src/run-controls.js'. NEW adds src/accept-run.js, the one module that asks for and applies the acceptance of a finished run's plan (the person's council accept and the session's step both go through it); it answers nothing itself except through gate.js's own session wrapper.
+
   'gate-ledger.js': ['src/gate.js', 'src/gate-cli.js'],
   // 0.8.2 item 6d: src/contract-cli.js answers its lock and amendment gates through gate-cli.js's terminal answer (answerAtTerminal), never through answerGate itself. 0.8.3 M5b: so does src/tree-gate.js (above).
-  'gate-cli.js': ['src/cli.js', 'src/contract-cli.js', 'src/tree-gate.js'],
+  'gate-cli.js': ['src/cli.js', 'src/contract-cli.js', 'src/tree-gate.js', 'src/accept-cli.js'],   // CHANGED ACCEPTED TEST (0.8.4 D2): OLD ended at 'src/tree-gate.js'. NEW adds src/accept-cli.js, which takes the person's answer ONLY through gate-cli.js's answerAtTerminal, like contract-cli.js.
 };
 const PERSON_LITERALS = ["'cli'", "'elicitation'"];
 // Who may import answerGate itself: the terminal command and the client's dialog. Each passes its channel as a literal.
-const ANSWERERS = ['src/gate-cli.js', 'src/send-path.js'];
+// 0.8.4 S20 slice 1 (CHANGED ACCEPTED TEST): src/run-controls.js joins the answerers for a raise; it passes each person channel as a literal on its own branch ('cli' | 'elicitation'), as this rule requires.
+const ANSWERERS = ['src/gate-cli.js', 'src/send-path.js', 'src/run-controls.js'];
 const WRITES = /\b(writeFileSync|appendFileSync|renameSync|writeSync|createWriteStream|copyFileSync|cpSync|ftruncateSync|truncateSync|writeFile|appendFile|rename)\b/;
 
 // Every module specifier a file names: static and re-export `from`, side-effect `import '...'`, dynamic
@@ -310,7 +332,7 @@ test('scan self-test: each known evasion is reported (M3 review H1)', () => {
     // after cli.js's 'chains/*.json' string, where the old comment strip went blind
     ['src/cli.js', "withLedger(runDir, ({ append }) => append('gate_answered', {}));", /gate_answered|withLedger/],
     ['src/cli.js', "import { answerGate } from './gate.js'; answerGate(runDir, 'g1', opts);", /names answerGate, which only/],
-    ['src/advise.js', "import { readGateAnswer } from './gate.js';", /imports gate\.js/],
+    ['src/metrics.js', "import { readGateAnswer } from './gate.js';", /imports gate\.js/],   // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the planted file was 'src/advise.js'. NEW: 'src/metrics.js', a real file that no gate rule lets import the gate. WHY: src/advise.js left with the advice add-on; the case (a file outside the list importing gate.js is reported) is unchanged.
     ['src/send-path.js', "export { answerGate as ag };", /re-exports answerGate/],
     ['src/gate-cli.js', "export * from './gate.js';", /re-exports answerGate/],
     ['src/gate-cli.js', "import { env } from 'node:process';", /reads the environment/],
@@ -344,21 +366,28 @@ function closure(entry, seen = new Set()) {
   return seen;
 }
 
-test('scan: submit_stage cannot reach the gate: its module closure holds no gate module, and its handler names nothing server.js imports from the gate or the advice tools', () => {
+// ONE READ-ONLY EXCEPTION (0.8.4 D10, C&C 09 Nov 2026, ruling (ii)): the privacy switch is recorded only in the gate ledger, and submit_stage must read it to count the ranges a session names. The closure rule above is unchanged: src/stage-submission.js imports nothing that reaches a gate module;
+// src/mcp/server.js hands the submit handler exactly ONE function, excerptSwitchForSubmit (src/run-status.js), which only reads the ledger and fails closed. The handler passes that and nothing else (below); test/submit-bounds.test.js shows a submit leaves the ledger byte-identical.
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the closure must not reach src/mcp/advice.js, and the handler must not name what server.js imports from './advice.js' (two time constants) or `adviceTools`. NEW: the closure must not reach src/send-path.js (the one module server.js imports that reaches gate.js), and the handler must not name what server.js imports from './hold-budget.js' (the same two constants, now in src/mcp/hold-budget.js) or `capGateScreen`/`answerCapGate`. WHY: src/mcp/advice.js left with the advice add-on; the rule (submit_stage reaches no gate, and uses nothing a gate-touching import brings in) is unchanged.
+test('scan: submit_stage cannot reach the gate: its module closure holds no gate module, and its handler names nothing server.js imports from the gate, the send path or the hold budget', () => {
   const reach = [...closure(join(src, 'stage-submission.js'))].map(rel);
   assert.ok(reach.includes('src/stage-submission.js') && reach.length > 1, 'the closure walk found the imports');
-  for (const g of ['src/gate.js', 'src/gate-ledger.js', 'src/mcp/advice.js']) assert.ok(!reach.includes(g), `submit_stage's code reaches ${g}`);
+  for (const g of ['src/gate.js', 'src/gate-ledger.js', 'src/send-path.js']) assert.ok(!reach.includes(g), `submit_stage's code reaches ${g}`);
   const server = readFileSync(join(src, 'mcp', 'server.js'), 'utf8');
   assert.doesNotMatch(server, /['"]\.\.\/gate(-ledger|-cli)?\.js['"]/, 'server.js imports a gate module directly');
-  // server.js does import advice.js, which reaches gate.js from M4 on: the submit_stage handler must not
+  // server.js imports two time constants from hold-budget.js (they lived in advice.js until the add-on's two MCP tools left in 0.8.4): the submit_stage handler must not
   // use anything that import brings in.
-  const imported = [...server.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]\.\/advice\.js['"]/g)].flatMap(m => m[1].split(',').map(s => s.trim().split(/\s+as\s+/).pop()).filter(Boolean));
-  assert.ok(imported.length > 0, 'found what server.js imports from advice.js');
+  const imported = [...server.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]\.\/hold-budget\.js['"]/g)].flatMap(m => m[1].split(',').map(s => s.trim().split(/\s+as\s+/).pop()).filter(Boolean));
+  assert.ok(imported.length > 0, 'found what server.js imports from hold-budget.js');
   const start = server.indexOf("server.tool('submit_stage'");
   assert.ok(start > 0);
   const end = server.indexOf('\nserver.tool(', start + 1);
   const handler = server.slice(start, end > 0 ? end : undefined);
-  for (const name of [...imported, 'adviceTools', 'answerGate', 'requestGate', 'readGateAnswer']) assert.ok(!new RegExp(`\\b${name}\\b`).test(handler), `the submit_stage handler names ${name}`);
+  for (const name of [...imported, 'capGateScreen', 'answerCapGate', 'answerGate', 'requestGate', 'readGateAnswer']) assert.ok(!new RegExp(`\\b${name}\\b`).test(handler), `the submit_stage handler names ${name}`);
+  // the one exception: the handler hands submitStageAnswer exactly the read-only reader of the privacy switch, and names no other function of the gate
+  assert.deepEqual(handler.match(/excerptSwitch: [A-Za-z_$][\w$]*/g) || [], ['excerptSwitch: excerptSwitchForSubmit'], 'the handler passes exactly one reader');
+  assert.match(server, /import \{[^}]*\bexcerptSwitchForSubmit\b[^}]*\} from '\.\.\/run-status\.js'/, 'and it comes from src/run-status.js');
+  assert.doesNotMatch(handler, /\bexcerptSwitchOf\b|\brecordExcerptSwitchOn\b|\bwithLedger\b|\breadLedger\b/, 'the handler names no other function of the gate or its ledger');
 });
 
 // The real tool, over the real server: a run that pauses at stages named like the gate, answered with the
@@ -434,7 +463,10 @@ test('council gate answer without a terminal refuses and writes nothing; gate sh
   assert.equal(s.status, 0, s.stderr);
   assert.match(s.stdout, /status: pending/);
   assert.match(s.stdout, /The exact brief\.\nSecond line\./);
-  assert.match(s.stdout, /masked before sending: 1 email/);
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: assert.match(s.stdout, /masked before sending: 1 email/). NEW: the screen of a gate of a kind THC no longer knows shows the gate line and `expires:` and none of the five lines (price, seats, sensitivity, masked before sending, follow-up), although the gate record still holds the price, seats, sensitivity and masks given to requestGate. WHY: REM-w28, the five lines were printed for the advice add-on's gate only and left with it.
+  assert.match(s.stdout, /gate g1 \(advice\): advice-brief\.md, \d+ bytes, sha256 [0-9a-f]{64}/);
+  assert.match(s.stdout, /expires: /);
+  for (const gone of [/price:/, /seats:/, /sensitivity:/, /masked before sending/, /follow-up:/]) assert.doesNotMatch(s.stdout, gone, `an unknown gate kind prints no ${gone} line`);
   assert.doesNotMatch(s.stdout, /\u001b/, 'control characters are not printed');
   assert.match(s.stdout, /holds 1 control or direction character/);
   const list = spawnSync(process.execPath, [cli, 'gate', 'show', d], { encoding: 'utf8' });

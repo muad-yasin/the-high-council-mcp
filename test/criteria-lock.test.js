@@ -37,6 +37,17 @@ test('lockBlock: nothing to lock is an empty string; a block round-trips through
   assert.equal(parseLock('no block here').found, false);
 });
 
+// A-DRAFT (0.8.4, c9 P4): the block used to say "The council settled these N acceptance criteria", but one criteria seat writes them and no panel approves them
+// before the plan is drafted. The sentence says only what holds on every path (it makes no claim about who wrote the criteria or when: a handed-in draft or list reaches the same block); the sentence is not part of what check-lock reads, so a block written by 0.8.1 to 0.8.3 still checks.
+test('lockBlock: the sentence does not say the council settled the criteria; a block with the old sentence still checks', () => {
+  const block = lockBlock(CRITERIA, { runId: 'r' });
+  assert.match(block, /^These 3 acceptance criteria are the ones this run used\. The harness wrote this block, not a model\.$/m);
+  assert.doesNotMatch(block, /council settled/i);
+  const old = block.replace(/^These 3 acceptance criteria are the ones.*$/m, 'The council settled these 3 acceptance criteria before it drafted. The harness wrote this block, not a model.');
+  assert.notEqual(old, block);
+  assert.equal(checkLock(`# Handoff\n${old}`).ok, true, 'an old-sentence block is read by marker and hash, not by that sentence');
+});
+
 test('checkLock: an untouched block holds, with or without the run\'s own list', () => {
   assert.deepEqual(checkLock(HANDOFF).problems, []);
   assert.equal(checkLock(HANDOFF).ok, true);

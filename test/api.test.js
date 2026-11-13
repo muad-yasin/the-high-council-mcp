@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as api from '../src/api.js';
+import { DEFAULT_MAX_USD } from '../src/default-cap.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -78,11 +79,14 @@ test('the spend ceiling stops an API run, and a resume with a higher one continu
   assert.equal(resumed.status, 'done', resumed.outputTail);
 });
 
-test('with no maxUsd the CLI default ceiling ($7) still applies', async () => {
+test('with no maxUsd the CLI default ceiling still applies', async () => {
   const cwd = workdir();
-  // mock-budget's worst case is above $7, so the default ceiling must stop it.
-  assert.ok(api.price({ chain: 'mock-budget' }).totalUsd > 7);
+  // CHANGED ACCEPTED (default cap $12, 10 Nov 2026, Muad). OLD bar: `api.price({ chain: 'mock-budget' }).totalUsd > 7` (mock-budget's expected cost on the default task is about $11.70). NEW bar: that premise is dropped, because $11.70 is under $12 and the figure was never what stops the run: the 60,000-character task below makes the FIRST call's expected cost cross the ceiling, and the stop and its cap figure are asserted.
+  // CHANGED (expected-cost gate, 27 Okt 2026, owner: the gate decides on the expected case, not the worst case). OLD: the one-line task; the build's WORST case crossed $7. NEW: a task of about 40,000 characters, so
+  // the first call's EXPECTED cost alone (its prompt at four characters a token, ~$10 at the fixture price) is above $7 and the default ceiling stops the run there. WHY: on the one-line task every call now fits.
+  // CHANGED ACCEPTED (default cap $12, 10 Nov 2026, Muad). OLD bar: 40,000 characters (about $10 at the fixture price, above the $7 ceiling). NEW bar: the size is derived from the cap, 5,000 characters per dollar of the ceiling (60,000 for $12, about $15 at the fixture price), so the first call's expected cost is above the ceiling again. WHY: $10 fits under $12 and the run would not stop; nothing was run, so the first set shows the real stop.
+  writeFileSync(join(cwd, 'tasks', 'x.md'), '# Task\n\nPlan a small todo app.\n' + 'x'.repeat(DEFAULT_MAX_USD * 5000) + '\n');
   const r = await api.run({ chain: 'mock-budget', task: 'tasks/x.md', cwd, env: cleanEnv });
   assert.equal(r.status, 'budget_stopped', r.outputTail);
-  assert.equal(api.readRun(r.runDir).budgetStop.capUsd, 7);
+  assert.equal(api.readRun(r.runDir).budgetStop.capUsd, DEFAULT_MAX_USD);
 });

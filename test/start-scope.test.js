@@ -22,7 +22,7 @@ const parts = (over = {}) => ({
 test('chainIsPaid: a free-only chain is not a paid start, a chain with one billing seat is; a shipped mock chain, an ollama chain, a real chain', () => {
   assert.equal(chainIsPaid(chain('mock')), false, 'mock');
   assert.equal(chainIsPaid(chain('local-ollama')), false, 'ollama is free');
-  assert.equal(chainIsPaid(chain('verify')), true, 'verify names real providers');
+  assert.equal(chainIsPaid(chain('plan-mini-council')), true, 'plan-mini-council names real providers');
   assert.equal(chainIsPaid(seatsOf('mock', 'external', 'ollama')), false, 'mock + external + ollama');
   assert.equal(chainIsPaid(seatsOf('mock', 'mock', 'openrouter')), true, 'ONE billing seat among free ones makes it paid');
   assert.equal(chainIsPaid(seatsOf('external', 'anthropic')), true);

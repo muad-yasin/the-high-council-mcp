@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, ExternalPause } from '../src/chain.js';
-import { DECISIONS_RULE_BUILDER, DECISIONS_RULE_CRITERIA } from '../src/roles.js';
+import { DECISIONS_RULE_BUILDER, DECISIONS_RULE_CRITERIA, decisionsNumberingRule } from '../src/roles.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
@@ -47,7 +47,8 @@ test('decisions.enabled: the criteria seat is told to write the decision-record 
 test('decisions.enabled: the builder is told to write the "Decisions" section', async () => {
   const on = await pausedAt(withBuilderExternal({ decisions: { enabled: true } }));
   assert.equal(on.label, 'build');
-  assert.ok(on.system.endsWith(DECISIONS_RULE_BUILDER));
+  // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the builder's system text ended with DECISIONS_RULE_BUILDER. NEW: it ends with DECISIONS_RULE_BUILDER, a blank line and the recorded numbering sentence (K5). WHY: decisionsNumberingRule (S9, W13) is recorded and stage-system.js appends it where the Decisions rule is on.
+  assert.ok(on.system.endsWith(`${DECISIONS_RULE_BUILDER}\n\n${decisionsNumberingRule()}`));
   const off = await pausedAt(withBuilderExternal({}));
   assert.ok(!off.system.includes('section titled "Decisions"'));
 });

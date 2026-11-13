@@ -1,6 +1,6 @@
 {
   "name": "the-high-council",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "mcpName": "io.github.muad-yasin/the-high-council",
   "description": "The High Council: a multi-model planning harness. One builder, independent critics from other labs, checkable acceptance criteria, a debate on the record, and a hard stop.",
   "type": "module",
@@ -36,8 +36,8 @@
     ],
     "assets": [
       "src/pricing.json",
-      "src/advice-retention.json",
       "src/reasoning-table.json",
+      "src/zdr-hosts.json",
       "chains/**/*.json"
     ],
     "targets": [
@@ -61,6 +61,7 @@
     "schemas/",
     "types/",
     "README.md",
+    "KNOWN-LIMITS.md",
     "TROUBLESHOOTING.md",
     "CONTRIBUTING.md",
     "PERSONAS.md",

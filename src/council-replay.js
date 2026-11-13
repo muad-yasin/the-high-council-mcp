@@ -68,6 +68,7 @@ export function replayDirFor(runDir, date = new Date()) {
  * @param {(info: { dir: string, config: object, fingerprint: string, taskText: string }) => ({ onStage: Function, unverified: object[] } | void)} [opts.onReady] - the SIDE-RUN hook (T2-1): called once, AFTER every refusal below (task
  *   missing, task drift, chain load) and BEFORE the first stage, with the replay folder. The CLI makes the folder, takes the run lock, arms the stage cache and returns the stage writer; a caller that passes none (every
  *   in-process test) gets the old behaviour: nothing is written until the run is over, and a refusal leaves nothing behind.
+ * @param {(config: object) => object} [opts.prepareConfig] - 0.8.4 (the Claude route): the chain as the run's route sends it (the CLI passes src/resolve-run.js through here); a caller that gives none replays the chain file as it is.
  * @param {boolean} [opts.allowTaskDrift=false] - conservative default: if the task file on disk
  *   no longer matches the hash the original run recorded, replay refuses rather than silently
  *   running a different input under the name of the original task (see the module-level note
@@ -84,6 +85,7 @@ export async function runCouncilReplay(runDir, {
   log = () => {},
   allowTaskDrift = false,
   onReady = null,
+  prepareConfig = c => c,
 } = {}) {
   const runMeta = readJson(join(runDir, 'run.json'));
   const originalReport = readJson(join(runDir, 'report.json'));
@@ -103,7 +105,7 @@ export async function runCouncilReplay(runDir, {
     );
   }
 
-  const config = loadChainConfig(chainsDir, runMeta.chain);
+  const config = prepareConfig(loadChainConfig(chainsDir, runMeta.chain));
   log(`council-replay: replaying ${runDir} (chain "${runMeta.chain}") against today's roster`);
 
   const startedAt = new Date().toISOString();

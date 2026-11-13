@@ -9,6 +9,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { DEFAULT_MAX_USD } from '../src/default-cap.js';   // the default cap is $12 from 10 Nov 2026; the figure is read, not typed
+const DEFAULT_CAP_LINE = new RegExp(`^\\$${DEFAULT_MAX_USD}\\.00 per run`);
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -59,7 +61,7 @@ test('cnc-mcp F1: a saved maxUsd of null does not lift the ceiling over MCP: res
   try {
     const na = capLines(a).length, nb = capLines(b).length;
     const [ra] = await mcp(a.work, [{ name: 'resume_run', arguments: { run: a.id } }]);
-    assert.match(await capAfter(a, na) ?? '', /^\$7\.00 per run/, `no max_usd: the default ceiling, not "none": ${JSON.stringify(payload(ra)).slice(0, 300)}\n${a.logs().slice(-400)}`);
+    assert.match(await capAfter(a, na) ?? '', DEFAULT_CAP_LINE, `no max_usd: the default ceiling, not "none": ${JSON.stringify(payload(ra)).slice(0, 300)}\n${a.logs().slice(-400)}`);
     const [rb] = await mcp(b.work, [{ name: 'resume_run', arguments: { run: b.id, max_usd: 'none' } }]);
     assert.match(await capAfter(b, nb) ?? '', /^none/, `the caller said "none" again: ${JSON.stringify(payload(rb)).slice(0, 300)}`);
   } finally { a.clean(); b.clean(); }
@@ -72,7 +74,7 @@ test('cnc-mcp F1: a saved positive cap is kept as before (no max_usd passed), an
     await mcp(a.work, [{ name: 'resume_run', arguments: { run: a.id } }]);
     assert.match(await capAfter(a, na) ?? '', /^\$2\.00 per run/, a.logs().slice(-300));
     await mcp(b.work, [{ name: 'resume_run', arguments: { run: b.id } }]);
-    assert.match(await capAfter(b, nb) ?? '', /^\$7\.00 per run/, b.logs().slice(-300));
+    assert.match(await capAfter(b, nb) ?? '', DEFAULT_CAP_LINE, b.logs().slice(-300));
   } finally { a.clean(); b.clean(); }
 });
 

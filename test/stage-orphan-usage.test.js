@@ -82,7 +82,7 @@ test('OR-5 one copy: the cache\'s WARNINGS words (cache_orphan, cache_stale, cac
   const hits = {};
   for (const f of readdirSync(join(root, 'src'), { recursive: true }).filter(f => f.endsWith('.js'))) {
     const text = readFileSync(join(root, 'src', f), 'utf8');
-    const n = ['cache_orphan', 'cache_stale', 'cache_unverified', 'cache_unreadable'].filter(w => text.includes(`- ${w}:`)).length;
+    const n = ['cache_orphan', 'cache_stale', 'cache_unverified', 'cache_unreadable'].filter(w => text.includes(`- ${w}:`) || (w === 'cache_stale' && /\bkind = 'cache_stale'/.test(text))).length;   // CHANGED ACCEPTED (0.8.4 S4 10e5e0a0, found by the box run of 08 Nov 2026): the stale word is now the DEFAULT of the `kind` parameter and the line is written as `- ${kind}:`, so it is counted by that default
     if (n) hits[f] = n;
   }
   assert.deepEqual(hits, { 'stage-cache.js': 4 });

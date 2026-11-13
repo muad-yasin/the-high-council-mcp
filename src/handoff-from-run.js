@@ -11,11 +11,25 @@ import { join } from 'node:path';
 import { checksOf } from './criteria-lock.js';
 import { readStoppedMarker, waitsForPerson, ROUND_STOPPED_STATE } from './stop-files.js';
 import { DEGRADED_WORDS } from './verdict-headline.js';
+import { agreedOf, bannerReasonOf, finishedAtOnceNothingOpen, finishedAtOnceCase, topSignedNotAgreed, nothingStandsAtEnd } from './ending-matrix.js';   // 0.8.4 D1: the one agreed reading and the banner's reason sentence, from the ending matrix
 import { waitingStages } from './run-status.js';
 import { draftCutOff, draftIncomplete, parseJson } from './chain.js';
 import { stripDeclinedWithNotes, parseDisputes } from './draft-disputes.js';
 import { changedAfterReviewSentence } from './text-labels.js';
 import { BUILD_DRAFT_FILES } from './from-run-files.js';
+import { withoutSummaryBlock } from './summary-block.js';
+import { claimText } from './roles.js';
+
+/**
+ * 0.8.4 round 1, 9a (A-DRAFT): the objections a run's own handoff prompt listed for its seat (a run that ended agreed on the handler's build check with some still open), read back from the report's handoff_text.open_objections, for `council handoff --from-run`
+ * -> [{ id, layer, severity, problem }] with the problem inside a claim container, the shape handoffPrompt's `openObjections` takes. A report with no such record (an older one, or any other ending) gives []: nothing is added to the prompt.
+ */
+export function openObjectionsOfReport(report) {
+  const rows = report?.handoff_text?.open_objections;
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(o => o && typeof o.id === 'string' && o.id && typeof o.problem === 'string')
+    .map(o => ({ id: o.id, layer: Number.isInteger(o.layer) ? o.layer : null, severity: Number.isFinite(o.severity) ? o.severity : null, problem: claimText(o.problem) }));
+}
 
 const read = p => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
 const readJson = p => { const t = read(p); if (t == null) return null; try { return JSON.parse(t); } catch { return null; } };
@@ -58,8 +72,9 @@ function failureOf(runDir, name) {
 }
 /** A candidate's text the way the stage that wrote it reads it (FX-15: a builder's or reviser's RAW reply carries DECLINED lines, a reviser's also a trailing Disputed block; a finished text is returned as it is). */
 // Notes lane unit 2 (addendum 1, R3): the text AND the count of review-note answer lines the strip removed (a NOTE line is never plan text), so `council handoff --from-run` can say so on stderr (pickNotesLine).
-const textOf = (name, raw) => {
-  if (name === 'deliverable.md' || rankOf(name)?.kind === 'final') return { text: raw, noteLines: [] };
+const textOf = (name, raw, runDir = null) => {
+  if (name === 'deliverable.md') return { text: withoutSummaryBlock(raw, runDir ? readJson(join(runDir, 'report.json'))?.delivered_text?.summary_block : null), noteLines: [] };   // 0.8.4 item 6: the handling session's summary block is not part of the plan that is handed on (the other harness blocks are, as they always were)
+  if (rankOf(name)?.kind === 'final') return { text: raw, noteLines: [] };
   if (rankOf(name)?.kind === 'revise') { const r = parseDisputes(raw); return { text: r.draft, noteLines: r.noteLines }; }
   const r = stripDeclinedWithNotes(raw); return { text: r.draft, noteLines: r.noteLines };
 };
@@ -71,7 +86,7 @@ function pickFrom(runDir, only) {
     const raw = read(join(runDir, c.name));
     // an unreadable file (a directory, mode 000, a dangling link) is not parsed: it is passed over and NAMED (the banner and the console say which newer file was dropped)
     if (raw == null) { skipped.push({ name: c.name, why: 'could not be read' }); continue; }
-    const { text, noteLines } = textOf(c.name, raw);
+    const { text, noteLines } = textOf(c.name, raw, runDir);
     if (!text || !text.trim()) continue;                                                      // an empty file does not count
     const failed = failureOf(runDir, c.name);
     if (failed) { skipped.push({ name: c.name, why: failed }); if (!firstFailed) firstFailed = { name: c.name, text, why: failed, at: skipped.length - 1, notesRemoved: noteLines.length }; continue; }
@@ -154,7 +169,7 @@ export function readChecks(runDir, criteria) {
  * (one verdict plus six stated passes reads passed:true, outcome degraded: it used to get a clean handoff with no banner). `changedAfterReview` is the sentence naming the model stages
  * that changed the text after the panel's last review, '' when none did.
  */
-export function finishedState({ passed, outcome, delivered_text }) {
+export function finishedState({ passed, outcome, delivered_text, ending_word = null, nothing_open_at_once = false, at_once = null, top_signed = false, nothing_stands = false }) {
   const signed = passed === true;
   const degraded = signed && outcome === 'degraded';
   return {
@@ -162,7 +177,9 @@ export function finishedState({ passed, outcome, delivered_text }) {
     signedOff: signed && !degraded,
     degraded,
     changedAfterReview: changedAfterReviewSentence({ delivered_text }),
-    reason: degraded ? `ended degraded: ${DEGRADED_WORDS}` : signed ? 'signed off' : 'finished with open objections',
+    topSigned: !degraded && !signed && top_signed === true,   // 0.8.4 round 1 (R1, held fix): the record's ending says the top layer signed off and the run did not end agreed (topSignedNotAgreed): the banner claims no more than that
+    nothingStands: !degraded && !signed && nothing_stands === true,   // R3, M-banner-tail: no objection and no late finding stands (nothingStandsAtEnd, the one fact: C&C's ruling, no second reading here), so the banner does not point at what was left open
+    reason: degraded ? `ended degraded: ${DEGRADED_WORDS}` : bannerReasonOf(ending_word, signed, { nothingOpenAtOnce: nothing_open_at_once, atOnce: at_once, nothingStands: nothing_stands }),   // the sentences are the matrix's column (src/ending-matrix.js): today's "signed off" / "finished with open objections"
   };
 }
 
@@ -172,7 +189,7 @@ export function finishedState({ passed, outcome, delivered_text }) {
  */
 export function stopState(runDir) {
   const report = readJson(join(runDir, 'report.json'));
-  if (report) return finishedState({ passed: report.passed, outcome: report.outcome, delivered_text: report.delivered_text });
+  if (report) return finishedState({ passed: agreedOf(report), outcome: report.outcome, delivered_text: report.delivered_text, ending_word: report.ending_word, nothing_open_at_once: finishedAtOnceNothingOpen(report), at_once: finishedAtOnceCase(report), top_signed: topSignedNotAgreed(report), nothing_stands: nothingStandsAtEnd(report) });   // 0.8.4 S4 + D1: the matrix's agreed reading (a recorded `ending`, then a final read that holds the sign-off, then `passed`; a row that can never be agreed is not), as the run's own HANDOFF banner reads it
   const has = f => existsSync(join(runDir, f));
   if (has('STOPPED-budget.json')) {
     const b = readJson(join(runDir, 'STOPPED-budget.json'));
@@ -204,8 +221,8 @@ export function partialBanner({ state, draftName, runId, pick = null }) {
     ].join('\n');
   }
   return [
-    `> **Not a signed-off plan.** Written by the harness, not a model, from the latest draft of run ${runId || '(unnamed)'} (\`${draftName}\`).`,
-    `> The run ${state.reason}. The panel did not sign off on the plan below: treat every part of it as a proposal, and read the run's BOARD.md or report.json for what was left open.`,
+    `> **Not a signed-off plan.** Written by the harness, not a model, from the latest draft of run ${runId || '(unnamed)'} (\`${draftName}\`).`,   // 0.8.4 round 1, R1 (C&C 80296ad3): the lead stays: signedOff is THC's own term for an agreed run, so it is true of a run the top layer signed and that did not end agreed; line 2 says the rest
+    `> The run ${state.reason}. ${state.topSigned ? 'It did not end agreed: treat every part of the plan below as a proposal,' : 'The panel did not sign off on the plan below: treat every part of it as a proposal,'} and read the run's BOARD.md or report.json for ${state.nothingStands ? 'how the run ended' : 'what was left open'}.`,   // R1: ROUND2's A7-banner-signed words; R3: ROUND2's M-banner-tail words
     ...passed, '', '', // no "Not the signed text" line here: nothing was signed, and this banner is the 0.8.1 one (item 4 review: the CHANGELOG says it is kept)
   ].join('\n');
 }

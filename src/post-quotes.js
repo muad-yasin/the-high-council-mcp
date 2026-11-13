@@ -6,6 +6,9 @@
 // The harness's own escapes in text a poster was shown (boardText: a leading `#` becomes `\#`, a defused tag starts with `&lt;`) are undone, so a phrase copied from what the poster saw still matches.
 // 0.8.2 audit fixes (cnc-prompts F1, cnc-debate F1, 73-verdicts 1 + 3, 73-config F1): straight and curly quotes and apostrophes are one thing on both sides of a comparison.
 export const normQuote = s => String(s ?? '').toLowerCase().replace(/\\#/g, '#').replace(/&lt;/g, '<').replace(/[`*_"'\u201c\u201d\u00ab\u00bb\u2018\u2019]/g, '').replace(/\s+/g, ' ').trim();
+// The comparison a judge's WITHDRAWAL evidence uses (src/answer-back.js, against the draft and against a peer's text): normQuote, then the whitespace next to punctuation or a symbol is dropped, on both sides, so
+// a quote that wrote `{2,2}` finds a draft that has `{2, 2}`. Whitespace between two words is kept ("ab cd" never matches "abcd"). normQuote itself is not changed: the debate-post quote marks keep their own comparison.
+export const normQuoteTight = s => normQuote(s).replace(/\s*([\p{P}\p{S}])\s*/gu, '$1');
 const norm = normQuote;
 const CLOSER = { '"': '"', '\u201c': '\u201d', '`': '`', '\u00ab': '\u00bb' };
 
@@ -36,6 +39,13 @@ export function evidenceSpans(text) {
   return pairedSpans(text).filter(q => norm(q).length >= 8);
 }
 
+/** 0.8.4 S17 (WORDING S17-w1; spec l.519 "recorded with the refusal reason"): why a withdrawal's evidence gave no usable quote. 'unreadable': no quoted span could be read at all; 'too_short': spans, but none reaches 8 characters once normalised; otherwise 'not_found': a span of 8 or more characters that the text it was checked against does not hold. Called only for a refused withdrawal. */
+export function evidenceRefusal(text) {
+  const all = pairedSpans(text);
+  if (!all.length) return 'unreadable';
+  return all.some(q => norm(q).length >= 8) ? 'not_found' : 'too_short';
+}
+
 /** The searchable text of a proposal or alternative: the fields a poster is SHOWN (src/roles.js renderProposal / renderAlternative), joined. Its id, lab, model and the like are not part of what it could quote. */
 const SHOWN = ['title', 'serves', 'what', 'why', 'how', 'acceptance_test', 'name', 'shape', 'key_tradeoffs', 'bad_at'];
 export const itemText = item => SHOWN.map(k => (item && typeof item === 'object' ? item[k] : null)).filter(v => typeof v === 'string').join('\n');
@@ -54,3 +64,22 @@ export function markPostQuote(post, items) {
   const other = post.stance === 'merge' && post.merge_with ? (items || []).find(i => i.id === post.merge_with) : null;
   return { ...post, quoted: quotesTarget(post.text, itemText(target)) || (other ? quotesTarget(post.text, itemText(other)) : false) };
 }
+
+/**
+ * 0.8.4 D14 (plan A T7.3, WORDING U2-w1): where each quoted span of an objection is found. `spans` are the strings a seat quoted; `texts` = [[name, text], ...] in the order of the rule, the FIRST that holds the span names
+ * it (several entries may share a name: the excerpts). A span counts when it is at least 8 characters once normalised (the minimum of evidenceSpans) and is found, after normQuote on both sides, in a text. The same span
+ * twice (once normalised) is one entry. -> [{ text, located_in }] in the order given; `located_in` is a name or null (found in none). Pure; it reads nothing of the run and gates nothing.
+ */
+export function markSpans(spans, texts) {
+  const hay = (texts || []).map(([name, text]) => [name, norm(text)]);
+  const out = []; const seen = new Set();
+  for (const raw of spans || []) {
+    const text = String(raw ?? ''); const n = norm(text);
+    if (n.length < 8 || seen.has(n)) continue;
+    seen.add(n);
+    const hit = hay.find(([, t]) => t.length > 0 && t.includes(n));
+    out.push({ text, located_in: hit ? hit[0] : null });
+  }
+  return out;
+}
+

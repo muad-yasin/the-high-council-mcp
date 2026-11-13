@@ -37,11 +37,15 @@ test('LI-2 NO REPEATED MODEL, NOTHING MOVES: the key IS the lab string, a verdic
   for (const s of c.seats.critics) assert.equal(seatKeyOf(s), labOf(s));
 });
 
-test('LI-3 EVERYTHING ELSE STAYS REFUSED: two DIFFERENT models under one lab, the same model on the SAME layer, and a repeat in a panel that is not layered', () => {
+// CHANGED ACCEPTED TEST (0.8.4 seats unit; C&C ruling 10 Nov 2026 02:49: "the same-layer seat key is built in this unit: same provider+model only"). OLD: the same model on the SAME layer was refused (duplicate-lab). NEW: it is allowed and each seat has its own key
+// (<lab>-l<layer>-<n>; test/same-layer-key.test.js holds the cases); two DIFFERENT models under one lab, a repeat in a panel that is not layered, and the rest stay refused here. WHY: plan-claude-council seats Haiku twice on layer 1 and Sonnet twice on layer 2.
+test('LI-3 EVERYTHING ELSE STAYS REFUSED: two DIFFERENT models under one lab (even on one layer) and a repeat in a panel that is not layered; the same model on the SAME layer is allowed since the same-layer key', () => {
   const different = chainOf([judge('o', 'li3a', 'alpha', 1), judge('o', 'li3b', 'alpha', 2)]);
   assert.ok(kinds(different).includes('duplicate-lab') && kinds(different).includes('invalid-layer'), kinds(different).join());
+  const differentSameLayer = chainOf([judge('o', 'li3c', 'alpha', 1), judge('o', 'li3e', 'alpha', 1)]);
+  assert.ok(kinds(differentSameLayer).includes('duplicate-lab'), kinds(differentSameLayer).join());
   const sameLayer = chainOf([judge('o', 'li3c', 'alpha', 1), judge('o', 'li3c', 'alpha', 1)]);
-  assert.ok(kinds(sameLayer).includes('duplicate-lab'), kinds(sameLayer).join());
+  assert.deepEqual(kinds(sameLayer).filter(k => k === 'duplicate-lab' || k === 'invalid-layer'), [], 'the same model twice on one layer is allowed');
   const flat = chainOf([judge('o', 'li3d', 'alpha'), judge('o', 'li3d', 'alpha')]);
   assert.ok(kinds(flat).includes('duplicate-lab'), kinds(flat).join());
 });
@@ -63,8 +67,11 @@ test('LI-4 THE PER-CALL STAGE RECORDS: a fresh call and a replay from the cache 
 });
 
 // A chain that makes the repeated seat's objection REACH the dispute stage: the model answers sign, object, sign, object ... (one script, asked by both seats in turn: layer 1 always signs, layer 2 always objects), and a holdout on layer 2.
-const dispute = () => chainOf([judge('oxoxoxoxox', 'li5', 'alpha', 1), judge('oxoxoxoxox', 'li5', 'alpha', 2), { provider: 'mock', model: 'mock-critic-holdout', lab: 'beta', layer: 2 }], { maxRounds: 4, dispute: { enabled: true, stall_rounds: 2 }, answer_back: { enabled: true } });
+const dispute = (tag = 'li5') => chainOf([judge('oxoxoxoxox', tag, 'alpha', 1), judge('oxoxoxoxox', tag, 'alpha', 2), { provider: 'mock', model: 'mock-critic-holdout', lab: 'beta', layer: 2 }], { maxRounds: 2, dispute: { enabled: true, stall_rounds: 3 }, answer_back: { enabled: true } });
+// CHANGED (0.8.4 S5 U-C fix-up, 08 Nov 2026). OLD: maxRounds 4, stall_rounds 2: the run ended in round 2 by the stall rule and went to the dispute stage. NEW: maxRounds 2, stall_rounds 3: the same two rounds (the same four asks of the scripted model, so LI-5 and LI-6, which share its process-wide ask counter, keep their phase), ended by the round cap. WHY: layer 2 is the top layer, so a stall there is now a stop for the person (a RoundStopped, no dispute stage); a window of 3 cannot be reached in two passes.
 const KEY = /\balpha-l\d\b/;
+// CHANGED ACCEPTED TEST (0.8.4 apply; the LI-5 ruling of C&C, 11 Nov 2026): OLD: the walk allowed the seat key only in `seat`, `seats` and `label` fields. NEW: also at the exact paths of the fields the report schema DECLARES as seat keys or stage labels in the layer-debate record: an objection's `raised_by` (the seat key) and `raised_in` (the stage label), and a post's `by` (the seat key). WHY: those fields have carried the key since the exchange was written (the baseline had no layer_debates record); a `lab` or `labs` value still may not carry it, and any other path is still walked.
+const DECLARED_SEAT_KEY_FIELDS = /\.layer_?[dD]ebates\.\d+\.objections\.\d+\.(raised_by|raised_in)$|\.layer_?[dD]ebates\.\d+\.objections\.\d+\.posts\.\d+\.by$/;
 const runWithPrompts = async config => { const prompts = []; setPromptSpy(p => prompts.push(p)); try { return { ...(await go(config)), prompts }; } finally { setPromptSpy(null); } };
 
 test('LI-5 THE SEAT KEY STAYS IN `seat` FIELDS AND STAGE LABELS: no prompt text and no `lab`/`labs` value of the result carries it (red before: layers[].labs, failures and the history named alpha-l2)', async () => {
@@ -76,17 +83,17 @@ test('LI-5 THE SEAT KEY STAYS IN `seat` FIELDS AND STAGE LABELS: no prompt text 
   (function walk(o, path) {
     if (Array.isArray(o)) o.forEach((v, i) => walk(v, `${path}.${i}`));
     else if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) walk(v, `${path}.${k}`);
-    else if (typeof o === 'string' && KEY.test(o) && !/\.(seat|seats|label)(\.\d+)?$/.test(path)) hits.push(`${path} = ${o.slice(0, 60)}`);
+    else if (typeof o === 'string' && KEY.test(o) && !/\.(seat|seats|label)(\.\d+)?$/.test(path) && !DECLARED_SEAT_KEY_FIELDS.test(path)) hits.push(`${path} = ${o.slice(0, 60)}`);
   })({ ...r, stages: undefined, history: [r.history] }, 'r');
   assert.deepEqual(hits, []);
-  assert.deepEqual(log.split('\n').filter(l => KEY.test(l) && !/panel-\d+-alpha-l\d/.test(l)), [], 'the run log names the seat key outside a stage label');
+  assert.deepEqual(log.split('\n').filter(l => KEY.test(l) && !/(panel-\d+|ldebate-\d+(-x\d+)?|lreply-\d+(-x\d+)?|final-read)-alpha-l\d/.test(l)), [], 'the run log names the seat key outside a stage label');   // CHANGED ACCEPTED TEST (0.8.4 apply): OLD: the stage labels allowed in the log were panel-N and final-read. NEW: also the exchange's own stage labels ldebate-N[-xK] and lreply-N[-xK] (the exchange is recorded since 0.8.4, so the baseline log had none). WHY: they are stage labels, which this row allows by its title; any other line that names the key is still a hit.   // 0.8.4 S16: the final read's stage label (final-read-alpha-l2) is a stage label too
 });
 
 test('LI-6 THE DISPUTE PROMPT NAMES THE SEAT MODEL AND, FOR A MODEL ON MORE THAN ONE LAYER, ITS LAYER (3b; Muad 20 Okt: "it should say the model"): the model comes from the seat record, a model on one layer has no layer note, a record with no model reads a fixed fallback (red before: the line printed the lab string)', async () => {
-  const { prompts } = await runWithPrompts(dispute());
+  const { prompts } = await runWithPrompts(dispute('li6'));   // 0.8.4 S16: its own script counter (the model string is the key): LI-5's final-read ask would otherwise shift this run's o/x phase
   const text = prompts.filter(p => p.label === 'dispute').map(p => p.user).join('\n');
   const lines = [...text.matchAll(/Raised by: .*/g)].map(m => m[0]);
-  assert.ok(lines.includes('Raised by: mock-critic-script-oxoxoxoxox-li5 (layer 2)'), lines.join(' | '));
+  assert.ok(lines.includes('Raised by: mock-critic-script-oxoxoxoxox-li6 (layer 2)'), lines.join(' | '));
   assert.ok(lines.includes('Raised by: mock-critic-holdout'), lines.join(' | '));
   assert.equal(lines.some(l => KEY.test(l) || /undefined/.test(l)), false);
   const { disputeUser } = await import('../src/roles.js');

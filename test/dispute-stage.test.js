@@ -28,9 +28,10 @@ test('stall rule: a disagreement that stops moving ends the loop well before the
   assert.equal(r.dispute.reason, 'stalled');
   assert.ok(r.dispute.stopped_at_round < config.maxRounds,
     `stopped at ${r.dispute.stopped_at_round}, which is the cap - the stall rule did nothing`);
-  // Round 1 has both critics objecting; rounds 2 and 3 are the holdout alone. So the stable
-  // set only exists from round 2, and stopping at 3 is the rule waiting for real evidence
-  // rather than firing on the first repeat of anything.
+  // Round 1 has both critics objecting; rounds 2 and 3 are the holdout alone. CHANGED (0.8.4 S5, Q13, C&C 05 Nov 2026): the stall is counted PER OBJECTION, so the holdout's objection
+  // (the same id and quote in rounds 1 and 2, the writer's response unchanged) reaches the window of 2 in round 2, whatever the other critic did in round 1. Before: the whole round's
+  // set was compared, it only became stable from round 2 and the rule stopped at 3.
+  // CHANGED (0.8.4 S5 U-C fix-up, 08 Nov 2026; the maintainer's word via C&C: mock-dispute's window is 3, like every real planning chain). The holdout's objection stands in rounds 1, 2 and 3, so with a window of 3 the stall is reached in round 3 again (with the window of 2 it was round 2).
   assert.equal(r.dispute.stopped_at_round, 3);
 });
 

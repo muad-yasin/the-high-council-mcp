@@ -21,8 +21,10 @@ import * as api from './api.js';       // a STATIC import: a packaged binary can
 import { RunLockedError, acquireRunLock, lockHolder } from './run-lock.js';
 import { claimAlive, deadKeys, heldPhraseOf } from './tree-transitions.js';
 import { TREE_DIR, TreeRefusal, readTreeRecord, stateOf, treeDirOf } from './tree-record.js';
+import { treeZeroRetentionOption } from './zero-retention.js';      // 0.8.4 zero retention
 import { treePiiModeFrom } from './tree-pii-mode.js';
 import { pausedAtExternalSeat, runEndOf, waitsForChoice } from './tree-member.js';
+import { awaitingExcerptApproval } from './run-status.js';   // 0.8.4 D10: a member stopped at an approval of excerpts (exit 26) waits for the person's answers; the same predicate as the resume refusal
 import { recoverTree } from './tree-recovery.js';
 import { bundleDirOf } from './tree-continuation.js';
 import { registerNextChild, verifyClosedNodes } from './tree-loop.js';
@@ -37,7 +39,7 @@ import { needsDecisionStopText, sittingFacts } from './tree-stop-view.js';
 import { renderIntegrationStopRecovered, renderIntegrationStopUnreadable } from './tree-stop.js';
 import { SITTING_LOCK_FILE, fileProblemLine, writeTreeFiles } from './tree-files.js';
 import { finalSentenceOf } from './tree-abandon.js';
-import { pendingChoiceOf, replacedOf } from './tree-choice.js';
+import { pendingChoiceOf, readStopOfRun, replacedOf } from './tree-choice.js';
 import { STOP_MARKER, stopMarkerPath, stopRequested } from './tree-stop-marker.js';
 
 // `STOP_MARKER`, `stopMarkerPath` and `stopRequested` live in src/tree-stop-marker.js (a leaf, so the view files can read the marker); re-exported here for every existing importer.
@@ -53,21 +55,23 @@ export function clearStop(rootDir) { try { unlinkSync(stopMarkerPath(rootDir)); 
 export { writeTreeFiles, SITTING_LOCK_FILE };
 
 /** The default starter: api.run with the bundle's own files (the child's CLI checks them against the registration by content hash). */
-export function apiStarter({ work }) {
+export function apiStarter({ work, env = {} }) {
   return async ({ rootDir, chain, bundleDir, runId, grantUsd }) => {
     // S5b: the tree's personal-data mode (tree.json is its one source) goes to the member as its own --pii-gate; an unusable field passes nothing and the member's start refuses it (src/tree-member.js memberStart)
     const piiMode = treePiiModeFrom(readTreeRecord(rootDir).tree);
+    const zeroRetention = treeZeroRetentionOption(readTreeRecord(rootDir).tree, env);      // 0.8.4 zero retention: the setting the tree began with (or the one typed in this shell now), as the member's own option
     // A ROOT bundle (R@g2 and later, src/tree-root-replan.js rootBundle) has no criteria.json: the root makes its own criteria. Leaving the flag out for a bundle that has none is safe for every other member: the file is part of the
     // bundle hash the member's CLI re-checks (continuationRefusal 'bundle'), so a child whose criteria.json was taken away is refused there (exit 19) before any provider call - the flag is never what protects it.
     const criteriaFile = join(bundleDir, 'criteria.json');
-    return api.run({ chain, task: join(bundleDir, 'task.md'), ...(existsSync(criteriaFile) ? { criteria: criteriaFile } : {}), context: join(bundleDir, 'context.md'), runId, treeNode: join(bundleDir, 'node.json'), ...(piiMode.status === 'on' ? { piiGate: piiMode.mode } : {}), cwd: work, maxUsd: grantUsd });
+    return api.run({ chain, task: join(bundleDir, 'task.md'), ...(existsSync(criteriaFile) ? { criteria: criteriaFile } : {}), context: join(bundleDir, 'context.md'), runId, treeNode: join(bundleDir, 'node.json'), ...(piiMode.status === 'on' ? { piiGate: piiMode.mode } : {}), ...(zeroRetention ? { zeroRetention } : {}), cwd: work, maxUsd: grantUsd });
   };
 }
 
 /** The default resumer: api.resume with the node's whole grant as the cap (a resume without --max-usd would inherit the cap run.json recorded at the first start). */
-export function apiResumer({ work }) {
-  return async ({ runDir, maxUsd }) => {
-    return api.resume({ runDir, cwd: work, maxUsd });
+export function apiResumer({ work, env = {} }) {
+  return async ({ rootDir, runDir, maxUsd }) => {
+    const zeroRetention = rootDir ? treeZeroRetentionOption(readTreeRecord(rootDir).tree, env) : undefined;      // 0.8.4 zero retention: as for a start
+    return api.resume({ runDir, cwd: work, maxUsd, ...(zeroRetention ? { zeroRetention } : {}) });
   };
 }
 
@@ -77,6 +81,8 @@ export const runFactsOfIn = runsDir => runId => {
   return { hasRunJson: existsSync(join(dir, 'run.json')), runDir: dir, end: runEndOf(dir), paused: pausedAtExternalSeat(dir) };
 };
 const stoppedFilesOf = (runsDir, runId) => { try { return readdirSync(join(runsDir, runId)).filter(f => /^STOPPED-/.test(f)).sort(); } catch { return []; } };
+// 0.8.4 L3: the stop a round-stopped member waits at (its partial report, via the one reader, tree-choice.js readStopOfRun), so the sitting line can say what the stop sentence said; nothing when it does not read (fails closed: no key, no claim)
+const stopFieldOf = (runsDir, runId) => { const at = readStopOfRun(join(runsDir, runId)); return at ? { stop: at.stop } : {}; };
 const needsFilesOf = (runsDir, runId) => { try { return readdirSync(join(runsDir, runId)).filter(f => /^NEEDS-.*\.md$/.test(f)).sort(); } catch { return []; } };
 
 /**
@@ -164,9 +170,11 @@ async function sitting(rootDir, { work, startRun, resumeRun, facts, now, rootTas
     if (code === 3) return result('waiting', { ...named, needs: needsFilesOf(runsDir, runId) });
     if (code === 4) return result('budget_stop', { ...named, stopped: stoppedFilesOf(runsDir, runId) });
     // round semantics 2b: a layered member stopped at its overseer-round cap or a layer's revision bound (exit 23): resumable, NOT agreed, waiting for the PERSON's choice (continue / finish), not a crash
-    if (code === 23) return result('awaiting_choice', { ...named, stopped: stoppedFilesOf(runsDir, runId) });
+    if (code === 23) return result('awaiting_choice', { ...named, stopped: stoppedFilesOf(runsDir, runId), ...stopFieldOf(runsDir, runId) });
     // the decider asked for the person at a conflict (exit 25, cli.js): the same wait, with its own verb (`--prevail-node`)
     if (code === 25) return result('awaiting_choice', { ...named, conflict: true, stopped: stoppedFilesOf(runsDir, runId) });
+    // a member stopped at an approval of excerpts (exit 26, the privacy switch from the chain's approve_excerpts): it waits for the person's ANSWERS at the gate, not a pick: the same wait, with its own verb (`gate answer`), never a crash
+    if (code === 26) return result('awaiting_choice', { ...named, excerptApproval: awaitingExcerptApproval(join(runsDir, runId)) ?? { gate: null, status: 'invalid' }, stopped: [] });   // none read = the record cannot say: said as unreadable, never as a pick
     if (code === 19) return result('tree_refused', { ...named, detail: res?.outputTail ?? null, deadNode: isDeadNode(rootDir, node, generation) });
     // c4: a run that crashed BEFORE any run was made (no run.json in its folder) is not "try it once more": the same refusal comes back until its cause is fixed (the sitting line says so)
     // C4b (A3a commit 2 wrote STOPPED-price_refused.json at exit 24): a member a PRICE REFUSAL stopped is not an unexplained crash; the sitting says why (the marker's own sentence) and what to do
@@ -218,7 +226,9 @@ async function sitting(rootDir, { work, startRun, resumeRun, facts, now, rootTas
       if (n.postRun && claimAlive(n.postRun, facts)) return result('running_elsewhere', { node: n.node, generation: n.generation, runId: n.runId });
       // round semantics 2b: the member stopped at its overseer limit and waits for the person's choice: a sitting holds here (exit 20), it neither resumes it nor goes on to a sibling
       // member verb: a recorded choice for THIS stop is acted on by `tree resume` (it writes the member's entry and resumes it), not by this loop: 'interrupted' points there
-      if (waitsForChoice(runEndOf(dir)) && (replacedOf(state, `${n.node}@g${n.generation}`) || !pendingChoiceOf(dir, n))) return result('awaiting_choice', { node: n.node, generation: n.generation, runId: n.runId, conflict: runEndOf(dir)?.kind === 'conflict_stopped', stopped: stoppedFilesOf(runsDir, n.runId), replaced: replacedOf(state, `${n.node}@g${n.generation}`), replacedPhrase: heldPhraseOf(state, `${n.node}@g${n.generation}`) });
+      if (waitsForChoice(runEndOf(dir)) && (replacedOf(state, `${n.node}@g${n.generation}`) || !pendingChoiceOf(dir, n))) return result('awaiting_choice', { node: n.node, generation: n.generation, runId: n.runId, conflict: runEndOf(dir)?.kind === 'conflict_stopped', stopped: stoppedFilesOf(runsDir, n.runId), replaced: replacedOf(state, `${n.node}@g${n.generation}`), replacedPhrase: heldPhraseOf(state, `${n.node}@g${n.generation}`), ...stopFieldOf(runsDir, n.runId) });
+      const approval = awaitingExcerptApproval(dir);   // a later sitting meets a member whose approval still waits for the person: it is held, not 'interrupted' (an answered gate is not waiting: the member is resumed and applies it)
+      if (approval) return result('awaiting_choice', { node: n.node, generation: n.generation, runId: n.runId, excerptApproval: approval, stopped: [] });
       return result('interrupted', { node: n.node, generation: n.generation, runId: n.runId });
     }
 

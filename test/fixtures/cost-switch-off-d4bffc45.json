@@ -1,0 +1,202 @@
+[
+ {
+  "name": "costOf anthropic/claude-sonnet-5 #0",
+  "value": {
+   "usd": 0.004,
+   "priced": true
+  }
+ },
+ {
+  "name": "costOf anthropic/claude-sonnet-5 #1",
+  "value": {
+   "usd": 0.325812,
+   "priced": true
+  }
+ },
+ {
+  "name": "costOf anthropic/claude-sonnet-5 #2",
+  "value": {
+   "usd": 0,
+   "priced": true
+  }
+ },
+ {
+  "name": "costOf anthropic/claude-opus-5 #0",
+  "value": {
+   "usd": 0.01,
+   "priced": true
+  }
+ },
+ {
+  "name": "costOf anthropic/claude-opus-5 #1",
+  "value": {
+   "usd": 0.81453,
+   "priced": true
+  }
+ },
+ {
+  "name": "costOf anthropic/claude-opus-5 #2",
+  "value": {
+   "usd": 0,
+   "priced": true
+  }
+ },
+ {
+  "name": "costOf openrouter/anthropic/claude-sonnet-5.5 #0",
+  "value": {
+   "usd": 0.0044,
+   "priced": true
+  }
+ },
+ {
+  "name": "costOf openrouter/anthropic/claude-sonnet-5.5 #1",
+  "value": {
+   "usd": 0.35839319999999997,
+   "priced": true
+  }
+ },
+ {
+  "name": "costOf openrouter/anthropic/claude-sonnet-5.5 #2",
+  "value": {
+   "usd": 0,
+   "priced": true
+  }
+ },
+ {
+  "name": "costOf mock/mock-priced #0",
+  "value": {
+   "usd": 1.2,
+   "priced": true
+  }
+ },
+ {
+  "name": "costOf mock/mock-priced #1",
+  "value": {
+   "usd": 131.346,
+   "priced": true
+  }
+ },
+ {
+  "name": "costOf mock/mock-priced #2",
+  "value": {
+   "usd": 0,
+   "priced": true
+  }
+ },
+ {
+  "name": "worstCaseOf anthropic/claude-sonnet-5",
+  "value": {
+   "usd": 0.24000000000000002,
+   "priced": true
+  }
+ },
+ {
+  "name": "worstCaseOf anthropic/claude-opus-5",
+  "value": {
+   "usd": 3.7,
+   "priced": true
+  }
+ },
+ {
+  "name": "worstCaseOf openrouter/anthropic/claude-sonnet-5.5",
+  "value": {
+   "usd": 0.30800000000000005,
+   "priced": true
+  }
+ },
+ {
+  "name": "worstCaseOf mock/mock-priced",
+  "value": {
+   "usd": 100.5,
+   "priced": true
+  }
+ },
+ {
+  "name": "projectAttempts anthropic/claude-sonnet-5",
+  "value": {
+   "first": 0.1915,
+   "retry": 0.23149999999999998
+  }
+ },
+ {
+  "name": "projectAttempts anthropic/claude-opus-5",
+  "value": {
+   "first": 3.5787500000000003,
+   "retry": 0
+  }
+ },
+ {
+  "name": "projectAttempts openrouter/anthropic/claude-sonnet-5.5",
+  "value": {
+   "first": 0.25465000000000004,
+   "retry": 0
+  }
+ },
+ {
+  "name": "projectAttempts mock/mock-priced",
+  "value": {
+   "first": 76.25,
+   "retry": 0
+  }
+ },
+ {
+  "name": "expectedCallUsd anthropic/claude-sonnet-5",
+  "value": 0.1815
+ },
+ {
+  "name": "expectedCallUsd anthropic/claude-opus-5",
+  "value": 0.45375
+ },
+ {
+  "name": "expectedCallUsd openrouter/anthropic/claude-sonnet-5.5",
+  "value": 0.19965000000000002
+ },
+ {
+  "name": "expectedCallUsd mock/mock-priced",
+  "value": 76.25
+ },
+ {
+  "name": "readUsage #0",
+  "value": {
+   "usage": {
+    "input": 1,
+    "output": 2,
+    "thinking": 3,
+    "cached": 4
+   },
+   "unreadable": null
+  }
+ },
+ {
+  "name": "readUsage #1",
+  "value": {
+   "usage": {
+    "input": 0,
+    "output": 2
+   },
+   "unreadable": "unreadable input"
+  }
+ },
+ {
+  "name": "readUsage #2",
+  "value": {
+   "usage": {
+    "input": 5,
+    "output": 6,
+    "stop": "length"
+   },
+   "unreadable": null
+  }
+ },
+ {
+  "name": "readUsage #3",
+  "value": {
+   "usage": {
+    "input": 0,
+    "output": 0,
+    "thinking": 0
+   },
+   "unreadable": "no usage reported"
+  }
+ }
+]

@@ -160,7 +160,7 @@ test('registered: tools/call tree_status through a real MCP session answers with
   const p = JSON.parse(root.content[0].text);
   assert.equal(p.error, undefined); assert.equal(p.run, ROOT_ID);
   assert.deepEqual(Object.keys(p).filter(k => !['untrusted_fields', 'untrusted_notice'].includes(k)).sort(), KEYS, 'the payload keys the builder documents');
-  assert.deepEqual(root._meta?.[TRUST_META_KEY]?.fields, TREE_STATUS_UNTRUSTED_FIELDS, 'the wrapper marks exactly the builder\'s untrusted fields');
+  assert.deepEqual(root._meta?.[TRUST_META_KEY]?.fields, [...TREE_STATUS_UNTRUSTED_FIELDS, 'error'], 'the wrapper marks the builder\'s untrusted fields plus error');   // CHANGED ACCEPTED (0.8.4 F3). OLD: fields === TREE_STATUS_UNTRUSTED_FIELDS. NEW: the same list plus 'error'. WHY: wrapResult now marks `error` on every tool's JSON answer, so the marker's field list ends with it
   assert.equal(p.verdict.reasons.some(x => x.code === 'contract_check' && /R\/M1/.test(x.scope)), false, 'the server passed the denylist: the .env was not read');
   assert.equal(root.content[0].text.includes('hunter2'), false);
   assert.match(JSON.parse(asMember.content[0].text).error, /is a member of the tree .*, not its root/, 'a member names its tree');

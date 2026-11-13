@@ -4,6 +4,7 @@ import { checkContract } from './contract-record.js';
 import { contextBundleText, contextFileList } from './context-files.js';
 import { contextFilesInside, readRecordedTask, readRunFile, readRunJson } from './run-files.js';
 import { checkThinContract, renderCheck } from './thin-contract-check.js';
+import { handlerNotesOf } from './handler-notes.js';
 
 /**
  * { kind: 'noreport', record } for a run with no readable report.json (the caller words that case), or { kind: 'checked', verdict, shown, record, exit } with `shown` = renderCheck(verdict).
@@ -25,6 +26,7 @@ export function contractCheckOf(dir, { work, handoffCopy, deny = null, accepted 
   const verdict = checkThinContract({
     report, taskText: task.text, contextBundle, hasContext: Boolean(meta.context), handoffCopyText, accepted,
     deliverableText: readRunFile(dir, 'deliverable.md').text, handoffText: readRunFile(dir, 'HANDOFF.md').text,
+    handlerNotes: (() => { const r = handlerNotesOf(dir); return r.ok && !r.unreadable.length ? r.notes : null; })(),   // 0.8.4 S18 (Q4.3): the notes file, so the line can say when it, the report and HANDOFF.md disagree
   });
   const shown = renderCheck(verdict);
   // The record half decides when the run has no thin contract to check (verdict.note); otherwise a drift in either is 1, and thin's own 2 ("nothing outside report.json could be checked") stays 2.

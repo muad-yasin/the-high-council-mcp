@@ -21,6 +21,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const chain = name => JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
 afterEach(() => { setHeldForTest(null); setPromptSpy(null); });
 const ALL = { handoffSystem: H.handoffSystem, handoffUserMilestones: H.handoffUserMilestones };
+const VF_ANCHOR = 'If the plan has the build session install or download anything';
+const withVerifyFirstWords = (sys, milestones = false) => { const t = sys.replace(VF_ANCHOR, () => `${R.verifyFirstParagraph()}\n\n${VF_ANCHOR}`); return milestones ? t.replace('Say which, and why, in the next section.', () => `Say which, and why, in the next section. ${R.verifyFirstStatusRule()}`) : t; };
 const BEFORE = { skip: 'handoffSystem' in R && 'recorded in src/roles.js: this describes the state before the re-record' };
 
 const go = async extra => {
@@ -53,7 +55,8 @@ test('10a door: with the milestone prompt the seat is told the shape and shown t
 test('10a: without the flag the held prompt is not used, even when it exists (every shipped chain until the switch-on)', async () => {
   setHeldForTest(ALL);
   const w = await go({});
-  assert.equal(w.handoffPrompt.system, R.HANDOFF_SYSTEM);
+  // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the handoff seat's system text was compared with the bare R.HANDOFF_SYSTEM / R.handoffSystem. NEW: it is that text with the recorded "Verify first" paragraph before the dependency paragraph (and, in the milestone form, the Status rule after the Status instruction), as in test/handoff-verify-first.test.js. WHY: verifyFirstParagraph and verifyFirstStatusRule are recorded (D17, src/prompts/recorded-084-a.js).
+  assert.equal(w.handoffPrompt.system, withVerifyFirstWords(R.HANDOFF_SYSTEM));
   assert.equal(w.handoffPrompt.user.includes('# Acceptance criteria\n\nC1.'), false);
 });
 
@@ -84,8 +87,9 @@ test('10a: the run and `council handoff --from-run` both build the handoff promp
     assert.equal(/R\.HANDOFF_SYSTEM|R\.handoffUser|HandoffRoles\./.test(text), false, `${f} builds the prompt itself`);
   }
   const hp = handoffPrompt({ config: { handoff_contract: { milestones: true } }, request: 'r', draft: 'd', criteria: ['A'] });
-  assert.equal(hp.system, R.handoffSystem({ milestones: true }), 'the recorded milestone prompt, only through the module');
-  assert.equal(handoffPrompt({ config: {}, request: 'r', draft: 'd', criteria: ['A'] }).system, R.HANDOFF_SYSTEM, 'no flag: the prompt that has always been sent');
+  // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the handoff seat's system text was compared with the bare R.HANDOFF_SYSTEM / R.handoffSystem. NEW: it is that text with the recorded "Verify first" paragraph before the dependency paragraph (and, in the milestone form, the Status rule after the Status instruction), as in test/handoff-verify-first.test.js. WHY: verifyFirstParagraph and verifyFirstStatusRule are recorded (D17, src/prompts/recorded-084-a.js).
+  assert.equal(hp.system, withVerifyFirstWords(R.handoffSystem({ milestones: true }), true), 'the recorded milestone prompt, only through the module');
+  assert.equal(handoffPrompt({ config: {}, request: 'r', draft: 'd', criteria: ['A'] }).system, withVerifyFirstWords(R.HANDOFF_SYSTEM), 'no flag: the recorded shared prompt');
   assert.match(readFileSync(join(root, 'src/cli.js'), 'utf8'), /handoffPrompt\(\{[^}]*criteria: hCriteria/, '`council handoff --from-run` hands the run\'s criteria to the milestone prompt');
 });
 

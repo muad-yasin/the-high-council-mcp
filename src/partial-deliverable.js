@@ -21,7 +21,7 @@ import { parseFences } from './quote-check.js';
  * parsed object. Freeform (text-returning) stages: the text must be non-empty - required
  * sections there name a single symbolic slot, not literal JSON keys to look up.
  */
-export function validateDeliverable(stageKind, text, usage = null) {
+export function validateDeliverable(stageKind, text, usage = null, { asProse = false } = {}) {   // 0.8.4 q-warn2: `asProse` checks the stage as a freeform one whatever its kind: the two checks of the provider's stop, then the prose checks (a blocking-question answer is prose with no verdict shape)
   const required = requiredSectionsFor(stageKind);
   // Pre-release audit 2026-09-23 (PreRelease_Audit_revise #1): a reply the provider reports as cut
   // off at its token cap is partial whatever its shape - a truncated draft is still non-empty text.
@@ -33,7 +33,7 @@ export function validateDeliverable(stageKind, text, usage = null) {
   if (usage && (usage.stop === 'error' || usage.stop === 'content_filter' || usage.stop === 'refusal')) {
     return { ok: false, missing: required, reason: `the provider ended the reply (stop: ${usage.stop})` };
   }
-  if (!isStructuredStage(stageKind)) {
+  if (asProse || !isStructuredStage(stageKind)) {
     if (!(typeof text === 'string' && text.trim().length > 0)) return { ok: false, missing: required, reason: 'empty or missing deliverable text' };
     const mid = endsMidStructure(text);
     return mid ? { ok: false, missing: [], reason: `the text ends mid-structure (${mid}) - it may be truncated` } : { ok: true };

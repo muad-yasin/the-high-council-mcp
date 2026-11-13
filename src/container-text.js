@@ -5,7 +5,7 @@
 // open or close a container. Nothing else is touched: a "<" that is not the start of one of these tags (code, generics, HTML of the deliverable) stays as written, so a reviewer still reads the deliverable's meaning.
 // The change is MARKED, not reversible: an original "&lt;deliverable" in the text and an escaped "<deliverable" read the same afterwards; that is accepted (the reader is a model, and it sees the tag as text either way).
 // Applied to the interpolated text only, never to the template around it. src/roles.js's own helpers (claimText, advisorText, writerText, boardText) predate this module and escape their own tags the same way; they are
-// covered by test/container-text.test.js, which lists them. roles.js is pinned byte for byte (test/prompt-pin.test.js, re-recorded with T2-6 commit 2); its three formerly bare sites are wrapped, and test/container-text.test.js keeps KNOWN_BARE empty, so a new bare container fails the guard.
+// covered by test/container-text.test.js, which lists them. its three formerly bare sites are wrapped, and test/container-text.test.js keeps KNOWN_BARE empty, so a new bare container fails the guard.
 
 import { HIDDEN_CLASS_SOURCE } from './hidden-chars.js';
 export const CONTAINER_TAGS = Object.freeze([

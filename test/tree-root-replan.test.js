@@ -290,7 +290,8 @@ test('W4 a node stopped at its overseer limit, waiting for the person\'s choice:
   const { r, key } = await withRunningChild({ pid: 2147483000, file: 'STOPPED-overseer_cap.json' });
   const p = pre(r);
   assert.equal(p.refusal.code, 'node_active', JSON.stringify(p.refusal));
-  assert.ok(p.refusal.text.includes(`${key} is stopped at its overseer limit, not agreed, waiting for a choice: it waits for your answer; \`council tree resume ${treeIdOf(r)}\` says how to give it. Then decide again`), p.refusal.text);
+  // CHANGED (0.8.4 S5 U-C1 fix-up 2, A-DRAFT, H-S5-e4): OLD "${key} is stopped at its overseer limit, not agreed, waiting for a choice: it waits for your answer; ..."
+  assert.ok(p.refusal.text.includes(`${key} is not agreed, waiting for a choice (it stopped at its overseer-round limit, at a layer's revision limit, because a seat of a layer stayed silent for too many passes in a row, because no seat of the top layer could read the final plan, or because an objection stood unchanged and could not be passed up): it waits for your answer; \`council tree resume ${treeIdOf(r)}\` says how to give it. Then decide again`), p.refusal.text);
   assert.ok(p.refusal.text.includes('closing it would end a run that waits for you'), p.refusal.text);
   assert.equal(p.refusal.text.includes('answer or close it first'), false, p.refusal.text);
 });

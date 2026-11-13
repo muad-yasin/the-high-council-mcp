@@ -53,8 +53,9 @@ for (const [name, M] of SOURCES) {
 // asked with the ledger. The benign twin has the lab 'la'; the closing tags in the top layer's prompt must be the same number. `seen` collects every label the prompt spy or the cache was asked about (a refused stage is in neither).
 const CRITERION = 'The plan defines a retry limit.';
 const DRAFT = 'The worker retries failed requests.';
-const F_A = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.' };
-const F_B = { criterion: 'The plan names an owner.', problem: 'Top layer: nobody owns the limit.', fix: 'Name one.' };
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the scripted failures carried neither `relation` nor `severity`. NEW: each is a first raise (`relation: 'new'`) with `severity: 5` (a layered unanimous chain: the rating demand; 5 holds the sign-off as an unrated one did). WHY: relationRule and ratingDemand recorded (src/chain.js relation gate; src/ratings-demand.js).
+const F_A = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.', severity: 5, relation: 'new' };
+const F_B = { criterion: 'The plan names an owner.', problem: 'Top layer: nobody owns the limit.', fix: 'Name one.', severity: 5, relation: 'new' };
 const signoff = (extra = {}) => JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok', ...extra });
 const objecting = (...fs) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: fs, verdict_line: 'no' });
 

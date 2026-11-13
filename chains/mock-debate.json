@@ -1,5 +1,8 @@
 {
   "name": "mock-debate",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. Proposal stage plus the debate and reply rounds (anonymised), the board handed to the builder, withdrawn/amended proposals, a handoff file at the end.",
   "maxRounds": 2,
   "signoff": "unanimous",

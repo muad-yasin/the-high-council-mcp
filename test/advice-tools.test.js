@@ -1,73 +1,49 @@
-// CHANGED ACCEPTED (label rename part 2, 20 Okt 2026; Muad 18 Okt: "upper estimate" replaces "at most" and "maximum"): OLD "expected and at most $Y" in the council_advise description; NEW "expected and an upper estimate of $Y". WHY: the same figure, one name (src/mcp/advice.js:162).
 // test/advice-tools.test.js
 //
-// council_quote and council_advise, end to end over stdio against mock chains (thc-research brief 29). Offline, $0, no keys: every seat is
-// a mock seat (or the tool refuses before any seat is called). What is pinned: a brief over the cap or with a key in it is refused with
-// nothing written; a wrong hash, an unpriced seat, the per-call cap, a repeat, a missing approval channel and an open objection each
-// refuse before anything is called; an accepted elicitation and the host route start a run (0.8.1: there is no allowance); a hold that ends early hands
-// back a run id and run_status finishes the job; a client's cancel, a client that leaves and the wall clock each stop the optional
-// stages and keep what was paid for; the record (advise-log.json, report.json, audit.jsonl) says what left and holds no brief text.
+// What is left of the advice add-on's end-to-end tests (thc-research brief 29), offline, $0, no keys.
+// 0.8.4 (the add-on removal, wave 2): council_quote and council_advise are not registered any more, and nothing in THC starts an advice call (the CLI's --advice-adopt is an unknown option now). The 40-odd tests
+// that drove the two tools over stdio (the quote and the masking, the guards and their refusals, the approval channels, the hold and run_status, a client's cancel and the STOP races, the spawn-hold seam,
+// the record) and the test of the CLI's adopt path are removed with the code; what they reached that stays is listed in the result table's COVERAGE LEFT BEHIND.
+// What stays here is what a person or a client can still hit over MCP: the two tools are gone from the tool list, start_run meets a chain with an `advise` block (REM-w22, refused), resume_run meets an old
+// advice folder (REM-w8, refused on the folder's own files, even when a project chain of the same name would be a plan chain), and list_chains no longer marks a chain as "tools only".
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
-import { hostname, tmpdir } from 'node:os';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
-import Ajv2020 from 'ajv/dist/2020.js';
-import { verifyAuditLog, parseAuditLog } from '../src/audit.js';
-import { childGone, childPid } from './helpers/child-gone.js';
-import { writeStopRequest } from '../src/stop-files.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
-const schema = JSON.parse(readFileSync(join(root, 'schemas', 'report-v1.json'), 'utf8'));
-const ajv = new Ajv2020({ allErrors: true, allowUnionTypes: true });
-ajv.addKeyword({ keyword: 'x-stability', schemaType: 'string' });
-const validateReport = ajv.compile(schema);
-const sha = t => createHash('sha256').update(t).digest('hex');
+const fixtureDir = join(root, 'test', 'fixtures', 'advice-chains');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-// Wait for a condition (an EVENT) instead of a time: the same helper as test/stop-rule.test.js, 20 s being a hang guard that only a broken run reaches.
-async function until(pred, ms = 20_000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (pred()) return true; await sleep(50); } return false; }
 
-// The operator's advice-chain folder for a test's work folder: a sibling, outside the work folder, as COUNCIL_ADVICE_CHAINS_DIR must be
-// (0.8.1 decided rule 5d: an advice chain never comes from the project's chains/). A Session passes it when it exists.
-const chainsOf = dir => `${dir}-chains`;
-
-// One stdio session, kept open: calls by id, notifications collected, server-to-client requests (elicitation) answered by `onRequest`.
+// One stdio session, kept open: calls by id. The server gets malformed provider keys first (no MCP-server test can reach a paid provider), then the test's own env.
 class Session {
-  constructor(cwd, { env = {}, capabilities = {}, clientName = 'advice-test', onRequest = null } = {}) {
-    this.cwd = cwd; this.notes = []; this.requests = []; this.pending = new Map(); this.nextId = 10; this.buf = '';
-    this.child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_ADVISE_COOLDOWN_MS: '0', ...(existsSync(chainsOf(cwd)) ? { COUNCIL_ADVICE_CHAINS_DIR: chainsOf(cwd) } : {}), ...env } });
+  constructor(cwd, { env = {} } = {}) {
+    this.pending = new Map(); this.nextId = 10; this.buf = '';
+    this.child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys(), ...env } });
     this.exited = new Promise(r => this.child.on('exit', r));
     this.child.stdout.on('data', d => {
       this.buf += d; let nl;
       while ((nl = this.buf.indexOf('\n')) !== -1) {
         const line = this.buf.slice(0, nl); this.buf = this.buf.slice(nl + 1);
         let m; try { m = JSON.parse(line); } catch { continue; }
-        if (m.method && m.id !== undefined) {
-          this.requests.push(m);
-          Promise.resolve(onRequest ? onRequest(m) : { action: 'decline' }).then(result => this.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: m.id, result })}\n`));
-        } else if (m.method) this.notes.push(m);
-        else if (m.id !== undefined && this.pending.has(m.id)) { this.pending.get(m.id)(m); this.pending.delete(m.id); }
+        if (m.id !== undefined && this.pending.has(m.id)) { this.pending.get(m.id)(m); this.pending.delete(m.id); }
       }
     });
-    this.ready = this.rpc('initialize', { protocolVersion: '2025-06-18', capabilities, clientInfo: { name: clientName, version: '0' } })
+    this.ready = this.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'advice-test', version: '0' } })
       .then(() => this.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`));
   }
   rpc(method, params, id = this.nextId++) {
     const p = new Promise(r => this.pending.set(id, r));
     this.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
-    p.id = id;
     return p;
   }
   async call(name, args) { await this.ready; const m = await this.rpc('tools/call', { name, arguments: args }); return m.result ?? m; }
-  /** Starts a call and returns its id at once, for a test that cancels it. */
-  async start(name, args, progressToken) { await this.ready; const p = this.rpc('tools/call', { name, arguments: args, ...(progressToken ? { _meta: { progressToken } } : {}) }); return { id: p.id, promise: p }; }
-  cancel(id) { this.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id, reason: 'test' } })}\n`); }
-  async list() { await this.ready; return (await this.rpc('tools/list', {})).result.tools; }
-  // The exit is awaited AFTER the kill too (bounded; 24f2216): leave() writes a client-cancel STOP request into every advice run this server started, on stdin end, SIGTERM and exit, so a folder removed right after close() raced it when the server took longer than 3 s to go.
+  async tools() { await this.ready; const m = await this.rpc('tools/list', {}); return m.result.tools.map(t => t.name); }
   async close() {
     try { this.child.stdin.end(); } catch { /* gone */ }
     await Promise.race([this.exited, sleep(3000)]); this.child.kill();
@@ -76,1088 +52,96 @@ class Session {
   }
 }
 
-const workdir = () => { const d = mkdtempSync(join(tmpdir(), 'thc-advice-')); return d; };
-const BRIEF = (over = {}) => ({
-  schema_version: 'advice-brief/1', moment: 'before_commit',
-  question: 'Should we drop the legacy invoices column before the release?',
-  decision_at_stake: 'A dropped column cannot be restored once the migration has run in production.',
-  options_considered: [{ name: 'Drop it now', summary: 'Run the migration before the release.' }, { name: 'Do less', summary: 'Keep the column and add a new one beside it.' }],
-  tried: [{ what: 'Ran the migration on a copy of the data', result: 'It passed in 3 seconds.' }],
-  sensitivity: 'internal', not_included: ['the conversation', 'environment variables'],
-  ...over,
-});
-const OTHER = (over = {}) => BRIEF({ ...over, question: 'Which queue should the new email worker use for retries?', options_considered: [{ name: 'Redis streams', summary: 'Already in the stack.' }, { name: 'SQS', summary: 'A new managed dependency.' }] });
-const MOCK = { COUNCIL_ADVISE_MOCK: '1' };
-// A client that can ask the person, and a person who reads the text and presses "send": since 0.8.1 the only way a test approves a
-// send besides the host statement (plan DR-3: no allowance, no test switch).
-const PERSON = { capabilities: { elicitation: {} }, onRequest: () => ({ action: 'accept', content: { send: true } }) };
-const sc = r => r.structuredContent;
+const workdir = () => mkdtempSync(join(tmpdir(), 'thc-advice-'));
 const textOf = r => r.content.map(c => c.text).join('\n');
-
-// An operator's chain of the shipped mock panel with its own wall clock, found before the package's chains by name.
-function userChain(dir, name, from, { wall = 120_000, usd } = {}) {
-  mkdirSync(chainsOf(dir), { recursive: true });
-  const c = JSON.parse(readFileSync(join(root, 'chains', `${from}.json`), 'utf8'));
-  c.name = name; c.advise.max_wall_ms = wall; if (usd) c.advise.usd = usd;
-  writeFileSync(join(chainsOf(dir), `${name}.json`), JSON.stringify(c, null, 2));
-  return c;
+// A project's own copy of the one advice chain that is left as a fixture (mock seats only): the MCP server finds a chain by name in the working folder's chains/.
+function projectAdviceChain(dir, name) {
+  mkdirSync(join(dir, 'chains'), { recursive: true });
+  writeFileSync(join(dir, 'chains', `${name}.json`), readFileSync(join(fixtureDir, `${name}.json`), 'utf8'));
 }
-const folders = dir => (existsSync(join(dir, 'runs')) ? readdirSync(join(dir, 'runs')) : []);
-// Since 0.8.1 (DR-15) every council_advise call that passes the guards gets a run folder before anyone approves it; a run that
-// STARTED is one with an advise-log.json (written by --advice-adopt before any call).
-const started = dir => folders(dir).filter(f => existsSync(join(dir, 'runs', f, 'advise-log.json')));
-async function settled(session, run, seconds = 25) {
-  for (let i = 0; i < 4; i++) {
-    const r = await session.call('run_status', { run, wait_seconds: seconds, until: 'settled' });
-    if (sc(r)?.kind === 'advice' || sc(r)?.refused) return r;
-    const body = r.content?.[0]?.text ? JSON.parse(r.content[0].text) : {};
-    if (body.progress?.settled || (body.status && body.status !== 'running')) return r;
-  }
-  assert.fail('the run never settled');
+// An old advice run folder as a person's disk can still hold one: the brief, run.json and advise-log.json (the files that make it an advice folder). No chain of that name needs to exist.
+function oldAdviceFolder(dir, id, chain = 'a-chain-that-no-longer-exists') {
+  const run = join(dir, 'runs', id);
+  mkdirSync(run, { recursive: true });
+  writeFileSync(join(run, 'advice-brief.md'), '# A brief\n\nShould we?\n');
+  writeFileSync(join(run, 'run.json'), JSON.stringify({ chain, task: join(run, 'advice-brief.md'), cwd: dir, maxUsd: 1 }));
+  writeFileSync(join(run, 'advise-log.json'), JSON.stringify({ schema: 'advise-log/1', run: id, ts: Date.now(), origin: 'tool', quoted: { ceiling_usd: 1 } }));
+  return run;
 }
-// Hold until the run's child has finished writing, so the folder can be removed.
-async function finish(dir, run) {
-  const pidOf = () => { try { return JSON.parse(readFileSync(join(dir, 'runs', run, 'run.json'), 'utf8')).pid; } catch { return null; } };
-  const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
-  for (let i = 0; i < 160; i++) {
-    // 0.8.1 M6: a stopped run ends with its STOPPED-<cause>.json marker (and report-partial.json when it ran calls).
-    const done = ['report.json', 'STOPPED-user.json', 'STOPPED-client_cancel.json', 'STOPPED-wall_clock.json', 'STOPPED-error.md'].some(f => existsSync(join(dir, 'runs', run, f)));
-    const pid = pidOf();
-    if (done && (!pid || !alive(pid))) return;
-    await sleep(150);
-  }
-  assert.fail(`run ${run} never finished`);
-}
-const report = (dir, run) => JSON.parse(readFileSync(join(dir, 'runs', run, 'report.json'), 'utf8'));
-const partial = (dir, run) => JSON.parse(readFileSync(join(dir, 'runs', run, 'report-partial.json'), 'utf8'));
 
-// ---- the tools as a client sees them ---------------------------------------------------------------------------------------
-
-test('the two tools are listed with the right annotations, the host-prompt key on the priced one, and small schemas', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
+// NEW (0.8.4 add-on removal, wave 2): the two tools are gone from the server. The number of tools listed is derived from the source (every `server.tool(` or `server.registerTool(` of src/mcp/server.js and src/mcp/contract.js: 23 now), as test/landing-page.test.js derives the figure the README types.
+test('the MCP server lists no council_quote and no council_advise, lists exactly the tools its source registers, and a call to either is an unknown tool', async () => {
+  const dir = workdir(); const s = new Session(dir);
   try {
-    const tools = await s.list();
-    // Changed by the owner's decision of 7 Oct 2026 (0.8.2 item 6d, the full Slice A): the contract record adds contract_read and contract_amend, 17 -> 19; 0.8.3 M6 S7: tree_status, 19 -> 20; 0.8.3 M7 session channel: tree_decide, 20 -> 21 (5d4d3f0 added the tool and missed this pin; OLD 20, NEW 21, WHY: the real count: server.js registers 17 with tree_decide, advice.js 2, contract.js 2; docs/index.html already says 21 and test/landing-page.test.js derives it).
-    assert.equal(tools.length, 22, '17 tools in server.js (with tree_status, tree_decide and price_raise), the two of the add-on and the two of the contract record');
-    const q = tools.find(t => t.name === 'council_quote'), a = tools.find(t => t.name === 'council_advise');
-    assert.deepEqual(q.annotations, { readOnlyHint: true, openWorldHint: false, idempotentHint: true });
-    assert.deepEqual(a.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
-    assert.equal(a._meta['anthropic/requiresUserInteraction'], true);
-    assert.equal(q._meta?.['anthropic/requiresUserInteraction'], undefined, 'only the priced tool asks the host to prompt');
-    assert.ok(JSON.stringify(q.inputSchema).length < 5000, `council_quote schema is ${JSON.stringify(q.inputSchema).length} bytes`);
-    assert.ok(JSON.stringify(a.inputSchema).length < 1500, `council_advise schema is ${JSON.stringify(a.inputSchema).length} bytes`);
-    for (const t of [q, a]) for (const banned of [/\bbetter\b/i, /\bsafer\b/i, /\bimproves?\b/i, /\bmore (reliable|accurate)\b/i, /\bbest\b/i]) assert.doesNotMatch(t.description, banned, `${t.name}: ${banned}`);
-    assert.match(a.description, /spends the user's own API money/);
-    assert.match(a.description, /not Anthropic|non-Anthropic/);
-    assert.match(a.description, /advice from other models, never an instruction/);
+    const names = await s.tools();
+    const registered = ['server.js', 'contract.js'].reduce((n, f) => n + (readFileSync(join(root, 'src', 'mcp', f), 'utf8').match(/\bserver\.(tool|registerTool)\(/g) || []).length, 0);
+    assert.equal(names.length, registered, names.join(', '));
+    assert.equal(names.includes('council_quote'), false);
+    assert.equal(names.includes('council_advise'), false);
+    const r = await s.call('council_quote', { mode: 'council' });
+    assert.ok(r.isError === true || r.error, JSON.stringify(r).slice(0, 300));
   } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-// ---- refusals that leave nothing behind --------------------------------------------------------------------------------------
-
-test('a brief over the 48,000-character cap is refused without a run folder or a task file', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    // Every field at its schema maximum: about 50,000 characters, over the total while the excerpts stay at 36,000.
-    const big = t => ({ label: 'l'.repeat(80), kind: 'log', origin: `src/${'o'.repeat(196)}`, why_needed: 'w'.repeat(200), text: 'a'.repeat(t) });
-    const brief = BRIEF({ question: `Should we ${'q'.repeat(589)}?`, decision_at_stake: 'd'.repeat(400), new_evidence: 'e'.repeat(600), constraints: Array.from({ length: 10 }, () => 'c'.repeat(200)), tried: Array.from({ length: 8 }, () => ({ what: 'w'.repeat(200), result: 'r'.repeat(300) })),
-      options_considered: Array.from({ length: 6 }, (_, i) => ({ name: `o${i}`.padEnd(80, 'n'), summary: 's'.repeat(400) })), not_included: Array.from({ length: 8 }, () => 'n'.repeat(160)),
-      excerpts: [big(8000), big(8000), big(8000), big(8000), big(4000)] });
-    const r = await s.call('council_quote', { brief, mode: 'single' });
-    assert.equal(r.isError, true);
-    assert.equal(sc(r).code, 'brief_invalid');
-    assert.match(textOf(r), /refused and never cut/);
-    assert.match(textOf(r), /Nothing was sent, written or spent/);
-    assert.equal(existsSync(join(dir, 'runs')), false);
-    assert.equal(existsSync(join(dir, 'tasks')), false);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('a schema violation and a missing `tried` are refused; a first look waives only `tried`', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    const bad = await s.call('council_quote', { brief: { ...BRIEF(), transcript: 'everything' }, mode: 'single' });
-    assert.equal(bad.isError, true);
-    const { tried, ...noTried } = BRIEF();
-    const r = await s.call('council_quote', { brief: noTried, mode: 'single' });
-    assert.equal(sc(r).code, 'brief_invalid');
-    assert.match(sc(r).reason, /first_look/);
-    const ok = await s.call('council_quote', { brief: { ...noTried, first_look: true }, mode: 'single' });
-    assert.equal(ok.isError, undefined);
-    assert.equal(existsSync(join(dir, 'runs')), false);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('a key in the brief is blocked before anything is written, and is never masked', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    const brief = BRIEF({ excerpts: [{ label: 'env', kind: 'config', why_needed: 'The question is about this config.', text: `OPENROUTER_API_KEY=sk-or-v1-${'a1b2c3d4'.repeat(8)}` }] });
-    const r = await s.call('council_quote', { brief, mode: 'single' });
-    assert.equal(sc(r).code, 'secret_shaped');
-    assert.doesNotMatch(textOf(r), /sk-or-v1-a1b2/, 'the value is never echoed');
-    assert.equal(existsSync(join(dir, 'runs')), false);
-    assert.equal(existsSync(join(dir, 'tasks')), false);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the quote masks an email and a home path, hashes the masked text, and what is written for the run is exactly that text', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    const brief = BRIEF({ question: 'Does max.muster@example.com own the invoices table in /home/max/app?', excerpts: [{ label: 'a', kind: 'code', origin: 'src/a.js', why_needed: 'The question is about this line.', text: 'owner = "ops@acme-corp.de"' }] });
-    const q = await s.call('council_quote', { brief, mode: 'single' });
-    assert.equal(q.isError, undefined, textOf(q));
-    assert.deepEqual(Object.keys(sc(q).text.masked).sort(), ['EMAIL', 'PATH']);
-    assert.match(textOf(q), /masked before sending: 2 email, 1 path/);
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 20 });
-    assert.equal(sc(a).kind, 'advice', textOf(a));
-    const run = sc(a).run;
-    // 0.8.1 DR-15: the brief lives in the run folder, never in the project's tasks/ folder (which a commit can publish, audit A8).
-    const task = readFileSync(join(dir, 'runs', run, 'advice-brief.md'), 'utf8');
-    assert.equal(existsSync(join(dir, 'tasks')), false);
-    assert.ok(!/max\.muster@example\.com|ops@acme-corp\.de|\/home\/max/.test(task), 'nothing the masking covers is in the file the run reads');
-    assert.match(task, /\[EMAIL_1\]/);
-    assert.equal(sha(task), sc(q).text.sha256, 'the file is the exact text the person confirmed');
-    assert.equal(report(dir, run).task_sha256, sc(q).text.sha256);
-    await finish(dir, run);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('a wrong confirm_sha256 is refused and nothing is written; a used quote cannot be used again; an expired quote is named', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: { ...MOCK, COUNCIL_ADVISE_QUOTE_TTL_MS: '700' }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const wrong = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: 'f'.repeat(64) });
-    assert.equal(sc(wrong).code, 'hash_mismatch');
-    assert.equal(existsSync(join(dir, 'runs')), false);
-    assert.equal(existsSync(join(dir, 'tasks')), false);
-    await sleep(900);
-    assert.equal(sc(await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256 })).code, 'quote_expired');
-    const q2 = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    assert.equal(sc(await s.call('council_advise', { quote_id: 'q_' + '0'.repeat(24), confirm_sha256: sc(q2).text.sha256 })).code, 'quote_missing');
-    // 0.8.1 M4: an approval lapses with its quote, so the 0.7 s quote life above would lapse this approval too; the call that starts
-    // a run is made in a session with the normal quote life.
-    await s.close();
-    const s2 = new Session(dir, { env: MOCK, ...PERSON });
-    try {
-      const q3 = await s2.call('council_quote', { brief: BRIEF(), mode: 'single' });
-      const ok = await s2.call('council_advise', { quote_id: sc(q3).quote_id, confirm_sha256: sc(q3).text.sha256, wait_seconds: 20 });
-      assert.equal(sc(ok).kind, 'advice', textOf(ok));
-      assert.match(sc(await s2.call('council_advise', { quote_id: sc(q3).quote_id, confirm_sha256: sc(q3).text.sha256 })).code, /quote_missing|quote_used/);
-      await finish(dir, sc(ok).run);
-    } finally { await s2.close(); }
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('an unpriced seat is refused (fail closed), naming the price table', async () => {
-  const dir = workdir(); mkdirSync(chainsOf(dir), { recursive: true });
-  writeFileSync(join(chainsOf(dir), 'unpriced.json'), JSON.stringify({ name: 'unpriced', resumeAfterStop: false, maxRounds: 1, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 }, advise: { enabled: true, usd: 1, rounds: 0, synthesis: 'none', max_wall_ms: 60000 },
-    seats: { critics: [{ provider: 'openrouter', model: 'nobody/nothing-model', maxTokens: 1000, lab: 'n', extra: { provider: { zdr: true, data_collection: 'deny' } } }] } }));
-  const s = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_SINGLE: 'unpriced' } });
-  try {
-    const r = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    assert.equal(sc(r).code, 'seat_not_allowed');
-    assert.match(sc(r).reason, /no price|advise-unpriced/);
-    assert.equal(existsSync(join(dir, 'runs')), false);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the per-call cap refuses before any call: a mock-priced seat projects dollars the limit does not allow', async () => {
-  const dir = workdir(); mkdirSync(chainsOf(dir), { recursive: true });
-  writeFileSync(join(chainsOf(dir), 'pricey.json'), JSON.stringify({ name: 'pricey', resumeAfterStop: false, maxRounds: 1, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 }, advise: { enabled: true, usd: 100, rounds: 0, synthesis: 'none', max_wall_ms: 60000 },
-    seats: { critics: [{ provider: 'mock', model: 'mock-priced', maxTokens: 50000, lab: 'p' }] } }));
-  const s = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_SINGLE: 'pricey' }, ...PERSON });
-  try {
-    const r = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    assert.equal(sc(r).code, 'cap_call');
-    assert.match(sc(r).next, /COUNCIL_ADVISE_MAX_USD_PER_CALL/);
-    assert.equal(existsSync(join(dir, 'runs')), false);
-    assert.equal(existsSync(join(dir, 'tasks')), false);
-    const mx = await s.call('council_quote', { brief: BRIEF(), mode: 'single', max_usd: 1 });
-    assert.equal(sc(mx).code, 'over_ceiling', 'a caller can only lower the ceiling, and a lower one refuses a dearer blind round');
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('policy.json: the operator\'s floor and provider list apply, a personal-data label is never sent, and a confidential brief does not go to a council', async () => {
-  const dir = workdir(); let s = new Session(dir, {});
-  try {
-    const personal = await s.call('council_quote', { brief: BRIEF({ sensitivity: 'personal_data' }), mode: 'single' });
-    assert.equal(sc(personal).code, 'sensitivity'); assert.match(sc(personal).reason, /never sent/);
-    const unknown = await s.call('council_quote', { brief: BRIEF({ sensitivity: 'unknown' }), mode: 'council' });
-    assert.equal(sc(unknown).code, 'sensitivity'); assert.match(sc(unknown).reason, /one seat, not to a council/);
-    const single = await s.call('council_quote', { brief: BRIEF({ sensitivity: 'unknown' }), mode: 'single' });
-    assert.equal(single.isError, undefined, textOf(single));
-    assert.equal(sc(single).sensitivity.effective, 'confidential');
-    assert.match(textOf(single), /gpt-6\.1-sol.*ZDR-tagged by OpenRouter/);
-    assert.match(textOf(single), /not a guarantee/);
-    await s.close();
-    // Muse Spark 1.3 has no ZDR-tagged endpoint. It is not a shipped chain since 0.8.1 (DR-16), so the operator seats it as the single
-    // chain, the way a user who wants it would (the shipped advise-single with the seat swapped).
-    const mine = JSON.parse(readFileSync(join(root, 'chains', 'advise-single.json'), 'utf8'));
-    mine.name = 'my-muse';
-    mine.seats.critics = [{ provider: 'openrouter', model: 'meta/muse-spark-1.3', maxTokens: 9000, lab: 'muse-spark1.3', extra: { reasoning: { effort: 'medium' } }, estimate: { critiqueTokens: 5500 } }];
-    // 0.8.1 decided rule 5d: the operator's own folder (outside the project) and the operator's floor setting, never the project's.
-    const operatorDir = mkdtempSync(join(tmpdir(), 'thc-operator-chains-'));
-    writeFileSync(join(operatorDir, 'my-muse.json'), JSON.stringify(mine, null, 2));
-    s = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_SINGLE: 'my-muse', COUNCIL_ADVICE_CHAINS_DIR: operatorDir } });
-    const muse = await s.call('council_quote', { brief: BRIEF({ sensitivity: 'public' }), mode: 'single' });
-    assert.equal(sc(muse).code, 'sensitivity', 'the default floor is internal, which a no-ZDR seat does not reach');
-    await s.close();
-    s = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_SINGLE: 'my-muse', COUNCIL_ADVICE_CHAINS_DIR: operatorDir, COUNCIL_ADVICE_SENSITIVITY_FLOOR: 'public' } });
-    const open = await s.call('council_quote', { brief: BRIEF({ sensitivity: 'public' }), mode: 'single' });
-    assert.equal(open.isError, undefined, 'the operator can open the floor to public');
-    await s.close();
-    rmSync(operatorDir, { recursive: true, force: true });
-    s = new Session(dir, {}); // back to the shipped single chain for the policy checks
-    writeFileSync(join(dir, 'policy.json'), JSON.stringify({ allowed_providers: ['anthropic'] }));
-    const pol = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    assert.equal(sc(pol).code, 'policy');
-    writeFileSync(join(dir, 'policy.json'), '{ broken');
-    assert.equal(sc(await s.call('council_quote', { brief: BRIEF(), mode: 'single' })).code, 'policy_unreadable');
-    assert.equal(existsSync(join(dir, 'runs')), false, 'all of that was free');
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the default single seat at the real brief cap: GPT-6.1 Sol, priced from the table, with both mode prices named', async () => {
-  const dir = workdir(); const s = new Session(dir, {});
-  try {
-    const big = BRIEF({ excerpts: [1, 2, 3, 4].map(i => ({ label: `e${i}`, kind: 'log', why_needed: 'The question is about this block.', text: `line ${i} `.repeat(250) })) });
-    const q = await s.call('council_quote', { brief: big, mode: 'single' });
-    assert.equal(sc(q).seats[0].model, 'openai/gpt-6.1-sol');
-    // Sol at 36,000 output tokens (owner, 4 Oct 2026, 0.8.1 milestone R: the single-advice chain's cap 12,000 -> 36,000; was 12,000 on 2026-10-02):
-    // $0.4039 worst at a 3,000-token brief (3,571 in x $2.2/M + 36,000 out x $11/M); at most $0.4224 at the 48,000-character cap.
-    assert.ok(sc(q).price.worst_usd > 0.38 && sc(q).price.worst_usd < 0.46, `worst ${sc(q).price.worst_usd}`);
-    const c = await s.call('council_quote', { brief: big, mode: 'council' });
-    // The decided council (decided rule 4, DR-7): Sol, GLM-5.3, Gemini 3.8 Flash; brief 31's table prices it at $0.748 worst.
-    assert.deepEqual(sc(c).seats.map(x => x.lab), ['gpt6.1-sol', 'glm5.3', 'gemini3.8-flash']);
-    // 2026-10-06 audit: GLM-5.3's output row 4.4 -> 7.0 (the live list), so the council's worst case is about $1.14 at this brief (was $0.87).
-    assert.ok(sc(c).price.worst_usd > 1.05 && sc(c).price.worst_usd < 1.2, `council worst ${sc(c).price.worst_usd}`);
-    const tools = await s.list();
-    assert.match(tools.find(t => t.name === 'council_advise').description, /about \$0\.08\d expected and an upper estimate of \$1\.32 with a brief at the 48,000-character limit/);
-    assert.match(tools.find(t => t.name === 'council_advise').description, /about \$0\.75 expected and an upper estimate of \$1\.40/);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-// ---- approval --------------------------------------------------------------------------------------------------------------
-
-test('no approval channel in the client: awaiting_approval, a run folder with the exact text and a pending gate, nothing spent (0.8.1 DR-3, DR-15)', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: { COUNCIL_ADVISE_MOCK: '1' } });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const r = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256 });
-    assert.equal(r.isError, undefined, textOf(r));
-    assert.equal(sc(r).status, 'awaiting_approval');
-    assert.equal(sc(r).gate, 'g1');
-    assert.match(sc(r).next, new RegExp(`cli\\.js gate answer \\S*runs/${sc(r).run} g1`));   // A3-3: node + the absolute cli.js + the absolute run folder, not a bare `council`
-    assert.match(sc(r).next, /Do not approve it yourself/);
-    assert.doesNotMatch(sc(r).next, /COUNCIL_ADVISE_APPROVAL/, 'the reply does not steer the agent toward the removed host statement (audit A1)');
-    const run = join(dir, 'runs', sc(r).run);
-    assert.equal(sha(readFileSync(join(run, 'advice-brief.md'), 'utf8')), sc(q).text.sha256, 'the exact text the quote showed');
-    assert.equal(JSON.parse(readFileSync(join(run, 'gates', 'g1.json'), 'utf8')).status, 'pending');
-    assert.equal(existsSync(join(run, 'advise-log.json')), false, 'nothing counts against the limits');
-    assert.equal(existsSync(join(run, 'run.json')), false, 'nothing started');
-    assert.equal(existsSync(join(dir, 'tasks')), false);
-    // the same quote again picks up the same gate
-    const again = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256 });
-    assert.equal(sc(again).run, sc(r).run);
-    assert.equal(sc(again).gate, 'g1');
-    const st = JSON.parse(textOf(await s.call('run_status', { run: sc(r).run })));
-    assert.equal(st.status, 'awaiting_approval');
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('elicitation: the person sees the price, the hash and the exact text; decline is recorded on the gate and starts nothing, accept starts the run', async () => {
-  const dir = workdir(); const seen = [];
-  let answer = { action: 'decline' };
-  const s = new Session(dir, { env: { COUNCIL_ADVISE_MOCK: '1' }, capabilities: { elicitation: {} }, onRequest: m => { seen.push(m); return answer; } });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const declined = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256 });
-    assert.equal(sc(declined).code, 'declined');
-    const d1 = join(dir, 'runs', sc(declined).run);
-    assert.equal(JSON.parse(readFileSync(join(d1, 'gates', 'g1.json'), 'utf8')).answer.channel, 'elicitation');
-    assert.equal(JSON.parse(readFileSync(join(d1, 'gates', 'g1.json'), 'utf8')).status, 'declined');
-    assert.equal(existsSync(join(d1, 'advise-log.json')), false, 'a declined call is not counted and not started');
-    assert.equal(seen.length, 1);
-    assert.equal(seen[0].method, 'elicitation/create');
-    const msg = seen[0].params.message;
-    for (const part of [sc(q).text.sha256, 'Price: worst case', 'The text that would be sent', 'Should we drop the legacy invoices column', 'not a guarantee']) assert.ok(msg.includes(part), part);
-    assert.equal(seen[0].params.requestedSchema.properties.send.type, 'boolean');
-    const q2 = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    answer = { action: 'accept', content: { send: false } };
-    assert.equal(sc(await s.call('council_advise', { quote_id: sc(q2).quote_id, confirm_sha256: sc(q2).text.sha256 })).code, 'declined', 'accept with send false is a no');
-    const q3 = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    answer = { action: 'accept', content: { send: true } };
-    const ok = await s.call('council_advise', { quote_id: sc(q3).quote_id, confirm_sha256: sc(q3).text.sha256, wait_seconds: 20 });
-    assert.equal(sc(ok).kind, 'advice', textOf(ok));
-    await finish(dir, sc(ok).run);
-    const log = JSON.parse(readFileSync(join(dir, 'runs', sc(ok).run, 'advise-log.json'), 'utf8'));
-    assert.equal(log.approval, 'elicitation');
-    assert.equal(log.gate, 'g1');
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the host-prompt statement is gone: a server with COUNCIL_ADVISE_APPROVAL set refuses to start, with one line (0.8.1 DR-3)', () => {
-  const dir = workdir();
-  try {
-    for (const v of ['host', '', 'anything']) {
-      const r = spawnSync(process.execPath, [cli, '--mcp'], { cwd: dir, encoding: 'utf8', input: '', env: { PATH: process.env.PATH, HOME: dir, COUNCIL_ADVISE_MOCK: '1', COUNCIL_ADVISE_APPROVAL: v }, timeout: 20_000 });
-      assert.equal(r.status, 2, `value ${JSON.stringify(v)}`);
-      assert.match(r.stderr, /COUNCIL_ADVISE_APPROVAL was removed in 0\.8\.1/);
-      assert.equal(r.stderr.trim().split('\n').length, 1);
-    }
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-// ---- repeats and objections ------------------------------------------------------------------------------------------------------
-
-test('a repeat is refused; new_evidence in the brief lets it through; a different question passes', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 20 });
-    assert.equal(sc(a).kind, 'advice');
-    await finish(dir, sc(a).run);
-    const again = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    assert.equal(sc(again).code, 'duplicate'); assert.equal(sc(again).run, sc(a).run);
-    assert.match(sc(again).next, /new_evidence/);
-    const short = await s.call('council_quote', { brief: BRIEF({ new_evidence: 'too short' }), mode: 'single' });
-    assert.equal(short.isError, true, 'new_evidence under 40 characters is not evidence');
-    const evid = await s.call('council_quote', { brief: BRIEF({ new_evidence: 'The migration also failed on the staging copy with a lock timeout.' }), mode: 'single' });
-    assert.equal(evid.isError, undefined, textOf(evid));
-    const other = await s.call('council_quote', { brief: OTHER(), mode: 'single' });
-    assert.equal(other.isError, undefined);
-    const a2 = await s.call('council_advise', { quote_id: sc(evid).quote_id, confirm_sha256: sc(evid).text.sha256, wait_seconds: 20 });
-    assert.equal(sc(a2).kind, 'advice');
-    await finish(dir, sc(a2).run);
-    assert.equal(report(dir, sc(a2).run).advise.status, 'answered');
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the disposition gate: open objections block the next call until each has an accept, reject or defer with its own reason', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'council' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 25 });
-    assert.equal(sc(a).kind, 'advice', textOf(a));
-    await finish(dir, sc(a).run);
-    const ids = sc(a).dissent.map(d => d.id);
-    assert.equal(ids.length, 2);
-    const q2 = await s.call('council_quote', { brief: OTHER(), mode: 'single' });
-    assert.equal(q2.isError, undefined, 'the quote is free and does not refuse what only the next call can fix');
-    assert.deepEqual(sc(q2).open_objections, ids);
-    const blocked = await s.call('council_advise', { quote_id: sc(q2).quote_id, confirm_sha256: sc(q2).text.sha256 });
-    assert.equal(sc(blocked).code, 'dispositions_missing'); assert.deepEqual(sc(blocked).ids, ids);
-    assert.equal(folders(dir).length, 1, 'nothing new was started');
-    const q3 = await s.call('council_quote', { brief: OTHER(), mode: 'single' });
-    const thin = await s.call('council_advise', { quote_id: sc(q3).quote_id, confirm_sha256: sc(q3).text.sha256, dispositions: ids.map(id => ({ id, decision: 'reject', reason: 'no' })) });
-    assert.equal(sc(thin).code, 'disposition_invalid');
-    const unknown = await s.call('council_advise', { quote_id: sc(q3).quote_id, confirm_sha256: sc(q3).text.sha256, dispositions: [{ id: `${sc(a).run}#nobody`, decision: 'accept', reason: 'A reason that is long enough' }] });
-    assert.equal(sc(unknown).code, 'disposition_unknown');
-    const partial = await s.call('council_advise', { quote_id: sc(q3).quote_id, confirm_sha256: sc(q3).text.sha256, dispositions: [{ id: ids[0], decision: 'accept', reason: 'The rollback point is fair; I will add it' }] });
-    assert.equal(sc(partial).code, 'dispositions_missing'); assert.deepEqual(sc(partial).ids, [ids[1]], 'the one that was recorded no longer blocks');
-    const ok = await s.call('council_advise', { quote_id: sc(q3).quote_id, confirm_sha256: sc(q3).text.sha256, wait_seconds: 20, dispositions: [{ id: ids[1], decision: 'reject', reason: 'That objection is about a table this change never touches' }] });
-    assert.equal(sc(ok).kind, 'advice', textOf(ok));
-    await finish(dir, sc(ok).run);
-    const log = JSON.parse(readFileSync(join(dir, 'runs', sc(a).run, 'advise-log.json'), 'utf8'));
-    assert.equal(log.dispositions.length, 2); assert.equal(log.dispositions_complete, true);
-    assert.deepEqual(report(dir, sc(ok).run).advise.dispositions.map(d => d.id), [ids[1]], 'the new run records what the caller said just before it');
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('two calls at once cannot pass the caps together: the guards and the start are one critical section', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: { ...MOCK, COUNCIL_ADVISE_CALLS_PER_SESSION: '1', COUNCIL_MOCK_DELAY_MS: '300' }, ...PERSON });
-  try {
-    const q1 = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const q2 = await s.call('council_quote', { brief: OTHER(), mode: 'single' });
-    const a = await s.start('council_advise', { quote_id: sc(q1).quote_id, confirm_sha256: sc(q1).text.sha256, wait_seconds: 30 });
-    const b = await s.start('council_advise', { quote_id: sc(q2).quote_id, confirm_sha256: sc(q2).text.sha256, wait_seconds: 30 });
-    const [ra, rb] = (await Promise.all([a.promise, b.promise])).map(m => m.result);
-    const codes = [ra, rb].map(r => sc(r)?.refused ? sc(r).code : 'started').sort();
-    assert.deepEqual(codes, ['cap_calls', 'started']);
-    assert.equal(started(dir).length, 1, 'one run, not two');
-    await finish(dir, started(dir)[0]);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-// ---- the hold and the long poll --------------------------------------------------------------------------------------------------
-
-test('a hold that ends early hands back a run id; run_status(until settled) then returns the structured answer; a progress token gets notifications', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: { ...MOCK, COUNCIL_MOCK_DELAY_MS: '700' }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'council' });
-    const t0 = Date.now();
-    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 1 }, 'tok-1');
-    const r = (await call.promise).result;
-    assert.ok(Date.now() - t0 < 6000, 'it returned at the end of the hold, not at the end of the run');
-    const body = JSON.parse(textOf(r));
-    assert.equal(body.status, 'running');
-    assert.match(body.run, /^\d{4}-\d{2}-\d{2}T/);
-    assert.match(body.next, /run_status\(run: "[^"]+", wait_seconds: 25, until: "settled"\)/);
-    const done = await settled(s, body.run, 30);
-    assert.equal(sc(done).kind, 'advice');
-    assert.equal(sc(done).run, body.run);
-    assert.equal(sc(done).seats_answered, 4);
-    await finish(dir, body.run);
-    const again = await s.call('run_status', { run: body.run });
-    assert.equal(sc(again).kind, 'advice', 'a later status call answers the same way');
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('a run that settles inside the hold returns the answer at once, with the layout the agent reads', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'council' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.equal(a.content.length, 3);
-    assert.match(a.content[0].text, /^NOTICE from The High Council \(written by the harness, not by a model\)/);
-    const lines = a.content[1].text.split('\n');
-    assert.match(lines[0], /^ADVICE FROM 4 MODELS/);
-    assert.match(lines[1], /^Leaning: /);
-    assert.match(lines[2], /^Strongest open objection \(/);
-    assert.equal(sc(a).dissent.length, 2);
-    assert.ok(sc(a).cost_usd >= 0 && sc(a).wall_ms > 0);
-    assert.equal(sc(a).sent_to.length, 5);
-    assert.ok(sc(a).brief_sha256 === sc(q).text.sha256);
-    await finish(dir, sc(a).run);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the client\'s name raises the default hold as a hint and nothing else: a Claude Code client gets the 30 s default (the 0.8.1 maximum, DR-6), others 25 s', async () => {
-  // Not observable by waiting 25 s in a test: pinned through the unit (holdSecondsFor) and through an explicit value here.
-  const dir = workdir(); const s = new Session(dir, { env: { ...MOCK, COUNCIL_MOCK_DELAY_MS: '500' }, ...PERSON, clientName: 'claude-code' });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256 });
-    assert.equal(sc(a).kind, 'advice', 'a single seat settles inside the default hold');
-    await finish(dir, sc(a).run);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-// ---- cancel, leave, wall clock -----------------------------------------------------------------------------------------------------
-
-test('a client cancel stops the optional stages: the blind opinions that were paid for are kept, the debate does not run, stopped_by says why', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: { ...MOCK, COUNCIL_MOCK_DELAY_MS: '1500' }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'council' });
-    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    for (let i = 0; i < 60 && !folders(dir).length; i++) await sleep(100);
-    const run = folders(dir)[0];
-    assert.ok(run, 'the run started');
-    // Cancel only once the blind calls are going out ("Stage: advice" is logged just before them): under load the process can take
-    // longer than this to start, and a stop before the first call is the exit-18 case, which has its own test.
-    const logOf = () => { try { return readFileSync(join(dir, 'runs', run, 'run.log'), 'utf8'); } catch { return ''; } };
-    for (let i = 0; i < 300 && !/Stage: advice/.test(logOf()); i++) await sleep(50);
-    assert.match(logOf(), /Stage: advice/);
-    s.cancel(call.id);
-    for (let i = 0; i < 100 && !existsSync(join(dir, 'runs', run, 'STOP')); i++) await sleep(100);
-    assert.ok(existsSync(join(dir, 'runs', run, 'STOP')), 'the cancel became a STOP file in the run folder');
-    await finish(dir, run);
-    // 0.8.1 M6 (decided rule 6): the stop ends the run at exit 18 with report-partial.json, never report.json.
-    assert.equal(existsSync(join(dir, 'runs', run, 'report.json')), false);
-    const r = partial(dir, run);
-    assert.equal(r.partial, true); assert.equal(r.stoppedBy, 'client_cancel');
-    assert.equal(r.advise.stopped_by, 'client_cancel');
-    assert.equal(r.advise.debate.rounds_run, 0);
-    assert.equal(r.advise.seats_answered, 4, 'the calls in flight finished and were recorded');
-    assert.ok(r.totals.usd >= 0);
-    assert.equal(validateReport(r), true, JSON.stringify(validateReport.errors));
-    const log = JSON.parse(readFileSync(join(dir, 'runs', run, 'advise-log.json'), 'utf8'));
-    assert.equal(log.stopped_by, 'client_cancel'); assert.equal(log.status, 'stopped');
-    const later = await s.call('run_status', { run });
-    assert.equal(sc(later).stopped_by, 'client_cancel', 'the partial record is still readable afterwards');
-    assert.match(textOf(later), /stopped short \(client_cancel\)/);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('a client that leaves stops the advice runs this server started', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: { ...MOCK, COUNCIL_MOCK_DELAY_MS: '1500' }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'council' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 0 });
-    const run = JSON.parse(textOf(a)).run;
-    assert.ok(run);
-    await s.close();
-    await finish(dir, run);
-    // 0.8.1 M6: either way it ends stopped by the client (exit 18), never with report.json.
-    assert.ok(existsSync(join(dir, 'runs', run, 'STOPPED-client_cancel.json')));
-    assert.equal(existsSync(join(dir, 'runs', run, 'report.json')), false);
-    if (existsSync(join(dir, 'runs', run, 'report-partial.json')) && partial(dir, run).advise) {
-      // The usual outcome: the blind calls were in flight, they finished, the debate did not run.
-      assert.equal(partial(dir, run).advise.stopped_by, 'client_cancel');
-      assert.equal(partial(dir, run).advise.debate.rounds_run, 0);
-    }
-    // Under load the stop can land before the first paid call: then nothing was called (a partial report with no advise). Also correct.
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the wall-clock ceiling stops a run whose calls are slow: the calls still running at the deadline are cut, stoppedBy wall_clock', async () => {
-  const dir = workdir(); userChain(dir, 'mock-wall', 'mock-advise-standard', { wall: 1000 });
-  const s = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_COUNCIL: 'mock-wall', COUNCIL_MOCK_DELAY_MS: '1300' }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'council' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 0 });
-    const run = JSON.parse(textOf(a)).run;
-    await finish(dir, run);
-    const r = partial(dir, run); // 0.8.1 M6: exit 18, report-partial.json
-    assert.equal(r.stoppedBy, 'wall_clock');
-    // The deadline is every request's own (setRequestDeadlineAt): the four 1.3 s calls are cut at 1 s, so nothing readable was kept.
-    assert.equal(r.advise ?? null, null);
-    assert.equal(r.dropouts.length, 4);
-    assert.equal(JSON.parse(readFileSync(join(dir, 'runs', run, 'STOPPED-wall_clock.json'), 'utf8')).beforeFirstCall, false);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-// ---- the review's findings (brief 29 review fixes) ---------------------------------------------------------------------------------
-
-test('invisible characters and look-alike alphabets cannot hide a key or an email from the scans', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    const key = `sk-or-v1-${'a1b2c3d4'.repeat(8)}`;
-    const zw = BRIEF({ excerpts: [{ label: 'env', kind: 'config', why_needed: 'The question is about this config.', text: `K=${key.slice(0, 20)}​${key.slice(20)}` }] });
-    assert.equal(sc(await s.call('council_quote', { brief: zw, mode: 'single' })).code, 'brief_invalid', 'a zero-width space is refused');
-    const tags = BRIEF({ excerpts: [{ label: 'env', kind: 'config', why_needed: 'The question is about this config.', text: [...key].map(c => String.fromCodePoint(0xE0000 + c.codePointAt(0))).join('') }] });
-    assert.equal(sc(await s.call('council_quote', { brief: tags, mode: 'single' })).code, 'brief_invalid', 'a key spelled in tag characters is refused');
-    const wide = [...key].map(c => (c >= '!' && c <= '~' ? String.fromCodePoint(c.codePointAt(0) + 0xFEE0) : c)).join('');
-    const full = BRIEF({ excerpts: [{ label: 'env', kind: 'config', why_needed: 'The question is about this config.', text: `K=${wide}` }] });
-    assert.equal(sc(await s.call('council_quote', { brief: full, mode: 'single' })).code, 'secret_shaped', 'a full-width key is found on the normalised copy');
-    const fw = BRIEF({ question: 'Does ｍａｘ＠ｍａｉｌ－ｃｏｒｐ．ｄｅ own the invoices table?' });
-    assert.equal(sc(await s.call('council_quote', { brief: fw, mode: 'single' })).code, 'pii_left', 'a full-width email the masker does not match is caught after masking');
-    assert.equal(existsSync(join(dir, 'runs')), false);
-    assert.equal(existsSync(join(dir, 'tasks')), false);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('a placeholder-shaped token in the brief is refused (mask_collision), over the operator\'s COUNCIL_MAX_USD_LIMIT is refused, each before anything is written', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: { COUNCIL_MAX_USD_LIMIT: '0.1' } });
-  try {
-    const col = await s.call('council_quote', { brief: BRIEF({ question: 'Should we email [EMAIL_1] about dropping the legacy invoices column?' }), mode: 'single' });
-    assert.equal(sc(col).code, 'mask_collision');
-    const lim = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    assert.equal(sc(lim).code, 'over_server_limit');
-    assert.match(sc(lim).reason, /COUNCIL_MAX_USD_LIMIT/);
-    assert.equal(existsSync(join(dir, 'runs')), false);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the per-call limit compares the ceiling, not the worst case: a limit between the two refuses', async () => {
-  const dir = workdir();
-  const c = userChain(dir, 'mock-mid', 'mock-advise-single', { usd: 1.4 });
-  c.seats.critics = [{ provider: 'mock', model: 'mock-priced', maxTokens: 50, lab: 'p' }];
-  writeFileSync(join(chainsOf(dir), 'mock-mid.json'), JSON.stringify(c));
-  const s1 = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_SINGLE: 'mock-mid' }, ...PERSON });
-  try {
-    const q = await s1.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    assert.equal(q.isError, undefined, textOf(q));
-    const { worst_usd: worst, ceiling_usd: ceiling } = sc(q).price;
-    assert.ok(worst < ceiling, `${worst} < ${ceiling}`);
-    const limit = ((worst + ceiling) / 2).toFixed(3);
-    const s2 = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_SINGLE: 'mock-mid', COUNCIL_ADVISE_MAX_USD_PER_CALL: limit }, ...PERSON });
-    try { assert.equal(sc(await s2.call('council_quote', { brief: BRIEF(), mode: 'single' })).code, 'cap_call'); } finally { await s2.close(); }
-  } finally { await s1.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the run is started with --max-usd equal to the quoted ceiling (the money backstop), and the chain is admitted again at call time', async () => {
-  const dir = workdir(); userChain(dir, 'mock-recheck', 'mock-advise-single', { usd: 0.75 });
-  const s = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_SINGLE: 'mock-recheck' }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 20 });
-    assert.equal(sc(a).kind, 'advice');
-    await finish(dir, sc(a).run);
-    assert.equal(JSON.parse(readFileSync(join(dir, 'runs', sc(a).run, 'run.json'), 'utf8')).maxUsd, 0.75);
-    const q2 = await s.call('council_quote', { brief: OTHER(), mode: 'single' });
-    // Owner decision, 6 Oct 2026 (no wall clocks): this test edited the chain by deleting its wall clock, which admission no longer refuses; it now swaps in an external seat, which it still refuses.
-    const c = JSON.parse(readFileSync(join(chainsOf(dir), 'mock-recheck.json'), 'utf8')); c.seats.critics = [{ provider: 'external', model: 'session', lab: 'h' }];
-    writeFileSync(join(chainsOf(dir), 'mock-recheck.json'), JSON.stringify(c));
-    assert.equal(sc(await s.call('council_advise', { quote_id: sc(q2).quote_id, confirm_sha256: sc(q2).text.sha256 })).code, 'seat_not_allowed', 'a chain edited after the quote is checked again');
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the answer reads with the caller\'s own text back: a placeholder a model repeats is unmasked', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF({ question: 'Does max.muster@example.com own the legacy invoices column?' }), mode: 'single' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 20 });
-    assert.match(sc(a).answer, /Contact max\.muster@example\.com\./);
-    assert.ok(!/\[EMAIL_1\]/.test(sc(a).answer));
-    assert.match(readFileSync(join(dir, 'runs', sc(a).run, 'deliverable.md'), 'utf8'), /\[EMAIL_1\]/, 'the file on disk stays masked');
-    await finish(dir, sc(a).run);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('a council of three mock labs with no synthesis seat (the shape of the shipped council) runs end to end', async () => {
-  const dir = workdir(); mkdirSync(chainsOf(dir), { recursive: true });
-  writeFileSync(join(chainsOf(dir), 'mock-three.json'), JSON.stringify({ name: 'mock-three', resumeAfterStop: false, maxRounds: 1, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 }, advise: { enabled: true, usd: 1, rounds: 1, synthesis: 'none', max_wall_ms: 120000 },
-    seats: { critics: [{ provider: 'mock', model: 'mock-advisor-proceed', lab: 'a' }, { provider: 'mock', model: 'mock-advisor-yield-argued', lab: 'b' }, { provider: 'mock', model: 'mock-advisor-stop', lab: 'c' }] } }));
-  const s = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_COUNCIL: 'mock-three' }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'council' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.equal(sc(a).kind, 'advice', textOf(a));
-    assert.equal(sc(a).seats_asked, 3); assert.equal(sc(a).sent_to.length, 3);
-    assert.equal(report(dir, sc(a).run).advise.synthesis.seat, null);
-    assert.match(a.content[0].text, /^NOTICE/);
-    await finish(dir, sc(a).run);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('list_chains marks the advice chains as tools-only', async () => {
-  const dir = workdir(); const s = new Session(dir, {});
-  try {
-    const chains = JSON.parse(textOf(await s.call('list_chains', {})));
-    assert.equal(chains.find(c => c.name === 'advise-single').advice_tools_only, true);
-    assert.equal(chains.find(c => c.name === 'mock').advice_tools_only, undefined);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('one quote cannot start two runs, even when two calls with it arrive together and approval takes a while', async () => {
-  const dir = workdir(); let asked = 0;
-  const s = new Session(dir, { env: { COUNCIL_ADVISE_MOCK: '1' }, capabilities: { elicitation: {} }, onRequest: async () => { asked++; await sleep(300); return { action: 'accept', content: { send: true } }; } });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const args = { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 20 };
-    const a = await s.start('council_advise', args), b = await s.start('council_advise', args);
-    const rs = (await Promise.all([a.promise, b.promise])).map(m => m.result);
-    const codes = rs.map(r => (sc(r)?.refused ? sc(r).code : 'started')).sort();
-    assert.deepEqual(codes, ['quote_used', 'started']);
-    assert.equal(asked, 1, 'the person was asked once');
-    assert.equal(folders(dir).length, 1);
-    await finish(dir, folders(dir)[0]);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('a call cancelled while the person is still being asked starts nothing, even if the dialog is then accepted', async () => {
-  const dir = workdir(); let release; const gate = new Promise(r => { release = r; }); let seen = 0;
-  const s = new Session(dir, { env: { COUNCIL_ADVISE_MOCK: '1' }, capabilities: { elicitation: {} }, onRequest: async () => { seen++; await gate; return { action: 'accept', content: { send: true } }; } });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 0 });
-    for (let i = 0; i < 100 && !seen; i++) await sleep(50);
-    assert.equal(seen, 1, 'the dialog is open');
-    s.cancel(call.id);
-    await sleep(300);
-    release();
-    await sleep(1500);
-    assert.equal(started(dir).length, 0, 'no run was started for a call the client had cancelled');
-    for (const f of folders(dir)) assert.equal(JSON.parse(readFileSync(join(dir, 'runs', f, 'gates', 'g1.json'), 'utf8')).status, 'pending', 'and the late accept approved nothing');
-    assert.equal(existsSync(join(dir, 'tasks')), false);
-  } finally { release(); await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('two servers in one working folder cannot pass a one-call cap together', async () => {
-  const dir = workdir(); const env = { ...MOCK, COUNCIL_ADVISE_CALLS_PER_SESSION: '1', COUNCIL_MOCK_DELAY_MS: '300' };
-  // The person answers after half a second, so both calls have their folder and gate before either starts: the cap is then held by
-  // the second critical section's re-check (M4 review: without the delay this test never reached it).
-  const SLOW = { capabilities: { elicitation: {} }, onRequest: async () => { await sleep(500); return { action: 'accept', content: { send: true } }; } };
-  const s1 = new Session(dir, { env, ...SLOW }), s2 = new Session(dir, { env, ...SLOW });
-  try {
-    const q1 = await s1.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const q2 = await s2.call('council_quote', { brief: OTHER(), mode: 'single' });
-    const a = await s1.start('council_advise', { quote_id: sc(q1).quote_id, confirm_sha256: sc(q1).text.sha256, wait_seconds: 30 });
-    const b = await s2.start('council_advise', { quote_id: sc(q2).quote_id, confirm_sha256: sc(q2).text.sha256, wait_seconds: 30 });
-    const rs = (await Promise.all([a.promise, b.promise])).map(m => m.result);
-    assert.deepEqual(rs.map(r => (sc(r)?.refused ? sc(r).code : 'started')).sort(), ['cap_calls', 'started']);
-    assert.equal(started(dir).length, 1);
-    await finish(dir, started(dir)[0]);
-  } finally { await s1.close(); await s2.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('a stop asked for before the first call ends the run with exit 18 and nothing spent: the wall clock, and a client cancel during start-up', async () => {
-  const dir = workdir(); userChain(dir, 'mock-wall1', 'mock-advise-single', { wall: 1000 });
-  const s = new Session(dir, { env: { COUNCIL_ADVISE_CHAIN_SINGLE: 'mock-wall1', COUNCIL_MOCK_PRESTART_UNTIL_STOP: '1' }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 0 });
-    const run = JSON.parse(textOf(a)).run;
-    await finish(dir, run);
-    // 0.8.1 M6: the marker names its cause.
-    assert.ok(existsSync(join(dir, 'runs', run, 'STOPPED-wall_clock.json')));
-    assert.equal(existsSync(join(dir, 'runs', run, 'report.json')), false);
-    assert.equal(JSON.parse(readFileSync(join(dir, 'runs', run, 'STOPPED-wall_clock.json'), 'utf8')).stoppedBy, 'wall_clock');
-    const st = JSON.parse(textOf(await s.call('run_status', { run })));
-    assert.equal(st.status, 'wall_clock_stopped');
-    assert.equal(JSON.parse(readFileSync(join(dir, 'runs', run, 'advise-log.json'), 'utf8')).status, 'stopped');
-    assert.equal(JSON.parse(readFileSync(join(dir, 'runs', run, 'advise-log.json'), 'utf8')).spent_usd, 0);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-  // 13 Oct 2026 (Flaky): both halves used COUNCIL_MOCK_PRESTART_MS (1500 / 3000), a window the wall clock or the cancel's STOP file had to land inside, and a
-  // 5 s folder poll; under the CPU cap either could miss. The run now holds before its first call until a stop request exists (the wall clock passing counts).
-  // FIX-UP (C&C's U1 verdict, same day): the run FOLDER exists from the moment the server asks the person (the gate's folder), so "the folder exists" did not
-  // mean "the run started". A cancel that arrives while the person is being asked (or before the spawn) is honoured by NOT starting the run (send-path.js:
-  // 'the client cancelled this call while the person was being asked; nothing was approved or started'), so no STOP file is written and nothing is spent. The cancel
-  // below therefore waits for the run to have STARTED: state.json, one half of the server's own 'past start-up' condition (untilPastStartup: the child holds the run lock AND
-  // has written state.json). The person answers slowly (500 ms), which gives the old trigger (the folder) a wide window inside the dialog: the test is then an order, not a race.
-  const slowPerson = { ...PERSON, onRequest: async () => { await sleep(500); return { action: 'accept', content: { send: true } }; } };
-  const dir2 = workdir(); const s2 = new Session(dir2, { env: { ...MOCK, COUNCIL_MOCK_PRESTART_UNTIL_STOP: '1' }, ...slowPerson });
-  try {
-    const q = await s2.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const call = await s2.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(await until(() => folders(dir2).length > 0), 'the run folder was made');
-    const run = folders(dir2)[0];
-    assert.ok(await until(() => existsSync(join(dir2, 'runs', run, 'state.json'))), 'the run started (past its start-up: state.json written)');
-    s2.cancel(call.id);
-    assert.ok(await until(() => existsSync(join(dir2, 'runs', run, 'STOP'))), 'the cancel wrote its STOP file');
-    await finish(dir2, run);
-    assert.ok(existsSync(join(dir2, 'runs', run, 'STOPPED-client_cancel.json')), 'the cancel became a stop before the first call');
-    assert.equal(JSON.parse(readFileSync(join(dir2, 'runs', run, 'STOPPED-client_cancel.json'), 'utf8')).beforeFirstCall, true);
-  } finally { await s2.close(); rmSync(dir2, { recursive: true, force: true }); }
-});
-
-// ---- the late-window cancel (C&C's contract Review/Build_0.8.3/m6-closing/LateWindow_Cancel_Contract.md, 13 Oct 2026) ----------------------------------------------
-// A cancel that fires after the last cancel check and before the child's own first stop check used to be read only after spawnRun returned, so a real seat could take its first paid call after a
-// cancel that came before every call. Now, from the point the start is irrevocable (inside the start lock, listener armed before `q.used`, one synchronous re-read of `signal.aborted`), the cancel
-// puts the STOP request on disk the moment it fires. The tests are ORDERS: COUNCIL_TEST_SPAWN_HOLD_FILE holds the server inside the start (mock-advice servers only) and writes `<file>.entered` so a
-// test cancels INSIDE the window; COUNCIL_MOCK_HOLD_FILE holds the mock call in flight; a `ping` after the cancel is a barrier (the SDK handles messages in order, runs the cancel handler, whose
-// abort listeners and the synchronous STOP write finish, before it answers the ping).
-const holdsDir = () => mkdtempSync(join(tmpdir(), 'thc-hold-'));
-const usageFiles = (dir, run) => readdirSync(join(dir, 'runs', run)).filter(f => f.endsWith('.usage.json')).length;
-const stopFile = (dir, run) => join(dir, 'runs', run, 'STOP');
-
-test('late window: a cancel that fires while the server is inside the start puts the STOP on disk at once, and the run takes no call', async t => {
-  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn'), callHold = join(h, 'call');
-  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold, COUNCIL_MOCK_HOLD_FILE: callHold }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(await until(() => existsSync(`${spawnHold}.entered`)), 'the server is inside the start: the spawn is held');
-    const run = folders(dir)[0];
-    s.cancel(call.id);
-    await s.ready; await s.rpc('ping', {}); // the barrier: the cancel was handled before this answer
-    assert.ok(existsSync(stopFile(dir, run)), 'the cancel put the STOP on disk the moment it fired, before the child exists');
-    writeFileSync(spawnHold, ''); // the spawn goes on; the child starts and finds the STOP before its first call
-    await finish(dir, run);
-    assert.equal(usageFiles(dir, run), 0, 'no call was taken: nothing was spent'); // the money property first, observed before any cleanup
-    const marker = JSON.parse(readFileSync(join(dir, 'runs', run, 'STOPPED-client_cancel.json'), 'utf8'));
-    assert.equal(marker.beforeFirstCall, true, 'stopped before the first call');
-    t.diagnostic(`late window facts: STOP on disk after the ping barrier = true; STOPPED-client_cancel.json ${JSON.stringify({ stoppedBy: marker.stoppedBy, beforeFirstCall: marker.beforeFirstCall, spentUsd: marker.spentUsd })}; usage files = ${usageFiles(dir, run)}`);
-  } finally { writeFileSync(spawnHold, ''); writeFileSync(callHold, ''); await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('late window R1: a cancel that arrives while the call waits for the start lock starts no run, writes no STOP and leaves the quote reusable', async () => {
-  const dir = workdir(); const h = holdsDir(); const answer = join(h, 'answer');
-  const lockDir = join(dir, '.council-advice-lock'); const heldLock = join(lockDir, '.council.lock');
-  const slowPerson = { capabilities: { elicitation: {} }, onRequest: async () => { await until(() => existsSync(answer), 30_000); return { action: 'accept', content: { send: true } }; } };
-  const s = new Session(dir, { env: MOCK, ...slowPerson });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(await until(() => s.requests.length > 0), 'the person is being asked: the first lock section is over and the dialog is open');
-    mkdirSync(lockDir, { recursive: true });
-    writeFileSync(heldLock, JSON.stringify({ pid: process.pid, host: hostname() })); // this test process now holds the START lock (a live pid on this host)
-    writeFileSync(answer, ''); // the person approves: the call goes on to the start section and waits for the lock
-    await sleep(700); // a pause, never asserted on: longer than the lock's 150 ms poll, so the call is waiting for the lock and not still before it
-    const run = folders(dir)[0];
-    s.cancel(call.id);
-    await s.ready; await s.rpc('ping', {});
-    rmSync(heldLock); // the test's own lock file: the server may now enter the start section, with the signal already aborted
-    // A cancelled call gets no response, so the ORDER comes from the in-process queue: the quote sent again enters its own start section only after the first one is over.
-    const again = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(again.content && !/already used/i.test(textOf(again)), `the quote was reusable: ${textOf(again).slice(0, 200)}`);
-    await finish(dir, run);
-    assert.equal(existsSync(join(dir, 'runs', run, 'report.json')), true, 'the second send ran to its report');
-    assert.equal(existsSync(join(dir, 'runs', run, 'STOPPED-client_cancel.json')), false, 'the cancelled first call started nothing that a late STOP had to stop');
-  } finally { writeFileSync(answer, ''); try { rmSync(heldLock); } catch { /* released above */ } await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('late window R3: a cancel during the person dialog leaves no STOP in the gate folder, so the same quote sent again starts and runs to its end', async () => {
-  const dir = workdir(); const h = holdsDir(); const answer = join(h, 'answer');
-  const slowPerson = { capabilities: { elicitation: {} }, onRequest: async () => { await until(() => existsSync(answer), 30_000); return { action: 'accept', content: { send: true } }; } };
-  const s = new Session(dir, { env: MOCK, ...slowPerson });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(await until(() => s.requests.length > 0), 'the person is being asked: the dialog is open');
-    const run = folders(dir)[0];
-    s.cancel(call.id);
-    await s.ready; await s.rpc('ping', {});
-    assert.equal(existsSync(stopFile(dir, run)), false, 'a cancel during the dialog writes no STOP: the run has not started and its gate folder is reused');
-    writeFileSync(answer, ''); // the person answers the open dialog; the cancelled call is long gone (a cancelled call gets no response)
-    const again = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(again.content, JSON.stringify(again).slice(0, 200));
-    await finish(dir, run);
-    assert.equal(existsSync(join(dir, 'runs', run, 'report.json')), true, 'the second send ran to its report');
-    assert.equal(existsSync(join(dir, 'runs', run, 'STOPPED-client_cancel.json')), false, 'and was not stopped by a stale STOP');
-  } finally { writeFileSync(answer, ''); await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('late window R3(c): when the start fails after a cancel wrote its STOP, that STOP is removed and the quote is reusable', async () => {
-  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn');
-  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(await until(() => existsSync(`${spawnHold}.entered`)), 'the server is inside the start');
-    const run = folders(dir)[0];
-    const briefPath = join(dir, 'runs', run, 'advice-brief.md'); const original = readFileSync(briefPath, 'utf8');
-    s.cancel(call.id);
-    await s.ready; await s.rpc('ping', {});
-    assert.ok(existsSync(stopFile(dir, run)), 'the cancel wrote its STOP');
-    writeFileSync(briefPath, `${original}\nTAMPERED`); // the text no longer matches what the person approved: the adopted start is refused and the spawn reports started: false
-    writeFileSync(spawnHold, '');
-    // A cancelled call gets no response: the observable is the STOP going away once the start has failed (the child refused the tampered text).
-    assert.ok(await until(() => !existsSync(stopFile(dir, run))), 'the STOP this cancel wrote did not stay behind to stop a later re-send');
-    writeFileSync(briefPath, original); // the text is the approved one again: the same quote, sent again, starts
-    const again = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(again.content, JSON.stringify(again).slice(0, 200));
-    await finish(dir, run);
-    assert.equal(existsSync(join(dir, 'runs', run, 'report.json')), true, 'the re-send ran to its report');
-  } finally { writeFileSync(spawnHold, ''); await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the spawn hold is inert without the mock-advice mode switch: start_run is not held, whatever the variable says', async () => {
-  const dir = workdir(); const h = holdsDir(); const never = join(h, 'never-created');
-  mkdirSync(join(dir, 'tasks')); writeFileSync(join(dir, 'tasks', 't.md'), 'A test task.');
-  const s = new Session(dir, { env: { COUNCIL_TEST_SPAWN_HOLD_FILE: never } }); // no COUNCIL_ADVISE_MOCK
-  try {
-    let answered = null;
-    s.call('start_run', { chain: 'mock', task: 'tasks/t.md' }).then(r => { answered = r; });
-    assert.ok(await until(() => answered !== null), 'start_run answered without the hold file (a hold would keep it waiting up to 60 s)');
-    assert.equal(existsSync(`${never}.entered`), false, 'and the hold never started');
-    assert.equal(existsSync(`${never}.returned`), false, 'and no after-marker was written');
-    await finish(dir, folders(dir)[0]);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the spawn hold is armed only by the advice start: even in mock-advice mode with the variable set, start_run of a chain the client names (an ollama seat) is not held', async () => {
-  const dir = workdir(); const h = holdsDir(); const never = join(h, 'never-created');
-  mkdirSync(join(dir, 'tasks')); mkdirSync(join(dir, 'chains')); writeFileSync(join(dir, 'tasks', 't.md'), 'A test task.');
-  const seat = { provider: 'ollama', model: 'llama3.3', baseUrl: 'http://127.0.0.1:1/v1' }; // a closed port: the run ends at once, the start only has to be ANSWERED
-  writeFileSync(join(dir, 'chains', 'realchain.json'), JSON.stringify({ name: 'realchain', maxRounds: 1, seats: { criteria: seat, builder: seat, critics: [{ ...seat, lab: 'x' }] } }));
-  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: never } }); // mock-advice mode ON, the variable set
-  try {
-    let answered = null;
-    s.call('start_run', { chain: 'realchain', task: 'tasks/t.md' }).then(r => { answered = r; });
-    assert.ok(await until(() => answered !== null), 'start_run answered without the hold file (a hold would keep it waiting up to 60 s)');
-    assert.equal(existsSync(`${never}.entered`), false, 'and the hold never started');
-    assert.equal(existsSync(`${never}.returned`), false, 'and no after-marker was written');
-    const started = folders(dir)[0];                                                  // the child makes its run folder; it ends at once (a closed port), and the folder is removed only after it exited
-    if (started) assert.ok(await childGone(join(dir, 'runs', started)), `the run's child (pid ${childPid(join(dir, 'runs', started))}) was still running`);
-  } finally { await s.close(); await sleep(300); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('the spawn-hold seam writes <path>.returned when the advice start hands its answer back (armed: mock-advice mode, the advice start, the variable set), and the entered marker before it', async () => {
-  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn'); writeFileSync(spawnHold, ''); // the hold passes at once; the markers are still written
-  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(a.content, JSON.stringify(a).slice(0, 200));
-    assert.ok(existsSync(`${spawnHold}.entered`) && existsSync(`${spawnHold}.returned`), 'both markers are there once the start has returned');
-    await finish(dir, folders(dir)[0]);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-// ---- J1-13-1 (Haiku batch 3, 13 Oct 2026): the late-window listener used to be removed when spawnRun returned ------------------------------------------------
-// From then until the child's first stop check a cancel was seen only at the next progress poll (200 ms), so the child's first paid call could still go out after a cancel. The listener now stays armed for the whole call
-// (send-path.js returns `disarm`, council_advise calls it in a finally). ORDER: `<hold>.returned` says the start has returned (the old listener is gone); COUNCIL_MOCK_PRESTART_UNTIL_STOP keeps the child in its start-up until a STOP
-// exists; the ping after the cancel is the barrier. The RED on the old code depends on timing (its poll could land between the cancel and the ping); the green depends only on order.
-test('late window J1-13-1: a cancel AFTER the start returned and BEFORE the child\'s first stop check puts the STOP on disk at once, and the run takes no call', async t => {
-  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn'); writeFileSync(spawnHold, '');
-  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold, COUNCIL_MOCK_PRESTART_UNTIL_STOP: '1' }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(await until(() => existsSync(`${spawnHold}.returned`)), 'the start has returned: the child is up and waits in its start-up hold');
-    const run = folders(dir)[0];
-    assert.equal(existsSync(stopFile(dir, run)), false, 'nothing has cancelled yet, so no STOP');
-    s.cancel(call.id);
-    await s.ready; await s.rpc('ping', {}); // the barrier
-    assert.ok(existsSync(stopFile(dir, run)), 'the cancel put the STOP on disk the moment it fired, not at the next poll');
-    assert.match(JSON.parse(readFileSync(stopFile(dir, run), 'utf8')).note, /after the run started/, 'and the record names the phase it fired in');
-    await finish(dir, run);
-    assert.equal(usageFiles(dir, run), 0, 'no call was taken: nothing was spent');
-    const marker = JSON.parse(readFileSync(join(dir, 'runs', run, 'STOPPED-client_cancel.json'), 'utf8'));
-    assert.equal(marker.beforeFirstCall, true);
-    t.diagnostic(`J1-13-1 facts: STOP on disk after the ping barrier = true; STOPPED-client_cancel.json ${JSON.stringify({ stoppedBy: marker.stoppedBy, beforeFirstCall: marker.beforeFirstCall, spentUsd: marker.spentUsd })}`);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('late window: a person\'s own STOP (by user) is not replaced by the client\'s cancel: the first STOP written stays', async () => {
-  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn');
-  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(await until(() => existsSync(`${spawnHold}.entered`)), 'the server is inside the start');
-    const run = folders(dir)[0];
-    writeStopRequest(join(dir, 'runs', run), { by: 'user', run, note: 'council stop' }); // the person ran `council stop` (the real writer)
-    s.cancel(call.id);
-    await s.ready; await s.rpc('ping', {});
-    assert.equal(JSON.parse(readFileSync(stopFile(dir, run), 'utf8')).by, 'user', 'the person\'s STOP stays; the cancel did not take over the record');
-    writeFileSync(spawnHold, '');
-    await finish(dir, run);
-  } finally { writeFileSync(spawnHold, ''); await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('late window: a STOP left in the gate folder for ANOTHER run is stale (the child ignores it), so the cancel replaces it and the run still stops', async () => {
-  const dir = workdir(); const h = holdsDir(); const spawnHold = join(h, 'spawn');
-  const s = new Session(dir, { env: { ...MOCK, COUNCIL_TEST_SPAWN_HOLD_FILE: spawnHold }, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const call = await s.start('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(await until(() => existsSync(`${spawnHold}.entered`)), 'the server is inside the start');
-    const run = folders(dir)[0];
-    writeStopRequest(join(dir, 'runs', run), { by: 'user', run: '2026-01-01T00-00-00-000Z', note: 'a stale request for another run' });
-    s.cancel(call.id);
-    await s.ready; await s.rpc('ping', {});
-    const now = JSON.parse(readFileSync(stopFile(dir, run), 'utf8'));
-    assert.deepEqual([now.by, now.run], ['client_cancel', run], 'the stale request was replaced by this run\'s own cancel (the reader would have ignored the stale one)');
-    writeFileSync(spawnHold, '');
-    await finish(dir, run);
-  } finally { writeFileSync(spawnHold, ''); await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('send path: a policy.json that stopped reading between the quote and the send refuses the send (policy_unreadable), starts nothing and leaves the quote reusable', async () => {
-  const dir = workdir(); const policy = join(dir, 'policy.json');
-  const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    writeFileSync(policy, JSON.stringify({ max_usd_per_run: 100 }));
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    assert.equal(sc(q).code, undefined, `the quote passed with a readable policy: ${JSON.stringify(sc(q)).slice(0, 200)}`);
-    writeFileSync(policy, '{ broken'); // the file is project-writable: it changed after the quote
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 20 });
-    assert.equal(sc(a).code, 'policy_unreadable', `refused (the old send path ignored the error and ran with NO policy): ${JSON.stringify(sc(a)).slice(0, 300)}`);
-    assert.match(sc(a).reason, /policy\.json cannot be read/);
-    assert.equal(started(dir).length, 0, 'no run started');
-    writeFileSync(policy, JSON.stringify({ max_usd_per_run: 100 })); // repaired
-    const again = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-    assert.ok(!/already used/i.test(textOf(again)) && sc(again)?.code !== 'quote_used', `the quote was reusable: ${textOf(again).slice(0, 200)}`);
-    await finish(dir, started(dir)[0] ?? folders(dir)[0]);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('liveness: the server records the pid of the child it spawned in the run folder (.spawn.json), and it is the pid run.json carries once the child writes it', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 25 }); // held until the run settles: the answer arrives after the child has written run.json (an order, not a race)
-    const run = sc(a).run;
-    await finish(dir, run);
-    const spawned = JSON.parse(readFileSync(join(dir, 'runs', run, '.spawn.json'), 'utf8'));
-    assert.ok(Number.isInteger(spawned.pid) && spawned.pid > 0, `a pid: ${JSON.stringify(spawned)}`);
-    assert.equal(spawned.host, hostname());
-    assert.equal(spawned.pid, JSON.parse(readFileSync(join(dir, 'runs', run, 'run.json'), 'utf8')).pid, 'the spawned child IS the process that wrote run.json');
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('refusals after dispositions were written say so, and a dispositions write leaves no torn file', async () => {
-  // The person approves the first call and declines the second.
-  let asked = 0;
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, capabilities: { elicitation: {} }, onRequest: () => (++asked === 1 ? { action: 'accept', content: { send: true } } : { action: 'decline' }) });
-  try {
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'council' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 25 });
-    await finish(dir, sc(a).run);
-    const ids = sc(a).dissent.map(d => d.id);
-    // A second brief the person declines: the call is refused after the dispositions were written.
-    const q2 = await s.call('council_quote', { brief: OTHER({ sensitivity: 'confidential' }), mode: 'single' });
-    assert.equal(q2.isError, undefined, textOf(q2));
-    const r = await s.call('council_advise', { quote_id: sc(q2).quote_id, confirm_sha256: sc(q2).text.sha256, dispositions: ids.map((id, i) => ({ id, decision: 'accept', reason: `A specific reason number ${i} for this one` })) });
-    assert.equal(sc(r).code, 'declined');
-    assert.match(textOf(r), /The dispositions you gave were recorded/);
-    assert.ok(!/Nothing was sent, written or spent/.test(textOf(r)));
-    assert.equal(sc(r).dispositions_recorded, true);
-    assert.equal(existsSync(join(dir, 'runs', sc(a).run, 'advise-log.json.tmp')), false);
-  } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
-});
-
-// ---- other ways in -----------------------------------------------------------------------------------------------------------------
-
-test('start_run and resume_run refuse an advice chain: the tools that preview and ask the user are the only way in over MCP', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD (wave 1): start_run answered "mock-advise-standard is an advice chain, which start_run does not start. Nothing was sent or spent." (REM-w7), and resume_run was driven with a folder whose chain was missing. NEW: start_run answers REM-w22 (the "advise" block sentence) for the fixture chain mock-advise-quick, and resume_run is driven twice, also with a SHADOWING project chain advise-standard (a plain planning chain with no advise block) beside the old folder. WHY: the chain-based refusal reads the chain file's `advise` block, and REM-w21/w31 say the folder refusals are made on the folder's own files before any chain is looked up (Q3 rows: resume_run refusal; the shadowing row).
+test('start_run refuses a chain with an "advise" block (REM-w22); resume_run refuses an old advice folder (REM-w8), even one whose chain no longer exists or is shadowed by a plain project chain: nothing starts, nothing is spent, and neither sentence names a removed tool', async () => {
+  const dir = workdir(); const s = new Session(dir);
   try {
     mkdirSync(join(dir, 'tasks')); writeFileSync(join(dir, 'tasks', 't.md'), '# A brief\n\nShould we?\n');
-    for (const chain of ['mock-advise-single', 'advise-single', 'advise-standard']) {
-      const r = await s.call('start_run', { chain, task: 'tasks/t.md' });
-      const body = JSON.parse(textOf(r));
-      assert.equal(body.started, false); assert.match(body.error, /runs only through council_quote and council_advise/);
-    }
+    projectAdviceChain(dir, 'mock-advise-quick');
+    const r = await s.call('start_run', { chain: 'mock-advise-quick', task: 'tasks/t.md' });
+    const body = JSON.parse(textOf(r));
+    assert.equal(body.started, false);
+    assert.equal(body.error, 'mock-advise-quick has an "advise" block: the advice add-on was removed in 0.8.4, so this chain cannot run. Nothing was sent or spent.');
+    assert.doesNotMatch(body.error, /council_quote|council_advise/);
     assert.equal(existsSync(join(dir, 'runs')), false);
-    const q = await s.call('council_quote', { brief: BRIEF(), mode: 'single' });
-    const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 20 });
-    await finish(dir, sc(a).run);
-    const res = JSON.parse(textOf(await s.call('resume_run', { run: sc(a).run })));
-    assert.equal(res.resumed, false); assert.match(res.error, /advice run, which is not resumed over MCP/);
+    const REFUSAL = 'this is an advice run, which is not resumed over MCP (a resume would spend with no new preview or approval). An advice call is never continued. Nothing was spent.';
+    // (1) the folder names a chain that does not exist
+    const id = '2026-10-03T05-00-00-001Z';
+    const run = oldAdviceFolder(dir, id);
+    const res = JSON.parse(textOf(await s.call('resume_run', { run: id })));
+    assert.equal(res.resumed, false);
+    assert.equal(res.error, REFUSAL);
+    assert.doesNotMatch(res.error, /council_quote|council_advise/);
+    assert.equal(existsSync(join(run, 'build.md')), false);
+    // (2) the SHADOW: a project chains/advise-standard.json that is a plain planning chain, so a lookup by name would find a chain that could really run the folder's brief
+    const plain = JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'utf8'));
+    writeFileSync(join(dir, 'chains', 'advise-standard.json'), JSON.stringify({ ...plain, name: 'advise-standard' }));
+    const id2 = '2026-10-03T05-01-00-001Z';
+    const run2 = oldAdviceFolder(dir, id2, 'advise-standard');
+    const res2 = JSON.parse(textOf(await s.call('resume_run', { run: id2 })));
+    assert.equal(res2.resumed, false);
+    assert.equal(res2.error, REFUSAL);
+    assert.equal(existsSync(join(run2, 'build.md')), false);
+    assert.equal(existsSync(join(run2, 'deliverable.md')), false);
   } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('the CLI starts an advice call only on an approved gate (--advice-adopt, 0.8.1 DR-15), and --advice-meta is gone', async () => {
-  // The cases that need a person's approval (a brief changed after approval, one approval one send, the gate binding the chain and
-  // the cap) are in test/send-path.test.js, which approves through a real terminal as the plan asks.
-  const { requestGate } = await import('../src/gate.js');
-  const dir = workdir();
-  const env = { PATH: process.env.PATH, HOME: dir };
-  const cliRun = args => spawnSync(process.execPath, [cli, ...args], { cwd: dir, encoding: 'utf8', env, timeout: 60_000 });
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: "list_chains still marks a chain with the advise switch as tools-only" (advice_tools_only: true on a project's copy of an advice chain). NEW: no chain carries advice_tools_only, an advise-block chain included. WHY: list_chains no longer has the key (WORDING: `advice_tools_only` in list_chains is gone); the chain is still listed.
+test('list_chains has no advice_tools_only key on any chain, a project copy of the advise-block fixture included', async () => {
+  const dir = workdir(); const s = new Session(dir);
   try {
-    const id = '2026-10-03T00-00-00-000Z';
-    const run = join(dir, 'runs', id);
-    mkdirSync(run, { recursive: true });
-    const text = '# A brief\n\nShould we?\n';
-    writeFileSync(join(run, 'advice-brief.md'), text);
-    const meta = { schema: 'advice-meta/1', quote_id: `q_${'1'.repeat(24)}`, chain: 'mock-advise-single', gate: 'g1', brief_sha256: sha(text), mode: 'single', advisor: 'sol', effective_sensitivity: 'internal', question_hash: 'a'.repeat(16), question_words: ['deadbeef'], quoted: { worst_usd: 0, expected_usd: 0, ceiling_usd: 1 }, previous_run: null, dispositions: [] };
-    writeFileSync(join(run, 'advice.meta.json'), JSON.stringify(meta));
-    // the removed flag
-    const old = cliRun(['--chain', 'mock-advise-single', '--task', 'runs/x.md', '--advice-meta', 'm.json']);
-    assert.equal(old.status, 2);
-    assert.match(old.stderr, /--advice-meta was removed in 0\.8\.1/);
-    // no gate yet, then a pending gate: refused, nothing written
-    assert.equal(cliRun(['--advice-adopt', `runs/${id}`]).status, 2);
-    assert.ok(requestGate(run, { kind: 'advice', textPath: 'advice-brief.md', price: { ceiling_usd: 1 }, seats: [{ lab: 'mock-a', model: 'mock-x', retention: 'unknown' }], expiresAt: Date.now() + 600_000 }).ok);
-    const pending = cliRun(['--advice-adopt', `runs/${id}`]);
-    assert.equal(pending.status, 2);
-    assert.match(pending.stderr, /gate g1 is pending, not approved/);
-    assert.equal(existsSync(join(run, 'run.json')), false);
-    assert.equal(existsSync(join(run, 'advise-log.json')), false);
-    // anything next to it is refused; a folder outside runs/ is refused
-    assert.match(cliRun(['--advice-adopt', `runs/${id}`, '--task', 'x.md']).stderr, /--task cannot be given with it/);
-    assert.match(cliRun(['--advice-adopt', 'elsewhere']).stderr, /is not a folder in/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-// ---- the record -----------------------------------------------------------------------------------------------------------------------
-
-test('the record: report.json validates in both modes; advise-log.json holds no brief text and an empty owner_rating; audit.jsonl shows which text went where and verifies', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
-  try {
-    const runs = [];
-    for (const [brief, mode] of [[BRIEF(), 'single'], [OTHER(), 'council']]) {
-      const q = await s.call('council_quote', { brief, mode });
-      const a = await s.call('council_advise', { quote_id: sc(q).quote_id, confirm_sha256: sc(q).text.sha256, wait_seconds: 30 });
-      assert.equal(sc(a).kind, 'advice', textOf(a));
-      await finish(dir, sc(a).run);
-      runs.push([sc(a).run, sc(q).text.sha256, mode, sc(q).text.bytes]);
-      if (mode === 'single') { /* the single run has no dissent, so the council quote is not blocked */ }
-    }
-    for (const [run, hash, mode] of runs) {
-      const r = report(dir, run);
-      assert.equal(validateReport(r), true, `${mode}: ${JSON.stringify(validateReport.errors)}`);
-      assert.equal(r.task_sha256, hash);
-      assert.ok(Array.isArray(r.advise.sent_to) && r.advise.sent_to.length >= 1 && r.advise.sent_to.every(x => x.retention && 'served_by' in x));
-      assert.deepEqual(r.advise.dispositions, []);
-      const log = JSON.parse(readFileSync(join(dir, 'runs', run, 'advise-log.json'), 'utf8'));
-      assert.equal(log.schema, 'advise-log/1'); assert.equal(log.origin, 'tool'); assert.equal(log.mode, mode);
-      assert.equal(log.brief_sha256, hash);
-      assert.equal(log.owner_rating, null, 'one empty field a person fills in later');
-      assert.ok(log.wall_ms > 0 && log.spent_usd === 0 && typeof log.quoted.ceiling_usd === 'number' && log.date.match(/^\d{4}-\d{2}-\d{2}$/));
-      const raw = readFileSync(join(dir, 'runs', run, 'advise-log.json'), 'utf8');
-      for (const word of ['invoices', 'legacy', 'queue', 'worker', 'Redis']) assert.ok(!raw.includes(word), `no brief text in advise-log.json: ${word}`);
-      assert.match(raw, /No brief text is kept here/);
-      const lines = parseAuditLog(readFileSync(join(dir, 'runs', run, 'audit.jsonl'), 'utf8'));
-      const calls = lines.filter(l => l.type !== 'chain-close');
-      assert.ok(calls.length >= 1 && calls.every(l => /^[0-9a-f]{64}$/.test(l.promptSha256) && l.promptBytes > 0 && l.scan === 'clean' && 'endpoint' in l));
-      assert.equal(verifyAuditLog(lines).valid, true);
-      assert.ok(!readFileSync(join(dir, 'runs', run, 'audit.jsonl'), 'utf8').includes('invoices'), 'the audit line carries a hash, never the prompt');
-    }
-    const list = JSON.parse(textOf(await s.call('list_runs', {})));
-    assert.match(list[0].state, /^done: advice from \d of \d seat\(s\), leaning /, 'an abandoned run is found later by list_runs');
+    projectAdviceChain(dir, 'mock-advise-quick');
+    const chains = JSON.parse(textOf(await s.call('list_chains', {})));
+    assert.ok(chains.find(c => c.name === 'mock'), 'the shipped mock chain is listed');
+    assert.equal(chains.some(c => 'advice_tools_only' in c), false);
+    assert.equal(chains.some(c => c.name === 'advise-standard' || /^mock-advise-(standard|deep)$/.test(c.name)), false, 'the package ships no advice chain any more');
   } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('`advisor` is only for single mode, and an unknown advisor id is not in the schema', async () => {
-  const dir = workdir(); const s = new Session(dir, { env: MOCK, ...PERSON });
+// Q3 ROW (price_raise): an old advice folder has no resume and no price to raise; the refusal is made on the folder's own files and writes nothing (no pricing.user.json, nothing in the folder). NEW (0.8.4 add-on removal, wave 2): no other file drives price_raise on an advice folder.
+test('Q3: price_raise on an old advice folder is refused with its sentence, even when a plain project chain of the folder\'s name exists; nothing is written', async () => {
+  const dir = workdir(); const s = new Session(dir);
   try {
-    const r = await s.call('council_quote', { brief: BRIEF(), mode: 'council', advisor: 'astra' });
-    assert.equal(sc(r).code, 'advisor_needs_single');
-    const bad = await s.call('council_quote', { brief: BRIEF(), mode: 'single', advisor: 'grok' });
-    assert.equal(bad.isError, true, 'grok is not an option, and never will be');
+    mkdirSync(join(dir, 'chains'), { recursive: true });
+    writeFileSync(join(dir, 'chains', 'advise-standard.json'), JSON.stringify({ ...JSON.parse(readFileSync(join(root, 'chains', 'mock.json'), 'utf8')), name: 'advise-standard' }));
+    const id = '2026-10-03T05-02-00-001Z';
+    const run = oldAdviceFolder(dir, id, 'advise-standard');
+    for (const step of ['quote', 'confirm']) {
+      const r = JSON.parse(textOf(await s.call('price_raise', { run: id, step, ...(step === 'confirm' ? { shown: 'a'.repeat(64), reason: 'yes' } : {}) })));
+      assert.equal(r.refusal, 'this is an advice run, which has no resume and no price to raise here. Nothing was written.', step);
+    }
+    assert.equal(existsSync(join(dir, 'pricing.user.json')), false, 'no price row was written');
+    assert.equal(existsSync(join(run, 'build.md')), false);
   } finally { await s.close(); rmSync(dir, { recursive: true, force: true }); }
 });

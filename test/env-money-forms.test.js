@@ -8,6 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -22,10 +23,11 @@ function folder(dotenv, policy) {
 const base = dir => ({ PATH: process.env.PATH, HOME: dir });
 const doctor = (dir, env = {}) => spawnSync(process.execPath, [cli, 'doctor'], { cwd: dir, env: { ...base(dir), ...env }, encoding: 'utf8', timeout: 60_000 });
 
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD the server's env carried COUNCIL_ADVISE_MOCK: '1' (mock-advice mode). NEW it carries the malformed provider keys (test/helpers/no-real-keys.js), before the test's own `env`, so no key from a clone's .env or the shell can reach a provider from this server. WHY the server no longer reads COUNCIL_ADVISE_MOCK; the rows only start the server and refuse at start, which reaches no provider. (Refs: Q8.)
 // Starts an MCP server entry, sends initialize and the given tools/call requests; resolves { exit, stderr, started, results } when it exits, answers everything or 20 s pass.
 function boot({ entry, cwd, env = {}, calls = [] }) {
   return new Promise(done => {
-    const child = spawn(process.execPath, entry, { cwd, env: { ...base(cwd), COUNCIL_ADVISE_MOCK: '1', ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, entry, { cwd, env: { ...base(cwd), ...malformedProviderKeys(), ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
     let err = ''; child.stderr.on('data', d => { err += d; });
     const byId = new Map(); let buf = ''; let exit = null; let finished = false;
     const finish = () => { if (finished) return; finished = true; clearTimeout(timer); try { child.kill(); } catch { /* gone */ } done({ exit, stderr: err, started: byId.has(1), results: calls.map((_, i) => byId.get(i + 2)) }); };

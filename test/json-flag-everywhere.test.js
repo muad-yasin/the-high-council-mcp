@@ -33,6 +33,7 @@ const REFUSED = [
   ['--replay WITHOUT --dry-run', ['--replay', 'runs/none', '--json']],
   ['--spend WITH --dry-run (a mode that never prints the JSON dry run)', ['--spend', '--dry-run', '--json']],
   ['--help WITH --dry-run (prints the usage and exits)', ['--help', '--dry-run', '--json']],
+  ['accept (0.8.4 D2)', ['accept', 'runs/none', '--reason', 'why', '--json']],
 ];
 for (const [name, args] of REFUSED) {
   test(`JF-1 ${name} --json: refused (exit 2, one sentence), nothing run, no run folder`, () => withWork(dir => {

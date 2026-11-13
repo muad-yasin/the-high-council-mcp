@@ -115,6 +115,34 @@ test('replay row, report.json and BOARD: a session seat answered by another comp
   assert.match(renderBoardMd({ runId: 'x', result: without }), /answered by a client that gave no name as not declared \(company not known\)/);
 });
 
+// 0.8.4 session switch (SSW-w4, SSW-w7), the real path: runChain with a judge seated through a session and answered from the stage cache (no pause, no paid call), then reportJsonShape + the published schema + renderBoardMd. Both sides in one test:
+// the same run with a mock judge (only the builder is a session seat) carries no `panel_session_seats` and no BOARD sentence.
+test('SESSION SWITCH real path: a judge answered through a session gives report.json panel_session_seats (validates) and the BOARD sentence; a run whose only session seat is the writer gives neither', async () => {
+  const PASS = JSON.stringify({ meets: true, criteria: [], failures: [], verdict_line: 'ok' });
+  const hit = text => ({ text, provider: 'external', model: 'session', usage: { input: 0, output: 4 }, usd: 0, ms: 0 });
+  const sessionJudge = () => ({ ...cfg(), signoff: 'unanimous', seats: { ...cfg().seats, critics: [{ provider: 'external', model: 'subscription:opus-5.5', lab: 'opus5.5-sub' }] } });
+  let result, writerOnly;
+  try {      // a pause on a stage that is not cached must not leave the cache set for the next test of this file
+    setBudget(null);
+    setCache({ get: l => (l === 'build' ? hit('# Plan\n\nDo the thing.\n') : /^(panel|final-read)-/.test(l) ? hit(PASS) : null), warn() {}, invalidate() {} });
+    result = await runChain({ request: 'Req.', config: sessionJudge(), log: () => {} });
+    setCache(hitOf({})); writerOnly = await runChain({ request: 'Req.', config: cfg(), log: () => {} });
+  } finally { setCache(null); }
+  const panelRows = result.stages.filter(s => /^panel-/.test(s.label) && s.provider === 'external');
+  assert.ok(panelRows.length >= 1, `precondition: a panel stage was answered through a session seat: ${result.stages.map(s => `${s.label}/${s.provider}`).join(', ')}`);
+  const rep = reportJsonShape({ runId: 'x', chain: 'c', task: 't', result, config: sessionJudge() });
+  assert.ok(validate(rep), JSON.stringify(validate.errors, null, 2));
+  assert.equal(rep.roster_answers.panel_session_seats, panelRows.length);
+  assert.match(renderBoardMd({ runId: 'x', result }), /Companies on the panel as recorded: \d+\. Session seats whose company is not known: \d+\. The chain was designed for \d+\. Nothing checks that the session seats on the panel were answered by separate sessions\./);
+  // the other side
+  assert.equal(writerOnly.stages.some(s => /^panel-/.test(s.label) && s.provider === 'external'), false, 'precondition: no panel stage went through a session');
+  const repW = reportJsonShape({ runId: 'x', chain: 'c', task: 't', result: writerOnly, config: cfg() });
+  assert.ok(validate(repW), JSON.stringify(validate.errors, null, 2));
+  assert.ok(repW.roster_answers, 'the writer is a session seat, so the record exists');
+  assert.equal('panel_session_seats' in repW.roster_answers, false);
+  assert.doesNotMatch(renderBoardMd({ runId: 'x', result: writerOnly }), /Nothing checks that the session seats on the panel/);
+});
+
 test('a run with no session seat has no roster_answers key and no BOARD section (byte for byte what it was)', async () => {
   setBudget(null); setCache(null);
   const mockOnly = { name: 'plain', maxRounds: 1, criteria: ['It exists.'], seats: { builder: { provider: 'mock', model: 'mock-builder' }, reviser: { provider: 'mock', model: 'mock-builder' }, critics: [{ provider: 'mock', model: 'mock-critic-a' }] } };
@@ -175,7 +203,8 @@ test('the NEEDS file of a real paused run carries S3 for a seat that asks for a 
   assert.equal(p.status, 3, `${p.stdout}${p.stderr}`);
   const dir = join(work, 'runs', readdirSync(join(work, 'runs'))[0]);
   const need = readFileSync(join(dir, readdirSync(dir).find(f => /^NEEDS-.*\.md$/.test(f))), 'utf8');
-  assert.match(need, /\n\nThis seat is asked for subscription:opus-5\.5\. If a different model answers, say so with answered_model\.\n\n## System prompt\n\n/);
+  // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the S3 sentence was followed by the heading "## System prompt". NEW: the recorded external-stage paragraph ("You may have the project open. ...") sits between them. WHY: externalStageParagraph is recorded (src/prompts/recorded-084-a.js, row NS-0178).
+  assert.match(need, /\n\nThis seat is asked for subscription:opus-5\.5\. If a different model answers, say so with answered_model\.\n\nYou may have the project open\. Anything you use from it beyond the fenced source goes into the run as an excerpt \(record it\) or is marked \[UNVERIFIED: \.\.\.\]; never write that the plan or the panel saw the repository\.\n\n## System prompt\n\n/);
   // the unmodified mock-external chain asks for no model: no sentence
   const w = pausedRun();
   assert.doesNotMatch(readFileSync(join(w.dir, `NEEDS-${w.stage}.md`), 'utf8'), /This seat is asked for/);

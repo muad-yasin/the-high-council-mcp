@@ -9,16 +9,18 @@ import { ownPinOf } from '../src/price-pin.js';
 
 // qwen/qwen3.7-plus: shipped row 0.4 in / 1.6 out per million (src/pricing.json)
 const seatWith = pin => ({ provider: 'openrouter', model: 'qwen/qwen3.7-plus', lab: 'qwen-pin', maxTokens: 1000, extra: { provider: { max_price: pin } } });
-const usage = { input: 1_000_000, output: 1_000_000 };
+// CHANGED ACCEPTED TEST (DUALCAP 4d, 1 Nov 2026). OLD: usage.input 1,000,000 tokens. NEW: 250,000. WHY: qwen/qwen3.7-plus has a price step from 256,000 prompt tokens, and costOf now prices a call at the step its prompt reaches, so 1,000,000 input tokens is a
+// stepped call; this test pins max(row, own pin) per field, so it stays under the step (the step itself is pinned in price-size-wiring.test.js).
+const usage = { input: 250_000, output: 1_000_000 };
 
 test('OP-1: costOf prices each field at the higher of the table row and the seat\'s own pin; a pin below the row, a missing pin and a half pin never lower it', () => {
-  assert.equal(costOf('openrouter', 'qwen/qwen3.7-plus', usage).usd, 0.4 + 1.6, 'no pin: the row');
-  assert.equal(costOf('openrouter', 'qwen/qwen3.7-plus', usage, { prompt: 3, completion: 15 }).usd, 3 + 15, 'a pin above the row on both fields');
-  assert.equal(costOf('openrouter', 'qwen/qwen3.7-plus', usage, { prompt: 0.1, completion: 0.2 }).usd, 0.4 + 1.6, 'a pin below the row never lowers it');
-  assert.equal(costOf('openrouter', 'qwen/qwen3.7-plus', usage, { completion: 9 }).usd, 0.4 + 9, 'a field the seat leaves out stays at the row');
+  assert.equal(costOf('openrouter', 'qwen/qwen3.7-plus', usage).usd, 0.25 * 0.4 + 1.6, 'no pin: the row');
+  assert.equal(costOf('openrouter', 'qwen/qwen3.7-plus', usage, { prompt: 3, completion: 15 }).usd, 0.25 * 3 + 15, 'a pin above the row on both fields');
+  assert.equal(costOf('openrouter', 'qwen/qwen3.7-plus', usage, { prompt: 0.1, completion: 0.2 }).usd, 0.25 * 0.4 + 1.6, 'a pin below the row never lowers it');
+  assert.equal(costOf('openrouter', 'qwen/qwen3.7-plus', usage, { completion: 9 }).usd, 0.25 * 0.4 + 9, 'a field the seat leaves out stays at the row');
   assert.equal(costOf('openrouter', 'qwen/not-in-the-table', usage, { prompt: 9, completion: 9 }).priced, false, 'no row: still unpriced');
   const seat = seatWith({ prompt: 3, completion: 15 });
-  assert.equal(costOf(seat.provider, seat.model, usage, ownPinOf(seat)).usd, worstCaseOf(seat.provider, seat.model, { promptChars: 4_000_000, maxTokens: 1_000_000, pin: ownPinOf(seat) }).usd, 'the recorded figure for a full call equals the projection for it');
+  assert.equal(costOf(seat.provider, seat.model, usage, ownPinOf(seat)).usd, worstCaseOf(seat.provider, seat.model, { promptChars: 1_000_000, maxTokens: 1_000_000, pin: ownPinOf(seat) }).usd, 'the recorded figure for a full call equals the projection for it');
 });
 
 // the fetch stub: every request is answered with 1000 output tokens (the host bills what the pin allows)

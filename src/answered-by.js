@@ -3,7 +3,7 @@
 // A session seat (`provider: "external"`) is answered by whatever coding-agent session the person runs: MCP only hands the server the client's
 // handshake name and the caller's own arguments, nothing from the model itself, so everything here is a statement, not a measurement. The record
 // lives in `<label>.usage.json` (the run folder is the database), reaches `report.json` as `stages[].answered_by`, and feeds ONE reader: the
-// company tally below, which only the report and the BOARD show. It never steers a stage label, a cache key, an approval, a dollar or a
+// company tally below, which only the report and the BOARD show, and (M0 FIX 3, RU-S1-23/24) the exchange record's makers (`layerDebatesWithMakers`, report side only; the chain writes only the maker of an API seat's post, from the chain's own model). It never steers a stage label, a cache key, an approval, a dollar or a
 // resume (labOf/seatKeyOf stay the control flow; test/answered-by-read-sites.test.js pins the only files allowed to read the field).
 import { blankHiddenChars } from './hidden-chars.js';
 
@@ -55,6 +55,13 @@ export function answerRecordOf(hit, seat) {
   const stored = readStored(hit?.answered_by);
   return { asked_for: typeof seat.model === 'string' ? seat.model : null, ...(stored ? { answered_by: stored } : {}) };
 }
+
+/**
+ * How a stage row's `model` is known (0.8.4, lane C: the persona record's `model_source`; this module owns the field it reads). 'provider': the row was answered through a provider and `model` is the id the seat was
+ * seated with, as the record writer stores it (not checked against the reply). 'declared': a session seat's answerer named a model (stored, never verified). 'undeclared': a session seat's answerer named none, or the
+ * answer was written as a file by hand. Reads the row only; it steers nothing.
+ */
+export const modelSourceOf = row => (row?.provider === 'external' ? (typeof row.answered_by?.model === 'string' && row.answered_by.model ? 'declared' : 'undeclared') : 'provider');
 
 // ---- the one model-to-company table (test/plan-tiers.test.js imports it; the typed "N judges from M companies" counts are companies by model id) ----
 
@@ -134,7 +141,7 @@ export function rosterAnswersOf(stages) {
       const e = seats.find(x => x.label === s.label);
       const d = companyOfSeat({ provider: 'external', model: s.asked_for });
       if (d) design.add(d);
-      if (e?.company) recorded.add(e.company); else unverified.add(s.lab ?? s.label);
+      if (e?.company) recorded.add(e.company); else unverified.add(s.seat ?? s.lab ?? s.label);
     } else {
       const c = companyOfSeat(s);
       if (c) { design.add(c); recorded.add(c); }
@@ -144,9 +151,48 @@ export function rosterAnswersOf(stages) {
     design_companies: design.size,
     recorded_companies: recorded.size,
     unverified_seats: unverified.size,
+    ...(panel.some(s => s.provider === 'external') ? { panel_session_seats: panel.filter(s => s.provider === 'external').length } : {}),      // present only when a judge was answered through a session: nothing checks that those were separate sessions (src/report-shape.js says so)
     seats,
     note: 'As declared by the client and the session; never verified.',
   };
+}
+
+/**
+ * The maker (company) of the seat that wrote one STAGE, as the record can say it (RU-S1-23/24, Q3(f), D36; record only, never weighed): a model-API seat by its model's company; a SESSION seat by the company of the model its answer
+ * DECLARED (never the model the chain asks for); a mock seat, a harness stage, a session seat with no usable declaration, a model the table has no row for: null.
+ */
+export function makerOfStage(row) {
+  if (!row || typeof row !== 'object' || row.provider === 'mock' || row.provider === 'harness') return null;
+  if (row.provider === 'external') return companyOfModel(row.answered_by?.model);
+  return companyOfModel(row.model);
+}
+
+/**
+ * report.json `layer_debates` with the makers added (RU-S1-23 and RU-S1-24, M0 FIX 3; additive; absent where no maker is known): every post keeps its poster's `maker` (the chain wrote it for an API seat; here a session seat's is read
+ * from the stage that made the post, `ldebate-<pass>[-x<round>]-<poster>`, by the company its answer declared; a carried copy of a post keeps the maker of the post it copies); every objection row gets `raiser_maker` (the seat that raised it, from the stage its `raised_in` names: its blind-review stage, a re-ask of it, or the exchange post that named the objection) and `makers`: { raised, supported, contested }, the distinct makers of the counted posts of each stance (a maker with no known company is left out). `stages` are
+ * the run's stage rows. Pure; a row it cannot enrich is returned as it was.
+ */
+export function layerDebatesWithMakers(layerDebates, stages) {
+  if (!Array.isArray(layerDebates) || !layerDebates.length) return layerDebates;
+  const byLabel = new Map((Array.isArray(stages) ? stages : []).filter(s => s && typeof s.label === 'string').map(s => [s.label, s]));
+  const postStage = (pass, round, by) => byLabel.get(`ldebate-${pass}${round > 1 ? `-x${round}` : ''}-${by}`);
+  return layerDebates.map(d => ({
+    ...d,
+    objections: (d.objections || []).map(o => {
+      const lastReal = new Map();
+      const posts = (Array.isArray(o.posts) ? o.posts : []).map(p => {
+        let maker = typeof p.maker === 'string' && p.maker ? p.maker : (p.carried ? (lastReal.get(p.by) ?? null) : makerOfStage(postStage(d.pass, p.round, p.by)));
+        if (!p.carried) lastReal.set(p.by, maker);
+        return maker ? { ...p, maker } : p;
+      });
+      const raiserStage = typeof o.raised_in === 'string' ? byLabel.get(o.raised_in) : undefined;   // the stage that produced the objection (M0 FIX-UP 2, item 3: the record names it, `raised_in`: a blind-review stage or a re-ask of it, or the exchange post that named the objection; a carried objection keeps the one it was first raised in); a row without it has no raiser's maker
+      const raiserMaker = makerOfStage(raiserStage);
+      const of = stance => [...new Set(posts.filter(p => p.counted !== false && p.stance === stance && p.maker).map(p => p.maker))].sort();
+      const supported = of('support'), contested = of('contest');
+      const any = raiserMaker || supported.length || contested.length;
+      return { ...o, posts: Array.isArray(o.posts) ? posts : o.posts, ...(any ? { ...(raiserMaker ? { raiser_maker: raiserMaker } : {}), makers: { raised: raiserMaker ? [raiserMaker] : [], supported, contested } } : {}) };
+    }),
+  }));
 }
 
 // ---- the sentences (A-DRAFT: harness a; S3 is approved verbatim by Muad's "Q2: yes" of 23 Okt 2026, S4/S5 are drafts whose behaviour he approved with "Q1: a") ----

@@ -120,9 +120,9 @@ test('the suggestion: a known flag that starts with what was typed wins over a n
 });
 
 // --- the list is complete: every option the CLI reads is on it --------------------------------------------------------------------------------------------------------------------
-// Every file that is handed argv (or a slice of it) by src/cli.js: contractCommand, gateCommand, adviseRateCommand and stopCommand.
+// Every file that is handed argv (or a slice of it) by src/cli.js: contractCommand and gateCommand (0.8.4: adviseRateCommand and stopCommand left with the advice add-on).
 // 0.8.3 M5b: src/tree-cli.js (`council tree ...`) spells every option its verbs take with their dashes, so this scan sees them.
-const OPTION_FILES = ['src/cli.js', 'src/contract-cli.js', 'src/gate-cli.js', 'src/advise-rate.js', 'src/advice-stop.js', 'src/tree-cli.js'];
+const OPTION_FILES = ['src/cli.js', 'src/contract-cli.js', 'src/gate-cli.js', 'src/tree-cli.js'];   // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD the list also held src/advise-rate.js and src/advice-stop.js. NEW it does not. WHY both files are deleted with the verbs `council advise-rate` and `council stop`; reading a missing file would fail the scan, and no option is left unread by dropping them.
 // Every `--name` that appears on a non-comment line of a file that reads options, every flag('name') call, and the names of a `for (const name of [...])` loop (src/cli.js checks six value flags
 // that way, then calls flag(name)). Known limit: any OTHER flag(variable) is invisible to this scan; the first test that passes that option sees it refused, which is how it would be found.
 function optionsReadBy(files, readFile = f => readFileSync(join(root, f), 'utf8')) {
@@ -157,7 +157,7 @@ test('documented but never read: `council init [--yes]` is on the list (it is na
 });
 
 test('every option the README and docs show on a council command line is on the known list', () => {
-  const files = ['README.md', 'AI-README.md', 'TROUBLESHOOTING.md', 'CONTRIBUTING.md', ...readdirSync(join(root, 'docs')).filter(f => f.endsWith('.md')).map(f => `docs/${f}`)];
+  const files = ['README.md', 'KNOWN-LIMITS.md', 'AI-README.md', 'TROUBLESHOOTING.md', 'CONTRIBUTING.md', ...readdirSync(join(root, 'docs')).filter(f => f.endsWith('.md')).map(f => `docs/${f}`)];
   const shown = new Set();
   for (const f of files) {
     let fenced = false;
@@ -173,6 +173,31 @@ test('every option the README and docs show on a council command line is on the 
   assert.deepEqual(missingFrom(shown, KNOWN), []);
 });
 
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the spawners scanned were src/api.js, src/mcp/server.js, src/mcp/advice.js and src/send-path.js. NEW: src/mcp/advice.js is not in the list. WHY: the file is deleted with the MCP advice tools (the scan would fail to read it); the other three still spawn the CLI.
 test('every option a spawner of the CLI passes (api.js, the MCP server, the send path) is on the known list', () => {
-  assert.deepEqual(missingFrom(optionsReadBy(['src/api.js', 'src/mcp/server.js', 'src/mcp/advice.js', 'src/send-path.js']), KNOWN), []);
+  assert.deepEqual(missingFrom(optionsReadBy(['src/api.js', 'src/mcp/server.js', 'src/send-path.js']), KNOWN), []);
+});
+
+// NEW (0.8.4 add-on removal, wave 2): `--advice-adopt` left with the add-on, so it is on neither list and the CLI refuses it like any unknown option, before the command does anything. `--advice-meta`, removed in 0.8.1, keeps its own refusal (REM-w24).
+test('`--advice-adopt` is an unknown option now: exit 2 before anything runs, with a value or without, and it is on neither list', () => {
+  assert.equal(KNOWN.has('advice-adopt'), false);
+  const dir = workDir();
+  try {
+    for (const args of [['--advice-adopt'], ['--advice-adopt', 'runs/2026-10-02T10-00-00-000Z', '--chain', 'mock', '--task', join(dir, 'tasks', 'x.md')]]) {
+      const r = run(dir, args);
+      assert.equal(r.status, 2, `${args.join(' ')}: ${r.stderr}`);
+      assert.match(r.stderr, /^--advice-adopt: not an option of this command/);
+      assert.equal(existsSync(join(dir, 'runs')), false, 'no run folder');
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('REM-w24: `--advice-meta` still has its own refusal, in the 0.8.4 words: exit 2, nothing run, nothing spent', () => {
+  const dir = workDir();
+  try {
+    const r = run(dir, ['--advice-meta', '--chain', 'mock', '--task', join(dir, 'tasks', 'x.md')]);
+    assert.equal(r.status, 2, r.stderr);
+    assert.equal(r.stderr.trim(), '--advice-meta was removed in 0.8.1, and the advice add-on with it in 0.8.4. Nothing was run and nothing was spent.');
+    assert.equal(existsSync(join(dir, 'runs')), false, 'no run folder');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

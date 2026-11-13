@@ -8,16 +8,16 @@
   },
   "_transportCeilingsNote": "The largest reply a seat on this wire provider is retried at: 64,000 is the ceiling the code carried since 0.8.0 (src/chain.js CUT_OFF_RETRY_MAX_TOKENS, observed, no derivation recorded) and a direct non-streaming Anthropic call cannot return more inside Node's 300 s headers limit (src/providers.js); streaming is out of scope for 0.8.1.",
   "sources": {
-    "anthropic-effort": "https://platform.claude.com/docs/en/build-with-claude/effort (supportedModels list; per-model defaults; Opus 5.5 default medium)",
+    "anthropic-effort": "https://platform.claude.com/docs/en/build-with-claude/effort (supportedModels list; per-model defaults; Opus 5.5 and Haiku 5.5 default medium) and https://platform.claude.com/docs/en/models/overview (Haiku 5.5: adaptive thinking, 128K max output, read 2 Nov 2026)",
     "anthropic-thinking": "https://platform.claude.com/docs/en/build-with-claude/thinking (Haiku 4.5 keeps thinking: {type: enabled, budget_tokens}, minimum 1,024, below max_tokens; effort is not listed for it)",
-    "openrouter-models": "https://openrouter.ai/api/v1/models (public list: supported_parameters, reasoning.supported_efforts, reasoning.default_effort, top_provider.max_completion_tokens; the max is the router's number, which for some models is 0.9 x the context window and not the lab's own limit; for the ids in the LAB_OUTPUT_LIMITS map of scripts/refresh-reasoning-table.mjs it is the lab's own published limit (or, where the id's note says so, the owner's pick) instead: GLM-5.3 and GLM-5.3 Flash 131,072, the schema maximum on https://docs.z.ai/api-reference/llm/chat-completion beside the guides https://docs.z.ai/guides/llm/glm-5.3 and https://docs.z.ai/guides/llm/glm-5.3-flash (\"128K\"), read 2026-10-18, spot-checked 2026-10-23; the ids of the same map that carry a note instead of a number are models for which no output limit was found on the lab pages named in their note: their row holds maxOutput null and a dated maxOutputNote, and the router's number is not used; one id of the map, deepseek-v4-pro-0813, carries a number AND a note: that figure is the owner's pick, not a lab figure, and its maxOutputNote says so)",
+    "openrouter-models": "https://openrouter.ai/api/v1/models (public list: supported_parameters, reasoning.supported_efforts, reasoning.default_effort, top_provider.max_completion_tokens; the max is the router's number, which for some models is 0.9 x the context window and not the lab's own limit; for the ids in the LAB_OUTPUT_LIMITS map of scripts/refresh-reasoning-table.mjs it is the lab's own published limit (or, where the id's note says so, the owner's pick) instead: GLM-5.3 and GLM-5.3 Flash 131,072, the schema maximum on https://docs.z.ai/api-reference/llm/chat-completion beside the guides https://docs.z.ai/guides/llm/glm-5.3 and https://docs.z.ai/guides/llm/glm-5.3-flash (\"128K\"), read 2026-10-18, spot-checked 2026-10-23; Gemini 4 Argon 32,768, the per-request limit of one non-streaming call on https://ai.google.dev/gemini-api/docs/generate-content/latest-model (\"One non-streaming request returns up to 32,768 tokens\"; one streaming request 65,536 and long decode up to 1M minus the input, neither of which this harness uses because its provider adapters do not stream), read 2026-10-30; the ids of the same map that carry a note instead of a number are models whose lab pages state no limit: their row holds maxOutput null and a dated maxOutputNote, and the router's number is not used; one id of the map, deepseek-v4-pro-0813, carries a number AND a note: that figure is the owner's pick, not a lab figure, and its maxOutputNote says so)",
     "openrouter-reasoning": "https://openrouter.ai/docs/guides/best-practices/reasoning-tokens (reasoning: {effort}; models that only take a token budget get the effort turned into a share of max_tokens)",
     "openai-reasoning": "https://developers.openai.com/api/docs/guides/reasoning (Chat Completions field reasoning_effort)",
     "google-openai-compat": "https://ai.google.dev/gemini-api/docs/openai (reasoning_effort minimal/low/medium/high/none; Gemini 2.5 Pro and 3 cannot be turned off)",
     "qwen-model-card": "https://huggingface.co/Qwen/Qwen3.5-9B (thinking is the default; chat_template_kwargs {enable_thinking: false} turns it off; 32,768 output tokens recommended for most queries, 81,920 for the hardest)",
     "deepseek-v41-model-card": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash (its chat template, read 2026-10-14: kwargs thinking_mode \"thinking\"|\"chat\" default \"thinking\" (enable_thinking is an alias); reasoning_effort an integer 1-100 or low/medium/high/max, default \"high\", the template's own map low 50 / medium 62 / high 75 / max 100) and https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4.1-Flash (read 2026-10-14: chat_template_kwargs {thinking, reasoning_effort}; low 25 / high 50 / xhigh 75 / max 100 or an integer 1-100; \"medium\" and \"minimal\" rejected; the page says the DeepSeek API maps low/high/max to 50/75/100 while the open-source encoder, and so vLLM, maps low/high/xhigh/max to 25/50/75/100, so \"high\" runs at 50 there, with both keys unset thinking is ON at effort 50). THE TWO SOURCES DISAGREE on what \"high\" is (75 vs 50) and on the default, and Together's own reasoning page (docs.together.ai/docs/inference/chat/reasoning.md, read 2026-10-14) does NOT list V4.1 Flash (it shows chat_template_kwargs {thinking: true} passed through for Qwen3.5), so which map Together applies, and that it passes these kwargs for this id, is NOT established; the form is inferred from the model's template, defaultEffort is left null on purpose DECISION (C&C 14 Oct 2026): the shipped seat sends the INTEGER 75 inside chat_template_kwargs, not the word: 75 is \"high\" on the template's map and on the DeepSeek API's map and equals vLLM's \"xhigh\", so it is high or above on every map read here; Together's API reference types the TOP-LEVEL reasoning_effort as an enum of low/medium/high and types chat_template_kwargs as an untyped object, so the integer goes inside chat_template_kwargs. `highAtLeast` (75) on the row is the number from which an integer counts as high; a row without it treats every integer as a lowering.",
     "deepseek-v4-recipe": "https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4-Flash (chat_template_kwargs {thinking: true, reasoning_effort: \"high\"|\"max\"}; the same `thinking` switch the shipped chains used, set to false, on Together; the page is vLLM's serving recipe, Together's own page was not found, so the on-value is not confirmed on Together)",
-    "zai-thinking": "https://docs.z.ai/guides/capabilities/thinking-mode (thinking: {type: enabled|disabled}, no levels; GLM-5.3 and GLM-5.3-FLASH forced on)"
+    "zai-thinking": "https://docs.z.ai/guides/capabilities/thinking-mode (thinking: {type: enabled|disabled}; GLM-5.3 and GLM-5.3-FLASH forced on, cannot be disabled) and https://docs.z.ai/api-reference/llm/chat-completion (reasoning_effort, \"Controls the model's reasoning effort level, takes effect when `thinking` is enabled\"; default max; GLM-5.3 and GLM-5.3-FLASH accept low, high, max; read 2 Nov 2026). The seats here are reached through OpenRouter, whose own field is reasoning.effort (the openrouter-effort form)"
   },
   "forms": {
     "anthropic-effort": {
@@ -186,7 +186,28 @@
       "source": "anthropic-effort",
       "defaultAboveHigh": false
     },
+    "anthropic/claude-fable-5-2": {
+      "form": "anthropic-effort",
+      "maxOutput": 128000,
+      "defaultEffort": "high",
+      "source": "anthropic-effort",
+      "defaultAboveHigh": false
+    },
     "anthropic/claude-opus-5-5": {
+      "form": "anthropic-effort",
+      "maxOutput": 128000,
+      "defaultEffort": "medium",
+      "source": "anthropic-effort",
+      "defaultAboveHigh": false
+    },
+    "anthropic/claude-sonnet-5-5": {
+      "form": "anthropic-effort",
+      "maxOutput": 128000,
+      "defaultEffort": "high",
+      "source": "anthropic-effort",
+      "defaultAboveHigh": false
+    },
+    "anthropic/claude-haiku-5-5": {
       "form": "anthropic-effort",
       "maxOutput": 128000,
       "defaultEffort": "medium",
@@ -208,6 +229,21 @@
       "defaultAboveHigh": false
     },
     "openrouter/anthropic/claude-fable-5.1": {
+      "form": "openrouter-effort",
+      "maxOutput": 128000,
+      "defaultEffort": "high",
+      "supportedEfforts": [
+        "max",
+        "xhigh",
+        "high",
+        "medium",
+        "low"
+      ],
+      "mandatory": true,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
+    "openrouter/anthropic/claude-fable-5.2": {
       "form": "openrouter-effort",
       "maxOutput": 128000,
       "defaultEffort": "high",
@@ -411,6 +447,19 @@
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
+    "openrouter/google/gemini-4-argon": {
+      "form": "openrouter-effort",
+      "maxOutput": 32768,
+      "defaultEffort": "medium",
+      "supportedEfforts": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "mandatory": true,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
     "openrouter/meta-llama/llama-3.3-70b-instruct": {
       "form": null,
       "maxOutput": 16384,
@@ -473,6 +522,22 @@
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
+    "openrouter/minimax/minimax-m3.1-flash": {
+      "form": "openrouter-effort",
+      "maxOutput": null,
+      "maxOutputNote": "no output limit found on platform.minimax.io (api-reference/text-openai-api: it lists a 1,000,000 context window and describes max_completion_tokens without a figure); the router declares 524,288, which is not used; read 2026-10-30",
+      "defaultEffort": "max",
+      "supportedEfforts": [
+        "max",
+        "xhigh",
+        "high",
+        "medium",
+        "low"
+      ],
+      "mandatory": true,
+      "source": "openrouter-models",
+      "defaultAboveHigh": true
+    },
     "openrouter/mistralai/mistral-large": {
       "form": null,
       "maxOutput": 102400,
@@ -507,6 +572,21 @@
       "mandatory": false,
       "source": "openrouter-models",
       "defaultAboveHigh": false
+    },
+    "openrouter/moonshotai/kimi-k3.1-pro": {
+      "form": "openrouter-effort",
+      "maxOutput": null,
+      "maxOutputNote": "no output limit found for K3.1 Pro on platform.kimi.ai (the kimi-k3-quickstart page documents Kimi K3: max_completion_tokens defaults to 131072 and can be set up to 1048576, the window); the router declares 943,718, which is 0.9 x the context window and is not used; read 2026-10-30",
+      "defaultEffort": "max",
+      "supportedEfforts": [
+        "max",
+        "high",
+        "low",
+        "none"
+      ],
+      "mandatory": false,
+      "source": "openrouter-models",
+      "defaultAboveHigh": true
     },
     "openrouter/openai/gpt-5": {
       "form": "openrouter-effort",
@@ -612,6 +692,22 @@
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
+    "openrouter/openai/gpt-6.1-terra": {
+      "form": "openrouter-effort",
+      "maxOutput": 128000,
+      "defaultEffort": "medium",
+      "supportedEfforts": [
+        "max",
+        "xhigh",
+        "high",
+        "medium",
+        "low",
+        "none"
+      ],
+      "mandatory": false,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
     "openrouter/qwen/qwen3.5-9b": {
       "form": "openrouter-effort",
       "maxOutput": null,
@@ -639,6 +735,21 @@
       "mandatory": false,
       "source": "openrouter-models",
       "defaultAboveHigh": false
+    },
+    "openrouter/qwen/qwen3.8-27b": {
+      "form": null,
+      "maxOutput": 128000,
+      "maxOutputNote": "the owner's pick (2026-11-09), not a lab figure: Alibaba Model Studio gives 131,072 for this model (https://www.alibabacloud.com/help/en/model-studio/qwen3-8-27b, read 2026-11-09) and OpenRouter's model page says 65,536; its public endpoint list (https://openrouter.ai/api/v1/models/qwen/qwen3.8-27b/endpoints, read 2026-11-09 21:16 CET) shows 14 zero-data-retention hosts at or under the row price that return at least 128,000 (smallest context window 262,144); his words (2026-11-09, 21:49 and 22:25 CET): raise it to 128k \"if possible\", and \"I like the uniformity of 128k\"",
+      "defaultEffort": "xhigh",
+      "supportedEfforts": [
+        "xhigh",
+        "medium",
+        "low",
+        "none"
+      ],
+      "mandatory": false,
+      "source": "openrouter-models",
+      "defaultAboveHigh": true
     },
     "openrouter/qwen/qwen3.8-flash": {
       "form": "openrouter-effort",

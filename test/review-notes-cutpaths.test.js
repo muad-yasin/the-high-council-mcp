@@ -14,7 +14,8 @@ afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setB
 const CRITERION = 'The plan defines a retry limit.';
 const DRAFT = 'The worker retries failed requests.';
 const signoff = (extra = {}) => JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok', ...extra });
-const objecting = (extra = {}) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [{ criterion: CRITERION, problem: 'No limit.', fix: 'Add one.' }], verdict_line: 'no', ...extra });
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the stub failure carried no rating. NEW: severity 5. WHY: ratingDemand is recorded (src/prompts/recorded-084-b.js): on this layered unanimous chain a failure without a rating is an unreadable reply. No relation is written: the chain has no answer_back, so no relation is asked or read.
+const objecting = (extra = {}) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [{ criterion: CRITERION, problem: 'No limit.', fix: 'Add one.', severity: 5 }], verdict_line: 'no', ...extra });
 const P = (...texts) => texts.map(text => ({ text }));
 const WORDS = { reviewNotesAsk: H.reviewNotesAsk, reviewNotesRevise: () => 'W', reviewNotesMemory: () => 'M', reviewNotesAnswer: () => 'A' };
 const ASK_H = '## Proposals and improvement ideas';
@@ -26,8 +27,8 @@ async function run(replies, usage) {
   setBudget(null); setPromptSpy(p => prompts.set(p.label, p.user));
   setCache({ invalidate() {}, get(label) {
     served.push(label);
-    const text = label.startsWith('panel-') ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
-    return { text, provider: 'mock', model: 'm', usage: label.startsWith('panel-') ? usage(label) : { input: 0, output: 0 }, usd: 0 };
+    const text = (label.startsWith('panel-') || label.startsWith('final-read-')) ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+    return { text, provider: 'mock', model: 'm', usage: (label.startsWith('panel-') || label.startsWith('final-read-')) ? usage(label) : { input: 0, output: 0 }, usd: 0 };
   } });
   const seat = (lab, layer) => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000, layer });
   const config = { name: 'fixture-cut', criteria: [CRITERION], signoff: 'unanimous', maxOverseerRounds: 3, layerRevisions: { 1: 2, 2: 1 }, freedoms: { pass: true }, reviewNotes: { enabled: true, perKind: 3 },

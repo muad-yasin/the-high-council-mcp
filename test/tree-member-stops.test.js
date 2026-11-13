@@ -106,7 +106,7 @@ test('error stop: `tree resume` (the first command the text names) resumes the i
 test('src/cli.js: every STOPPED-*.md template calls memberStopContinue for a member (the writers are listed by name, so a new one fails here)', () => {
   const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'cli.js'), 'utf8');
   const writers = [...src.matchAll(/writeFileSync\(join\(runDir, 'STOPPED-([a-z]+)\.md'\)/g)];
-  assert.deepEqual(writers.map(m => m[1]).sort(), ['budget', 'error', 'preflight', 'secret', 'truncated'], 'the STOPPED-*.md writers cli.js has: a new one must be listed here AND call memberStopContinue');
+  assert.deepEqual(writers.map(m => m[1]).sort(), ['budget', 'budget', 'error', 'preflight', 'secret', 'truncated'], 'the STOPPED-*.md writers cli.js has (two for budget: the run-wide stop and the per-provider cap stop): a new one must be listed here AND call memberStopContinue');
   for (const m of writers) {
     const rest = src.slice(m.index + m[0].length); const end = rest.search(/\n\s*(log\(|writeFileSync\(join\(runDir, 'STOPPED-|appendFileSync\(logPath)/);
     const body = rest.slice(0, end === -1 ? rest.length : end);

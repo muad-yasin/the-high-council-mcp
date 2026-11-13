@@ -12,6 +12,7 @@ A script is worth writing for one class of problem: things that are **objectivel
 - **A quote or structural break in a layer that forbids one.**
 - **An empty field with a silent fallback behind it.** The most valuable check here and the least obvious: where a missing subhead quietly renders the headline instead, the failure looks fine in review. Anything with a graceful fallback needs an explicit emptiness check. (The same class in code is `backend-developer`'s rule on silent fallbacks.)
 - **A final sentence opening on "Ultimately" / "In conclusion" / "In the end".**
+- **The fact diff, after an edit pass.** Pull every number, date, capitalised name and quoted span out of the original and out of the edited text, and diff the two lists. A missing or changed entry is a finding for the editor to explain, never an automatic revert: an edit can rightly remove a sentence, and the script cannot tell. It does not see a dropped *only* or *first*, so those are still read for by eye.
 - **The dash sandwich** - two or more mid-sentence dash breaks in one body sentence. Split on paragraphs before sentences.
 
 ## Per batch

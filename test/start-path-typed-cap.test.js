@@ -167,7 +167,8 @@ test('T4b2 RAISE through the CLI: a run stopped at its typed limit (exit 4, befo
     const raise = await f.run(['--resume', f.runDir]);
     assert.equal(raise.status, 21, raise.stdout + raise.stderr);
     assert.match(readFileSync(join(f.runDir, 'cap-screen-2.md'), 'utf8'), /This run stopped at its limit of \$0\.001/);
-    assert.match(readFileSync(join(f.runDir, 'cap-screen-2.md'), 'utf8'), /The smallest total that gets past this stop/);
+    // CHANGED ACCEPTED (0.8.4, commit 3 of the 5xx fix-up, C&C's (B) of R244). OLD: the stop sentence read "the smallest [total] that gets past this stop is $X". NEW: "the smallest total that lets the next call to a model be sent is $X". WHY: a counted 5xx can stop the call again at its re-send, so "gets past this stop" could be false; the figure is the total at which the NEXT call is sent, and the text now says only that.
+    assert.match(readFileSync(join(f.runDir, 'cap-screen-2.md'), 'utf8'), /The smallest total that lets the next call to a model be sent/);
     assert.equal(f.count(), 0);
     assert.equal(typeCap(f.runDir, '5'), 'g2');
     await f.run(['--resume', f.runDir], 1);

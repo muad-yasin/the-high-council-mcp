@@ -1,5 +1,8 @@
 {
   "name": "mock-questions-wait",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. Questions-first stage that PAUSES for answers (NEEDS-answers.md -> answers.md -> --resume).",
   "maxRounds": 2,
   "signoff": "unanimous",

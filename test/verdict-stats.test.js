@@ -32,7 +32,7 @@ test('a unanimous sign-off counts as signed off, tallies rounds/objections/score
   const { runs, add } = fixture();
   add(ID(0), {
     'report.json': {
-      chain: 'verify',
+      chain: 'plan-mini-council',
       passed: true,
       totals: { usd: 0.5 },
       signoff: [
@@ -54,7 +54,7 @@ test('a unanimous sign-off counts as signed off, tallies rounds/objections/score
   const r = verdictStats(runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
   assert.equal(r.chains.length, 1);
   const verify = r.chains[0];
-  assert.equal(verify.chain, 'verify');
+  assert.equal(verify.chain, 'plan-mini-council');
   assert.equal(verify.runs, 1);
   assert.equal(verify.signoffRate, 1);
   assert.equal(verify.meanRoundsToSignoff, 2);
@@ -70,7 +70,7 @@ test('a null signedOff is an abstention: not a sign-off, not an objection, count
   const { runs, add } = fixture();
   add(ID(1), {
     'report.json': {
-      chain: 'verify',
+      chain: 'plan-mini-council',
       passed: false,
       signoff: [
         { provider: 'deepseek', signedOff: true, objections: [] },
@@ -110,7 +110,7 @@ test('a dropped-out lab is counted per lab and per chain, even though it produce
 
 test('a run with no report.json (paused or still going) is skipped for verdict scoring but not for prompt-size tracking', () => {
   const { runs, add } = fixture();
-  add(ID(3), { 'run.json': { chain: 'verify' }, 'NEEDS-build.md': 'x'.repeat(5000) });
+  add(ID(3), { 'run.json': { chain: 'plan-mini-council' }, 'NEEDS-build.md': 'x'.repeat(5000) });
   const r = verdictStats(runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
   assert.equal(r.chains.length, 0, 'no report.json means no verdict yet');
   assert.equal(r.runsSeen, 1, 'the run is still seen for prompt-size purposes');
@@ -119,8 +119,8 @@ test('a run with no report.json (paused or still going) is skipped for verdict s
 
 test('the window excludes older runs', () => {
   const { runs, add } = fixture();
-  add('2026-09-01T10-00-00-000Z', { 'report.json': { chain: 'verify', passed: true, signoff: [], stages: [], scoreboard: { rows: [], labs: [] }, dropouts: [] } });
-  add(ID(4), { 'report.json': { chain: 'verify', passed: true, signoff: [], stages: [], scoreboard: { rows: [], labs: [] }, dropouts: [] } });
+  add('2026-09-01T10-00-00-000Z', { 'report.json': { chain: 'plan-mini-council', passed: true, signoff: [], stages: [], scoreboard: { rows: [], labs: [] }, dropouts: [] } });
+  add(ID(4), { 'report.json': { chain: 'plan-mini-council', passed: true, signoff: [], stages: [], scoreboard: { rows: [], labs: [] }, dropouts: [] } });
   const r = verdictStats(runs, { days: 1, now: Date.parse('2026-09-11T20:00:00Z') });
   assert.equal(r.chains[0].runs, 1);
 });
@@ -147,7 +147,7 @@ test('the stats carry chain/lab names, counts and cost only - never task content
   const { runs, add } = fixture();
   add(ID(5), {
     'report.json': {
-      chain: 'verify',
+      chain: 'plan-mini-council',
       task: 'tasks/acquire-competitor.md',
       passed: true,
       signoff: [],
@@ -162,7 +162,7 @@ test('the stats carry chain/lab names, counts and cost only - never task content
 
 test('verdictStats writes nothing at all', () => {
   const { dir, runs, add } = fixture();
-  add(ID(6), { 'report.json': { chain: 'verify', passed: true, signoff: [], stages: [], scoreboard: { rows: [], labs: [] }, dropouts: [] } });
+  add(ID(6), { 'report.json': { chain: 'plan-mini-council', passed: true, signoff: [], stages: [], scoreboard: { rows: [], labs: [] }, dropouts: [] } });
   const before = tree(dir);
   verdictStats(runs, { days: 30 });
   assert.deepEqual(tree(dir), before, 'verdictStats must not touch the disk');
@@ -196,7 +196,7 @@ test('test_independence_stats: novel-objection rate, solo-signoff rate, and the 
 
   add(ID(7), {
     'report.json': {
-      chain: 'verify',
+      chain: 'plan-mini-council',
       passed: true,
       signoff: [
         { provider: 'planted', signedOff: true, objections: [] },
@@ -208,7 +208,7 @@ test('test_independence_stats: novel-objection rate, solo-signoff rate, and the 
   });
   add(ID(8), {
     'report.json': {
-      chain: 'verify',
+      chain: 'plan-mini-council',
       passed: true,
       signoff: [
         { provider: 'planted', signedOff: true, objections: [] },
@@ -219,7 +219,7 @@ test('test_independence_stats: novel-objection rate, solo-signoff rate, and the 
   });
   add(ID(9), {
     'report.json': {
-      chain: 'verify',
+      chain: 'plan-mini-council',
       passed: true,
       signoff: [
         { provider: 'independent', signedOff: true, objections: [] },
@@ -261,7 +261,7 @@ test('a lab with no signoffs or objections gets null rates, not zero, and is nev
   const { runs, add } = fixture();
   add('2026-09-11T20-00-00-000Z', {
     'report.json': {
-      chain: 'verify', passed: true,
+      chain: 'plan-mini-council', passed: true,
       signoff: [{ provider: 'quiet', signedOff: null, objections: null }],
       stages: [], scoreboard: { rows: [], labs: [] }, dropouts: [],
     },

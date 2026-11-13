@@ -23,7 +23,7 @@
     },
     "resumeAfterStop": {
       "type": "boolean",
-      "description": "Whether a run of this chain that was stopped before finishing (exit 18: a person, a client cancel or a wall clock) may be continued with --resume or resume_run. Optional; absent reads as true for planning chains. Every advice chain sets false: an advice call is never resumed, it is asked again (0.8.1 decided rule 6, P17)."
+      "description": "Whether a run of this chain that was stopped before finishing may be continued with --resume or resume_run. Optional; absent reads as true for planning chains."
     },
     "summary": {
       "type": "string",
@@ -54,7 +54,17 @@
       },
       "required": ["1", "2"],
       "additionalProperties": false,
-      "description": "Round semantics (0.8.3). The most revisions layer 1 and layer 2 may each trigger inside one overseer round before the run stops for the person. A layer-3 objection ends the overseer round, so it needs no bound."
+      "description": "Round semantics (0.8.3). The most revisions layer 1 and layer 2 may each trigger inside one overseer round. After layer 1's bound the run stops for the person; after layer 2's the plan goes up to layer 3 instead, while a pass is left (0.8.4). A layer-3 objection ends the overseer round, so it needs no bound."
+    },
+    "ladder": {
+      "type": "object",
+      "properties": {
+        "block": { "type": "integer", "minimum": 1, "description": "The revisions layer 1 makes in one block before the plan is handed to layer 2." },
+        "visits": { "type": "integer", "minimum": 1, "description": "The visits layer 2 gets before the plan reaches layer 3." }
+      },
+      "required": ["block", "visits"],
+      "additionalProperties": false,
+      "description": "The ladder (0.8.4), for a layered chain of exactly three layers. Layer 1 revises in blocks of `block`, then layer 2 reads the plan (one visit); after `visits` layer-2 visits the next block ends at layer 3. Layer 3 has no number: a run ends on agreement, the stall stop, the spending limit or the person's own stop, and a ladder run has no pass ceiling. Replaces maxOverseerRounds and layerRevisions (a chain cannot carry both). `maxRounds` may stand beside it as the person's own pass bound. Not part of the stage-cache fingerprint: a run saves its own numbers in run.json."
     },
     "reviewNotes": {
       "type": "object",
@@ -99,6 +109,18 @@
       ],
       "description": "Absent means closed scope (the default)."
     },
+    "builder_kind": {
+      "type": "string",
+      "enum": [
+        "session",
+        "one_shot"
+      ],
+      "description": "What builds from the plan. \"session\" (the default; absent means the same) writes the handoff for a build session that can ask a person and run council commands. \"one_shot\" writes it for a sandboxed build session that can do neither."
+    },
+    "approve_excerpts": {
+      "type": "boolean",
+      "description": "When true, every excerpt of project text waits for the person's approval before any seat sees it (the privacy switch). Turned on at a --resume, the switch also waits for the person's approval on the texts recorded while it was off that no call on the run's record has sent to a seat; a text a seat may already have been shown stays as it is. Absent or false: off unless the person types --approve-excerpts. A chain can only turn the switch on, never off."
+    },
     "stopOnPass": {
       "type": "boolean"
     },
@@ -110,7 +132,7 @@
     },
     "estimate": {
       "type": "object",
-      "description": "Worst-case token estimate used by dry-run pricing only - never read by runChain's real behavior.",
+      "description": "Worst-case token estimate. The dry run prices with it, and the spend check before a call is sent reads it too.",
       "properties": {
         "promptTokens": {
           "type": "integer",
@@ -322,6 +344,41 @@
         "enabled": { "type": "boolean" }
       }
     },
+    "prompt_cache": {
+      "type": "object",
+      "description": "Experimental (src/prompt-cache.js). With enabled true, the judge calls of a seat that calls Anthropic directly (provider anthropic), in a layer whose judges debate each other (a layered unanimous chain: the lowest layer when it has two or more judges, an upper layer only with two or more judges and the shortened exchange), carry a prompt-cache marker after the plan under review: the blind review is the call that writes the cache, and the exchange posts and answers and the re-asks of the same seat in the same pass can read it at the cache-read price (what each call wrote or read is in its usage record). The final read, a seat that is alone in its layer and the critic of a first-mode chain carry no marker, and neither does a seat whose reasoning setting is derived from its output cap (a model with no effort levels and no setting of its own: a changed setting would make Anthropic treat the prompt as a different one). The spend cap projects every marked call with the system text and the plan at the cache-WRITE price (it never assumes a hit; a marker below the model's minimum cacheable length is ignored by Anthropic, so that projection then errs high); the dry run prices the first marked call of a seat's pass at the write price and its later calls at the read price. A Claude seat that the Claude route sent through OpenRouter carries a marker too, always at 5 minutes; any other seat that goes through OpenRouter carries none, but its calls start with the same text, which a host that caches by itself may reuse. ttl is the cache's lifetime, 5m (written at 1.25 times the input price) or 1h (2 times); default 5m. A seat whose extra carries its own cache_control is refused. Off in every chain written before it existed.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ttl": { "enum": ["5m", "1h"] }
+      }
+    },
+    "exchange_json_mode": {
+      "type": "object",
+      "description": "Experimental (src/exchange-json-mode.js). With enabled true, the two layer-exchange calls (the post and the answer) of every seat whose lab is listed in labs carry response_format {\"type\": \"json_object\"} (JSON mode). No other call carries it: not a panel verdict, not a revise, not a criteria or handoff call. A seat that calls Anthropic never carries it, and the chain lint refuses a listed lab that is such a seat, that matches no seat, or a chain that never runs a layer exchange (not layered, not signoff unanimous, or fewer than two judges on the lowest layer). OpenRouter hosts that do not list response_format ignore it (no require_parameters is sent). Absent or false: nothing changes.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "labs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "draft_end_marker": {
+      "type": "object",
+      "description": "With enabled true, a judge's user prompt, and the final read's, carry a sentence and a start line before the draft and one end line directly after it, marking where the draft is and where the harness's own instructions begin. Absent or false: nothing changes, unless the chain's prompt_cache is enabled: then it acts as if enabled were true.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "seat_personas": {
+      "type": "object",
+      "description": "Experimental. With enabled true, each seat that carries a persona (a plain name) gets a short block naming it in its own system prompts: a judge in the verdict prompt and the two layer-exchange prompts, a proposer in its proposal, debate and reply prompts. form is title (the name is the title of the seat and changes nothing it does) or voice; a role.persona on a proposer is refused under either form. There is no key for living persons: the same rule holds for every name, alive or not. Allowed only on a chain whose signoff is unanimous. Absent or false: nothing changes.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "form": { "type": "string", "enum": ["title", "voice"] }
+      }
+    },
     "debate_hygiene": {
       "type": "object",
       "description": "0.8.2 (owner decision 2, 5 Oct 2026). shuffle: true gives every debate reader its own seeded order of the proposals and its own lab letters, and picks the canary target by seed (a pure function of the run id, so a resume replays it); the order each reader saw is recorded in report.json. noQuoteMarks: true marks, for the author, an objection or merge that quotes nothing of the proposal it is about. Both change what seats see; off in every chain written before them.",
@@ -345,20 +402,6 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" }
-      }
-    },
-    "advise": {
-      "type": "object",
-      "description": "Experimental (the council advisor, src/advise.js). With enabled true the chain answers one question with one leaning and the recorded dissent: the seats in seats.critics answer the brief blind, optionally read each other once (anonymised, no head-count) and keep or change their answer, and the harness rolls the answers up. It returns before every planning stage. usd is the call's own ceiling inside the run's cap and is required when enabled; the blind opinions are refused, with nothing called, when their worst case is above it.",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "usd": { "type": "number", "exclusiveMinimum": 0 },
-        "rounds": { "type": "integer", "minimum": 0, "maximum": 2, "description": "Debate rounds after the blind opinions. Default 0. A round that moves no answer stops the debate." },
-        "skipDebateWhenUnanimous": { "type": "boolean", "description": "Default true: no debate when every blind answer agrees." },
-        "synthesis": { "enum": ["none", "seat"], "description": "\"none\" (default): the harness rolls the answers up, no call. \"seat\": seats.builder, which must not be on the panel, writes the text of the leaning; the dissent is still the harness's." },
-        "samples": { "type": "integer", "minimum": 1, "maximum": 5, "description": "Default 1. Each seat is asked this many times, independently (a one-model-asked-k-times control arm). Not with rounds above 0." },
-        "max_wall_ms": { "type": "integer", "minimum": 1000, "description": "Optional (since 0.8.2 no shipped chain sets it, and no chain must) wall-clock ceiling for the whole call, in milliseconds (brief 29). Every request gets it as its own deadline, and once it has passed no further call is started and the run ends at exit 18 with report-partial.json (stoppedBy wall_clock; 0.8.1). A call still running at the deadline is cut off and recorded as not answering. Was required for an advice chain in 0.8.1 (P17); optional since 0.8.2. Unset: no ceiling beyond the per-request default of 2 hours." }
       }
     },
     "deep_dive": {
@@ -450,6 +493,10 @@
         "stall_rounds": {
           "type": "integer",
           "minimum": 2
+        },
+        "review": {
+          "type": "boolean",
+          "description": "Opt-in dispute review (src/chain.js runDisputeReview): after the dispute rewrite, each seat that raised an open objection is asked whether the rewrite handles it honestly. src/chain-lint.js accepts this key (DISPUTE_KEYS); this schema lists it from 0.8.4 on."
         }
       },
       "description": "Dispute stage and its stall rule (src/chain.js, 2026-09-20). src/chain-lint.js rule 11b hard-validates this - only these two keys, stall_rounds at least 2, and signoff must be 'unanimous' - and this schema mirrors that shape. The stage runs once when a unanimous chain stops WITHOUT agreement, records the unresolved dissent at the top of the deliverable, and never re-opens the vote; that bound is hard-coded rather than configurable, same stance as challenge's one-round bound."

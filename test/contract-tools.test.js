@@ -11,13 +11,14 @@ import { writeLocked, FIXTURE_DRAFT } from '../scripts/contract-fixtures.mjs';
 import { readLedger } from '../src/gate-ledger.js';
 import { contractState } from '../src/contract-record.js';
 import { TOOL_TRUST } from '../src/mcp/untrusted.js';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const cli = join(root, 'src/cli.js');
 
 function server(cwd) {
-  const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_ADVISE_MOCK: '1' } });
+  const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys() } });
   const waiting = new Map(); let buf = ''; let n = 0;
   child.stdout.on('data', d => {
     buf += d; let nl;
@@ -84,11 +85,14 @@ test('contract_read refuses to return a contract that no longer verifies, and sa
   try {
     await s.init();
     const v = await s.call('contract_read', { run: 'run-v' });
-    assert.equal(v.isError, true); assert.equal(v.structuredContent.code, 'contract_unverified'); assert.match(v.content[0].text, /CONTRACT\.md differs/);
+    // CHANGED ACCEPTED (0.8.4 F3). OLD: assert.match on v.content[0].text and x.content[0].text (three tests). NEW: the same tests on content[1], folded with the isError/code checks into one deepEqual per call so a red run shows each. WHY: an isError result is marked as text now (notice block, the original sentence, closing marker); the doesNotMatch is a pin (true on any block that lacks the words)
     const x = await s.call('contract_read', { run: 'run-x' });
-    assert.equal(x.isError, true); assert.match(x.content[0].text, /contract_unreadable|contract_unverified/);
-    assert.doesNotMatch(x.content[0].text, /Errors may be silent/, 'the changed words are not returned');
-    const y = await s.call('contract_read', { run: 'run-p' }); assert.equal(y.isError, true); assert.equal(y.structuredContent.code, 'no_contract');
+    assert.deepEqual({
+      v: { isError: v.isError, code: v.structuredContent?.code, differs: /CONTRACT\.md differs/.test(v.content[1]?.text ?? '') },
+      x: { isError: x.isError, why: /contract_unreadable|contract_unverified/.test(x.content[1]?.text ?? ''), silentWordsAbsent: !/Errors may be silent/.test(x.content[1]?.text ?? ''), blocks: x.content.length, trust: x._meta?.['io.github.muad-yasin/the-high-council']?.trust },
+    }, { v: { isError: true, code: 'contract_unverified', differs: true }, x: { isError: true, why: true, silentWordsAbsent: true, blocks: 3, trust: 'untrusted_model_output' } }, 'the refusals name their cause in the original sentence; the changed words are not returned');
+    // F3 guard, second half: x above is an isError from a source that marks nothing (the record's own problem or check lines): wholly marked, three blocks. y is a refusal made only of the server's own words (it claims its sentence): one block, left as it is.
+    const y = await s.call('contract_read', { run: 'run-p' }); assert.deepEqual({ isError: y.isError, code: y.structuredContent.code, blocks: y.content.length, trust: y._meta?.['io.github.muad-yasin/the-high-council']?.trust }, { isError: true, code: 'no_contract', blocks: 1, trust: 'harness_text' });
   } finally { s.stop(); }
 });
 

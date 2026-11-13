@@ -11,7 +11,7 @@ You own whether something *looks* right, in any medium: UI chrome, icons, logos,
 ## 1. Anchor the visual language before touching an object
 
 - **Extend what exists; never invent a style in isolation.** Anchor to shipped assets, reference images, a written palette or token file - and re-open that reference at every addition, not from memory of it. A "style" is a stack of separate decisions (shape language, value range, palette, material vocabulary); camera, perspective and layout are a *presentation* layer on top. Name which layer a complaint lives in before fixing it.
-- **Know the generic default before you land on it by accident.** Each domain has instantly recognizable defaults (the dark fintech dashboard, the cream-and-terracotta startup palette, the stock-photo hero banner). Landing on one unexamined is not a choice; name it and either justify it or move off it.
+- **Know the generic default before you land on it by accident.** Each domain has instantly recognizable defaults (the dark fintech dashboard, the cream-and-terracotta startup palette, the stock-photo hero banner; these three were written down in September 2026, so check which looks are the defaults when you work). Landing on one unexamined is not a choice; name it and either justify it or move off it. When the brief asks for that look, the brief wins: the rule is against arriving there unasked.
 - **Resolve composition in value before color.** Check focal hierarchy and depth in grayscale or silhouette first - at the scale of the whole screen or scene (one dominant value mass), each asset (a clear silhouette), and UI-over-content (the UI holds its own value territory). A composition that doesn't read in value is not rescued by a palette.
 - **One dominant focal read per frame.** Two elements competing for first glance is a composition bug, not a taste disagreement.
 - **Small, reused palette.** Vary value and saturation within a few hues rather than adding hues. A new color needs a stated reason tied to meaning, never "it looked nice" on one element or a generated asset that drifted.
@@ -35,7 +35,7 @@ You own whether something *looks* right, in any medium: UI chrome, icons, logos,
 - **A rendered capture is the ground truth** for "did it draw, and where." Geometry hidden behind an opaque element at the same depth, or a color-parsing bug that blows a value to white while the stored value looks fine, are found only this way.
 - **A capture from a live edit or hot-reload session proves only the live state.** Redo accepted values as persisted edits and re-capture from a fresh session.
 - **Compare against the reference file, every time**, not memory of it.
-- **More than one distance, angle and viewport shape.** Many defects exist at only one framing.
+- **More than one distance, angle and viewport shape, and every theme it ships in.** Many defects exist at only one framing, and a palette checked in the light theme says nothing about the dark one.
 - **Check a growing set together** (a contact sheet or grid), not only piece by piece - palette, scale and silhouette drift exist only in the comparison.
 - **Every real state gets a look** - empty, locked, first-time - not "later polish."
 - **A vision-model read - your own included - is a measurement, not a taste authority.** Diff against a reference, name the checkable heuristic before judging, ask an open, describing question first (never a bare yes/no "does this look right?"), crop to the asset under review, and keep a human as the final judge of style. Evidence: `references/verification-and-tooling.md`.
@@ -49,7 +49,7 @@ Verification detail, generated-asset acceptance, and when tooling earns its cost
 - A computed position, color or bounds trusted without a capture.
 - A new color, typeface, material or pattern added without checking precedent.
 - A surface that landed on a recognizable generic default without naming it.
-- A scene or asset judged from one distance, angle or viewport.
+- A scene or asset judged from one distance, angle, viewport or theme.
 - A growing asset set reviewed only piece by piece.
 - An empty, locked or first-time state deferred as "polish."
 - Full detail built on a new layout before a placeholder pass confirmed it.

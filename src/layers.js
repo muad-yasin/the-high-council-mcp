@@ -7,10 +7,12 @@
 //   layerProblems(config, filePath)  -> [{ message, fix }]   every misuse of `layer`; empty = fine (or no layers at all). Read by chain-lint (council doctor, the CLI's lint gate) AND by runChain
 //                                       (src/chain.js, runChainStages), which throws the first one, so a chain that reaches runChain without the lint gate (a direct import, a test) is refused the same way.
 //   layersHeadline(layers)           -> string | null          one sentence for the last round recorded in `layers[]` (the report's per-round, per-layer rows); null when there are none.
+//   topLayerNotSignedFrom({ layers, stop }) -> { layer } | null  0.8.4 L3: the top layer's row for the stop's pass did not sign off (derived, null = no claim).
 //   LAYER_MAX                        -> 3                     the owner's three-layer design; raising it is this one constant.
 // State owned: none.
 
 import { repeatedLabsOf } from './seat-key.js';
+import { isLayerOneUp } from './escalation.js';
 export const LAYER_MAX = 3;
 
 /** The plain words for each state a layer can end a round in (report.json `layers[].state`); the run log and BOARD.md say these, never the state name. */
@@ -21,7 +23,11 @@ export const LAYER_STATE_WORDS = {
   abstained: 'no usable verdict',
   not_asked: 'not asked (a layer below did not sign off)',
   unfinished: 'interrupted before it finished',
+  escalated: 'not asked (objections that stood unchanged were passed up a layer)',   // stall escalation, A-DRAFT
 };
+
+/** The words for one layer row: LAYER_STATE_WORDS, except that a layer left unasked because the person SENT THE PLAN UP does not say the objections stood unchanged (A-DRAFT). */
+export const layerStateWord = r => (r?.state === 'escalated' && isLayerOneUp(r.escalated_by) ? 'not asked (the plan was sent up a layer while its objections were still open)' : r?.state === 'escalated' && r.escalated_by === 'layer2_bound' ? "not asked (the plan was sent up to layer 3 while layer 2's objections were still open)" : r?.state === 'not_asked' && r.floor_by === 'request' ? 'not asked (the pass was asked to start at the top layer)' : r?.state === 'not_asked' && r.floor_by === 'ladder' ? 'not asked (the ladder started the pass above this layer)' : r?.state === 'not_asked' && r.floor_by === 'ladder_visits' ? 'not asked (the ladder passed this layer over: it had used its visits)' : (LAYER_STATE_WORDS[r?.state] || r?.state));   // 0.8.4 S4 A-DRAFT: a row a request left out of its pass (control 1, with or without the ladder) is not a layer below that failed to sign off; 0.8.4 round 1, 10a (A-DRAFT, ROUND1 10a-1): a row below the layer the ladder started the pass at says so
 
 /**
  * Every misuse of the per-seat `layer` key, as { message, fix } (the fix names `filePath`). A panel with no `layer` anywhere has no problems. Each rule exists because the key would otherwise
@@ -46,8 +52,7 @@ export function layerProblems(config, filePath = '<chain>') {
   const layered = panel.filter(x => x.seat.layer !== undefined);
   if (!layered.length) return out;
 
-  const whyNot = config?.advise?.enabled === true ? 'is an advice chain'
-    : config?.descending ? 'is a descending chain'
+  const whyNot = config?.descending ? 'is a descending chain'
     : config?.signoff !== 'unanimous' ? 'signs off with "first"'
     : config?.panel === 'relay' ? 'runs the relay panel'
     : null;
@@ -75,23 +80,60 @@ export function layerProblems(config, filePath = '<chain>') {
 
 /**
  * One sentence about how the last round of a layered run ended, from the `layers[]` rows (shape: { round, layer, labs: [lab...], state }, state one of signed_off, objected, unheard, abstained, not_asked,
- * unfinished). Every layer is named, so a layer that was never asked reads as never asked, not as missing. Pure; the callers (the CLI's headline, the run status, the board export) decide where it is shown.
+ * unfinished, escalated). Every layer is named, so a layer that was never asked reads as never asked, not as missing. Pure; the callers (the CLI's headline, the run status, the board export) decide where it is shown.
  */
 export function layersHeadline(layers) {
   if (!Array.isArray(layers) || layers.length === 0) return null;
   const last = Math.max(...layers.map(r => r.round));
   const rows = layers.filter(r => r.round === last).sort((a, b) => a.layer - b.layer);
   const count = r => `${r.labs.length} lab${r.labs.length === 1 ? '' : 's'}`;
-  if (rows.every(r => r.state === 'signed_off')) return `every layer signed off (${rows.map(r => `layer ${r.layer}: ${count(r)}`).join(', ')})`;
+  if (rows.every(r => r.state === 'signed_off') && !rows.some(r => r.raised_again?.length)) return `every layer signed off (${rows.map(r => `layer ${r.layer}: ${count(r)}`).join(', ')})`;
   const say = {
-    signed_off: r => `layer ${r.layer} signed off`,
+    signed_off: r => (r.raised_again?.length ? `layer ${r.layer} signed off apart from ${r.raised_again.join(', ')} (closed by an earlier ruling)` : `layer ${r.layer} signed off`),   // the raised_again words: stall escalation, A-DRAFT
     objected: r => `layer ${r.layer} objected`,
     unheard: r => `layer ${r.layer} was not fully heard`,
     abstained: r => `layer ${r.layer} gave no usable verdict`,
     not_asked: r => `layer ${r.layer} was never asked`,
     unfinished: r => `layer ${r.layer} was interrupted`,
+    escalated: r => (r.escalated_by === 'layer2_bound' ? `layer ${r.layer} was passed over (the plan went up to layer 3)` : `layer ${r.layer} was passed over (its objections went up a layer)`),   // stall escalation, A-DRAFT
   };
   return `round ${last}: ${rows.map(r => (say[r.state] || (() => `layer ${r.layer} is ${r.state}`))(r)).join(', ')} - not agreement`;
+}
+
+/**
+ * 0.8.4 L3: did the TOP layer sign off on the plan the stop was raised on? `{ layer }` when it did not, else null. Pure and derived: it reads the rows of report.json `layers[]` and the stop (report-partial.json or report.json `stop`),
+ * and records nothing. The row is keyed on the stop's OWN pass (`stop.pass`), never "the last round"; the layer is `stop.top_layer` when the stop names one, else the highest layer in `layers[]`.
+ * Null (so no claim is made) when: the stop is absent or unreadable (no whole-number `pass`), `handler_not_yet` is true (the top layer signed that plan), `layers[]` is absent or empty (an unlayered chain has no top layer), the row is absent, or the row signed off.
+ * It does NOT ask whether a person finished the stop: each reader adds its own gate (the finished run's readers: `stop.chosen === 'finish'` or, for a run with no handling session, 'rule'; the decide screen: the choice being recorded).
+ */
+export function topLayerNotSignedFrom({ layers, stop } = {}) {
+  if (!stop || typeof stop !== 'object' || stop.handler_not_yet === true || !Number.isInteger(stop.pass)) return null;
+  if (!Array.isArray(layers) || layers.length === 0) return null;
+  const top = Number.isInteger(stop.top_layer) && stop.top_layer >= 1 ? stop.top_layer : Math.max(...layers.map(r => r?.layer).filter(Number.isInteger));
+  if (!Number.isInteger(top)) return null;   // Math.max of nothing is -Infinity: no readable layer number, no claim
+  const row = layers.find(r => r?.layer === top && r.round === stop.pass);
+  return !row || row.state === 'signed_off' ? null : { layer: top };
+}
+
+/**
+ * The ladder key (0.8.4, the permanent ladder): `"ladder": { "block": N, "visits": M }` on a layered chain of exactly three layers. `block` = the layer-1 revisions in one block, `visits` = the layer-2 visits before the plan reaches layer 3;
+ * layer 3 has no number. Both are whole numbers, 1 or more, and nothing else is in the object. The key replaces `maxOverseerRounds` and `layerRevisions`, so a chain cannot carry both (one question, two answers). `maxRounds` is the person's own pass bound
+ * and may stand beside it. Read by chain-lint; each message names the key and the file.
+ */
+export function ladderKeyProblems(config, filePath = '<chain>') {
+  const out = [];
+  if (!config || typeof config !== 'object' || !('ladder' in config)) return out;
+  const add = (message, fix) => out.push({ message, fix });
+  const k = config.ladder;
+  const whole = n => Number.isInteger(n) && n >= 1;
+  if (!k || typeof k !== 'object' || Array.isArray(k)) { add(`"ladder" must be an object with "block" and "visits" (got ${JSON.stringify(k)}).`, `Write "ladder": { "block": 3, "visits": 3 } in ${filePath}.`); return out; }
+  const keys = Object.keys(k).sort();
+  if (keys.join(',') !== 'block,visits') add(`"ladder" must have exactly the keys "block" and "visits" (got ${JSON.stringify(Object.keys(k))}): layer 1's block size and layer 2's visits; layer 3 has no number.`, `Write "ladder": { "block": 3, "visits": 3 } in ${filePath}.`);
+  else if (!whole(k.block) || !whole(k.visits)) add(`ladder.block and ladder.visits must be whole numbers, 1 or more (got ${JSON.stringify(k)}).`, `Use positive integers for "ladder" in ${filePath}.`);
+  if ('maxOverseerRounds' in config || 'layerRevisions' in config) add(`"ladder" is set beside "${'maxOverseerRounds' in config ? 'maxOverseerRounds' : 'layerRevisions'}": the ladder has no layer-3 count and no layer bounds, so that key could only contradict it.`, `Remove "maxOverseerRounds" and "layerRevisions" from ${filePath}.`);
+  const layers = new Set((Array.isArray(config?.seats?.critics) ? config.seats.critics : []).map(s => s?.layer).filter(l => l !== undefined));
+  if (!(layers.size === 3 && [1, 2, 3].every(l => layers.has(l)))) add(`"ladder" is set on a chain whose panel is not exactly three layers (1, 2 and 3, found: ${[...layers].sort().join(', ') || 'none'}): the ladder is written for the three-layer climb.`, `Give seats.critics layers 1, 2 and 3 in ${filePath}, or remove "ladder".`);
+  return out;
 }
 
 /**

@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runChain, setCache, setBudget } from '../src/chain.js';
+import { clampStatus } from '../src/handoff-status.js';
+import { statusAllowedOf } from '../src/ending-matrix.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -28,6 +30,20 @@ test('FX-9: a replayed handoff stage whose file holds the final HANDOFF.md text 
   assert.ok(r.handoff, 'the chain has a handoff stage');
   assert.doesNotMatch(r.handoff, /## Locked criteria|the-high-council:criteria-lock/);
   assert.match(r.handoff, /\S/);
+});
+
+test('FX-9 (0.8.4 D29): a replayed handoff stage whose file holds the CLAMPED HANDOFF.md reads the seat\'s own Status again, with no note', async () => {
+  const seat = `Status: ready_for_build\n\n${golden.replace(/^Status:.*\n+/m, '')}`;
+  const clamped = clampStatus(seat, statusAllowedOf('round_cap', { agreed: false })).text;
+  assert.match(clamped, /^Status: needs_decision\n> Status set to needs_decision by the harness: the handoff said ready_for_build, /m, 'premise: the cached text carries the clamp');
+  const config = JSON.parse(readFileSync(join(root, 'chains', 'mock-debate.json'), 'utf8'));
+  setBudget(null);
+  setCache({ get: label => (label === 'handoff' ? { text: clamped, usage: { input: 0, output: 0 }, usd: 0, provider: 'mock', model: 'mock-builder' } : null) });
+  let r;
+  try { r = await runChain({ config, request: 'Plan a small command-line tool that renames photos by the date they were taken.', log: () => {} }); }
+  finally { setCache(null); }
+  assert.match(r.handoff, /^Status: ready_for_build$/m);
+  assert.doesNotMatch(r.handoff, /Status set to needs_decision by the harness/);
 });
 
 test('FX-9: handoff --from-run keeps the reply as handoff-from-run.reply.md, a name that differs from HANDOFF-from-run.md by more than case', () => {

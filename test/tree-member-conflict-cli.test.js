@@ -21,12 +21,15 @@ import { readTreeRecord, stateOf } from '../src/tree-record.js';
 import { realRoot } from './helpers/real-root.js';
 import { pricedDebate } from './helpers/child-chains.js';
 import { approvePending } from './helpers/sitting.js';
+import { answerPauses } from './helpers/answer-pauses.js';
+import { answerBuildChecks } from './helpers/build-check.js';
 import { ROOT_ID } from './helpers/tree-fixture.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CR = 'The plan defines a retry limit.';
-const X = { criterion: CR, problem: 'No limit on retries.', quote: 'retries failed requests' };
-const Y = { criterion: CR, problem: 'No owner is named.', quote: 'The worker' };
+const X = { criterion: CR, problem: 'No limit on retries.', quote: 'retries failed requests', severity: 5 };
+const Y = { criterion: CR, problem: 'No owner is named.', quote: 'The worker', severity: 5 };
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the loopback stubs' failures X and Y carried no rating, and the member's pauses answered were writer stages only. NEW: both carry severity 5, and the pause loops also answer the handler's build check (test/helpers/build-check.js answerBuildChecks). WHY: ratingDemand and buildCheckSystem/buildCheckUser are recorded (src/prompts/recorded-084-b.js, src/build-check.js). No relation is written: the member chain has no answer_back, so no relation is asked or read.
 const idX = objectionId('la', X);
 const meets = JSON.stringify({ meets: true, criteria: [{ criterion: CR, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok' });
 const objects = f => JSON.stringify({ meets: false, criteria: [{ criterion: CR, verdict: 'FAILED', evidence: f.problem }], failures: [f], verdict_line: 'no' });
@@ -46,10 +49,16 @@ async function withStoppedMember(body, { repeated = false } = {}) {   // repeate
   const dec = await scripted([JSON.stringify({ rulings: [{ conflict: 1, prevail: objectionId(repeated ? 'q-l2' : 'lb', Y), reason: 'The earlier fix stands.', ask_person: true }] })]);
   try {
     const base = pricedDebate(); delete base.maxRounds;
-    const chain = { ...base, criteria: [CR], signoff: 'unanimous', maxOverseerRounds: 3, layerRevisions: { 1: 3, 2: 2 }, seats: { ...base.seats, critics: [seat(repeated ? 'q' : 'la', 1, la.url), seat(repeated ? 'q' : 'lb', 2, lb.url), seat('lc', 3, lc.url)], decider: seat('dec', null, dec.url) } };
+    const chain = { ...base, criteria: [CR], signoff: 'unanimous', maxOverseerRounds: 3, layerRevisions: { 1: 3, 2: 2 }, seats: { ...base.seats, reviser: { provider: 'external', model: 'claude-code-session' }, critics: [seat(repeated ? 'q' : 'la', 1, la.url), seat(repeated ? 'q' : 'lb', 2, lb.url), seat('lc', 3, lc.url)], decider: seat('dec', null, dec.url) } };
     const r = await realRoot({ childChain: 'swing-child', extraChains: { 'swing-child': chain } }); approvePending(r);
     const o = new PassThrough(); const buf = []; o.on('data', d => buf.push(String(d)));
-    const code = await resumeHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, work: r.t.work, stdout: o, stderr: o });
+    // CHANGED (0.8.4 HS, Muad 05 Nov 2026 22:19: every layered chain needs a handling session; chain-lint refuses one without). OLD: the child chain's reviser was the mock builder and ONE `resumeHandler` sitting ran the member to its conflict stop (code 20). NEW: the reviser is the external session, so the member pauses at each revision (the sitting returns 3: revise-1, then revise-2) before the swing of pass 3; each pause is answered in the member's own folder (test/helpers/answer-pauses.js) and the tree is resumed again, until the sitting returns 20. Not resumeThroughPauses: it spawns the CLI and would skip the tree's own claim. WHY: these rows are about the stop at the conflict, not the revisions. The assertions below are unchanged.
+    let code = await resumeHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, work: r.t.work, stdout: o, stderr: o });
+    for (let i = 0; i < 10 && code === 3; i++) {
+      const paused = stateOf(readTreeRecord(r.t.rootDir)).nodes.get('R/M1@g1');
+      assert.ok(paused && (answerPauses(join(r.t.runsDir, paused.runId)) + answerBuildChecks(join(r.t.runsDir, paused.runId))) > 0, `the member waits at a pause the session can answer\n${buf.join('')}`);   // ADDED: a stuck pause fails here, named, not as a wrong exit code
+      code = await resumeHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, work: r.t.work, stdout: o, stderr: o });
+    }
     assert.equal(code, 20, buf.join(''));
     const m = stateOf(readTreeRecord(r.t.rootDir)).nodes.get('R/M1@g1');
     const dir = join(r.t.runsDir, m.runId);
@@ -102,7 +111,10 @@ test('CC-2 (real verbs): the standalone `--resume <member folder> --prevail 1=<i
 async function decideConflictPick(r, id) {
   const t = terminal([]); const code = await decideHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, flags: { 'prevail-node': 'R/M1', prevail: `1=${id}` }, work: r.t.work, stdin: t.stdin, stdout: t.stdout, stderr: t.stderr, now: () => Date.now() });
   const o = new PassThrough(); const buf = []; o.on('data', d => buf.push(String(d)));
-  const rc = await resumeHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, work: r.t.work, stdout: o, stderr: o });
+  let rc = await resumeHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, work: r.t.work, stdout: o, stderr: o });
+  // CHANGED (0.8.4 HS): OLD one `tree resume` after the pick ran the member on to its end. NEW: the revision after the pick (revise-3) is the external session's, so that sitting returns 3 with the member paused; the pause is answered in the member's folder and the tree resumed again, and the text of every sitting joins `resume`, so the seat-key scan reads no less than before. The final code is not asserted (as before).
+  const m = stateOf(readTreeRecord(r.t.rootDir)).nodes.get('R/M1@g1');
+  for (let i = 0; i < 10 && rc === 3 && m && (answerPauses(join(r.t.runsDir, m.runId)) + answerBuildChecks(join(r.t.runsDir, m.runId))) > 0; i++) rc = await resumeHandler({ rootDir: r.t.rootDir, rootId: ROOT_ID, work: r.t.work, stdout: o, stderr: o });
   return { code, text: t.shown() + t.errors(), resume: buf.join(''), resumeCode: rc };
 }
 

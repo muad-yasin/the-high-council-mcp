@@ -11,25 +11,26 @@
 // signals, not just `dropouts`, so a run degraded by unreadable replies isn't mislabeled
 // consensus/no_consensus - the exact gap v5's own planning run exposed (Kimi never returned a
 // verdict, an infra failure with no dropouts entry).
+import { finalReadObjected, finalReadBlocksAgreement } from './final-read.js';
 export function computeOutcome(result) {
   const hasDropout = Array.isArray(result?.dropouts) && result.dropouts.length > 0;
-  // An advice run (src/advise.js) has no sign-off: `consensus` means every seat that answered gave the
-  // same final verdict, `no_consensus` that they did not, and a seat that dropped out is `degraded`.
-  // Agreement is a process signal, never a finding that the advice is right, and it is vacuous for one
-  // seat or several samples of one model (advise.seats_asked and the tally say which).
-  if (result?.advise?.status === 'answered') return hasDropout ? 'degraded' : result.advise.agreement === 'unanimous' ? 'consensus' : 'no_consensus';
   // Status audit #2 (Review/PreRelease_Audit_status_2026-09-23.md): a seat that stated a pass
   // (freedoms.pass: signedOff null, passed true) gave no verdict either, and used to be left out, so
   // a panel with one silent seat read `consensus`. Any null verdict is an abstention now, and a run
   // on which no reviewer was heard at all (`noHeardReviewer`) is degraded, not disagreement.
   const hasAbstention = Array.isArray(result?.signoff)
-    && result.signoff.some(s => s.signedOff === null);
+    && result.signoff.some(s => !s.cut && s.signedOff === null);   // a row marked `cut` (a layer a --finish cut off) is skipped
   // Bug-audit fix, 2026-09-23 (Review/BugAudit_Metrics_2026-09-23.md #7): a round-robin ("first")
   // chain has no signoff array and writes no dropout for an unreadable reply, so an infrastructure
   // failure read as `no_consensus` - disagreement. Its final verdict is the last panelVerdicts row.
-  const verdicts = Array.isArray(result?.panelVerdicts) ? result.panelVerdicts : [];
+  const verdicts = Array.isArray(result?.panelVerdicts) ? result.panelVerdicts.filter(v => !v?.cut) : [];
   const lastUnheard = !Array.isArray(result?.signoff) && verdicts.length > 0 && verdicts[verdicts.length - 1].verdict === 'unheard';
   // A round that fell short of the chain's quorum (0.7.8) is degraded the same way: too few verdicts.
   if (hasDropout || hasAbstention || lastUnheard || result?.noHeardReviewer || result?.notQuorate) return 'degraded';
+  // Unit D (src/final-read.js): a layer-3 seat that read the FINAL plan and objected, or did not read it, ends the run as not agreed even when every layer had signed off on an earlier text (fail closed); passed and signoff[] stay as they were.
+  if (result?.passed === true && finalReadBlocksAgreement(result.finalRead ?? result.final_read)) return finalReadObjected(result.finalRead ?? result.final_read) ? 'no_consensus' : 'degraded';   // an objection: no_consensus; a top-layer seat that did not read: degraded (a verdict never reached)
+  // 0.8.4 S4 (C&C's rule of 4 Nov 2026, G11): `consensus` iff `passed` is true AND the ending, where an `ending` is recorded, is agreed. A layer-3 sign-off that does not end agreed (the handler said not yet; the plan delivered is not the one layer 3 signed; a final read objects) reads no_consensus although `passed` stays true;
+  // an escalated sign-off that the handler's good_to_build agreed reads no_consensus too, as an escalated sign-off always did (`passed` false): the agreement lives in `ending` and the exit code. Without an `ending`: the rule above, as before.
+  if (result?.ending && typeof result.ending === 'object' && result.ending.kind !== 'agreed') return 'no_consensus';
   return result?.passed === true ? 'consensus' : 'no_consensus';
 }

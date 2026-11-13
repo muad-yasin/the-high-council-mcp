@@ -50,7 +50,9 @@ export function forecastCost(chainName, runsDir, { days = 90, now = Date.now() }
     let total = 0;
     for (const s of report.stages || []) {
       if (!s.usage || isHarnessRecord(s)) continue; // a zero-cost harness record (handoff-notes) is not a priced call
-      const c = costOf(s.provider, s.model, s.usage);
+      // A marked call whose response carried no cache counts (usage.cacheCounts 'unknown', src/chain.js invoke) was charged as a full write of its WHOLE prompt; repricing its recorded input alone would count only the
+      // tail (Anthropic's input_tokens excludes the cached part), so its recorded figure stands.
+      const c = s.usage.cacheCounts === 'unknown' && Number.isFinite(s.usd) && s.usd >= 0 ? { usd: s.usd, priced: true } : costOf(s.provider, s.model, s.usage);
       total += c.usd;
       if (!c.priced) unpriced.add(`${s.provider}/${s.model}`);
     }

@@ -1,5 +1,6 @@
 // 0.8.1 pre-release audit round (MAN-4), area A1 (money path), findings fixed in batch 1. Each test fails on 0d4a519 (the audited tip) and passes after its fix.
 // A1-1 `--max-usd=VALUE` ignored; A1-2 an advice call under --max-usd below its blind-wave worst case pays then aborts; A1-3 advise.js retried from the original cap;
+// (0.8.4, the add-on removal, wave 2: A1-2 and A1-3 drove the advise stage of src/advise.js, which is gone, so they are removed; the stop-text row of A1-2 stays for the planning run it also checked.)
 // A1-4 a complete reply read as cut off after an inner retry; A1-5 a non-numeric cap fails open; A1-7 `cappedAt` below the seat's cap read back from a usage file.
 // Offline, $0: mock providers, a stubbed fetch, the CLI with mock chains.
 import test from 'node:test';
@@ -35,40 +36,6 @@ test('A1-1: `--max-usd=VALUE` and `--chain=NAME` are read like the space-separat
   const chain = cliRun(['--task', 'tasks/t.md', '--chain=mock', '--dry-run'], dir);
   assert.equal(chain.status, 0, chain.out.slice(0, 300));
   assert.match(chain.out, /Chain: mock\b/);
-});
-
-test('A1-2: an advice call whose blind wave would pass the run cap is stopped before anything is called (nothing spent), not paid in part and aborted', async () => {
-  const seat = lab => ({ provider: 'mock', model: 'mock-priced', lab, maxTokens: 100 }); // mock-priced is $1000 per Mtok both ways
-  const seats = [seat('a'), seat('b'), seat('c')];
-  const blindWorst = seats.reduce((n, s) => n + projectStage(s, { system: R.ADVISOR_SYSTEM, user: R.advisorUser({ request: BRIEF }) }), 0);
-  const config = { name: 'audit-advise', resumeAfterStop: false, maxRounds: 1, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 }, advise: { enabled: true, usd: 1000, rounds: 0, max_wall_ms: 120000 }, seats: { critics: seats } };
-  setCache(null); setBudget(blindWorst * 0.6); // room for two seats of three, not for the wave
-  const stages = [];
-  await assert.rejects(() => runChain({ config, request: BRIEF, log: () => {}, onStage: s => stages.push(s.label) }), err => {
-    assert.ok(err instanceof BudgetExceeded, `${err.name}: ${err.message}`); // a spend-cap stop (exit 4, nothing spent), the kind the CLI already knows how to report
-    assert.match(String(err.label), /advice/);
-    return true;
-  });
-  assert.deepEqual(stages, [], 'no seat was called');
-  assert.equal(budgetState().spent, 0);
-  setBudget(null);
-});
-
-test('A1-3: advise.js starts its cut-off retry from the cap the reply was asked at: no identical paid call twice (the retry ceiling stays 64,000)', async () => {
-  await withKey(async () => {
-    const caps = [];
-    const restore = stubFetch(async (url, opts) => { const c = JSON.parse(opts.body).max_tokens; caps.push(c); return cutByThinking(c); });
-    try {
-      const config = { name: 'audit-advise-dup', resumeAfterStop: false, maxRounds: 1, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 },
-        advise: { enabled: true, usd: 1000, rounds: 0, max_wall_ms: 120000 }, seats: { critics: [{ provider: 'anthropic', model: 'claude-sonnet-5', lab: 'sonnet5', maxTokens: 4000, extra: { output_config: { effort: 'high' } } }] } };
-      setCache(null); setBudget(null);
-      try { await runChain({ config, request: BRIEF, log: () => {} }); } catch { /* no readable opinion: the fixture never answers */ }
-      assert.ok(caps.length >= 2, `fixture: the seat was asked (${caps})`);
-      for (let i = 1; i < caps.length; i++) assert.notEqual(caps[i], caps[i - 1], `two identical paid calls in a row: ${caps.join(', ')}`);
-      // 4,000 first; 8,000 the same-effort retry inside invoke(); 16,000 the advice retry (started from 8,000, not from 4,000); 32,000 that call's own same-effort retry. Before the fix: 4000, 8000, 8000, 16000.
-      assert.deepEqual(caps, [4000, 8000, 16000, 32000]);
-    } finally { restore(); }
-  });
 });
 
 test('A1-4: after an Anthropic seat\'s own retry, a complete reply that merely fails to parse is not read as cut off against the ORIGINAL cap (no third paid call)', async () => {
@@ -120,17 +87,13 @@ test('A1-7: a cappedAt read back from a usage file that is below the seat\'s own
   });
 });
 
-test('A1-2 (stop text): a spend-cap stop of an advice call written by the CLI does not offer a resume (an advice call is asked again), and a planning run still does', () => {
-  const dir = workdir(); mkdirSync(join(dir, 'chains'));
-  const advice = { name: 'audit-adv', resumeAfterStop: false, maxRounds: 1, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 }, advise: { enabled: true, usd: 1000, rounds: 0, max_wall_ms: 120000 },
-    seats: { critics: ['a', 'b', 'c'].map(lab => ({ provider: 'mock', model: 'mock-priced', lab, maxTokens: 100 })) } };
-  writeFileSync(join(dir, 'chains', 'audit-adv.json'), JSON.stringify(advice));
-  const r = cliRun(['--task', 'tasks/t.md', '--chain', 'audit-adv', '--max-usd', '0.01'], dir);
-  assert.equal(r.status, 4, r.out.slice(0, 500));
-  assert.doesNotMatch(r.out, /--resume runs\//, 'no resume offer for an advice call');
-  assert.match(r.out, /not resumed|asked again|ask again/i);
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, REM-w4): OLD /not resumed|asked again|ask again/i (the line said "ask for a new quote"). NEW the line is asserted word for word and names no quote. WHY the add-on's tools are gone, so the line ends "start it again (with a higher --max-usd if the limit stopped it)."
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the CLI's spend-cap stop of a mock ADVICE call (a project chain with an `advise` block) offered no resume and said REM-w4's line ("an advice call is not resumed and its approval is used up: start it again ..."), and a planning run still offered it. NEW: the planning half only. WHY: a chain with an `advise` block is refused now (exit 2), so no advice call can be stopped by the cap, and the line that said it went with the code (REM-w4 is superseded; the folder tombstones are asserted in test/regression-081-audit-reaudit.test.js RA-8).
+test('A1-2 (stop text): a spend-cap stop of a planning run still shows how to resume it', () => {
+  const dir = workdir();
   const planning = cliRun(['--task', 'tasks/t.md', '--chain', 'mock-budget', '--max-usd=0.2'], dir);
   assert.match(planning.out, /--resume runs\//, 'a planning run still shows how to resume');
+  assert.doesNotMatch(planning.out, /an advice call is not resumed|new quote|council_quote/);
 });
 
 test('A1-1 (guard): every flag read with flag(\'name\') in src/cli.js is in VALUE_FLAGS, so a new flag cannot silently lose its `--name=value` form', () => {

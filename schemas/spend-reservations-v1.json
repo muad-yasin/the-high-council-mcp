@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://the-high-council.dev/schema/spend-reservations-v1.json",
   "title": "spend-reservations.jsonl - one line of a run's reservation record",
-  "description": "runs/<id>/spend-reservations.jsonl, appended by src/spend-reservations.js: one JSON object per line, each written whole with one write and fsynced. A 'reserved' line is the worst case of a paid call, written BEFORE the request is sent; a 'settled' line follows when the call returns or throws. A reserved line with no settled line is a call that was in flight when the process ended: it stays charged at its worst case in a resume's cap, council --spend and the spend report. A last line with no newline is a torn write and is ignored. The file carries amounts, stage labels and provider/model only, never task text or run content. Not tamper-evident: whoever can write the run folder can edit it. This schema describes one line.",
+  "description": "runs/<id>/spend-reservations.jsonl, appended by src/spend-reservations.js: one JSON object per line, each written whole with one write and fsynced. A 'reserved' line is the worst case of a paid call, written BEFORE the request is sent; a 'settled' line follows when the call returns or throws. A reserved line with no settled line is a call that was in flight when the process ended: it stays charged at its worst case in a resume's cap, council --spend and the spend report (once, at the larger of the two, when a usage file also carries its id). A settled line whose usage file was never written is counted too, at its settled figure, when its reserved line is in the folder. A settled line with no reserved line is damage to the file: it is counted nowhere, and `council --spend` names it. A last line with no newline is a torn write and is ignored. The file carries amounts, stage labels and provider/model only (and, on a reserved line written while per-provider spend caps are on, the provider id of the cap the call counts against), never task text or run content. Not tamper-evident: whoever can write the run folder can edit it. This schema describes one line.",
   "type": "object",
   "required": ["schema", "event", "id", "at"],
   "properties": {
@@ -13,11 +13,15 @@
     "label": { "type": "string", "maxLength": 200 },
     "seat": { "type": "string", "maxLength": 200, "description": "provider/model" },
     "usd": { "type": ["number", "null"], "minimum": 0, "description": "reserved: the call's worst case. settled: what it cost, or null when it is not known." },
-    "outcome": { "enum": ["recorded", "failed", "billed_unreadable"] }
+    "outcome": { "enum": ["recorded", "failed", "billed_unreadable"] },
+    "capName": { "type": "string", "pattern": "^[a-z][a-z0-9]*$", "description": "reserved only, and only while per-provider spend caps are on (COUNCIL_SPEND_CAPS): the provider id of the cap this call counts against. Absent otherwise." },
+    "reachedProvider": { "const": true, "description": "settled only (0.8.4): the request reached the provider (an HTTP 5xx answered) though no usage figure came back; the usd is THC's count. Absent otherwise." },
+    "basis": { "enum": ["token_priced", "provider_usage", "typical_error", "expected_retry", "reserved_unsettled", "worst_case"], "description": "settled only (0.8.4): what the settled usd stands for (src/counted-bases.js). Absent on a line written without one." },
+    "standsFor": { "type": "string", "pattern": "^r[1-9][0-9]*$", "description": "reserved only (0.8.4): a worst-case line written to stand for a call whose record could not be written names the reservation it stands for, so one reader does not count that call twice. Absent otherwise." }
   },
   "allOf": [
-    { "if": { "properties": { "event": { "const": "reserved" } } }, "then": { "required": ["label", "seat", "usd"], "properties": { "usd": { "type": "number", "exclusiveMinimum": 0 } }, "not": { "required": ["outcome"] } } },
-    { "if": { "properties": { "event": { "const": "settled" } } }, "then": { "required": ["outcome"] } }
+    { "if": { "properties": { "event": { "const": "reserved" } } }, "then": { "required": ["label", "seat", "usd"], "properties": { "usd": { "type": "number", "exclusiveMinimum": 0 } }, "not": { "anyOf": [{ "required": ["outcome"] }, { "required": ["basis"] }, { "required": ["reachedProvider"] }] } } },
+    { "if": { "properties": { "event": { "const": "settled" } } }, "then": { "required": ["outcome"], "not": { "anyOf": [{ "required": ["capName"] }, { "required": ["standsFor"] }] } } }
   ],
   "additionalProperties": false
 }

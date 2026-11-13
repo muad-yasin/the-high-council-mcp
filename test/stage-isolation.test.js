@@ -20,11 +20,12 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { wordingText, wordingExportSpan } from './helpers/wording-files.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..');
 const chainSrc = readFileSync(join(repoRoot, 'src', 'chain.js'), 'utf8');
-const rolesSrc = readFileSync(join(repoRoot, 'src', 'roles.js'), 'utf8');
+const rolesSrc = wordingText(repoRoot);
 
 test('test_stage_split: applySeatRole has exactly one call site in the whole codebase', () => {
   // Every .js file under src/ except seat-role.js itself (its own
@@ -47,7 +48,7 @@ test('test_stage_split: applySeatRole has exactly one call site in the whole cod
   // debate stage) and the estimator (src/cost.js, the debate rows) call, so the estimate counts the persona text the seat is really sent; the next test pins who may call that function.
   assert.ok(callSites[0].file.endsWith(join('src', 'stage-system.js')), 'the one call site must be in src/stage-system.js');
   const sys = readFileSync(callSites[0].file, 'utf8');
-  assert.match(sys.slice(sys.lastIndexOf('export const debateSystemFor'), sys.indexOf('applySeatRole(', sys.lastIndexOf('export const debateSystemFor')) + 20), /export const debateSystemFor = \(config, seat\) => withHeldNote\(config, applySeatRole\(/, 'and it is the body of debateSystemFor');
+  assert.match(sys.slice(sys.lastIndexOf('export const debateSystemFor'), sys.indexOf('applySeatRole(', sys.lastIndexOf('export const debateSystemFor')) + 20), /export const debateSystemFor = \(config, seat, \{ textRequests = false \} = \{\}\) => withTextRequestsField\(withHeldNote\(config, applySeatRole\(/, 'and it is the body of debateSystemFor');   // CHECKER CHANGE (D18): OLD the body began with withHeldNote; NEW it is wrapped by withTextRequestsField and takes the textRequests flag. WHY: the proposer's text-request sentence is added at the end of the debate system text; the one applySeatRole call is still the inner call of the same function
 });
 
 test('test_stage_split: debateSystemFor (the one applySeatRole call site) is called from the debate stage of chain.js only, not from a panel/critique block', () => {
@@ -77,20 +78,16 @@ test('test_stage_split: the panel-stage prompt builders take no seat or role par
   // shape as `open` - so the guard below still holds; only how the definition is located needed
   // to follow the shape change (indexOf + brace-matched slice, same technique criticUser below
   // already uses, rather than a regex that can silently overshoot).
-  const criticSystemStart = rolesSrc.indexOf('export function criticSystem(');
-  assert.notEqual(criticSystemStart, -1, 'could not locate the criticSystem definition to check - update this guard if criticSystem moved or was renamed');
-  const criticSystemNextExport = rolesSrc.indexOf('\nexport ', criticSystemStart + 10);
-  const criticSystemMatch = [rolesSrc.slice(criticSystemStart, criticSystemNextExport)];
+  assert.doesNotThrow(() => wordingExportSpan(repoRoot, 'export function criticSystem('), 'could not locate the criticSystem definition to check - update this guard if criticSystem moved or was renamed');
+  const criticSystemMatch = [wordingExportSpan(repoRoot, 'export function criticSystem(')];
   assert.doesNotMatch(criticSystemMatch[0], /\bseat\b/i, 'criticSystem must not reference a seat');
   assert.doesNotMatch(criticSystemMatch[0], /\brole\b/i, 'criticSystem must not reference role in any form');
   assert.doesNotMatch(criticSystemMatch[0], /\bapplySeatRole\b/, 'criticSystem must not call applySeatRole');
 
-  const criticUserStart = rolesSrc.indexOf('export function criticUser(');
-  assert.notEqual(criticUserStart, -1, 'could not locate criticUser to check - update this guard if it moved or was renamed');
-  // criticUser's own body, up to the next top-level export, is what a
+  assert.doesNotThrow(() => wordingExportSpan(repoRoot, 'export function criticUser('), 'could not locate criticUser to check - update this guard if it moved or was renamed');
+  // criticUser's own body, up to the next top-level export of its file, is what a
   // panel-stage prompt is actually built from.
-  const nextExport = rolesSrc.indexOf('\nexport ', criticUserStart + 10);
-  const criticUserBody = rolesSrc.slice(criticUserStart, nextExport === -1 ? undefined : nextExport);
+  const criticUserBody = wordingExportSpan(repoRoot, 'export function criticUser(');
   assert.doesNotMatch(criticUserBody, /\brole\b/i, 'criticUser must not reference role in any form');
   assert.doesNotMatch(criticUserBody, /\bapplySeatRole\b/, 'criticUser must not call applySeatRole');
   // And the function's own parameter destructuring must not accept one -
@@ -102,4 +99,31 @@ test('test_stage_split: the panel-stage prompt builders take no seat or role par
 
 test('test_stage_split: applySeatRole is not imported anywhere in src/roles.js', () => {
   assert.doesNotMatch(rolesSrc, /applySeatRole/, 'roles.js (where every prompt, debate and panel, is built) must never import applySeatRole directly - only chain.js\'s debate-stage call site may call it');
+});
+
+// B3 prep, JUDGE lane, unit P (a DELIBERATE change to this guard, C&C ruling 1 Nov 2026): this file's header says no role reaches the panel/critique stage. Muad's headings of 28 Okt 2026 (a persona per seat; the persona names of the layer-3 judges)
+// and his 1 Nov 2026 amendment on judge personas supersede that for the switch-on case only (chain switch `seat_personas`, seat field `persona`). Every assertion above is unchanged and stays green: applySeatRole still has one call site,
+// in the debate stage. The persona is a SECOND route with its own pin, so it cannot spread: one inner function, one composition function, three callers.
+test('test_stage_split (judge persona route): withJudgePersona has ONE call site, inside personaSystemFor; personaSystemFor is called from exactly criticPromptFor, layerDebateSystemFor and layerReplySystemFor; nothing else in src/ names either', () => {
+  const srcDir = join(repoRoot, 'src'); const files = []; const stack = [srcDir];
+  while (stack.length) { const d = stack.pop(); for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) stack.push(p); else if (n.endsWith('.js')) files.push(p); } }
+  const callsOf = word => files.flatMap(f => [...readFileSync(f, 'utf8').matchAll(new RegExp(`\\b${word}\\s*\\(`, 'g'))].map(m => ({ f: f.slice(srcDir.length + 1), at: m.index })));
+  const stageSrc = readFileSync(join(srcDir, 'stage-system.js'), 'utf8');
+  const innerDecl = stageSrc.indexOf('function withJudgePersona(');
+  assert.notEqual(innerDecl, -1, 'withJudgePersona is declared in stage-system.js');
+  const outerDecl = stageSrc.indexOf('export function personaSystemFor(');
+  assert.notEqual(outerDecl, -1, 'personaSystemFor is declared and exported in stage-system.js');
+  const inner = callsOf('withJudgePersona').filter(c => !(c.f === 'stage-system.js' && c.at === innerDecl + 'function '.length));
+  assert.equal(inner.length, 1, JSON.stringify(inner));
+  assert.ok(inner[0].f === 'stage-system.js' && inner[0].at > outerDecl && inner[0].at < outerDecl + 1500, 'the one call is inside personaSystemFor');
+  const outer = callsOf('personaSystemFor').filter(c => !(c.f === 'stage-system.js' && c.at === outerDecl + 'export function '.length));
+  // CHANGED ACCEPTED (0.8.4 cache part (b)1). OLD: exactly three callers of personaSystemFor (the verdict prompt and the two exchange prompts). NEW: a fourth, judgePersonaBlockFor, which the cache-shaped prompt order (src/cache-order.js) asks for a seat's persona
+  // block so that it is written once per seat at the end of the welcome. WHY: there is still ONE decision about what a judge's persona is (personaSystemFor); the new function calls it with the reply-format sentence alone as the text and cuts the block out
+  // again, so no second copy of the decision exists. The three named callers and the single withJudgePersona call above are unchanged.
+  assert.deepEqual(outer.map(c => c.f), ['stage-system.js', 'stage-system.js', 'stage-system.js', 'stage-system.js'], JSON.stringify(outer));
+  { const at = stageSrc.indexOf('export function judgePersonaBlockFor('); assert.ok(at >= 0 && outer.some(c => c.at > at && c.at < at + 600), 'judgePersonaBlockFor calls personaSystemFor'); }
+  for (const name of ['criticPromptFor', 'layerDebateSystemFor', 'layerReplySystemFor']) {
+    const at = [`function ${name}(`, `const ${name} =`].map(k => stageSrc.indexOf(k)).find(k => k >= 0);
+    assert.ok(at >= 0 && outer.some(c => c.at > at && c.at < at + 1000), `${name} calls personaSystemFor`);   // CHANGED ACCEPTED (0.8.4 S16): the window was 900; criticPromptFor gained its `finalRead` parameter and the call is now 910 characters in
+  }
 });

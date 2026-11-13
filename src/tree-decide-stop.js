@@ -152,7 +152,7 @@ export function rootRemedies(record, state, runsDir) {
 /**
  * Builds one stop decision from a decision text already typed. -> { refusal } | { text, expect, formName, after, apply, typedLabel }. Run again after the yes: nothing in it asks anybody. `form` is 'regenerate' or 'milestone'.
  */
-export function buildStopDecision({ rootDir, rootId, form, milestoneArg, stopArg, obligationArg, decisionText, changesProvides = null, work = null, sittingHeld = null, fresh = false, fromRecommendation = null, fromSessionDraft = null, allowBytes = null, offerRaise = false }) {
+export function buildStopDecision({ rootDir, rootId, form, milestoneArg, stopArg, obligationArg, decisionText, changesProvides = null, work = null, sittingHeld = null, fresh = false, fromSessionDraft = null, allowBytes = null, offerRaise = false }) {
   const record = readTreeRecord(rootDir);
   if (!record.tree || record.corrupt.length) return { refusal: `the record of this tree does not read (${record.corrupt.length} problem${record.corrupt.length === 1 ? '' : 's'}); nothing can be decided on it` };
   const state = stateOf(record);
@@ -174,7 +174,7 @@ export function buildStopDecision({ rootDir, rootId, form, milestoneArg, stopArg
   // S8-4 (rulings row 130, REVERSING PLAN 8.4's "the root is never regenerated"): a regenerate answer to a stop of the ROOT is a root re-plan (design note 8.1, round 2: the finished and passed nodes below are HELD, the rest set aside)
   if (allowBytes !== null && !(form === 'regenerate' && stop.node === 'R')) return { refusal: '--allow-size belongs to a new root plan for a stop of the root only' };
   if (fromSessionDraft !== null && !(form === 'regenerate' && stop.node === 'R')) return { refusal: 'a session draft belongs to a new root plan for a stop of the root only' };
-  if (form === 'regenerate' && stop.node === 'R') return buildRootReplan({ rootDir, rootId, record, state, runsDir, stop, decisionText, obligationArg, ob, work, sittingHeld, fresh, fromRecommendation, fromSessionDraft, allowBytes, offerRaise });
+  if (form === 'regenerate' && stop.node === 'R') return buildRootReplan({ rootDir, rootId, record, state, runsDir, stop, decisionText, obligationArg, ob, work, sittingHeld, fresh, fromSessionDraft, allowBytes, offerRaise });
   // bundle unit step 2 (slot route): an ordinary regenerate of a sub-plan offers the stopped plan to the writer of the new one as data (default), or --fresh leaves it out; an obligation answer carries no earlier plan
   const ordinaryRegen = form === 'regenerate' && !ob.obligation;
   if (!ordinaryRegen && fresh) return { refusal: `--fresh: it belongs to the answer that plans a node again, with no obligation named` };
@@ -322,7 +322,7 @@ function buildKeep({ rootDir, rootId, record, state, runsDir, keepArg, stopArg, 
  * (the handler rebuilds the form after the approval and refuses when the text differs) and `apply` re-checks it under the lock. One hold writes the decision AND its `generation_opened` (no window in which the old children are neither stale nor orphaned).
  * -> { refusal } | { text, expect, typedLabel, formName, after, apply, rootId, milestoneNode }.
  */
-function buildRootReplan({ rootDir, rootId, record, state, runsDir, stop, decisionText, obligationArg, ob, work, sittingHeld, fresh = false, fromRecommendation = null, fromSessionDraft = null, allowBytes = null, offerRaise = false }) {
+function buildRootReplan({ rootDir, rootId, record, state, runsDir, stop, decisionText, obligationArg, ob, work, sittingHeld, fresh = false, fromSessionDraft = null, allowBytes = null, offerRaise = false }) {
   if (typeof work !== 'string' || typeof sittingHeld !== 'function') throw new TypeError('buildStopDecision: a root re-plan needs `work` and `sittingHeld` (the decide handler passes them)');
   // GAP A (A-DRAFT sentences): the person was shown the session's draft `fromSessionDraft.draftId`; it must still be the NEWEST draft of this stop and the text the one shown. A newer draft changes the text, so an approval of the old one is never used.
   const draft = fromSessionDraft ? state.drafts.get(stop.id) ?? null : null;
@@ -345,18 +345,15 @@ function buildRootReplan({ rootDir, rootId, record, state, runsDir, stop, decisi
   // BUNDLE UNIT step 2 (Muad's direction 19 Okt 2026 via C&C): the set-aside root plan goes to the new plan's writer as DATA unless the person says --fresh; scanned here (a key shape has no override), and the size of the new root input is checked for EVERY root re-plan
   const maxBytes = allowBytes ?? treeMax;
   const bundleOf = oldPlanText => bundleInputBytes(rootBundle({ treeId: record.tree.treeId, generation: pre.generation, decisions: [{ id: 'e99999999', text: decisionText }], taskText: pre.task.text, oldPlanText }).files);       // a placeholder id as long as a real one: the estimate errs high
-  // a recommendation was paid for before these checks: its refusal says so (the money is spent, this refusal spends nothing more)
-  const paidNote0 = fromRecommendation ? ` The advice you chose this from was already paid for; this refusal spends nothing more.` : '';
   // the member reads context.md through readContextFile (src/cli.js): a file over MAX_CONTEXT_FILE_BYTES is refused at its start whatever the allowance says, so no raise can make such a decision work and none is offered (the same measurement tree-loop.js applies to a child)
   const ctxBytes = Buffer.byteLength(rootBundle({ treeId: record.tree.treeId, generation: pre.generation, decisions: [{ id: 'e99999999', text: decisionText }], taskText: pre.task.text }).files['context.md'] ?? '', 'utf8');
-  if (ctxBytes > MAX_CONTEXT_FILE_BYTES) return { refusal: `the new root plan's context.md would be ${ctxBytes} bytes, over the ${MAX_CONTEXT_FILE_BYTES} the CLI accepts at the plan's start: give a shorter decision; no size raise can help${paidNote0}` };
+  if (ctxBytes > MAX_CONTEXT_FILE_BYTES) return { refusal: `the new root plan's context.md would be ${ctxBytes} bytes, over the ${MAX_CONTEXT_FILE_BYTES} the CLI accepts at the plan's start: give a shorter decision; no size raise can help` };
   const restBytes = bundleOf(null);
-  const paidNote = paidNote0;
   const raiseHint = n => (offerRaise && allowBytes === null ? ` or raise the size for this new plan with --allow-size ${n} (the new plan's price is then shown for you to approve)` : '');
   if (restBytes > maxBytes) return { refusal: offerRaise && allowBytes === null
-    ? `the new root plan's input would be about ${restBytes} bytes, over the ${maxBytes} this tree's approval was priced for. Two ways on: give a shorter decision,${raiseHint(restBytes)}.${paidNote}`
-    : `the new root plan's input would be about ${restBytes} bytes, over the ${maxBytes} this tree's approval was priced for: give a shorter decision${paidNote}` };
-  const oldChoice = chooseOldPlan({ rootDir, node: state.nodes.get(rootKey), fresh, restBytes, maxBytes, raiseHint: offerRaise && allowBytes === null ? raiseHint : null, paidNote });
+    ? `the new root plan's input would be about ${restBytes} bytes, over the ${maxBytes} this tree's approval was priced for. Two ways on: give a shorter decision,${raiseHint(restBytes)}.`
+    : `the new root plan's input would be about ${restBytes} bytes, over the ${maxBytes} this tree's approval was priced for: give a shorter decision` };
+  const oldChoice = chooseOldPlan({ rootDir, node: state.nodes.get(rootKey), fresh, restBytes, maxBytes, raiseHint: offerRaise && allowBytes === null ? raiseHint : null });
   if (oldChoice.refusal) return { refusal: oldChoice.refusal };
   const oldPlanLine = oldChoice.oldPlan.form === 'data'
     ? `The earlier root plan ${rootKey} (${oldChoice.oldPlan.bytes} bytes, sha256 ${oldChoice.oldPlan.sha256}) goes to the writer of the new plan as DATA, marked as not to be followed. Add --fresh to leave it out.\n`   // A-DRAFT
@@ -382,8 +379,7 @@ function buildRootReplan({ rootDir, rootId, record, state, runsDir, stop, decisi
   const limits = effectiveLimits(record.tree, record.events);
   const rootKeys = rootRemedies(record, state, runsDir);
   const list = ks => (ks.length ? ks.map(k => `  - ${k}`).join('\n') : '  (none)');
-  // A recommendation is MODEL text: its frame is a dash fence longer than any dash run inside it (src/text-fence.js, as the send path frames a brief), so it cannot close the frame early and fake what follows. The person's own typed text keeps the fixed five-dash frame, byte for byte.
-  const fenceOpen = fromRecommendation || draft ? dashFence(draft ? `${decisionText}\n${draft.reason}\n${draft.changeAsked?.text ?? ''}` : decisionText) : '-----';
+  const fenceOpen = draft ? dashFence(draft ? `${decisionText}\n${draft.reason}\n${draft.changeAsked?.text ?? ''}` : decisionText) : '-----';
   const text = `Answer stop ${describeStop(stop)} with a NEW ROOT plan?   (re-plan the root)
 
 ${draft ? `The session wrote draft ${draft.id} for this stop (${Buffer.byteLength(decisionText, 'utf8')} bytes, ${draft.at}${draft.replaces ? `; it replaces the earlier draft ${draft.replaces}` : ''}). Its reason, in its words:
@@ -401,7 +397,7 @@ The decision text, word for word (${Buffer.byteLength(decisionText, 'utf8')} byt
 ${fenceOpen} decision ${fenceOpen}
 ${decisionText}
 ${fenceOpen} end ${fenceOpen}
-${fromRecommendation ? `This decision text is recommendation ${fromRecommendation.n} from the advisor.\n` : ''}${draft ? `This decision text was written by the session (draft ${draft.id}). You approve it as written.\n` : ''}
+${draft ? `This decision text was written by the session (draft ${draft.id}). You approve it as written.\n` : ''}
 Recording it: the decision text is kept and this stop is answered. The root plan ${rootKey} (run ${pre.previous.runId}) is replaced by a new root plan, R@g${pre.generation}, planned afresh from the same task; you approve it next.
 ${oldPlanLine}${raiseLine}SET ASIDE from now on (${1 + ineligible.length} node${ineligible.length ? 's' : ''}: they stay on disk, listed as replaced, start nothing more, and what they spent stays counted):
 ${list([rootKey, ...ineligible])}
@@ -427,7 +423,7 @@ ${draft ? 'Not approving it? Type anything else at the prompt: you can then say 
       if (latestGenerationOf(st, 'R') !== pre.previous.generation) gone('the root changed while you read: nothing was recorded');
       if (draft && st.drafts.get(stop.id)?.id !== draft.id) gone('the session wrote a newer draft while you read: nothing was recorded; run the command again to read it');
       if (oldChoice.oldPlan.form === 'data' && oldPlanOf({ rootDir, node: st.nodes.get(rootKey) }).sha256 !== oldChoice.oldPlan.sha256) gone('the earlier plan changed while you read: nothing was recorded');
-      const d = appendTreeEventLocked(rootDir, { event: 'decision_recorded', text: decisionText, affected, form: 'regenerate', stopId: stop.id, replansRoot: true, oldPlan: oldChoice.oldPlan, ...(allowBytes !== null ? { allowanceBytes: allowBytes } : {}), ...(fromRecommendation ? { fromRecommendation } : {}), ...(draft ? { fromSessionDraft: { draftId: draft.id } } : {}), gateId, shownSha256, actor, via });
+      const d = appendTreeEventLocked(rootDir, { event: 'decision_recorded', text: decisionText, affected, form: 'regenerate', stopId: stop.id, replansRoot: true, oldPlan: oldChoice.oldPlan, ...(allowBytes !== null ? { allowanceBytes: allowBytes } : {}), ...(draft ? { fromSessionDraft: { draftId: draft.id } } : {}), gateId, shownSha256, actor, via });
       return appendTreeEventLocked(rootDir, { event: 'generation_opened', decisionId: d.id, nodes: [{ node: 'R', generation: pre.generation }] });
     }),
   };

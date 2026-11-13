@@ -46,6 +46,13 @@ The most-discussed marker and the weakest evidence. Human usage varies hugely: o
 
 **Over-explaining the point** (see StoryScope above). The craft rule needs no number: delete the voice that tells the reader what to conclude.
 
+## Fading tells
+
+A marker word fades once it is named (see Vocabulary; the structural tells have not shown this drift). When an entry stops discriminating, move it here with its dates instead of deleting it: text written in those years still carries it, and the list stays honest about what it can no longer show.
+
+- ***Delve*** - fading since the months after early 2024 (see Vocabulary).
+- **The em dash** - a candidate: tuning against it has been reported but was not checked against a primary source (see Punctuation).
+
 ## The cautions
 
 1. **Signs, not proof.** Humans wrote every construction first. One sign is noise; several failing together in one short passage is the fingerprint. A deliberate, sincere use of a flagged construction is fine.

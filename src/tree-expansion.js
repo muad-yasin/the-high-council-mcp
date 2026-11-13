@@ -18,6 +18,7 @@ import { childNode, nodeKey } from './tree-identity.js';
 import { bodyOfDelivered, checkSplit, extractSplitBlocks, firstDifference, splitSha256 } from './tree-split.js';
 import { DeriveRefusal, resolveContextRefs } from './tree-context-refs.js';
 import { rootTaskOf } from './tree-root-task.js';
+import { agreedOf } from './ending-matrix.js';   // 0.8.4 D1: the matrix's agreed reading, the one every reader of 'did the run end agreed' shares
 
 const refusal = (item, check, field, detail) => ({ item, check, field, detail });
 
@@ -46,7 +47,7 @@ export function expansionCheck({ runDir, work, upTo = 4, inheritedGlobal, ancest
   const report = readRunJson(runDir, 'report.json');
   if (!report) return out(refusal(1, 'report_missing', 'report.json', 'report.json is missing or unreadable'));
   // 1. the panel passed and signed this text
-  if (report.passed !== true) return out(refusal(1, 'panel_passed', 'passed', 'the panel did not pass this plan (report.json passed is not true)'));
+  if (!agreedOf(report)) return out(refusal(1, 'panel_passed', 'passed', 'the panel did not agree on this plan (it did not pass, or its final read objected)'));
   if (report.signed_text?.signed_off !== true) return out(refusal(1, 'signed_off', 'signed_text.signed_off', 'the panel did not sign off its text'));
   if (report.delivered_text?.same_as_signed !== true) {
     const by = Array.isArray(report.delivered_text?.changed_by) ? report.delivered_text.changed_by : [];

@@ -20,8 +20,8 @@ test('a stop WITHOUT its figures says why generally, for every kind, and never p
     [{ kind: 'overseer_cap' }, 'all its allowed overseer rounds were used and the top layer still objected'],
     [{ kind: 'layer_bound', why: 'unheard' }, 'a seat of a layer stayed silent for too many passes in a row'],
     [{ kind: 'layer_bound', why: 'revisions' }, 'a layer needed more than its allowed revisions and still objects'],
-    [{ kind: 'layer_bound' }, 'a layer needed more than its allowed revisions, or a seat of a layer stayed silent for too many passes in a row'],
-    [{}, 'an overseer limit was reached'],
+    [{ kind: 'layer_bound' }, 'a layer needed more than its allowed revisions, a seat of a layer stayed silent for too many passes in a row, or no seat of the top layer could read the final plan'],
+    [{}, 'a limit was reached'],   // CHANGED (0.8.4 S5 U-C1 fix-up 2, A-DRAFT, H-S5-a): OLD 'an overseer limit was reached' (the catch-all for a kind with no words)
   ];
   for (const [stop, why] of rows) {
     const s = stopSentence(stop, { runDir: 'runs/x' });

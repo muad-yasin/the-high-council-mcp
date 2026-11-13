@@ -83,8 +83,12 @@ test('highExtraFor / extraWithHighDefault: fills only an unset seat, never overw
   assert.deepEqual(highExtraFor({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001' }, 16000).extra, { thinking: { type: 'enabled', budget_tokens: 8000 } });
   assert.equal(haikuBudgetFor(2048), 1024);
   assert.equal(highExtraFor({ provider: 'anthropic', model: 'claude-haiku-4-5-20251001' }, 1500), null, 'no room for a budget below the cap: nothing is sent, never a lower setting');
-  // A model whose own default is above high gets nothing (high would run it lower).
-  for (const m of ['z-ai/glm-5.3', 'z-ai/glm-5.3-flash', 'qwen/qwen3.8-max-0902']) assert.equal(highExtraFor({ provider: 'openrouter', model: m }), null, m);
+  // CHANGED ACCEPTED TEST (2 Nov 2026, owner: "High for THC's chains, default to High on all chains, users can change it if they want to"). OLD: a model whose own default is above high gets nothing (high would run it lower). NEW: it gets high, like every
+  // other model, when the seat sets nothing; a level the seat's author typed (above or below high) is theirs and gets nothing added beside it.
+  for (const m of ['z-ai/glm-5.3', 'z-ai/glm-5.3-flash', 'qwen/qwen3.8-max-0902', 'minimax/minimax-m3.1-flash']) {
+    assert.deepEqual(highExtraFor({ provider: 'openrouter', model: m }).extra, { reasoning: { effort: 'high' } }, m);
+    for (const typed of ['low', 'high', 'xhigh', 'max']) assert.equal(highExtraFor({ provider: 'openrouter', model: m, extra: { reasoning: { effort: typed } } }), null, `${m}: a typed ${typed} is left alone`);
+  }
   // No row, no field: nothing.
   assert.equal(highExtraFor({ provider: 'cohere', model: 'command-r7b-12-2024' }), null);
   assert.equal(highExtraFor({ provider: 'mock', model: 'mock-critic-a' }), null);
@@ -109,11 +113,12 @@ test('retryCeilingOf: the model\'s own maximum, bounded by its transport; a seat
 // The models whose lab pages state no output limit (owner's answer, 23 Oct 2026: "unknown", never the router's number). A row with maxOutput null MUST be in this set and carry a dated note: a skip is not a pass, so a
 // null that is not named here fails. Their seats are never retried at a bigger cap: with no model maximum and no transport ceiling retryCeilingOf falls back to 64,000, and cutOffRetryCap never goes below the seat's own
 // cap, so a seat at 64,000 or more (the shipped ones are 128,000) is not retried; a shipped seat below 64,000 on one of these would be, and fails here.
-const NO_PUBLISHED_LIMIT = new Set(['openrouter/minimax/minimax-m3', 'openrouter/meta/muse-spark-1.2', 'openrouter/meta/muse-spark-1.3', 'openrouter/mistralai/mistral-large-4-0', 'openrouter/mistralai/mistral-medium-3-5', 'openrouter/meta-llama/llama-4-maverick', 'openrouter/qwen/qwen3.5-9b', 'openrouter/deepseek/deepseek-v4.1-flash']);
+// CHANGED ACCEPTED DATA (30 Okt 2026, the plan-the-high-council chain). OLD: eight models in the set. NEW: ten; minimax/minimax-m3.1-flash and moonshotai/kimi-k3.1-pro join it. WHY: their lab pages state no output limit (platform.minimax.io, platform.kimi.ai, read 2026-10-30) and the router's figures (524,288 and 943,718 = 0.9 x context) are not used; their seats sit at 128,000, which is not retried bigger. Each row's maxOutputNote carries the dated reading.
+const NO_PUBLISHED_LIMIT = new Set(['openrouter/minimax/minimax-m3', 'openrouter/minimax/minimax-m3.1-flash', 'openrouter/moonshotai/kimi-k3.1-pro', 'openrouter/meta/muse-spark-1.2', 'openrouter/meta/muse-spark-1.3', 'openrouter/mistralai/mistral-large-4-0', 'openrouter/mistralai/mistral-medium-3-5', 'openrouter/meta-llama/llama-4-maverick', 'openrouter/qwen/qwen3.5-9b', 'openrouter/deepseek/deepseek-v4.1-flash']);
 
 // The one model whose figure is the OWNER'S PICK, not a lab figure (the owner, 2026-10-24: DeepSeek publishes no limit for the 0813 build; the router says 393,216; the pick is 384,000). Its row is a number WITH a dated note, kept by
 // the refresh script's LAB_OUTPUT_LIMITS entry. The guard runs both ways: every note belongs to a named set, and every named id has its row and note, so a refresh that dropped the entry cannot pass.
-const OWNER_PICK = new Set(['openrouter/deepseek/deepseek-v4-pro-0813']);
+const OWNER_PICK = new Set(['openrouter/deepseek/deepseek-v4-pro-0813', 'openrouter/qwen/qwen3.8-27b']);   // CHANGED ACCEPTED TEST (0.8.4 seats unit, Muad 09 Nov 2026 21:49 and 22:25: Qwen 3.8 27B to 128,000 "if possible"): the Qwen 3.8 27B row is a second owner's pick, with its dated note (commit 8dde50c5)
 function noteProblems(models) {
   const out = [];
   for (const [k, r] of Object.entries(models)) {
@@ -159,7 +164,8 @@ test('no shipped seat asks for more output than its model can return (a model li
 test('the note guard can fail: a number with a note outside the set, a named null row that is a number or missing, a pick without its date, a named pick whose row lost its note, and a null with a note outside the set (fixture rows)', () => {
   const pick = 'openrouter/deepseek/deepseek-v4-pro-0813';
   const nulls = Object.fromEntries([...NO_PUBLISHED_LIMIT].map(k => [k, { maxOutput: null, maxOutputNote: 'none found; read 2026-10-24' }]));
-  const good = { [pick]: { maxOutput: 384000, maxOutputNote: "the owner's pick (2026-10-24), not a lab figure" }, ...nulls };
+  const pick2 = 'openrouter/qwen/qwen3.8-27b';   // CHANGED (0.8.4 seats unit): the second owner's pick
+  const good = { [pick]: { maxOutput: 384000, maxOutputNote: "the owner's pick (2026-10-24), not a lab figure" }, [pick2]: { maxOutput: 128000, maxOutputNote: "the owner's pick (2026-11-09), not a lab figure" }, ...nulls };
   assert.deepEqual(noteProblems(good), [], 'the good case: the owner\'s pick and every named null row, dated');
   assert.match(noteProblems({ ...good, 'openrouter/x/y': { maxOutput: 5, maxOutputNote: 'n' } }).join('|'), /openrouter\/x\/y: a number with a note, but not in the owner's-pick set/);
   assert.match(noteProblems({ [pick]: { maxOutput: 384000, maxOutputNote: 'router, read 2026-10-24' } }).join('|'), /does not say it is the owner's pick, with its date/);
@@ -187,7 +193,7 @@ test('every shipped, non-mock chain reasons at high: the lint rule is clean, and
     assert.deepEqual(findings, [], `${file}: ${findings.map(f => f.message).join(' | ')}`);
     for (const s of realSeats(cfg)) {
       const row = rowOf(s);
-      if (!row?.form || row.defaultAboveHigh) continue;
+      if (!row?.form) continue;   // 2 Nov 2026: a model whose own default is above high is held to the same bar (it was skipped here before)
       assert.deepEqual(reasoningProblems({ ...s, extra: s.extra }, s.maxTokens), [], `${file}: ${s.provider}/${s.model}`);
       // Explicit: the file itself carries the high setting (the harness default is only a backstop for a user's own chain).
       assert.equal(highExtraFor(s, s.maxTokens), null, `${file}: ${s.provider}/${s.model} leaves "high" to the harness default; write it in the chain`);
@@ -243,13 +249,16 @@ test('structural guard: every reasoning-looking key on a shipped seat is the tab
     for (const s of realSeats(cfg)) {
       const row = rowOf(s);
       const allowed = new Set();
-      if (row?.form && !row.defaultAboveHigh) {
+      if (row?.form) {   // 2 Nov 2026: also for a model whose own default is above high (see the third CHANGED ACCEPTED GUARD note below)
         leaves(REASONING_TABLE.forms[row.form].extra).forEach(p => allowed.add(p));
         if (row.form === 'anthropic-budget') ['thinking.type', 'thinking.budget_tokens'].forEach(p => allowed.add(p));
       }
+      // CHANGED ACCEPTED GUARD (0.8.4 seats unit, Muad 09 Nov 2026 21:51: "xHIGH FOR QWEN 3.8 27B"). OLD: a seat on a model the table has no field for (form null) carries no reasoning key. NEW: it may carry `reasoning.effort` equal to the row's own defaultEffort when that level is in the row's supportedEfforts (Qwen 3.8 27B: xhigh; the model offers no high setting); any other value and every other key still fails. WHY: the owner asked for xhigh on that model, the seat states the model's own default, and the guard's job (no new spelling of off or low can hide) is kept.
+      if (!row?.form && typeof row?.defaultEffort === 'string' && (row.supportedEfforts || []).includes(row.defaultEffort) && s.extra?.reasoning?.effort === row.defaultEffort) allowed.add('reasoning.effort');
       // CHANGED ACCEPTED GUARD (roster apply, 18 Okt 2026). OLD: a seat on a model whose own default is above high (defaultAboveHigh) carries NO reasoning key. NEW: it may carry `reasoning.effort` equal to the table's own defaultEffort for that model (the roster files state each model's highest effort explicitly:
       // GLM 5.3 / Flash `max`, Qwen 3.8 Max `xhigh`); any other value there, and every other key, still fails. WHY: owner, via the caps session ("EFFORT = EACH MODEL'S HIGHEST"); stating the model's own default is not a lowering, and the guard's job (no new spelling of off/low can hide) is kept.
       // CHANGED ACCEPTED GUARD (HIGH unit, 23 Okt 2026): back to the OLD bar. OLD (roster apply, above): a defaultAboveHigh seat may state reasoning.effort equal to the table's defaultEffort. NEW: it carries NO reasoning key, so the harness sends it no effort setting and the model runs at its own default; the 27 explicit max/xhigh seats of nine chains are gone. WHY: Muad, 23 Okt 2026 20:44: "High should be *our* default setting. Some models are so cheap that *their* default is Max effort, and we can go with that".
+      // CHANGED ACCEPTED GUARD (2 Nov 2026, owner: "High for THC's chains, default to High on all chains, users can change it if they want to"): back to the roster-apply bar for the SHAPE, at a different level. OLD (23 Okt): a defaultAboveHigh seat carries NO reasoning key. NEW: it carries the table's own high form (`reasoning.effort`), like every other seat, and nothing else that looks like a reasoning key; the exact value `high` is pinned by test/all-seats-high.test.js.
       for (const p of leaves(s.extra).filter(p => looks.test(p))) if (!allowed.has(p)) problems.push(`${file}: ${s.provider}/${s.model} extra.${p}`);
     }
   }

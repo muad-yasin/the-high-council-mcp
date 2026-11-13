@@ -21,6 +21,11 @@ A tell list is not a style guide read backwards. Writing to the inverse of one -
 3. **Junctions before ornament** - the opening, the turn, the ending. That's where the failures are.
 4. **Sentences last.**
 5. **Mechanical checks by script, not by eye** (`references/mechanical-checks.md`).
+6. **Facts again, last.** Compare the edited text with the original for every name, number, date, quote and citation, and for the small words that carry a claim (*only*, *first*, *every*, *at the same time*): tightening is where they get dropped or strengthened. This checks that the edit kept the original's facts; whether those facts are sourced is the ledger check (`research-and-sourcing`, Step 5).
+
+A pattern match is a candidate until its context is read - the same construction is a tell in one sentence and a choice in the next - and the edit stays inside what was asked: flagging, a cleanup and a restructure are three different permissions.
+
+**Different is not better.** Every edit can say what it fixes: a named failure mode, a tell, a mechanical flaw. A sentence replaced by one that is only different goes back - most of all in someone else's text, where the choices are theirs.
 
 ## The diagnostics
 
@@ -50,7 +55,7 @@ Full definitions, tests and fixes: `references/failure-modes.md`. The names, so 
 - **Metronomic rhythm** - every sentence in one length band.
 - **Over-explaining the point** - the structural tell; a word swap doesn't remove it.
 
-**Two cautions keep this honest.** These are signs, not proof: humans wrote every construction first, the tell is reflexive use, and one sign is noise - several failing together in a short passage is the fingerprint. And **never run an AI-text detector on a person's work and treat the score as evidence**: detectors measurably misflag non-native English writers. Evidence, thresholds and their sources: `references/ai-tells.md`.
+**Two cautions keep this honest.** These are signs, not proof: humans wrote every construction first, the tell is reflexive use, and one sign is noise - several failing together in a short passage is the fingerprint. A feature careful human writing shares - correct grammar, a formal register - cannot discriminate, and reading it as a sign accuses careful writers. And **never run an AI-text detector on a person's work and treat the score as evidence**: detectors measurably misflag non-native English writers. Evidence, thresholds and their sources: `references/ai-tells.md`.
 
 ## A library-wide sweep
 
@@ -63,10 +68,11 @@ Full definitions, tests and fixes: `references/failure-modes.md`. The names, so 
 
 ## Mistakes to flag
 
-- A factual claim changed in an edit.
+- A factual claim changed in an edit; a name, number, date or qualifier dropped by a tightening.
 - Frozen text (someone's own words, a legal string) touched in a sweep. Frozen never means exempt from the fact rules: if frozen text is false, the finding is that it's false.
 - The wall "fixed" by inserting a break; a fingerprint "fixed" by writing to a rhythm target.
 - An ending rewritten because it failed the deletion test.
-- Prose sanded down to pass a tell list until it is afraid of language.
+- Prose sanded down to pass a tell list until it is afraid of language; marker words removed and the rhythm left uniform.
+- An edit that can only say it is different.
 - Scope changed silently - non-text changes applied alongside a copy edit instead of proposed.
 - A check reported without its method. One sweep under-reported by 27% because it split on sentences before paragraphs, and the number was acted on. "Checked N items by method M, found K." (General rule: `verification-and-critique`.)

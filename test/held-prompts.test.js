@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as R from '../src/roles.js';
 import * as H from './held-prompts/held.js';
 
@@ -82,6 +82,8 @@ import * as H083 from './held-prompts/held-083.js';
 import * as HNOTES from './held-prompts/held-083-notes.js';
 import * as HDEC from './held-prompts/held-083-decider.js';
 import * as HEARLY from './held-prompts/held-083-early.js';
+import * as HESC from './held-prompts/held-escalation.js';
+import { RULING_HELD } from '../src/escalation.js';
 const CALLS_083 = {
   treeSplitWriterNote: [[]],
   treeSplitHandoffNote: [[]],
@@ -154,4 +156,61 @@ test('the early-finish batch (held-083-early.js): recorded all together or not a
   const recorded = names.filter(n => n in R);
   assert.ok(recorded.length === 0 || recorded.length === names.length, `a partial early-finish re-record: ${recorded.join(', ')} are in src/roles.js, ${names.filter(n => !(n in R)).join(', ')} are not (the feature stays off)`);
   for (const name of recorded) for (const args of CALLS_EARLY[name]) assert.equal(R[name](...args), HEARLY[name](...args), `${name}: src/roles.js renders differently from test/held-prompts/held-083-early.js`);
+});
+
+// Stall escalation (shape B, 27 Okt 2026): the ruling words and the ledger's rulings section, recorded all together or not at all (src/escalation.js rulingActive asks for all three; C&C ruling 2: one batch, one yes), each rendering exactly
+// as drafted. The ledger filter in src/chain.js removes ruled ids from the ledger rows only when a ruling was made, which needs all three, so the rows and the section that lists what was removed never come apart.
+const CALLS_ESC = {
+  escalationRulingSystem: [[]],
+  escalationRulingUser: [[{ request: 'Write a worker plan.', plan: 'The worker retries failed requests.', items: [{ id: 'O-aaaaaaaa', first_round: 1, rounds: [1, 2], criterion: 'The plan defines a retry limit.', problem: 'No limit.', quote: 'retries failed requests', declined_reason: 'Section two sets it.', declined_round: 1 }, { id: 'O-bbbbbbbb', first_round: 2, rounds: [1, 2], criterion: 'C', problem: 'P' }] }]],
+  ledgerRulingsSection: [[{ rows: [{ id: 'O-aaaaaaaa', lab: 'la', layer: 1, first_round: 1, ruled_round: 3, ruled_layer: 2, outcome: 'overruled', reasons: [{ lab: 'lb', text: 'Section two sets it.' }] }, { id: 'O-bbbbbbbb', lab: 'la', layer: 1, first_round: 2, ruled_round: 3, ruled_layer: 2, outcome: 'sustained', reasons: [], adopted_as: [{ lab: 'lb', id: 'O-cccccccc' }] }] }]],
+};
+
+test('the stall-escalation batch (held-escalation.js): recorded all together or not at all, a recorded one renders exactly as drafted, and no name is drafted in two batches', () => {
+  const names = Object.keys(HESC);
+  assert.deepEqual(names.slice().sort(), [...RULING_HELD].sort(), 'the drafted names are exactly the ones the ruling stage asks for');
+  assert.deepEqual(Object.keys(CALLS_ESC).sort(), names.slice().sort(), 'every drafted escalation function has calls here: add one when you draft one');
+  assert.deepEqual(names.filter(n => n in H083 || n in HNOTES || n in HDEC || n in HEARLY || n in H || n in HN), [], 'a name drafted in more than one batch');
+  const recorded = names.filter(n => n in R);
+  assert.ok(recorded.length === 0 || recorded.length === names.length, `a partial escalation re-record: ${recorded.join(', ')} are in src/roles.js, ${names.filter(n => !(n in R)).join(', ')} are not (the ruling stays held)`);
+  for (const name of recorded) for (const args of CALLS_ESC[name]) assert.equal(R[name](...args), HESC[name](...args), `${name}: src/roles.js renders differently from test/held-prompts/held-escalation.js`);
+});
+
+// ---- The split (0.8.4, 4 Nov 2026): the held files are listed from the folder, not typed --------------------------------------------------------------------------------------------------------------------------------
+// The blocks ABOVE are the seven 0.8.3 files' (held.js, held-next.js, held-083.js, held-083-notes.js, held-083-decider.js, held-083-early.js, held-escalation.js) and stay in this file, untouched. From 0.8.4 on a lane's batch is a PAIR:
+//   test/held-prompts/held-084-<x>.js (the drafted sentences)  <->  test/held-prompts-084-<x>.test.js (the lane's block: calls for every function, recorded all together or not at all, each rendering as drafted).
+// No lane appends a block to this file any more. The four tests below derive their lists from test/held-prompts/ and test/ on disk (readdir), so a new held file cannot be forgotten: a name drafted in two held files (the 0.8.3 ones
+// included) is red; a held file nothing owns is red; a partner test with no held file is red; and this file importing any held file but the seven (the old way to append) is red. Each direction is its own test, so a red is never hidden behind another.
+const heldDir = join(root, 'test', 'held-prompts');
+const heldFiles = readdirSync(heldDir).filter(f => f.endsWith('.js')).sort();
+const partners = readdirSync(join(root, 'test')).filter(f => /^held-prompts-084-.+\.test\.js$/.test(f)).sort();
+const heldOf = partner => `held-084-${partner.slice('held-prompts-084-'.length, -'.test.js'.length)}.js`;
+const importedHere = [...readFileSync(fileURLToPath(import.meta.url), 'utf8').matchAll(/^import [^\n]*? from '\.\/held-prompts\/([^'\n]+\.js)';/gm)].map(m => m[1]).sort();
+
+test('no name is drafted in two held files: every file of test/held-prompts/ is loaded and each exported name has ONE binding (a re-export of the same function is one draft: held-083.js re-exports the notes lane\'s four reviewNotes names)', async () => {
+  assert.ok(heldFiles.length >= 8, `the folder was read (${heldFiles.length} held files)`);
+  const owners = new Map();
+  for (const f of heldFiles) {
+    const m = await import(pathToFileURL(join(heldDir, f)).href);
+    for (const [name, value] of Object.entries(m)) owners.set(name, [...(owners.get(name) ?? []), { f, value }]);
+  }
+  const duplicated = [...owners].filter(([, seen]) => seen.some(s => !Object.is(s.value, seen[0].value))).map(([name, seen]) => `${name}: ${[...new Set(seen.map(s => s.f))].join(', ')}`);
+  assert.deepEqual(duplicated, [], 'a name drafted in more than one held file (a duplicate export at the apply)');
+});
+
+test('every held file has an owner: a file this one imports (the 0.8.3 ones), or a held-084-<x>.js with its held-prompts-084-<x>.test.js', () => {
+  assert.ok(importedHere.length >= 7, `this file's own import lines were read (${importedHere.length})`);
+  assert.ok(partners.length >= 1, `the partner tests were read (${partners.length})`);
+  const owned = new Set([...importedHere, ...partners.map(heldOf)]);
+  assert.deepEqual(heldFiles.filter(f => !owned.has(f)), [], 'a held file with no partner test (create test/held-prompts-084-<x>.test.js for held-084-<x>.js)');
+});
+
+test('every partner test has its held file: each test/held-prompts-084-<x>.test.js names an existing test/held-prompts/held-084-<x>.js', () => {
+  assert.deepEqual(partners.filter(p => !heldFiles.includes(heldOf(p))), [], 'a partner test with no held file');
+});
+
+// The seven 0.8.3 files are the ones whose blocks stay in this file. A closed list: they are history, and the test names no other file.
+const LEGACY_083 = ['held-083-decider.js', 'held-083-early.js', 'held-083-notes.js', 'held-083.js', 'held-escalation.js', 'held-next.js', 'held.js'];
+test('this file imports exactly the seven 0.8.3 held files: a 0.8.4 lane\'s batch (any held file, whatever its name) lives in its own held-prompts-084-<x>.test.js, never appended here', () => {
+  assert.deepEqual(importedHere, LEGACY_083, 'a held file imported here that is not one of the seven 0.8.3 files (move that block to its partner test), or one of the seven no longer imported');
 });

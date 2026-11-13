@@ -1,12 +1,13 @@
 // A real MCP session for the tree tests (0.8.3 M6 S7): spawns `cli.js --mcp` in a working folder, sends the given tools/call requests over stdio JSON-RPC and returns the responses by id (the first call is id 2).
-// The server's runs/ is `<cwd>/runs`. $0, offline. Not a test file.
+// The server's runs/ is `<cwd>/runs`. $0, offline: the child gets a malformed key for every paid provider (test/helpers/no-real-keys.js; 0.8.4, the MCP-server scanner), so no key can reach a provider from it. Not a test file.
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { malformedProviderKeys } from './no-real-keys.js';
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'cli.js');
-// Resolves when the server has EXITED, not when it was told to (src/mcp/advice.js leave() writes a client-cancel STOP request into every advice run the server started, on stdin end, SIGTERM and exit, so a caller that removes its folder right after
-// the kill can race that write: the ENOTEMPTY of test/mcp-tool-latency.test.js, 24f2216). Bounded like its waitForChildren: a server that does not exit is named by pid and killed (it is this helper's own spawn), never a hang.
+// Resolves when the server has EXITED, not when it was told to (until 0.8.4 src/mcp/advice.js leave() wrote a client-cancel STOP request into every advice run the server started, on stdin end, SIGTERM and exit, so a caller that removed its folder right after
+// the kill could race that write: the ENOTEMPTY of test/mcp-tool-latency.test.js, 24f2216; the add-on is removed, the wait for the exit stays, it costs nothing). Bounded like its waitForChildren: a server that does not exit is named by pid and killed (it is this helper's own spawn), never a hang.
 function stopServer(child, ms = 10_000) {
   return new Promise((done, fail) => {
     if (child.exitCode !== null || child.signalCode !== null) return done();
@@ -17,7 +18,7 @@ function stopServer(child, ms = 10_000) {
 }
 export function mcpCalls(cwd, calls, { timeoutMs = 60_000 } = {}) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [CLI, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd } });
+    const child = spawn(process.execPath, [CLI, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys() } });
     const byId = new Map(); let buf = ''; let err = '';
     child.stderr.on('data', d => { err += d; });
     const timer = setTimeout(() => { child.kill(); fail(new Error(`timed out; got ids ${[...byId.keys()]}; stderr: ${err}`)); }, timeoutMs);

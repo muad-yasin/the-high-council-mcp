@@ -46,7 +46,8 @@ test('T3: tree decide --close still accepts a round-stopped member (its only way
     writeFileSync(join(dir, 't', 'report.json'), '{}');
     assert.equal(closeRefusal({ state: fake, runsDir: dir, node: 'M', generation: 1, facts })?.kind, 'ended', 'a run with a report.json is still "already ended"');
     fs.rmSync(join(dir, 't', 'report.json'));
-    assert.match(describePhase({ phase: 'running', runId: 't' }, dir) ?? '', /overseer limit, not agreed, waiting for a choice/);
+    // CHANGED (0.8.4 S5 U-C1 fix-up 2, A-DRAFT, H-S5-e4): OLD /overseer limit, not agreed, waiting for a choice/ (a stall stop is not an "overseer limit"); the phrase now lists the round stops from the shared map.
+    assert.match(describePhase({ phase: 'running', runId: 't' }, dir) ?? '', /not agreed, waiting for a choice \(it stopped at its overseer-round limit, at a layer's revision limit, because a seat of a layer stayed silent for too many passes in a row, because no seat of the top layer could read the final plan, or because an objection stood unchanged and could not be passed up\)/);
     assert.match(describePhase({ phase: 'running', runId: 'nope' }, dir) ?? '', /interrupted/, 'a run with no marker is still an interrupted one');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

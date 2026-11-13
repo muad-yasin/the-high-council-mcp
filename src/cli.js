@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync, rmSync, readdirSync, statSync, renameSync, realpathSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { join, dirname, resolve, basename, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { earlyTasksFromReport, withBuilderTasks, recordedSpentOf, runChain, runSingleStage, draftIncomplete, draftCutOff, checkSeats, everySeatOf, everySeatSlotsOf, resolveChainSeats, panelLabCount, setCache, setBudget, setReservationSink, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, setStopCheck, resetFieldCuts, fieldCutsSoFar, ExternalPause, BudgetExceeded, RoundStopped, UnpricedSeat, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses } from './chain.js';
+import { stopShaOf, spendFinishDecision, spendFinishState, spendFinishAnswer, spendFinishNote, SPEND_FINISH_BAD, spendFinishUnrecordedNote, spendFinishWithdrawnNote, spendFinishContinuedNote, spendFinishNowDecision, finishNowNote, finishNowBeforeRounds, finishNowLimitFired, finishNowScreen } from './spend-finish.js';
+import { callGatesOf, finalReadOn } from './call-gates.js';
+import { setPauseCheck, setZeroRetention, setPauseFinishCheck, setNoMoneySitting, setJudgeReplayOnly, NotRunForLimit, earlyTasksFromReport, withBuilderTasks, recordedSpentOf, runChain, setWordingStamp, wordingKept, routeKept, runSingleStage, draftIncomplete, draftCutOff, checkSeats, everySeatOf, everySeatSlotsOf, resolveChainSeats, panelLabCount, setCache, setBudget, setCapBudgets, setReservationSink, budgetState, countEarlierSpend, setProgressHook, setChargeHook, setOutboundScan, setSpendFinish, resetFieldCuts, fieldCutsSoFar, ExternalPause, BudgetExceeded, RoundStopped, UnpricedSeat, PreflightBlocked, DraftTruncated, renderDisputeReviewBoard, pendingPauses, setRepairPauses } from './chain.js';
 import { registerSeatKeys, seatKeyOf, labFromKey } from './seat-key.js';
-import { secretShapesIn, secretRefusalLines, SecretShapedPrompt, assertOutboundClean } from './outbound-scan.js';
-import { savedPiiGateRefusal, chainLintLines, missingKeyLines, piiGateReport, piiWarningLines, piiLogLines, policyGate, policyRefusalText, sideCommandGate, inputSecretFindings, textSecretFindings, secretScanRefusalLines } from './run-preflight.js';
+import { stampRow, personaUsageFields, personaPauseNote, scrubPersona } from './persona-record.js';
+import { secretShapesIn, secretRefusalLines, SecretShapedPrompt, assertOutboundClean, newAllowKey, inputValueHashes } from './outbound-scan.js';
+import { readSecretStop, secretStopRecord, secretPauseText, secretMemberStopText, secretFinishState, secretGateStopId, SECRET_STOP_FILE, SECRET_MARKER_FILE } from './secret-pause.js';
+import { secretEndingOf, secretEndingSentence } from './secret-ending.js';
+import { savedPiiGateRefusal, chainLintLines, missingKeyLines, piiGateReport, piiWarningLines, piiLogLines, policyGate, policyRefusalText, sideCommandGate, inputSecretFindings, inputSecretSources, textSecretFindings, secretScanRefusalLines } from './run-preflight.js';
 import { BLOCKING_SEVERITIES } from './security-review.js';
 import { deriveRunStatus, waitingStages, ARTIFACTS_BLOCKED_FILE, RUN_FOLDER } from './run-status.js';
 import { acquireRunLock, RunLockedError } from './run-lock.js';
@@ -18,23 +23,34 @@ import { parseRoundFromLabel, classifyStageCompletion, classifyVerdictEvent, sum
 import { resolveParentSpanId, recordRoundStageAndCheckClose, replaySpanStateFromStageLogText, sumRoundUsdFromStageLogText } from './spans.js';
 import { appendSpanRecord, buildSpanRecord } from './progress-spans.js';
 import { computeOutcome } from './outcome.js';
-import { FIRST_WORDS, DEGRADED_WORDS, verdictShort, earlyFinishWords } from './verdict-headline.js';
+import { FIRST_WORDS, DEGRADED_WORDS, verdictShort, earlyFinishWords, secretFinishWords, budgetFinishWords, endingWords, agreedAfterEscalationWords, noBuildCheckWords, finishedAtStopWords, ownerPauseFinishWords } from './verdict-headline.js';
+import { endsNotAgreed, hasHandlingSession } from './ending.js';
+import { agreedOf, statusAllowedOf, finishedAtOnceNothingOpen, finishedAtOnceCase, topSignedNotAgreed, nothingStandsAtEnd } from './ending-matrix.js';   // 0.8.4 D1
+import { clampStatus, CLAMPED_STATUS } from './handoff-status.js';   // 0.8.4 D29
+import { refusedAnswersOf, refusalRowsOf, latestRefusalOf } from './build-check.js';
 import { held } from './held-roles.js';
 import { setEnvelopeStore, setEnvelopeInForce, fileEnvelopeStore, sideEnvelopeFlag } from './verdict-envelope.js';
-import { askedForSentence, answerNoteOf, undeclaredNoteOf } from './answered-by.js';
+import { askedForSentence, answerNoteOf, undeclaredNoteOf, NO_MODEL_SEAT } from './answered-by.js';
 import { ledgerOverflowWords, reportJsonShape, thinContractOf, renderBoardMd, partialReportJsonShape, renderPartialBoardMd, PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, PARTIAL_DELIVERABLE_FILE } from './report-shape.js';
 import { resumeCeilingUsd } from './resume-ceiling.js';
-import { summarise, formatUsd, priceOf, priceProblemOf, estimateChainRows, priceTableLines, DEFAULT_ESTIMATE, SEAT_DEFAULT_MAX_TOKENS, smallestCapThatPasses, needsPrice, projectStage } from './cost.js';
-import { providerNames, envKeyName, keyFor, isKeyOptional, call, isRetryable, setRequestDeadlineAt } from './providers.js';
-import { AdviceStopped } from './advise.js';
-import { adoptCheck, writeAdviceLogStart, writeAdviceLogFinish, adviceReportExtra, sha256Hex, isAdviceFolder, STOP_FILE, ADVICE_BRIEF_FILE } from './advice-run.js';
-import { recordSent, recordMoreMaterial, recordStopped, capScopeSha256 } from './gate.js';
-import { readStopRequest, writeStoppedMarker, writeAtomic, stoppedFileOf, STOP_CAUSES, readStoppedMarker } from './stop-files.js';
-import { admitChain, gateSeatsOf, seatsOf } from './send-path-refusals.js';
-import { adviceChainDirs, adviceChainPath, ADVICE_CHAINS_DIR_ENV, OPERATOR_ONLY_ENV } from './send-profiles.js';
-import { tierRefusal } from './advice-tier.js';
-import { decide, limitsFromEnv, readLedger as readAdviceLedger } from './advice-guards.js';
+import { userInfo } from 'node:os';
+import { excerptSwitchRequest, excerptSwitchFlagRefusal, excerptWaitWords } from './excerpt-approval.js';
+import { excerptChannelOn } from './excerpt-channel.js';
+import { recordSessionReads, excerptBatch, recordUnaskedRequests, pendingExcerptCount, isExcerptLabel } from './excerpt-resume.js';
+import { pauseAtApproval, recordApproved, completeUsedGates } from './excerpt-pause.js';
+import { needsRequestsBlock } from './text-requests.js';
+import { readExcerpts, liveExcerpts, excerptsReportEntry, externalStageBlock, excerptIdSetsOf } from './excerpt-record.js';
+import { planChecksOf, planCheckLines } from './plan-checks.js';
+import { ladderExpectedWords, ladderUpperWords, summarise, tokensLine, formatUsd, priceOf, priceProblemOf, estimateChainRows, rowBillsThroughCap, priceTableLines, DEFAULT_ESTIMATE, SEAT_DEFAULT_MAX_TOKENS, smallestCapThatPasses, needsPrice, projectStage } from './cost.js';
+import { providerNames, envKeyName, keyFor, isKeyOptional, call, setOpenRouterSessionId, isRetryable, setRequestDeadlineAt, failureFactsOf, causeClassOf } from './providers.js';
+import { recordBudgetFinish, budgetFinishRecordFor, budgetPlainFinishRunState, budgetFinishStandsForContinue, capScopeSha256, relayedAnswersOf, declinedBySessionOf, rulingsOf, gatesOfKind, runCapAuthority, recordExcerptSwitchOn, excerptSwitchOf, excerptApprovalWaiting, excerptApprovalStops, requestGate, readGateAnswer, recordExcerptsRecorded, EXCERPT_APPROVAL_KIND, EXCERPTS_MAX, SHOWN_LINES_MAX, EXCERPT_LINE_NUMBER_MAX, readLedger as readGateLedger } from './gate.js';
+import { writeStoppedMarker, writeAtomic, stoppedFileOf, STOP_CAUSES, readStoppedMarker, isRoundStop, isAdviceFolder } from './stop-files.js';
+// The one fingerprint of a text (stage fingerprints, the policy hash, the cap scope, the handoff scopes); it lived in src/advice-run.js until 0.8.4.
+const sha256Hex = text => createHash('sha256').update(text, 'utf8').digest('hex');
 import { DEMO_REQUEST } from './mock-demo.js';
+import { billedFieldsOf, discardedFieldOf } from './billed-facts.js';
+import { foldProviderReportedInto } from './provider-reported.js';
+import { foldCountedInto, countedSummaryOf, estimatedPartWords, settledWithoutFileOf, orphanSettledIdsOf } from './counted-spend.js';
 import { readCompletedRun, generateDigestText, writeDigest } from './dissent-digest.js';
 import { deniedReasonsOf, DeniedModel } from './denied-models.js';
 import { spendReport, costToday, treeIsAbandoned, usageSpendOf } from './spend.js';
@@ -46,21 +62,44 @@ import { recordedChoiceFor, backedConflictChoices } from './tree-choice.js';
 import { backedRoundChoices } from './backed-round-choices.js';
 import { memberResumeRedirect, memberResumeCommand, memberTopUpCommand, memberStopContinue, memberWho, memberPrevailCommand } from './tree-redirect.js';
 import { preflightCheck, checkArtifactReferences } from './preflight.js';
-import { fenceFile, scanTaskForSecrets, FENCE_HEADER, FENCE_MAX_BYTES } from './fence.js';
+import { fenceFile, scanTaskForSecrets, fenceHeader, FENCE_MAX_BYTES } from './fence.js';
 import { outsideFences } from './quote-check.js';
 import { parseCriteriaFile } from './criteria-kinds.js';
 import { lintCriteria } from './criteria-lints.js';
 import { keyEnvValue, keySource, keyProblem } from './key-env.js';
 import { applyEnvFile, envFilePathFor } from './env-file.js';
-import { pickDraft, pickBuildDraft, pickNoteLines, pickNotesLine, readCriteria, readChecks, existsExactCase, stopState, partialBanner, finishedState, externalPromptText } from './handoff-from-run.js';
+import { resolveRun, recordedRouteOf, KEY_STOPS } from './resolve-run.js';      // 0.8.4 the Claude route: the one place a chain gets its route (src/claude-route.js decides, src/resolve-run.js orders the steps)
+import { routedSeatsWithoutWindow, skippedRoomLines } from './context-window.js';
+import { routeLines, resumeStopLines, readClaudeRouteSetting, sessionStopsLines } from './claude-route.js';
+import { resolveZeroRetention, zeroRetentionLines, readZeroRetentionSetting, zdrTableFor } from './zero-retention.js';
+import { decidePersonaForm, personaFormLines, personaFormFlagRefusal, PERSONA_FORM_HELP_LINES } from './persona-form.js';      // 0.8.4 the persona form for one run (--persona-form)
+import { refreshZdrList } from './zdr-refresh.js';      // 0.8.4 the optional zero-retention setting
+import { CAPS_SETTING, parseCapsSetting, commandMaySpend, capsNotArmedSentence, capsRefusedClassOf, capsClassRefusalSentence, capsDryRunNote, capsDeferredStart, capsResumeClassOf, capsClassRefusalEntry, capsStartRefusalLine, perRunIsSet, capsWaitSentence, capsLogLine, readCapCeiling, capCeilingName, capsResumeVerdict, capsRaiseNameSentence, capsRaiseUnknownSentence } from './caps.js';
+import { capsStartRefusals, capsInForce } from './uncovered.js';
+import { pickDraft, pickBuildDraft, pickNoteLines, pickNotesLine, readCriteria, readChecks, existsExactCase, stopState, partialBanner, finishedState, externalPromptText, openObjectionsOfReport } from './handoff-from-run.js';
 import { textSha256 } from './text-labels.js';
-import { handoffPrompt } from './handoff-prompt.js';
-import { harnessVersion } from './version.js';
-import { stageKindOf } from './stage-contract.js';
+import { noteAddCommand } from './handler-notes.js';
+import { summaryAddCommand } from './summary-add.js';
+import { acceptCommand } from './accept-cli.js';   // 0.8.4 D2
+import { withAcceptance } from './acceptance.js';
+import { handoffPrompt, handoffPlanFileOf } from './handoff-prompt.js';
+import { harnessVersion, sittingEntry } from './version.js';
+import { writtenByRecord, textHashOf, keptLineOf, keptRouteLineOf } from './stale-guard.js';   // 0.8.4 T14: the record every stage gets of the code and sitting that wrote it
+import { stageKindOf, answerShapeKindOf } from './stage-contract.js';
 import { validateDeliverable } from './partial-deliverable.js';
 import { fingerprintInputs } from './cache-integrity.js';
-import { makeStageCache, writeSideStage, foldSupersededInto } from './stage-cache.js';
+import { topLayerReadsMade, ladderBoundOf } from './ladder-resume.js';
+import { staleFinishedStages, staleNoticeLine } from './stale-stages.js';
+import { LADDER_BLOCK, LADDER_VISITS } from './ladder.js';
+import { shortExchangeOn } from './short-exchange.js';
+import { stepOk } from './ladder-steps.js';
+import { relayCommand, rulingAddCommand, rulingWithdrawCommand, retagAddCommand, routeDecideCommand, pauseCommand } from './gate-relay-cli.js';
+import { handlerRetagsOf } from './handler-retags.js';
+import { makeStageCache, writeSideStage, foldSupersededInto, endpointField } from './stage-cache.js';
+import { foldUnreplayedInto } from './unreplayed.js';
+import { moneySectionOf } from './board-money.js';
 import { supersededSpendOf, supersededStagesOf, recordLostCharge, recordCall } from './superseded.js';
+import { idSlipRepairNeedsBody, repairNeedsBody, setAsideOriginal, tableRepairNeedsBody } from './near-json.js';
 import { taskHashOf, checkFrozenScope, contextHashOf, checkFrozenContext } from './scope-freeze.js';
 import { lockBlock, checkLock, checksOf } from './criteria-lock.js';
 import { runSpentUsd } from './spend.js';
@@ -68,6 +107,7 @@ import { withdrawalLedger } from './withdrawal-ledger.js';
 import { schemaVersionWarning } from './schema-version.js';
 import { forecastCost } from './cost-forecast.js';
 import { dryRunReport } from './dry-run.js';
+import { callCeilingOf } from './call-ceiling.js';
 // A static import, not a dynamic one - see the comment on runMcpServer in mcp/server.js for why.
 // mcp/server.js's own self-invocation guard means this import alone never starts a server; only
 // the explicit call below, inside the --mcp branch, does.
@@ -75,6 +115,11 @@ import { runMcpServer } from './mcp/server.js';
 import { renderBoardHtml } from './board-export.js';
 import { buildTranscript, renderTranscriptText } from './replay.js';
 import { lintChain } from './chain-lint.js';
+import { judgePersonaWarnings } from './judge-persona.js';
+import { modelLabWarnings } from './lab-name-warnings.js';
+import { raiseFlagRefusal, raiseChoiceRefusal, routeFlagRefusal } from './raise-flags.js';
+import { controlHistory, routeRefusal, askRoute, routedStepsOf, runControlsOf, pausesOf, pauseDue, pauseFinishedFor, settlePauseAtResume, pauseStandsForMarker } from './run-controls.js';
+import { pauseSentence } from './owner-pause.js';
 import { reshuffleSeats, RematchRefused, rematchDestinationProblems } from './rematch.js';
 import { computeVerdictDiff } from './verdict-diff.js';
 import { computeRoleDiagnostics } from './role-diagnostics.js';
@@ -118,10 +163,6 @@ const EXIT_RUN_FAILED = 16;
 // handoff reply was cut off at its token cap and its one bigger-cap retry was cut off too (or the
 // seat is external). The run stops rather than grade, report or ship the fragment.
 const EXIT_DRAFT_TRUNCATED = 17;
-// 0.8.1 M6 (decided rule 6): an advice call stopped before finishing, by a person (`council stop`), by the client that cancelled or
-// left, or by its wall clock, before or after paid calls. It writes report-partial.json (what was paid for), BOARD-partial.md,
-// STOPPED-<stoppedBy>.json and state.json, and is never resumed. (Brief 29 used 18 for a stop before the first call only.)
-const EXIT_STOPPED_BY_USER = 18;
 // 0.8.3 M1 (owner decision 4, 8 Oct 2026): a recursive-councils tree refused the start or resume of one of its runs (the record does not allow that step, or cannot be read). New public surface; exit 4 keeps its one meaning, the spend cap.
 const EXIT_TREE_REFUSED = 19;
 // 0.8.3 M5e (C&C ruling, 9 Oct 2026): a `council tree resume` sitting stopped FOR A PERSON with nothing broken (an open stop holds children back, or the step belt ran out). Not 0 (not finished) and not 1 ("other"). The number lives in src/tree-resume.js (EXIT_STOPPED_FOR_PERSON); test/exit-codes.test.js compares the two.
@@ -130,9 +171,10 @@ const EXIT_TREE_STOPPED_FOR_PERSON = 20;
 const EXIT_AWAITING_USER_CAP = 21;
 // Round semantics 2b / exit 22 (C&C ruling, 14-15 Oct 2026): EXIT_ROUND_STOPPED (23, a layered run stopped resumable at an overseer limit, waiting for the person's choice) and EXIT_NOT_AGREED (22, a run that FINISHED and whose panel did not agree: `passed` false in report.json)
 // live in src/exit-codes.js, the one module the programs that spawn this CLI also read (test/exit-codes.test.js pins the rest).
-import { EXIT_NOT_AGREED, EXIT_ROUND_STOPPED, EXIT_PRICE_REFUSED, EXIT_CONFLICT_ASKED } from './exit-codes.js';
-import { ConflictAsked, setConflictChoices, parsePrevail, conflictAskedWords, seatsForOneKey, deciderPausesRun, ONE_KEY_PAUSE_CAVEAT } from './conflict-decider.js';
-import { PriceRefused, setSeatSkips, priceRefusedWords, priceRefusedAdviceFailureWords, canSkip, refusedSet } from './price-refused.js';
+import { EXIT_NOT_AGREED, EXIT_ROUND_STOPPED, EXIT_PRICE_REFUSED, EXIT_CONFLICT_ASKED, EXIT_ROUTE_REQUESTED, EXIT_AWAITING_EXCERPT_APPROVAL } from './exit-codes.js';
+import { finalReadObjected, finalReadBlocksAgreement, finalReadSummaryLine } from './final-read.js';
+import { ConflictAsked, setConflictChoices, parsePrevail, conflictAskedWords, seatsForOneKey } from './conflict-decider.js';
+import { PriceRefused, setSeatSkips, priceRefusedWords, canSkip, refusedSet } from './price-refused.js';
 import { scanArtifacts } from './key-redaction.js';
 import { resetToolCallLog, renderToolsMd } from './tools.js';
 import { arguedWarnings } from './argued.js';
@@ -144,40 +186,57 @@ import { contractCommand } from './contract-cli.js';
 import { contractCheckOf } from './run-contract-check.js';
 import { contractDraftPrompt, finishDraft } from './contract-draft.js';
 import { stripDeclined } from './draft-disputes.js';
+import { SCOPE_LEDGER_FILE } from './scope-ledger.js';
 import { piiModeSetting } from './pii-mode.js';
 import { unpricedSeats } from './unpriced.js';
 import { openReservations, unsettledReservations, unsettledUsd } from './spend-reservations.js';
+import { capSpentOf } from './spend.js';   // DUALCAP 4c1/4c2: what a run folder recorded through ONE cap (one copy, shared with run-budget.js)
 import { checkContract } from './contract-record.js';
 import { builderSection, builderTaskBlock, checkFailuresOf } from './handoff-contract-text.js';
 import { lintMilestones } from './milestones.js';
+import { builderKindOf } from './builder-kind.js';
+import { withNoTestsLine } from './verify-first.js';
+import { noFencedTestFile } from './fence-tests.js';
 import { criterionIds } from './criteria-ledger.js';
 import { bodyOfDelivered, splitContractOf } from './tree-split.js';
 import { trustedRunDir, readRunJson, readRunFile, readRecordedTask } from './run-files.js';
-import { roundLimitsOf, setRounds, roundsSetting, stopSentence, stopIdOf, defaultAdd, roundChoiceEntry } from './overseer-rounds.js';
-import { chainNameRefusal, DEFAULT_CHAIN, defaultChainNotice, PROMOTED_CHAINS, outdatedChainHint, outdatedAdviceChainHint } from './chain-name.js';
+import { roundLimitsOf, limitReachable, isOverseerChain, setRounds, roundsSetting, stopSentence, stopIdOf, defaultAdd, roundChoiceEntry, stopOffersContinue, roundStopsInWords, roundStopPhraseOf, CONTINUE_WORDS } from './overseer-rounds.js';
+import { cliChoiceFields, entryFieldsOf } from './stop-decision.js';
+import { stopDecisionAnswerOf, closeStopAnswer, budgetStopWithSha, limitApprovedAfterGate, gateQuoteNamesHash, relayedSecretAnswerOf } from './stop-gate.js';
+import { escalationCauseWords, escalationTriggersOf } from './escalation.js';
+import { chainNameRefusal, DEFAULT_CHAIN, QUICK_START_CHAIN, defaultChainNotice, PROMOTED_CHAINS, outdatedChainHint } from './chain-name.js';
 import { terminalSafe, escapeTerminalUnsafe } from './terminal-safe.js';
 import { gateCommand, answerAtTerminal } from './gate-cli.js';
 import { chainIsPaid, buildStartScope } from './start-scope.js';
 import { authorizeStart } from './start-cap.js';
 import { capScreenMemoryClause, notesMemoryClause } from './review-notes-lane.js';
-import { buildCapScreen } from './cap-screen.js';
+import { buildCapScreen, preferenceSentence } from './cap-screen.js';
 import { readUsdLimit, limitSource, isLimitPlaceholder, USD_LIMIT_AS_GIVEN } from './mcp/usd-limit.js';
 import { setUserPrices, resetUserPrices, UserPriceFileError, userPriceLines, userRowOf, effectiveRow, priceSource } from './price-table.js';
+import { setProviderPreference, resetProviderPreference, PreferenceFileError, preferenceRows } from './provider-preference.js';
 import { TREE_ONLY_FLAGS, treeCommand } from './tree-cli.js';
-import { adviseRateCommand } from './advise-rate.js';
-import { stopCommand } from './advice-stop.js';
 import { findUnknownFlag, unknownFlagLine, findStrayPositional, strayPositionalLine } from './unknown-flag.js';
 import { TreeRefusal } from './tree-record.js';
-import { adviceMirrorFromMarker } from './tree-advice-record.js';
 import { MONEY_EPS } from './tree-budget.js';
 import { DEFAULT_MAX_USD } from './default-cap.js';
 import { readTreeNodeFile, runTreeField, recordedPiiAllow, memberStart, memberPreflight, memberFlagRefusal, installMemberEndHook, installPostRunHook } from './tree-member.js';
 import { memberRootCover, coverRanges } from './tree-member-cover.js';
 import { memberEarlierPlan } from './old-plan.js';
+import { basisField } from './counted-bases.js';
+import { layerHyphen } from './top-layer.js';
+import { runTopLayer } from './report-shape.js';
+import { finalReadGate } from './final-read-gate.js';
+import { capUsdNumber } from './cap-input.js';
 
 // One lint gate for every path that calls runChain() on a chain file: the normal run and resume
 // (above), --rematch and --replay (bug audit 2026-09-27 M2: both skipped it, so an edited chain
 // could send a key to a foreign host on a rematch). Exit 1, the same messages everywhere.
+// 0.8.4 (C&C ruling on FINDING 2): the plan the verify-first gap check reads is the model-written BODY of the delivered file, never the harness notes above it (a dissent block quotes judge text, which can carry a marker the plan lacks).
+// The body is found by the reader the tree already uses (src/tree-split.js bodyOfDelivered: the suffix whose sha256 is delivered_text.body_sha256). A text that cannot be separated that way (no record, or a record that does not match the file) gives
+// undefined, so the check is off for it: a limit, never a guess about where the notes end.
+function gapPlanOf(text, delivered) {
+  try { return bodyOfDelivered(text, delivered).body; } catch { return undefined; }
+}
 function exitOnLint(cfg, cfgPath) {
   const lintLines = chainLintLines(cfg, cfgPath);   // src/run-preflight.js (`council tree start` asks the same question before it writes a tree's record)
   if (lintLines) {
@@ -217,6 +276,9 @@ const work = process.cwd();
 // Minimal .env loader. No dependency for four lines of parsing. The user's
 // own directory wins; the package copy is the fallback that makes a cloned
 // checkout behave as before.
+// 0.8.4 DUALCAP unit 4b2: MAX_USD_PER_RUN as the process was GIVEN it, before a project .env may fill it (a project file only fills an unset value): Q1's refusal names where a
+// run-wide figure was set (the environment, where the Desktop plugin's max_usd setting also lands, or the project .env), as readUsdCeiling does for COUNCIL_MAX_USD_LIMIT.
+const PER_RUN_AS_GIVEN = process.env.MAX_USD_PER_RUN;
 const envPath = envFilePathFor(work, pkg);
 if (existsSync(envPath)) {
   applyEnvFile(readFileSync(envPath, 'utf8'), process.env, {
@@ -231,10 +293,13 @@ if (existsSync(envPath)) {
 // The project's own price rows (0.8.3 user price row P2; gate page UserPriceRow_Gate_Page.md): read ONCE here for every command from the folder the command runs in; a resume reads the folder the run recorded (below). A file that cannot be
 // read in full installs NOTHING (shipped prices only: an unpriced seat is then refused as usual) and the commands that price say why (refuseOnUserPriceProblem; `council doctor` reports it).
 let userPriceProblem = null;
+let preferenceProblem = null;
 function loadUserPrices(folder) {
   try { setUserPrices(folder); userPriceProblem = null; } catch (e) { if (!(e instanceof UserPriceFileError)) throw e; resetUserPrices(); userPriceProblem = e; }
+  // the project's host preference (0.8.4 unit 3) is read with the price rows but has its OWN problem and its OWN reset: a preference file that cannot be read never discards the price rows. Every command that prices or sends refuses on it, like on the price file.
+  try { setProviderPreference(folder); preferenceProblem = null; } catch (e) { if (!(e instanceof PreferenceFileError)) throw e; resetProviderPreference(); preferenceProblem = e; }
 }
-function refuseOnUserPriceProblem() { if (userPriceProblem) { console.error(`\n${userPriceProblem.message}`); process.exit(2); } }
+function refuseOnUserPriceProblem() { const p = userPriceProblem ?? preferenceProblem; if (p) { console.error(`\n${p.message}`); process.exit(2); } }
 loadUserPrices(work);
 
 // `npx <local-tarball-or-package-spec> council demo` is a real invocation, not
@@ -248,12 +313,12 @@ loadUserPrices(work);
 const rawArgv = process.argv.slice(2);
 // Audit A1-1 (0.8.1): `--max-usd=0.2` used to match no flag, so the run silently got the $7 default while the log said --max-usd. A flag that takes a value is
 // now read in both spellings (`--name value` and `--name=value`), in this one place, before anything else looks at argv.
-const VALUE_FLAGS = new Set(['accounting', 'allow-size', 'advice-adopt', 'prevail', 'allow-pii', 'accept-chain-limits', 'allow-unfenced', 'amend-cap', 'amount', 'chain', 'child-chain', 'close', 'allow-pii-node', 'continue-node', 'finish-node', 'prevail-node', 'keep', 'context', 'criteria', 'date', 'days', 'draft', 'from-run', 'handoff', 'label', 'max-children', 'max-depth', 'max-runs', 'max-usd', 'milestone', 'model', 'obligation', 'out', 'pii-gate', 'provider', 'rematch', 'rematch-seed', 'replay', 'replay-date', 'repo', 'resume', 'rounds', 'run', 'run-id', 'signoff', 'stop', 'task', 'top-up', 'tree-node']);
+const VALUE_FLAGS = new Set(['stop-gate', 'reason', 'zero-retention', 'persona-form', 'ruling', 'note', 'objection', 'summary-file', 'retag-objection', 'retag-severity', 'retag-reason', 'person-words', 'total', 'accounting', 'allow-size', 'prevail', 'allow-pii', 'accept-chain-limits', 'allow-unfenced', 'amend-cap', 'amount', 'chain', 'child-chain', 'claude-route', 'close', 'allow-pii-node', 'continue-node', 'finish-node', 'prevail-node', 'keep', 'context', 'criteria', 'date', 'days', 'draft', 'from-run', 'handoff', 'label', 'max-children', 'max-depth', 'max-runs', 'max-usd', 'milestone', 'model', 'obligation', 'out', 'pii-gate', 'provider', 'rematch', 'rematch-seed', 'replay', 'replay-date', 'repo', 'ladder-credit', 'ladder-exchange', 'resume', 'rounds', 'run', 'run-id', 'signoff', 'stop', 'task', 'top-up', 'tree-node']);
 // 0.8.3 M0 (ROADMAP 37, owner 8 Oct 2026): the options that take NO value, the other half of the known list (VALUE_FLAGS above is the half that does). An option on neither list is refused below, exit 2,
 // before anything else runs: `--dry` was not an option, was ignored, and the command it sat in started a real paid run. One list for every command, subcommands and the modules they hand argv to included
 // (contract-cli.js: md, decide, decline; gate-cli.js: decline). `yes` is named only in the comment above `council init` (a deliberate no-op); `version` is read as argv[0].
 // test/cli-unknown-flag.test.js fails if an option the CLI reads, or the README shows, is missing from the two lists.
-const BOOLEAN_FLAGS = new Set(['continue', 'finish', 'skip-seat', 'abandon', 'advice-meta', 'allow-secret-shaped', 'allow-task-drift', 'cost-today', 'csv', 'decide', 'decline', 'dry-run', 'forecast-cost', 'fresh', 'help', 'json', 'mcp', 'md', 'metrics', 'accept-plan', 'open-root-stop', 'scan-artifacts', 'spend', 'stats', 'version', 'yes']);
+const BOOLEAN_FLAGS = new Set(['route', 'continue', 'finish', 'finish-now', 'send-up', 'ladder', 'next-pass-layer-3', 'raise-cap', 'relayed', 'skip-seat', 'abandon', 'advice-meta', 'allow-secret-shaped', 'allow-task-drift', 'cost-today', 'csv', 'decide', 'decline', 'dry-run', 'forecast-cost', 'fresh', 'help', 'json', 'mcp', 'md', 'metrics', 'accept-plan', 'open-root-stop', 'scan-artifacts', 'spend', 'stats', 'version', 'yes', 'approve-excerpts', 'drop-excerpt']);
 const expandEquals = args => args.flatMap(a => { const m = /^--([a-z][a-z0-9-]*)=([\s\S]*)$/.exec(a); return m && VALUE_FLAGS.has(m[1]) ? [`--${m[1]}`, m[2]] : [a]; });
 const argvExpanded = expandEquals((rawArgv[0] === 'council' || rawArgv[0] === 'relay') ? rawArgv.slice(1) : rawArgv);
 // Re-audit 2: a flag that takes no value, spelled `--flag=value` (`--dry-run=true`), used to be ignored, and the command then ran for real (a paid run under the default cap).
@@ -273,6 +338,31 @@ if (argvExpanded.includes('--tree-node') && (argvExpanded.includes('--rematch') 
   console.error('--tree-node: not allowed with --rematch or --replay (they spend outside the tree record, and the flag would be ignored). Nothing was run and nothing was spent.');
   process.exit(2);
 }
+// 0.8.4 S20 slice 2: `--route` and `--reason` are on the known list so that `council route-decide` gets past the refusal above, which means any OTHER command would read them as known and ignore them (`council --resume D --route` would run a paid pass at layer 1
+// while the person thought it was routed). They are refused everywhere but under `council route-decide`.
+// #16c: `--reason` is also an option of `council pause` (the handler's own reason for a request to pause); `--route` stays route-decide's alone.
+if (argvExpanded[0] !== 'route-decide') {
+  const stray = ['route', ...(argvExpanded[0] === 'pause' || argvExpanded[0] === 'accept' ? [] : ['reason'])].find(f => argvExpanded.includes(`--${f}`));
+  if (stray === 'route') { console.error(`--route: an option of \`council route-decide\` only (the handler's decision on a request to start the next pass at layer 3). Nothing was run and nothing was spent.`); process.exit(2); }   // A-DRAFT
+  if (stray) { console.error(`--reason: an option of \`council route-decide\`, \`council pause\` and \`council accept\` only (the handler's decision on a request to start the next pass at layer 3, its own request to pause a running run, or the reason for accepting a plan as it stands). Nothing was run and nothing was spent.`); process.exit(2); }   // A-DRAFT
+}
+// 0.8.4 S18 (Q4.3): `--note` and `--objection` are on the known list so that `council note-add` gets past the refusal above, which means any OTHER command would read them as known and ignore them (the `--dry` lesson). They are refused everywhere but under `council note-add`.
+if (argvExpanded[0] !== 'note-add') {
+  const stray = ['note', 'objection'].find(f => argvExpanded.includes(`--${f}`));
+  if (stray) { console.error(`--${stray}: an option of \`council note-add\` only (the handling session's note on the build list after a run has ended), not of this command. Nothing was run and nothing was spent.`); process.exit(2); }   // A-DRAFT
+}
+// 0.8.4 item 6: `--summary-file` is an option of `council summary-add` only, for the same reason.
+if (argvExpanded[0] !== 'summary-add' && argvExpanded.includes('--summary-file')) { console.error('--summary-file: an option of `council summary-add` only (the handling session\'s summary block at the top of the plan after a run has ended), not of this command. Nothing was run and nothing was spent.'); process.exit(2); }   // A-DRAFT
+// 0.8.4 D10 (plan A T5.5): `--approve-excerpts` is refused on anything that is not a start or a resume of a council run (src/excerpt-approval.js), the way the tree-only options are below.
+{
+  const refusal = excerptSwitchFlagRefusal(argvExpanded);
+  if (refusal) { console.error(refusal); process.exit(2); }
+}
+// 0.8.4 the persona form for one run (src/persona-form.js): `--persona-form` is on the known list, so it is refused the same way everywhere that is not a start or a resume of a council run.
+{
+  const refusal = personaFormFlagRefusal(argvExpanded);
+  if (refusal) { console.error(refusal); process.exit(2); }
+}
 // 0.8.3 M5: the options of `council tree decide` (--milestone, --amount, --max-runs, ...) are on the known list so that command gets past the refusal above, which means any OTHER command would read them as known and ignore
 // them (`--dry` again). They are refused everywhere but under `council tree`, which refuses the ones its own verb does not take (src/tree-cli.js).
 if (argvExpanded[0] !== 'tree') {
@@ -280,9 +370,42 @@ if (argvExpanded[0] !== 'tree') {
   if (stray) { console.error(`--${stray}: an option of \`council tree\` only, not of this command. Nothing was run and nothing was spent.`); process.exit(2); }
 }
 const argv = argvExpanded;
+// 0.8.4 (Muad, 1 Nov 2026: "remove --send-up ... just deactivate it so it doesn't get offered anymore"): the flag stays a known boolean, so it is REFUSED here, in every mode and before anything is written, never silently ignored (the --dry lesson). A-DRAFT.
+if (argv.includes('--send-up')) { console.error('--send-up is turned off in this version: to answer a stopped run, use --continue or --finish. Nothing was run and nothing was spent.'); process.exit(2); }
+// 0.8.4 DUALCAP unit 2 (src/caps.js; C&C's rulings of 1 Nov 2026): the per-provider caps switch is read ONCE, here, after a project .env was applied (which cannot set it: env-file NEVER_FROM_ENV_FILE) and before
+// any command runs. Every paid path passes this line (the MCP server, the JS API, tree members and the http server all spawn this file). A command that may spend (commandMaySpend, fail closed) is
+// refused before anything is written or sent while the switch cannot be read and, until the per-provider caps are armed, while it is on (capsNotArmedSentence, temporary). A command that spends nothing runs as before.
+// Unit 3a (C&C's Q1a / Q1b): with the switch on, a command of a REFUSED CLASS (a tree, a paid side command, the advice add-on: capsRefusedClassOf) gets its OWN sentence and exit code first; an honoured dry run of
+// one gets a note (stdout, stderr beside --json so the JSON stays whole) and goes on, calling nothing.
+// Unit 3b: a main START or RESUME that is no refused class (capsDeferredStart) is not refused here: it meets the start refusals after its own checks (below, right
+// after the unpriced refusal), the not-armed line last. Every other line that may spend keeps the not-armed refusal here (fail closed). The answer is kept
+// (capsSwitch, capsOn), so the start refusals read the same answer.
+const capsSwitch = parseCapsSetting(process.env[CAPS_SETTING]);
+const capsOn = capsSwitch.ok ? capsSwitch.caps : [];
+// Unit 4b2: the caps this run is held to, one typed limit each (set on the main path, after the start refusals; read there and by capGateOrExit). [] = today's path.
+let capsArmed = [];
+// Unit 4c1: the cap the resumed run stopped at, and the caps this sitting asks a raise for (set on the main path before the gates; read by capGateOrExit).
+let capsStopCap = null;
+let capsRaiseTargets = [];
+// Unit 4c1 (C&C, 1 Nov 2026): an EARLY raise names its cap, `--raise-cap <id>`, read ONLY with the switch on (with it off `--raise-cap` stays the boolean it always was, and
+// a word after it stays a stray word, refused as before: OFF byte for byte). A token that starts with "--" is never the id (`--raise-cap --relayed`).
+const raiseCapAt = argv.indexOf('--raise-cap');
+const raiseCapId = capsOn.length && raiseCapAt !== -1 && typeof argv[raiseCapAt + 1] === 'string' && !argv[raiseCapAt + 1].startsWith('--') ? argv[raiseCapAt + 1] : null;
+const argvForStray = raiseCapId !== null ? argv.filter((_, i) => i !== raiseCapAt + 1) : argv;
+{
+  const spends = commandMaySpend(argv);
+  if (!capsSwitch.ok) {
+    if (spends) { console.error(capsSwitch.sentence); process.exit(2); }
+  } else if (capsOn.length) {
+    const refusedClass = capsRefusedClassOf(argv);
+    if (refusedClass && !spends) (argv.includes('--json') ? console.error : console.log)(capsDryRunNote(refusedClass, capsOn));
+    else if (refusedClass) { console.error(capsClassRefusalSentence(refusedClass, capsOn)); process.exit(refusedClass.exit); }
+    else if (spends && !capsDeferredStart(argv)) { console.error(capsNotArmedSentence(capsOn)); process.exit(2); }
+  }
+}
 // T2-1 commit 5: read by the five paid side commands (--replay, --rematch, handoff, contract draft, digest --provider), which run above the main dry-run's own flag read; see sideGateOrExit below
 const sideDryRun = argv.includes('--dry-run');
-// T1-1 positional rule, ORDER (C&C FIX on 5837985, 14 Oct 2026; box suite: the generic line spoke before `--advice-meta`'s and `--advice-adopt`'s own refusals): the stray-word refusal is the LAST refusal before money moves. Every block
+// T1-1 positional rule, ORDER (C&C FIX on 5837985, 14 Oct 2026; box suite: the generic line spoke before `--advice-meta`'s own refusal): the stray-word refusal is the LAST refusal before money moves. Every block
 // calls this at the end of its own refusals, before its lock, its folder, its first write and its first call (and before a dry run prints), never at the top. `skip` = the command words ahead of the options (`contract draft` 2, `handoff` and
 // `digest` 1, the main path 0). It is a function declaration so the subcommand blocks above the later consts can reach it.
 // C&C ruling (14 Oct 2026): `--json` on a side command's dry run is refused, never ignored (a flag silently dropped is the T1-1 class, and a script that expects JSON gets text). Argv only, so it is made at the top of each side block,
@@ -293,14 +416,14 @@ function refuseSideJson(who) {
   if (sideDryRun && argv.includes('--json')) { console.error(`${who}: --json cannot be used with --dry-run here: the dry run prints text, so the option would be ignored. Nothing was run and nothing was spent.`); process.exit(2); }
 }
 function refuseStray(skip = 0) {
-  const stray = findStrayPositional(argv.slice(skip), VALUE_FLAGS, BOOLEAN_FLAGS);
+  const stray = findStrayPositional(argvForStray.slice(skip), VALUE_FLAGS, BOOLEAN_FLAGS);   // unit 4c1: the --raise-cap <id> word is no stray word under the switch
   if (stray) { console.error(strayPositionalLine(stray)); process.exit(2); }
 }
 // C&C ruling (14 Oct 2026, on the --json table): `--json` is read by exactly two things, the MAIN command's --dry-run (the JSON dry run) and the `council replay --run <folder>` transcript. Anywhere else it was silently ignored, and a script that
 // expected JSON got text (the T1-1 class). It is refused there, argv only, before anything runs. The five paid side commands with --dry-run keep their own, more specific sentence (refuseSideJson, E 138). SUBCOMMANDS is every `argv[0] === '<word>'`
 // dispatch in this file (test/json-flag-everywhere.test.js reads cli.js and fails if one is missing, so a subcommand added later cannot read --json by accident of being absent from the list); the mode flags are the main-path modes that answer
-// and exit before the main dry run could print JSON (`--advice-adopt` is NOT one: it continues to the main dry run, which reads --json). The only readers of --json are: this check, refuseSideJson, the `replay` transcript and the main dry run (`dryRun && argv.includes('--json')`).
-const SUBCOMMANDS = new Set(['--version', '-v', 'advise-rate', 'check-lock', 'contract', 'demo', 'digest', 'doctor', 'export-board', 'fence', 'gate', 'handoff', 'init', 'lint-criteria', 'replay', 'stop', 'tree', 'verify-handoff']);
+// and exit before the main dry run could print JSON. The only readers of --json are: this check, refuseSideJson, the `replay` transcript and the main dry run (`dryRun && argv.includes('--json')`).
+const SUBCOMMANDS = new Set(['--version', '-v', 'accept', 'check-lock', 'contract', 'demo', 'digest', 'doctor', 'export-board', 'refresh-zdr-list', 'fence', 'gate', 'handoff', 'init', 'lint-criteria', 'relay-answer', 'replay', 'ruling-add', 'retag-add', 'note-add', 'summary-add', 'pause', 'ruling-withdraw', 'route-decide', 'tree', 'verify-handoff']);
 const JSON_BLIND_MODES = ['--spend', '--cost-today', '--stats', '--metrics', '--forecast-cost', '--mcp', '--help', '--rematch', '--replay'];
 {
   const ownSentence = sideDryRun && (argv[0] === 'handoff' || argv[0] === 'digest' || (argv[0] === 'contract' && argv[1] === 'draft') || argv.includes('--replay') || argv.includes('--rematch'));
@@ -329,6 +452,36 @@ function flag(name, fallback) {
   if (i === -1) return fallback;
   const next = argv[i + 1];
   return (next && !next.startsWith('--')) ? next : true;
+}
+// 0.8.4 the Claude route: every site that turns a chain file into the roster a run uses goes through here (src/resolve-run.js). `meta` is the run's run.json for a site that reads an EXISTING run (the route it began with is checked, never obeyed from the file);
+// a stop (a value that is not a route, `session`, a malformed key, a route that changed under a run) prints its sentence and exits 2 before anything is sent. `who` prefixes the sentence for a verb that is not the main run. Returns resolveRun's answer.
+/** 0.8.4 the persona form of a run that is rematched or replayed: the chain is read BY NAME there, not from run.json, so the form the run saved (`persona_form`, typed at its start) is applied to the chain as it is read, as the route and zero retention are kept from run.json. A run with none keeps the chain file's own form; nothing is ever refused here (nothing is typed). */
+const withSavedPersonaForm = (cfg, meta) => decidePersonaForm(cfg, { saved: meta?.persona_form, resumed: true }).config;
+function routeRun(cfg, { meta, who, dry = false } = {}) {
+  const f = flag('claude-route', undefined);
+  const say = text => console.error(who ? `${who}: ${text}` : text);
+  if (f === true) { say('--claude-route needs a value: auto, anthropic, openrouter or session. Nothing was started and nothing was spent.'); process.exit(2); }
+  const r = resolveRun(cfg, { flag: f, env: process.env, recorded: meta ? { route: recordedRouteOf(meta) } : undefined, dry });
+  // A malformed key exits as every other lab's malformed key does at the key check (missingKeyLines: EXIT_DEGRADABLE, a result of the key, "set it and run again"); a value that is not a route, or a route that changed under a run, is a refusal of what was typed or chosen (2).
+  if (r.stop) { say(r.message); process.exit(KEY_STOPS.has(r.code) ? EXIT_DEGRADABLE : 2); }
+  return r;
+}
+// 0.8.4 the optional zero-retention setting (src/zero-retention.js): decided AFTER the route, on the roster as it is sent, at every site that sends. `--zero-retention on|off`, else COUNCIL_ZERO_RETENTION (operator-only: a project .env never sets it), else the
+// run's own record (`meta.zero_retention`, true when it began with the setting on: a record only keeps the setting on). A value that is not on or off exits 2 (a dry run too); with the setting on and a seat the table cannot serve, or a table older than its limit, a START
+// exits 5 before anything is sent (the dry run reports the refusal and goes on); with it on the run switch is armed, so every OpenRouter call carries provider.zdr and provider.only (src/price-pin.js). Returns resolveZeroRetention's answer.
+function zeroRetentionRun(cfg, { meta, who, dry = false } = {}) {
+  const f = flag('zero-retention', undefined);
+  const say = text => console.error(who ? `${who}: ${text}` : text);
+  if (f === true) { say('--zero-retention needs a value: on or off. Nothing was started and nothing was spent.'); process.exit(2); }
+  const list = zdrTableFor(meta?.cwd ? resolve(meta.cwd) : work);      // the shipped list, or the refreshed one of the folder the run was started in (as pricing.user.json: the recorded cwd of a resume); never wider than the shipped one
+  const r = { ...resolveZeroRetention(everySeatOf(cfg), { flag: f, env: process.env, recorded: meta?.zero_retention === true, table: list.table, future: list.future }), asOf: list.table.asOf, source: list.source };
+  if (r.stop) { say(r.message); process.exit(2); }
+  if (r.on && list.problem) say(list.problem);      // an unreadable refreshed list is not used, and the person is told once
+  if (!dry) {
+    if (r.refusal) { say(r.refusal); process.exit(EXIT_DEGRADABLE); }
+    setZeroRetention(r.on, list.table);
+  }
+  return r;
 }
 // 0.7.9: the outbound key scan's one override. Set here so --rematch and --replay (below, before the
 // run-folder code) honour it too; a normal run adds the value saved in run.json further down.
@@ -360,6 +513,12 @@ function readReportOrExit(reportPath, cmdLabel) {
 // and the worst-case price of each. Zero network calls: this only reads env
 // var names and chains/*.json and does the same static pricing math as
 // --dry-run (estimateChainRows, shared from cost.js, not re-derived here).
+// 0.8.4 `council refresh-zdr-list` (src/zdr-refresh.js): one public GET of OpenRouter's list of zero-retention hosts, narrowed to the shipped list, written to zdr-hosts.user.json in this folder; a failed refresh writes nothing (exit 1) and the refusal that asked for it stands.
+if (argv[0] === 'refresh-zdr-list') {
+  const r = await refreshZdrList({ work });
+  for (const l of r.lines) (r.ok ? console.log : console.error)(l);
+  process.exit(r.ok ? 0 : 1);
+}
 if (argv[0] === 'doctor') {
   // `council doctor --run <folder>` (v5 §1 candidate 3): read-only check of
   // one run's withdrawal chains for a section that ended up with no
@@ -399,6 +558,8 @@ if (argv[0] === 'doctor') {
       process.exit(2);
     }
     const findings = lintChain(cfg, chainPath);
+    for (const w of modelLabWarnings(cfg)) console.log(`WARNING: ${w.message}`);   // #4 (A-DRAFT): one model under two lab names; a warning, never a lint finding
+    for (const w of judgePersonaWarnings(cfg)) console.log(`WARNING: ${w.message}`);   // unit W (A-DRAFT): persona-without-switch is a warning, never a lint finding
     if (findings.length) {
       console.error(`\n${chainPath}: ${findings.length} problem(s)\n`);
       for (const f of findings) {
@@ -440,6 +601,8 @@ if (argv[0] === 'doctor') {
     console.log(`  ${name.padEnd(nw)}  ${envName.padEnd(20)}  ${status}`);
   }
 
+  { const setting = readClaudeRouteSetting(process.env.COUNCIL_CLAUDE_ROUTE, 'COUNCIL_CLAUDE_ROUTE'); if (!setting.ok) console.log(`\n${setting.message} Every run refuses to start until it is fixed.`); }
+  { const setting = readZeroRetentionSetting(process.env.COUNCIL_ZERO_RETENTION, 'COUNCIL_ZERO_RETENTION'); if (!setting.ok) console.log(`\n${setting.message} Every run refuses to start until it is fixed.`); }      // 0.8.4 zero retention: a refused value is said once, like the route's
   console.log(`\nChains (runnable = every seat's provider has its key set, or is mock/external):`);
   const chainsDir = join(pkg, 'chains');
   const files = readdirSync(chainsDir).filter(f => f.endsWith('.json')).sort();
@@ -455,7 +618,7 @@ if (argv[0] === 'doctor') {
     // reviewer seats, so it called a chain "runnable" that a real run refuses. It now uses the same
     // enumerator the real run path checks (everySeatOf after vendor resolution).
     let resolved;
-    try { resolved = resolveChainSeats(cfg); } catch { resolved = cfg; }
+    try { const rr = resolveRun(cfg, { env: process.env }); resolved = rr.stop ? cfg : rr.config; } catch { resolved = cfg; }      // 0.8.4: the roster as the route would send it (a refused setting is said once, above the list)
     const seats = everySeatOf(resolved);
     const missing = checkSeats(seats);
     const runnable = missing.length === 0;
@@ -470,17 +633,17 @@ if (argv[0] === 'doctor') {
     // once under every chain (48 identical lines buried the listing).
     const warning = schemaVersionWarning(cfg);
     if (warning) schemaWarnings.set(warning, [...(schemaWarnings.get(warning) || []), label]);
-    // Chains every seat of which runs on one paid key, with nobody to wait for (no external or
-    // mock seat, except an external seats.decider slot, which is asked only on a swing between judge layers: Muad 24 Okt 2026, "B sounds fine to me")
-    // and no lint finding: the shortest path from "no keys" to a real council.
-    const keyProviders = new Set(seatsForOneKey(resolved, seats).filter(Boolean).map(s => s.provider));
+    // Chains whose paid seats all run on one key, with the person's own agent session (the `claude-code-session` seat) answering the rest (no other external seat, no mock seat: a seat answered through
+    // a Claude or ChatGPT subscription is not "one key plus a session"; 0.8.4 HS, Muad 05 Nov 2026 22:19: every layered chain has a session; the 24 Okt "B sounds fine to me" decider exception is that seat too)
+    // and no lint finding: the shortest path from "no keys" to a real council. Derived from the chain file, never from a name.
+    const isSession = s => s.provider === 'external' && s.model === NO_MODEL_SEAT;
+    const keyProviders = new Set(seatsForOneKey(resolved, seats).filter(Boolean).filter(s => !isSession(s)).map(s => s.provider));
     const keyNames = [...keyProviders].map(p => (p === 'mock' || p === 'external' || isKeyOptional(p)) ? null : envKeyName(p));
-    // The add-on's advice chains (advise-*) are not planning chains: they are started by an agent through council_advise, so they are not what "Start here" points a newcomer at (audit A6-2).
-    if (!cfg.advise?.enabled && keyNames.length && keyNames.every(Boolean) && new Set(keyNames).size === 1 && !lintChain(cfg, join(chainsDir, f)).length) {
+    if (keyNames.length && keyNames.every(Boolean) && new Set(keyNames).size === 1 && !lintChain(cfg, join(chainsDir, f)).length) {
       // The labs a chain advertises are its panel's: critics only, by labOf (a seat's own `lab`
       // wins). Counting every seat by model-id prefix called cheap-7-v2 a 9-lab chain while the
       // README calls it a seven-lab panel.
-      oneKey.set(keyNames[0], [...(oneKey.get(keyNames[0]) || []), { label, worst, most, labs: panelLabCount(resolved), caveat: deciderPausesRun(resolved) ? ONE_KEY_PAUSE_CAVEAT : '' }]);
+      oneKey.set(keyNames[0], [...(oneKey.get(keyNames[0]) || []), { label, worst, most, labs: panelLabCount(resolved) }]);
     }
   }
   for (const [warning, labels] of schemaWarnings) {
@@ -490,8 +653,8 @@ if (argv[0] === 'doctor') {
   console.log(`\nStart here:`);
   console.log(`  $0, no key:  "${councilCommand()} demo" shows every stage on a scripted example; "${councilCommand()} init" writes a task and chain you own.`);
   for (const [envName, chains] of oneKey) {
-    const shown = chains.sort((a, b) => a.worst - b.worst).slice(0, 3).map(c => `${c.label} (expected ${formatUsd(c.worst)}, upper estimate ${formatUsd(c.most)}${c.labs ? `, ${c.labs} judges` : ''}${c.caveat ? `; ${c.caveat}` : ''})`);
-    console.log(`  one key:     ${envName} alone runs ${shown.join(', ')}`);
+    const shown = chains.sort((a, b) => (b.label === QUICK_START_CHAIN) - (a.label === QUICK_START_CHAIN) || a.worst - b.worst).slice(0, 3).map(c => `${c.label} (expected ${formatUsd(c.worst)}, upper estimate ${formatUsd(c.most)}${c.labs ? `, ${c.labs} judges` : ''})`);   // the quick-start chain first (the README names it), then the cheapest
+    console.log(`  one key:     ${envName} plus your agent session (Claude Code, for example) runs ${shown.join(', ')}`);   // A-DRAFT (WORDING HS-3): "alone" would be untrue; the swing-pause caveat goes (every chain listed pauses at its session seats)
   }
   console.log(`  before paying: "${councilCommand()} --task tasks/<yours>.md --chain <name> --dry-run" prices it; a paid run stops at the limit you type before it starts ($${DEFAULT_MAX_USD} is the default cap the dry run compares a chain with).`);
   if (unignoredEnvFile(work)) {
@@ -501,6 +664,7 @@ if (argv[0] === 'doctor') {
   for (const line of priceTableLines()) console.log(line);
   for (const line of userPriceLines()) console.log(line);
   if (userPriceProblem) console.log(`WARNING: pricing.user.json is not used at all: ${userPriceProblem.row ? `${userPriceProblem.row}: ` : ''}${userPriceProblem.why}.`);
+  if (preferenceProblem) console.log(`WARNING: provider-preference.json cannot be read in full, so it is not used at all. The reason: ${preferenceProblem.row ? `${preferenceProblem.row}: ` : ''}${preferenceProblem.why}.`);
   console.log(`\nNo network calls were made - this only reads environment variable names and chains/*.json.`);
 
   // v5 §1 candidate 4: doctor's own diagnostic block also names every code
@@ -790,6 +954,12 @@ if (argv[0] === 'handoff' || (argv[0] === 'contract' && argv[1] === 'draft')) {
   const hRunDir = resolve(work, fromArg);
   const hMeta = existsSync(join(hRunDir, 'run.json')) ? (() => { try { return JSON.parse(readFileSync(join(hRunDir, 'run.json'), 'utf8')); } catch { return null; } })() : null;
   if (!hMeta) { console.error(`${who}: ${hRunDir} is not a run folder (no readable run.json)`); process.exit(2); }
+  // 0.8.1 FX-14 (owner, 2026-10-02): an advice call has no plan to hand off. A handoff of its answer would be a paid call whose acceptance items came from advice, read as signed off (advice reports carry passed: true, which is not a
+  // sign-off). Refused on the folder's own files before any chain is looked up, read further or spent (the add-on itself was removed in 0.8.4; this is the old folder's tombstone).
+  if (isAdviceFolder(hRunDir)) {
+    console.error(`${who}: ${hRunDir} is an advice call, not a plan: there is nothing to hand off. Read its deliverable.md (the advice) instead.`);
+    process.exit(2);
+  }
   // 0.8.3 M2 (PLAN 7.6): a post-run paid call on a tree member is held to the member's lifetime cap like a run; `--max-usd none` / `off` (and a run.json that saved no cap) is refused before anything else happens.
   if (hMeta.tree) {
     const askedEarly = flag('max-usd', null);
@@ -806,16 +976,10 @@ if (argv[0] === 'handoff' || (argv[0] === 'contract' && argv[1] === 'draft')) {
   let hConfig;
   try { hConfig = JSON.parse(readFileSync(hConfigPath, 'utf8')); } catch { console.error(`\n${formatCouncilError('COUNCIL-E003', { path: hConfigPath })}`); process.exit(EXIT_FATAL); }
   exitOnLint(hConfig, hConfigPath);
-  // 0.8.1 FX-14 (owner, 2026-10-02): an advice call has no plan to hand off. A handoff of its answer would be a paid call
-  // whose acceptance items came from advice, read as signed off (advice reports carry passed: true, which is not a
-  // sign-off). Refused before anything is read further or spent.
-  if (hConfig.advise?.enabled === true || existsSync(join(hRunDir, 'advise-log.json'))) {
-    console.error(`${who}: ${hRunDir} is an advice call (chain "${hChain}"), not a plan: there is nothing to hand off. Read its deliverable.md (the advice) instead.`);
-    process.exit(2);
-  }
-  try { hConfig = resolveChainSeats(hConfig); } catch { /* reported by the seat check below */ }
+  try { hConfig = routeRun(hConfig, { meta: hMeta, who }).config; } catch { /* reported by the seat check below */ }      // 0.8.4: the roster the run used (its own route is checked, never obeyed from run.json)
   const hSeat = hConfig.seats?.handoff || hConfig.seats?.builder;
   if (!hSeat) { console.error(`${who}: chain "${hChain}" has neither a handoff nor a builder seat`); process.exit(2); }
+  zeroRetentionRun({ seats: { handoff: hSeat } }, { meta: hMeta, who, dry: sideDryRun });      // 0.8.4 zero retention: the handoff sends ONE call, to this seat (not the chain's other seats): decided on it alone, armed before it is sent (a dry run is priced, not stopped)
   const hDraft = pickDraft(hRunDir);
   if (!hDraft) { console.error(`${who}: nothing to hand off - ${hRunDir} holds no draft (deliverable.md, or a final, revise-N, deep-dive-revise or build draft that can be read and is not empty)`); process.exit(2); }
   // what the pick passed over is said here AND in the HANDOFF.md banner (the durable record): a newer draft that could not be read or failed, or a fragment handed on because every draft failed
@@ -836,7 +1000,7 @@ if (argv[0] === 'handoff' || (argv[0] === 'contract' && argv[1] === 'draft')) {
       if (!dp.ok) { console.error(`${who}: ${dp.message}`); process.exit(2); }
       return { system: dp.system, user: dp.user };
     }
-    return handoffPrompt({ config: hConfig, request: hRequest, draft: hDraft.text, planFile: hConfig.handoffPlanFile || 'PLAN.md', checks: '', criteria: hCriteria, treeMember: Boolean(hMeta.tree) });
+    return handoffPrompt({ config: hConfig, request: hRequest, draft: hDraft.text, planFile: handoffPlanFileOf(hConfig), checks: '', criteria: hCriteria, treeMember: Boolean(hMeta.tree), openObjections: openObjectionsOfReport(readRunJson(hRunDir, 'report.json')) });   // 0.8.4 round 1, 9a: the objections the run's own handoff prompt listed, when its report recorded them
   };
   // T2-1 commit 5: `--dry-run` is a SEPARATE early branch (C&C gate 1, 14 Oct 2026): it reads without the lock, applies the policy gate, prices the one call and exits 0. It takes no lock, writes no prompt file and no tree claim
   // (memberStart), and the real run below keeps its order exactly: lock -> prompt -> scan -> gate -> cap. A stale price costs nothing; a stale prompt on a real run would.
@@ -904,8 +1068,8 @@ if (argv[0] === 'handoff' || (argv[0] === 'contract' && argv[1] === 'draft')) {
     hCap = Number(hCapArg);
     if (hCapArg === true || !Number.isFinite(hCap) || hCap <= 0) { console.error(`--max-usd: expected a positive number of dollars or "none", got "${hCapArg === true ? '' : hCapArg}"`); process.exit(2); }
   } else if ('maxUsd' in hMeta) hCap = hMeta.maxUsd;
-  else hCap = Number(process.env.MAX_USD_PER_RUN) > 0 ? Number(process.env.MAX_USD_PER_RUN) : 7;
-  // T5b: a PAID handoff / contract draft on a run that is not a tree member waits for a limit a person types (the gate page of 14 Oct 2026): the run's saved cap, MAX_USD_PER_RUN and the $7 default are not the limit, `--max-usd N` is only the suggestion on the
+  else hCap = Number(process.env.MAX_USD_PER_RUN) > 0 ? Number(process.env.MAX_USD_PER_RUN) : DEFAULT_MAX_USD;
+  // T5b: a PAID handoff / contract draft on a run that is not a tree member waits for a limit a person types (the gate page of 14 Oct 2026): the run's saved cap, MAX_USD_PER_RUN and the $12 default are not the limit, `--max-usd N` is only the suggestion on the
   // screen, and `none` is not offered. A member keeps its claim and its lifetime cap (above, unchanged); a free seat (mock, ollama, external) keeps the flag. The order stays lock -> prompt -> key scan -> policy gate -> unpriced refusal -> typed limit -> cap.
   const hGateConfig = { name: hChain, seats: { handoff: hSeat } };
   let hGateDir = null;
@@ -954,7 +1118,7 @@ if (argv[0] === 'handoff' || (argv[0] === 'contract' && argv[1] === 'draft')) {
   }
   // The money is on record before anything else can fail, a cut-off reply included. One file per call (FX-1): a second
   // handoff used to overwrite the first's handoff-from-run.usage.json; superseded/ is what --spend and a resume's cap read.
-  recordCallOrCharge(hRunDir, draftMode ? 'contract-draft' : 'handoff-from-run', { provider: hRes.provider, model: hRes.model, usage: hRes.usage, usd: hRes.usd, ms: hRes.ms, promptHash: hRes.promptHash, reservationId: hRes.reservationId }, { seat: hSeat, system: hSystem, user: hUser }, who, hMirror);
+  recordCallOrCharge(hRunDir, draftMode ? 'contract-draft' : 'handoff-from-run', { provider: hRes.provider, model: hRes.model, usage: hRes.usage, usd: hRes.usd, ms: hRes.ms, promptHash: hRes.promptHash, reservationId: hRes.reservationId, ...basisField(hRes), ...billedFieldsOf(hRes), ...discardedFieldOf(hRes) }, { seat: hSeat, system: hSystem, user: hUser }, who, hMirror);
   const hStop = hRes.usage?.stop;
   if (['length', 'max_tokens', 'error', 'content_filter', 'refusal'].includes(hStop) || !String(hRes.text || '').trim()) {
     console.error(`${who}: the reply did not complete (${hStop ? `stop: ${hStop}` : 'empty'}); nothing was written. Raise the seat's maxTokens and run this again. ${formatUsd(hRes.usd)} was spent.`);
@@ -979,7 +1143,11 @@ if (argv[0] === 'handoff' || (argv[0] === 'contract' && argv[1] === 'draft')) {
   renameSync(join(hRunDir, 'handoff-from-run.reply.md.tmp'), join(hRunDir, 'handoff-from-run.reply.md'));
   // 0.8.2 item 6b: the same harness-written section as a run's own HANDOFF.md, from the thin contract the run's report.json holds (none in an older run: then the file reads as before).
   const hChecks = readChecks(hRunDir, hCriteria);
-  let hFailures, hGaps = []; try { const hCfgRead = JSON.parse(readFileSync(hConfigPath, 'utf8')); hFailures = checkFailuresOf(hCfgRead); if (hCfgRead.handoff_contract?.milestones === true) hGaps = lintMilestones({ text: String(hRes.text), criteriaIds: criterionIds(hCriteria) }).findings; } catch { hFailures = undefined; /* the chain file was already read and linted above; if it cannot be read again the section is written with the default threshold and no milestone gaps, never a failed handoff */ }
+  // 0.8.4 slot H2-n (D17 entry 5): the seat's text gets the no-test-file line at the same place the run's own handoff does (src/chain.js, right after the seat's text settles), before the builder tasks and the lint read it; the reply file above stays the seat's own words.
+  const hSeatRaw = withNoTestsLine(String(hRes.text), noFencedTestFile(hRequest));
+  // 0.8.4 slot H2-h (D17 T1.3): `plan` is the plan the handoff seat answered, WITHOUT the harness notes above it: for deliverable.md the body the run's own record finds (gapPlanOf; a file the record cannot separate gives no plan, so no gap check: a named limit); a stage draft (final.md, revise-N.md, build.md) has no notes above it, so it is the text the seat was shown (hDraft.text).
+  const hPlan = hDraft.name === 'deliverable.md' ? gapPlanOf(hDraft.text, readRunJson(hRunDir, 'report.json')?.delivered_text) : hDraft.text;
+  let hFailures, hGaps = [], hMilestonesOn = false; try { const hCfgRead = JSON.parse(readFileSync(hConfigPath, 'utf8')); registerSeatKeys(hCfgRead); hFailures = checkFailuresOf(hCfgRead); hMilestonesOn = hCfgRead.handoff_contract?.milestones === true; if (hMilestonesOn) hGaps = lintMilestones({ text: hSeatRaw, criteriaIds: criterionIds(hCriteria), planText: (() => { try { return readFileSync(join(hRunDir, 'deliverable.md'), 'utf8'); } catch { return null; } })(), plan: hPlan }).findings; } catch { hFailures = undefined; /* the chain file was already read and linted above; if it cannot be read again the section is written with the default threshold and no milestone gaps, never a failed handoff */ }
   // Audit fix 73-handoff 1: the milestone gaps are written where the run path writes them (WARNINGS.md) and said on the console, whether or not the run has a thin contract to carry them into the file
   // (a cap-stopped run has no report.json; a 0.8.1 run has no thin_contract: builderSection returns '' for both).
   if (hGaps.length) {
@@ -987,10 +1155,15 @@ if (argv[0] === 'handoff' || (argv[0] === 'contract' && argv[1] === 'draft')) {
     appendFileSync(join(hRunDir, 'WARNINGS.md'), hGaps.map(f => `- handoff_milestones: ${f.kind}: ${f.message}\n`).join(''));
     console.log(`${who}: handoff milestones: ${hGaps.length} gap(s) (${[...new Set(hGaps.map(f => f.kind))].join(', ')}); see ${join(hRunDir, 'WARNINGS.md')}`);
   }
-  const hBuilder = builderSection({ thin: readRunJson(hRunDir, 'report.json')?.thin_contract, runId: hRunId, failures: hFailures, hasChecks: Array.isArray(hChecks) && hChecks.some(Boolean), gaps: hGaps });
+  const hBuilder = builderSection({ thin: readRunJson(hRunDir, 'report.json')?.thin_contract, runId: hRunId, failures: hFailures, hasChecks: Array.isArray(hChecks) && hChecks.some(Boolean), gaps: hGaps, builderKind: builderKindOf(hConfig) });   // 0.8.4 slot H2-q (D22): the chain's builder_kind reaches the harness half, as the seat half already does through handoffPrompt(hConfig)
   const hEarlyTasks = earlyTasksFromReport(readRunJson(hRunDir, 'report.json'));   // ROADMAP 83: an early finish keeps its builder tasks when the handoff is rebuilt
-  const hText = hEarlyTasks ? withBuilderTasks(String(hRes.text), hEarlyTasks) : String(hRes.text);
-  const body = partialBanner({ state: hState, draftName: hDraft.name, runId: hRunId, pick: hDraft }) + hText.replace(/\s+$/, '') + '\n' + (hBuilder ? `\n${hBuilder}` : '') + lockBlock(hCriteria, { runId: hRunId, checks: hChecks });
+  const hText = hEarlyTasks ? withBuilderTasks(hSeatRaw, hEarlyTasks) : hSeatRaw;
+  // 0.8.4 T2.5 (D29): the same Status rule as the run's own HANDOFF.md; a run that did not agree (a degraded sign-off is agreed) cannot say ready_for_build or partial here either
+  const hReportNow = readRunJson(hRunDir, 'report.json');
+  const hAcceptance = hReportNow?.acceptance && typeof hReportNow.acceptance === 'object' ? hReportNow.acceptance : null;   // an acceptance recorded for this run (src/acceptance.js): the clamp is lifted and the line goes under the banner
+  const hSeatText = hMilestonesOn ? clampStatus(hText, statusAllowedOf(hReportNow?.ending_word, { agreed: hState.signedOff === true || hState.degraded === true, accepted: hAcceptance !== null })).text : hText;
+  const body0 = partialBanner({ state: hState, draftName: hDraft.name, runId: hRunId, pick: hDraft }) + hSeatText.replace(/\s+$/, '') + '\n' + (hBuilder ? `\n${hBuilder}` : '') + lockBlock(hCriteria, { runId: hRunId, checks: hChecks });
+  const body = hAcceptance ? withAcceptance(body0, hAcceptance) : body0;
   // Exclusive create (audit A5-1, FX-9): a file that appeared since the name was chosen (another handoff, the run's own HANDOFF.md finishing, or on a case-insensitive disk
   // the stage file handoff.md under another spelling) is never overwritten: the next free name is used.
   let hWritten = null;
@@ -1013,18 +1186,95 @@ if (argv[0] === 'gate') {
 if (argv[0] === 'tree') {
   if (argv[1] === 'start' || argv[1] === 'resume') refuseOnUserPriceProblem();
   const treePiiSetting = piiModeSetting(process.env);   // the tree's mode is the flag, else this setting, else warn (src/tree-start.js); the module itself reads no environment variable
-  process.exit(await treeCommand(argv.slice(1), { work, ceiling: readUsdCeiling, piiSetting: treePiiSetting }));      // a thunk: only a paid tree path reads the ceiling (src/tree-ceiling.js)
+  process.exit(await treeCommand(argv.slice(1), { work, ceiling: readUsdCeiling, piiSetting: treePiiSetting, claudeRouteEnv: process.env }));      // a thunk: only a paid tree path reads the ceiling (src/tree-ceiling.js)
 }
 
-// `council advise-rate <run> useful|not-useful|unclear [note]` (0.8.1, plan M5 Work 7): the only writer of an advice run's
-// owner_rating (src/advise-rate.js), so a hand edit cannot leave a file the money guards refuse to read.
-if (argv[0] === 'advise-rate') {
-  process.exit(adviseRateCommand(argv.slice(1), { work }));
+// 0.8.4 D2 (src/accept-cli.js): the person's acceptance of the plan of a run that ended without agreement, as it stands.
+if (argv[0] === 'accept') {
+  const positional = argv.slice(1).filter((a, i, all) => !a.startsWith('--') && all[i - 1] !== '--reason');
+  const given = flag('reason', null);
+  process.exit(await acceptCommand(positional, { work, reason: typeof given === 'string' ? given : undefined }));
 }
 
-// `council stop <run>` (0.8.1, plan M6 Work 2): a person's STOP request for a running advice call (src/advice-stop.js).
-if (argv[0] === 'stop') {
-  process.exit(stopCommand(argv.slice(1), { work }));
+// B3 prototype (src/gate-relay-cli.js): asks for a ruling, to apply from the next pass.
+if (argv[0] === 'ruling-add') {
+  const positional = argv.slice(1).filter((a, i, all) => !a.startsWith('--') && all[i - 1] !== '--ruling');
+  const given = flag('ruling', null);
+  process.exit(rulingAddCommand(positional, { work, ruling: typeof given === 'string' ? given : undefined, relayed: argv.includes('--relayed') }));
+}
+
+// M1 (S19 (c); src/gate-relay-cli.js, src/handler-retags.js): the handler session's own act, a change of one objection's rating from the next pass on, recorded in retags.jsonl in the run folder (no gate, no answer from the person). The chain of the run (its ratings and its handler-session reviser) is read through the same lookup a resume uses.
+if (argv[0] === 'retag-add') {
+  const positional = argv.slice(1).filter((a, i, all) => !a.startsWith('--') && !['--retag-objection', '--retag-severity', '--retag-reason'].includes(all[i - 1]));
+  const given = v => (typeof v === 'string' ? v : undefined);
+  const readRunMeta = dir => { try { return JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')); } catch { return null; } };
+  const chainOf = meta => {
+    if (!meta?.chain) return null;
+    const path = [meta.cwd ? join(meta.cwd, 'chains', `${meta.chain}.json`) : null, join(work, 'chains', `${meta.chain}.json`), join(pkg, 'chains', `${meta.chain}.json`)].filter(Boolean).find(existsSync);
+    try { return path ? JSON.parse(readFileSync(path, 'utf8')) : null; } catch { return null; }
+  };
+  process.exit(retagAddCommand(positional, { work, objection: given(flag('retag-objection', null)), severity: given(flag('retag-severity', null)), reason: given(flag('retag-reason', null)), relayed: argv.includes('--relayed'), chainOf, readRunMeta }));
+}
+
+// 0.8.4 S18 (Q4.3; src/handler-notes.js): the handling session's note on the build list AFTER the run has ended. A record path (report.json, HANDOFF.md and its recorded hash move together); no harness call, no money path.
+if (argv[0] === 'note-add') {
+  const positional = argv.slice(1).filter((a, i, all) => !a.startsWith('--') && !['--note', '--objection'].includes(all[i - 1]));
+  const given = v => (typeof v === 'string' ? v : undefined);
+  const readRunMeta = dir => { try { return JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')); } catch { return null; } };
+  const chainOf = meta => {
+    if (!meta?.chain) return null;
+    const path = [meta.cwd ? join(meta.cwd, 'chains', `${meta.chain}.json`) : null, join(work, 'chains', `${meta.chain}.json`), join(pkg, 'chains', `${meta.chain}.json`)].filter(Boolean).find(existsSync);
+    try { return path ? JSON.parse(readFileSync(path, 'utf8')) : null; } catch { return null; }
+  };
+  process.exit(noteAddCommand(positional, { work, note: given(flag('note', null)), objection: given(flag('objection', null)), chainOf, readRunMeta }));
+}
+
+// 0.8.4 item 6 (src/summary-add.js): the handling session's plan summary and index at the top of deliverable.md AFTER the run has ended. A record path (report.json and deliverable.md move together); no harness call, no money path. Off as shipped: the instruction it writes from is held.
+if (argv[0] === 'summary-add') {
+  const positional = argv.slice(1).filter((a, i, all) => !a.startsWith('--') && !['--summary-file'].includes(all[i - 1]));
+  const given = v => (typeof v === 'string' ? v : undefined);
+  const readRunMeta = dir => { try { return JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')); } catch { return null; } };
+  const chainOf = meta => {
+    if (!meta?.chain) return null;
+    const path = [meta.cwd ? join(meta.cwd, 'chains', `${meta.chain}.json`) : null, join(work, 'chains', `${meta.chain}.json`), join(pkg, 'chains', `${meta.chain}.json`)].filter(Boolean).find(existsSync);
+    try { return path ? JSON.parse(readFileSync(path, 'utf8')) : null; } catch { return null; }
+  };
+  process.exit(summaryAddCommand(positional, { work, summaryFile: given(flag('summary-file', null)), chainOf, readRunMeta }));
+}
+
+// B3 prototype (src/gate-relay-cli.js): the way out of a ruling: the session declines a request it asked for, or asks for the withdrawal of an approved ruling from the next pass.
+if (argv[0] === 'ruling-withdraw') {
+  const positional = argv.slice(1).filter(a => !a.startsWith('--'));
+  process.exit(rulingWithdrawCommand(positional, { work, relayed: argv.includes('--relayed') }));
+}
+
+// S20 slice 2, control 1 (src/gate-relay-cli.js, slot H20): the handler session's decision on a request to start the next pass at layer 3, or its own route. The chain of the run is read the way a resume reads it (the same three folders as retag-add above) and its seats are resolved,
+// so the seat keys of the stage files are the keys the run used (N7 needs them).
+if (argv[0] === 'route-decide') {
+  const positional = argv.slice(1).filter((a, i, all) => !a.startsWith('--') && all[i - 1] !== '--reason' && all[i - 1] !== '--person-words');
+  const given = v => (typeof v === 'string' ? v : undefined);
+  const readRunMeta = dir => { try { return JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')); } catch { return null; } };
+  const chainOf = meta => {
+    if (!meta?.chain) return null;
+    const path = [meta.cwd ? join(meta.cwd, 'chains', `${meta.chain}.json`) : null, join(work, 'chains', `${meta.chain}.json`), join(pkg, 'chains', `${meta.chain}.json`)].filter(Boolean).find(existsSync);
+    try { return path ? resolveChainSeats(JSON.parse(readFileSync(path, 'utf8'))) : null; } catch { return null; }
+  };
+  process.exit(routeDecideCommand(positional, { work, route: argv.includes('--route'), decline: argv.includes('--decline'), reason: given(flag('reason', null)), personWords: given(flag('person-words', null)), chainOf, readRunMeta }));
+}
+
+// S20 slice 2, #16c (src/gate-relay-cli.js): "pause after this round": asks the RUNNING run to stop before its next pass. Takes no run lock; records one ledger line.
+if (argv[0] === 'pause') {
+  const positional = argv.slice(1).filter((a, i, all) => !a.startsWith('--') && all[i - 1] !== '--reason' && all[i - 1] !== '--person-words');
+  const given = v => (typeof v === 'string' ? v : undefined);
+  const readRunMeta = dir => { try { return JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')); } catch { return null; } };
+  process.exit(pauseCommand(positional, { work, reason: given(flag('reason', null)), personWords: given(flag('person-words', null)), readRunMeta }));
+}
+
+// B3 prototype (src/gate-relay-cli.js): the handler session's relay of a person's permission for a raised limit or a ruling.
+if (argv[0] === 'relay-answer') {
+  const positional = argv.slice(1).filter((a, i, all) => !a.startsWith('--') && all[i - 1] !== '--person-words' && all[i - 1] !== '--total');
+  const given = v => (typeof v === 'string' ? v : undefined);
+  process.exit(relayCommand(positional, { work, personWords: given(flag('person-words', null)), total: given(flag('total', null)) }));
 }
 
 // `council lint-criteria --criteria <file> | --run <folder>` (0.8.0): the $0 word-level lints over an
@@ -1115,7 +1365,7 @@ if (argv[0] === 'fence') {
   const existing = readFileSync(taskPathAbs, 'utf8');
   // The header counts only where `council fence` writes it, outside any block: a fenced file that
   // quotes it (src/fence.js itself, say) is not the header.
-  const header = outsideFences(existing).includes('# Source, fenced verbatim') ? '' : FENCE_HEADER;
+  const header = outsideFences(existing).includes('# Source, fenced verbatim') ? '' : fenceHeader();
   const next = `${existing.replace(/\s*$/, '')}\n${header}${appended}`;
 
   // Scan the RESULT, not just what was added: a credential already sitting in the task's
@@ -1206,6 +1456,7 @@ if (argv[0] === 'digest') {
     // a stand-in chain for the one digest call: the seat sits in a slot the chain code knows (`digest` is not one: before T5b the unpriced pre-flight below saw no seat at all and only invoke()'s backstop refused)
     const digestStandIn = { name: 'digest', seats: { handoff: seat } };
     const digestPaid = chainIsPaid(digestStandIn);
+    zeroRetentionRun(digestStandIn, { meta: readRunJson(runDir, 'run.json') ?? undefined, who: 'digest', dry: sideDryRun });      // 0.8.4 zero retention: the digest's one call, decided on its seat alone and armed before it is sent
     let digestGateDir = null;
     // what a digest call must have in place before it is sent: the earlier spend of the folder counted, the reservation sink, the lost-charge hook (unchanged from before T5b; for a paid seat it runs after the limit is typed)
     const armDigestBudget = cap => {
@@ -1252,7 +1503,7 @@ if (argv[0] === 'digest') {
         if (err instanceof SecretShapedPrompt) exitOnSecretShaped(err, 'digest');
         throw err;
       }
-      recordCallOrCharge(runDir, 'digest', { provider: res.provider, model: res.model, usage: res.usage, usd: res.usd, ms: res.ms, promptHash: res.promptHash, reservationId: res.reservationId }, { seat, system, user: messages[0].content }, 'digest');
+      recordCallOrCharge(runDir, 'digest', { provider: res.provider, model: res.model, usage: res.usage, usd: res.usd, ms: res.ms, promptHash: res.promptHash, reservationId: res.reservationId, ...basisField(res), ...billedFieldsOf(res), ...discardedFieldOf(res) }, { seat, system, user: messages[0].content }, 'digest');
       if (draftIncomplete(res.usage) || draftCutOff(res.usage, seat.maxTokens)) throw new Error(`the reply did not complete (${res.usage?.stop ? `stop: ${res.usage.stop}` : 'cut off'})`);
       return { text: res.text };
     };
@@ -1282,7 +1533,7 @@ if (argv[0] === 'digest') {
 
 // T1-1 positional rule (14 Oct 2026, C&C): every subcommand block above has exited, so what is left is the flag-driven main path, which has no bare-word form. A word that is not an option and not the value of an option is refused
 // (`dry-run` typed without hyphens, `ーdry-run`, `一dry-run` each started a paid run with the option dropped, probe p24; no list of look-alike glyphs closes that class). The check is NOT made here: it is the last refusal of each path
-// (refuseStray, defined at the top), made after that path's own more specific refusals (the removed flags, `--advice-adopt`'s conflicts, the policy gate, the keys, the cap) and before its lock, folder and first call.
+// (refuseStray, defined at the top), made after that path's own more specific refusals (the removed flags, the policy gate, the keys, the cap) and before its lock, folder and first call.
 // Bug-audit fix, 2026-09-23 (Review/BugAudit_MoneyPath_2026-09-23.md #3): parsed here, above
 // --rematch and --replay, because both of those call runChain() - and they used to do it before
 // this block ran and before setBudget(), so they spent under the module default of no ceiling.
@@ -1290,8 +1541,10 @@ if (argv[0] === 'digest') {
 // keys at ships with a ceiling ON by default; --max-usd none is the explicit
 // way to run without one, and says so in the log.
 const SIDE_RUN_FOLDER = /\.(rematch-\d+|replay-\d{4}-\d{2}-\d{2})$/;
-// An adopted advice call (--advice-adopt) is capped at the ceiling its gate approved; MAX_USD_PER_RUN is not read for it.
-const maxUsdArg = flag('max-usd', argv.includes('--advice-adopt') ? String(DEFAULT_MAX_USD) : (process.env.MAX_USD_PER_RUN ?? String(DEFAULT_MAX_USD)));
+// Unit 4b2 (C&C, ON-ONLY): with the per-provider caps switch on, a blank MAX_USD_PER_RUN or a host placeholder (a Desktop field left empty) counts as unset; with it off the
+// old reading stands byte for byte (a blank value is refused below as 0, the owner's decision behind the MCP server's own "set but empty" sentence).
+const perRunEnv = capsOn.length && !perRunIsSet(process.env.MAX_USD_PER_RUN) ? undefined : process.env.MAX_USD_PER_RUN;
+const maxUsdArg = flag('max-usd', perRunEnv ?? String(DEFAULT_MAX_USD));
 let maxUsd;
 if (maxUsdArg === true) { console.error('--max-usd: needs a value, e.g. --max-usd 2'); process.exit(2); }
 else if (maxUsdArg === 'none' || maxUsdArg === 'off') maxUsd = null;
@@ -1329,6 +1582,7 @@ function armSideRun(what, dir, config, fingerprint) {
   const unfinished = unfinishedSideSummary(dir, config);
   countEarlierSpend(supersededSpendOf(dir));
   countEarlierSpend(unsettledReservations(dir).reduce((n, r) => n + r.usd, 0));
+  countEarlierSpend(settledWithoutFileOf(dir).reduce((n, r) => n + r.usd, 0));   // 0.8.4 item 9a: a call an earlier sitting settled whose usage file was never written is paid for and in no file; the main resume seeds it too (above, "settledWithoutFileOf"), so a rematch and a replay hold the same limit
   setReservationSink(openReservations(dir));
   setChargeHook(c => recordLostCharge(dir, c.label, c));   // CR-1D-001: a call that fails after it was sent (billed, unreadable) or a discarded thinking attempt leaves its charge in THIS folder, as on a run and on --resume: the next sitting and --spend count it
   const unverified = [];
@@ -1337,7 +1591,7 @@ function armSideRun(what, dir, config, fingerprint) {
   setEnvelopeStore(fileEnvelopeStore(dir)); // E3b unit three: the reply-identity records of a side run live in ITS folder, beside its stage files
   setEnvelopeInForce(envelope);
   if (unfinished) console.log(`${what}: ${basename(dir)} was started and did not finish: ${unfinished.stages} stage(s) are on disk (recorded spend so far: ${formatUsd(unfinished.paid)}); the stages still to run could cost up to ${formatUsd(unfinished.remaining)} more. Only those stages run from here.`);
-  return { onStage: s => writeSideStage(dir, s, { fingerprint }), unverified, envelope };
+  return { onStage: s => { stampRow(s, config, { dir, write: writeFileAtomic }); writeSideStage(dir, s, { fingerprint }); }, unverified, envelope };   // 0.8.4 lane C: a side run's rows carry the persona stamp too
 }
 // Cost-unit U1 split (14 Oct 2026): STOPPED-budget.json's spentUsd is the RECORDED spend (what the folder holds and --spend reads); the worst-case part the cap also counted, for replayed stages whose usage record has no figure, is its own
 // additive value, present only when something was assumed. The sentence that names it to a person (STOPPED-budget.md, the log lines below) is held for the owner's yes.
@@ -1351,9 +1605,9 @@ function stoppedCountedUsd(err, state) { return (err.spent || 0); }   // what th
 
 // The "Continue it" command of a budget stop. A PAID chain's limit is a number a person types, so resuming asks for a new TOTAL above what the cap counted (T4b2); a FREE chain has no typed limit and still resumes with --max-usd.
 function budgetStopContinue(err, state, runId, config) {
-  const suggested = resumeCeilingUsd({ cap: err.cap, spent: err.spent, projected: err.projected }) ?? Math.ceil((err.cap + err.projected) * 100) / 100;
+  const suggested = resumeCeilingUsd({ cap: err.cap, spent: err.spent, projected: err.projected, gate: err.gate }) ?? Math.ceil((err.cap + err.projected) * 100) / 100;
   if (!chainIsPaid(config)) return `    ${councilCommand()} --resume runs/${runId} --max-usd ${suggested.toFixed(2)}\n\nOr \`--max-usd none\` to continue with no ceiling.`;
-  return `    ${councilCommand()} --resume runs/${runId}\n\nThe limit of this run is a number a person types, so resuming shows a screen and asks for a NEW TOTAL for the whole run (not extra): it must be above ${formatUsd(stoppedCountedUsd(err, state))}, and the smallest total that gets past this stop is ${formatUsd(suggested)}. With no terminal, the resume leaves a screen to answer with \`council gate answer runs/${runId} <gate>\`, then resume again.`;
+  return `    ${councilCommand()} --resume runs/${runId}\n\nThe limit of this run is a number a person types, so resuming shows a screen and asks for a NEW TOTAL for the whole run (not extra): it must be above ${formatUsd(stoppedCountedUsd(err, state))}, and the smallest total that lets the next call to a model be sent is ${formatUsd(suggested)}. With no terminal, the resume leaves a screen to answer with \`council gate answer runs/${runId} <gate>\`, then resume again.`;
 }
 function assumedAtWorstCase(state) { return (state.assumed?.stages > 0 ? { assumedAtWorstCase: { replayedStages: state.assumed.stages, usd: state.assumed.usd } } : {}); }
 function writeSideRunBudgetStop(dir, err, what, reportArgs = null, again = null) {
@@ -1363,7 +1617,7 @@ function writeSideRunBudgetStop(dir, err, what, reportArgs = null, again = null)
   err.spent = Math.max(err.spent || 0, budgetState().spent);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'STOPPED-budget.json'), JSON.stringify({
-    stoppedAt: err.label, seat: err.seat, spentUsd: stoppedSpentUsd(err, budgetState()), capUsd: err.cap, projectedStageUsd: err.projected, ...assumedAtWorstCase(budgetState()),
+    stoppedAt: err.label, seat: err.seat, spentUsd: stoppedSpentUsd(err, budgetState()), capUsd: err.cap, projectedStageUsd: err.projected, gateStageUsd: err.gate, ...assumedAtWorstCase(budgetState()),
   }, null, 2));
   if (err.partial && reportArgs) {
     try {
@@ -1376,7 +1630,7 @@ function writeSideRunBudgetStop(dir, err, what, reportArgs = null, again = null)
       console.error(`${what}: ${PARTIAL_REPORT_FILE} not written (${e?.message || e})`);
     }
   }
-  console.error(`${what}: STOPPED - per-run spend cap reached before stage "${err.label}" (${spentWords(err, budgetState())} spent of ${formatUsd(err.cap)}; ${err.seat} could cost up to ${formatUsd(err.projected)}).${again ? ` Run the same command again: it asks for a new total above ${formatUsd(err.spent || 0)} (the smallest that gets past this stop is ${formatUsd(resumeCeilingUsd({ cap: err.cap, spent: err.spent, projected: err.projected }) ?? Math.ceil((err.cap + err.projected) * 100) / 100)}):\n  ${again}` : ' Raise it with --max-usd <higher> or --max-usd none.'}`);
+  console.error(`${what}: STOPPED - per-run spend cap reached before stage "${err.label}" (${spentWords(err, budgetState())} spent of ${formatUsd(err.cap)}; ${err.seat} could cost up to ${formatUsd(err.projected)}).${again ? ` Run the same command again: it asks for a new total above ${formatUsd(err.spent || 0)} (the smallest total that lets the next call to a model be sent is ${formatUsd(resumeCeilingUsd({ cap: err.cap, spent: err.spent, projected: err.projected, gate: err.gate }) ?? Math.ceil((err.cap + err.projected) * 100) / 100)}):\n  ${again}` : ' Raise it with --max-usd <higher> or --max-usd none.'}`);
   process.exit(4);
 }
 
@@ -1439,11 +1693,20 @@ function sideGateOrExit(config, allSeats, policyCwd = work, neighbour = null, ca
 // `scopeBaseOf()` yields the inputs of the scope that only the caller knows (task, context, chain file, policy file, PII mode); it is called at the point the inline code built them. `beforeAuthorize` runs where the inline code prepared run.json.
 // T5b: handoff / contract draft / digest keep their gate in `<original run folder>/side/<verb>-<h8>/` (runDir = that folder) and spend in the ORIGINAL folder (`floorDir`: the floor on the screen is what the original has counted, the same figure the armed budget carries as earlier spend);
 // `oneCall` = { usd } is the worst case of the ONE call (these commands make one), used for the estimate and the maximum instead of a chain's rows; `flagUsd` is the `--max-usd` number as the caller parsed it (the blocks above `maxUsd`'s declaration cannot read the variable).
-async function capGateOrExit({ runDir, runId, resume, config, fromRun, subject, scopeBaseOf, beforeAuthorize = null, beforePendingExit = null, sideVerb = null, sideLabel = sideVerb, again = null, floorDir = runDir, oneCall = null, flagUsd }) {
+// Unit 4b2: `capName` asks the limit of ONE per-provider cap (src/caps.js "THE ARMING"): its ceiling is that cap's own COUNCIL_MAX_USD_LIMIT_<ID>, never COUNCIL_MAX_USD_LIMIT; no
+// run-wide figure is suggested; the screen names the cap. `onPending` (with capName) collects a wait instead of exiting, so every cap's gate is asked before the ONE exit 21.
+var mainRerun = null;   // what the amend screen needs of the main run ({ fingerprint, ladderAdopted }), copied here where `cacheFingerprint` is made (below). The box showed `ReferenceError: cacheFingerprint is not defined` from the screen's reader (the name is not visible from this function, and rerunOf swallowed the error, so the finished-steps sentence was never printed); `var` so a gate that runs before this line (a side command's, the post-run limit gate near the top of the file) finds it undefined instead of throwing, because this statement has not run yet; rerunOf treats undefined and null alike
+async function capGateOrExit({ runDir, runId, resume, config, fromRun, subject, scopeBaseOf, beforeAuthorize = null, beforePendingExit = null, sideVerb = null, sideLabel = sideVerb, again = null, floorDir = runDir, oneCall = null, flagUsd, capName = null, onPending = null, routeLine = null, typedReads = null }) {
   const ceilings = [];
-  const limitUsd = usdLimitOrExit();   // the one helper (and the one sentence) the early refusals use too
-  if (limitUsd !== null) ceilings.push({ usd: limitUsd, source: 'COUNCIL_MAX_USD_LIMIT' });
-  const suggested = argv.includes('--max-usd') ? { usd: flagUsd !== undefined ? flagUsd : maxUsd, source: '--max-usd' } : Number(process.env.MAX_USD_PER_RUN) > 0 ? { usd: Number(process.env.MAX_USD_PER_RUN), source: 'MAX_USD_PER_RUN' } : null;
+  if (capName) {
+    const own = readCapCeiling(capName);
+    if (own.unreadable) { console.error(`\n${own.unreadable} Nothing was started.`); process.exit(2); }   // the start refusals answer it first; a backstop
+    if (own.usd !== null) ceilings.push({ usd: own.usd, source: capCeilingName(capName) });
+  } else {
+    const limitUsd = usdLimitOrExit();   // the one helper (and the one sentence) the early refusals use too
+    if (limitUsd !== null) ceilings.push({ usd: limitUsd, source: 'COUNCIL_MAX_USD_LIMIT' });
+  }
+  const suggested = capName ? null : argv.includes('--max-usd') ? { usd: flagUsd !== undefined ? flagUsd : maxUsd, source: '--max-usd' } : Number(process.env.MAX_USD_PER_RUN) > 0 ? { usd: Number(process.env.MAX_USD_PER_RUN), source: 'MAX_USD_PER_RUN' } : null;
   const scope = buildStartScope({
     ...scopeBaseOf(),
     seats: everySeatSlotsOf(config).map(({ role, seat }) => ({ role, provider: seat.provider, model: typeof seat.model === 'string' ? seat.model : null })),   // CR-5B-004: a seat with no model is null in the scope
@@ -1452,43 +1715,84 @@ async function capGateOrExit({ runDir, runId, resume, config, fromRun, subject, 
       const raw = userRowOf(seat.provider, seat.model); const eff = effectiveRow(seat.provider, seat.model);
       return { key: `${seat.provider}/${seat.model}`, file_in: raw.in, file_out: raw.out, effective_in: eff.in, effective_out: eff.out };
     }),
+    providerPreference: preferenceRows(everySeatSlotsOf(config).map(({ seat }) => seat)),   // 0.8.4 unit 3: the host preference for THIS chain's models (omitted from the scope when the file names none)
+    ...(capName ? { caps: capsArmed } : {}),   // unit 4b2: the caps in force are part of what each cap's limit was typed for (a changed set shows a new screen)
   });
-  const expected = oneCall ? oneCall.usd : estimateChainRows(config, { fromRun }).reduce((sum, r) => sum + r.usd, 0);
-  const most = oneCall ? oneCall.usd : estimateChainRows(config, { fromRun, maximum: true }).reduce((sum, r) => sum + r.usd, 0);
+  // DUALCAP milestone 2: one cap's screen shows THAT cap's figures, the dry run's rows that bill through it (estimateChainRows' account); with no cap, the whole run's, as before.
+  const mine = r => rowBillsThroughCap(r, capName);
+  const expected = oneCall ? oneCall.usd : estimateChainRows(config, { fromRun, accounts: !!capName, typedReads }).filter(mine).reduce((sum, r) => sum + r.usd, 0);
+  const most = oneCall ? oneCall.usd : estimateChainRows(config, { fromRun, maximum: true, accounts: !!capName, typedReads }).filter(mine).reduce((sum, r) => sum + r.usd, 0);
   const screenUserPrices = (scope.user_prices ?? []).map(r => { const at = r.key.indexOf('/'); return { key: r.key, in: r.effective_in, out: r.effective_out, src: priceSource(r.key.slice(0, at), r.key.slice(at + 1)) }; }).filter(r => r.src && (r.src.in === 'user' || r.src.out === 'user'));
   // What the run has already counted, from the run folder (T4b2): the floor of a later limit and the figures its screen shows. After a budget stop the floor and the suggested total come from STOPPED-budget.json through src/resume-ceiling.js
   // (spentUsd + assumedAtWorstCase.usd, exactly as run_status.suggestedMaxUsd does: the cap also counts E's worst-case assumptions for replayed stages), never from the in-process error; otherwise runSpentUsd (which already includes the unsettled reservations).
   const historyOfRun = () => {
+    // Unit 4c1: ONE cap's history. The stopped cap reads its stop file's own figures (capSpentUsd + capAssumedUsd: the floor and the suggestion's base; capUsd: the
+    // limit it stopped at); every other cap, and a run with no stop file, counts what the folder recorded through that cap (usage, superseded and charge files,
+    // unsettled reservations by capName). Never the run total.
+    if (capName) {
+      let st = null;
+      try { const j = JSON.parse(readFileSync(join(runDir, 'STOPPED-budget.json'), 'utf8')); if (j && j.capName === capName && Number.isFinite(j.capUsd) && Number.isFinite(j.capSpentUsd)) st = j; } catch { /* no stop file at this cap */ }
+      const unsettledCap = unsettledReservations(runDir).filter(r => r.capName === capName).reduce((n, r) => n + r.usd, 0);
+      // 0.8.4 unit 6 (D11; H-U6-a): the floor is the LARGER of the stop file's figure and what the folder holds through the cap. The stop file is the stopping sitting's in-process total, which never saw a paid file of a label it did not ask (plan A case (iv)); the folder does.
+      const counted = Math.max(st ? st.capSpentUsd + (st.capAssumedUsd || 0) : 0, capSpentOf(runDir, capName));
+      return {
+        spentUsd: counted, floorUsd: counted, unsettledUsd: unsettledCap, capName,
+        stopped: st ? { capName, capUsd: st.capUsd } : null, projectedStageUsd: st?.projectedStageUsd,
+        suggestedUsd: st ? resumeCeilingUsd({ cap: st.capUsd, spent: counted, projected: st.projectedStageUsd, gate: st.gateStageUsd }) : null,
+      };
+    }
     let stopped = null;
     try { const st = JSON.parse(readFileSync(join(runDir, 'STOPPED-budget.json'), 'utf8')); if (st && Number.isFinite(st.capUsd) && Number.isFinite(st.spentUsd)) stopped = st; } catch { /* no stop file, or not readable: the recorded spend is the floor */ }
     // the stop file is read from the GATE folder only (the original run may hold the main run's own STOPPED-budget.json, which must never turn a first side screen into a raise screen); the spend is read from the floor folder. When they are two folders the
     // larger of the two figures is the floor (the call that stopped was counted in the original folder's totals afterwards, never less).
     const stopCounted = stopped ? stopped.spentUsd + (stopped.assumedAtWorstCase?.usd || 0) : null;
-    const counted = floorDir === runDir ? (stopCounted ?? runSpentUsd(runDir)) : Math.max(stopCounted ?? 0, runSpentUsd(floorDir));
+    // 0.8.4 unit 6 (D11; H-U6-a): the larger of the two in every case. With a stop file the floor used to be the stop file's figure alone, which is the stopping sitting's in-process total and never saw a paid file of a label it did not ask (plan A case (iv)); a limit the person could type then was below what the folder holds.
+    const counted = Math.max(stopCounted ?? 0, runSpentUsd(floorDir));
     return {
-      spentUsd: counted, floorUsd: counted, unsettledUsd: unsettledReservations(floorDir).reduce((n, r) => n + r.usd, 0),
+      spentUsd: counted, floorUsd: counted, unsettledUsd: unsettledReservations(floorDir).reduce((n, r) => n + r.usd, 0), estimatedUsd: countedSummaryOf(floorDir)?.estimatedUsd ?? 0,   // 0.8.4 unit 6: the part of the counted figure that is an estimate (shown only when non-zero)
       stopped: stopped ? { capUsd: stopped.capUsd } : null, projectedStageUsd: stopped?.projectedStageUsd,
-      suggestedUsd: stopped ? resumeCeilingUsd({ cap: stopped.capUsd, spent: counted, projected: stopped.projectedStageUsd }) : null,
+      suggestedUsd: stopped ? resumeCeilingUsd({ cap: stopped.capUsd, spent: counted, projected: stopped.projectedStageUsd, gate: stopped.gateStageUsd }) : null,
+      finishNote: (() => { try { return budgetFinishArmed ? spendFinishNote(budgetFinishArmed.label) : (budgetFinishContinued || budgetContinue) ? spendFinishContinuedNote : budgetFinishWithdrawn ? spendFinishWithdrawnNote : budgetFinishUnrecorded ? spendFinishUnrecordedNote(budgetFinishUnrecorded) : null; } catch (e) { if (e instanceof ReferenceError) return null; throw e; } })(),   // a side command asks its limit before the module's resume variables exist (the same guard as rerunOf)   // 0.8.4 (unit-end item i): what the person's recorded --finish does to this raise, said on the screen they read before they type the figure
     };
   };
+  const rerunOf = () => { if (!mainRerun) return null; const r = staleFinishedStages(runDir, mainRerun.fingerprint, { capName }); return { ...r, ...(capName ? { limit: capName } : {}), ladder: mainRerun.ladderAdopted }; };   // 10 Nov 2026: the old `try { ... cacheFingerprint ... } catch (e) { if (e instanceof ReferenceError) return null; }` read a name this function cannot see, so the finished-steps sentence of a resume after a change was never printed; now the main run's fingerprint and ladder flag are copied to a module variable where they are made, ONLY a gate that runs before the main run's fingerprint exists (a side command's, the post-run limit gate) returns null, and any other error surfaces. What the change does to the finished steps (src/stale-stages.js), for the amend screen; under per-provider caps the paid count and the cost are those of the steps billed through this screen's limit; a side command's gate runs before the main run's fingerprint exists: then the screen says nothing of it
   const buildScreen = (kind, { history }) => buildCapScreen({
-    kind, notesMemory: capScreenMemoryClause(config, { fullRun: !oneCall && !fromRun && !sideVerb }), subject: sideVerb ? { ...subject, verb: sideLabel } : subject, ...(kind === 'run' || kind === 'side' ? { estimate: { usd: expected, scope: oneCall ? 'this one call' : 'this run' }, maximum: { usd: most } } : {}), history,
-    ceilings, suggestion: suggested && Number.isFinite(suggested.usd) && suggested.usd > 0 ? suggested : null, userPrices: screenUserPrices,
+    kind, notesMemory: capScreenMemoryClause(config, { fullRun: !oneCall && !fromRun && !sideVerb }), subject: sideVerb ? { ...subject, verb: sideLabel } : subject, ...(kind === 'run' || kind === 'side' ? { estimate: { usd: expected, scope: oneCall ? 'this one call' : 'this run' }, maximum: { usd: most } } : {}), history: kind === 'amend' ? { ...history, rerun: rerunOf() } : history,
+    ceilings, suggestion: suggested && Number.isFinite(suggested.usd) && suggested.usd > 0 ? suggested : null, userPrices: screenUserPrices, preferences: scope.provider_preference ?? [],
+    route: routeLine,      // 0.8.4 the Claude route: the screen that asks for the limit says the Claude seats go through OpenRouter (nothing for a direct run or a side verb: the screen is what it was)
+    ...(capName ? { cap: { id: capName, of: capsArmed } } : {}),
   }).text;
-  // A new run's run.json must not carry a limit nobody typed (the flag, MAX_USD_PER_RUN or the $7 default): run_status reads `maxUsd` from it as the run's cap. It is written after the limit is authorized (below).
+  // A new run's run.json must not carry a limit nobody typed (the flag, MAX_USD_PER_RUN or the $12 default): run_status reads `maxUsd` from it as the run's cap. It is written after the limit is authorized (below).
   if (beforeAuthorize) beforeAuthorize();
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   const outcome = await authorizeStart({
     runDir, runId, resume, sideVerb, scopeSha256: capScopeSha256(scope), scope, buildScreen, history: historyOfRun,
     ceiling: ceilings.length ? ceilings.reduce((low, c) => (c.usd < low.usd ? c : low)) : null,
     interactive, ask: (dir, gateId) => answerAtTerminal(dir, gateId, { startsRun: true }),
+    forceRaise: capName ? capsRaiseTargets.includes(capName) : !sideVerb && argv.includes('--raise-cap'),   // B3 prototype; unit 4c1: under the caps, only the cap a raise names
+    relayed: capName ? argv.includes('--relayed') && (capsRaiseTargets.includes(capName) || capName === capsStopCap) : !sideVerb && argv.includes('--relayed'),
+    ...(capName ? { capName } : {}),
   });
   if (outcome.status === 'refused') { console.error(`\n${outcome.message}`); process.exit(2); }
+  // unit 4c1: a pending gate is RELAYED only when the session asked for it (its ledger line's requester mark): a gate the person asked for earlier (a plain --resume) is
+  // reused by authorizeStart and stays the person's to type, so the wait names `gate answer` for it, never relay-answer (which would refuse it).
+  if (outcome.status === 'pending' && onPending) { const led = readGateLedger(runDir); const sessionAsked = led.ok && led.lines.some(l => l.event === 'gate_requested' && l.gate === outcome.gate && l.requested_by === 'session'); onPending({ capName, gate: outcome.gate, note: outcome.note ?? null, relayed: sessionAsked }); return null; }
   if (outcome.status === 'pending') {
     if (beforePendingExit) beforePendingExit();   // the wait is not a refusal: a choice typed on this command is kept for the plain --resume that follows `gate answer`
     if (outcome.note) console.error(`\n${outcome.note.message}`);
-    console.error(`\nThis ${sideLabel ?? 'run'} waits for a spending limit that you type. No call was started and nothing more was spent.\n  1. ${councilCommand()} gate answer ${runDir} ${outcome.gate}\n  2. ${again ?? `${councilCommand()} --resume ${runDir}`}`);
+    // unit 4c1 (C&C, 1 Nov 2026: a defect, fixed in both modes): the relayed instruction only for a gate the SESSION asked for (its ledger line's requester mark); a
+    // pending gate the person asked for (a plain --resume first) is reused by authorizeStart and stays the person's to type, so the wait names `gate answer` for it.
+    const sessionAsked = (() => { const led = readGateLedger(runDir); return led.ok && led.lines.some(l => l.event === 'gate_requested' && l.gate === outcome.gate && l.requested_by === 'session'); })();
+    if (!sideVerb && argv.includes('--relayed') && sessionAsked) console.error(`\nThis run waits for a raised spending limit that the person gives and the handler session relays. No call was started and nothing more was spent.\n  1. ${councilCommand()} relay-answer ${runDir} ${outcome.gate} --total <the total, in dollars> --person-words "<the person's words as typed in this window, with the total in digits>"\n  2. ${councilCommand()} --resume ${runDir} --raise-cap --relayed\nThe tool cannot verify the permission; the record shows who relayed it.`);   // A-DRAFT
+    else console.error(`\nThis ${sideLabel ?? 'run'} waits for a spending limit that you type. No call was started and nothing more was spent.\n  1. ${councilCommand()} gate answer ${runDir} ${outcome.gate}\n  2. ${again ?? `${councilCommand()} --resume ${runDir}${!sideVerb && argv.includes('--raise-cap') ? ' --raise-cap' : ''}`}`);
     process.exit(EXIT_AWAITING_USER_CAP);
+  }
+  // S20 slice 1 (H2-l; G5, Mini-C&C's 'consumed, or recorded and printed, never a silent drop'): an approved early raise that could not be used (the ceiling now lower, not above what the run has counted, not above the limit it has) leaves
+  // the run under the limit it has. It is PRINTED and written to run.log (an MCP caller reads run.log), and the answer itself stays in the gate ledger (`raises` in report.json lists only the raises the run used).
+  if (outcome.setAside) {
+    const line = terminalSafe(`The raise the person approved can no longer be used: ${outcome.setAside.reason}. It is closed in the record, and this resume keeps the limit of ${formatUsd(outcome.capUsd)}. To raise the limit, type a new raise: ${councilCommand()} --resume ${runDir} --raise-cap${capName ? ` ${capName}` : ''}`);   // A-DRAFT
+    console.error(`\n${line}`);
+    try { appendFileSync(join(runDir, 'run.log'), `${line}\n`); } catch { /* the run log is a convenience copy; the line is on stderr */ }
   }
   return outcome.capUsd;
 }
@@ -1542,8 +1846,8 @@ async function postRunLimitOrExit({ who, verb, label, origDir, config, plain, su
 function postRunBudgetStop(gateDir, err, what, again) {
   err.spent = Math.max(err.spent || 0, budgetState().spent);
   mkdirSync(gateDir, { recursive: true });
-  writeFileSync(join(gateDir, 'STOPPED-budget.json'), JSON.stringify({ stoppedAt: err.label ?? what, seat: err.seat, spentUsd: stoppedSpentUsd(err, budgetState()), capUsd: err.cap, projectedStageUsd: err.projected }, null, 2));
-  console.error(`${what}: stopped by the limit (${formatUsd(err.spent || 0)} counted of ${formatUsd(err.cap)}; this call could cost up to ${formatUsd(err.projected)}). Run the same command again: it asks for a new total above ${formatUsd(err.spent || 0)} (the smallest that gets past this stop is ${formatUsd(resumeCeilingUsd({ cap: err.cap, spent: err.spent, projected: err.projected }) ?? Math.ceil((err.cap + err.projected) * 100) / 100)}):\n  ${again}`);
+  writeFileSync(join(gateDir, 'STOPPED-budget.json'), JSON.stringify({ stoppedAt: err.label ?? what, seat: err.seat, spentUsd: stoppedSpentUsd(err, budgetState()), capUsd: err.cap, projectedStageUsd: err.projected, gateStageUsd: err.gate }, null, 2));
+  console.error(`${what}: stopped by the limit (${formatUsd(err.spent || 0)} counted of ${formatUsd(err.cap)}; this call could cost up to ${formatUsd(err.projected)}). Run the same command again: it asks for a new total above ${formatUsd(err.spent || 0)} (the smallest total that lets the next call to a model be sent is ${formatUsd(resumeCeilingUsd({ cap: err.cap, spent: err.spent, projected: err.projected, gate: err.gate }) ?? Math.ceil((err.cap + err.projected) * 100) / 100)}):\n  ${again}`);
   process.exit(4);
 }
 // The command that finds the same side run again: the argv exactly as the person typed it, plus the one flag that makes it the SAME run when they left it out (the seed of a rematch is random, a replay's date is today). Words with a space or a quote are single-quoted.
@@ -1551,8 +1855,8 @@ function shellWord(w) { return (/^[A-Za-z0-9@%+=:,./_-]+$/.test(w) ? w : `'${w.r
 function againCommand(extra) { return `${councilCommand()} ${[...argv, ...extra].map(shellWord).join(' ')}`; }
 function policySha256Of(cwd) { return (existsSync(join(cwd, 'policy.json')) ? sha256Hex(readFileSync(join(cwd, 'policy.json'))) : null); }
 // The chain's rows exactly as the main `--dry-run` prints them (moved here from the dry-run block below, unchanged): the expected figure, the maximum, and a note for external seats. -> the expected rows.
-function printChainRows(config, { fromRun = false } = {}) {
-  const rows = estimateChainRows(config, { fromRun });
+function printChainRows(config, { fromRun = false, typedReads = null } = {}) {
+  const rows = estimateChainRows(config, { fromRun, typedReads });
   const w = Math.max(...rows.map(r => r.seat.length));
   for (const r of rows) {
     // Bug audit 2026-09-28 (area 2 #6): an external seat printed as a priced "$0.0000", though a
@@ -1563,9 +1867,9 @@ function printChainRows(config, { fromRun = false } = {}) {
   const t = rows.reduce((s, r) => ({ i: s.i + r.input, o: s.o + r.output, u: s.u + r.usd }), { i: 0, o: 0, u: 0 });
   console.log(`\n  TOTAL        ${''.padEnd(w)}  ${String(t.i).padStart(7)} in  ${String(t.o).padStart(6)} out  ${formatUsd(t.u)}  per run  (expected)`);
   // 0.8.2 item 8c: the same calls with every one writing its seat's whole output allowance (and an Anthropic seat's one retry): what the spend cap's own projection charges. Both figures, so a cap can be chosen against the right one.
-  const maxRows = estimateChainRows(config, { fromRun, maximum: true });
+  const maxRows = estimateChainRows(config, { fromRun, maximum: true, typedReads });
   const mt = maxRows.reduce((s2, r) => ({ o: s2.o + r.output, u: s2.u + r.usd }), { o: 0, u: 0 });
-  console.log(`  UPPER ESTIMATE ${''.padEnd(w)}  ${''.padStart(7)}   ${String(mt.o).padStart(6)} out  ${formatUsd(mt.u)}  per run  (every call at its whole output allowance)`);
+  console.log(`  UPPER ESTIMATE ${''.padEnd(w)}  ${''.padStart(7)}   ${String(mt.o).padStart(6)} out  ${formatUsd(mt.u)}  per run  (every planned call at its whole output allowance; re-asks and network retries at their expected cost)`);
   const externalRows = rows.filter(r => r.seat.startsWith('external/')).reduce((n, r) => n + (r.times ?? 1), 0);
   const stageCount = rows.reduce((n, r) => n + (r.times ?? 1), 0);
   if (externalRows) console.log(`\n  ${externalRows} of ${stageCount} stages are answered by external seats (a person or another session, e.g. a Claude Code session on a subscription) and are not in this total.`);
@@ -1580,9 +1884,11 @@ function unfinishedSideSummary(dir, config) {
   return { stages: kept.length, paid: runSpentUsd(dir), remaining };
 }
 // `--replay --dry-run` / `--rematch --dry-run`: the chain's rows at today's prices, then exit 0. An unpriced seat is shown as unpriced (the real side runs refuse one only under a cap).
-function priceSideRunAndExit(what, config, sideDir) {
+function priceSideRunAndExit(what, config, sideDir, routing, zero) {
   console.log(`\nChain: ${config.name} - ${config.description}`);
+  for (const l of [...routeLines(routing), ...resumeStopLines(routing, what.slice(2)), ...zeroRetentionLines(zero ?? {}), ...skippedRoomLines(routedSeatsWithoutWindow(everySeatOf(config)))]) console.log(l);      // `routing` is the caller's own decision: this runs before the module-level one is made (C4: C2 read the later `const` here, a ReferenceError for every --rematch/--replay --dry-run)
   printChainRows(config);
+  if (zero?.refusal) { console.log(''); console.log(`  ${zero.refusal}`); }      // 0.8.4 zero retention: what a real run would stop with (exit 5), said and gone on
   const sum = unfinishedSideSummary(sideDir, config);
   if (sum) console.log(`\n${what}: ${basename(sideDir)} was started and did not finish: ${sum.stages} stage(s) are on disk (recorded spend so far: ${formatUsd(sum.paid)}); a real run could cost up to ${formatUsd(sum.remaining)} more for the stages still to run, not the whole chain.`);
   process.exit(0);
@@ -1610,7 +1916,7 @@ function recordCallOrCharge(runDir, label, rec, { seat, system, user }, who, mir
     } else {
       // read back, not assumed: a tree member's mirror can refuse AFTER the run-file line is written (that line stays, charged)
       const before = unsettledUsd(runDir);
-      try { openReservations(runDir, mirror ? { mirror } : {}).reserve({ label, seat: `${seat.provider}/${seat.model}`, usd: worst }); } catch { /* said below */ }
+      try { openReservations(runDir, mirror ? { mirror } : {}).reserve({ label, seat: `${seat.provider}/${seat.model}`, usd: worst, standsFor: rec?.reservationId }); } catch { /* said below */ }   // 0.8.4 unit 6: names the reservation it stands for, so the one reader counts the call once
       const charged = unsettledUsd(runDir) > before;
       line = charged
         ? `${who}: the call was made, but its cost could not be recorded (${why}). This run's total now counts it at its worst case, ${formatUsd(worst)}, because the real figure is not on disk; the provider's own bill has the real one.`
@@ -1695,9 +2001,10 @@ if (rematchArg) {
     console.error(`--rematch: chain "${chainName}" (recorded in ${originalRunMetaPath}) has no chain config on disk.${outdatedChainHint(chainName)}`);
     process.exit(2);
   }
-  const rawRematchConfig = JSON.parse(readFileSync(chainConfigPath, 'utf8'));
+  const rawRematchConfig = withSavedPersonaForm(JSON.parse(readFileSync(chainConfigPath, 'utf8')), originalRunMeta);      // 0.8.4 the persona form the original run saved is kept
   exitOnLint(rawRematchConfig, chainConfigPath);
-  const originalConfig = resolveChainSeats(rawRematchConfig);
+  const rematchRouting = routeRun(rawRematchConfig, { meta: originalRunMeta, who: '--rematch', dry: sideDryRun });
+  const originalConfig = rematchRouting.config;
   // CR-MX-001: a layered array where only some seats have a layer is refused, and where each seat of the RESHUFFLED config would send its key is checked before anything else (the lint above ran on the original chain only).
   const rematchConfig = (() => {
     try { return reshuffleSeats(originalConfig, seed); } catch (err) {
@@ -1711,9 +2018,10 @@ if (rematchArg) {
   }
   refuseSideRun('--rematch', originalConfig, originalRunMeta);
   // CR-RC-008: the policy file is THIS project's (`work`). The original is directly in work/runs (the placement check above), so `work` is the project that owns the run; the run's recorded folder is gone when the project was moved or renamed, and "no folder, so no policy" would have let the rematch past a monthly limit.
+  const rematchZero = zeroRetentionRun(rematchConfig, { meta: originalRunMeta, who: '--rematch', dry: sideDryRun });      // 0.8.4 zero retention, on the roster the rematch sends
   sideGateOrExit(rematchConfig, everySeatOf(rematchConfig));
   if (sideDryRun) refuseStray();   // T1-1: a dry run prints after the gate and has no refusal of its own below; a real rematch is checked after its key, price and already-run refusals, further down
-  if (sideDryRun) priceSideRunAndExit('--rematch', rematchConfig, join(dirname(originalRunDir), `${basename(originalRunDir)}.rematch-${seed}`));
+  if (sideDryRun) priceSideRunAndExit('--rematch', rematchConfig, join(dirname(originalRunDir), `${basename(originalRunDir)}.rematch-${seed}`), rematchRouting, rematchZero);
 
   // Every seat the rematch can call, the same list the main run checks (everySeatOf): it used to name
   // eight slots by hand and missed seats.alternatives, seats.deep_dive and every later seat kind, so a
@@ -1775,8 +2083,8 @@ if (rematchArg) {
   const rematchBoard = renderBoardMd({ runId: rematchRunId, result: rematchResult });
   if (rematchBoard) writeFileSync(join(rematchRunDir, 'BOARD.md'), rematchBoard);
   const newReport = reportJsonShape({
-    runId: rematchRunId, chain: chainName, task: originalTaskPath, taskCwd: originalRunMeta.cwd || work, taskText: originalRequest, startedAt: rematchStartedAt, result: rematchResult, verdictEnvelope: rematchSide.envelope,
-  });
+    runId: rematchRunId, chain: chainName, task: originalTaskPath, taskCwd: originalRunMeta.cwd || work, taskText: originalRequest, startedAt: rematchStartedAt, result: rematchResult, config: rematchConfig, verdictEnvelope: rematchSide.envelope,
+  });   // the run's config, as the budget-stop record above has it: the records that read it (seat_personas, severity, the persona fields, the debate's role labs) are a rematch's too
   writeAtomic(join(rematchRunDir, 'report.json'), JSON.stringify(newReport, null, 2));
 
   const diff = computeVerdictDiff(originalReport, newReport);
@@ -1787,7 +2095,7 @@ if (rematchArg) {
   if (diff.critics_objecting_added.length) console.log(`critics newly objecting: ${diff.critics_objecting_added.join(', ')}`);
   if (diff.critics_objecting_removed.length) console.log(`critics no longer objecting: ${diff.critics_objecting_removed.join(', ')}`);
   console.log(`\nWrote ${rematchRunDir} (deliverable.md, report.json, rematch-diff.json).`);
-  process.exit(newReport.passed === false ? EXIT_NOT_AGREED : 0);
+  process.exit(endsNotAgreed(newReport) ? EXIT_NOT_AGREED : 0);   // 0.8.4 S4: the one shared agreement predicate (src/ending.js); newReport.final_read is read through it
 }
 
 // `--replay <run-dir> [--replay-date YYYY-MM-DD] [--allow-task-drift]` (v6 item D, harness
@@ -1846,16 +2154,17 @@ if (argv.includes('--replay')) {
   {
     const replayChainPath = join(chainsDir, `${runMetaForChain.chain}.json`);
     let rawReplayConfig = null;
-    try { rawReplayConfig = JSON.parse(readFileSync(replayChainPath, 'utf8')); } catch { /* council-replay reports a missing or bad chain itself */ }
+    try { rawReplayConfig = withSavedPersonaForm(JSON.parse(readFileSync(replayChainPath, 'utf8')), runMetaForChain); } catch { /* council-replay reports a missing or bad chain itself */ }
     if (rawReplayConfig) {
       exitOnLint(rawReplayConfig, replayChainPath);
-      let replayConfig = null;
-      try { replayConfig = resolveChainSeats(rawReplayConfig); } catch { /* reported by council-replay */ }
+      let replayConfig = null, replayRouting = null;
+      try { replayRouting = routeRun(rawReplayConfig, { meta: runMetaForChain, who: '--replay', dry: sideDryRun }); replayConfig = replayRouting.config; } catch { /* reported by council-replay */ }
       if (replayConfig) {
         refuseSideRun('--replay', replayConfig, runMetaForChain);
+        const replayZero = zeroRetentionRun(replayConfig, { meta: runMetaForChain, who: '--replay', dry: sideDryRun });      // 0.8.4 zero retention, on the roster the replay sends
         sideGateOrExit(replayConfig, everySeatOf(replayConfig));   // CR-RC-008: this project's policy file, as for --rematch
         if (sideDryRun) refuseStray();   // T1-1: as for --rematch; a real replay is checked below
-        if (sideDryRun) priceSideRunAndExit('--replay', replayConfig, replayDirFor(runDir, date));
+        if (sideDryRun) priceSideRunAndExit('--replay', replayConfig, replayDirFor(runDir, date), replayRouting, replayZero);
         replayPaid = chainIsPaid(replayConfig);
         refuseUnpricedOrExit(replayConfig, maxUsd, { paidStart: replayPaid });
         refuseNoneOnPaidStart(replayConfig); refuseUnreadableUsdLimitOnPaidStart(replayConfig);
@@ -1879,6 +2188,7 @@ if (argv.includes('--replay')) {
       date,
       log: (...parts) => console.log(terminalSafe(parts.join(' '))),
       allowTaskDrift: argv.includes('--allow-task-drift'),
+      prepareConfig: c => { const kept = withSavedPersonaForm(c, runMetaForChain); try { return routeRun(kept, { meta: runMetaForChain, who: '--replay' }).config; } catch { return kept; } },      // 0.8.4 the persona form the run saved is kept (the pre-read above does the same)      // 0.8.4 the Claude route: the run's own route, as the gate above saw it; a chain the route cannot resolve (a transport with no route for a paid seat) is read as it is, as before, and the guard in onReady refuses it
       onReady: async ({ dir, config, fingerprint, taskText }) => {
         // the decision is the config that RUNS: if the CLI could not pre-read it (so no key, price, policy or `none` check ran for it) and it turns out paid, nothing is run ungated
         const paidNow = chainIsPaid(config);
@@ -1897,7 +2207,7 @@ if (argv.includes('--replay')) {
     });
     console.log(`\nWrote ${replayDir} (report.json, deliverable.md, replay-diff.json).`);
     console.log(`signoff_match: ${diff.signoff_match}  verdict_category_changed: ${diff.verdict_category_changed}`);
-    replayNotAgreed = replayReport?.passed === false;
+    replayNotAgreed = endsNotAgreed(replayReport);   // 0.8.4 S4: the shared predicate (--replay re-runs the chain and builds a NEW report: its own `ending` decides)
   } catch (err) {
     if (err instanceof BudgetExceeded) writeSideRunBudgetStop(replayDirFor(runDir, date), err, '--replay', err.partialReportArgs, replayPaid ? replayAgain : null); // exits 4, like a normal run
     if (err instanceof SecretShapedPrompt) exitOnSecretShaped(err, '--replay');
@@ -1925,8 +2235,14 @@ if (argv.includes('--spend')) {
     const w = Math.max(...r.runs.map(x => (x.chain || '?').length));
     for (const x of r.runs) {
       console.log(`  ${x.id}  ${(x.chain || '?').padEnd(w)}  ${formatUsd(x.usd).padStart(9)}  ${x.state}`);
+      // 0.8.4 unit 2 (D12 part 2, A-DRAFT): what the provider REPORTED beside THC's count, labelled, never added to the total; only when an attempt carried a figure.
+      // 0.8.4 unit 6 (D11, A-DRAFT): a settled line with no reserved line is damage to the file; it is counted nowhere and named here (the folder, the id).
+      for (const orphan of orphanSettledIdsOf(join(work, 'runs', x.id))) console.log(`      ${x.id}  reservation ${terminalSafe(String(orphan).slice(0, 80))}: a settled line with no reserved line: damage, counted nothing`);   // the id is read from a file a project can write: shown without control characters
+      const pr = x.providerReported;
+      if (pr && pr.attempts > 0) console.log(`      provider-reported cost (unverified; the provider reports it in credits): ${Number(pr.cost.toFixed(6))} for ${pr.attempts} attempt(s); THC counted ${formatUsd(pr.thcUsd)} for those${pr.attemptsWithout ? `; ${pr.attemptsWithout} paid attempt(s) carried none` : ''}. Not in the total.`);
     }
     console.log(`  ${''.padEnd(24)}  ${''.padEnd(w)}  ${formatUsd(r.totalUsd).padStart(9)}  total`);
+    if (r.totalEstimatedUsd > 0) console.log(`  ${''.padEnd(24)}  ${''.padEnd(w)}  ${estimatedPartWords(r.totalEstimatedUsd, formatUsd).trim()} of that total`);   // 0.8.4 unit 6 (D11): the part of the counted total that is an estimate
     if (r.runs.some(x => !x.complete)) console.log(`\n  Runs still going or stopped short are counted from the stages they already paid for.`);
     // 0.8.3 M6 S5: one line per recursive-councils tree, a part of the total above (src/spend.js treeSubtotals), never added to it again
     for (const t of r.trees ?? []) console.log(`  tree ${t.treeId}: ${formatUsd(t.usd)} across ${t.memberRuns} run(s), already in the total${treeIsAbandoned(r.runsDir, t.treeId) ? '; abandoned' : ''}`);
@@ -2088,50 +2404,13 @@ if (argv.includes('--mcp')) {
   await runMcpServer();
 } else {
 
-// `--advice-adopt runs/<id>` (0.8.1 plan DR-15, M4): start an advice call in the run folder the MCP server created for it,
-// once a person approved its gate. The folder names the chain, the brief and the gate; nothing else may be given with it.
-// Refused (exit 2, nothing written) unless the gate is approved, unexpired and unused, the brief still hashes to what was
-// approved and quoted, and the ledger verifies (src/advice-run.js adoptCheck). It replaces 0.8.0's --advice-meta sidecar,
-// which a caller could write to claim an approval no person gave.
+// `--advice-meta` was removed in 0.8.1 (a sidecar a caller could write to claim an approval no person gave) and the advice add-on in 0.8.4; only the refusal stays.
 if (argv.includes('--advice-meta')) {
-  console.error('--advice-meta was removed in 0.8.1: an advice call starts with --advice-adopt runs/<id> after a person approved its gate. Nothing was run and nothing was spent.');
+  console.error('--advice-meta was removed in 0.8.1, and the advice add-on with it in 0.8.4. Nothing was run and nothing was spent.');
   process.exit(2);
 }
-const adoptArg = flag('advice-adopt', null);
-let adopt = null;
-if (adoptArg !== null) {
-  // An allowlist, not a list of clashes: anything else (--context, --criteria, a second task, ...) would add text or change
-  // the run after the person approved it (M4 review M1).
-  const ADOPT_FLAGS = new Map([['--advice-adopt', true], ['--max-usd', true], ['--chain', true], ['--allow-unfenced', false]]);
-  let stray = null;
-  for (let i = 0; i < argv.length; i++) {
-    if (!ADOPT_FLAGS.has(argv[i])) { stray = argv[i]; break; }
-    if (ADOPT_FLAGS.get(argv[i])) i++;
-  }
-  if (adoptArg === true || stray !== null) {
-    console.error(adoptArg === true ? '--advice-adopt: needs the run folder, e.g. --advice-adopt runs/<id>' : `--advice-adopt: the run folder names the brief, the chain and the run; ${stray} cannot be given with it (allowed: --max-usd to lower the approved ceiling, --chain to name the same chain, --allow-unfenced)`);
-    process.exit(2);
-  }
-  const dir = resolve(work, adoptArg);
-  if (dirname(dir) !== join(work, 'runs')) {
-    console.error(`--advice-adopt: ${adoptArg} is not a folder in ${join(work, 'runs')}. Nothing was run and nothing was spent.`);
-    process.exit(2);
-  }
-  const r = adoptCheck(dir);
-  if (r.error) { console.error(`${r.error}. Nothing was run and nothing was spent.`); process.exit(2); }
-  const chainGiven = flag('chain', null);
-  if (chainGiven !== null && chainGiven !== r.meta.chain) {
-    console.error(`--advice-adopt: the folder's call is for chain ${r.meta.chain}, not ${chainGiven}. Nothing was run and nothing was spent.`);
-    process.exit(2);
-  }
-  adopt = { dir, meta: r.meta, channel: r.channel, gate: r.gate, approvalWaitMs: r.approvalWaitMs };
-  // The run's cap is the ceiling the person approved, read from the gate (advice.meta.json is not hashed: M4 review H1). An explicit
-  // --max-usd may only lower it; MAX_USD_PER_RUN does not apply to an approved call (a stray value would refuse it after approval).
-  const ceiling = r.gate.price.ceiling_usd;
-  maxUsd = flag('max-usd', null) !== null && maxUsd !== null ? Math.min(maxUsd, ceiling) : ceiling;
-}
-const chainName = adopt ? adopt.meta.chain : flag('chain', null);
-const taskPath = adopt ? join(adopt.dir, ADVICE_BRIEF_FILE) : flag('task', null);
+const chainName = flag('chain', null);
+const taskPath = flag('task', null);
 const fromRun = flag('from-run', null);
 const resumeRun = flag('resume', null);
 // A flag that takes a path or a name but was given none comes back from flag() as `true`, which
@@ -2139,7 +2418,7 @@ const resumeRun = flag('resume', null);
 // CLI backlog). A usage error instead, before anything else runs.
 for (const name of ['chain', 'task', 'from-run', 'resume', 'draft', 'context', 'tree-node']) {
   if (flag(name, null) === true) {
-    console.error(`--${name}: needs a value, e.g. --${name} ${name === 'chain' ? 'plan-default-opro-council' : name === 'resume' || name === 'from-run' ? 'runs/<id>' : name === 'context' ? 'context/' : '<file>'}`);
+    console.error(`--${name}: needs a value, e.g. --${name} ${name === 'chain' ? 'plan-mini-council' : name === 'resume' || name === 'from-run' ? 'runs/<id>' : name === 'context' ? 'context/' : '<file>'}`);
     process.exit(2);
   }
 }
@@ -2152,6 +2431,18 @@ if (signoffFlag === true) {
   console.error('--signoff: needs a name, e.g. --signoff alice');
   process.exit(2);
 }
+
+// The ladder (Muad's order for a three-layer chain, src/ladder.js): `--ladder` on a start or a resume saves it in run.json; `--ladder-credit N` says the first N passes already ran under the plain rules and count as the first block
+// (B2: its 7 layer-1 revisions). A-DRAFT (every sentence below).
+const ladderFlag = argv.includes('--ladder');
+const ladderCreditArg = flag('ladder-credit', null);
+const ladderExchangeArg = flag('ladder-exchange', null);
+// 0.8.4 S6 (Q2; C&C: REFUSE, not ignore): once the shortened exchange is in force (the pair W5 + W14 recorded) layers 2 and 3 have their own exchange round and a ladder-exchange count would mean something else, so the flag, with ANY value, is refused before any call; an accepted flag that did nothing would be the --dry incident class. While the pair is held the flag works as it always did.
+if (ladderExchangeArg !== null && shortExchangeOn()) { console.error('--ladder-exchange is no longer used: layers 2 and 3 have their own exchange round. Leave the flag out. Nothing was run and nothing was spent.'); process.exit(2); }   // A-DRAFT
+if ((ladderCreditArg !== null || ladderExchangeArg !== null) && !ladderFlag) { console.error('--ladder-credit and --ladder-exchange go with --ladder. Nothing was run and nothing was spent.'); process.exit(2); }
+if (ladderExchangeArg === true || (ladderExchangeArg !== null && !/^[0-7]$/.test(String(ladderExchangeArg)))) { console.error('--ladder-exchange: needs a number of exchange rounds from 0 to 7 for layers 2 and 3, e.g. --ladder-exchange 2. Nothing was run and nothing was spent.'); process.exit(2); }
+if (ladderCreditArg === true || (ladderCreditArg !== null && !/^\d+$/.test(String(ladderCreditArg)))) { console.error('--ladder-credit: needs a whole number of passes, e.g. --ladder-credit 7. Nothing was run and nothing was spent.'); process.exit(2); }
+const ladderTyped = ladderFlag ? { block: LADDER_BLOCK, visits: LADDER_VISITS, credit: ladderCreditArg === null ? 0 : Number(ladderCreditArg), exchange: ladderExchangeArg === null ? 0 : Number(ladderExchangeArg) } : null;
 
 // v7.x item 2: PII/secrets pre-flight gate. Absent entirely (no --pii-gate flag) means this
 // gate is never invoked at all - byte-identical to every prior release. `warn` logs and
@@ -2174,6 +2465,9 @@ const unfencedAllowList = (unfencedArg && unfencedArg !== true)
   ? String(unfencedArg).split(',').map(x => x.trim()).filter(Boolean)
   : [];
 
+// the usage entries are hand-wrapped at this column; a sentence built from the shared maps is wrapped to it (greedy, 52 characters)
+const helpWrap = (text, indent = 39, width = 52) => { const lines = []; let cur = ''; for (const w of text.split(' ')) { if (cur && cur.length + 1 + w.length > width) { lines.push(cur); cur = w; } else cur = cur ? `${cur} ${w}` : w; } if (cur) lines.push(cur); return lines.join(`\n${' '.repeat(indent)}`).replace(/^/, ' '.repeat(indent)); };
+// A-DRAFT (pr2 fix, A1): the --approve-excerpts paragraph of the help below ends with a sentence on what a --resume with the switch waits on.
 if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   console.log(`The High Council - a chained multi-model harness
 
@@ -2190,13 +2484,17 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        default chain ${DEFAULT_CHAIN} is used. Recommended: ${PROMOTED_CHAINS.join(', ')}
                                        (what each needs and costs: the README, or \`council doctor\`)
                                        --rounds N sets the review rounds; on a chain that has overseer
-                                       rounds (maxOverseerRounds) it counts OVERSEER rounds, not passes
-  council --resume <run folder> --continue | --finish
-                                       answers a run that stopped at an overseer limit (exit 23):
-                                       --continue goes on (it extends the limit that was
-                                       reached; the run's spending limit still applies),
-                                       --finish ends it here, NOT agreed (the dispute stage
-                                       and the handoff run)
+                                       rounds (maxOverseerRounds) it counts OVERSEER rounds, not passes.
+                                       On the ladder (the chain's "ladder" key, or --ladder) it counts
+                                       top-layer reads: after the Nth read without agreement the run
+                                       stops and asks you what next
+${PERSONA_FORM_HELP_LINES.join('\n')}
+  council --resume <run folder> --continue | --finish | --finish-now
+${helpWrap(`answers a run that stopped ${roundStopsInWords()} (exit 23): --continue goes on (${CONTINUE_WORDS}; the run's spending limit still applies), --finish ends it here, NOT agreed (the dispute stage and the handoff run)`)}
+${helpWrap(`--finish-now ends a stopped run at once: no judge is asked again (a final read already on disk for this text is kept; the dispute stage and the handoff run). Inside the review rounds and at a round stop the run ends NOT agreed (except at the stop where no seat of the top layer could read the final plan: a panel that had signed off before the read keeps that verdict there); at a spending stop or a credential-shaped pause after the review rounds it keeps the verdict the rounds reached`)}
+${helpWrap(`--continue also answers a run paused at a credential-shaped string in a prompt (exit 11, STOPPED-secret.md): it sends that stage as it is and allows the value(s) found. --finish there records that the run is to end here, NOT agreed; the run stays paused, and nothing is sent, until --continue.`)}
+${helpWrap(`--drop-excerpt answers a run paused at a credential-shaped string in an excerpt (the stop is named excerpt-E-<n>): the text is left out, recorded as withheld, shown to no seat, and the run goes on. At a terminal, like --continue.`)}
+${helpWrap(`--approve-excerpts (a start or a --resume; "approve_excerpts": true in the chain does the same) asks for your approval before any seat is shown project text the handling session added: the run stops with exit 26, nothing run and nothing spent; at a terminal, \`council gate answer <run folder> <gate>\` lets you approve, edit or refuse each text, and the next --resume records your answers and goes on. Turned on at a --resume, the switch also waits for your approval on the texts recorded while it was off that no call on the run's record has sent to a seat; a text a seat may already have been shown stays as it is.`)}
   council --resume <run folder> [--skip-seat]
                                        a run that stopped because OpenRouter refused a seat at its price limit
                                        (exit 24) goes on after you add the model's price to pricing.user.json;
@@ -2258,9 +2556,12 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council --task tasks/x.md --allow-secret-shaped
                                        send key-shaped text anyway. Every prompt is scanned
                                        for the key formats in src/secret-patterns.js before
-                                       it leaves, and a match stops the run (exit 11) with
-                                       the file or stage, line and format, never the value.
-                                       Key shapes only: a password in prose is not caught.
+                                       it leaves. A match before the run starts refuses it
+                                       (exit 11); a match in a later prompt pauses the run
+                                       (exit 11, STOPPED-secret.md), with the file or stage,
+                                       line and format, never the value. On a resume of a
+                                       paused run the flag means --continue. Key shapes only:
+                                       a password in prose is not caught.
   council --task tasks/x.md --signoff alice
                                        name who signed off on this change request, for
                                        policy.json's required_signoff_paths. The task
@@ -2268,7 +2569,8 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
                                        is absent; its "target_file:" line is the path checked.
   council --task tasks/x.md --max-usd 2 a paid chain asks you to type its
                                        limit and suggests $2; the run stops
-                                       before any stage that could take it
+                                       before any call that, by THC's estimate,
+                                       would take it
                                        past that. A chain with no paid seat
                                        has no screen: $2 is its ceiling
                                        (default $${DEFAULT_MAX_USD}, or MAX_USD_PER_RUN;
@@ -2293,6 +2595,9 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council lint-criteria --criteria <file> | --run runs/<r>
                                        $0 word-level lints over acceptance criteria
                                        (the ones every run logs before its first paid round)
+  council refresh-zdr-list             fetches OpenRouter's list of zero-retention hosts again (a public
+                                       request, $0, nothing of your project is sent) and keeps what this
+                                       version shipped with, in zdr-hosts.user.json
   council check-lock HANDOFF.md [--run runs/<r>]
                                        does this HANDOFF still carry the criteria the
                                        run locked into it? ($0; alias verify-handoff)
@@ -2312,15 +2617,15 @@ if (argv.includes('--help') || (!taskPath && !dryRun && !resumeRun)) {
   council contract amend --decide runs/<r> [request] [--decline]
                                        a person's decision on an amendment request: the exact current
                                        and proposed words, then approve (a new version) or decline
+  council accept runs/<r> --reason "<why>"
+                                       accept the plan of a run that ended without agreement, as it
+                                       stands (needs a terminal; agrees with no judge, changes no
+                                       objection; HANDOFF.md gets one line and its Status back; $0)
   council gate show runs/<r> [gate]    a run's gates, or one gate's whole text
   council gate answer runs/<r> <gate> [--decline]
                                        show the exact text, then approve or decline
                                        it (needs a person at a terminal)
   council gate verify runs/<r>         does the run's gate ledger still chain? ($0)
-  council stop runs/<r>                ask a running advice call to stop (exit 18; what
-                                       was paid for is kept in report-partial.json)
-  council advise-rate runs/<r> useful|not-useful|unclear [note]
-                                       rate an advice call (the only writer of owner_rating)
   council --forecast-cost --chain <name> [--days N]
                                        a realistic cost range from this chain's own
                                        past runs on this machine
@@ -2357,10 +2662,19 @@ if (resumeRun) {
     process.exit(2);
   }
 }
+// Unit 3b (C&C, 1 Nov 2026): a resume takes the class of its RUN FOLDER, never of the --resume flag (B3 resumes after every external seat and every pause). A tree
+// member's run (run.json's lineage) is a tree: with the switch on, the tree sentence and exit 19 (src/tree-run.js reads it as tree_refused) before anything else of
+// the member runs; its dry run gets the note and goes on (Q1b).
+let capsResumeClass = null;
+if (capsOn.length && resumeMeta?.tree) {
+  capsResumeClass = capsResumeClassOf({ tree: resumeMeta.tree });
+  if (dryRun) (argv.includes('--json') ? console.error : console.log)(capsDryRunNote(capsResumeClass, capsOn));
+  else { console.error(capsClassRefusalSentence(capsResumeClass, capsOn)); process.exit(capsResumeClass.exit); }
+}
 // A resume prices with the project's rows of the folder the run was made in (the same rule the policy file follows); the file is read once per process, so a row edited during a sitting counts from the next one.
 if (resumeMeta?.cwd && resolve(resumeMeta.cwd) !== resolve(work)) loadUserPrices(resumeMeta.cwd);
 refuseOnUserPriceProblem();
-// 0.8.3 E5c: no --chain (and no run.json or adopted advice call supplying one) = the default chain, announced on stderr first.
+// 0.8.3 E5c: no --chain (and no run.json supplying one) = the default chain, announced on stderr first.
 const chainNameEff = resumeMeta?.chain || chainName || (console.error(defaultChainNotice()), DEFAULT_CHAIN);
 // A chain is named, never a path (src/chain-name.js): the name is joined onto chains/ below.
 { const bad = chainNameRefusal(chainNameEff, resumeMeta ? '--resume: the chain recorded in run.json' : '--chain'); if (bad) { console.error(bad); process.exit(2); } }
@@ -2368,20 +2682,13 @@ const chainNameEff = resumeMeta?.chain || chainName || (console.error(defaultCha
 // npm install without editing anything inside node_modules.
 // On resume the run's own start directory comes first (CLI audit #3's class): a custom chain lives in
 // the chains/ of the directory the run was started in, not wherever the resume is typed.
-// An adopted advice call is the exception (0.8.1 decided rule 5d): its chain comes from the package or the operator's
-// COUNCIL_ADVICE_CHAINS_DIR, never <work>/chains/, the same lookup the MCP server priced and showed (src/send-profiles.js). So does a
-// resume of any advice folder (M5 review D1: a project chain of the same name would otherwise run the brief with no gate).
-const adviceLookup = !!adopt || (resumeRun && isAdviceFolder(resolve(resumeRun)));
-if (adviceLookup) {
-  const { error } = adviceChainDirs({ env: process.env, work });
-  if (error) { console.error(`${adopt ? '--advice-adopt' : '--resume'}: ${error}. Nothing was sent and nothing was spent.`); process.exit(2); }
-  if (!adviceChainPath(chainNameEff, { env: process.env, work })) {
-    console.error(`${adopt ? '--advice-adopt' : '--resume'}: no advice chain "${chainNameEff}" in the package's chains/${process.env[ADVICE_CHAINS_DIR_ENV] ? ` or ${process.env[ADVICE_CHAINS_DIR_ENV]}` : ''} (a project's chains/ is never used for an advice call).${outdatedAdviceChainHint(chainNameEff)} Nothing was sent and nothing was spent.`);
-    process.exit(2);
-  }
+// A run folder an advice call left (the add-on was removed in 0.8.4) is never resumed, whatever ended it: refused on the folder's own evidence (src/stop-files.js isAdviceFolder),
+// BEFORE any chain is looked up, so no chain of the same name in a project's chains/ can run its brief with no gate (the 0.8.1 M5 review D1 reason).
+if (resumeRun && isAdviceFolder(resolve(resumeRun))) {
+  console.error(`--resume: ${basename(resolve(resumeRun))} is an advice call, which is not continued, whatever ended it. Nothing was sent and nothing was spent.`);
+  process.exit(2);
 }
-const configPath = adviceLookup ? adviceChainPath(chainNameEff, { env: process.env, work })
-  : [resumeMeta?.cwd ? join(resumeMeta.cwd, 'chains', `${chainNameEff}.json`) : null, join(work, 'chains', `${chainNameEff}.json`), join(pkg, 'chains', `${chainNameEff}.json`)]
+const configPath = [resumeMeta?.cwd ? join(resumeMeta.cwd, 'chains', `${chainNameEff}.json`) : null, join(work, 'chains', `${chainNameEff}.json`), join(pkg, 'chains', `${chainNameEff}.json`)]
     .filter(Boolean).find(existsSync) || join(pkg, 'chains', `${chainNameEff}.json`);
 if (!existsSync(configPath)) {
   // Bug audit 2026-09-28 (area 4 LOW-4): name every folder searched, not just the package's.
@@ -2401,15 +2708,42 @@ try {
   console.error(`\n${formatCouncilError('COUNCIL-E003', { path: configPath })}`);
   process.exit(EXIT_FATAL);
 }
-// 0.8.1 M6 (decided rule 6): whether a run resumes belongs to its chain. An advice call's chain says resumeAfterStop false (the lint
-// requires it), so its --resume is refused here as resume_run refuses it over MCP: a resume would spend with no new preview or approval.
-if (resumeMeta && adviceLookup && config.resumeAfterStop !== true) {
-  console.error(`--resume: ${basename(resolve(resumeRun))} is an advice call, which is not continued, whatever ended it (0.8.1 decided rule 6; chain ${chainNameEff} says resumeAfterStop: false). Ask again (council_quote, then council_advise). Nothing was sent and nothing was spent.`);
+// 0.8.4: the advice add-on is removed, so a chain file that still carries an `advise` block cannot run: refused here, before anything is read further, sent or spent (it would otherwise run as a plain paid panel).
+if (config && typeof config === 'object' && config.advise !== undefined) {
+  console.error(`Chain "${chainNameEff}" has an "advise" block: the advice add-on was removed in 0.8.4, so this chain cannot run. Remove the block, or use a planning chain. Nothing was sent and nothing was spent.`);
   process.exit(2);
 }
+// 0.8.4 the persona form for ONE run (src/persona-form.js): `--persona-form title|voice` overlays the chain's seat_personas.form before anything reads it (the lint just below, the pre-flight list, the estimate, the prompts, the report). It is saved in run.json
+// (`persona_form`) only when typed at a START; a resume keeps the saved form, accepts the same form and refuses the other one before anything is sent; a chain that does not switch seat_personas on refuses it (nothing here turns the switch on). The decision is made here, before the lint, so
+// the lint's own refusals hold under the chosen form.
+const personaFormDecision = decidePersonaForm(config, { typed: flag('persona-form', undefined), saved: resumeMeta?.persona_form, resumed: !!resumeMeta });
+if (personaFormDecision.refusal) { console.error(personaFormDecision.refusal); process.exit(2); }
+config = personaFormDecision.config;
 // A positive whole number or nothing. Bug-audit fix, 2026-09-23 (GuardLayer backlog): `--rounds
 // abc` became NaN, so zero review rounds ran and the run exited 0 with an unreviewed deliverable;
 // `--rounds 1.5` paid for a revision no round ever graded; `--rounds 0` reviewed nothing.
+/** The line a --rounds N typed (or relayed) at a resume prints when the run keeps the rounds it started with (LAD-R4). */
+function roundsNotUsedLine(n, saved) { return `--rounds ${n} was not used: this run started with ${saved} review round${saved === 1 ? '' : 's'} and keeps ${saved === 1 ? 'it' : 'them'}. Start a new run to use ${n}.`; }
+/** A --rounds N the person typed, or the session relayed with a continue (src/gate.js rounds): on a ladder run (the flag, a ladder the run saved, or the chain's ladder key) it is the run's own limit of top-layer reads; otherwise it sets the chain's rounds, which a resume then keeps as the run began (the line above says so). ONE branch for both. */
+function applyTypedRounds(n) { if (ladderFlag || !!resumeMeta?.ladder || !!roundLimitsOf(config).ladder) ladderRoundsTyped = n; else { setRounds(config, n); roundsTypedOffLadder = n; } }
+/** Who a choice at a stop is attributed to (0.8.4): the typed command line (actor unknown, channel cli), or, when `--stop-gate <id>` names the session's answered stop_decision gate for exactly this stop and this choice (and its number, if any, is the --rounds on the command line), that gate's record. A refusal exits 2 with nothing recorded. ONE function for every stop that takes a choice. */
+function attributeChoice(id, choice) {
+  const named = flag('stop-gate', null);
+  if (named === null) return cliChoiceFields(new Date().toISOString());
+  const a = typeof named === 'string' ? stopDecisionAnswerOf(runDir, id, choice, { gate: named }) : null;
+  const typedNumber = ladderRoundsTyped ?? roundsTypedOffLadder;   // a --rounds on the command line, on or off the ladder
+  if (!a || (typedNumber !== null && typedNumber !== (a.rounds ?? null))) { console.error(`--stop-gate ${typeof named === 'string' ? named.slice(0, 40) : ''}: no answered stop_decision gate of this run by that name matches this stop (${id}), this choice (${choice})${typedNumber !== null ? ' and the --rounds number' : ''}, within ten minutes of its answer. Nothing was recorded, run or spent.`); process.exit(2); }
+  // typed = relayed (C&C 10 Nov): the gate's number takes the SAME branch a typed --rounds N takes at any stop (applyTypedRounds): the saved limit and the next stop are the same; off the ladder the run prints the same line (below, with the typed one's)
+  stopGateNamed = named;
+  if (a.rounds !== undefined) applyTypedRounds(a.rounds);
+  return entryFieldsOf(a);
+}
+let ownerPauseFinishPass = null;   // the pass the pause stopped before (the partial report's stop), written on the pause_finished line
+let ownerPauseFinishing = null;   // 'finish' | 'finish_now' when the person's finish at the owner's pause is being recorded by this command: its request is settled as pause_finished, never as taken or lapsed
+let stopGateNamed = null;   // the answered stop_decision gate this command line names (--stop-gate), once the choice is attributed to it
+let ladderRoundsTyped = null; let roundsTypedOffLadder = null;   // a typed --rounds N on a LADDER run (see below); null otherwise
+/** 0.8.4 (the --rounds fix-up; C&C ruling 11 Nov 2026): the number of top-layer reads this ladder run is bound by, for every figure that prices it (the dry run, the limit screen, the policy gate, the notes at the start): the number typed on this command line (the run's own bound, `ladderRoundsTyped`), else a resumed run's saved `ladderRounds` plus its recorded continues, else null. `choices` = the round choices to add up: a call before `roundChoices` exists (the policy gate, the dry run) passes none and reads the saved record; a later call passes `roundChoices`, so a continue typed in this sitting counts. A missing `add` is filled as the run itself fills it (defaultAdd). Never reads a `let` that is not yet set. */
+function ladderTypedReads(choices = resumeMeta?.roundChoices) { return ladderBoundOf({ typed: ladderRoundsTyped, saved: resumeMeta?.ladderRounds ?? null, choices: (Array.isArray(choices) ? choices : []).map(c => (c?.choice === 'continue' && !Number.isInteger(c.add) ? { ...c, add: defaultAdd(c, config) } : c)) }); }
 {
   const roundsArg = flag('rounds', null);
   if (roundsArg !== null) {
@@ -2418,7 +2752,9 @@ if (resumeMeta && adviceLookup && config.resumeAfterStop !== true) {
       console.error(`--rounds: expected a whole number of review rounds, 1 or more, got ${roundsArg === true ? 'no value' : `"${roundsArg}"`}`);
       process.exit(2);
     }
-    setRounds(config, n);
+    // On a layered chain with overseer rounds `--rounds N` sets THEM (the number a person reads as "rounds": run.json `rounds` beside maxOverseerRounds). A LADDER run (the chain file carries the ladder key, or --ladder is typed, or the run being resumed saved one) has no overseer-round
+    // count of the chain's: the number the person types is his own bound, N overseer rounds (layer-3 verdicts), kept as the meaning it has everywhere else, and the existing overseer_cap stop asks at it (a continue adds one). It is saved in run.json as `ladderRounds` at a fresh start; a number typed at a resume replaces it from there on (it is flushed with the other typed settings).
+    applyTypedRounds(n);
   }
 }
 
@@ -2549,29 +2885,17 @@ if (criteriaPath) {
 // direct-lab config on disk. A no-op for any chain that never sets `transport`.
 // The chain as its file says, before transport rerouting: what the MCP server priced and showed in the gate (it does not resolve).
 const configAsWritten = config;
-config = resolveChainSeats(config);
-// The gate, not the meta file, says what the person approved (M4 review H1), checked as soon as the chain is loaded and before
-// anything else about the run is looked at: the chain this process loaded must seat exactly the
-// labs, models and retention routing the gate shows, still pass admission, and still meet the gate's sensitivity label. The mode for
-// the tier rule is the chain's own (one hosted seat or several), never the meta file's word.
-if (adopt) {
-  const adviceMeta = adopt.meta;
-  const refuseAdopt = why => { console.error(`--advice-adopt: ${why}. Nothing was sent and nothing was spent.`); process.exit(2); };
-  if (JSON.stringify(gateSeatsOf(configAsWritten)) !== JSON.stringify(adopt.gate.seats)) refuseAdopt(`chain ${chainName} does not seat what gate ${adviceMeta.gate} showed the person`);
-  const gap = admitChain(chainName, configAsWritten);
-  if (gap) refuseAdopt(gap);
-  const hosted = seatsOf(configAsWritten).filter(s => s.provider !== 'mock' && s.provider !== 'external');
-  const label = adopt.gate.sensitivity && typeof adopt.gate.sensitivity === 'object' ? adopt.gate.sensitivity.label : 'confidential';
-  const tier = tierRefusal({ effective: label, mode: hosted.length > 1 ? 'council' : 'single', seats: seatsOf(configAsWritten) });
-  if (tier) refuseAdopt(tier);
-  // The money guards, read here too, so a call adopted by hand is held to the same per-call, session and day limits and the same
-  // repeat detector as one the MCP server starts. A read, not a lock: the server holds the advice lock across this process's start,
-  // so taking it here would wait on our own parent; the server's own check (under the lock) is the authoritative one.
-  const verdict = decide({ fingerprint: { hash: adviceMeta.question_hash, words: adviceMeta.question_words }, hasNewEvidence: adviceMeta.has_new_evidence === true,
-    worstUsd: adviceMeta.quoted.worst_usd, ceilingUsd: adopt.gate.price.ceiling_usd, ledger: readAdviceLedger(join(work, 'runs')), now: Date.now(), limits: limitsFromEnv(process.env) });
-  if (!verdict.allow) refuseAdopt(`${verdict.code}: ${verdict.message.replace(/ Nothing was spent\.$/, '')}`);
-}
-
+// 0.8.4 the Claude route (src/resolve-run.js): the Claude seats go straight to Anthropic, through OpenRouter, or to the person's own Claude Code sessions. `--claude-route auto|anthropic|openrouter|session`, else COUNCIL_CLAUDE_ROUTE (operator-only: a project .env cannot set it), else auto.
+// A bad value (anything that is not a route) refuses the start on ANY chain, the dry run included, as a bad COUNCIL_PII_GATE does; a malformed key never routes silently. A resume decides afresh from what only the person controls and is
+// never moved by run.json: when an auto decision differs from the route the run began with, it stops before any paid call (resolve-run.js step 4). The one record it does obey: a run that began as a SESSION run stays one when no route is typed (a run keeps its seats; it can only move toward no API spend), and goes to the API only when the person types a route (resolve-run.js step 1b).
+const claudeRouting = routeRun(config, { meta: resumeMeta, dry: dryRun });
+config = claudeRouting.config;
+if (claudeRouting.route !== 'anthropic') exitOnLint(config, configPath);      // the lint above read the chain as written; through OpenRouter, or answered by sessions, the roster is another one (prices, hosts), so it is read again as it will be sent, before anything is paid
+const claudeRoute = claudeRouting.route;      // 'anthropic' | 'openrouter' | 'session'; the route a new run records, and what the start log and the dry run say
+const zeroRet = zeroRetentionRun(config, { meta: resumeMeta, dry: dryRun });      // 0.8.4 the optional zero-retention setting, decided on the roster as the route sends it
+// 0.8.4 D10 (plan A T5.5): does this invocation ask for the privacy switch (`--approve-excerpts`, or the chain's `approve_excerpts: true`)? Read once here, for a start and a resume alike. The switch itself is recorded in
+// the gate ledger by the gate module (a later part of D10); this is only the ask, and it has no way to ask for "off".
+const excerptSwitchAsked = excerptSwitchRequest({ flag: argv.includes('--approve-excerpts'), config });
 // Every seat the run can call - including judge, challenger, coldRead, claims, ambiguity,
 // descending, preflight and the default security reviewer, which a hand-kept list here missed
 // (bug audit 2026-09-23, GuardLayer #2). policy.json and the missing-key check both read it.
@@ -2598,7 +2922,7 @@ let policyWarnings = [];
 // evaluates it against the run's own working directory.
 {
   // src/run-preflight.js (the same gate `council tree start` asks before it writes a tree's record)
-  const gate = policyGate({ config, allSeats, work, policyCwd: resumeMeta?.cwd || work, signoffFlag: signoffFlag || (typeof resumeMeta?.signoff === 'string' && resumeMeta.signoff.trim() !== '' ? resumeMeta.signoff : undefined),   // C-025 part 2: a newly typed sign-off, else the one saved in run.json at the start, else the task file's `signoff:` line. run.json is project-writable text (owner choice A: trust it after strict checks): the saved value counts only as a non-empty string, the shape --signoff accepts; anything else is ignored, so it can neither pass a policy nor shadow the task file's own line
+  const gate = policyGate({ config, allSeats, work, typedReads: ladderTypedReads(), policyCwd: resumeMeta?.cwd || work, signoffFlag: signoffFlag || (typeof resumeMeta?.signoff === 'string' && resumeMeta.signoff.trim() !== '' ? resumeMeta.signoff : undefined),   // C-025 part 2: a newly typed sign-off, else the one saved in run.json at the start, else the task file's `signoff:` line. run.json is project-writable text (owner choice A: trust it after strict checks): the saved value counts only as a non-empty string, the shape --signoff accepts; anything else is ignored, so it can neither pass a policy nor shadow the task file's own line
     // MLLM Coder v4 item 4: the change request's target_file and the operator's signoff, so required_signoff_paths can fire end to end. The task file is read here rather than at its
     // normal spot further down because the policy gate runs first.
     // Bug audit 2026-10-24 C-025 part 1: on a plain `--resume` (every MCP resume_run) `--task` is absent, so the task text was '' and `required_signoff_paths` found no target_file and passed: a resume skipped the sign-off check a start would have refused (exit 12). A resume reads the task file the run recorded
@@ -2621,16 +2945,25 @@ let policyWarnings = [];
   }
 }
 
-if (dryRun) refuseStray();   // T1-1: a dry run prints after the policy gate and has no refusal of its own below (the removed flags, the adopt conflicts, the gate are above); a real run is checked at its folder, below
+// Unit 3b: the start refusals, computed once and read three times (the JSON dry run, the text dry run, the real start below the unpriced refusal). A refused class
+// that reaches this line (a member line's dry run; a resumed member's or advice folder's dry run) is reported first, then the chain's own (src/uncovered.js).
+const capsClass = capsOn.length ? (capsRefusedClassOf(argv) ?? capsResumeClass) : null;
+// Unit 4b2: the main limit as the refusals read it (an unreadable one is refused when a cap is in force), and a run-wide figure set under the switch (Q1, refused last):
+// the flag, else MAX_USD_PER_RUN where it was set (a blank value or a host placeholder is unset with the switch on: perRunIsSet).
+const capsLimitRead = capsOn.length ? readUsdCeiling() : null;
+const capsRunWide = !capsOn.length ? null : argv.includes('--max-usd') ? 'flag' : perRunIsSet(process.env.MAX_USD_PER_RUN) ? (perRunIsSet(PER_RUN_AS_GIVEN) ? 'environment' : 'project-env') : null;
+const capsChainRefusals = capsStartRefusals(config, capsOn, { limitUsd: capsLimitRead?.usd ?? null, limitUnreadable: capsLimitRead?.unreadable ?? null, runWide: capsRunWide });
+const startRefusals = [...(capsClass ? [capsClassRefusalEntry(capsClass, capsOn)] : []), ...capsChainRefusals, ...(zeroRet.refusal ? [{ code: 'zero_retention_refused', exit: EXIT_DEGRADABLE, sentence: zeroRet.refusal }] : [])];
+if (dryRun) refuseStray();   // T1-1: a dry run prints after the policy gate and has no refusal of its own below (the removed flags, the gate are above); a real run is checked at its folder, below
 if (dryRun && argv.includes('--json')) {
   // The same dry run as one JSON document on stdout (src/dry-run.js), plus which seat lacks which
   // key. Nothing else is printed, so a caller can parse the whole output.
   const taskFileForDry = taskPath ? resolve(work, taskPath) : null;
   const taskChars = taskFileForDry && existsSync(taskFileForDry) ? readFileSync(taskFileForDry, 'utf8').length : null;
   console.log(JSON.stringify({ ...dryRunReport(config, {
-    fromRun, taskChars, defaultCapUsd: maxUsd ?? null,
+    fromRun, taskChars, defaultCapUsd: maxUsd ?? null, typedReads: ladderTypedReads(),
     history: forecastCost(config.name, join(work, 'runs')),
-  }), ...(policyWarnings.length ? { policyWarnings } : {}) }, null, 2));
+  }), ...(policyWarnings.length ? { policyWarnings } : {}), ...(startRefusals.length ? { startRefusals } : {}), ...(zeroRet.on ? { zeroRetention: { on: true, asOf: zeroRet.asOf, source: zeroRet.source, covered: zeroRet.covered, notCovered: zeroRet.notCovered, lines: zeroRetentionLines(zeroRet), ...(zeroRet.stops.length ? { stops: zeroRet.stops } : {}) } } : {}), ...(claudeRoute !== 'anthropic' || ['key_state', 'recorded'].includes(claudeRouting.why) ? { claudeRoute: { route: claudeRoute, why: claudeRouting.why, seats: claudeRouting.routed.length, lines: [...routeLines(claudeRouting), ...sessionStopsLines(claudeRouting, config, { draft: Boolean(draftPath) }), ...resumeStopLines(claudeRouting), ...skippedRoomLines(routedSeatsWithoutWindow(everySeatOf(config)))] } } : {}) }, null, 2));
   process.exit(0);
 }
 
@@ -2641,14 +2974,15 @@ if (dryRun) {
   // A dry run prices the chain from the config's own declared token
   // assumptions. It calls nothing, so it costs nothing.
   console.log(`\nChain: ${config.name} - ${config.description}`);
-  console.log(config.advise?.enabled === true ? `Advice call: ${config.seats.critics.length} seat(s), ${config.advise.rounds ?? 0} debate round(s) at most, its own ceiling ${formatUsd(config.advise.usd)}\n` : (roundLimitsOf(config).overseer !== null ? `Overseer rounds: ${roundLimitsOf(config).overseer} (a round ends when the top layer gives a verdict; the run stops, resumable, at that cap or when a layer's revision bound is reached; at most ${roundLimitsOf(config).passes} passes, a ceiling, not a plan)\n` : `Rounds: ${roundLimitsOf(config).passes}\n`));
-  const rows = printChainRows(config, { fromRun });
-  console.log(config.advise?.enabled === true
-    ? `\n  Every seat answers up to its full token cap and every planned debate round runs, so the expected figure and the upper estimate differ only by an Anthropic seat's one retry. A panel whose blind answers agree skips the debate and costs less.`
-    : `\n  Expected: the chain's assumed sizes, the typical output of a review, ${roundLimitsOf(config).overseer !== null ? 'seven overseer rounds each ending after ONE climb through the layers, no inner revisions (the plain-run shape; a clean first climb stops early and costs less)'.replace('seven', String(roundLimitsOf(config).overseer)) : 'every round up to the cap; a clean first critique stops early and costs less'}. Upper estimate: every planned call writes its seat's whole output allowance (an Anthropic seat's one retry is included); a re-ask, the retry of a cut-off reply from another seat and the stages a chain does not list are not priced, and the spend cap stops them. The cap can stop a run between the two figures.${roundLimitsOf(config).overseer !== null ? ` For this chain the upper estimate counts every allowed revision used in every overseer round (layer 1 up to ${roundLimitsOf(config).layerRevisions[1]}, layer 2 up to ${roundLimitsOf(config).layerRevisions[2]} per round); it does not count the in-pass re-asks (up to 2 per seat), up to 2 consecutive passes that re-ask a silent seat, the explicit asks of a silent judge, answer-back calls, ${notesMemoryClause(config) ? `${notesMemoryClause(config)}, ` : ''}or the larger prompt the top layer reads. The limit you type is the only ceiling.` : ''}`);
+  console.log((roundLimitsOf(config).overseer !== null ? `Overseer rounds: ${roundLimitsOf(config).overseer} (a round ends when the top layer gives a verdict; the run stops, resumable, at that cap or when a layer's revision bound is reached; at most ${roundLimitsOf(config).passes} passes, a ceiling, not a plan)\n` : roundLimitsOf(config).ladder ? `Rounds: none (a ladder chain: layer 1 in blocks of ${roundLimitsOf(config).ladder.block} revisions, ${roundLimitsOf(config).ladder.visits} layer-2 visits, then a top-layer read; the run ends on agreement, a stuck debate, the limit you type or your stop${ladderTypedReads() !== null ? `; you typed ${ladderTypedReads()} top-layer reads as your own bound` : ''})\n` : `Rounds: ${roundLimitsOf(config).passes}\n`));   // A-DRAFT (WORDING LAD-R38). CHANGED ACCEPTED (0.8.4 --rounds fix-up, C&C ruling 11 Nov 2026): the recorded suffix "; you typed N top-layer reads as your own bound" now prints when ladderTypedReads() (a typed or saved number) is set; OLD it read the chain file's own passes, which a typed --rounds on a ladder chain never set (so the line said "none" beside an upper figure of N reads) and which printed "you typed" for a chain's own limit. NO new words.
+  for (const l of [...routeLines(claudeRouting), ...sessionStopsLines(claudeRouting, config, { draft: Boolean(draftPath) }), ...resumeStopLines(claudeRouting), ...zeroRetentionLines(zeroRet), ...personaFormLines(personaFormDecision), ...skippedRoomLines(routedSeatsWithoutWindow(everySeatOf(config)))]) console.log(l);      // 0.8.4 the Claude route: the route this chain was priced on, before the rows (C3: the C2 commit named it for the JSON and the replay dry run only; a direct run with a usable key prints nothing here)
+  const rows = printChainRows(config, { fromRun, typedReads: ladderTypedReads() });
+  console.log(`\n  Expected: the chain's assumed sizes, the typical output of a review, ${roundLimitsOf(config).ladder ? ladderExpectedWords(roundLimitsOf(config), ladderTypedReads()) : roundLimitsOf(config).overseer !== null ? 'seven overseer rounds each ending after ONE climb through the layers, no inner revisions (the plain-run shape; a clean first climb stops early and costs less)'.replace('seven', String(roundLimitsOf(config).overseer)) : 'every round up to the cap; a clean first critique stops early and costs less'}. Upper estimate: every planned call writes its seat's whole output allowance (an Anthropic seat's one retry is included); a pass that asks a silent seat again, the retry of a cut-off reply from another seat and the stages a chain does not list are not priced, and the spend cap stops them. The cap can stop a run between the two figures.${roundLimitsOf(config).overseer !== null ? ` For this chain the upper estimate counts every allowed revision used in every overseer round (layer 1 up to ${roundLimitsOf(config).layerRevisions[1]}, layer 2 up to ${roundLimitsOf(config).layerRevisions[2]} per round); it counts the in-pass re-asks (up to 2 per seat) at the review's expected cost, but not up to 2 consecutive passes that re-ask a silent seat, the explicit asks of a silent judge, answer-back calls, ${notesMemoryClause(config) ? `${notesMemoryClause(config)}, ` : ''}or the larger prompt the top layer reads. The limit you type is the only ceiling.` : roundLimitsOf(config).ladder ? ` For this chain the upper estimate is priced on ${ladderUpperWords(roundLimitsOf(config), ladderTypedReads())}. It does not count the stages a chain does not list, answer-back calls or the larger prompt the top layer reads. The limit you type is the only ceiling.` : ''}`);
   for (const w of policyWarnings) console.log(`\n  policy warning - ${w}`);
+  { const cc = callCeilingOf(config); if (cc) console.log(`\n  ${cc.words.split('\n').join('\n  ')}`); }   // 0.8.4 S11 (A-DRAFT S11-w1..w4): the most calls the chain's rules allow; the JSON carries the same as `callCeiling`
   for (const line of priceTableLines()) console.log(`  ${line}`);
   for (const line of userPriceLines()) console.log(`  ${line}`);
+  { const pref = preferenceSentence(preferenceRows(everySeatSlotsOf(config).map(({ seat }) => seat))); if (pref) console.log(`  ${pref}`); }   // the limit-screen cleanup (1 Nov 2026): the host preference moved here from the per-cap screen
   // The rows above price the chain's own assumed prompt size, not the task in hand: a 13-word task
   // and a 30,000-token one priced the same (walked 2026-09-25). With --task, say how the task
   // compares, and reprice with it added when it is larger. Four characters per token is a rough
@@ -2657,14 +2991,11 @@ if (dryRun) {
     const assumed = config.estimate?.promptTokens ?? DEFAULT_ESTIMATE.promptTokens;
     const taskTokens = Math.ceil(readFileSync(resolve(work, taskPath), 'utf8').length / 4);
     if (taskTokens > assumed) {
-      // An advise chain's whole prompt is the brief (src/advise.js adds only its own fixed prompt, which
-      // the rows already carry), so the task replaces the assumption instead of being added to it.
-      const advising = config.advise?.enabled === true;
-      const biggerConfig = { ...config, estimate: { ...(config.estimate || DEFAULT_ESTIMATE), promptTokens: advising ? taskTokens : assumed + taskTokens } };
-      const bigger = estimateChainRows(biggerConfig, { fromRun }).reduce((sum, r) => sum + r.usd, 0);
-      const biggerMax = estimateChainRows(biggerConfig, { fromRun, maximum: true }).reduce((sum, r) => sum + r.usd, 0);
+      const biggerConfig = { ...config, estimate: { ...(config.estimate || DEFAULT_ESTIMATE), promptTokens: assumed + taskTokens } };
+      const bigger = estimateChainRows(biggerConfig, { fromRun, typedReads: ladderTypedReads() }).reduce((sum, r) => sum + r.usd, 0);
+      const biggerMax = estimateChainRows(biggerConfig, { fromRun, maximum: true, typedReads: ladderTypedReads() }).reduce((sum, r) => sum + r.usd, 0);
       console.log(`  Your task is roughly ${taskTokens} tokens, more than the ${assumed} this estimate assumes for a whole prompt.`);
-      console.log(advising ? `  Priced again with your task as the brief every seat reads: ${formatUsd(bigger)} per run expected, with an upper estimate of ${formatUsd(biggerMax)}.` : `  Priced again with your task added to every prompt: ${formatUsd(bigger)} per run expected, with an upper estimate of ${formatUsd(biggerMax)}.`);
+      console.log(`  Priced again with your task added to every prompt: ${formatUsd(bigger)} per run expected, with an upper estimate of ${formatUsd(biggerMax)}.`);
     } else {
       console.log(`  Your task (roughly ${taskTokens} tokens) fits inside the ${assumed}-token prompt this estimate assumes.`);
     }
@@ -2681,6 +3012,9 @@ if (dryRun) {
       console.log(`  ${formatCouncilError('COUNCIL-E002', { provider, model, problem: priceProblemOf(provider, model), ...(maxUsd !== null ? { capUsd: maxUsd } : {}) }).replace(/\n/g, '\n  ')}`);
     }
   }
+  // Unit 3b (Q1b): the start refusals a real start would meet, reported the way unpriced seats are (a refused class's note was printed above).
+  if (capsChainRefusals.length) { console.log(''); for (const r of capsChainRefusals) console.log(`  ${capsStartRefusalLine(r)}`); }
+  if (zeroRet.refusal) { console.log(''); console.log(`  ${zeroRet.refusal}`); }      // 0.8.4 zero retention: what a real start would stop with (exit 5), said and gone on
   process.exit(0);
 }
 
@@ -2696,13 +3030,31 @@ let maxUsdEff = argv.includes('--max-usd') ? maxUsd
   : maxUsd;
 // 0.8.2 item 8a (owner, 7 Oct 2026): under a cap, a seat with no price row is refused before anything is sent. The cap projects such a seat at $0, so it could not stop what a call to it costs; the way out is a pricing row
 // or --max-usd none. mock, external and ollama are exempt (src/cost.js needsPrice). invoke() refuses the same seats if a call reaches it some other way.
-if (maxUsdEff !== null || (!adopt && chainIsPaid(config))) {   // a paid start always has a cap by the time it runs (the typed limit, below), even when a flag said `none`: an unpriced seat is refused here, before the gate and before any spend
+if (maxUsdEff !== null || chainIsPaid(config)) {   // a paid start always has a cap by the time it runs (the typed limit, below), even when a flag said `none`: an unpriced seat is refused here, before the gate and before any spend
   const unpricedNow = unpricedSeats(config);
   if (unpricedNow.length) {
     console.error('');
-    for (const u of unpricedNow) { console.error(formatCouncilError('COUNCIL-E002', { provider: u.provider, model: u.model, problem: u.problem, roles: u.roles, capUsd: maxUsdEff })); console.error(''); }
+    for (const u of unpricedNow) { console.error(formatCouncilError('COUNCIL-E002', { provider: u.provider, model: u.model, problem: u.problem, roles: u.roles, ...(capsOn.length && capsInForce(config, capsOn).length ? {} : { capUsd: maxUsdEff }) })); console.error(''); }   // unit 4c1: under the caps no run-wide figure is the run's cap
     process.exit(EXIT_DEGRADABLE);
   }
+}
+// Unit 3b: the start refusals (src/caps.js "THE START REFUSALS"), right after the unpriced refusal and before anything is written: every refusal of the first kind
+// met (a seat that is not mock carrying mockBills, whatever the switch says; seats no enabled cap covers, exit 5; option B and the unreadable limits; Q1).
+if (capsChainRefusals.length) {
+  const first = capsChainRefusals[0];
+  for (const r of capsChainRefusals.filter(x => x.code === first.code)) console.error(r.sentence);
+  process.exit(first.exit);
+}
+// Unit 4b2 (src/caps.js "THE ARMING"): the caps this run is held to, one typed limit each ([] = today's path: the switch off, or no cap in force). A START arms them.
+// Unit 4c1 (src/caps.js "THE RESUME"): a RESUME takes its class from its run folder: a caps run resumes under the limits typed for it (each read back from the ledger
+// at its gate below), a start still waiting for its typed limits continues; the mode flip (both ways), a changed set of caps and a folder whose limits cannot be
+// told are refused here, before anything is written. A chain with no cap in force keeps today's path.
+capsArmed = capsOn.length ? capsInForce(config, capsOn) : [];
+if (resumeMeta) {
+  const dir = resolve(resumeRun);
+  const named = resumeMeta.caps && typeof resumeMeta.caps === 'object' && !Array.isArray(resumeMeta.caps) ? Object.keys(resumeMeta.caps) : [];
+  const verdict = capsResumeVerdict({ switchCaps: capsOn, armed: capsArmed, meta: resumeMeta, entries: capsOn.length ? readdirSync(dir, { recursive: true }) : [], consumed: named.filter(id => runCapAuthority(dir, { runId: basename(dir), capName: id }).status === 'ok') });
+  if (verdict.refuse) { console.error(verdict.refuse); process.exit(2); }   // A-DRAFT sentences (src/caps.js)
 }
 
 const taskPathEff = resumeMeta?.task || taskPath;
@@ -2848,7 +3200,11 @@ if (piiSetting.refusal && !treeLineage) { console.error(piiSetting.refusal); pro
 if (piiGateEff === null && !treeLineage) piiGateEff = piiSetting.mode;
 // a member that was handed no mode scans under the stop, never a quiet warn (C&C 19 Okt 2026: a standing warn comes only from the user); memberStart still holds it to the tree's recorded mode (exit 19 on a mismatch)
 const piiScanMode = piiGateEff ?? 'hard-stop';
-const keyScanRefusesHere = !(allowSecretShapedFlag || resumeMeta?.allowSecretShaped === true);   // the same two inputs as allowSecretShapedEff below
+// On a resume of a PAUSED run, --allow-secret-shaped is the pause's one choice (= --continue, below), whether or not the run was started with the flag: for a run not started with it the flag is NOT saved as
+// allowSecretShaped (so the run stays resumable over MCP, audit F1) and does not switch the input scan off; for a run started with it the saved flag already stands and nothing more is saved.
+const flagAnswersPause = allowSecretShapedFlag && !!resumeMeta && existsSync(join(resolve(resumeRun), 'STOPPED-secret.md'));
+const typedStartFlag = allowSecretShapedFlag && !flagAnswersPause;
+const keyScanRefusesHere = !(typedStartFlag || resumeMeta?.allowSecretShaped === true);   // the same two inputs as allowSecretShapedEff below
 {
   // BUG-C-026: the criteria and the typed answers reach every seat's prompt too (the key scan below already reads both), so the PII gate reads them with the SAME labels the key scan uses. A tree MEMBER keeps its recorded allowance model (task text only for the root, the whole input for a child): not extended here.
   const answersPathForPii = resumeMeta ? join(resolve(resumeRun), 'answers.md') : null;
@@ -2885,9 +3241,40 @@ const keyScanRefusesHere = !(allowSecretShapedFlag || resumeMeta?.allowSecretSha
 // before it leaves; this checks the input files once, on every sitting, so the refusal names the file
 // and line - and a run that would be refused at its first stage costs nothing and leaves no folder.
 // `--allow-secret-shaped` is saved in run.json, so a resume keeps it.
-const allowSecretShapedEff = allowSecretShapedFlag || resumeMeta?.allowSecretShaped === true;
+// 0.8.4 (Muad 8 Nov 2026: a found secret PAUSES the run): --allow-secret-shaped waives the INPUT scan below, as it always did (and the PII gate's secret lines above), but it no longer
+// waives the scan of every later prompt. The person's consent attaches to VALUES: run.json `secretAllow` { key, hashes } holds an HMAC (outbound-scan.js valueHashOf) of each key-shaped
+// value the person allowed, under a random per-run key. A flag typed on this command allows the values its inputs hold (so the task's own key passes every stage); a --continue at a
+// pause allows the values the pause found (below). Any other value found in a prompt pauses the run. A tree member takes none.
+const allowSecretShapedEff = typedStartFlag || resumeMeta?.allowSecretShaped === true;
 const secretScanMeta = allowSecretShapedEff ? { allowSecretShaped: true } : {};
-setOutboundScan({ allow: allowSecretShapedEff });
+const secretAllow = (() => {
+  const saved = resumeMeta?.secretAllow;
+  const okKey = saved && typeof saved.key === 'string' && /^[0-9a-f]{32}$/.test(saved.key);
+  return { key: okKey ? saved.key : newAllowKey(), hashes: new Set(okKey && Array.isArray(saved.hashes) ? saved.hashes.filter(h => typeof h === 'string' && /^[0-9a-f]{32}$/.test(h)) : []), saved: okKey };
+})();
+let secretFinishArmed = false;    // --continue with a recorded finish for this pause
+let secretFinishRelayed = false;   // 0.8.4 (Q9): the finish that is armed was the person's choice RELAYED by the handling session (the ledger says so; run.json only names the gate)
+let secretEndsAtPause = false;   // 0.8.4: --finish-now at a pause AFTER the rounds (no loop to end): the sitting is a no-money sitting that also does not send a prompt holding an unallowed secret
+let secretFinishAtOnce = false;   // 0.8.4 (step 3): the armed finish is a --finish-now: no judge is asked again, and the value the pause found is NOT added to the allowed list
+let budgetFinishOnly = null;     // 0.8.4 S16 (F): --finish at a spending stop: { label, cap_name? }; the command records it and exits 4 right after the run lock
+let budgetContinue = null;       // 0.8.4 (unit-end item ii): --continue at a spending stop with a finish on record: the way back past it; { phase, label, capName, stopSha, stopId, relayed }
+let budgetFinishContinued = false;   // the latest choice of the run's ledger is that continue: the rounds go on
+let budgetFinishWithdrawn = false;   // the approval record holds a plain finish, run.json no longer does: taken back by hand
+let budgetFinishUnrecorded = false;   // false | 'loop' | 'after': where the stop falls   // run.json holds a finish for this stop that the ledger does not (an older folder): not applied
+let budgetFinishNow = null;      // 0.8.4 (ladder unit): --finish-now at a spending stop: { phase, label, capName }; this command only, nothing is recorded for a later resume to read
+let budgetFinishArmed = null;    // 0.8.4 S16 (F): a resume that carries the recorded finish: { label, capName }
+let secretFinishOnly = null;     // --finish: the label; the command records it and exits 11 right after flushChoices()
+let secretAllowDirty = !secretAllow.saved && !treeLineage;   // a run.json without a usable key gets one at the end of the start's refusals (flushChoices)
+if (typedStartFlag && !treeLineage) {
+  try {
+    const texts = inputSecretSources({ taskFile, taskText: rawTaskTextForCacheFingerprint, contextFiles: contextFilesForScan, readContext: readContextFile, handedDraft, criteriaPath, config }).map(([, t]) => t);
+    const answersFile = resumeMeta ? join(resolve(resumeRun), 'answers.md') : null;
+    if (answersFile && existsSync(answersFile)) { try { texts.push(readFileSync(answersFile, 'utf8')); } catch { /* the stage cache cannot read it either: it asks again */ } }
+    for (const h of inputValueHashes(texts, secretAllow.key)) secretAllow.hashes.add(h);
+    secretAllowDirty = true;
+  } catch { /* an unreadable --criteria file is refused elsewhere */ }
+}
+setOutboundScan({ allow: false, allowed: treeLineage ? null : secretAllow });
 if (!allowSecretShapedEff) {
   // C&C (14 Oct 2026, B's "answers scan" defect; Muad 12 Oct: "the check should go everywhere"): the typed answers of a run paused at its `answers` stage are TEXT A PERSON TYPED, and they reach every later seat's prompt. On the CLI they are a file the person
   // writes by hand (answers.md), read by the stage cache on this resume; the only scan they met was invoke()'s send-time distinctiveOnly one, so a Bearer token, a URL credential or a NAME=secret line went through. They get the FULL input scan here,
@@ -2903,19 +3290,6 @@ if (!allowSecretShapedEff) {
     for (const l of secretScanRefusalLines(found, treeLineage ? { forTree: 'member' } : {})) console.error(l);
     process.exit(EXIT_PII_BLOCKED);
   }
-}
-// Brief 29 / 0.8.1 DR-15: an adopted advice call. The task text as this process read it must be the exact text the person
-// approved (adoptCheck compared the file's bytes; this compares what the run will send), before anything is written.
-const adviceOn = config.advise?.enabled === true;
-if (adopt && !adviceOn) {
-  console.error(`--advice-adopt: ${chainName} is not an advice chain. Nothing was run and nothing was spent.`);
-  process.exit(2);
-}
-const briefSha256 = adviceOn ? sha256Hex(rawTaskTextForCacheFingerprint) : null;
-const adviceMeta = adopt ? adopt.meta : null;
-if (adopt && adviceMeta.brief_sha256 !== briefSha256) {
-  console.error(`--advice-adopt: the brief's sha256 (${briefSha256.slice(0, 12)}...) is not the one that was approved (${adviceMeta.brief_sha256.slice(0, 12)}...). Nothing was sent and nothing was spent.`);
-  process.exit(2);
 }
 // --run-id: the MCP server picks the folder name up front, so two start_run calls in the same
 // instant can't both report the first folder that appeared (pre-release audit 2026-09-23,
@@ -2933,7 +3307,7 @@ if (treeLineage && maxUsdEff === null) {
 // report.json's started_at (0.7.7): saved in run.json on the first sitting, so a resumed run's
 // report still says when the run began.
 const runStartedAt = new Date().toISOString();
-const runId = resumeMeta ? basename(resolve(resumeRun)) : adopt ? basename(adopt.dir) : (requestedRunId || runStartedAt.replace(/[:.]/g, '-'));
+const runId = resumeMeta ? basename(resolve(resumeRun)) : (requestedRunId || runStartedAt.replace(/[:.]/g, '-'));
 // 0.8.3 M5f: a tree member's pause notice and resume brief name the tree and its command (src/tree-redirect.js); null for every other run
 const memberNotice = memberResumeRedirect(treeLineage ? { tree: treeLineage } : null, runId, councilCommand());
 // A resume uses the folder it was pointed at. It used to rebuild the path as
@@ -2959,49 +3333,331 @@ if (resumeMeta && existsSync(join(runDir, 'report.json'))) {
 // is not a refusal: the person's next step is a plain --resume after `gate answer`, so the choice is written before that exit too.
 const pendingChoices = {};
 const pendingSettings = { set: null, drop: [] };   // the settings typed on a RESUME (see the resume branch below); null for a start
+const flushNotes = [];   // sentences about a choice that is printed once it IS recorded (after the last refusal of the start), never before
 function flushChoices() {
   if (!Object.keys(pendingChoices).length && !pendingSettings.set) return;
   const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
   for (const k of pendingSettings.drop) delete onDisk[k];
   const { maxUsd: typedMaxUsd, ...settings } = pendingSettings.set ?? {};
   // a paid chain's run.json carries the TYPED limit (the gate's own write, which comes first); the flag value is only a suggestion there
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, ...settings, ...(typedMaxUsd !== undefined && !capGateApplies ? { maxUsd: typedMaxUsd } : {}), ...pendingChoices }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, ...settings, ...(typedMaxUsd !== undefined && !capGateApplies && !capsArmed.length ? { maxUsd: typedMaxUsd } : {}), ...pendingChoices }, null, 2));
   for (const k of Object.keys(pendingChoices)) delete pendingChoices[k];
   pendingSettings.set = null; pendingSettings.drop = [];
+  while (flushNotes.length) console.log(flushNotes.shift());
+}
+// S20 slice 1 (H2-i; Mini-C&C's ruling G3): a raise goes alone. An overseer-round choice (--continue, --finish, --next-pass-layer-3) given with --raise-cap / --relayed would be recorded (flushed at the exit-21 wait) while the raise is
+// still unanswered: refused HERE, in any run state, before the --continue / --finish refusals and before the run folder, the lock and run.json are written. The other raise-flag refusals follow refuseStray(), below.
+{
+  const bad = raiseChoiceRefusal({ argv });
+  if (bad) { console.error(`${bad} Nothing was recorded, run or spent.`); process.exit(2); }
+}
+// S20 slice 2, control 1: `--next-pass-layer-3` on a resume only RECORDS a request and exits, so it goes alone too (raise-alone stays first; before the --ladder refusal below, which would otherwise answer first).
+{
+  const bad = routeFlagRefusal({ argv });
+  if (bad) { console.error(`${bad} Nothing was recorded, run or spent.`); process.exit(2); }
 }
 // Round semantics 2b-ii (Muad 15 Oct 2026: after the cap or a bound the PERSON chooses; C&C ruling): --continue / --finish answer a run that STOPPED at an overseer limit (STOPPED-overseer_cap/layer_bound.json, report-partial.json, no report.json).
 // The choice is recorded in run.json `roundChoices` keyed by the stop (so typing it again after the limit screen counts once) and applied on the replay (chain.js effectiveLimits). A resume WITHOUT a choice
 // is not an error and not a fresh stop: it says again that the run is waiting and exits 23 (nothing spent, nothing changed).
+// The ladder in force: what this command typed, else what run.json saved. A saved ladder is never replaced by a different one (the passes it already ran were planned under it).
+const sameLadder = (a, b) => ['block', 'visits', 'credit', 'exchange'].every(k => a?.[k] === b?.[k]);
+if (ladderTyped && resumeMeta?.ladder && !sameLadder(ladderTyped, resumeMeta.ladder)) { console.error(`--ladder: this run already runs under a ladder (layer-1 blocks of ${resumeMeta.ladder.block}, ${resumeMeta.ladder.visits} layer-2 visits, credit ${resumeMeta.ladder.credit}); its passes were planned under those numbers, so a different ladder cannot replace it. Nothing was run and nothing was spent.`); process.exit(2); }   // A-DRAFT (LAD-C3)
+// The ladder in force: what this command typed (the person's own numbers win at a fresh start), else what run.json saved, else, on a FRESH start only, the numbers the chain file carries (the permanent ladder). A resume of a run with no saved ladder stays plain.
+const ladderKey = roundLimitsOf(config).ladder;
+// A resume of a run saved WITHOUT a ladder, on a chain whose file carries the key (the chain was changed since the run started): the run adopts the ladder from the key, with no refusal: a stage it already made is replayed only when the prompt it answered is the one asked now (the stage cache's own check), every other stage is asked again and paid again, exactly as for a typed --ladder on a plain run.
+const ladderAdopted = !ladderTyped && !!resumeMeta && !resumeMeta.ladder && !!ladderKey;
+const ladderEff = ladderTyped ?? resumeMeta?.ladder ?? ((!resumeMeta || ladderAdopted) && ladderKey ? { block: ladderKey.block, visits: ladderKey.visits, credit: 0, exchange: 0 } : null);
+if (ladderCreditArg !== null && ladderKey && !(resumeMeta && !resumeMeta.ladder)) { console.error('--ladder-credit: this chain runs the ladder from its first pass (its file carries the ladder key), so it has no plain passes to credit. Leave the flag out. Nothing was run and nothing was spent.'); process.exit(2); }   // A-DRAFT (LAD-C4)
+if (ladderEff && !(isOverseerChain(roundLimitsOf(config)) && new Set((config.seats?.critics || []).map(c => c.layer)).size === 3)) { console.error('--ladder: this chain does not have exactly three layers with overseer rounds (maxOverseerRounds and layerRevisions), which the ladder needs. Nothing was run and nothing was spent.'); process.exit(2); }   // A-DRAFT; chain.js refuses too, as the backstop
+// S20 slice 2, control 1 (replaces the B3 prototype, which wrote `{pass, floor: 3, at, via: 'cli'}` into run.json `ladderSteps`): `--next-pass-layer-3` on a resume asks the NEXT pass to start at layer 3. It does NOT start anything: after the refusals below (all before
+// any write, and byte for byte as the prototype had them: src/run-controls.js routeRefusal) it RECORDS a request in the gate ledger and exits 27 (the append, below, after the last refusal a plain resume makes before the run folder and the lock). The handler decides
+// (`council route-decide`); the plain resume that follows derives its steps from the ledger's routed decisions. A run.json `ladderSteps` entry is only judged here (a damaged one is refused); the steps themselves are derived after the ruling and re-tag refusals.
+let ladderSteps = Array.isArray(resumeMeta?.ladderSteps) ? resumeMeta.ladderSteps : [];
+if (ladderSteps.some(x => !stepOk(x))) { console.error('run.json holds a ladderSteps entry that is not {pass, floor: 3}. Check the file: it may have been edited by hand or damaged. Nothing was run and nothing was spent.'); process.exit(2); }   // A-DRAFT
+if (argv.includes('--next-pass-layer-3')) {
+  const refuse = why => { console.error(`--next-pass-layer-3: ${why} Nothing was recorded, run or spent.`); process.exit(2); };   // A-DRAFT
+  if (!resumeMeta) refuse('it answers a paused run: use it with --resume <run folder>.');
+  const may = routeRefusal(runDir, { ladder: ladderEff, config });
+  if (!may.ok) refuse(may.message);
+}
+// B3 prototype (src/rulings.js): the rulings the person who owns the request has given (gate kind `ruling`). A resume goes on only when every ruling gate can be read and none waits for his answer: a ruling approved after its pass had started would change
+// the prompts of stages that are already on disk, and those would be asked again for money. An expired gate can never be approved, so it does not hold the run.
+const rulingState = resumeMeta ? rulingsOf(runDir) : { ok: true, rulings: [], pending: [], unreadable: [] };
+if (!rulingState.ok) { console.error(argv.includes('--finish-now') && resumeMeta && existsSync(join(runDir, 'STOPPED-budget.json')) ? '--finish-now: the limit this run stopped at cannot be read from the record of what you typed (a folder from before that record, or a damaged one), so it cannot be kept in force in this command. Nothing was recorded, run or spent. What you can still do: a plain resume asks for a new limit above what the run has counted and records it; with that on record, --finish-now can be given again.' : 'The approval record of this run cannot be read, so its rulings cannot be read either. Nothing was run and nothing was spent.'); process.exit(2); }   // A-DRAFT (LAD-B9 for a --finish-now at a spending stop: an unreadable ledger names what the person can still do, LADDER_GO 'ROWS BEFORE THE COMMIT' 1)
+if (rulingState.unreadable.length) {   // A-DRAFT
+  const info = rulingState.unreadableInfo.find(i => i.gate === rulingState.unreadable[0]);
+  console.error(`Ruling gate ${rulingState.unreadable[0]} cannot be read as a ruling, and a ruling is never dropped silently.${info?.file ? ` Its text file ${info.file} must hold exactly the bytes the gate was asked for (sha256 ${info.sha256}); restore it, or decline the gate if it still waits (council gate answer ${runDir} ${rulingState.unreadable[0]} --decline). This tool has no command that repairs a damaged gate file or a record whose hash chain is broken.` : ' Its gate file or the approval record is damaged, and this tool has no command that repairs it.'} Nothing was run and nothing was spent.`);
+  process.exit(2);
+}
+if (rulingState.pending.length) {   // A-DRAFT
+  const w = rulingState.pending[0];
+  const what = w.kind === 'ruling_withdrawal' ? `The withdrawal of ruling ${w.target} from pass ${w.pass}` : `A ruling for pass ${w.pass}`;
+  console.error(`${what} waits for the person's answer (gate ${w.gate}): the pass would run without it, and a ruling given after that would change what its stages were asked. Give the answer, or let the gate expire, or take the request back: council ruling-withdraw ${runDir} ${w.gate} --relayed (the handler session, for a gate it asked for), or council gate answer ${runDir} ${w.gate} --decline (at a terminal). Nothing was run and nothing was spent.`);
+  process.exit(2);
+}
+// 0.8.4 D10 slice 2c (H2-v; C&C's ruling (ii)): a resume while a gate of kind excerpt_approval has no excerpts_recorded line is REFUSED with the one dedicated code. This is the run's stop at an excerpt approval: a plain
+// resume, resume_run, submit_stage and a tree member's resume all end here. CHANGED ACCEPTED (C&C 09 Nov 2026): with the privacy switch on, only a gate that waits for the person or cannot be read stops here (excerptApprovalStops);
+// an answered one is applied, and an expired one asked again, by the pause unit (src/excerpt-pause.js, prepareExcerpts below), which creates these gates and uses the SAME constant for its own stop. A ledger that does not verify was refused just above (the rulings reader), so `ok` is true here.
+const excerptWait = resumeMeta ? excerptApprovalStops(runDir) : { ok: true, waiting: [] };   // with the privacy switch on, only a gate that waits for the person (or cannot be read) stops a resume: the pause unit applies an answered one and asks again for an expired one
+// `!ok` is reachable only if the ledger stops verifying between two reads inside this process (the rulings reader above already refused a broken one); it is kept so the refusal can never fail OPEN. Untested by design.
+if (!excerptWait.ok) { console.error('The approval record of this run cannot be read, so its excerpt approvals cannot be read either. Nothing was run and nothing was spent.'); process.exit(2); }   // A-DRAFT
+if (excerptWait.waiting.length) {   // A-DRAFT
+  const w = excerptWait.waiting[0];
+  const words = excerptWaitWords(w.status, `${councilCommand()} gate answer ${runDir} ${w.gate}`);
+  console.error(`This run is stopped at an approval of excerpts of your project (gate ${w.gate}): it ${words.phrase}${excerptWait.waiting.length > 1 ? `, and ${excerptWait.waiting.length - 1} more wait` : ''}. ${words.tail} Nothing was run and nothing was spent.`);
+  process.exit(EXIT_AWAITING_EXCERPT_APPROVAL);
+}
+const ownerRulings = rulingState.rulings;
+// M1 (S19 (c)): the handler's re-tags are the handler session's OWN act, recorded by `council retag-add` in retags.jsonl (src/handler-retags.js); a resume reads them and applies each at the top of its pass. A line that cannot be read stops the resume: a re-tag is never dropped silently.
+const retagState = resumeMeta ? handlerRetagsOf(runDir) : { ok: true, retags: [], unreadable: [] };
+if (!retagState.ok || retagState.unreadable.length) { console.error(`retags.jsonl in this run folder cannot be read (${retagState.ok ? `line ${retagState.unreadable[0].line}: ${retagState.unreadable[0].why}` : 'the file cannot be opened'}), and a re-tag is never dropped silently. Repair or remove that line, then resume. Nothing was run and nothing was spent.`); process.exit(2); }   // A-DRAFT
+for (const g of resumeMeta ? gatesOfKind(runDir, 'retag') : []) console.error(`Gate ${g.gate} in this run's approval record is of the kind "retag", which no longer exists: a re-tag is the handler session's own act now (council retag-add), so this gate sets nothing${g.status === 'pending' ? ' and nothing waits for it' : ''}. Going on.`);   // A-DRAFT
+const handlerRetags = retagState.retags;
+// S20 slice 2, control 1: the steps that start a pass at layer 3 are DERIVED from the gate ledger's routed decisions (src/run-controls.js routedStepsOf), not read from run.json: there is no second copy. They sit AFTER the ruling and re-tag refusals above, which already read the
+// ledger and refuse a corrupt one with their own sentence; this is the fail-closed backstop. A run.json `ladderSteps` entry whose pass has no routed decision behind it (a prototype's, or a hand-written one) has no author in the record and is refused.
+if (resumeMeta) {
+  const routed = routedStepsOf(runDir);
+  if (!routed.ok) { console.error('The approval record of this run cannot be read, so the routes recorded in it cannot be read either. Nothing was run and nothing was spent.'); process.exit(2); }   // A-DRAFT
+  const unbacked = ladderSteps.find(x => !routed.steps.some(r => r.pass === x.pass));
+  if (unbacked) { console.error(`run.json holds a ladderSteps entry for pass ${unbacked.pass} that no routed decision in the gate ledger backs (an earlier version wrote the route into run.json only, or the file was edited by hand). To go on, delete the \`ladderSteps\` line from run.json in the run folder; to still start that pass at layer 3, ask again with --next-pass-layer-3 and route it with \`council route-decide\`. Nothing was run and nothing was spent.`); process.exit(2); }   // A-DRAFT
+  ladderSteps = routed.steps;
+}
 let roundChoices = Array.isArray(resumeMeta?.roundChoices) ? resumeMeta.roundChoices.map(c => (c?.choice === 'continue' && !Number.isInteger(c.add) ? { ...c, add: defaultAdd(c, config) } : c)) : [];   // a tree sitting writes an entry without `add` (it holds no chain config): filled here, the one place that has it
 if (resumeMeta && Array.isArray(resumeMeta.roundChoices)) resumeMeta.roundChoices = roundChoices;   // the resume branch rewrites run.json from resumeMeta: the filled `add` is kept
 // Bug audit 2026-10-24 D-013 / C-024 (member half): a tree MEMBER applies only the roundChoices its TREE RECORD backs (run.json is project-writable text: an entry alone, or one for another stop, must not raise a limit or finish the run); the file itself is left as it is.
 if (treeLineage && resumeRun) roundChoices = backedRoundChoices(join(dirname(resolve(resumeRun)), treeLineage.treeId), treeLineage, roundChoices);
 {
-  const wantContinue = argv.includes('--continue'); const wantFinish = argv.includes('--finish');
-  if (wantContinue && wantFinish) { console.error('--continue and --finish are two different choices: give one. Nothing was run and nothing was spent.'); process.exit(2); }
-  if ((wantContinue || wantFinish) && !resumeMeta) { console.error('--continue / --finish answer a stopped run: use them with --resume <run folder>. Nothing was run and nothing was spent.'); process.exit(2); }
+  const wantContinue = argv.includes('--continue'); const wantFinishNow = argv.includes('--finish-now'); const wantFinish = argv.includes('--finish') || wantFinishNow; const wantDrop = argv.includes('--drop-excerpt');   // 0.8.4 (finish at once): --finish-now is a finish that also skips the final read and the ending exchange
+  if (wantContinue && wantFinish) { console.error(`--continue and ${wantFinishNow ? '--finish-now' : '--finish'} are two different choices: give one. Nothing was run and nothing was spent.`); process.exit(2); }
+  if (flag('stop-gate', null) !== null && !wantContinue && !wantFinish && !wantDrop) { console.error('--stop-gate names the answered stop_decision gate a choice carries: use it with --continue, --finish, --finish-now or --drop-excerpt. Nothing was run and nothing was spent.'); process.exit(2); }   // --drop-excerpt since Q9 (10 Nov 2026): a relayed drop at an excerpt pause
+  if (wantFinishNow && argv.includes('--finish')) { console.error('--finish and --finish-now are two different choices: give one. Nothing was run and nothing was spent.'); process.exit(2); }
+  if ((wantContinue || wantFinish) && !resumeMeta) { console.error(`${wantFinishNow ? '--continue / --finish-now' : '--continue / --finish'} answer a stopped run: use them with --resume <run folder>. Nothing was run and nothing was spent.`); process.exit(2); }
   const marker = resumeMeta ? readStoppedMarker(runDir) : null;
-  const roundMarker = marker && (marker.stoppedBy === 'overseer_cap' || marker.stoppedBy === 'layer_bound') ? marker : null;
+  const roundMarker = marker && isRoundStop(marker.stoppedBy) ? marker : null;
+  const ownerPauseMarker = marker && marker.stoppedBy === 'owner_pause' && pauseStandsForMarker(runDir) ? marker : null;   // the owner's pause (0.8.4 ladder unit): a plain --resume continues it; --finish / --finish-now end it
+  const budgetStopFile = resumeMeta && existsSync(join(runDir, 'STOPPED-budget.json'));   // the run is stopped at the spending limit
+  // 0.8.4 (relay at a spending stop): a choice RELAYED by the handling session names the answered stop_decision gate that holds the person's words (--stop-gate <id>). It is taken only if (1) the gate is this run's answered gate for THIS stop and THIS choice (attributeChoice: the stop id carries the first 12 characters of the hash of the stop file's figures; answered on the session channel, not closed, read within its ten minutes), (2) the quote the gate holds names the FULL hash of the stop file as it is now, and (3) no spending limit was approved after the gate was asked for. Anything else refuses, nothing recorded or run. -> null (typed) | { stopId, chooser }
+  const relayedBudgetChoice = (choice, label, stopFile) => {
+    if (flag('stop-gate', null) === null) return null;
+    const sha = stopShaOf(stopFile);
+    const stopId = stopIdOf({ kind: 'budget_stop', overseer_round: 1, pass: 1, label, sha: sha ?? undefined });
+    const chooser = attributeChoice(stopId, choice);
+    if (chooser?.gate && (limitApprovedAfterGate(runDir, chooser.gate) || !gateQuoteNamesHash(runDir, chooser.gate, sha))) { console.error(`--stop-gate ${String(chooser.gate).slice(0, 40)}: that answer was not given for exactly this spending stop (its quote names another stop file), or a spending limit was approved after it was given, or the record cannot be read, so the answer does not apply. Nothing was recorded, run or spent.`); process.exit(2); }   // A-DRAFT (LAD-R9)
+    return { stopId, chooser };
+  };
+  // 0.8.4 (Q9, the person's yes of 10 Nov 2026): a choice RELAYED by the handling session at a found-secret pause names the answered stop_decision gate that holds the person's words (--stop-gate <id>). It is taken only if the gate is this run's answered, person-only gate for THIS pause (its id is the pause record's own, the stage plus the hash of the exact prompt) and
+  // THIS choice, answered on the session channel with the person's words, relayed, not closed, read within its ten minutes: the ledger is the only authority, never run.json. A choice typed with no gate is the terminal's, as before; a gate that does not match exits 2 with nothing recorded, run or sent.
+  const relayedSecretChoice = (choice, pause) => {
+    const named = flag('stop-gate', null);
+    if (named === null) return null;
+    const stopId = secretGateStopId(pause);
+    const a = typeof named === 'string' ? stopDecisionAnswerOf(runDir, stopId, choice, { gate: named }) : null;
+    if (!a || a.relayed !== true || !relayedSecretAnswerOf(runDir, a.gate, stopId, choice, a.person_words)) { console.error(`--stop-gate ${typeof named === 'string' ? named.slice(0, 40) : ''}: no answered, person-only stop_decision gate of this run by that name matches this credential-shaped pause (${stopId}) and this choice (${choice}), relayed with the person's words, within ten minutes of its answer. Nothing was recorded, run or sent.`); process.exit(2); }   // A-DRAFT (LAD-Q9-5)
+    stopGateNamed = named;
+    return { gate: a.gate, personWords: a.person_words, at: a.at };
+  };
+  const recordedFinishRelayed = f => !!(f && f.relayed === true && typeof f.stop === 'string' && relayedSecretAnswerOf(runDir, f.stop_gate, `secret_pause:${f.stop}`, f.choice, typeof f.person_words === 'string' ? f.person_words : null));   // the mark `relayed` on a RECORDED finish is believed only when the ledger holds that answer (never run.json alone)
+  const relayedFields = rel => (rel ? { via: 'session', relayed: true, stop_gate: rel.gate, person_words: rel.personWords } : { via: 'cli' });   // what the run.json entry of a choice says about who gave it: the ledger's gate is the authority, this only names it
+  const relayedTail9 = rel => (rel ? ' (the person\'s choice in their own words, relayed by the handling session)' : '');   // A-DRAFT (LAD-Q9-2)
+  const secretPausedNow = resumeMeta && existsSync(join(runDir, SECRET_MARKER_FILE));   // paused at a credential-shaped string
+  if (wantFinishNow && !roundMarker && !ownerPauseMarker && !budgetStopFile && !secretPausedNow) { console.error('--finish-now answers a run stopped at a round limit, a layer\'s limit, a stall or a silent seat, at the owner\'s pause, at the spending limit or at a credential-shaped string, and this run is not stopped at one. Nothing was recorded, run or spent.'); process.exit(2); }   // A-DRAFT (WORDING LAD-R30: the interim sentence listed only the round stops)
+  // 0.8.4 D38 (WORDING D38-w8, A-DRAFT): --drop-excerpt answers only a pause at an excerpt; it is its own choice.
+  if (wantDrop && (wantContinue || wantFinish || allowSecretShapedFlag)) { console.error('--drop-excerpt is its own choice: give it alone. Nothing was run and nothing was spent.'); process.exit(2); }
+  if (wantDrop && !resumeMeta) { console.error('--drop-excerpt answers a run paused at an excerpt: use it with --resume <run folder>. Nothing was run and nothing was spent.'); process.exit(2); }
+  if (wantDrop && roundMarker) { console.error('--drop-excerpt: this run is stopped at a round limit, not paused at an excerpt. Nothing was run and nothing was spent.'); process.exit(2); }
   if (roundMarker) {
     const stop = (() => { try { return JSON.parse(readFileSync(join(runDir, PARTIAL_REPORT_FILE), 'utf8')).stop ?? null; } catch { return null; } })();
     const id = stop ? stopIdOf(stop) : null;
+    // 0.8.4 S5 (A-DRAFT, C&C's rule): at a stall --continue is refused only when no pass is left (nothing recorded, run or spent); --finish and revising outside the Council stay.
+    if (wantContinue && stop && !stopOffersContinue(stop)) { console.error('--continue: no pass is left, so the run cannot go on. Give --finish to end the run here, or revise the draft yourself outside the Council. Nothing was recorded, run or spent.'); process.exit(2); }
     // a member goes on from an entry only when the TREE RECORD holds the person's choice for this stop (run.json is project-writable text: an entry alone never spends)
     const entryStands = !!(id && roundChoices.some(c => c.stop === id)) && (!treeLineage || recordedChoiceFor(join(dirname(resolve(resumeRun)), treeLineage.treeId), treeLineage, id, roundChoices.find(c => c.stop === id)?.choice));
     // Review fix F7 (18 Okt 2026, C&C ruling b): a stop that cannot be read from report-partial.json (missing or damaged) cannot be matched to a choice. A typed choice is REFUSED (nothing recorded, run or spent) instead of being dropped silently; a resume
     // WITHOUT a choice does not stop at the sentence below but goes on to the replay, which costs nothing (stages on disk) and re-stops at the same place, rewriting the partial files; then the choice works. A readable partial keeps its exit 23, and so does a tree MEMBER whatever the file says (a member goes on only from the tree record's choice; run.json alone never spends, so an unreadable partial must not let a stale run.json entry reach the replay).
-    if (!wantContinue && !wantFinish && !entryStands && (stop || memberNotice)) { console.error(roundMarker.data?.reason ?? 'This run is stopped at an overseer limit and waits for your choice: --continue or --finish.'); process.exit(EXIT_ROUND_STOPPED); }
+    if (!wantContinue && !wantFinish && !entryStands && (stop || memberNotice)) { console.error(roundMarker.data?.reason ?? `This run is stopped ${roundStopPhraseOf(stop)}, and waits for your choice: ${stop && !stopOffersContinue(stop) ? '--finish. No pass is left, so there is no --continue' : '--continue or --finish'}.`); process.exit(EXIT_ROUND_STOPPED); }
     // A tree MEMBER is continued or finished only through its tree (a verb that is owed, a separate unit): a direct choice writes nothing into its record.
-    if ((wantContinue || wantFinish) && memberNotice) { console.error(stopSentence(stop ?? { kind: roundMarker.stoppedBy }, { memberTail: memberStopContinue(memberNotice, 'round_stop') })); process.exit(2); }
+    if ((wantContinue || wantFinish) && memberNotice) { console.error(stopSentence(stop ?? { kind: roundMarker.stoppedBy }, { memberTail: memberStopContinue({ ...memberNotice, stop }, 'round_stop') })); process.exit(2); }
+    // 0.8.4 S16 (D; WORDING S16-w33c): a pause with no handling session names nobody to choose: a typed choice is refused (nothing recorded, run or spent)
+    if ((wantContinue || wantFinish) && stop?.no_chooser === true) { console.error(`${wantFinishNow ? '--finish-now' : '--continue / --finish'}: this run is paused with no handling session, so nobody is named to choose here. Nothing was run and nothing was spent.`); process.exit(2); }
     if ((wantContinue || wantFinish) && !id) { console.error(`--continue / --finish: ${join(runDir, PARTIAL_REPORT_FILE)} cannot be read (missing or damaged), so your choice cannot be matched to the stop it answers. Nothing was recorded, run or spent. Run \`${councilCommand()} --resume ${runDir}\` once without a choice: it rebuilds that file from the stages already on disk (a stage you removed is asked of its seat again, within your limit). Then give your choice.`); process.exit(2); }
     if ((wantContinue || wantFinish) && id) {
-      const choice = wantFinish ? 'finish' : 'continue';
-      roundChoices = [...roundChoices.filter(c => c.stop !== id), roundChoiceEntry(stop, choice, config)];
+      const choice = wantFinishNow ? 'finish_now' : wantFinish ? 'finish' : 'continue';
+      // 0.8.4 D5a (T4.2): the entry says who chose, how and when (additive fields). When the handling session answered a stop_decision gate for THIS stop with THIS choice (the MCP tool stop_decide, then this resume), the hash-chained
+      // ledger is the authority and the entry takes actor, channel, time, reason and the advisor state from it, with the gate's id. Any other choice is a CLI choice (actor unknown: the CLI cannot tell a person from an agent with a shell).
+      // 0.8.4 (C&C 10 Nov): the entry is attributed to a gate ONLY when the command line names it (`--stop-gate <id>`, which the MCP tool passes for every answer it carries, the session's own and the relayed ones). A choice typed with no gate is a CLI choice, whatever answered gates the ledger holds for this stop.
+      // A named gate must be this run's answered stop_decision gate for exactly this stop and this choice, read within its ten minutes, and its number (a relayed continue's new limit) must be the one on the command line, if any: otherwise nothing is recorded, run or spent. The number reaches the run from the gate alone.
+      const chooser = attributeChoice(id, choice);
+      const entry = roundChoiceEntry(stop, choice, config);
+      roundChoices = [...roundChoices.filter(c => c.stop !== id), { ...(choice === 'continue' && ladderEff && ladderRoundsTyped !== null && stop.kind === 'overseer_cap' ? { ...entry, add: 0 } : entry), ...chooser }];   // a --rounds typed with the continue is the TOTAL of top-layer reads: the continue answers the stop and adds nothing
       pendingChoices.roundChoices = roundChoices; // CR-1E-006: held in memory; flushChoices() writes it after the last refusal of the start
     }
+  } else if (resumeMeta && existsSync(join(runDir, SECRET_MARKER_FILE)) && wantFinishNow) {
+    // 0.8.4 (ladder unit, step 3; C&C 10 Nov: terminal-typed only, a relay waits for the owner): --finish-now at a PAUSED run ends it at once, in THIS command, NOT agreed: the loop ends at the paused stage (nothing of it is sent), no judge is asked again (a final read already on disk replays and counts as read;
+    // one that is not on disk is not made), and the value the pause found is NOT added to the allowed list - a prompt of the ending that still holds it pauses AGAIN, and only the person's --continue at that screen lets it go. The choice is recorded (run.json `secretFinish`, choice finish_now) so that --continue there goes on with the ending.
+    // Sits BEFORE the plain --finish branch: wantFinish is true for --finish-now too, and without this the command would fall into the plain finish and record the wrong choice.
+    if (allowSecretShapedFlag) { console.error('--finish-now and --allow-secret-shaped are two different choices: give one. Nothing was run and nothing was spent.'); process.exit(2); }
+    if (memberNotice) { console.error(memberStopContinue(memberNotice, 'secret')); process.exit(2); }
+    const pause = readSecretStop(runDir);
+    if (!pause || !pause.phase) { console.error(`--finish-now: the pause record (${SECRET_STOP_FILE}) is missing, cannot be read or does not say where in the run the pause came, so your choice cannot be matched to the stage it answers. Run \`${councilCommand()} --resume ${runDir}\` once without a choice: it pauses again at the same place and writes the record. Then give --finish-now. Nothing was run or sent.`); process.exit(2); }
+    if (pause.phase === 'before') { console.error('--finish-now: this pause came before the review rounds began, so there is no review to end. Give --continue, or leave the run paused. Nothing was recorded, run or sent.'); process.exit(2); }
+    const rel = relayedSecretChoice('finish_now', pause);   // 0.8.4 (Q9)
+    secretFinishRelayed = !!rel;
+    if (pause.phase === 'after') {   // 0.8.4 (parity batch, C&C 10 Nov): there is no loop to end here, but the person can still end the run AT the pause: no further paid call, no judge, and no prompt that holds the found value is sent (a call whose prompt holds it is not made; it does not pause again). The verdict stays what the review rounds reached.
+      pendingChoices.secretFinish = { choice: 'finish_now', label: pause.label, stop: pause.stop, at: new Date().toISOString(), ...relayedFields(rel), phase: 'after' };
+      secretEndsAtPause = true;
+      flushNotes.push(`  stage "${pause.label}": you chose --finish-now at the pause after the review rounds${relayedTail9(rel)}: no further call that bills is made, no judge is asked again, and no prompt that holds the credential-shaped value(s) it found is sent (the run goes on to its end without that stage; the verdict stays what the rounds reached).`);   // A-DRAFT (WORDING LAD-R41)
+    } else {
+    pendingChoices.secretFinish = { choice: 'finish_now', label: pause.label, stop: pause.stop, at: new Date().toISOString(), ...relayedFields(rel), phase: 'loop' };
+    secretFinishArmed = true; secretFinishAtOnce = true;
+    flushNotes.push(`  stage "${pause.label}": you chose --finish-now${relayedTail9(rel)}: it is not sent, the run ends here at once, NOT agreed, and no judge is asked again. The credential-shaped value(s) it found are NOT allowed: a later stage whose prompt holds one pauses the run again.`);   // A-DRAFT (WORDING LAD-R31)
+    }
+  } else if (resumeMeta && existsSync(join(runDir, SECRET_MARKER_FILE)) && wantFinish) {
+    // --finish at a PAUSED run (F-C, 0.8.4): it only RECORDS the person's choice (run.json `secretFinish`, through pendingChoices: CR-1E-006) and the command ends at exit 11, still paused, before any sitting work.
+    // Nothing is sent. The ending happens on the person's --continue: the loop ends at the paused stage and the ordinary not-agreed ending runs (chain.js, the catch of the two pass loops).
+    if (allowSecretShapedFlag) { console.error('--finish and --allow-secret-shaped are two different choices: give one. Nothing was run and nothing was spent.'); process.exit(2); }
+    if (memberNotice) { console.error(memberStopContinue(memberNotice, 'secret')); process.exit(2); }
+    const pause = readSecretStop(runDir);
+    if (!pause || !pause.phase) { console.error(`--finish: the pause record (${SECRET_STOP_FILE}) is missing, cannot be read or does not say where in the run the pause came, so your choice cannot be matched to the stage it answers. Run \`${councilCommand()} --resume ${runDir}\` once without a choice: it pauses again at the same place and writes the record. Then give --finish. Nothing was run or sent.`); process.exit(2); }
+    if (pause.phase === 'before') { console.error('--finish: this pause came before the review rounds began, so there is no review to end. Give --continue, or leave the run paused. Nothing was recorded, run or sent.'); process.exit(2); }
+    if (pause.phase === 'after') { console.error('--finish: this pause came after the review rounds, so the run is already ending. Give --continue, or leave the run paused. Nothing was recorded, run or sent.'); process.exit(2); }
+    const rel = relayedSecretChoice('finish', pause);   // 0.8.4 (Q9)
+    pendingChoices.secretFinish = { choice: 'finish', label: pause.label, stop: pause.stop, at: new Date().toISOString(), ...relayedFields(rel) };
+    secretFinishOnly = pause.label;
+    if (rel) flushNotes.push(`  stage "${pause.label}": you chose --finish${relayedTail9(rel)}: it is recorded and nothing is sent; the run stays paused until --continue.`);   // A-DRAFT (LAD-Q9-2)
+  } else if (resumeMeta && existsSync(join(runDir, SECRET_MARKER_FILE)) && wantDrop) {
+    // 0.8.4 D38 (C&C 09 Nov 2026, Muad's yes to a drop route; WORDING D38-w8): beside --continue, on exactly its channel (a command typed at a terminal). The excerpt is not recorded with its text and no seat is shown it: the stop label is added to
+    // run.json `secretDrops` (a list: one resume can need several), and the resume's processing (src/excerpt-resume.js) writes ONE `withheld` line for it. The value is NOT added to the allowed list.
+    if (memberNotice) { console.error(memberStopContinue(memberNotice, 'secret')); process.exit(2); }
+    const pause = readSecretStop(runDir);
+    if (!pause) { console.error(`--drop-excerpt: the pause record (${SECRET_STOP_FILE}) is missing or cannot be read, so your choice cannot be matched to the text it answers. Run \`${councilCommand()} --resume ${runDir}\` once without a choice: it pauses again at the same place and writes the record. Then give --drop-excerpt. Nothing was run or sent.`); process.exit(2); }
+    if (!isExcerptLabel(pause.label)) { console.error(`--drop-excerpt answers a pause at an excerpt, and this run is paused at stage "${pause.label}". Give --continue to send it as it is, or leave the run paused. Nothing was run or sent.`); process.exit(2); }
+    const earlierDrops = Array.isArray(resumeMeta.secretDrops) ? resumeMeta.secretDrops.filter(d => d && d.label !== pause.label) : [];
+    const rel = relayedSecretChoice('drop', pause);   // 0.8.4 (Q9)
+    pendingChoices.secretDrops = [...earlierDrops, { choice: 'drop', label: pause.label, stop: pause.stop, at: new Date().toISOString(), ...relayedFields(rel) }];
+    flushNotes.push(`  excerpt "${pause.label}": you chose to leave it out${relayedTail9(rel)}; it is recorded as withheld and the run goes on without it.`);
+  } else if (resumeMeta && existsSync(join(runDir, SECRET_MARKER_FILE)) && (wantContinue || (flagAnswersPause && !wantFinish))) {
+    // A run PAUSED at a credential-shaped prompt (src/secret-pause.js). Not a round stop: no cause is added to stop-files.js, so the handling session's stop_decide, the gate and a tree resume never see it (E3: the
+    // answer is the person's). `--continue` and `--allow-secret-shaped` on a resume are ONE choice: they add the values the pause found to the run's allowed list (run.json `secretAllow`, flushed after the last refusal
+    // of the start, CR-1E-006). The stage that threw has no <label>.md, so this resume re-runs it; this block runs before any stage, and the allowed list is read by that stage's send, so the consent reaches exactly
+    // the prompts that hold those values and no other value.
+    if (wantContinue && allowSecretShapedFlag) { console.error('--continue and --allow-secret-shaped are the same choice: give one. Nothing was run and nothing was spent.'); process.exit(2); }
+    if (memberNotice) { console.error(memberStopContinue(memberNotice, 'secret')); process.exit(2); }
+    const pause = readSecretStop(runDir);
+    if (!pause) { console.error(`--continue: the pause record (${SECRET_STOP_FILE}) is missing or cannot be read, so your choice cannot be matched to the text it answers. Run \`${councilCommand()} --resume ${runDir}\` once without a choice: it pauses again at the same place and writes the record. Then give --continue. Nothing was run or sent.`); process.exit(2); }
+    const finishState = secretFinishState(resumeMeta, pause);
+    if (finishState === 'bad') { console.error('--continue: the finish recorded in run.json (secretFinish) is unreadable or names another stage than this pause, so it cannot be matched. Nothing was run or sent. Give --finish again to record it, or remove the secretFinish entry to go on with the review.'); process.exit(2); }
+    const rel = relayedSecretChoice('continue', pause);   // 0.8.4 (Q9): the person's continue, relayed: it allows the value(s), so the ledger's answer and the person's words are the record, named here and in run.json `relayedSecretChoices`
+    for (const h of pause.values) secretAllow.hashes.add(h);
+    secretAllowDirty = true;
+    if (rel) pendingChoices.relayedSecretChoices = [...(Array.isArray(resumeMeta.relayedSecretChoices) ? resumeMeta.relayedSecretChoices : []), { choice: 'continue', label: pause.label, stop: pause.stop, at: new Date().toISOString(), ...relayedFields(rel) }];
+    secretFinishArmed = finishState === 'finish' || finishState === 'finish_now';
+    secretFinishAtOnce = finishState === 'finish_now';   // the recorded --finish-now: the ending it started goes on, still at once
+    secretFinishRelayed = secretFinishArmed && recordedFinishRelayed(resumeMeta.secretFinish);
+    flushNotes.push(`  stage "${pause.label}": you allowed the credential-shaped value(s) it found (${pause.values.length})${relayedTail9(rel)}; ${secretFinishArmed ? `the run ends here${secretFinishAtOnce ? ' at once' : ''}, NOT agreed, as you chose with ${secretFinishAtOnce ? '--finish-now' : '--finish'}${secretFinishRelayed ? relayedTail9(true) : ''}` : 'the run goes on'}.`);
+  } else if (resumeMeta && wantFinishNow && !wantContinue && budgetStopFile && !roundMarker && !ownerPauseMarker) {
+    // 0.8.4 (ladder unit, C&C 10 Nov 2026; his "may finish at any stop ... does not ask"): --finish-now at a SPENDING stop ends the run in THIS command, with no raise and no limit screen. It records nothing in run.json: a plain resume still meets the limit gate. The sitting makes no
+    // call that bills (chain.js NotRunForLimit), asks no judge again, and names every call it did not make (report.json stages_not_run). It sits BEFORE the plain --finish branch below: wantFinish is true for both flags, and a typed --finish-now must never land in the --finish branch.
+    const stopFile = (() => { try { return JSON.parse(readFileSync(join(runDir, 'STOPPED-budget.json'), 'utf8')); } catch { return null; } })();
+    // a --max-usd beside it is the person's raise only above the limit the run stopped at (the MCP's resume adds its own ceiling at or below it: server.js ceilingArgs); the same rule as the record path below
+    const maxFlag = argv.includes('--max-usd') ? Number(argv[argv.indexOf('--max-usd') + 1]) : null;
+    const flagRaises = maxFlag !== null && !(Number.isFinite(maxFlag) && Number.isFinite(stopFile?.capUsd) && maxFlag <= stopFile.capUsd);
+    const d = spendFinishNowDecision({ stop: stopFile, member: !!memberNotice || !!treeLineage, maxUsdGiven: flagRaises, runDir });
+    if (d.refusal) { console.error(d.refusal); process.exit(2); }
+    const rb = relayedBudgetChoice('finish_now', d.label, stopFile);
+    budgetFinishNow = { phase: d.phase, label: d.label, capName: d.capName, stopSha: stopShaOf(stopFile), stopId: rb?.stopId ?? null, recorded: false, ...(rb?.chooser?.relayed === true ? { relayed: { personWords: rb.chooser.person_words, gate: rb.chooser.gate } } : {}) };
+  } else if (resumeMeta && wantFinish && !wantFinishNow && !wantContinue && finalReadOn(config) && existsSync(join(runDir, 'STOPPED-budget.json'))) {   // WORDING S16-w62j: a chain with no final read falls through to today's refusal below, unchanged
+    // 0.8.4 S16 (F; WORDING S16-w62b, w62f, w62g; T9e T21q T21bz): --finish at a SPENDING stop only RECORDS the choice (run.json `budgetFinish`, through pendingChoices) and the command ends at exit 4 right after the run lock: nothing is run, nothing is spent, no gate is asked. The ending happens on the resume after the person's own typed raise.
+    const stopFile = (() => { try { return JSON.parse(readFileSync(join(runDir, 'STOPPED-budget.json'), 'utf8')); } catch { return null; } })();
+    const maxFlagPlain = argv.includes('--max-usd') ? Number(argv[argv.indexOf('--max-usd') + 1]) : null;   // the MCP's own ceiling (at or below the limit the run stopped at) is not a new limit
+    const plainFlagRaises = maxFlagPlain !== null && !(Number.isFinite(maxFlagPlain) && Number.isFinite(stopFile?.capUsd) && maxFlagPlain <= stopFile.capUsd);
+    const d = spendFinishDecision({ stop: stopFile, member: !!memberNotice, maxUsdGiven: plainFlagRaises, runDir });
+    if (d.refusal) { console.error(d.refusal); process.exit(2); }
+    const rb = relayedBudgetChoice('finish', d.record.label, stopFile);
+    const relayedWords = rb?.chooser?.relayed === true ? { personWords: rb.chooser.person_words, gate: rb.chooser.gate } : null;
+    pendingChoices.budgetFinish = { choice: 'finish', label: d.record.label, at: new Date().toISOString(), via: relayedWords ? 'session' : 'cli', ...(relayedWords ? { relayed: true } : {}), ...(d.record.cap_name ? { cap_name: d.record.cap_name } : {}) };   // run.json keeps the mechanics (and a display mark); the AUTHORITY for who chose and in which order is the ledger line written below
+    budgetFinishOnly = { ...d.record, stopSha: stopShaOf(stopFile), stopId: rb?.stopId ?? null, relayed: relayedWords };
+  } else if (resumeMeta && wantContinue && !wantFinish && budgetStopFile && !roundMarker && !ownerPauseMarker) {
+    // 0.8.4 (ladder unit, unit-end item ii; C&C 10 Nov): THE WAY BACK BY A WORD. At a spending stop with a finish of the person's on record (plain or now), a later typed --continue (or the relayed one, with the person's words) sets that finish aside: the rounds go on, the latest choice decides, and the record shows both in order (budget_finish lines: finish, then continue).
+    // It raises nothing: the limit is the person's own number, typed with --max-usd or at the limit screen as for any raise. Beside a found-secret pause this is never reached (the pause is answered first, at the terminal).
+    const stopFile = (() => { try { return JSON.parse(readFileSync(join(runDir, 'STOPPED-budget.json'), 'utf8')); } catch { return null; } })();
+    if (memberNotice || treeLineage) { console.error('--continue: a tree member\'s spending stop is raised through its tree, not answered here. Nothing was recorded, run or spent.'); process.exit(2); }   // A-DRAFT (LAD-R35)
+    if (!stopFile || typeof stopFile.stoppedAt !== 'string' || !(stopFile.phase === 'loop' || stopFile.phase === 'after')) { console.error(`--continue: the stop file (STOPPED-budget.json) cannot be read or does not say where in the run the limit stopped it. Nothing was recorded, run or spent.`); process.exit(2); }
+    if (!budgetFinishStandsForContinue(runDir)) { console.error('--continue: this run is stopped at its spending limit and no finish of yours is on record, so there is nothing to go on past. To go on, raise the limit (--max-usd, or --raise-cap); to end the run here instead, give --finish-now. Nothing was recorded, run or spent.'); process.exit(2); }   // A-DRAFT (LAD-R35)
+    const rb = relayedBudgetChoice('continue', stopFile.stoppedAt, stopFile);
+    budgetContinue = { phase: stopFile.phase, label: stopFile.stoppedAt, capName: typeof stopFile.capName === 'string' ? stopFile.capName : null, stopSha: stopShaOf(stopFile), stopId: rb?.stopId ?? null, relayed: rb?.chooser?.relayed === true ? { personWords: rb.chooser.person_words, gate: rb.chooser.gate } : null };
+  } else if (wantDrop) {
+    console.error(`--drop-excerpt: ${runDir} is not paused at an excerpt, so there is nothing to answer. Nothing was run and nothing was spent.`); process.exit(2);   // WORDING D38-w8
+  } else if (resumeMeta && ownerPauseMarker && wantFinish && !wantContinue) {
+    // 0.8.4 (ladder unit, C&C 10 Nov; his "all three options should be open"): at the owner's pause the person (typed, or relayed with person_words through --stop-gate) can END the run: --finish (the run ends NOT agreed, the closing steps run and a layered chain's final read runs first) or --finish-now
+    // (no judge reads the plan again). It is recorded as a roundChoices entry for the pause's own stop id; the chain consumes it at the head of the pass the pause stopped before, BEFORE the pause check (src/chain.js ownerPauseFinishAt). A plain --resume still continues the pause.
+    const pauseStop = (() => { try { return JSON.parse(readFileSync(join(runDir, PARTIAL_REPORT_FILE), 'utf8')).stop ?? null; } catch { return null; } })();
+    const pauseId = pauseStop && pauseStop.kind === 'owner_pause' && Number.isInteger(pauseStop.pass) && Number.isInteger(pauseStop.overseer_round) ? stopIdOf(pauseStop) : null;
+    if (!pauseId) { console.error(`${wantFinishNow ? '--finish-now' : '--finish'}: ${join(runDir, PARTIAL_REPORT_FILE)} cannot be read (missing, damaged or not the pause's own), so your choice cannot be matched to the pause it answers. Nothing was recorded, run or spent.`); process.exit(2); }   // A-DRAFT (LAD-O3)
+    const choice = wantFinishNow ? 'finish_now' : 'finish';
+    const chooser = attributeChoice(pauseId, choice);
+    roundChoices = [...roundChoices.filter(c => c.stop !== pauseId), { ...roundChoiceEntry(pauseStop, choice, config), ...(Number.isInteger(pauseStop.request_seq) ? { request_seq: pauseStop.request_seq } : {}), ...chooser }];
+    pendingChoices.roundChoices = roundChoices;   // held in memory; flushChoices() writes it after the last refusal of the start
+    ownerPauseFinishing = choice; ownerPauseFinishPass = pauseStop.pass;
+  } else if (resumeMeta && ownerPauseMarker && wantContinue) {
+    console.error(`--continue: this run is paused on request: a plain council --resume ${runDir} continues it (no --continue is needed), and --finish or --finish-now end it here. Nothing was run and nothing was spent.`); process.exit(2);   // A-DRAFT (LAD-O5)
   } else if (wantContinue || wantFinish) {
-    console.error(`--continue / --finish: ${runDir} is not stopped at an overseer limit, so there is nothing to answer. Nothing was run and nothing was spent.`); process.exit(2);
+    if (budgetStopFile && wantFinish && !wantFinishNow) { console.error('--finish: this run is stopped at its spending limit, and this chain has no final read, so there is no last read to end after. Give --finish-now to end the run here, or raise the limit. Nothing was recorded, run or spent.'); process.exit(2); }   // A-DRAFT (LAD-R35: the sentence below said "not stopped" of a run that is)
+    console.error(`--continue / --finish: ${runDir} is not stopped for --continue or --finish, so there is nothing to answer: they answer a run stopped ${roundStopsInWords()}${wantFinish ? '' : ' or paused at a credential-shaped string'}. Nothing was run and nothing was spent.`); process.exit(2);    console.error(`--continue / --finish: ${runDir} is not stopped for --continue or --finish, so there is nothing to answer: they answer a run stopped ${roundStopsInWords()}${wantFinish ? '' : ' or paused at a credential-shaped string'}. Nothing was run and nothing was spent.`); process.exit(2);
+  }
+  // 0.8.4 (ladder unit, step 3): THE RECORD PATH of a --finish-now at a found-secret pause. The sitting that took the choice may stop again before it ends the run (on a shipped chain a session writes the handoff, exit 3), and the plain resume after that answer carries no marker and no choice;
+  // without this the paused stage (still uncached) would be the first loop call again and the rounds would go on. A plain resume (no choice, no drop, no allowed-value flag) of a run whose run.json holds a whole `secretFinish` entry with choice finish_now for a stage that is STILL uncached arms the same finish
+  // as the typed command did: the loop ends there (at once for a finish-now; a plain finish ends it the ordinary way and the final read runs), the allowed list is whatever it is (a finish-now added nothing; a plain finish's --continue allowed the value). A planted entry can only end a run early at a stage (the parity list's D4 class); it cannot spend or send anything.
+  if (resumeMeta && !treeLineage && !secretFinishArmed && !secretPausedNow && !wantContinue && !wantFinish && !wantDrop && !allowSecretShapedFlag) {   // no marker: the run is not at a pause now (it stopped LATER, at a session's stage); with a marker a plain resume pauses again, as it always did
+    const f = resumeMeta.secretFinish;
+    if (f && typeof f === 'object' && (f.choice === 'finish_now' || f.choice === 'finish') && typeof f.label === 'string' && /^[A-Za-z0-9_][A-Za-z0-9._-]{0,199}$/.test(f.label) && typeof f.at === 'string' && Number.isFinite(Date.parse(f.at)) && !existsSync(join(runDir, `${f.label}.md`))) {
+      secretFinishRelayed = recordedFinishRelayed(f);
+      if (f.choice === 'finish_now' && f.phase === 'after') {   // the record of a finish-now at a pause after the rounds: the same sitting again after a session's stage
+        secretEndsAtPause = true;
+        flushNotes.push(`  you chose --finish-now${secretFinishRelayed ? relayedTail9(true) : ''} at the credential-shaped string in stage "${f.label}", after the review rounds: the run goes on ending here at once; no call that bills is made, no judge is asked again, and no prompt that holds the value is sent.`);   // A-DRAFT (WORDING LAD-R41)
+      } else {
+        secretFinishArmed = true; secretFinishAtOnce = f.choice === 'finish_now';
+        flushNotes.push(`  you chose ${secretFinishAtOnce ? '--finish-now' : '--finish'}${secretFinishRelayed ? relayedTail9(true) : ''} at the credential-shaped string in stage "${f.label}": the run goes on ending here${secretFinishAtOnce ? ' at once' : ''}, NOT agreed${secretFinishAtOnce ? ', and no judge is asked again' : ''}.`);   // A-DRAFT (WORDING LAD-R33)
+      }
+    }
+  }
+  // 0.8.4 (ladder unit, C&C 10 Nov: ONE finish-now, given once, ends the run): a resume with NO choice and NO new limit on a run that holds the person's recorded finish-now FOR THIS STOP (the gate ledger, hash-chained; bound by the stop's hash) goes on ending the run in a
+  // no-money sitting - this is the resume after a session wrote a stage (a handoff on every shipped chain). It asks for no limit. A command that carries a limit (--max-usd, --raise-cap) or any choice is the person's NEW intent and takes the ordinary path. A planted file cannot make this
+  // happen: run.json is never read for it, and a record on the ledger for another stop (a raise changed the stop's figures) does not match.
+  if (!budgetFinishNow && resumeMeta && budgetStopFile && !wantContinue && !wantFinish && !wantDrop && !argv.includes('--raise-cap') && !memberNotice && !treeLineage) {
+    const stopFile = (() => { try { return JSON.parse(readFileSync(join(runDir, 'STOPPED-budget.json'), 'utf8')); } catch { return null; } })();
+    // a limit on a FREE chain (no typed limit gate) typed above the limit the run stopped at is the person's raise; a lower figure is the MCP's own ceiling (server.js ceilingArgs keeps the run's cap or lowers it to COUNCIL_MAX_USD_LIMIT) and is not. On a chain with a typed limit, --max-usd is only a suggestion on the screen and is never a raise by itself; the ledger decides (a limit gate requested after the record).
+    const flagUsd = argv.includes('--max-usd') ? Number(argv[argv.indexOf('--max-usd') + 1]) : null;
+    const raisedByFlag = flagUsd !== null && !(chainIsPaid(config) || capsArmed.length) && !(Number.isFinite(flagUsd) && Number.isFinite(stopFile?.capUsd) && flagUsd <= stopFile.capUsd);
+    const sha = stopShaOf(stopFile);
+    const rec = sha && !raisedByFlag ? budgetFinishRecordFor(runDir, sha) : null;
+    if (rec) { const d = spendFinishNowDecision({ stop: stopFile, runDir }); if (d.ok) budgetFinishNow = { phase: d.phase, label: d.label, capName: d.capName, stopSha: sha, recorded: true, relayedMark: rec.relayed === true }; }
   }
 }
+{
+  // 0.8.4 S16 (F; WORDING S16-w66, w62g): a resume of a run whose run.json holds the person's finish at a spending stop carries it into this sitting: the loop ends at the first call that misses the cache inside the review rounds (chain.js SpendFinish). Only the SHAPE of the entry is checked (a later stop at the final read rewrites STOPPED-budget.json). A tree member is never given one.
+  const state = !treeLineage && resumeMeta && !budgetFinishOnly && !budgetFinishNow && !budgetContinue && finalReadOn(config) ? spendFinishState(resumeMeta) : 'none';   // a chain with no final read ignores the entry, as before F
+  if (state === 'bad') { console.error(SPEND_FINISH_BAD); process.exit(2); }
+  // 0.8.4 (C&C 10 Nov, ruled): the ending after the raise is armed from the LEDGER's budget_finish line (choice finish, the person's latest choice at THIS stop, bound by the hash of the stop file), never from run.json alone: a planted run.json entry must not end a run the person only raised. A run.json entry the ledger does not hold (a folder from before the ledger record) is NOT applied, and the sitting says so.
+  if (!treeLineage && resumeMeta && !budgetFinishOnly && !budgetFinishNow && !budgetContinue && finalReadOn(config)) {   // NO stop-file condition: after the armed sitting ended the loop the run may stop at something that is not a spending stop (a session's handoff, a final-read stop, a pause), and the next resume must still end the rounds at the stage chosen
+    const stopFile = existsSync(join(runDir, 'STOPPED-budget.json')) ? (() => { try { return JSON.parse(readFileSync(join(runDir, 'STOPPED-budget.json'), 'utf8')); } catch { return null; } })() : null;   // only to word the notes
+    // armed by the RUN's governing plain finish (the latest budget_finish line, if it is a plain finish), not by this stop's hash: after a raise too small for what follows the run stops AGAIN at another stop (another hash, inside the rounds or after them) and the next raise must still end the rounds at the stage the person chose to end them
+    const st = budgetPlainFinishRunState(runDir);
+    // an approval record that cannot be read never falls through to an unarmed raise that would run the rounds the person may have chosen to end: it refuses, nothing run or spent
+    if (!st.ok && (state === 'finish' || stopFile)) { console.error('--resume: the approval record of this run cannot be read, so it cannot be told whether you chose to end the review rounds. Nothing was run or spent.'); process.exit(2); }   // A-DRAFT (LAD-R19)
+    const rec = st.rec;
+    // BOTH are needed to end the rounds: the ledger's plain finish (a planted run.json entry alone ends nothing) AND the run.json entry (the way back that existed before the ledger record: removing the budgetFinish entry takes the finish back and the rounds go on; the sitting says so)
+    if (rec && state === 'finish') budgetFinishArmed = { label: rec.label ?? stopFile?.stoppedAt, capName: typeof rec.cap_name === 'string' ? rec.cap_name : (typeof stopFile?.capName === 'string' ? stopFile.capName : null), relayed: rec.relayed === true };
+    else if (rec) budgetFinishWithdrawn = true;
+    else if (st.continued) budgetFinishContinued = true;   // the person's latest choice is the way back (a --continue after the finish): the rounds go on, and nothing is armed
+    else if (state === 'finish') budgetFinishUnrecorded = stopFile?.phase === 'loop' ? 'loop' : stopFile ? 'after' : 'none';
+  }
+}
+if (budgetFinishArmed) setSpendFinish({ capName: budgetFinishArmed.capName, relayed: budgetFinishArmed.relayed });
+if (budgetFinishNow) { setSpendFinish({ capName: budgetFinishNow.capName, atOnce: true, relayed: Boolean(budgetFinishNow.relayed) || budgetFinishNow.relayedMark === true }); setNoMoneySitting(true); }   // 0.8.4: the stopped run's own saved ceiling (run.json maxUsd) stays armed where there is one, as a second wall behind invoke()'s own stop of every call that would bill (NotRunForLimit); under the per-provider caps no limit is typed in this command, so none is armed there
+if (secretAllowDirty && !treeLineage) pendingChoices.secretAllow = { key: secretAllow.key, hashes: [...secretAllow.hashes] };   // flushed with the other choices, after the last refusal of the start
+if (secretFinishArmed) setOutboundScan({ allow: false, allowed: secretAllow, finish: true, atOnce: secretFinishAtOnce, relayed: secretFinishRelayed });
+if (secretFinishAtOnce) setJudgeReplayOnly(true);   // no judge is asked again: a final read on disk replays, one that is not is not made (chain.js)   // the first call of this sitting that misses the cache inside a pass loop is the paused stage: chain.js ends the loop there
+if (secretEndsAtPause) { setNoMoneySitting(true); setOutboundScan({ allow: false, allowed: secretAllow, finish: false, atOnce: true, endsOnSecret: true, relayed: secretFinishRelayed }); }   // a finish-now at a pause after the rounds: no call that bills, no judge, and no prompt that holds the value is sent
 // A3a commit 2 (18 Okt 2026; src/price-refused.js, gate note A3a_Refusal_Pause_Gate_Note.md): a run that STOPPED at exit 24 (STOPPED-price_refused.json, report-partial.json `stop`) waits for the person. A plain --resume goes on
 // (after a pricing.user.json row, or a newer table) and re-asks only the refused stage. --skip-seat records the person's choice to do without that seat for the REST of the run: run.json `seatChoices` { seat, choice: 'skip', via: 'cli', at, label },
 // applied from the refused stage on in every replay (src/chain.js skipChosen; the stage's own catch counts the seat as unreachable). It is refused, with nothing run, where the stage cannot do without the seat or is not stopped this way.
@@ -3049,17 +3705,39 @@ if (treeLineage) conflictChoices = backedConflictChoices(join(dirname(resolve(re
   setConflictChoices(conflictChoices);
 }
 // A new run never writes into an existing folder: two runs started in the same millisecond, or a
-// reused --run-id, would otherwise share one. The one exception is the folder an adopted advice call was
-// created in (adoptCheck: it holds no run yet).
+// reused --run-id, would otherwise share one.
 // 0.8.3 M1: the one other exception is the tree's own root run, whose folder already holds `tree/` (the record is started before the root runs) and nothing else. The folder must BE the lineage's tree (its name is the tree id):
 // otherwise a run of tree X started with another tree's root id would write run.json into that tree's fresh root before the claim refuses it, and that root could never start ("already a run").
 const treeRootFolder = treeLineage?.node === 'R' && runId === treeLineage.treeId && !resumeMeta && existsSync(runDir) && readdirSync(runDir).every(f => f === 'tree');
-if (!resumeMeta && !adopt && !treeRootFolder && existsSync(runDir)) {
+if (!resumeMeta && !treeRootFolder && existsSync(runDir)) {
   console.error(`\nrun folder ${runDir} already exists; a new run needs a new folder. Nothing was run and nothing was spent.`);
   process.exit(2);
 }
-if (!treeLineage && !adopt && chainIsPaid(config)) { refuseNoneOnPaidStart(config); refuseUnreadableUsdLimitOnPaidStart(config); }   // T4c: `--max-usd none` on a PAID start or resume is refused BEFORE any folder, lock or gate (it used to be ignored without a word and the screen asked for a total anyway); a tree member has its own refusal above, a chain with no paid seat keeps the flag
+if (!treeLineage && chainIsPaid(config)) { refuseNoneOnPaidStart(config); refuseUnreadableUsdLimitOnPaidStart(config); }   // T4c: `--max-usd none` on a PAID start or resume is refused BEFORE any folder, lock or gate (it used to be ignored without a word and the screen asked for a total anyway); a tree member has its own refusal above, a chain with no paid seat keeps the flag
 refuseStray();   // T1-1: the last refusal of the main path, after every refusal above (the keys, the cap, the tree, the scans) and before the folder, the lock and the first call
+// S20 slice 1 (H2-i; Mini-C&C's ruling G2): the remaining refusals of the raise flags sit HERE, after the stray-word refusal and before the run folder, the lock and run.json are written, so 'Nothing was recorded, run or spent' is true.
+// They used to come after run.json was rewritten (and on a start, after a whole new folder was made). The rule is src/raise-flags.js raiseFlagRefusal.
+// Unit 4b2: under the per-provider caps (capsArmed) the one run-wide gate gives way to one gate per cap, below.
+const capGateApplies = !budgetFinishNow && !capsArmed.length && !treeLineage && chainIsPaid(config);
+// Unit 4c1: under the caps a raise is ONE number for ONE cap (C&C, 1 Nov 2026): a run stopped at a cap raises that cap (its stop file names it; no new syntax), an early
+// raise names its cap (`--raise-cap <id>`). capsStopCap: the cap the run stopped at; capsRaiseTargets: the caps this sitting asks a raise for besides it.
+if (capsArmed.length && resumeMeta) { try { const st = JSON.parse(readFileSync(join(runDir, 'STOPPED-budget.json'), 'utf8')); if (capsArmed.includes(st?.capName)) capsStopCap = st.capName; } catch { /* no stop file, or not readable: no cap stopped */ } }
+capsRaiseTargets = capsArmed.length && argv.includes('--raise-cap') ? [raiseCapId ?? capsStopCap].filter(id => capsArmed.includes(id)) : [];
+{
+  const bad = raiseFlagRefusal({ argv, resumeMeta, capsArmed, raiseCapId, stopCap: capsStopCap, capGateApplies, capsRaiseUnknownSentence, capsRaiseNameSentence });
+  if (bad) { console.error(`${bad} Nothing was recorded, run or spent.`); process.exit(2); }
+}
+// S20 slice 2, control 1: the request. Every refusal a plain resume makes before the run folder and the lock has been passed, so the flag now RECORDS what the person asked and stops: one `route_requested` line in the gate ledger (the run lock taken for the instant of
+// the write, with the refusals re-run under it: src/run-controls.js requestRoute), exit 27, nothing run, nothing spent. It sits BEFORE the lock, the run.json rewrite and every refusal a resume makes after them (a changed task or context, exit 14; blocked artifacts, 9;
+// the cap gate): those belong to the resume that follows the handler's decision (Mini-C&C R307, A). It reaches no cap gate, setBudget, invoke or reservation: nothing below this block runs.
+if (argv.includes('--next-pass-layer-3')) {
+  const wordsGiven = flag('person-words', null);   // R2-tty: given = the handler session relays the person's request (channel session); not given = the person at the terminal (askRoute reads the streams)
+  const res = askRoute(runDir, { personWords: wordsGiven === true ? '' : wordsGiven, stdin: process.stdin, stdout: process.stdout, ladder: ladderEff, config });
+  if (!res.ok && res.code === 'run_locked') { console.error(`\n${res.message}`); process.exit(EXIT_RUN_LOCKED); }
+  if (!res.ok) { console.error(`--next-pass-layer-3: ${res.message} Nothing was recorded, run or spent.`); process.exit(2); }   // A-DRAFT
+  console.log(`--next-pass-layer-3: pass ${res.pass}: a request to start the pass at layer 3 is recorded (request ${res.seq}). The run now waits for the handler's decision: council route-decide ${resumeRun} ${res.seq} --route --reason "..." (or --decline). Nothing was run and nothing was spent.`);   // A-DRAFT
+  process.exit(EXIT_ROUTE_REQUESTED);
+}
 mkdirSync(runDir, { recursive: true });
 // One process per run folder, before any stage can spend: two resumes of the same run used
 // to both pay for every uncached stage, each under its own cap (audit finding 4).
@@ -3070,28 +3748,27 @@ try {
   console.error(`\n${err.message}`);
   process.exit(EXIT_RUN_LOCKED);
 }
-// Brief 29: the advice record is written first, before run.json and before any call, so a run that dies is still in
-// the ledger the guards read. Its `origin` says whether a tool or a person at the terminal started it.
-// 0.8.3 ROADMAP 77 step 4: an advice call started for a tree's paid recommendation (the sender wrote tree-advice.json into the folder) mirrors each reservation line into that tree's record, here, in the process that spends. A
-// marker that cannot be used refuses the start: a call whose spend would not reach the record is not sent.
-let adviceTreeMirror = null;
-if (adviceOn) {
-  try { adviceTreeMirror = adviceMirrorFromMarker(runDir); } catch (err) { console.error(`${adopt ? '--advice-adopt' : resumeMeta ? '--resume' : 'this advice call'}: ${err.message}. Nothing was sent and nothing was spent.`); process.exit(2); }
-  // The call's cap may not exceed what is left of the request's grant (refused, never clamped: a clamp would change the cap behind the price the person approved; a hand-run --advice-adopt gets here too).
-  if (adviceTreeMirror && !(typeof maxUsdEff === 'number' && maxUsdEff <= adviceTreeMirror.remainingUsd + MONEY_EPS)) {
-    console.error(`${adopt ? '--advice-adopt' : resumeMeta ? '--resume' : 'this advice call'}: the call's limit (${maxUsdEff === null ? 'none' : formatUsd(maxUsdEff)}) is more than the ${formatUsd(adviceTreeMirror.remainingUsd)} left of this tree request's grant. Nothing was sent and nothing was spent.`);
-    process.exit(2);
-  }
+// 0.8.4 S16 (F; WORDING S16-w62f): --finish at a spending stop records the choice and ends here: before the privacy switch, the advice record, the pause settlement and every gate, so nothing but the entry in run.json is written and nothing is asked or run.
+if (budgetFinishOnly) {
+  // the person's plain finish goes on the ledger first (a hash-chained `budget_finish` line, choice finish: the authority for who chose, in which order, and whether the command took the answer); run.json keeps the mechanics and a display mark
+  { const rec = recordBudgetFinish(runDir, { stopSha256: budgetFinishOnly.stopSha, phase: 'loop', choice: 'finish', stopId: budgetFinishOnly.stopId, relayed: budgetFinishOnly.relayed, label: budgetFinishOnly.label, capName: budgetFinishOnly.cap_name ?? null }); if (!rec.ok) { console.error(`--finish: your choice could not be recorded (${rec.message}). Nothing was run or spent.`); process.exit(2); } }   // A-DRAFT (LAD-B14)
+  flushChoices();
+  const crit = Array.isArray(config.seats?.critics) ? config.seats.critics.filter(c => c && Number.isInteger(c.layer)) : [];
+  const topLayer = crit.length ? Math.max(...crit.map(c => c.layer)) : null;
+  console.log(spendFinishAnswer({ label: budgetFinishOnly.label, topLayer, topSeats: crit.filter(c => c.layer === topLayer).length, parts: callGatesOf(config).finalReadParts === true, runDir }));
+  process.exit(4);   // still stopped: the stop files stay (clearStopRecords comes later)
 }
-// An adopted call records its send first, under the run lock: the `sent` line is what makes one approval cover one send, and it
-// comes before the advice record, so every counted call has its `sent` and a crash between the two leaves a folder nothing counts.
-const adviceStartedMs = Date.now();
-if (adopt) {
-  const sent = recordSent(runDir, adviceMeta.gate, { run: runId });
-  if (!sent.ok) { console.error(`--advice-adopt: refused (${sent.code}): ${sent.message}. Nothing was sent and nothing was spent.`); process.exit(2); }
+// 0.8.4 (unit-end item ii): --continue at a spending stop with a finish on record goes on the ledger now (before every gate, so a typed-limit wait that follows still finds it: the plain resume after `gate answer` must not meet the earlier finish again). The command then goes on as an ordinary resume.
+if (budgetContinue) {
+  const rec = recordBudgetFinish(runDir, { stopSha256: budgetContinue.stopSha, phase: budgetContinue.phase, choice: 'continue', stopId: budgetContinue.stopId, relayed: budgetContinue.relayed, label: budgetContinue.label, capName: budgetContinue.capName });
+  if (!rec.ok) { console.error(`--continue: your choice could not be recorded (${rec.message}). Nothing was run or spent.`); process.exit(2); }   // A-DRAFT (LAD-R35)
 }
-if (adviceOn && !resumeMeta) writeAdviceLogStart(runDir, { run: runId, chain: chainNameEff, config, meta: adviceMeta, briefSha256, startedMs: adviceStartedMs, approval: adopt ? adopt.channel : 'cli', approvalWaitMs: adopt ? adopt.approvalWaitMs : null });
-
+// 0.8.4 D10 (plan A T5.5): a start or a resume that asks for the privacy switch records it first, under the run lock and before any stage can run. A switch that cannot be recorded stops the run: a run the person
+// asked to keep private must not go on without the record. Recording it again on a run that already has it adds nothing.
+if (excerptSwitchAsked.on) {
+  const on = recordExcerptSwitchOn(runDir, { source: excerptSwitchAsked.source });
+  if (!on.ok) { console.error(`\nthe privacy switch could not be recorded (${on.code}): ${on.message.replace(/\.?$/, '.')} Nothing was run and nothing was spent.`); process.exit(2); }
+}
 // 7.x item 5: audit export. `policy.json`'s documented, locked path is the user's own working
 // directory (`work`, same resolution root as `.env` above) - a presence check only, item 1's own
 // src/policy.js owns parsing that file, never duplicated here. Opt-in via `"audit": true` on a
@@ -3099,8 +3776,7 @@ if (adviceOn && !resumeMeta) writeAdviceLogStart(runDir, { run: runId, chain: ch
 // everyone else. The writer is created even on resume, so a resumed run's remaining stages are
 // still audited - only the stages already replayed from disk (onStage's `s.cached` check below)
 // are skipped, same as every other per-stage artifact this callback already writes.
-// Brief 29: an advice call always writes the audit log: it is the record of which exact text went to which host.
-const auditEnabled = adviceOn || shouldEnableAudit({ config, policyPath: join(work, 'policy.json') });
+const auditEnabled = shouldEnableAudit({ config, policyPath: join(work, 'policy.json') });
 let auditWriter = null;
 if (auditEnabled) {
   let hmacKey = null;
@@ -3119,14 +3795,26 @@ if (auditEnabled) {
 // when the run has never carried one (a genuinely new run, or an older run.json from before this
 // feature existed); once set it is spread forward on every resume below, unchanged.
 const rootSpanId = resumeMeta?.rootSpanId || randomUUID();
+// A --rounds typed on a LADDER run is the TOTAL of top-layer reads (his word). At a resume the run's reads are counted from its folder: a number at or below them is refused, once, before any call; otherwise the number is stored as the base the recorded continues
+// add to, so that base + continues = exactly what he typed (the continue typed with it adds nothing; the ones recorded earlier are replaced).
+let ladderRoundsBase = ladderRoundsTyped;
+if (resumeMeta && ladderEff && ladderRoundsTyped !== null) {
+  const made = topLayerReadsMade(runDir, config);
+  if (!limitReachable(ladderRoundsTyped, made)) { if (stopGateNamed) { try { closeStopAnswer(runDir, stopGateNamed, { code: 'number_refused' }); } catch { /* a close that cannot be written leaves the refusal as it is: the answer stays readable for its ten minutes */ } }   // the answer the run did not take is closed: no later --stop-gate consumes it (C&C 10 Nov)
+    console.error(`--rounds ${ladderRoundsTyped}: this run has already made ${made} top-layer read${made === 1 ? '' : 's'}, so ${ladderRoundsTyped} is not a limit it can still reach. Type a number above ${made}, or leave --rounds out${readStoppedMarker(runDir) ? ' and answer the stop with --continue (one more read) or --finish (end the run here)' : ''}. Nothing was run and nothing was spent.`); process.exit(2); }   // A-DRAFT (LAD-R1)
+  ladderRoundsBase = ladderRoundsTyped - roundChoices.filter(c => c?.choice === 'continue' && c.kind === 'overseer_cap' && Number.isInteger(c.add) && c.add > 0).reduce((n, c) => n + c.add, 0);
+}
 
 // E3b: whether this RUN uses the verdict envelope is decided once, here: a fresh run uses it when the Reply identity sentence exists (src/roles.js), a resume uses what run.json recorded at the start (a run started
 // before the sentence went live never starts refusing its replayed replies). The flag, not the record on disk, is the authority (gate page section 11.2 path F).
 const envelopeFlag = resumeMeta ? resumeMeta.verdict_envelope === true : !!held('verdictEnvelopeSection');
 if (!resumeMeta) {
-  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...(envelopeFlag ? { verdict_envelope: true } : {}), chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, contextHash, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: roundsSetting(config), maxUsd, taskHash, pid: process.pid, rootSpanId, ...(treeLineage ? { tree: runTreeField(treeLineage) } : {}), ...(policyChecks ? { policyChecks } : {}), ...(signoffFlag ? { signoff: signoffFlag } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...unfencedMeta, ...secretScanMeta }, null, 2));
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...(envelopeFlag ? { verdict_envelope: true } : {}), chain: chainNameEff, task: taskFile, cwd: work, label: labelEff, startedAt: runStartedAt, context: contextArg || null, contextHash, fromRun: fromRun ? resolve(fromRun) : null, draft: draftPath || null, ...(criteriaPath ? { criteriaFile: criteriaPath } : {}), rounds: roundsSetting(config), ...(capsArmed.length ? {} : { maxUsd }), taskHash, ...(ladderEff ? { ladder: ladderEff, ...(ladderRoundsTyped !== null ? { ladderRounds: ladderRoundsTyped } : {}) } : {}), pid: process.pid, rootSpanId, ...(treeLineage ? { tree: runTreeField(treeLineage) } : {}), ...(policyChecks ? { policyChecks } : {}), ...(signoffFlag ? { signoff: signoffFlag } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(claudeRoute !== 'anthropic' ? { claude_route: claudeRoute } : {}), ...(zeroRet.on ? { zero_retention: true } : {}), ...(personaFormDecision.record ? { persona_form: personaFormDecision.form } : {}), ...unfencedMeta, ...secretScanMeta }, null, 2));      // the route is recorded only when it is not the default; zero retention only when it is on: a direct run's run.json is what it always was
 } else {
-  if (resumeMeta.rounds) setRounds(config, resumeMeta.rounds);
+  if (resumeMeta.rounds && !ladderEff) {
+    if (roundsTypedOffLadder !== null && roundsTypedOffLadder !== resumeMeta.rounds) console.error(roundsNotUsedLine(roundsTypedOffLadder, resumeMeta.rounds));   // A-DRAFT (LAD-R4)
+    setRounds(config, resumeMeta.rounds);
+  }   // a ladder run reads no round count of the chain's: its bound is run.json `ladderRounds`
   // v5 item 2: pid is rewritten on every resume - a resumed run is a new process. label and
   // every other field carry forward unchanged via the spread. v6 item V6-2: rootSpanId is
   // likewise carried forward (or set, the first time an older run.json is resumed under this
@@ -3141,8 +3829,9 @@ if (!resumeMeta) {
   // only through flushChoices(), after the last refusal, so a refused command cannot weaken what the NEXT plain resume reads (a refused `--resume --allow-unfenced` used to leave the waiver behind for the next artifact gate). Only the pid and the span root
   // are written now (run_status needs the pid at once). A waiver saved earlier is replaced at the flush by the effective values, as before.
   const { allowUnfenced: _savedAllow, unfencedAllowList: _savedList, ...resumeRest } = resumeMeta;
-  const typedSettings = { ...(argv.includes('--max-usd') ? { maxUsd } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(policyChecks ? { policyChecks } : {}), ...(signoffFlag ? { signoff: signoffFlag } : {}), ...unfencedMeta, ...secretScanMeta };
+  const typedSettings = { ...(ladderTyped ? { ladder: ladderTyped } : {}), ...(ladderRoundsBase !== null && ladderEff ? { ladderRounds: ladderRoundsBase } : {}), ...(ladderAdopted ? { ladder: ladderEff } : {}), ...(argv.includes('--max-usd') ? { maxUsd } : {}), ...(piiGateEff !== null ? { piiGate: { mode: piiGateEff, allow: piiAllowEff } } : {}), ...(policyChecks ? { policyChecks } : {}), ...(signoffFlag ? { signoff: signoffFlag } : {}), ...(claudeRoute !== recordedRouteOf(resumeMeta) ? { claude_route: claudeRoute } : {}), ...(zeroRet.changed ? { zero_retention: zeroRet.on } : {}), ...unfencedMeta, ...secretScanMeta };      // a route the person chose on this resume (an auto decision that differs was stopped above) is what the next sitting reads
   pendingSettings.set = typedSettings; pendingSettings.drop = ['allowUnfenced', 'unfencedAllowList'];
+  if (ladderAdopted) flushNotes.push(`This chain runs the ladder from its key (layer-1 blocks of ${ladderKey.block}, ${ladderKey.visits} layer-2 visits), and this run was saved without one: it runs the ladder from here, and run.json now says so.`);   // A-DRAFT (LAD-R3), printed once it IS recorded (flushChoices)
   const savedOnDisk = { ...resumeMeta };
   resumeMeta = { ...resumeRest, pid: process.pid, rootSpanId, ...typedSettings };
   writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...savedOnDisk, pid: process.pid, rootSpanId }, null, 2));
@@ -3182,7 +3871,12 @@ if (resumeMeta) {
 // Stage cache: <label>.md holds the text, <label>.usage.json what it cost.
 // Both are written as each stage completes, so a resume replays them.
 const unverifiedReplays = [];
-const cacheFingerprint = fingerprintInputs(rawTaskTextForCacheFingerprint, config);
+// The Claude route is not part of the fingerprint: a stage written on one route is fresh on the other (the run replays it at no cost; the route is the person's to change, src/resolve-run.js). The fingerprint is made from the chain resolved WITHOUT the route.
+const cacheFingerprint = fingerprintInputs(rawTaskTextForCacheFingerprint, claudeRoute !== 'anthropic' ? { ...claudeRouting.unrouted, ...config, seats: claudeRouting.unrouted.seats, ...(claudeRouting.unrouted.preflight !== undefined ? { preflight: claudeRouting.unrouted.preflight } : {}), ...(claudeRouting.unrouted.prompt_cache !== undefined ? { prompt_cache: claudeRouting.unrouted.prompt_cache } : {}) } : config);      // a session route may drop `prompt_cache` (no seat is left that can use it): the fingerprint still reads the chain as written, so a mode change keeps every finished stage. The unrouted chain is spread FIRST so the keys keep the chain's own order (JSON.stringify is order-sensitive: a key put back at the end of the object hashes differently; found by test/session-caching.test.js SC-2 on the merged tree)
+mainRerun = { fingerprint: cacheFingerprint, ladderAdopted };
+// A resume after the chain or the task changed, on a chain with no gate (free seats or sessions of yours): the paid chain's limit screen says what the change does to the finished steps; here ONE line says it, before the first step is asked again.
+let staleNotice = null;   // printed once the log exists (below), so it is in run.log: a handler over MCP reads run.log and run_status's key lines
+if (resumeMeta && !budgetFinishNow && !capGateApplies && !capsArmed.length) { const stale = staleFinishedStages(runDir, cacheFingerprint); if (stale.n > 0) staleNotice = staleNoticeLine(stale); }   // A-DRAFT (LAD-S5 free chain, LAD-S6 paid chain without a gate)
 // Pre-release audits (money path #2, resume-cache #1/#4): the getter no longer decides staleness by
 // returning null - that threw the old answer's cost away. It returns what is on disk, flagged
 // `staleInputs` when the task/config fingerprint differs, and invoke() in chain.js decides (it also
@@ -3201,17 +3895,19 @@ function stageLogged(label) {
 }
 setEnvelopeStore(fileEnvelopeStore(runDir)); // E3b: the per-call reply-identity records live beside the stage files
 setEnvelopeInForce(envelopeFlag);
-setCache(makeStageCache({ dir: runDir, fingerprint: cacheFingerprint, unverified: unverifiedReplays })); // the cache object lives in src/stage-cache.js (one copy for the main run and both side runs)
+setCache(makeStageCache({ dir: runDir, fingerprint: cacheFingerprint, unverified: unverifiedReplays, wording: { sitting: () => sittingNo } })); // the cache object lives in src/stage-cache.js (one copy for the main run and both side runs)
+setRepairPauses(true); // 2 Nov 2026: the main run can be resumed in its own folder, so a near-JSON reply pauses for a repair (the side runs do not set this)
 // Money path #4: charges that are not stages go to disk too, so --spend and a resume count them.
 setChargeHook(c => recordLostCharge(runDir, c.label, c));
 // 0.8.3 M6 typed cap T4a (typed-cap gate page sections 2-4 and 7-8; T4 start-path page; Muad 14 Oct 2026: "a max-cap that the user always have to type manually before a run starts", "Typed cap is for every run"):
 // a PAID run's spending limit is a number a person TYPES, found in (or asked into) the run folder's gate ledger; --max-usd and MAX_USD_PER_RUN are only a suggestion shown on the screen and are never the limit.
 // Exempt, by the page: a chain whose every seat is free (mock, external, ollama), a tree member (authority = its registered claim, memberStart below), an adopted advice call (its own approval). The gate sits after every
 // refusal that needs no money (the chain, the keys, an unpriced seat, the policy, the scans) and before the first reservation and the first provider call.
-const capGateApplies = !treeLineage && !adopt && chainIsPaid(config);
+// Unit 4b2: under the per-provider caps (capsArmed) the one run-wide gate gives way to one gate per cap, below. (capGateApplies, capsStopCap, capsRaiseTargets and the refusal of the raise flags moved up, before the run folder
+// and the lock: S20 slice 1, H2-i.)
 if (capGateApplies) {
   maxUsdEff = await capGateOrExit({
-    runDir, runId, resume: Boolean(resumeMeta), config, fromRun, subject: { chain: chainNameEff, task: taskPathEff },
+    runDir, runId, resume: Boolean(resumeMeta), config, fromRun, subject: { chain: chainNameEff, task: taskPathEff }, routeLine: routeLines(claudeRouting)[0] ?? null, typedReads: ladderTypedReads(roundChoices),
     scopeBaseOf: () => ({
       taskSha256: sha256Hex(rawTaskTextForCacheFingerprint), contextSha256: contextHash ? sha256Hex(contextHash) : null, chainSha256: sha256Hex(readFileSync(configPath)),
       policySha256: existsSync(join(resumeMeta?.cwd || work, 'policy.json')) ? sha256Hex(readFileSync(join(resumeMeta?.cwd || work, 'policy.json'))) : null, sensitivityFloor: null, piiMode: piiGateEff,
@@ -3223,19 +3919,67 @@ if (capGateApplies) {
   const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
   writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, maxUsd: maxUsdEff }, null, 2));
 }
+// Unit 4b2 (src/caps.js "THE ARMING"): one typed limit per cap in force, each asked at its own gate (sorted), every gate asked before the ONE wait (exit 21) that lists
+// the ones still open; a partial answer never arms (a typed gate is consumed now and read back at the next sitting). A pending start is a START here (resume: false),
+// so a cap with no gate yet gets a first screen, never the legacy one.
+const capsLimits = {};
+// 0.8.4 (--finish-now at a spending stop; C&C 10 Nov, the SECOND WALL): this command asks no limit, but the limits the run stopped at stay IN FORCE in it, read from the hash-chained record of what the person typed (runCapAuthority), never from run.json (project-writable text) or from
+// STOPPED-budget.json: a call that somehow escaped invoke()'s own stop (NotRunForLimit) would still be refused by the cap, before any reservation. ONE fact makes this a no-money sitting: `budgetFinishNow`, set only by the --finish-now flag on a run whose stop file says
+// loop or after (above); it skips the gates here, arms these limits, and (below) switches the seam on. An unreadable limit refuses the command, nothing run or spent.
+if (budgetFinishNow) {
+  const unreadable = [];
+  if (capsArmed.length) {
+    for (const id of capsArmed) { const a = runCapAuthority(runDir, { runId, capName: id }); if (a?.status === 'ok' && capUsdNumber(a.capUsd) !== null) capsLimits[id] = capUsdNumber(a.capUsd); else unreadable.push(id); }   // the typed limit is stored as a decimal string: capUsdNumber (src/cap-input.js) reads the number from it
+  } else if (chainIsPaid(config) && !treeLineage) {
+    const a = runCapAuthority(runDir, { runId }); if (a?.status === 'ok' && capUsdNumber(a.capUsd) !== null) maxUsdEff = capUsdNumber(a.capUsd); else unreadable.push('the run');   // a paid chain always has a typed limit on record; run.json (project-writable text) is never the fallback here
+  }
+  if (unreadable.length) { console.error(`--finish-now: the limit ${unreadable.length === 1 && unreadable[0] === 'the run' ? 'this run stopped at' : `${unreadable.join(', ')} stopped at`} cannot be read from the record of what you typed (a folder from before that record, or a damaged one), so it cannot be kept in force in this command. Nothing was recorded, run or spent. What you can still do: a plain resume asks for a new limit above what the run has counted and records it; with that on record, --finish-now can be given again.`); process.exit(2); }   // A-DRAFT (LAD-B9)
+}
+if (capsArmed.length && !budgetFinishNow) {
+  const pending = [];
+  for (const id of capsArmed) {
+    const usd = await capGateOrExit({
+      runDir, runId, resume: false, config, fromRun, subject: { chain: chainNameEff, task: taskPathEff }, capName: id, onPending: p => pending.push(p), routeLine: routeLines(claudeRouting)[0] ?? null, typedReads: ladderTypedReads(roundChoices),
+      scopeBaseOf: () => ({
+        taskSha256: sha256Hex(rawTaskTextForCacheFingerprint), contextSha256: contextHash ? sha256Hex(contextHash) : null, chainSha256: sha256Hex(readFileSync(configPath)),
+        policySha256: existsSync(join(resumeMeta?.cwd || work, 'policy.json')) ? sha256Hex(readFileSync(join(resumeMeta?.cwd || work, 'policy.json'))) : null, sensitivityFloor: null, piiMode: piiGateEff,
+      }),
+      beforeAuthorize: () => { const fresh = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')); if (Object.hasOwn(fresh, 'maxUsd')) { delete fresh.maxUsd; writeFileSync(join(runDir, 'run.json'), JSON.stringify(fresh, null, 2)); } },
+    });
+    if (usd !== null) capsLimits[id] = usd;
+  }
+  if (pending.length) {
+    flushChoices();   // the wait is not a refusal: a choice typed on this command is kept for the plain --resume that follows `gate answer`
+    for (const p of pending) if (p.note) console.error(`\n${p.note.message}`);
+    console.error(`\n${capsWaitSentence(pending.map(p => ({ id: p.capName, gate: p.gate, relayed: p.relayed })), capsOn, { dir: runDir, command: councilCommand(), raiseId: raiseCapId, relayed: argv.includes('--relayed') })}`);   // A-DRAFT
+    process.exit(EXIT_AWAITING_USER_CAP);
+  }
+  // The typed figures are THE limits of this run; run.json keeps them as a convenience copy (the gate ledger is the record), never a run-wide maxUsd.
+  const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
+  delete onDisk.maxUsd;
+  writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, caps: Object.fromEntries(capsArmed.map(id => [id, { maxUsd: capsLimits[id] }])) }, null, 2));
+  maxUsdEff = null;
+}
+if (capsArmed.length && budgetFinishNow) maxUsdEff = null;   // under the caps the run total carries no ceiling; each cap its own bucket (set below)
 // A resumed run inherits the ceiling it was started under unless this
 // invocation names a different one - otherwise resuming would silently drop
 // the cap the run was created with.
 setBudgetOrExit(maxUsdEff);
+// Unit 4b2: under the caps the run total carries no ceiling (setBudget(null) above) and each cap its own bucket, armed last before anything is counted or sent.
+if (capsArmed.length) { try { setCapBudgets(capsLimits); } catch (e) { console.error(`The spending caps could not be set up (${e.message}). Nothing was started.`); process.exit(2); } }   // A-DRAFT
 // Money path #2: what earlier sittings spent on stages that were later superseded still counts.
 const earlierSupersededUsd = supersededSpendOf(runDir);
-countEarlierSpend(earlierSupersededUsd);
+if (capsArmed.length) { for (const r of supersededStagesOf(runDir)) countEarlierSpend(r.usd, r.capName); } else countEarlierSpend(earlierSupersededUsd);   // unit 4c1: each in the cap it billed through (a record without one: the run total only)
 // 0.8.2 item 8b: calls an earlier sitting reserved and never settled (the process ended while they were in flight) stay charged at their worst case, so a resume cannot lap the cap; this sitting writes its own
 // reservations before it sends (src/spend-reservations.js).
 const earlierUnsettled = unsettledReservations(runDir);
 const earlierUnsettledUsd = earlierUnsettled.reduce((n, r) => n + r.usd, 0);
-countEarlierSpend(earlierUnsettledUsd);
-setReservationSink(openReservations(runDir, adviceTreeMirror ? { mirror: adviceTreeMirror.mirror } : {}));
+if (capsArmed.length) { for (const r of earlierUnsettled) countEarlierSpend(r.usd, r.capName); } else countEarlierSpend(earlierUnsettledUsd);   // unit 4c1: per cap, at their worst case
+// 0.8.4 unit 6 (D11; H-U6-e): a call an earlier sitting SETTLED whose usage file was never written (the process ended between the settle line and the file) was paid for and is in no file; `--spend` and the reports count it (src/counted-spend.js),
+// so the resume's budget does too, in the cap its reserved line names. Its stage is asked again, so without this a resume could spend past the cap by that call.
+const earlierSettledNoFile = settledWithoutFileOf(runDir);
+if (capsArmed.length) { for (const r of earlierSettledNoFile) countEarlierSpend(r.usd, r.capName); } else countEarlierSpend(earlierSettledNoFile.reduce((n, r) => n + r.usd, 0));
+setReservationSink(openReservations(runDir));
 
 const logPath = join(runDir, 'run.log');
 const log = (...parts) => {
@@ -3246,11 +3990,13 @@ const log = (...parts) => {
 };
 
 log(`council run ${runId}${resumeMeta ? ' (resumed)' : ''}`);
-log(config.advise?.enabled === true ? `chain: ${config.name} (advice: ${config.seats.critics.length} seat(s), ${config.advise.rounds ?? 0} debate round(s) at most)` : `chain: ${config.name} (${roundLimitsOf(config).overseer !== null ? `${roundLimitsOf(config).overseer} overseer rounds, at most ${roundLimitsOf(config).passes} passes, a ceiling` : `${roundLimitsOf(config).passes} round cap`})`);   // CR-4B-007: the EFFECTIVE cap (maxRounds, else the default of 2), never "undefined" for a chain that omits maxRounds
+log(`chain: ${config.name} (${roundLimitsOf(config).ladder ? `the ladder: layer 1 in blocks of ${roundLimitsOf(config).ladder.block}, layer 2 for ${roundLimitsOf(config).ladder.visits} visits, layer 3 with no count${roundLimitsOf(config).passes === null ? '' : `, at most ${roundLimitsOf(config).passes} passes`}` : roundLimitsOf(config).overseer !== null ? `${roundLimitsOf(config).overseer} overseer rounds, at most ${roundLimitsOf(config).passes} passes, a ceiling` : `${roundLimitsOf(config).passes} round cap`})`);   // A-DRAFT (LAD-C2: the ladder chain's line)   // CR-4B-007: the EFFECTIVE cap (maxRounds, else the default of 2), never "undefined" for a chain that omits maxRounds
+if (staleNotice) log(staleNotice);
 if (earlierUnsettled.length) log(`earlier sitting: ${earlierUnsettled.length} call(s) were in flight when the process ended and were never settled (${earlierUnsettled.map(r => r.label).join(', ')}); ${formatUsd(earlierUnsettledUsd)} (their worst case) stays counted toward the cap`);
 if (earlierSupersededUsd > 0) log(`spent earlier on superseded stages: ${formatUsd(earlierSupersededUsd)} (counted toward the cap; see superseded/)`);
-log(`cap:   ${maxUsdEff === null ? 'none - this run has no spend ceiling' : `${formatUsd(maxUsdEff)} per run (${capGateApplies ? 'the limit typed for this run' : '--max-usd'})`}`);
+log(budgetFinishNow ? (capsArmed.length ? `${capsLogLine(capsLimits, formatUsd)} - the limits the run stopped at, kept in force; this command makes no call that bills` : `cap:   ${maxUsdEff === null ? 'none armed' : `${formatUsd(maxUsdEff)} per run (the limit of the stopped run)`} - this command makes no call that bills`) : capsArmed.length ? capsLogLine(capsLimits, formatUsd) : `cap:   ${maxUsdEff === null ? 'none - this run has no spend ceiling' : `${formatUsd(maxUsdEff)} per run (${capGateApplies ? 'the limit typed for this run' : '--max-usd'})`}`);   // the caps' line is A-DRAFT
 log(`task:  ${taskPathEff}`);
+for (const l of [...routeLines(claudeRouting), ...zeroRetentionLines(zeroRet), ...personaFormLines(personaFormDecision), ...skippedRoomLines(routedSeatsWithoutWindow(everySeatOf(config)))]) log(l);      // 0.8.4 the Claude route: said before anything is paid (a direct run prints nothing here)
 // A chain whose worst case is above the ceiling may stop part-way, with no deliverable yet. Said
 // before anything is spent, not only when the cap trips (walked 2026-09-25: plan-premium-7's worst
 // case is $18.55 against the $7 default).
@@ -3271,10 +4017,10 @@ if (treeLineage && piiWarnFindings.length) {
   appendFileSync(join(runDir, 'WARNINGS.md'), piiWarningLines(piiWarnFindings).filter(l => !haveWarnedPii.includes(l)).join(''));
 }
 if (!resumeMeta && maxUsdEff !== null) {
-  const worstCase = estimateChainRows(config, { fromRun }).reduce((sum, r) => sum + r.usd, 0);
-  const mostCase = estimateChainRows(config, { fromRun, maximum: true }).reduce((sum, r) => sum + r.usd, 0);
+  const worstCase = estimateChainRows(config, { fromRun, typedReads: ladderTypedReads(roundChoices) }).reduce((sum, r) => sum + r.usd, 0);
+  const mostCase = estimateChainRows(config, { fromRun, maximum: true, typedReads: ladderTypedReads(roundChoices) }).reduce((sum, r) => sum + r.usd, 0);
   if (worstCase > maxUsdEff) log(`note:  this chain's expected cost is ${formatUsd(worstCase)} (upper estimate ${formatUsd(mostCase)}), above the ${formatUsd(maxUsdEff)} cap. If it gets that far it stops before the stage that would cross it, keeps what it has, and resumes with a higher ${chainIsPaid(config) ? 'limit that a person types' : '--max-usd'}.`);
-  else if (mostCase > maxUsdEff) log(`note:  this chain's expected cost is ${formatUsd(worstCase)}, within the ${formatUsd(maxUsdEff)} cap, but its upper estimate is ${formatUsd(mostCase)}: a run in which every call writes its seat's whole output allowance stops at the cap before the stage that would cross it, keeps what it has, and resumes with a higher --max-usd.`);
+  else if (mostCase > maxUsdEff) log(`note:  this chain's expected cost is ${formatUsd(worstCase)}, within the ${formatUsd(maxUsdEff)} cap, but its upper estimate is ${formatUsd(mostCase)}: a run in which every call writes its seat's whole output allowance stops at the cap before the call that, by THC's estimate, would cross it, keeps what it has, and resumes with a higher --max-usd.`);
 }
 
 // v2 plan §6: before any stage runs, before a single metered API call, a static keyword
@@ -3292,7 +4038,7 @@ if (!resumeMeta && maxUsdEff !== null) {
   // file it never inlines verbatim rather than a section/criteria conflict.
   const contractWarnings = preflightCheck(config, request);
   const artifactFindings = checkArtifactReferences(requestForArtifactGate, { allow: unfencedAllowListEff });
-  const preflightWarnings = [...contractWarnings, ...artifactFindings];
+  const preflightWarnings = [...contractWarnings, ...artifactFindings, ...judgePersonaWarnings(config), ...modelLabWarnings(config)];   // unit W: a persona with no seat_personas switch
   if (preflightWarnings.length && !resumeMeta) {
     for (const w of preflightWarnings) log(`  PRE-FLIGHT WARNING: ${w.message}`);
     if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
@@ -3346,11 +4092,52 @@ if (!resumeMeta && maxUsdEff !== null) {
   // blocked sitting would otherwise keep the run reading as blocked.
   for (const f of [ARTIFACTS_BLOCKED_FILE, 'NEEDS-ARTIFACTS.md']) if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
 }
+// #16c, the owner's "pause after this round": a request still standing is SETTLED here, in the ledger, by the sitting that is about to run: the request the stop marker names is taken (the pause did what it was asked), any other
+// standing request lapses (it was asked of a sitting that ended some other way, and must not stop this one at an unrelated pass). Here and not earlier: after the LAST refusal of the start and BEFORE flushChoices and the sitting stamp (R417 part 2, CR-1E-006: a refusal here is itself the last refusal, so nothing the command typed has been written when it
+// stops), so a REFUSED resume of a paused run records nothing and the request stays untaken (it never moves ahead of the other refusals: no pause_taken on a run whose start is then refused); before clearStopRecords, which deletes the marker that names the request. A tree member has no pause (the verb refuses it). If the line cannot be written the resume stops, nothing started: a request left standing would pause the
+// sitting again at the paused pass.
+if (!treeLineage && resumeMeta) {
+  const settled = settlePauseAtResume(runDir, { finished: ownerPauseFinishing, pass: ownerPauseFinishPass });   // 'pause_finished' only when this command ENDS the run at the pause
+  if (!settled.ok) { console.error(`--resume: a request to pause this run could not be settled (${settled.message ?? settled.code}). Nothing was started; run the same command again.`); process.exit(2); }   // A-DRAFT
+  if (settled.event === 'pause_finished') log(`  (this run was paused on request before its next pass, and you chose to finish it there${ownerPauseFinishing === 'finish_now' ? ' at once' : ''}; the run does not go on.)`);   // A-DRAFT (LAD-O3)
+  if (settled.event === 'pause_lapsed') log(`  (a request to pause this run was still standing from an earlier sitting; it lapsed and does not pause this one.)`);   // A-DRAFT
+}
 // CR-1E-006, ONE rule: a command that is REFUSED leaves nothing it typed on disk. What a person types on this command reaches run.json only here, after the LAST refusal that can come before the first call: the CHOICES (--continue / --finish, --skip-seat, --prevail)
 // and the SETTINGS (--max-usd, --pii-gate / --allow-pii, --signoff, --allow-unfenced, --allow-secret-shaped, the policy checks; a saved waiver is replaced by the effective one). The refusals are the changed-task and changed-context checks, the typed-limit gate's refusal, the
 // cap, and the artifact gate (exit 9: its way out is a different command, --allow-unfenced or a changed task, and a saved waiver or choice would apply silently). A tree member never gets here with a pending choice (a direct choice is refused for a member above).
 // THE ONE EXCEPTION is the typed-limit WAIT (exit 21, "No call was started"), whose printed next step is a plain `--resume` after `gate answer`: capGateOrExit writes both before that exit (beforePendingExit). Only the pid and the span root are written earlier.
 flushChoices();
+if (budgetFinishArmed) console.log(spendFinishNote(budgetFinishArmed.label));
+if (budgetFinishUnrecorded) console.log(spendFinishUnrecordedNote(budgetFinishUnrecorded));
+if (budgetFinishWithdrawn) console.log(spendFinishWithdrawnNote);
+if (budgetFinishContinued || budgetContinue) console.log(spendFinishContinuedNote);   // WORDING LAD-R34   // WORDING LAD-R20   // WORDING LAD-R15
+if (budgetFinishNow) console.log(finishNowNote(budgetFinishNow.phase, budgetFinishNow.label));   // WORDING LAD-B2   // WORDING S16-w66: printed here, after the last refusal, whether or not a choice was pending (flushChoices drains its notes only when it writes)
+if (secretFinishOnly) {
+  const e = secretEndingOf(config, { typedReads: ladderTypedReads(roundChoices) });
+  console.log(`--finish recorded for stage "${secretFinishOnly}". Nothing was sent and the run stays paused. To end it here, NOT agreed, give: ${councilCommand()} --resume ${runDir} --continue.${e?.makesCalls ? ' The ending sends the plan (see STOPPED-secret.md); leave the run paused to send nothing.' : ''}`);
+  process.exit(EXIT_PII_BLOCKED);   // still paused: the pause files stay (stampSitting and clearStopRecords come after this line)
+}
+// 0.8.4: this sitting is stamped into run.json (`sittings[]`: when, which process, which version, the code stamp when it can be computed), so a run that was resumed on another tree says so. It is written after the last refusal
+// of the start (like flushChoices), so a refused command writes nothing: here for every run but a tree member, whose claim can still refuse (exit 19, "writes nothing back"); a member is stamped right after its claim passed. The entry is
+// appended to run.json as it is on disk. A stamp that cannot be written must never stop the run.
+// 0.8.4 T14 (CA2/D17): `sittingNo` = this sitting's number and `wordingNow` = the code running, both set ONLY when the stamp was really written; they are what every stage record's `writtenBy` is made from and what arms the chain's ledger. A sitting
+// whose stamp failed leaves both null: its stages carry no `writtenBy` (a later sitting reads them as unstamped) and the ledger stays off, so the cache behaves exactly as before (fail closed).
+let sittingNo = null, wordingNow = null;
+const writtenByNow = text => writtenByRecord({ now: wordingNow, sitting: sittingNo, text });
+function stampSitting() {
+  try {
+    const onDisk = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8'));
+    const entry = sittingEntry();
+    const sittings = [...(Array.isArray(onDisk.sittings) ? onDisk.sittings : []), entry];
+    // FIX 7: the run's OpenRouter session id: made once, kept in run.json (a resume carries the same one), handed to the provider adapter; it is in no config, no report and no prompt hash
+    const sessionId = typeof onDisk.openrouter_session === 'string' && /^thc-[0-9a-f]{24}$/.test(onDisk.openrouter_session) ? onDisk.openrouter_session : `thc-${randomBytes(12).toString('hex')}`;
+    writeFileSync(join(runDir, 'run.json'), JSON.stringify({ ...onDisk, sittings, openrouter_session: sessionId }, null, 2));
+    setOpenRouterSessionId(sessionId);
+    sittingNo = sittings.length; wordingNow = { version: entry.version, ...(entry.code_sha256 ? { code_sha256: entry.code_sha256 } : {}), route: claudeRoute };   // FIX 5: the route this sitting runs on, so a route change lets a saved stage be kept (src/stale-guard.js routeChanged)
+    setWordingStamp(wordingNow);   // armed by the main run, on --resume too
+  } catch (e) { console.error(`  (this sitting was not stamped into run.json: ${e?.message || e})`); }
+}
+if (!treeLineage) stampSitting();
 
 // A previous sitting may have stopped this run at the ceiling. Clear that
 // marker now that we are past it, so a run that goes on to finish is not
@@ -3363,12 +4150,41 @@ flushChoices();
 // now runs only once the gate has passed.
 // Bug audit 2026-10-24 C-009: a tree MEMBER's claim (memberStart, further down) can still refuse the resume (exit 19: the accounting gate, a lowered ceiling, no live grant, the continuation check), and exit 19 writes nothing back,
 // so a member clears these only after its claim succeeded (and rewrites state.json then); every other run has no later refusal and clears here, as before.
+// Every stop is kept as a small record before the next sitting clears the stop files (0.8.4): `stop-<nnnn>.json` beside run.json, numbered, never deleted. The names are flat and not `STOPPED-*` on purpose: tree resume globs
+// `STOPPED-*`, and read_run_file takes plain names only. Compact: the stop (its id, kind, round, pass, figures), what stopped the run, and the small stop markers as they were; not the partial report or the board (a stop
+// records its own figures; the full partial report is 130 KB at pass 7 of a long run). A stop that comes back at the same id (a heal re-stop) rewrites the newest record. A record that cannot be written is logged and the sitting goes on:
+// it is a keepsake, and losing one must never stop a resume.
+const keepStopRecord = () => {
+  try {
+    const markerFiles = ['STOPPED-budget.json', 'STOPPED-error.json', 'STOPPED-truncated.json', SECRET_STOP_FILE, ...STOP_CAUSES.map(stoppedFileOf)].filter(f => existsSync(join(runDir, f)));
+    if (!markerFiles.length && !existsSync(join(runDir, PARTIAL_REPORT_FILE))) return;   // a fresh run or a run that did not stop: nothing to keep
+    const readJson = f => { try { return JSON.parse(readFileSync(join(runDir, f), 'utf8')); } catch { return null; } };
+    const partial = readJson(PARTIAL_REPORT_FILE);
+    const stop = budgetStopWithSha(runDir, partial?.stop ?? null);   // a spending stop is named with the hash of its figures, so two stops at one stage keep two records
+    const stopId = stop && Number.isInteger(stop.overseer_round) && Number.isInteger(stop.pass) ? stopIdOf(stop) : null;
+    const earlier = readdirSync(runDir).filter(f => /^stop-\d{4}\.json$/.test(f)).sort();
+    const newest = earlier.at(-1);
+    const name = stopId && newest && readJson(newest)?.stop_id === stopId ? newest : `stop-${String((newest ? Number(newest.slice(5, 9)) : 0) + 1).padStart(4, '0')}.json`;
+    writeAtomic(join(runDir, name), `${JSON.stringify({
+      schema: 'stop-record/1', stop_id: stopId, kept_at: new Date().toISOString(),
+      stopped_by: partial?.stoppedBy ?? null, stopped_at_stage: partial?.stoppedAtStage ?? null, stop,
+      markers: Object.fromEntries([...new Set(markerFiles)].map(f => [f, readJson(f)])),
+    }, null, 2)}\n`);
+  } catch (e) { log(`  (the stop record of the last sitting was not kept: ${e?.message || e})`); }
+};
 const clearStopRecords = () => {
-  for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, PARTIAL_DELIVERABLE_FILE, 'STOPPED-error.md', 'STOPPED-error.json', 'STOPPED-preflight.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md', 'STOPPED-secret.md', ...STOP_CAUSES.map(stoppedFileOf)]) {
+  keepStopRecord();
+  for (const f of ['STOPPED-budget.json', 'STOPPED-budget.md', PARTIAL_REPORT_FILE, PARTIAL_BOARD_FILE, PARTIAL_DELIVERABLE_FILE, 'STOPPED-error.md', 'STOPPED-error.json', 'STOPPED-preflight.md', 'STOPPED-truncated.json', 'STOPPED-truncated.md', 'STOPPED-secret.md', SECRET_STOP_FILE, ...STOP_CAUSES.map(stoppedFileOf)]) {
     if (existsSync(join(runDir, f))) rmSync(join(runDir, f));
   }
 };
-if (!treeLineage) clearStopRecords();
+if (budgetFinishNow && !budgetFinishNow.recorded) {
+  // the person's typed --finish-now goes on the ledger now, past every refusal, so the resume that follows a session's answer ends the run without asking again (idempotent for the same stop)
+  const rec = recordBudgetFinish(runDir, { stopSha256: budgetFinishNow.stopSha, phase: budgetFinishNow.phase, choice: 'finish_now', stopId: budgetFinishNow.stopId, relayed: budgetFinishNow.relayed ?? null });
+  if (!rec.ok) { console.error(`--finish-now: your choice could not be recorded (${rec.message}). Nothing was run or spent.`); process.exit(2); }   // A-DRAFT (LAD-B14)
+  budgetFinishNow.recorded = true;
+}
+if (!treeLineage && !budgetFinishNow) clearStopRecords();   // a --finish-now sitting sets the stop files aside only when it has ENDED the run (below): a sitting that cannot end it leaves the run exactly as it was stopped
 
 // v5 item 3: state.json, a live progress file rewritten atomically from files already on disk
 // plus the in-flight stage - never read back as chain input (deleting it loses nothing). The
@@ -3505,7 +4321,12 @@ log(resumeMeta ? `resume: stages already on disk replay for free` : '');
 resetToolCallLog();
 // What report.json (a finished run) and report-partial.json (a run the spend cap stopped) are built
 // from, besides the result itself: one list, so the two files cannot drift apart.
+// Unit 4b2: report.json's `caps`: each cap's typed limit and the spend RECORDED through it (the engine's bucket, without the worst case assumed for replayed stages).
+const capsReportField = () => { const st = budgetState().caps ?? {}; return Object.fromEntries(capsArmed.map(id => [id, { maxUsd: capsLimits[id], spentUsd: Math.max(0, (st[id]?.spent ?? 0) - (st[id]?.assumed?.usd ?? 0)) }])); };
+// 0.8.4 (relay of --finish-now): a spending stop is a stop object in the partial report too, so the person-only stop gate can carry it (kind budget_stop, the stage it stopped before, the phase). The round and pass are 1: the id carries the stage, and an answer is bound to ITS stop by the hash of the quote (spent and limit figures).
+const budgetStopObjectOf = err => ({ kind: 'budget_stop', overseer_round: 1, pass: 1, label: err.label, phase: err.phase ?? null, ...(err.capName ? { cap_name: err.capName } : {}) });
 const reportArgsFor = result => {
+  { const relayed = relayedAnswersOf(runDir); if (relayed.length) result.relayed = relayed; const raises = controlHistory(runDir).raises.filter(r => r.consumed); if (raises.length) result.raises = raises; const runControls = runControlsOf(runDir); if (runControls.length) result.run_controls = runControls; const pauses = pausesOf(runDir); if (pauses.length) result.pauses = pauses;   /* S20 slice 1 (H2-k): the raises the run USED, from the gate ledger */ const declined = declinedBySessionOf(runDir); if (declined.length) result.declined_requests = declined; if (ownerRulings.length) result.owner_rulings = ownerRulings; if (handlerRetags.length) result.handler_retags = handlerRetags; }   // B3 prototype: what the handler session relayed, with the person's words
   // FX-11: every field cut this sitting (stage, field, original and kept length), loud in WARNINGS.md and report.json.
   const cuts = fieldCutsSoFar();
   if (cuts.length) {
@@ -3516,58 +4337,42 @@ const reportArgsFor = result => {
   // this sitting or an earlier one), shown separately as totals.supersededUsd.
   const supersededUsd = supersededSpendOf(runDir);
   if (unverifiedReplays.length) result.unverifiedReplays = unverifiedReplays;
+  if (routeKept().length) result.answeredOnAnotherRoute = routeKept();   // FIX 5: the stages this sitting kept because the route changed (rebuilt every sitting)
+  if (wordingKept().length) result.answeredUnderEarlierWording = wordingKept();   // 0.8.4 T14: the stages this sitting kept as saved under THC's earlier wording (rebuilt every sitting); the partial report goes through here too
   if (supersededUsd > 0) result.totals = { ...result.totals, usd: (result.totals.usd || 0) + supersededUsd, supersededUsd };
   // 0.8.3 M2 (D18, CL-117): the superseded records this total absorbed, by label, amount and reservation id, so a lost file does not lose the attribution of its share of `totals.supersededUsd`.
   if (supersededUsd > 0) result.superseded = supersededStagesOf(runDir).map(({ label, usd, reservationId, kind }) => ({ label, usd, reservationId, ...(kind ? { kind } : {}) }));
+  // 0.8.4 S5-01: paid stage files no stage row accounts for (a label an earlier sitting paid for and this one never asked) are in the total too, shown as totals.unreplayedUsd, so the report and `--spend` agree.
+  foldUnreplayedInto(result, runDir);
+  // 0.8.4 unit 2 (D12 part 2): what the provider reported beside THC's count, derived from this folder (src/provider-reported.js, the one reader `--spend` uses too). Counted nowhere; labelled unverified.
+  foldProviderReportedInto(result, runDir);
+  // 0.8.4 unit 6 (D11; H-U6-b): the count-once figure of this folder and the part of it that is an estimate, as totals.counted (src/counted-spend.js, the reader `--spend` and the floor use too). `totals.usd` keeps its meaning.
+  foldCountedInto(result, runDir);
+  if (result.ending) result.ending = { ...result.ending, refused_answers: refusedAnswersOf(runDir) };   // 0.8.4 S4 (C&C's Q-f): derived by listing superseded/, never a counter
+  { const refusals = refusalRowsOf(runDir); if (refusals.length) result.buildCheckRefusals = refusals; }   // 0.8.4 S18 (RU-S18-02, Q5 (a)): the refused answers as rows, a sibling of build_checks (which stays one row per ANSWERED check: its last row is the decision)
   return {
     runId, chain: config.name, task: taskPathEff, taskCwd: resumeMeta?.cwd || work, taskText: rawTaskTextForCacheFingerprint,
     // A run.json from before 0.7.7 has no startedAt: the report then has no started_at either.
     startedAt: resumeMeta ? (resumeMeta.startedAt ?? null) : runStartedAt, result, config,
     fromRun: fromRun || resumeMeta?.fromRun || null, fromRunCwd: fromRun ? work : (resumeMeta?.cwd || work), maxUsd: maxUsdEff,
+    caps: capsArmed.length ? capsReportField() : null,   // unit 4b2
     policyChecks: policyChecks ?? resumeMeta?.policyChecks ?? null, policyWarnings, contextSha256,
-    // Brief 29: an advice run's additive fields (where the brief went, the dispositions), nested under report.advise.
-    adviseExtra: adviceOn ? adviceReportExtra({ config, meta: adviceMeta, stages: result.stages }) : null,
     verdictEnvelope: envelopeFlag,
+    sittings: (() => { try { const x = JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')).sittings; return Array.isArray(x) ? x : null; } catch { return null; } })(),   // 0.8.4: one entry per sitting, from run.json (an older run has none)
     tree: treeLineage ? runTreeField(treeLineage) : null,   // 0.8.3 M6 S7: a member's report carries the same `tree` as its run.json (PLAN 10.4); a non-member's has no such key
   };
 };
 
-// Brief 29: an advice call can be stopped from outside and, when its chain sets `advise.max_wall_ms`, is bounded by that wall clock (0.8.2: no shipped chain sets one; without it a call is bounded by the 2-hour request deadline only). A STOP file in the run
-// folder (the MCP server writes one when a client cancels or leaves) or the chain's `advise.max_wall_ms` makes
-// runAdvise skip every stage it has not started; calls already in flight finish and are recorded (they are billed
-// either way). The wall clock also becomes every request's own deadline, so one hung call cannot outlive it. A STOP
-// left over from before this process started is removed, so a resume is never stopped by an old request.
-const adviceWallMs = adviceOn && Number.isFinite(config.advise.max_wall_ms) && config.advise.max_wall_ms > 0 ? config.advise.max_wall_ms : null;
-let adviceStopNow = null; // the one definition of "has this advice call been asked to stop": the stop check below AND the mock start-up hold read it
-if (adviceOn) {
-  const stopFile = join(runDir, STOP_FILE);
-  try { if (resumeMeta && existsSync(stopFile)) rmSync(stopFile); } catch { /* a stop file we cannot judge is left for the run to see */ }
-  const deadline = adviceWallMs ? adviceStartedMs + adviceWallMs : null;
-  if (deadline) setRequestDeadlineAt(deadline);
-  // 0.8.1 M6: the STOP request names who asked (src/stop-files.js); an unreadable one stops as `user`, one naming another run is stale.
-  adviceStopNow = () => readStopRequest(runDir, runId)?.by ?? (deadline && Date.now() >= deadline ? 'wall_clock' : null);
-  setStopCheck(adviceStopNow);
+// #16c: the owner's "pause after this round": the chain asks at the head of every pass after the first (src/chain.js setPauseCheck); pauseDue reads the gate ledger and the run folder and never throws. A tree member has none (its verb is refused), an advice call has no passes.
+if (!treeLineage) {
+  let pauseProblemLogged = false;
+  setPauseCheck(round => {
+    const due = pauseDue(runDir, round);
+    if (due?.problem) { if (!pauseProblemLogged) { pauseProblemLogged = true; log(`  (${due.problem})`); } return null; }
+    return due;
+  });
+  setPauseFinishCheck(round => pauseFinishedFor(runDir, round));   // 0.8.4 (ladder unit): the person's finish AT the pause, read from the ledger, asked before pauseCheck
 }
-// Mock seats only (a test seam, like COUNCIL_MOCK_DELAY_MS): wait this long before the first call, so a stop that is asked for during the
-// start-up can be tested deterministically.
-const mockAdviceSeatsOnly = adviceOn && (config.seats?.critics || []).every(x => x.provider === 'mock');
-if (mockAdviceSeatsOnly && Number(process.env.COUNCIL_MOCK_PRESTART_MS) > 0) await new Promise(r => setTimeout(r, Math.min(Number(process.env.COUNCIL_MOCK_PRESTART_MS), 60_000)));
-// COUNCIL_MOCK_PRESTART_UNTIL_STOP=1 (13 Oct 2026, the load-dependent tests): the same seam as a CONDITION instead of a duration. The run waits, before
-// its first call, until the stop check above answers (a STOP file, or the wall clock passing), polling every 50 ms; a test that asks for a stop before the
-// first call then passes at any machine speed, because the run cannot get past the hold without the stop. Mock seats only; unset it changes nothing.
-// The 60 s is a hang guard like the one above (nothing in a test waits that long): when it is reached the run says so in run.log and goes on, so a hold that
-// timed out can never be mistaken for the old race. The ceiling line is not exercised by a test (it would cost 60 s); the "waiting" line is read by this seam's own test (test/stop-rule.test.js) to know the run reached the hold.
-if (mockAdviceSeatsOnly && process.env.COUNCIL_MOCK_PRESTART_UNTIL_STOP === '1') {
-  log('mock hold: waiting for a stop request (COUNCIL_MOCK_PRESTART_UNTIL_STOP)');
-  const heldFrom = Date.now();
-  while (!adviceStopNow() && Date.now() - heldFrom < 60_000) await new Promise(r => setTimeout(r, 50));
-  if (!adviceStopNow()) log('mock hold: ceiling reached after 60000 ms without a stop request; going on');
-}
-const finishAdviceLog = (status, advise = null, stoppedBy = null) => {
-  if (!adviceOn) return;
-  try { writeAdviceLogFinish(runDir, { status, spentUsd: recordedSpentOf(), wallMs: Date.now() - adviceStartedMs, advise, stoppedBy }); } catch { /* the run's own record is report.json */ }
-};
-
 // 0.8.3 M1/M2 (PLAN 7.6 steps 1-5): a tree member claims its node in the tree record HERE, after every pre-flight refusal and before the first paid call, in ONE hold of the tree lock: the accounting gate, the continuation
 // checks, the lifetime cap, the claim. The record decides whether this is the node's first start or a resume; a step it does not allow is refused (exit 19, nothing run, nothing spent). The cap this run is held to is
 // min(the cap asked for, the node's lifetime cap), re-armed here because setBudget starts the counters again; the earlier spend is counted exactly as above. Its reservations are mirrored into the tree's record. The exit
@@ -3579,12 +4384,62 @@ if (treeLineage) {
     setBudgetOrExit(start.capUsd);
     countEarlierSpend(earlierSupersededUsd);
     countEarlierSpend(earlierUnsettledUsd);
+    countEarlierSpend(earlierSettledNoFile.reduce((n, r) => n + r.usd, 0));   // 0.8.4 item 9a: setBudget above started the counters again, so the settled-without-file seed of the main resume (earlierSettledNoFile) is counted again, as the two lines before it are
     setReservationSink(openReservations(runDir, { mirror: start.mirror }));
     log(`  tree member ${treeLineage.node} (tree ${treeLineage.treeId}): held to ${formatUsd(start.capUsd)} (asked ${formatUsd(maxUsdEff)}, lifetime cap ${formatUsd(start.lifetimeCapUsd)}).`);
     installMemberEndHook({ runDir, runId, lineage: treeLineage, claim: start.claim });
   } catch (err) { exitOnMemberRefusal(err); }
 }
-if (treeLineage) { clearStopRecords(); writeStateJson(); }   // C-009: the claim passed, so this sitting now replaces the stop records it is about to change (state.json again: its first write above still saw them)
+if (treeLineage) { clearStopRecords(); stampSitting(); writeStateJson(); }   // C-009: the claim passed, so this sitting now replaces the stop records it is about to change (state.json again: its first write above still saw them)
+// 0.8.4 D38: the reads a handling session named in its stage answers are cut, scanned and recorded now, before any stage runs (src/excerpt-resume.js); a hit pauses the run through the catch below, with the stop label
+// excerpt-E-<n>. The recorded excerpts (every line the file holds) go to the chain, which shows them from the stage after the one that carried them. Not for an advice call (never resumed) or a descending chain (its
+// main run returns before the block hook); with the privacy switch ON nothing is recorded yet (the approval step is a later commit of this unit). Off entirely until the channel's words are recorded.
+function prepareExcerpts() {
+  if (!excerptChannelOn()) return [];
+  const { entries: recordedNow } = readExcerpts(runDir);
+  const waiting = () => pendingExcerptCount(runDir, recordedNow);
+  if (config.descending) { const n = waiting(); if (n) log(`  session reads: ${n} not recorded: this chain runs in descending mode, which does not show excerpts.`); return []; }   // WORDING D38-w5 (c)
+  const sw = excerptSwitchOf(runDir);
+  if (!sw.ok) { const n = waiting(); if (n) log(`  session reads: ${n} not recorded: the approval record of this run cannot be read.`); return []; }   // WORDING D10-w2 (replaces D38-w5 (d)); fail closed: nothing is shown without the record
+  const savedDrops = readRunJson(runDir, 'run.json')?.secretDrops;
+  const drops = Array.isArray(savedDrops) ? savedDrops.filter(d => d && typeof d.label === 'string' && typeof d.stop === 'string') : [];
+  let actor = null; try { actor = userInfo().username; } catch { /* no user name on this system: recorded as null */ }
+  try {
+    const scanOptions = { allow: false, allowed: treeLineage ? null : secretAllow };
+    if (sw.on) {   // 0.8.4 D10 (plan A T5.5): the privacy switch is on: the rows that carry text wait at ONE excerpt_approval gate; the answers are applied at the resume after them
+      const batch = excerptBatch({ runDir, root: resumeMeta?.cwd || work, drops, scanOptions, actor, hold: true, maxShownLines: SHOWN_LINES_MAX, maxLineNumber: EXCERPT_LINE_NUMBER_MAX });
+      for (const line of batch.notes) log(line);
+      const gateApi = {
+        max: EXCERPTS_MAX,
+        waiting: () => { const w = excerptApprovalWaiting(runDir); return w.ok ? w.waiting.map(x => { const st = readGateAnswer(runDir, x.gate); return { id: x.gate, status: st.status, excerpts: st.gate?.excerpts, answer: st.answer }; }) : []; },
+        all: () => gatesOfKind(runDir, EXCERPT_APPROVAL_KIND).map(x => ({ id: x.gate, excerpts: readGateAnswer(runDir, x.gate).gate?.excerpts })),   // every excerpt gate, oldest first (a gate asked again is told from the one the rows came from)
+        request: ({ screen, excerpts }) => {
+          const file = `excerpt-approval-${gatesOfKind(runDir, EXCERPT_APPROVAL_KIND).length + 1}.txt`;
+          writeFileSync(join(runDir, file), screen);
+          const made = requestGate(runDir, { kind: EXCERPT_APPROVAL_KIND, textPath: file, excerpts });
+          return made.ok ? { ok: true, id: made.gate.id } : made;
+        },
+        recorded: (id, count) => recordExcerptsRecorded(runDir, id, { runId, count }),
+      };
+      completeUsedGates({ entries: recordedNow, gate: gateApi });   // a crash between the rows and the use line: the line is written now, no row is (src/excerpt-pause.js)
+      const step = pauseAtApproval({ batch: batch.inputs, firstId: batch.firstId, gate: gateApi, scanOptions });
+      if (step.action === 'asked') {
+        const words = excerptWaitWords('pending', `${councilCommand()} gate answer ${runDir} ${step.gateIds[0]}`);
+        console.error(`This run is stopped at an approval of excerpts of your project (gate ${step.gateIds[0]}): it ${words.phrase}${step.gateIds.length > 1 ? `, and ${step.gateIds.length - 1} more wait` : ''}. ${words.tail} Nothing was run and nothing was spent.`);   // A-DRAFT, the words of the resume refusal above
+        process.exit(EXIT_AWAITING_EXCERPT_APPROVAL);
+      }
+      const written = recordApproved({ runDir, rows: step.rows, gates: step.gates, gateApi });
+      if (written.length) log(`  session reads: ${written.length} recorded as excerpts (${written[0].id} to ${written[written.length - 1].id}).`);
+      return liveExcerpts(readExcerpts(runDir).entries);   // A1: a row the switch asked about again is replaced by its answered copy; what no later row replaces is what the seats are shown
+    }
+    const done = recordSessionReads({ runDir, root: resumeMeta?.cwd || work, drops, scanOptions, actor });
+    for (const line of done.notes) log(line);
+  } catch (err) {
+    if (err?.excerptRefusal) { console.error(err.message); process.exit(2); }   // WORDING D38-w5 (e)
+    throw err;   // a SecretShapedPrompt goes to the catch below: the existing pause, with the stop label excerpt-E-<n>
+  }
+  return liveExcerpts(readExcerpts(runDir).entries);
+}
 let result;
 resetFieldCuts(); // FX-11: this run's record of cut fields (one run per process)
 try {
@@ -3592,7 +4447,13 @@ try {
     request,
     config,
     roundChoices,
+    ladder: ladderEff,
+    ladderRounds: ladderEff ? (ladderRoundsBase ?? resumeMeta?.ladderRounds ?? null) : null,   // a --rounds typed at a resume is his limit from there on (flushed to run.json with the other typed settings); none typed: the saved number
+    ladderSteps,
+    rulings: ownerRulings,
+    retags: handlerRetags,
     draft: handedDraft,
+    excerpts: prepareExcerpts(),   // evaluated here, INSIDE the try: a key-shaped hit pauses the run through the catch below
     log,
     // 0.8.3 M3: a tree member is asked for the split block (held words, src/chain.js withSplitNote); any other run is not.
     treeMember: Boolean(treeLineage),
@@ -3608,6 +4469,9 @@ try {
       currentStage = null;
       applyStageCompletion(s.label, s.seat ?? s.lab);
       writeStateJson();
+      // 0.8.4 lane C (the persona record, src/persona-record.js stampRow): this row IS the report's row (chain.js record() keeps the object it hands here). A live row is stamped from what its prompt carried when it was built; a
+      // replayed row gets back the stamp its own usage.json holds; a session seat's answer, replayed here, is stamped from the note its pause wrote (and the stamp is kept in its usage.json when it has one).
+      stampRow(s, config, { dir: runDir, write: writeFileAtomic });
       if (s.cached) {
         // Pre-release cache audit #1: a trusted hit gets the hash of the prompt it was just matched
         // against written back, so an entry cached before prompt hashes existed is checked properly
@@ -3616,9 +4480,12 @@ try {
         if (s.promptHash && existsSync(up)) {
           try {
             const u = JSON.parse(readFileSync(up, 'utf8'));
-            if (!u.promptHash) writeFileAtomic(up, JSON.stringify({ ...u, promptHash: s.promptHash, inputsFingerprint: u.inputsFingerprint ?? cacheFingerprint }));
+            if (!u.promptHash) writeFileAtomic(up, JSON.stringify({ ...scrubPersona(u), promptHash: s.promptHash, inputsFingerprint: u.inputsFingerprint ?? cacheFingerprint, ...(!u.writtenBy && s.writtenBy ? { writtenBy: { ...s.writtenBy, text: textHashOf(s.text) } } : {}) }));   // 0.8.4 T14: an external answer first read here is bound to the hash of the prompt it was SHOWN (a kept replay carries that one) and to the sitting that asked (the pause's prompt.json, merged into the hit), plus the hash of the answer on disk   // a malformed persona stamp is dropped here, never written through
           } catch { /* unreadable: the getter already treats it as a miss next time */ }
         }
+        // 0.8.4 T14 (A-DRAFT line): a stage kept as it was saved under THC's earlier wording is named in WARNINGS.md at the moment it is kept, so a sitting that ends at a pause or a stop right after still carries the mark. One line per stage per sitting.
+        if (s.answeredOnAnotherRoute) appendFileSync(join(runDir, 'WARNINGS.md'), keptRouteLineOf({ label: s.label, writtenRoute: s.writtenBy?.route ?? 'anthropic', route: claudeRoute, sitting: sittingNo }));   // FIX 5: its own line (A-DRAFT)
+        if (s.answeredUnderEarlierWording) appendFileSync(join(runDir, 'WARNINGS.md'), keptLineOf({ label: s.label, version: s.writtenBy?.version, sitting: sittingNo }));
         // Bug audit 2026-09-28 (external seats #2): an external answer is first consumed on a
         // resume, as a cache hit, so it returned here in every sitting and never got the
         // partial-output check (the only truncation signal a stop-less pasted draft has), an
@@ -3631,9 +4498,10 @@ try {
       // trusting this deliverable - same class of bug as the lab-dropout fix, just one
       // stage later in the pipeline. Warns loudly and records it; does not, and cannot
       // from here, change chain.js's own in-run control flow (§11: mechanism untouched).
+      // 0.8.4 q-warn: a `-question` stage is the builder's prose answer to a blocking question, not a verdict (answerShapeKindOf, src/stage-contract.js): it is checked as prose (the two stop checks, then the empty-text and ends-mid-structure checks), never against a verdict's shape. The kind printed stays stageKindOf's.
       const kind = stageKindOf(s.label);
       if (kind) {
-        const check = validateDeliverable(kind, s.text, s.usage);
+        const check = validateDeliverable(kind, s.text, s.usage, { asProse: answerShapeKindOf(s.label) === null });
         if (!check.ok) {
           log(`  PARTIAL OUTPUT WARNING: stage "${s.label}" (${kind}) - ${check.reason}`);
           appendFileSync(join(runDir, 'WARNINGS.md'), `- partial_output: stage "${s.label}" (${kind}) - ${check.reason}\n`);
@@ -3644,12 +4512,18 @@ try {
       // text trusted with no record of its cost, and a crash mid-write never leaves a torn file
       // for a resume to trip over (bug audit 2026-09-23, CLI #8).
       if (!s.cached) {
-        writeFileAtomic(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint, promptHash: s.promptHash,
+        writeFileAtomic(join(runDir, `${s.label}.usage.json`), JSON.stringify({ provider: s.provider, model: s.model, usage: s.usage, usd: s.usd, ms: s.ms, inputsFingerprint: cacheFingerprint, promptHash: s.promptHash, ...personaUsageFields(s), ...(writtenByNow(textHashOf(s.text)) ? { writtenBy: writtenByNow(textHashOf(s.text)) } : {}), ...(s.capName ? { capName: s.capName } : {}),   /* unit 4b2: the cap the stage billed through (chain.js, caps armed) */
           // 0.8.1 milestone R (additive): what the stage's retry decided, so a resume replays it for free instead of asking again: the cap the answer was
           // asked at, and the no-answer mark of a reply whose thinking used the whole cap.
           ...(Number.isFinite(s.cappedAt) ? { cappedAt: s.cappedAt } : {}), ...(s.noAnswer ? { noAnswer: s.noAnswer } : {}),
+          // 0.8.4 unit 1 (D12 part 1, additive): what OpenRouter says it billed and the generation id, beside THC's own `usd`. Absent when the reply carried none.
+          ...billedFieldsOf(s), ...discardedFieldOf(s),
+          // 0.8.4 unit 6 (D11, additive): what the stage's amount stands for (src/counted-bases.js). Absent on a $0 stage.
+          ...basisField(s),
           // 0.8.3 M2 (D18, additive): the reservation that paid for this stage (absent for a mock stage), so the tree's accounting matches this file to its `settled` line by id, not by label.
-          ...(s.reservationId ? { reservationId: s.reservationId } : {}) }));
+          ...(s.reservationId ? { reservationId: s.reservationId } : {}),
+          // 0.8.4 (S6-03, additive): the endpoint the reply named as having served the call, when it named one (OpenRouter's `provider`), so the record says where this stage ran without the audit log.
+          ...endpointField(s) }));
         writeFileAtomic(join(runDir, `${s.label}.md`), s.text);
       }
       if (auditWriter) auditWriter.recordStage(s);
@@ -3691,7 +4565,6 @@ try {
     },
   });
 } catch (err) {
-  if (adviceOn && !(err instanceof ExternalPause) && !(err instanceof AdviceStopped)) finishAdviceLog(err instanceof BudgetExceeded ? 'budget_stopped' : 'failed');
   if (err instanceof RoundStopped) {
     // Round semantics 2b (Muad 15 Oct 2026; gate note Round_2b_Gate_Note.md, C&C ruling): a layered run reached the overseer-round cap or a layer's revision bound. It is a RESUMABLE stop and the PERSON chooses (continue or finish):
     // the same family as the branches around it: STOPPED-<cause>.json (stop-files.js, so run_status can say why without loading a chain), report-partial.json (the run so far, with the stop), state.json, and NO report.json / deliverable.md
@@ -3702,26 +4575,29 @@ try {
     // currentDraft is the draft the chain already parsed (chain.js `plan`), not a raw stage reply: its NOTE lines were recorded or counted at the stage that read it, so this is not a raw-text reader (test/note-lines-ignored.test.js ALLOW row). stripDeclined here is defence in depth only.
     const planNow = typeof err.partial?.currentDraft === 'string' ? stripDeclined(err.partial.currentDraft) : '';
     const draftFile = planNow.trim() ? PARTIAL_DELIVERABLE_FILE : null;
-    const sentence = stopSentence(stop, { spentUsd, draftFile, runDir, memberTail: memberNotice ? memberStopContinue(memberNotice, 'round_stop') : null, add: defaultAdd(stop, config) });
-    try { writeStoppedMarker(runDir, { stoppedBy: stop.kind, beforeFirstCall: false, spentUsd, resumeAfterStop: true, reason: sentence }); }
+    // #16c: the owner's pause is not an overseer limit: its own sentence (src/owner-pause.js), and its marker names the ledger request it stopped for
+    const ownerPause = stop.kind === 'owner_pause';
+    const sentence = ownerPause ? pauseSentence({ pass: stop.pass, spentUsd, draftFile, runDir }) : stopSentence(stop, { spentUsd, draftFile, runDir, memberTail: memberNotice ? memberStopContinue({ ...memberNotice, stop }, 'round_stop') : null, add: defaultAdd(stop, config), finalRead: finalReadGate(config) });
+    try { writeStoppedMarker(runDir, { stoppedBy: stop.kind, beforeFirstCall: false, spentUsd, resumeAfterStop: true, reason: sentence, ...(ownerPause ? { requestSeq: stop.request_seq } : {}) }); }
     catch (e) { log(`  (${stoppedFileOf(stop.kind)} not written: ${e?.message || e})`); }
     try {
       if (err.partial) {
         const shaped = partialReportJsonShape({ stoppedBy: stop.kind, ...reportArgsFor(err.partial) });
         writeAtomic(join(runDir, PARTIAL_REPORT_FILE), JSON.stringify({ ...shaped, stop }, null, 2));
-        const partialBoard = renderPartialBoardMd({ runId, result: err.partial, cause: stop.kind });
+        const partialBoard = renderPartialBoardMd({ runId, result: err.partial, cause: stop.kind, noChooser: stop.no_chooser === true });
         if (partialBoard) writeAtomic(join(runDir, PARTIAL_BOARD_FILE), partialBoard);
         if (draftFile) writeAtomic(join(runDir, PARTIAL_DELIVERABLE_FILE), planNow);
+        if (typeof err.partial.scopeLedger === 'string') writeAtomic(join(runDir, SCOPE_LEDGER_FILE), err.partial.scopeLedger);   // the Scope ledger kept apart from the plan (src/scope-ledger.js); only while its switch is on
       }
     } catch (e) { log(`  (${PARTIAL_REPORT_FILE} not written: ${e?.message || e})`); }
     log(`\n${sentence}`);
     finalState();
     process.exit(EXIT_ROUND_STOPPED);
   }
-  if (err instanceof PriceRefused && !adviceOn) {
+  if (err instanceof PriceRefused) {
     // A3a commit 2 (18 Okt 2026; Muad: "pause the run and ask the user how to proceed with a recommendation"): OpenRouter refused a seat at its price pin. A RESUMABLE stop for the person, exit 24, in the family of the branches around it:
     // STOPPED-price_refused.json (so run_status can say why without loading a chain), report-partial.json with the stop (seat, stage, whether the stage can do without the seat), state.json, and NO report.json / deliverable.md.
-    // The refused call cost nothing and nothing is sent after it. An advice call has no resume: it takes the generic failed-call path below with the same sentence.
+    // The refused call cost nothing and nothing is sent after it.
     const spentUsd = recordedSpentOf();
     const set = refusedSet(err);   // the first refusal and the seats of the same stage that rode along (chain.js settleAll)
     const stop = { kind: 'price_refused', seat: set.map(e => e.seat).join(', '), seatKeys: set.map(e => `${e.lab}/${e.seat}`), labels: set.map(e => e.label), label: err.label, skippable: canSkip(err), noSkip: err.noSkip, voices: err.voices, recognised: set.every(e => e.recognised), ownPin: set.some(e => e.ownPin), pin: err.pin };
@@ -3740,7 +4616,7 @@ try {
     // 0.8.3 (Muad 21 Okt 2026): with a person at the terminal the run asks to raise the price and goes on in the same breath instead of only stopping (src/price-raise.js). Every other case keeps the stop above, unchanged.
     let raisedAndResume = false;
     try {
-      const mayAsk = mayOffer({ set, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY), adviceOn: Boolean(adviceOn), member: Boolean(memberNotice || treeLineage) });
+      const mayAsk = mayOffer({ set, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY), member: Boolean(memberNotice || treeLineage) });
       if (mayAsk.ok) {
         const rl = createReadlineInterface({ input: process.stdin, output: process.stdout });
         try {
@@ -3757,7 +4633,7 @@ try {
     if (raisedAndResume) resumeAtExit({ runPath: resolve(runDir), entry: process.argv[1], cwd: resumeMeta?.cwd ?? work, spawn: spawnSync });
     process.exit(EXIT_PRICE_REFUSED);
   }
-  if (err instanceof ConflictAsked && !adviceOn) {
+  if (err instanceof ConflictAsked) {
     // E4b unit 3: the decider asked for the person to choose between the objections of a swing. A RESUMABLE stop, exit 25, before the revise: STOPPED-conflict.json, report-partial.json with the stop (the asked conflicts and the decider's lean),
     // state.json, and NO report.json / deliverable.md. The decider's ruling is already on disk (its stage file), so a resume replays it for free and never pays the seat again.
     const spentUsd = recordedSpentOf();
@@ -3777,33 +4653,6 @@ try {
     log(`\n${sentence}`);
     finalState();
     process.exit(EXIT_CONFLICT_ASKED);
-  }
-  if (err instanceof AdviceStopped) {
-    // 0.8.1 M6 (decided rule 6, DR-10): stopped by a person, a client or the wall clock, before or after paid calls. Exit 18 with
-    // report-partial.json (what was paid for, rolled up under `advise`; nothing paid: no paid results and spentUsd 0),
-    // BOARD-partial.md where there is a board, STOPPED-<stoppedBy>.json and state.json. No report.json: the run did not finish.
-    // A dedicated branch ahead of the generic error path, which would write STOPPED-error and exit 16.
-    // Order (M6 review D6): the marker first, since it is what makes the folder read stopped (never process_gone, resumable); then
-    // the partial report and board (atomic, P20), the ledger line, the advice log and state.json. A write that fails is said and the
-    // run still exits 18.
-    const stoppedBy = err.reason;
-    const spentUsd = recordedSpentOf();
-    try { writeStoppedMarker(runDir, { stoppedBy, beforeFirstCall: err.beforeFirstCall, spentUsd, resumeAfterStop: config.resumeAfterStop === true, reason: stoppedBy }); }
-    catch (e) { log(`  (${stoppedFileOf(stoppedBy)} not written: ${e?.message || e})`); }
-    try {
-      if (err.partial) {
-        writeAtomic(join(runDir, PARTIAL_REPORT_FILE), JSON.stringify(partialReportJsonShape({ stoppedBy, ...reportArgsFor(err.partial) }), null, 2));
-        const partialBoard = renderPartialBoardMd({ runId, result: err.partial, cause: stoppedBy });
-        if (partialBoard) writeAtomic(join(runDir, PARTIAL_BOARD_FILE), partialBoard);
-      }
-    } catch (e) { log(`  (${PARTIAL_REPORT_FILE} not written: ${e?.message || e})`); }
-    // An adopted call records the stop in its gate ledger (the event M3 reserved), beside its `sent` line.
-    if (adopt) { const st = recordStopped(runDir, { stoppedBy, spentUsd }); if (!st.ok) log(`  (the stop could not be written to the gate ledger: ${st.code})`); }
-    finishAdviceLog('stopped', err.out?.advise ?? null, stoppedBy);
-    log(err.beforeFirstCall ? `\nSTOPPED before any call (${stoppedBy}). Nothing was spent.` : `\nSTOPPED (${stoppedBy}): calls already made were finished and recorded; nothing new was started. Spent ${formatUsd(spentUsd)}; what was paid for is in ${PARTIAL_REPORT_FILE}.`);
-    // 0.8.1 M1 S3: state.json at rest names the stop, like every other stop exit, not "running".
-    finalState();
-    process.exit(EXIT_STOPPED_BY_USER);
   }
   if (err instanceof PreflightBlocked) {
     // Same posture as BudgetExceeded below: deliberately no report.json/deliverable.md - a
@@ -3885,25 +4734,51 @@ ${memberStopContinue(memberNotice, 'truncated')}` : `To continue: raise that sea
     // run resumes once every one has its <label>.md; answering only some just pauses again on
     // the rest.
     const pauses = pendingPauses(err);
+    // 0.8.4 S18 (Q5 (b), WORDING S18-w6; HELD behind `buildCheckRefusalNote`): a build check that was refused says why at the top of its NEEDS file, from the latest refusal row on disk; the check's prompt text (and its hash) is untouched.
+    const refusalNoteFor = label => { const note = held('buildCheckRefusalNote'); if (typeof note !== 'function' || !/^(?:build-check|sort)-\d+$/.test(label)) return ''; const r = latestRefusalOf(runDir, label); return r ? `${note({ why: r.why, missing: r.missing, label })}\n\n` : ''; };
     for (const p of pauses) {
       const need = join(runDir, `NEEDS-${p.label}.md`);
+      // 2 Nov 2026 (near-JSON pause, src/near-json.js): a paid reply that was almost JSON. Its text is set aside in originals/ (3 Nov 2026: its usage record stays at its label, counted there), the marker (with the prompt hash and the inputs fingerprint the repair is held to) is written as `<label>.repair.json` by setAsideOriginal, no `<label>.prompt.json` is written for it, and the request below says what to write.
+      // The answer is written and the run resumed exactly as for an external seat (the file name, the rename, MCP submit_stage); src/stage-cache.js checks it against the original when the run reads it.
+      if (p.repair) {
+        setAsideOriginal({ runDir, label: p.label, promptHash: p.promptHash, fingerprint: cacheFingerprint, refusal: p.repair.refusal, kind: p.repair.kind ?? 'near_json', criteria: p.repair.criteria ?? null, rows: p.repair.rows ?? null, slips: p.repair.slips ?? null, shown: p.repair.shown ?? null });
+        const how = memberNotice
+          ? `This stage belongs to a recursive-councils tree member (${memberWho(memberNotice, p.label)}). Write the repaired reply to \`${join(runDir, `${p.label}.md.partial`)}\`, rename it to \`${join(runDir, `${p.label}.md`)}\` when it is complete (never write it in place), and run, in a terminal:\n\n    ${memberResumeCommand(memberNotice, councilCommand())}\n\n`
+          : `Write the repaired reply to \`${join(runDir, `${p.label}.md.partial`)}\`, rename it to \`${join(runDir, `${p.label}.md`)}\` when it is complete (the run resumes as soon as that name exists, so never write it in place), and run:\n\n    ${councilCommand()} --resume runs/${runId}\n\n`;
+        writeFileSync(need, withIntegrityFooter(p.repair.kind === 'table_rows'
+          ? tableRepairNeedsBody({ label: p.label, askedFor: p.askedFor, original: p.repair.original, refusal: p.repair.refusal, how, criteria: p.repair.criteria ?? [], rows: p.repair.rows ?? [] })
+          : p.repair.kind === 'id_slip'   // 4 Nov 2026 (unit 8): an objection id one character off
+          ? idSlipRepairNeedsBody({ label: p.label, askedFor: p.askedFor, original: p.repair.original, refusal: p.repair.refusal, how, slips: p.repair.slips ?? [], shown: p.repair.shown ?? [] })
+          : repairNeedsBody({ label: p.label, askedFor: p.askedFor, original: p.repair.original, refusal: p.repair.refusal, how, system: p.repair.shownSystem ?? p.system, ...(p.repair.shownSystem ? { systemWhere: held('repairFormatWhereOrder')?.() ?? null } : {}) })));
+        continue;
+      }
       // The prompt this answer will be held to on resume (resume-cache audit #1/#4).
-      writeFileAtomic(join(runDir, `${p.label}.prompt.json`), JSON.stringify({ provider: 'external', promptHash: p.promptHash, inputsFingerprint: cacheFingerprint }));
+      writeFileAtomic(join(runDir, `${p.label}.prompt.json`), JSON.stringify({ provider: 'external', promptHash: p.promptHash, inputsFingerprint: cacheFingerprint, ...(p.textRequests?.length ? { text_requests: p.textRequests } : {}), ...(writtenByNow(null) ? { writtenBy: writtenByNow(null) } : {}), ...(personaPauseNote(p.label, config) ? { persona_note: personaPauseNote(p.label, config) } : {}) }));   // 0.8.4 lane C: the persona set this prompt was built from, kept for the answer's row
       // FX-13: the run resumes as soon as <label>.md exists, so a seat that writes it in place can expose half an answer.
       // It writes <label>.md.partial and renames it when finished (a rename is one step); nothing reads a .partial file.
       // 0.8.3 M5f (the maintainer, 10 Oct: the accident is a person typing `council --resume runs/<child>` because THIS file told them to): a tree MEMBER's notice names the tree, node, run and stage and gives the tree's
       // command as THE command; the direct --resume line is absent, not merely accompanied.
-      writeFileSync(need, withIntegrityFooter(memberNotice ? `# External stage: ${p.label}\n\nThis stage belongs to a recursive-councils tree member (${memberWho(memberNotice, p.label)}).\n\nWrite the reply to \`${join(runDir, `${p.label}.md.partial`)}\`, rename it to \`${join(runDir, `${p.label}.md`)}\` when it is complete (never write it in place), and run, in a terminal:\n\n    ${memberResumeCommand(memberNotice, councilCommand())}\n\nThe tree resumes this node and holds the answer to the prompt below; a tree member is not resumed alone.\n\n${askedForSentence(p.askedFor)}## System prompt\n\n${p.system}\n\n## User prompt\n\n${p.user}` : `# External stage: ${p.label}\n\nWrite the reply to \`${join(runDir, `${p.label}.md.partial`)}\`, rename it to \`${join(runDir, `${p.label}.md`)}\` when it is complete (the run resumes as soon as that name exists, so never write it in place), and run:\n\n    ${councilCommand()} --resume runs/${runId}\n\n${askedForSentence(p.askedFor)}## System prompt\n\n${p.system}\n\n## User prompt\n\n${p.user}`));
+      // 0.8.4 slot H2-f (D30, plan A T1.5): both forms carry the held excerpt paragraph (src/excerpt-record.js externalStageBlock, '' while it is not recorded) right above "## System prompt", so it sits outside the system and user text the prompt hash covers.
+      writeFileSync(need, withIntegrityFooter(memberNotice ? `# External stage: ${p.label}\n\n${refusalNoteFor(p.label)}This stage belongs to a recursive-councils tree member (${memberWho(memberNotice, p.label)}).\n\nWrite the reply to \`${join(runDir, `${p.label}.md.partial`)}\`, rename it to \`${join(runDir, `${p.label}.md`)}\` when it is complete (never write it in place), and run, in a terminal:\n\n    ${memberResumeCommand(memberNotice, councilCommand())}\n\nThe tree resumes this node and holds the answer to the prompt below; a tree member is not resumed alone.\n\n${askedForSentence(p.askedFor)}${needsRequestsBlock(p.textRequests)}${externalStageBlock()}## System prompt\n\n${p.system}\n\n## User prompt\n\n${p.user}` : `# External stage: ${p.label}\n\n${refusalNoteFor(p.label)}Write the reply to \`${join(runDir, `${p.label}.md.partial`)}\`, rename it to \`${join(runDir, `${p.label}.md`)}\` when it is complete (the run resumes as soon as that name exists, so never write it in place), and run:\n\n    ${councilCommand()} --resume runs/${runId}\n\n${askedForSentence(p.askedFor)}${needsRequestsBlock(p.textRequests)}${externalStageBlock()}## System prompt\n\n${p.system}\n\n## User prompt\n\n${p.user}`));
     }
-    if (pauses.length === 1) {
+    if (pauses.length === 1 && err.repair) {
+      log(err.repair.kind === 'table_rows'   // 3 Nov 2026: a table pause says what it is (A-DRAFT); the NEEDS file holds the request
+        ? `\nPAUSED: stage "${err.label}" got a sign-off table whose rows could not be matched to the criteria; it needs a repair (only a row's criterion text may change).`
+        : err.repair.kind === 'id_slip'   // 4 Nov 2026 (unit 8, A-DRAFT)
+        ? `\nPAUSED: stage "${err.label}" got a reply that names an objection id one character off; it needs a repair (only that id may change).`
+        : `\nPAUSED: stage "${err.label}" got a reply that is almost JSON; it needs a repair (no word changed).`);
+      log(`  request: ${join(runDir, `NEEDS-${err.label}.md`)}`);
+      log(`  answer:  write ${join(runDir, `${err.label}.md.partial`)}, then rename it to ${err.label}.md when complete`);
+    } else if (pauses.length === 1) {
       log(`\nPAUSED: stage "${err.label}" is an external seat.`);
       log(`  prompt:  ${join(runDir, `NEEDS-${err.label}.md`)}`);
       log(`  answer:  write ${join(runDir, `${err.label}.md.partial`)}, then rename it to ${err.label}.md when complete`);
     } else {
       log(`\nPAUSED: ${pauses.length} external seats are waiting (answer each, in any order):`);
-      for (const p of pauses) log(`  ${p.label}:  prompt ${join(runDir, `NEEDS-${p.label}.md`)}  ->  answer ${join(runDir, `${p.label}.md.partial`)}, renamed to ${p.label}.md when complete`);
+      for (const p of pauses) log(`  ${p.label}:  ${p.repair ? 'repair request' : 'prompt'} ${join(runDir, `NEEDS-${p.label}.md`)}  ->  answer ${join(runDir, `${p.label}.md.partial`)}, renamed to ${p.label}.md when complete`);
     }
     log(memberNotice ? `  resume:  ${memberResumeCommand(memberNotice, councilCommand())}   (${memberWho(memberNotice, null)}; a tree member is resumed only by its tree)` : `  resume:  ${councilCommand()} --resume runs/${runId}`);
+    if (budgetFinishNow) log(`  your --finish-now is on record: after the answer, resume as usual and the run ends without asking for a limit (to raise the limit instead, resume with --raise-cap).`);   // WORDING LAD-B12
     finalState();
     process.exit(3);
   }
@@ -3914,11 +4789,84 @@ ${memberStopContinue(memberNotice, 'truncated')}` : `To continue: raise that sea
     finalState();
     process.exit(EXIT_DEGRADABLE);
   }
+  if (budgetFinishNow && (err instanceof NotRunForLimit || err instanceof BudgetExceeded)) {
+    // 0.8.4 (--finish-now at a spending stop; C&C 10 Nov: never a second budget stop). Two ways to get here: a call BEFORE the review rounds would bill (a stage the run folder no longer holds; NotRunForLimit), or a kept limit fired in this sitting (BudgetExceeded: a call
+    // escaped invoke()'s own stop; the cap refused it before any reservation). Neither writes a stop: the stop files were not set aside (they go only when the run ended), so the run is exactly as it was stopped, nothing was sent, and the person is told what is still open.
+    console.error(`\n${err instanceof NotRunForLimit ? finishNowBeforeRounds(err.label, runDir) : finishNowLimitFired(err.label, runDir)}`);   // WORDING LAD-B2b, LAD-B10
+    finalState();
+    process.exit(4);
+  }
   if (err instanceof BudgetExceeded) {
     // Deliberately NO report.json and NO deliverable.md: a run folder that
     // carries those reads as a finished run everywhere else in this codebase.
     // What lands instead says plainly that the run stopped short.
     const state = budgetState();
+    // Unit 4b2: a stop at ONE per-provider cap (err.capName, with the caps armed). err.spent and err.cap are that cap's; the run total is written beside them, never
+    // mixed into the cap's figure (no Math.max with the run total). Continuing such a run is the resume unit's (4c): the stop says so instead of offering a command.
+    const capStop = err.capName && capsArmed.length ? (state.caps?.[err.capName] ?? null) : null;
+    if (capStop) {
+      err.spent = Math.max(err.spent || 0, capStop.spent);   // money path #1, per cap: the cap's spend after the in-flight siblings settled
+      const capAssumed = capStop.assumed?.usd || 0;
+      const capSpent = Math.max(0, err.spent - capAssumed);
+      const runSpent = Math.max(0, state.spent - (state.assumed?.usd || 0));
+      const capFloor = capSpent + capAssumed;   // unit 4c1: the raise's floor and the suggestion's base are this cap's own figures, never the run total
+      const capSmallest = resumeCeilingUsd({ cap: err.cap, spent: capFloor, projected: err.projected, gate: err.gate });
+      writeFileSync(join(runDir, 'STOPPED-budget.json'), JSON.stringify({
+        stoppedAt: err.label, seat: err.seat, spentUsd: runSpent, capName: err.capName, capUsd: err.cap, capSpentUsd: capSpent, ...(capAssumed > 0 ? { capAssumedUsd: capAssumed } : {}),
+        projectedStageUsd: err.projected, gateStageUsd: err.gate, ...assumedAtWorstCase(state), ...(err.phase ? { phase: err.phase } : {}),
+        note: err.retryRefused ? 'Stopped before the retry of the stage above was sent: its first attempt was paid for and is counted.' : 'Stopped before the stage above was paid for.',
+      }, null, 2));
+      let capPartial = false;
+      if (err.partial) {
+        if (!err.partial.stop && !memberNotice) err.partial.stop = budgetStopObjectOf(err);   // a tree member's partial report is written exactly as before: no stop object
+        try { writeAtomic(join(runDir, PARTIAL_REPORT_FILE), JSON.stringify(partialReportJsonShape({ stoppedBy: 'budget', stoppedAtStage: err.label, ...reportArgsFor(err.partial) }), null, 2)); const pb = renderPartialBoardMd({ runId, result: err.partial, stoppedAtStage: err.label }); if (pb) writeFileSync(join(runDir, PARTIAL_BOARD_FILE), pb); capPartial = true; } catch (e) { log(`  (${PARTIAL_REPORT_FILE} not written: ${e?.message || e})`); }
+      }
+      // A-DRAFT (unit 4b2): the stop names the cap
+      // A tree member never reaches this branch today (with the caps switch on, src/caps.js refuses a member's start and its resume, exit 19), but the member
+      // text goes through memberStopContinue like every other STOPPED-*.md writer (test/tree-member-stops.test.js), so the branch cannot ship a bare --resume.
+      writeFileSync(join(runDir, 'STOPPED-budget.md'), `# Run stopped: the ${err.capName} spend cap reached
+
+${err.retryRefused ? `This run stopped **inside** stage \`${err.label}\` (${err.seat}): its first attempt was paid for and is counted,
+and the retry at a bigger cap was not sent.` : `This run stopped **before** stage \`${err.label}\` (${err.seat}) was called, so that stage was
+never paid for.`}
+
+- spent so far through ${err.capName}: **${formatUsd(capSpent)}**
+- the ${err.capName} cap: **${formatUsd(err.cap)}**
+- spent by the whole run: **${formatUsd(runSpent)}**
+- that stage could have cost up to: **${formatUsd(err.projected)}**
+${capPartial ? `- what the run has so far, as data: \`${PARTIAL_REPORT_FILE}\` (same shape as report.json, \`partial: true\`)\n` : ''}
+Stage cost is projected as the whole prompt billed as input plus the seat's entire \`maxTokens\`
+budget billed as output, so the real cost would very likely have been lower. The ceiling is
+checked against a call's expected cost; only a call with no expected size and an answer-back call are
+checked against this worst case.
+
+${memberNotice ? `## Continue it
+
+Every completed stage is on disk and replays for free, so resuming only pays for what is left.
+
+${memberStopContinue(memberNotice, 'budget')}` : `## Continue it
+
+Every completed stage is on disk and replays for free, so resuming only pays for what is left. The run asks for a new total for the ${err.capName} cap, above ${formatUsd(capFloor)} (what it has counted through ${err.capName}); the smallest total that lets the next call to a model be sent is ${formatUsd(capSmallest)}:
+
+Relayed by the handler session, with the person's words:
+
+    ${councilCommand()} --resume runs/${runId} --raise-cap ${err.capName} --relayed
+
+Typed by the person at a terminal:
+
+    ${councilCommand()} --resume runs/${runId}
+${finishNowScreen({ command: councilCommand(), runId, phase: err.phase, hasHandoff: Boolean(config.handoff) })}`}`);
+      log(err.retryRefused ? `\nSTOPPED: the ${err.capName} spend cap reached before the retry of stage "${err.label}".` : `\nSTOPPED: stage "${err.label}" would pass the ${err.capName} spend cap, so it was not called.`);   // A-DRAFT
+      log(`  spent:   ${formatUsd(capSpent)} through ${err.capName}, of its ${formatUsd(err.cap)} cap`);
+      log(`  stage:   ${err.seat} could cost up to ${formatUsd(err.projected)}`);
+      log(`  detail:  ${join(runDir, 'STOPPED-budget.md')}`);
+      if (capPartial) log(`  so far:  ${join(runDir, PARTIAL_REPORT_FILE)}`);
+      log(memberNotice ? `  resume:  ${memberTopUpCommand(memberNotice)}, then ${memberResumeCommand(memberNotice)}   (${memberWho(memberNotice, null)}; a tree member is resumed only by its tree)` : `  resume:  ${councilCommand()} --resume runs/${runId} --raise-cap ${err.capName} --relayed   (the handler session relays the person's new ${err.capName} total, above ${formatUsd(capFloor)})`);   // A-DRAFT
+      if (!memberNotice) log(`  or:      ${councilCommand()} --resume runs/${runId}   (the person types the new ${err.capName} total at a terminal)`);   // A-DRAFT
+      if (!memberNotice && (err.phase === 'loop' || err.phase === 'after')) log(`  or:      ${councilCommand()} --resume runs/${runId} --finish-now   (ends the run here at no cost; see ${join(runDir, 'STOPPED-budget.md')})`);   // WORDING LAD-B1b
+      finalState();
+      process.exit(4);
+    }
     // Money path #1: the budget after the in-flight siblings settled, not err.spent from the moment
     // the cap was hit (see writeSideRunBudgetStop).
     err.spent = Math.max(err.spent || 0, state.spent);
@@ -3928,14 +4876,17 @@ ${memberStopContinue(memberNotice, 'truncated')}` : `To continue: raise that sea
       spentUsd: stoppedSpentUsd(err, state),
       capUsd: err.cap,
       projectedStageUsd: err.projected,
+      gateStageUsd: err.gate,
       ...assumedAtWorstCase(state),
-      note: 'Stopped before the stage above was paid for. Completed stages are on disk and replay for free on resume.',
+      ...(err.phase ? { phase: err.phase } : {}),   // 0.8.4 S16 (F): before | loop | after the review rounds
+      note: err.retryRefused ? 'Stopped before the retry of the stage above was sent: its first attempt was paid for and is counted. On resume this stage starts over; completed stages are on disk and replay for free.' : 'Stopped before the stage above was paid for. Completed stages are on disk and replay for free on resume.',
     }, null, 2));
     // report-partial.json (0.7.7): the run so far as data, in report.json's shape plus partial: true,
     // so a run capped after many rounds can be read without rebuilding it from its stage files. Its
     // own name, because report.json means "finished". Writing it must never mask the stop itself.
     let partialWritten = false;
     if (err.partial) {
+      if (!err.partial.stop && !memberNotice) err.partial.stop = budgetStopObjectOf(err);   // a tree member's partial report is written exactly as before: no stop object
       try {
         writeAtomic(join(runDir, PARTIAL_REPORT_FILE), JSON.stringify(partialReportJsonShape({
           stoppedBy: 'budget', stoppedAtStage: err.label, ...reportArgsFor(err.partial),
@@ -3949,8 +4900,9 @@ ${memberStopContinue(memberNotice, 'truncated')}` : `To continue: raise that sea
     }
     writeFileSync(join(runDir, 'STOPPED-budget.md'), `# Run stopped: per-run spend cap reached
 
-This run stopped **before** stage \`${err.label}\` (${err.seat}) was called, so that stage was
-never paid for.
+${err.retryRefused ? `This run stopped **inside** stage \`${err.label}\` (${err.seat}): its first attempt was paid for and is counted,
+and its retry (the same stage with a bigger allowance for the call) was not sent: the run's spending limit would not cover it.` : `This run stopped **before** stage \`${err.label}\` (${err.seat}) was called, so that stage was
+never paid for.`}
 
 - spent so far: **${formatUsd(stoppedSpentUsd(err, state))}**
 - ceiling: **${formatUsd(err.cap)}**
@@ -3958,13 +4910,9 @@ never paid for.
 ${partialWritten ? `- what the run has so far, as data: \`${PARTIAL_REPORT_FILE}\` (same shape as report.json, \`partial: true\`)\n` : ''}
 Stage cost is projected as the whole prompt billed as input plus the seat's entire \`maxTokens\`
 budget billed as output, so the real cost would very likely have been lower. The ceiling is
-enforced against the worst case on purpose.
+checked against a call's expected cost; only a call with no expected size and an answer-back call are checked against this worst case.
 
-${config.advise?.enabled ? `## Ask again
-
-An advice call is never continued: its approval is used up by the start, so a stopped call is asked again with a new quote (\`council_quote\`), or with a higher \`--max-usd\` if you
-started it at the terminal. Nothing was spent by the stopped stage.
-` : memberNotice ? `## Continue it
+${memberNotice ? `## Continue it
 
 Every completed stage is on disk and replays for free, so resuming only pays for what is left.
 
@@ -3973,67 +4921,50 @@ ${memberStopContinue(memberNotice, 'budget')}` : `## Continue it
 Every completed stage is on disk and replays for free, so resuming only pays for what is left:
 
 ${budgetStopContinue(err, state, runId, config)}
-`}`);
-    log(`\nSTOPPED: per-run spend cap reached before stage "${err.label}".`);
+${finishNowScreen({ command: councilCommand(), runId, phase: err.phase, hasHandoff: Boolean(config.handoff) })}`}`);
+    log(err.retryRefused ? `\nSTOPPED: per-run spend cap reached before the retry of stage "${err.label}".` : `\nSTOPPED: per-run spend cap reached before stage "${err.label}".`);
     log(`  spent:   ${spentWords(err, state)} of ${formatUsd(err.cap)} ceiling`);
     log(`  stage:   ${err.seat} could cost up to ${formatUsd(err.projected)}`);
     log(`  detail:  ${join(runDir, 'STOPPED-budget.md')}`);
     if (partialWritten) log(`  so far:  ${join(runDir, PARTIAL_REPORT_FILE)}`);
-    log(config.advise?.enabled ? '  an advice call is not resumed and its approval is used up: ask for a new quote (or start it again with a higher --max-usd).' : memberNotice ? `  resume:  ${memberTopUpCommand(memberNotice)}, then ${memberResumeCommand(memberNotice)}   (${memberWho(memberNotice, null)}; a tree member is resumed only by its tree)` : chainIsPaid(config) ? `  resume:  ${councilCommand()} --resume runs/${runId}   (asks for a new total above ${formatUsd(err.spent || 0)})` : `  resume:  ${councilCommand()} --resume runs/${runId} --max-usd <higher>`);
+    log(memberNotice ? `  resume:  ${memberTopUpCommand(memberNotice)}, then ${memberResumeCommand(memberNotice)}   (${memberWho(memberNotice, null)}; a tree member is resumed only by its tree)` : chainIsPaid(config) ? `  resume:  ${councilCommand()} --resume runs/${runId}   (asks for a new total above ${formatUsd(err.spent || 0)})` : `  resume:  ${councilCommand()} --resume runs/${runId} --max-usd <higher>`);
+    if (!memberNotice && (err.phase === 'loop' || err.phase === 'after')) log(`  or:      ${councilCommand()} --resume runs/${runId} --finish-now   (ends the run here at no cost; see ${join(runDir, 'STOPPED-budget.md')})`);   // WORDING LAD-B1b
     finalState();
     process.exit(4);
   }
   if (err instanceof SecretShapedPrompt) {
     // Model output or the chain's own prompt text, not an input file (those were scanned before the
     // run started): the prompt of this stage holds a key shape. Nothing was sent.
-    const where = err.findings.map(f => `- ${f.part} prompt, line ${f.line}: ${f.name}`).join('\n');
-    writeFileSync(join(runDir, 'STOPPED-secret.md'), `# Run stopped: a credential-shaped string in a prompt
-
-Stage \`${err.label}\` was about to be sent with text shaped like a key (the value is not repeated here):
-
-${where}
-
-Nothing was sent for this stage. The input files were scanned before the run started (for these distinctive key formats and
-the generic shapes), so this text came from an earlier stage's output or the chain itself. Completed stages are on disk and replay for free.
-${memberNotice ? `Read \`${err.label}\`'s inputs.
-
-${memberStopContinue(memberNotice, 'secret')}` : `Read \`${err.label}\`'s inputs, then either fix the cause and resume, or resume with
-\`--allow-secret-shaped\` to send it deliberately:
-
-    ${councilCommand()} --resume runs/${runId} --allow-secret-shaped
-
-The JS API has no override (removed in 0.8.3): a person runs the command above at a terminal.
-`}`);
-    log(`\nSTOPPED: ${err.message}.`);
+    // 0.8.4 (Muad 8 Nov 2026: "It should pause not stop"): a run PAUSES here (src/secret-pause.js): resumable, not ended, and only the person's `--continue` at a terminal sends the stage. An ADVICE call
+    // is never resumed (its approval is used up), so it ends, as at the budget stop above, and its marker names no resume line. A tree MEMBER keeps its old stop and its tree command. Exit 11 and
+    // STOPPED-secret.md stay for every form: old readers (spend, handoff-from-run, run_status) still find them.
+    const pausing = !memberNotice;
+    writeFileSync(join(runDir, 'STOPPED-secret.md'), memberNotice ? secretMemberStopText(err, memberStopContinue(memberNotice, 'secret'))
+        : secretPauseText(err, { runId, command: councilCommand(), ending: err.phase === 'loop' ? (() => { const e = secretEndingOf(config, { typedReads: ladderTypedReads(roundChoices) }); return e ? secretEndingSentence(e) : null; })() : null }));
+    // The pause record is written AFTER the marker and only when it is a whole secret-stop/1 file with value hashes; a record that cannot be written leaves the old shape (marker only), which fails closed.
+    if (pausing) { try { writeAtomic(join(runDir, SECRET_STOP_FILE), `${JSON.stringify(secretStopRecord(err), null, 2)}\n`); } catch (e) { log(`  (${SECRET_STOP_FILE} not written: ${e?.message || e})`); } }
+    log(`\n${pausing ? 'PAUSED' : 'STOPPED'}: ${err.message}.${pausing ? ' The run is waiting for your choice.' : ''}`);
     for (const f of err.findings) log(`  ${f.part} prompt, line ${f.line}: ${f.name}`);
-    log(`  detail:  ${join(runDir, 'STOPPED-secret.md')}`);
+    if (pausing) log(`  choose:  ${councilCommand()} --resume runs/${runId} --continue, at a terminal`);
+    if (pausing && isExcerptLabel(err.label)) log(`  or:      ${councilCommand()} --resume runs/${runId} --drop-excerpt, at a terminal`);   // WORDING D38-w7
+    log(`  detail:  ${join(runDir, SECRET_MARKER_FILE)}`);
     // 0.8.1 FX-7: state.json at rest says the run stopped, like every other stop exit.
     finalState();
     process.exit(EXIT_PII_BLOCKED);
   }
-  // 18 Okt 2026 (Muad: "judge refused for its price should fail the whole call and tell the user about it, instead of sending half a call"; C&C PASS, gate note m7/A_Advice_Refusal_Fails_Whole_Call_Gate_Note.md): an ADVICE call whose seat OpenRouter refused
-  // at its price pin ends here, FAILED and whole (exit 16), with nothing delivered and nothing resumable. The paid calls of the wave are recorded (settleAll waited for every sibling); the sentence names them and the folder they sit in.
-  // Not a stop: no STOPPED-<cause>.json marker, no report-partial.json (writing one would deliver half a call). A run (adviceOn false) still stops at exit 24 above.
-  const adviceRefusal = adviceOn && err instanceof PriceRefused;
-  if (adviceRefusal) {
-    const spentUsd = recordedSpentOf();
-    const callsPaid = usageSpendOf(runDir).stages;
-    err.noSkip = 'an advice call is not resumed';   // the clause priceRefusedWords splices into "(..., so it cannot be skipped.)", in the words of an advice call
-    err.adviceFailure = { runPath: join('runs', basename(runDir)), spentUsd, callsPaid };
-    err.message = priceRefusedAdviceFailureWords(err, { runPath: err.adviceFailure.runPath, spent: formatUsd(spentUsd), callsPaid });
-  }
   // A denied model is a lint failure (exit 1), found at run time instead of by chain-lint.
   const denied = err instanceof DeniedModel;
-  writeFileSync(join(runDir, 'STOPPED-error.md'), adviceRefusal ? `# Advice call failed: a seat was refused at its price limit
-
-${err.message}
-
-No report.json, report-partial.json or deliverable.md was written: nothing is delivered from a failed advice call, and an advice call is not resumed.
-` : `# Run stopped: ${denied ? 'a denied model' : 'an error'}
+  // 0.8.4 S16 (K; D32, T21r, T21bb; WORDING S16-w57/w58): a failed run on a chain with a final read says the final read has not run. No paid call is made on this path; the flag is read from the run folder (no final-read stage file) and the chain.
+  const finalReadOwed = !denied && (() => { try { return finalReadGate(config) && !readdirSync(runDir).some(f => /^final-read-.+\.md$/.test(f)); } catch { return false; } })();
+  const owedLayer = (() => { const l = Math.max(...(config?.seats?.critics ?? []).map(c => c.layer).filter(Number.isInteger)); return Number.isFinite(l) ? `layer ${l}` : 'the top layer'; })();
+  const owedSentence = finalReadOwed ? `The final read of ${owedLayer} has not run yet: it is still owed, and this run cannot end before it has run.` : '';
+  writeFileSync(join(runDir, 'STOPPED-error.md'), `# Run stopped: ${denied ? 'a denied model' : 'an error'}
 
 ${err?.message || String(err)}
 
-No report.json or deliverable.md was written, so this run does not read as finished. Completed
+${owedSentence ? `${owedSentence}
+
+` : ''}No report.json or deliverable.md was written, so this run does not read as finished. Completed
 stages are on disk and replay for free${memberNotice ? '.' : ': fix the cause, then'}
 
 ${memberNotice ? memberStopContinue(memberNotice, 'error') : `    ${councilCommand()} --resume runs/${runId}
@@ -4042,28 +4973,54 @@ ${memberNotice ? memberStopContinue(memberNotice, 'error') : `    ${councilComma
   // succeed (a provider that was down or rate-limiting) or will fail the same way (a guard, a lint).
   writeFileSync(join(runDir, 'STOPPED-error.json'), JSON.stringify({
     exitCode: denied ? 1 : EXIT_RUN_FAILED,
-    kind: denied ? 'denied_model' : adviceRefusal ? 'price_refused' : 'error',
+    kind: denied ? 'denied_model' : 'error',
     name: err?.name || 'Error',
-    message: adviceRefusal ? String(err.message) : String(err?.message || err).slice(0, 500),   // the refusal sentence is longer than 500 characters and is read back whole (MCP)
-    ...(adviceRefusal ? { seats: refusedSet(err).map(e => e.seat), ...err.adviceFailure } : {}),
+    message: String(err?.message || err).slice(0, 500),   // the refusal sentence is longer than 500 characters and is read back whole (MCP)
     ...(Number.isInteger(err?.status) ? { httpStatus: err.status } : {}),
     transient: !denied && isRetryable(err ?? {}),
     maybeBilled: err?.maybeBilled === true,
+    ...(finalReadOwed ? { final_read_owed: true } : {}),   // S16 (K, C&C 09 Nov): additive; absent unless the final read is still owed
+    ...(denied ? {} : { causeClass: causeClassOf(err) }),   // 0.8.4 S6-02 (additive): transport / http_status / provider_body / unreadable_reply / other, from the error's flags only; `transient` keeps its meaning
+    ...(denied ? {} : failureFactsOf(err)),   // 0.8.4 S6-01 (additive): `cause` (the error chain as tokens), `host`, `providerCode`: only what the failure said about itself
   }, null, 2));
   appendFileSync(logPath, `${err?.stack || String(err)}\n`);
-  log(`\nSTOPPED: ${denied ? 'a denied model' : 'the run failed'} - ${err?.message || String(err)}`);
+  log(`\nSTOPPED: ${denied ? 'a denied model' : 'the run failed'} - ${err?.message || String(err)}${!denied && failureFactsOf(err).cause ? ` (cause: ${failureFactsOf(err).cause})` : ''}`);
+  if (finalReadOwed) log(`  the final read of ${owedLayer} has not run yet: it is still owed.`);
   log(`  detail:  ${join(runDir, 'STOPPED-error.md')}`);
   finalState();
   process.exit(denied ? 1 : EXIT_RUN_FAILED);
 }
 
+if (budgetFinishNow) {
+  // 0.8.4 (--finish-now at a spending stop): the sitting ended the run, so the stop files are set aside now (kept as stop-NNNN.json), and the report carries each limit that was kept in force with what was counted against it.
+  clearStopRecords();
+  result.spendingFinish = { phase: budgetFinishNow.phase, label: budgetFinishNow.label, ...(budgetFinishNow.capName ? { cap_name: budgetFinishNow.capName } : {}), ...(budgetFinishNow.relayed || budgetFinishNow.relayedMark === true ? { relayed: true } : {}) };   // the person's finish at a spending stop, in every phase (phase after makes no stop): the accept check reads it
+  const st = budgetState();
+  result.keptLimits = capsArmed.length
+    ? capsArmed.map(id => ({ cap_name: id, limit_usd: capsLimits[id], spent_usd: Math.round(recordedSpentOf(st.caps?.[id] ?? { spent: 0 }) * 1e6) / 1e6 }))
+    : (maxUsdEff !== null ? [{ cap_name: null, limit_usd: maxUsdEff, spent_usd: Math.round(recordedSpentOf(st) * 1e6) / 1e6 }] : []);
+}
 writeFileSync(join(runDir, 'deliverable.md'), result.deliverable);
+if (typeof result.scopeLedger === 'string') writeFileSync(join(runDir, SCOPE_LEDGER_FILE), result.scopeLedger);   // beside deliverable.md, written the same way: the Scope ledger is not part of the plan (src/scope-ledger.js)
 // 0.8.3 M3 (PLAN 5.3): a plan that holds a marked split block gets the $0 block-local result recorded as the additive report.json field `split_contract`. It never changes `passed`, calls no model and is read from the
 // model-written BODY (without the harness's notes above it). A defect in this report-only field must never lose a finished run's report, so a failure here leaves the field out (the tree re-checks at expansion).
 try {
   const planBody = bodyOfDelivered(result.deliverable, result.deliveredText);
   if (planBody.body !== undefined) { const sc = splitContractOf({ text: planBody.body, criteriaIds: criterionIds(result.criteria) }); if (sc) result.splitContract = sc; }
 } catch (e) { log(`  split_contract: not recorded (${e?.message || e})`); }
+// 0.8.4 D15 / D33 (plan A l.22): the two information checks of the plan's own body (src/plan-checks.js): their findings go to WARNINGS.md and to the additive report.json field `plan_checks`. Asked for by lane A's words (null while they are unrecorded: nothing is written).
+// The body is read through gapPlanOf (no second reader of the delivered file). A defect in a report-only field must never lose a finished run's report, so a failure here leaves the field and the lines out. Never changes `passed`, the exit code or any text.
+try {
+  const planChecks = planChecksOf({ plan: gapPlanOf(result.deliverable, result.deliveredText), task: rawTaskTextForCacheFingerprint, excerpts: excerptIdSetsOf(liveExcerpts(readExcerpts(runDir).entries)), disputePassRan: result.dispute?.ran === true });
+  if (planChecks) {
+    result.planChecks = planChecks;
+    const lines = planCheckLines(planChecks);
+    if (lines.length) {
+      if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
+      appendFileSync(join(runDir, 'WARNINGS.md'), lines.join(''));
+    }
+  }
+} catch (e) { log(`  plan_checks: not recorded (${e?.message || e})`); }
 if (result.proposalPool?.length && result.proposalPool.length > result.proposals.length) {
   writeFileSync(join(runDir, 'proposals-pool.md'), `# Every proposal every lab wrote (${result.proposalPool.length}); "kept" ones went to the builder\n\n` + result.proposalPool.map(p =>
     `## ${p.kept ? 'KEPT' : 'dropped'} - ${p.lab}/${p.model}, attempt ${p.attempt}\n**Title:** ${p.title}\n**Serves:** ${p.serves}\n**What:** ${p.what}\n**Why:** ${p.why}\n**How:** ${p.how}\n**Acceptance test:** ${p.acceptance_test}`).join('\n\n'));
@@ -4071,8 +5028,8 @@ if (result.proposalPool?.length && result.proposalPool.length > result.proposals
 // §5 (v3 plan): declined objections are a first-class record, never part of the deliverable text
 // itself, so they get their own section wherever the board already lives - the same file that
 // already lists proposals and debate posts (or a standalone one, if no debate happened this run).
-if (adviceOn) result.adviseRecord = { ...adviceReportExtra({ config, meta: adviceMeta, stages: result.stages }), brief_sha256: briefSha256 };
-const boardMd = renderBoardMd({ runId, result });
+// 0.8.4 unit 6 (D32): the money section of the finished run's board, read from the run folder (src/board-money.js); the partial boards pass none. Nothing paid is written between here and report.json.
+const boardMd = renderBoardMd({ runId, result, money: moneySectionOf({ runDir, stages: result.stages }) });
 if (boardMd) writeFileSync(join(runDir, 'BOARD.md'), boardMd);
 // The locked-criteria block (src/criteria-lock.js) is written by the harness after the model's text,
 // so the criteria a build session reads are the ones the run settled, and `council check-lock` can tell
@@ -4080,23 +5037,27 @@ if (boardMd) writeFileSync(join(runDir, 'BOARD.md'), boardMd);
 if (result.handoff) {
   // 0.8.2 item 4 (F1/F7): a harness-written banner above the model's text when the plan is not a clean sign-off (not signed, or degraded) or the delivered text is not the signed text (src/handoff-from-run.js
   // finishedState/partialBanner, the same wording `council handoff --from-run` uses). The lock block stays last and unmoved; the file's hash is recorded in report.json (handoff_text.file_sha256).
-  const handoffBanner = partialBanner({ state: finishedState({ passed: result.passed, outcome: computeOutcome(result), delivered_text: result.deliveredText }), draftName: 'deliverable.md', runId });
+  const handoffBanner = partialBanner({ state: finishedState({ passed: agreedOf(result), outcome: computeOutcome(result), delivered_text: result.deliveredText, ending_word: result.endingWord, nothing_open_at_once: finishedAtOnceNothingOpen(result), at_once: finishedAtOnceCase(result), top_signed: topSignedNotAgreed(result), nothing_stands: nothingStandsAtEnd(result) }), draftName: 'deliverable.md', runId });
   // 0.8.2 item 6b: the harness-written "Before you build" and "Replan triggers" (src/handoff-contract-text.js) go between the model's text and the lock block, which stays last.
   const checksHere = checksOf(result.criteria, result.criteriaKinds);
   // 0.8.2 item 6c: with handoff_contract.milestones on, the seat-written milestones are linted ($0): every criterion discharged by a milestone with a check. Findings never change `passed`.
   let milestoneGaps = [];
+  let handoffSeatText = result.handoff;   // the seat's text as it goes into HANDOFF.md (0.8.4 D29: its Status may be clamped; the stage file and the lint keep the seat's own words)
   if (config.handoff_contract?.milestones === true) {
-    const lint = lintMilestones({ text: result.handoff, criteriaIds: criterionIds(result.criteria) });
+    const lint = lintMilestones({ text: result.handoff, criteriaIds: criterionIds(result.criteria), planText: result.deliverable, plan: gapPlanOf(result.deliverable, result.deliveredText) });   // 0.8.4 slot H2-g (D17 T1.3): the plan's own body reaches the "Verify first" gap check (bodyDelivered, found by the record; never the harness notes above it)
     milestoneGaps = lint.findings;
-    result.handoffMilestones = { status: lint.status, milestones: lint.milestones.length, findings: lint.findings };
+    // 0.8.4 T2.5 (D29): after a run that did not agree, ready_for_build and partial are not Status values the handoff may carry until an acceptance is recorded (src/handoff-status.js, the matrix's Status column)
+    const clamp = clampStatus(result.handoff, statusAllowedOf(result.endingWord, { agreed: agreedOf(result) }));
+    handoffSeatText = clamp.text;
+    result.handoffMilestones = { status: lint.status, milestones: lint.milestones.length, findings: lint.findings, ...(clamp.original ? { status_set_by_harness: CLAMPED_STATUS } : {}) };
     if (lint.findings.length) {
       if (!existsSync(join(runDir, 'WARNINGS.md'))) writeFileSync(join(runDir, 'WARNINGS.md'), '# Warnings\n\n');
       appendFileSync(join(runDir, 'WARNINGS.md'), lint.findings.map(f => `- handoff_milestones: ${f.kind}: ${f.message}\n`).join(''));
     }
   }
-  const builderText = builderSection({ thin: thinContractOf({ taskText: rawTaskTextForCacheFingerprint, contextSha256, result }), runId, failures: checkFailuresOf(config), hasChecks: checksHere.some(Boolean), gaps: milestoneGaps });
+  const builderText = builderSection({ thin: thinContractOf({ taskText: rawTaskTextForCacheFingerprint, contextSha256, result }), runId, failures: checkFailuresOf(config), hasChecks: checksHere.some(Boolean), gaps: milestoneGaps, builderKind: builderKindOf(config) });   // 0.8.4 slot H2-r (D22)
   const taskText = builderTaskBlock(result.reviewNotes);
-  const handoffFile = handoffBanner + result.handoff.replace(/\s+$/, '') + '\n' + (builderText ? `\n${builderText}` : '') + (taskText ? `\n${taskText}` : '') + lockBlock(result.criteria, { runId, checks: checksHere });
+  const handoffFile = handoffBanner + handoffSeatText.replace(/\s+$/, '') + '\n' + (builderText ? `\n${builderText}` : '') + (taskText ? `\n${taskText}` : '') + lockBlock(result.criteria, { runId, checks: checksHere });
   writeFileSync(join(runDir, 'HANDOFF.md'), handoffFile);
   if (result.handoffText) result.handoffText = { ...result.handoffText, file_sha256: textSha256(handoffFile) };
 }
@@ -4148,15 +5109,8 @@ if (result.coldRead && (result.coldRead.status === 'not_judged' || (result.coldR
   if (toolsMd) appendFileSync(join(runDir, 'TOOLS.md'), `${toolsMd}\n`);
 }
 // Bug audit 2026-10-24 C-010: report.json IS the finished-run marker (`--resume` refuses a run that has one, run_status reads it as done), so it is written like the stop markers: temp file, fsync, rename. A kill or a full disk mid-write used to leave a torn file that read as finished and unreadable.
-writeAtomic(join(runDir, 'report.json'), JSON.stringify(reportJsonShape(reportArgsFor(result)), null, 2));
-finishAdviceLog('answered', result.advise);
-// 0.8.1 DR-8: an adopted call whose answer lists what is missing from the brief records it in its own gate ledger, after report.json,
-// so the next call's approval text says it follows a request for more material. A failed append is said, not swallowed; the next
-// call also reads report.json (moreMaterialRequested), so the line is not lost with it.
-if (adopt && (result.advise?.missing_from_brief || []).length) {
-  const mm = recordMoreMaterial(runDir, { items: result.advise.missing_from_brief.length });
-  if (!mm.ok) console.error(`note: the more_material_requested event could not be written to the gate ledger (${mm.code}: ${mm.message}); the next call reads report.json instead.`);
-}
+if (excerptChannelOn() && Array.isArray(result?.text_requests_left)) { try { recordUnaskedRequests({ runDir, left: result.text_requests_left }); } catch (e) { log(`  (requests nobody answered were not recorded: ${e?.message || e})`); } }   // 0.8.4 D18: before the report, so its excerpts entry counts them
+writeAtomic(join(runDir, 'report.json'), JSON.stringify((() => { const shaped = reportJsonShape(reportArgsFor(result)); const ex = excerptsReportEntry(runDir); return ex ? { ...shaped, excerpts: ex } : shaped; })(), null, 2));   // 0.8.4 D9: the record's count and hash, additive, present only when the run recorded an excerpt (schemas/report-v1.json `excerpts`)
 // v5 item 3: one last write now that report.json exists on disk, so `phase` in state.json
 // reflects `done` rather than staying on whatever it said mid-run (`deriveRunStatus` checks
 // report.json first; without this call, a completed run's state.json would show "running"
@@ -4176,21 +5130,29 @@ writeFileSync(join(runDir, 'RESUME.md'), generateResumeBrief({ runId, dir: runDi
 const t = result.totals;
 log(`\n---`);
 if (result.signoff) {
-  log(`panel:    ${result.signoff.map(s => `${s.provider}${s.signedOff === null ? ' ?' : s.signedOff ? ' ✓' : ' ✗'}`).join('  ')}`);
-  if (result.signoff.some(s => s.signedOff === null)) log(`          ? = no usable reply (truncated, malformed, or the lab was down), abstained - neither a pass nor an objection`);
+  const panelRows = result.signoff.filter(s => !s.cut);   // 0.8.4 --finish: a row marked `cut` is a cut-off layer's reply; the panel line shows who signed off
+  // 0.8.4 S4 (the M1-G1 verdict's named limit): a seat that STATED a pass (signedOff null, passed true) was heard; "?" is for a seat with no usable reply only
+  log(`panel:    ${panelRows.map(s => `${s.provider}${s.signedOff === null ? (s.passed === true ? ' (stated a pass)' : ' ?') : s.signedOff ? ' ✓' : ' ✗'}`).join('  ')}`);
+  if (panelRows.some(s => s.signedOff === null && s.passed !== true)) log(`          ? = no usable reply (truncated, malformed, or the lab was down), abstained - neither a pass nor an objection`);
 }
-if (result.advise) {
-  // An advice run: the verdict, how the seats stood, and where the dissent is recorded.
-  const av = result.advise;
-  log(`advice:   ${av.verdict.toUpperCase().replace('_', ' ')} - ${av.agreement}, ${av.seats_answered} of ${av.seats_asked} seat(s) answered${av.dissent.length ? `, ${av.dissent.length} position(s) on the record as dissent or split (deliverable.md)` : ''}`);
-} else {
-  log(`verdict:  ${result.passed
-    ? (computeOutcome(result) === 'degraded' ? DEGRADED_WORDS : result.signoff ? 'every lab on the panel signed off' : FIRST_WORDS)
-    : earlyFinishWords(result) ? 'finished early by the session, NOT agreement (the overseer layer said to finish; see report.json stop)' : 'stopped with open failures (see report.json)'}`);
+{
+  log(`verdict:  ${result.passed && finalReadBlocksAgreement(result.finalRead)
+    ? (finalReadObjected(result.finalRead) ? `NOT agreement: every layer had signed off on an earlier text, but a ${layerHyphen(runTopLayer(result))} objection to the final plan holds the sign-off (see report.json final_read)` : `NOT agreement: every layer had signed off on an earlier text, but not every ${layerHyphen(runTopLayer(result))} seat read the final plan (see report.json final_read)`)
+    : secretFinishWords(result) ? `${secretFinishWords(result)} (see report.json stop)`
+    : budgetFinishWords(result) ? `${budgetFinishWords(result)} (see report.json stop)`   // 0.8.4 S16 (F; WORDING S16-w60b)
+    : ownerPauseFinishWords(result) ? `${ownerPauseFinishWords(result)} (see report.json stop and pauses)`   // 0.8.4 (ladder unit, LAD-O6)
+    : endingWords(result) ? `${endingWords(result)} (see ending in report.json)`   // 0.8.4 S4, A-DRAFT: layer 3 signed off and the run does not end agreed
+    : agreedAfterEscalationWords(result) ? agreedAfterEscalationWords(result)   // an escalated sign-off the handler agreed
+    : result.passed
+    ? (computeOutcome(result) === 'degraded' ? DEGRADED_WORDS : result.signoff ? `every lab on the panel signed off${noBuildCheckWords(result) ? `; ${noBuildCheckWords(result)}` : ''}` : FIRST_WORDS)
+    : earlyFinishWords(result) ? 'finished early by the session, NOT agreement (the overseer layer said to finish; see report.json stop)' : result.escalated_signoff?.ladder ? `ladder sign-off: the top layer signed off in pass ${result.escalated_signoff.pass}; ${result.escalated_signoff.below.length === 1 ? 'layer' : 'layers'} ${result.escalated_signoff.below.join(', ')} ${result.escalated_signoff.below.length === 1 ? 'was' : 'were'} not asked in that pass, NOT agreement of the whole panel (see report.json escalated_signoff)` : result.escalated_signoff?.requested ? `top-layer sign-off: the top layer signed off on a pass that was asked to start at layer ${result.escalated_signoff.layer}; ${result.escalated_signoff.below.length === 1 ? 'layer' : 'layers'} ${result.escalated_signoff.below.join(', ')} ${result.escalated_signoff.below.length === 1 ? 'was' : 'were'} not asked in that pass, NOT agreement of the whole panel (see report.json escalated_signoff)` : result.escalated_signoff ? `escalated sign-off: the top layer signed off ${result.escalated_signoff.below.length ? (escalationTriggersOf(result.escalations).layer2_bound ? `after ${escalationCauseWords(result.escalations)} (${result.escalated_signoff.below.length === 1 ? 'layer' : 'layers'} ${result.escalated_signoff.below.join(', ')} ${result.escalated_signoff.below.length === 1 ? 'was' : 'were'} passed over)` : `after ${escalationCauseWords(result.escalations)} from layer ${result.escalated_signoff.below.join(', ')}`) : 'while a judge still raised objections an earlier ruling had closed'}, NOT agreement of the whole panel (see report.json escalations)` : finishedAtStopWords(result) ? (nothingStandsAtEnd(result) ? `stopped without agreement; ${finishedAtStopWords(result)} (see report.json)` : `stopped with open failures; ${finishedAtStopWords(result)} (see report.json)`) : (nothingStandsAtEnd(result) ? 'stopped without agreement (see report.json)' : 'stopped with open failures (see report.json)')}`);   // the escalated words: stall escalation, A-DRAFT; 0.8.4 L3, A-DRAFT: a stop the person finished says the top layer did not sign off A-DRAFT (0.8.4 round 1, A7-3: the first of the two `stopped ...` texts is the run finished at once with no objection open).
 }
-if (!result.passed && result.lastCritique?.failures?.length) {
-  log(`open:     ${result.lastCritique.failures.length} objection(s) for human review - the labs can be wrong, read the draft before acting on these`);
-  for (const f of result.lastCritique.failures) log(`  - ${f.lab ? `${f.lab}: ` : ''}${f.problem || f.criterion}`);
+if (result.finalRead?.ran) log(finalReadSummaryLine(result.finalRead));   // unit D, A-DRAFT: the handler acts on the terminal, so the closing statement is in the summary too
+const closedAtEnd = new Set((Array.isArray(result.dispute?.open_objections) ? result.dispute.open_objections : []).filter(o => o.closed_by === 'final_read').map(o => o.id));   // 0.8.4 S8 c3: the closing read closed these; the summary lists what still stands
+const openForReview = (result.lastCritique?.failures || []).filter(f => !(f.id && closedAtEnd.has(f.id)));
+if ((!result.passed || !agreedOf(result)) && openForReview.length) {
+  log(`open:     ${openForReview.length} objection(s) for human review - the labs can be wrong, read the draft before acting on these`);
+  for (const f of openForReview) log(`  - ${f.lab ? `${f.lab}: ` : ''}${f.problem || f.criterion}`);
 }
 if (result.scoreboard) {
   log(`labs:     ${result.scoreboard.labs.map(l => `${l.lab} ${l.accepted}/${l.proposed}`).join('  ')}  (accepted/proposed; "built" is yours to fill after the build session)`);
@@ -4203,11 +5165,14 @@ if (result.dropouts?.length) {
   appendFileSync(join(runDir, 'WARNINGS.md'), result.dropouts.map(d => `- dropout: ${d.lab}${d.model ? ` (${d.model})` : ''} produced nothing usable at ${d.stage} - ${d.reason}; the council went on without it\n`).join(''));
 }
 { const undeclared = undeclaredNoteOf(result.stages); if (undeclared) log(`answers:  ${undeclared}`); }   // harness (a) S5
-log(`tokens:   ${t.input} in, ${t.output} out, ${t.total} total`);
-log(`cost:     ${formatUsd(t.usd)}${t.unpriced.length ? ` (+ unpriced: ${t.unpriced.join(', ')})` : ''}${maxUsdEff === null ? '' : ` of ${formatUsd(maxUsdEff)} ceiling`}`);
+log(`tokens:   ${tokensLine(t)}`);
+log(`cost:     ${formatUsd(Number.isFinite(t.counted?.usd) ? t.counted.usd : t.usd)}${t.counted ? ' counted' : ''}${estimatedPartWords(t.counted?.estimatedUsd, formatUsd)}${t.unpriced.length ? ` (+ unpriced: ${t.unpriced.join(', ')})` : ''}${maxUsdEff === null ? '' : ` of ${formatUsd(maxUsdEff)} ceiling`}`);
 const boardWritten = !!boardMd;
 log(`output:   ${join(runDir, 'deliverable.md')}${result.handoff ? `  (+ HANDOFF.md${boardWritten ? ', BOARD.md' : ''})` : boardWritten ? '  (+ BOARD.md)' : ''}`);
 if (result.argued) log(`argued:   ${join(runDir, result.argued.file)}${result.argued.check.ok ? '' : '  (names things the run never had - see WARNINGS.md)'}`);
+// 0.8.4 item 6 (his "a": every run that delivers a plan and has a handling session, not-agreed ends included; C&C accepted the line, 10 Nov 2026): the handling session is told that it can add a summary and index of the plan. HELD (`handlerSummaryEndLine`, A-DRAFT WRR-s6): as shipped no line is printed. It is the LAST line before the gate below, so
+// run_status's lastLogLines (the last three lines of run.log) carries it to a session that reads the run through MCP, unless a security review's lines follow it.
+{ const endLine = held('handlerSummaryEndLine'); if (typeof endLine === 'function' && hasHandlingSession(config)) log(`summary:  ${endLine({ run: runDir })}`); }
 // Final security-review gate. Checked last, after every artifact (report.json, state.json, the
 // audit close, RESUME.md) is on disk, so a failed gate still leaves a complete, readable run
 // folder. Exit 7 = blocked, 8 = not judged; both are failures a caller must not treat as a pass.
@@ -4221,7 +5186,7 @@ if (result.security_review) {
   if (sr.gate === 'not_judged') process.exit(EXIT_SECURITY_NOT_JUDGED);
 }
 // Last of all, after every artifact and the security gate: the panel did not agree. `=== false` so a result with no verdict never gets it. A tree member keeps 0 (its record carries the outcome; src/tree-run.js reads exit 0 as "read the record"), and an advice call keeps 0 (its verdict word is its answer).
-if (result.passed === false && !result.advise && !treeLineage) process.exit(EXIT_NOT_AGREED);
+if (endsNotAgreed(result) && !treeLineage) process.exit(EXIT_NOT_AGREED);   // 0.8.4 S4: the shared predicate (src/ending.js): a recorded `ending` that is not agreed ends the run not agreed even though `passed` stays true;   // unit D: a layer-3 objection to the final plan ends an agreed run as not agreed
 
 }
 // end of the non-MCP path (see the --mcp branch at the top of this file)

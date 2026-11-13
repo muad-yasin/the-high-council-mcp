@@ -18,11 +18,11 @@ import { DEFAULT_PERSONAS as PERSONAS_DEFAULT, resolvePersona } from './personas
 // pending author review (v6 plan, Decisions left to the author) - the
 // enum itself, and the fact that it is closed, is not.
 export const LENSES = {
-  adversary: 'Argue against this proposal as its strongest opponent would. Find the case where it fails, not the case where it usually works.',
-  integrator: 'Judge this proposal by how it fits with everything else in the plan, not in isolation. Name what it would break or duplicate elsewhere.',
-  'long-horizon': 'Judge this proposal by what it costs to maintain a year from now, not by how it looks today. Name the maintenance burden it adds.',
-  'user-advocate': 'Judge this proposal by what the person actually using this experiences, not by what is convenient to build. Name where it makes their life harder.',
-  'security-and-legal': 'Judge this proposal for what it exposes, leaks, or obligates - data, keys, liability. Name the concrete exposure, not a general risk.',
+  adversary: 'Make the strongest case against this proposal that its details support. Look for a concrete situation in which it would fail.',
+  integrator: 'Check how this proposal fits with the rest of the plan. Identify any specific conflict or duplication you find.',
+  'long-horizon': 'Consider what maintaining this proposal would involve a year from now. Name any concrete maintenance burden it introduces.',
+  'user-advocate': 'Consider the proposal from the perspective of the person using it. Identify any step it would make harder for that person.',
+  'security-and-legal': 'Examine what this proposal would expose or put at risk, including data or keys, and what liability it would create. Identify any concrete exposure or obligation you find.',
 };
 
 // v6 phase 7 integration fix: this used to be a second, independently
@@ -64,6 +64,13 @@ export function validateSeatRole(role) {
 }
 
 /**
+ * Whether a persona-set entry is complete enough to be written into a prompt. Pre-release audit 2026-09-23 (personas #1): an operator's persona file entry missing `name` or `voice` rendered
+ * "undefined"/"null" into a live, paid debate prompt. Only a complete entry (both non-empty strings) gets the detailed form; anything else is treated like an unknown key. (One test, shared by
+ * applySeatRole and the report's persona_name, so the record cannot name a persona the prompt did not carry.)
+ */
+export const personaEntryUsable = resolved => !!resolved && [resolved.name, resolved.voice].every(v => typeof v === 'string' && v.trim());
+
+/**
  * The debate-stage system prompt for a seat, with its role (if any)
  * appended after the chain's own instructions. A seat with no role
  * produces `basePrompt` unchanged - not a copy with an empty suffix,
@@ -88,10 +95,7 @@ export function applySeatRole(basePrompt, role, personas = PERSONAS_DEFAULT) {
   if (role.lens && LENSES[role.lens]) blocks.push(LENSES[role.lens]);
   if (role.persona) {
     const resolved = resolvePersona(role.persona, personas);
-    // Pre-release audit 2026-09-23 (personas #1): an operator's persona file entry missing `name`
-    // or `voice` rendered "undefined"/"null" into a live, paid debate prompt. Only a complete entry
-    // (both non-empty strings) gets the detailed form; anything else is treated like an unknown key.
-    const usable = resolved && [resolved.name, resolved.voice].every(v => typeof v === 'string' && v.trim());
+    const usable = personaEntryUsable(resolved);
     const detail = usable ? ` (${resolved.name}). ${resolved.voice}` : '.';
     blocks.push(`You are arguing as ${role.persona}${detail} Let that voice and point of view shape how you argue, without changing what you are actually judging.`);
   }

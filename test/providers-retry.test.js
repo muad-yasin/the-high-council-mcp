@@ -40,7 +40,7 @@ test('a truncated or HTML 200 is not re-sent, and is marked maybeBilled', async 
 });
 
 test('a failure after sending (reset / headers timeout) is not retried; a refused connection is', async () => {
-  const fail = code => { const e = new TypeError('fetch failed'); e.cause = { code }; return e; };
+  const fail = code => { const e = new TypeError('fetch failed'); e.cause = { code, ...(code === 'ECONNREFUSED' ? { syscall: 'connect' } : {}) }; return e; };   // the observed shape of a refused connection carries its syscall
   await withStub(() => { throw fail('UND_ERR_HEADERS_TIMEOUT'); }, async ({ calls }) => {
     await assert.rejects(ask, err => err.maybeBilled === true);
     assert.equal(calls(), 1);
@@ -51,7 +51,9 @@ test('a failure after sending (reset / headers timeout) is not retried; a refuse
   });
 });
 
-test('429/5xx are still retried; Retry-After is honoured; no sleep after the final attempt', async () => {
+// 0.8.4 unit 0b: the adapter retries a 429 (and a failure before anything was sent) for itself, free; a 5xx means the request reached the provider, so the adapter throws it at once and invoke() sends it again with a
+// reservation, a settlement and a count of its own (test/http5xx-resend.test.js).
+test('a 429 is still retried inside the adapter, Retry-After honoured; a 5xx is thrown at once (invoke() sends it again, counted); no sleep after the final attempt', async () => {
   await withStub(n => n === 1 ? new Response('slow down', { status: 429, headers: { 'retry-after': '30' } }) : ok(reply), async ({ calls, sleeps }) => {
     assert.equal((await ask()).text, 'hi');
     assert.equal(calls(), 2);
@@ -59,7 +61,12 @@ test('429/5xx are still retried; Retry-After is honoured; no sleep after the fin
   });
   await withStub(() => new Response('down', { status: 503 }), async ({ calls, sleeps }) => {
     await assert.rejects(ask, err => err.status === 503 && !err.maybeBilled);
-    assert.equal(calls(), 3);
+    assert.equal(calls(), 1, 'a 5xx is not retried inside the adapter any more');
+    assert.equal(sleeps.length, 0);
+  });
+  await withStub(() => new Response('slow down', { status: 429 }), async ({ calls, sleeps }) => {
+    await assert.rejects(ask, err => err.status === 429);
+    assert.equal(calls(), 3, 'a 429 keeps its three tries');
     assert.equal(sleeps.length, 2, 'two waits between three tries, none after the last');
   });
   assert.equal(isRetryable({ status: 400 }), false);

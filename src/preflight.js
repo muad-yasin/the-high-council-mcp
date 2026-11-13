@@ -18,6 +18,7 @@
 // A semantic/LLM-based check that would catch the missed case is an explicit non-goal (§11):
 // it would add an API call and non-determinism to every run's start.
 import { parseFences } from './quote-check.js';
+import { ledgerOutOn } from './scope-ledger.js';
 export const TRIGGER_KEYWORDS = ['standalone', 'without a', 'no appended', 'publication-ready', 'self-contained'];
 
 /**
@@ -31,7 +32,8 @@ export const TRIGGER_KEYWORDS = ['standalone', 'without a', 'no appended', 'publ
  */
 export function requiredDeliverableSections(chainConfig) {
   const sections = [];
-  if (chainConfig?.proposals) sections.push('Scope ledger');
+  // The ledger is its own file once the switch is on (src/scope-ledger.js), so the deliverable no longer adds it and the criteria prompt stops announcing it.
+  if (chainConfig?.proposals && !ledgerOutOn()) sections.push('Scope ledger');
   return sections;
 }
 

@@ -48,3 +48,8 @@ Every item restates a SKILL.md rule in the form you'd catch it in review. The in
 - A live-session edit trusted as final; a handler invoked in code offered as proof of clickability; a single-viewport capture offered as proof of layout.
 
 Don't claim any check above as "in place" for a project unless it actually runs there.
+
+## 5. Two standards `SKILL.md` names, and how much of each was read
+
+- **Focus Appearance, WCAG 2.2 success criterion 2.4.13 (level AAA).** W3C's "Understanding" page for the criterion, read 2026-11-12: the page's title line with the level, the criterion's own text, its two exceptions and its three notes. The criterion asks for a focus indicator area at least as big as a perimeter two CSS pixels thick around the unfocused component, with a 3:1 contrast ratio between the focused and the unfocused rendering of the same pixels. It does not apply where the browser draws the indicator and the author cannot change it, or where the author changed neither the indicator nor its background.
+- **`NO_COLOR`.** The convention's own page at no-color.org, as it stood on 2026-11-12 (its statement of the convention and one FAQ answer were read, not its list of programs that follow it). It describes an informal standard proposed in 2017: a command-line program that adds ANSI color by default checks for a `NO_COLOR` environment variable and adds none when the variable is present and not an empty string. Its FAQ adds that a user's configuration file or a command-line argument should override the variable. It is a convention, not a specification.

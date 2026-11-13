@@ -240,3 +240,29 @@ test('E3b only call sites: every parseJson call that passes `expect` takes it fr
   assert.deepEqual(all.filter(h => !fromEnvelopeResult(h.args)).map(h => `${h.line}: ${h.args.slice(0, 80)}`), [], 'every one takes expect from withEnvelope\'s result');
   assert.match(readFileSync(chainPath, 'utf8'), /export function withEnvelope\(label, shownDraft, userText\) \{\n  if \(!envelopeInForce\(\)\) return \{ user: userText, expect: null \};/);
 });
+
+// ---- SG-4 (C&C, 4 Nov 2026; found by the M0 fix series' set, side-command-gate SG-4 handoff, an unlucky run): idsFromPrompt read `review_id\D{0,40}([0-9a-f]{12})` with a GREEDY gap, and the hex letters a-f are non-digits, so a review_id with NO digit let the gap run on through the closing quote, the comma and the name `draft_id` into the draft_id's value, which then came back as the review_id (e.g. review_id fbfbcccbaeec, draft_id b8a4ef88ab10 -> both read as b8a4ef88ab10). A mock critic then echoed the wrong pair and the run stopped with a wrong id. Mock only (idsFromPrompt is read by the mock provider alone); about one random id in 130,000 (6/16 to the 12th). The gap is lazy now: the first run of twelve hex characters after the name. ----
+const sectionWith = async ids => { const { verdictEnvelopeSection } = await import('../src/roles.js'); return `Plan text.\n\n${verdictEnvelopeSection(ids)}`; };
+test('SG-4: a review_id with no digit (and a draft_id with none, or both) is read as itself from the real envelope section, never as the draft_id', async () => {
+  const pairs = [
+    ['fbfbcccbaeec', 'b8a4ef88ab10'], ['faefdddedfbd', '89d99b8a6028'],   // the two pairs a random run produced
+    ['abcdefabcdef', 'abcdefabcdef'], ['aaaaaaaaaaaa', 'bbbbbbbbbbbb'], ['0123456789ab', 'cdefcdefcdef'], ['abc123abc123', 'def456def456'], ['a1b2c3d4e5f6', '0123456789ab'],
+  ];
+  for (const [review_id, draft_id] of pairs) assert.deepEqual(VE.idsFromPrompt(await sectionWith({ review_id, draft_id })), { review_id, draft_id }, `${review_id} / ${draft_id}`);
+});
+test('SG-4: a deterministic sweep of 20,000 pairs (the first 2,000 with a digit-free review_id) is read correctly from the real section and from the plain forms', async () => {
+  let x = 0x9e3779b9;   // xorshift32, fixed seed: the same pairs on every run
+  const next = () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x; };
+  const hex = noDigit => Array.from({ length: 12 }, () => { const v = next() % (noDigit ? 6 : 16); return '0123456789abcdef'[noDigit ? 10 + v : v]; }).join('');
+  const bad = [];
+  const { verdictEnvelopeSection } = await import('../src/roles.js');
+  for (let i = 0; i < 20000; i++) {
+    const review_id = hex(i < 2000), draft_id = hex(i % 7 === 0);
+    const texts = [`Plan text.\n\n${verdictEnvelopeSection({ review_id, draft_id })}`, `review_id: ${review_id}\ndraft_id: ${draft_id}`];
+    for (const t of texts) { const got = VE.idsFromPrompt(t); if (got?.review_id !== review_id || got?.draft_id !== draft_id) bad.push(`${review_id}/${draft_id} -> ${JSON.stringify(got)}`); }
+  }
+  assert.deepEqual(bad.slice(0, 3), [], `${bad.length} of 40000 reads were wrong`);
+});
+test('SG-4: the stated limit still holds (a digit within 40 characters before the value breaks the match); the last-match rule is the existing test above and stays green', () => {
+  assert.equal(VE.idsFromPrompt('review_id 7 aaaaaaaaaaaa draft_id bbbbbbbbbbbb'), null, 'a digit between the name and the value: no match');
+});

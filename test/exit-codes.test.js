@@ -54,6 +54,7 @@ test('exit-22 unit: 22 (ended, not agreed) and 23 (stopped for the person) live 
   assert.deepEqual([...codes.FINISHED_EXIT_CODES].sort((a, b) => a - b), [0, 7, 8, 22]);
   assert.equal(codes.FINISHED_EXIT_CODES.has(codes.EXIT_ROUND_STOPPED), false, '23 is a stop, not a finish');
   assert.equal(STATUS_OF_EXIT[codes.EXIT_ROUND_STOPPED], 'awaiting_choice', 'tree-resume maps the same 23');
+  assert.equal(STATUS_OF_EXIT[codes.EXIT_AWAITING_EXCERPT_APPROVAL], 'awaiting_choice', 'and 26 (a member stopped at an approval of excerpts) the same way, never crashed');
   const treeRun = readFileSync(join(root, 'src', 'tree-run.js'), 'utf8');
   assert.match(treeRun, new RegExp(`code === ${codes.EXIT_ROUND_STOPPED}\\) return result\\('awaiting_choice'`), 'tree-run reads the same 23 for a stopped member');
   for (const f of ['cli.js', join('mcp', 'server.js')]) {

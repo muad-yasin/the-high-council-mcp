@@ -45,14 +45,18 @@
 // Each check returns Array<{ id, message }> with a distinct `id` per failure so report.json.lints
 // stays machine-filterable (`ledger_id`, `bare_number`, `unresolved_fork`, `bad_acceptance_test`).
 
+import { ledgerIdFindings } from './scope-ledger.js';
+
 const SCOPE_LEDGER_HEADING = /^#{1,6}\s*Scope ledger\s*$/im;
 
 /**
  * @param {string} deliverable
  * @param {Array<{id: string}>} [proposals]
  */
-export function checkScopeLedger(deliverable = '', proposals = []) {
+export function checkScopeLedger(deliverable = '', proposals = [], scopeLedger) {
   if (!Array.isArray(proposals) || !proposals.length) return [];
+  // The ledger is its own file (src/scope-ledger.js, switch on): check that text, with the same findings the default check returns, so one problem is never reported twice.
+  if (typeof scopeLedger === 'string') return ledgerIdFindings(scopeLedger.split('\n'), proposals);
   const headingMatch = deliverable.match(SCOPE_LEDGER_HEADING);
   const ledgerText = headingMatch ? deliverable.slice(headingMatch.index) : '';
   const findings = [];
@@ -125,9 +129,9 @@ export function checkAcceptanceTests(deliverable = '') {
  * @param {{deliverable?: string, proposals?: Array, forks?: Array}} reportLike
  * @returns {Array<{id: string, message: string}>}
  */
-export function runLints({ deliverable = '', proposals = [], forks = [] } = {}) {
+export function runLints({ deliverable = '', proposals = [], forks = [], scopeLedger } = {}) {
   return [
-    ...checkScopeLedger(deliverable, proposals),
+    ...checkScopeLedger(deliverable, proposals, scopeLedger),
     ...checkBareNumbers(deliverable),
     ...checkForks(forks),
     ...checkAcceptanceTests(deliverable),

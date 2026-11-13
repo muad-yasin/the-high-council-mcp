@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { everySeatOf, everySeatSlotsOf } from '../src/chain.js';
 import { estimateChainRows } from '../src/cost.js';
 import { dryRunReport, seatKeyStatus } from '../src/dry-run.js';
+import { DEFAULT_MAX_USD } from '../src/default-cap.js';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
 import { readChainFile, installOutdatedChain } from './helpers/chain-file.js';
 
@@ -126,7 +127,7 @@ test('--task adds the task size, and a task larger than the chain assumes is pri
 test('the cap block reports the default cap and whether the worst case is above it', () => {
   const r = dry(['--chain', 'plan-premium-7']);
   const j = JSON.parse(r.stdout);
-  assert.equal(j.cap.defaultUsd, 7);
+  assert.equal(j.cap.defaultUsd, DEFAULT_MAX_USD);
   assert.equal(j.cap.worstCaseAboveDefault, true);
   const r2 = dry(['--chain', 'plan-premium-7', '--max-usd', 'none']);
   assert.equal(JSON.parse(r2.stdout).cap.defaultUsd, null);

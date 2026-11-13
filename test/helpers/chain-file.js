@@ -3,11 +3,12 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const chainFilePath = (root, name) => [join(root, 'chains', `${name}.json`), join(root, 'chains', 'outdated', `${name}.json`)].find(existsSync) ?? join(root, 'chains', `${name}.json`);
+// 0.8.4 (the add-on removal): test/fixtures/advice-chains/ holds one mock-only chain with an `advise` block (mock-advise-quick), a fixture for the refusal tests and not a shipped chain; the eight outdated advice chains are gone.
+export const chainFilePath = (root, name) => [join(root, 'chains', `${name}.json`), join(root, 'chains', 'outdated', `${name}.json`), join(root, 'test', 'fixtures', 'advice-chains', `${name}.json`)].find(existsSync) ?? join(root, 'chains', `${name}.json`);
 export const readChainFile = (root, name) => JSON.parse(readFileSync(chainFilePath(root, name), 'utf8'));
 
 // A retired chain copied into a project's own chains/ folder: exactly what the "no such chain" hint tells a person to do. The copy is a USER chain (not shipped), so use it only where the
-// test already owns a temp work folder and its assertion does not depend on shipped status; advice chains are never read from a project's chains/ (src/send-profiles.js).
+// test already owns a temp work folder and its assertion does not depend on shipped status; 
 export function installOutdatedChain(root, workDir, name) {
   mkdirSync(join(workDir, 'chains'), { recursive: true });
   copyFileSync(join(root, 'chains', 'outdated', `${name}.json`), join(workDir, 'chains', `${name}.json`));

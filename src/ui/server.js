@@ -12,6 +12,7 @@ import { parseSections, compareDrafts, parseLedger, words } from './parse.js';
 import { RUN_FOLDER } from '../run-status.js';
 import { verdictHeadline } from '../verdict-headline.js';
 import { createGuard, SECURITY_HEADERS, refusalBody } from './guard.js';
+import { agreedOf } from '../ending-matrix.js';   // 0.8.4 D1
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -39,7 +40,7 @@ function listRuns() {
       return {
         id, chain, task,
         finished: !!report,
-        passed: report?.passed ?? null,
+        passed: report ? agreedOf(report) : null,   // 0.8.4 D1: the matrix's agreed reading (the viewer's "signed off"); null while there is no report
         usd: report?.totals?.usd ?? null,
         words: deliverable ? words(deliverable) : null,
         proposals: report?.proposals?.length ?? 0,
@@ -85,6 +86,7 @@ function runDetail(id) {
     return { label: name.replace(/\.md$/, ''), name, words: words(text), tree: parseSections(text) };
   });
   const deliverable = readText(join(dir, 'deliverable.md'));
+  const ledgerFile = readText(join(dir, 'scope-ledger.md'));   // the Scope ledger kept apart from the plan (src/scope-ledger.js); absent in older runs
   const texts = {};
   for (const f of files) if (f.endsWith('.md') || f === 'run.log') texts[f] = readText(join(dir, f));
   // Panel verdicts per round, from the saved critic replies.
@@ -93,7 +95,7 @@ function runDetail(id) {
   const liveRows = (readJson(join(dir, 'state.json'))?.seats || []).filter(r => r && typeof r.lab === 'string' && (r.seat === undefined || typeof r.seat === 'string'));
   for (const f of files) {
     // A lab may hold a hyphen or a dot ("deepseek-v4.1-flash"), and a seat of a model repeated on another layer is "<lab>-l<layer>" (lab identity, 20 Okt 2026): the old [a-z0-9] pattern dropped both from the panel view. A re-ask file (-reaskN) is the same seat's second reply, not a row.
-    const m = (/-reask\d+\.md$/.test(f) ? null : f.match(/^panel-(\d+)-([a-z0-9][a-z0-9._-]*)\.md$/)) || f.match(/^critique-(\d+)\.md$/);
+    const m = (/-(?:reask\d+|solo)\.md$/.test(f) ? null : f.match(/^panel-(\d+)-([a-z0-9][a-z0-9._-]*)\.md$/)) || f.match(/^critique-(\d+)\.md$/);
     if (!m) continue;
     const round = m[1];
     // The lab shown is the bare lab the run RECORDED for that stage (report.json, or report-partial.json for a stopped run), never the seat key in the file name; only a run with neither yet (still going) falls back to the file-name part.
@@ -111,7 +113,7 @@ function runDetail(id) {
     } catch { /* unreadable, shown as such */ }
     // ROADMAP 83: the top layer's reply in the pass after a session's early-finish proposal answers a different question (finish now?), not the plan's sign-off: labelled, never hidden
     const es = report?.stop;
-    const early = es?.kind === 'early_finish' && String(es.pass) === round && Array.isArray(es.overseer) && es.overseer.includes(lab);
+    const early = es?.kind === 'early_finish' && String(es.pass) === round && Array.isArray(es.overseer) && (Array.isArray(es.overseer_seats) ? es.overseer_seats.includes(seatPart ?? lab) : es.overseer.includes(lab));   // by seat KEY when the report names the seats (a model on a lower layer and on the top layer is two seats)
     (panels[round] ||= []).push({ lab, ...(seatPart ? { seat: seatPart } : {}), file: f, parsed, ...(early ? { early: true } : {}) });
   }
   return {
@@ -121,7 +123,7 @@ function runDetail(id) {
     files,
     drafts: drafts.map(d => ({ label: d.label, name: d.name, words: d.words, tree: d.tree })),
     comparison: compareDrafts(drafts),
-    ledger: deliverable ? parseLedger(deliverable) : [],
+    ledger: deliverable || ledgerFile ? parseLedger(deliverable || '', ledgerFile ?? undefined) : [],
     panels,
     texts,
   };

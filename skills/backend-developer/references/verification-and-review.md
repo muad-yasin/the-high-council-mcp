@@ -32,6 +32,7 @@ A checklist worth running as a real pass, not a skim:
 - Is any secret, token, or credential present as a literal anywhere, including a test fixture or a log statement?
 - Does every new endpoint or job authorize the caller against the specific object on the server, and fail closed when that check errors?
 - Is every new dependency real, intended, pinned, and reviewed for what it pulls in?
+- Was a general library rule applied where the project's own configuration (compiler or framework mode, lint rules) already covers it? Then the rule is skipped, and the reason noted.
 
 ## A structural review pass, before calling work done
 
@@ -51,3 +52,25 @@ When a review produces an itemized, approved list of changes, **apply it by pars
 ## Don't describe instruments that aren't installed
 
 Never claim a check, test type, or tool as "current practice" unless it is actually wired into the project's suite. Describing an instrument that doesn't run as if it does is a silent-failure defect in prose instead of code. Proposals for new instruments, with honest costs, are in `generated-data-and-simulation.md`.
+
+## Before writing tests: name the seams
+
+List the boundaries the tests will cross (a pure function, a module with its store mocked, the real store, the real entry point) and write beside each what it catches and what it cannot. A test with the store mocked says nothing about the store; a test through the real entry point says little about a branch it never reaches. Agree the list before the first test, so a green suite is read for what it covers.
+
+## Receiving a review
+
+A finding is a claim: reproduce it against the code before acting on it, then fix it or decline it with the evidence (the general rule and the dispositions: `verification-and-critique`, Part 2). Before building the "proper" version a reviewer asks for, check who calls the thing today - a fuller version of something nothing uses is a just-in-case addition (SKILL.md rule 3).
+
+## Definition of done
+
+- [ ] Contract written (functions/endpoints, events + payloads, owned state)
+- [ ] Logic testable with no interface, server or external service running
+- [ ] Config has real defaults; no speculative fields; every number traced
+- [ ] Security baseline met for anything touching input, auth, dependencies or secrets
+- [ ] Persistence checklist run if anything persistent changed shape
+- [ ] Every call site of a changed contract found by tooling
+- [ ] Required checks ran (none skipped) and each could fail; quantities crossing a boundary carry unit and frame
+- [ ] Output artifacts and stored values read back, not trusted from a log
+- [ ] Every fix checked twice: the failure is gone, and the intended use still works (`verification-and-critique`, Part 1, item 9)
+- [ ] After a save, an export or a migration: the result loaded back and its counts compared with the source
+- [ ] Non-obvious design choices briefly explained

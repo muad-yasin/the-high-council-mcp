@@ -96,20 +96,23 @@ test('provider-array variant 1: extra.models (OpenRouter\'s real fallback field)
 
 test('provider-array variant 2: extra.plugins (Pareto Code Router\'s real configuration shape) is forwarded verbatim', async () => {
   const body = await capturedBody({ plugins: [{ id: 'pareto-router', min_coding_score: 0.8 }] }, 'openrouter/pareto-code');
-  assert.deepEqual(body.plugins, [{ id: 'pareto-router', min_coding_score: 0.8 }]);
+  assert.deepEqual(body.plugins, [{ id: 'pareto-router', min_coding_score: 0.8 }, { id: 'context-compression', enabled: false }], 'the seat\'s own plugin is forwarded verbatim; S16 (H) appends the entry that switches the router\'s prompt shortening off');
 });
 
 test('provider-array variant 3: extra.models and extra.plugins can both be set on the same seat at once - the adapter merges every extra key with no collision handling of its own', async () => {
   const body = await capturedBody({ models: ['fb/one'], plugins: [{ id: 'pareto-router' }] }, 'primary/model');
   assert.deepEqual(body.models, ['fb/one']);
-  assert.deepEqual(body.plugins, [{ id: 'pareto-router' }]);
+  assert.deepEqual(body.plugins, [{ id: 'pareto-router' }, { id: 'context-compression', enabled: false }]);
 });
 
 // --- The core finding this inventory exists to establish -------------------------------------
 
-test('finding: a plain-string-model seat with no extra produces a request body byte-identical to today\'s (no regression from this inventory existing)', async () => {
+test('finding (0.8.4 S16, H: OLD keys were model, messages, max_completion_tokens): a plain-string-model seat with no extra sends those keys and ONE more, `plugins`, which switches the router\'s prompt shortening off; a seat that names context-compression itself keeps its own entry', async () => {
   const body = await capturedBody(undefined, 'anthropic/claude-sonnet-5');
-  assert.deepEqual(Object.keys(body).sort(), ['max_completion_tokens', 'messages', 'model'].sort());
+  assert.deepEqual(Object.keys(body).sort(), ['max_completion_tokens', 'messages', 'model', 'plugins'].sort());
+  assert.deepEqual(body.plugins, [{ id: 'context-compression', enabled: false }]);
+  const own = await capturedBody({ plugins: [{ id: 'context-compression', enabled: true }] }, 'anthropic/claude-sonnet-5');
+  assert.deepEqual(own.plugins, [{ id: 'context-compression', enabled: true }]);
 });
 
 test('finding: the adapter performs no model selection, retry, or fallback logic of its own - it sends exactly one HTTP request per call() regardless of model/extra shape', async () => {

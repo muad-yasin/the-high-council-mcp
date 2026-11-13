@@ -14,7 +14,8 @@ import { knownProviderHosts, providersAtHost, isFreeProvider, isKeyOptional } fr
 
 // 2026-09-26, Muad: "Kimi K3 is not excluded completely from being used, it was just removed from
 // our own chain configs." So Kimi/Moonshot is no longer denied here: a user may seat it in their own
-// chain. It stays out of every chain this package ships (test/shipped-chains-no-kimi.test.js).
+// chain. It stays out of every chain this package ships, except moonshotai/kimi-k3.1-pro in plan-the-high-council (2026-10-30, Muad: "we can give them a new chance with kimi k3.1 pro";
+// test/shipped-chains-no-kimi.test.js names the one exemption).
 // xAI/Grok stays denied, always.
 export const DENIED_MODEL = /grok|x-ai|\bxai\b/i;
 // `openrouter/auto`, `.../pareto-code`, and any id or plugin naming a router ("pareto-router",

@@ -7,8 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SHIPPED_PRICES, setUserPrices, resetUserPrices, effectiveRow, priceSource, isUserPriced, userRowOf, ignoredUserFields, userPriceLines, UserPriceFileError, USER_PRICE_FILE, userPriceFile } from '../src/price-table.js';
-import { priceOf, needsPrice, priceTableLines, unusablePriceRows } from '../src/cost.js';
-import { priceRoster } from '../src/budget.js';
+import { priceOf, needsPrice, priceTableLines, unusablePriceRows, costOf } from '../src/cost.js';   // CHANGED (0.8.4 seats unit): src/budget.js is removed (Muad 10 Nov 2026 02:09), so the test reads the real cost module
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const shippedKeys = Object.keys(SHIPPED_PRICES).filter(k => k.includes('/') && SHIPPED_PRICES[k]?.in >= 0 && SHIPPED_PRICES[k]?.out >= 0);
@@ -37,9 +36,10 @@ test('a user row adds a model the shipped table lacks: priced as given, marked a
     assert.match(userPriceLines()[0], /^openrouter\/vendor\/not-in-the-shipped-table: from pricing\.user\.json in your project folder: in 1\.5 \/ out 6 per million tokens\.$/);
     assert.equal(priceTableLines().join('\n').includes('not-in-the-shipped-table'), false, 'the shipped "as of" and expiry lines stay about the package\'s table');
     assert.equal(unusablePriceRows().some(r => r.key === NEW), false);
-    const roster = priceRoster({ perModel: 1_000_000, roster: [NEW], inputShare: 0.5 });
-    assert.equal(roster.rows[0].usd, 0.5 * 1.5 + 0.5 * 6, 'budget.js reads the same merged table');
-    assert.deepEqual(roster.unpriced, []);
+    // CHANGED ACCEPTED TEST (0.8.4 seats unit, Muad 10 Nov 2026 02:09: src/budget.js and src/buys.js are removed). OLD: priceRoster({ perModel: 1e6, roster: [NEW], inputShare: 0.5 }) priced 500k in and 500k out from the merged table. NEW: costOf, the cost module every run is priced with, prices the same usage. WHY: the module that carried the check is gone; the claim (a user row is priced as given by the code that prices runs) is the same, on the real one.
+    const priced = costOf('openrouter', 'vendor/not-in-the-shipped-table', { input: 500_000, output: 500_000 });
+    assert.equal(priced.usd, 0.5 * 1.5 + 0.5 * 6, 'the cost module reads the merged table');
+    assert.equal(priced.priced, true);
   });
   assert.equal(priceOf('openrouter', 'vendor/not-in-the-shipped-table'), null, 'reset forgets the rows');
 });

@@ -138,6 +138,9 @@ export function gitIgnoredSet(root, relPaths) {
 // null if the file may be read. Both arguments are real paths. The denylist is checked
 // against the repo-relative path AND the full real path: a --repo pointed inside
 // `Tools/secrets/` made every file inside look like an innocent `play.txt`.
+/** The most bytes a client-named file, or the text kept from a file, may hold: the one figure of src/mcp/server.js clientFileRefusal and of the excerpt extraction (src/excerpt-extract.js). */
+export const MAX_CLIENT_FILE_BYTES = 2_000_000;
+
 export function pathRefusal(realRoot, realTarget) {
   const rel = relative(realRoot, realTarget).split(sep).join('/');
   if (isDeniedPath(rel) || isDeniedPath(realTarget)) {

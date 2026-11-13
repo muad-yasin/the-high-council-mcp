@@ -1,9 +1,8 @@
 // T1-10 (0.8.3 M6, Builder D; Batch 2 audit item 10): a policy file whose key was misspelt or whose value had the wrong type was not enforced and nothing said so (`{"max_usd_per_runs": 5}` let any spend through,
 // `{"allowed_providers": "openrouter"}` admitted every provider, `{"refuse_unpriced_seats": "true"}` refused nothing, a top-level `[]`, `null`, `0` or `false` read as "no policy" because the callers test `if (policy)`).
 // The rule now (C&C ruling 13 Oct 2026): a policy fails CLOSED. A top level that is not a JSON object is a load error (COUNCIL-E005, its own sentence); inside evaluatePolicy every unknown key and every wrong type is a
-// REASON that names the key, so the run is refused on every path that evaluates a policy (the run, handoff, the advice send path, the gate answer). The one carve-out: a top-level key that starts with "$" or "_"
-// (`$schema`, `_comment`) is metadata and is ignored; a misspelt policy key never starts with either. `advice_sensitivity_floor` is accepted as a key and its VALUE stays read by src/advice-tier.js (documented: a value
-// that is not one of the three levels is read as confidential), so it is not type-checked here.
+// REASON that names the key, so the run is refused on every path that evaluates a policy (the run, handoff, the gate answer; until 0.8.4 also the advice send path). The one carve-out: a top-level key that starts with "$" or "_"
+// (`$schema`, `_comment`) is metadata and is ignored; a misspelt policy key never starts with either. `advice_sensitivity_floor` is accepted as a key and, since the advice add-on left in 0.8.4 (src/advice-tier.js, which read its VALUE, is gone), IGNORED whatever its value (the owner's ruling Q5): it is not type-checked here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -63,7 +62,8 @@ test('PST-4 the carve-out and the controls: "$"/"_" keys are ignored; {} and the
   const full = { allowed_providers: ['anthropic'], allowed_regions: ['eu'], max_usd_per_run: 5, max_usd_per_month: 50, required_chain_tags: ['t'], refuse_unpriced_seats: true, required_signoff_paths: ['src/**'], advice_sensitivity_floor: 'confidential' };
   const r = check({ ...full, allowed_regions: ['eu'] });
   assert.ok(!r.reasons.some(x => /not a policy key|^[a-z_]+: must/.test(x)), r.reasons.join(' | '));
-  for (const v of ['public', 'weird', 7, null]) assert.ok(!check({ advice_sensitivity_floor: v }).reasons.some(x => /advice_sensitivity_floor/.test(x)), `value ${JSON.stringify(v)} stays advice-tier.js's business`);
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD message: `value ... stays advice-tier.js's business`. NEW: `... is accepted and ignored`. WHY: src/advice-tier.js left with the add-on; the assertion (no reason names the key, whatever its value) is unchanged and is the accept-and-ignore row.
+  for (const v of ['public', 'weird', 7, null]) assert.ok(!check({ advice_sensitivity_floor: v }).reasons.some(x => /advice_sensitivity_floor/.test(x)), `value ${JSON.stringify(v)} is accepted and ignored`);
   assert.equal(check({ max_usd_per_run: 0 }).reasons.some(x => /^max_usd_per_run: must/.test(x)), false, 'zero is a number of dollars, zero or more');
 });
 
