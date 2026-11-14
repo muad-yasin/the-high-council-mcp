@@ -38,7 +38,7 @@ test('RD-1: on the committed tree every derived figure is current: nothing would
 
 test('RD-2: a README Pricing table figure that is off by a cent is put back (the table row of plan-mini-council)', () => {
   const readme = disk('README.md');
-  const row = readme.split('\n').find(l => l.startsWith('| `plan-mini-council` |'));
+  const row = readme.split('\n').find(l => l.startsWith('| `plan-mini-council` |') && /\| \$[0-9.]+ \|/.test(l));   // CHANGED (14 Nov 2026, the README's chain overview): OLD the first row naming the chain; NEW the Pricing row, since the chain overview's first row of plan-mini-council now comes before it
   // CHANGED (13 Nov 2026, owner: the upper estimate leaves the README's table): OLD the pattern took the two figure cells (expected, upper estimate) and moved the second; NEW the row has one figure cell, the Expected figure, and that one is moved (it must still be put back: the Expected figures are checked, never skipped).
   const m = /\| (\$[0-9.]+) \|/.exec(row);
   assert.ok(m, 'the row of plan-mini-council has an Expected figure cell');

@@ -1,9 +1,9 @@
 {
-  "_note": "Real run costs behind the README's Pricing table (scripts/pricing-table.mjs). `groups` are the table's groups in print order, each with its label and its chains; the script sorts the rows inside a group by expected cost, so the order here does not matter. `tested` holds only figures from real, paid runs: the count, the cheapest and dearest total (what the providers billed where their bills are at hand, else report.json totals.usd priced by the table of that day; `basis` says which), the version and the dates; the table prints the count and the two totals, and the version and the dates stay here. A chain with no entry prints \"–\". Aggregated figures only: no task text, run ids or paths.",
+  "_note": "Real run costs behind the README's Pricing table (scripts/pricing-table.mjs). `groups` are the table's groups in print order, each with its label and its chains; the Pricing script sorts the rows inside a group by expected cost; the README's chain overview (scripts/chain-overview.mjs) keeps the order listed here, the flagship last. `tested` holds only figures from real, paid runs: the count, the cheapest and dearest total (what the providers billed where their bills are at hand, else report.json totals.usd priced by the table of that day; `basis` says which), the version and the dates; the table prints the count and the two totals, and the version and the dates stay here. A chain with no entry prints \"–\". Aggregated figures only: no task text, run ids or paths.",
   "groups": [
-    { "label": "Planning chains", "chains": ["plan-the-high-council", "plan-high-council", "plan-medium-council", "plan-mini-council"] },
+    { "label": "Planning chains", "chains": ["plan-mini-council", "plan-medium-council", "plan-high-council", "plan-the-high-council"] },
     { "label": "Variants", "chains": ["plan-claude-council"] },
-    { "label": "Chinese-lab alternatives", "chains": ["plan-china-high-council", "plan-china-medium-council"] },
+    { "label": "Chinese-lab alternatives", "chains": ["plan-china-medium-council", "plan-china-high-council"] },
     { "label": "Other", "chains": ["local-ollama"] }
   ],
   "tested": {
