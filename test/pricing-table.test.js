@@ -32,7 +32,7 @@ test('every listed chain exists, once; a tested entry belongs to a listed chain;
     if (!t) { assert.equal(tested, '\u2013', `${name}: no real run is recorded, so the tested cell is an en dash`); continue; }
     const up = n => `$${(Math.ceil(Math.round(n * 100) / 10) / 10).toFixed(1)}`;   // CHANGED (14 Nov 2026, owner: "I think we could round it up and display $3.6"): OLD the figures to the cent; NEW rounded up to the tenth of a dollar
     const figures = t.minUsd === t.maxUsd ? up(t.minUsd) : `${up(t.minUsd)}\u2013${up(t.maxUsd)}`;
-    assert.equal(tested, `${figures} (${t.runs} run${t.runs === 1 ? '' : 's'})`, `${name}: the tested cell is the figures and the run count, no version or dates`);
+    assert.equal(tested, figures, `${name}: the tested cell is the figures only (owner, 14 Nov 2026: "Only $3.6 please"; OLD the figures and the run count), no run count, version or dates`);
   }
 });
 

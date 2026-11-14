@@ -16,9 +16,9 @@ export const END = '<!-- pricing:end -->';
 const usd = n => `$${n.toFixed(2)}`;
 const sum = rows => rows.reduce((s, r) => s + r.usd, 0);
 
-/** The tested cell: an en dash when no real run is recorded, else "$0.1–$0.2 (3 runs)", one figure when the cheapest and the dearest are the same. A tested figure is rounded UP to the tenth of a dollar (owner, 14 Nov 2026: "I think we could round it up and display $3.6"); the exact figures stay in the data, with the version and the dates. */
+/** The tested cell: an en dash when no real run is recorded, else "$0.1–$0.2", one figure when the cheapest and the dearest are the same. A tested figure is rounded UP to the tenth of a dollar (owner, 14 Nov 2026: "I think we could round it up and display $3.6"); the exact figures, the run count, the version and the dates stay in the data (owner, 14 Nov 2026: "Only $3.6 please"). */
 const usdTenthUp = n => `$${(Math.ceil(Math.round(n * 100) / 10) / 10).toFixed(1)}`;
-const testedCell = t => t ? `${t.minUsd === t.maxUsd ? usdTenthUp(t.minUsd) : `${usdTenthUp(t.minUsd)}–${usdTenthUp(t.maxUsd)}`} (${t.runs} run${t.runs === 1 ? '' : 's'})` : '–';
+const testedCell = t => t ? (t.minUsd === t.maxUsd ? usdTenthUp(t.minUsd) : `${usdTenthUp(t.minUsd)}–${usdTenthUp(t.maxUsd)}`) : '–';
 
 /** The table, markers included, for the repository at `root`. Rows are grouped as maintainers/run-costs.json lists the groups; inside a group they are sorted by expected cost (the unrounded figure), the chain name breaking a tie. */
 export function generatePricingTable(root = DEFAULT_ROOT) {
