@@ -30,7 +30,8 @@ test('every listed chain exists, once; a tested entry belongs to a listed chain;
     const tested = cells(row)[3];   // CHANGED (13 Nov 2026, owner: the upper estimate leaves the README's table): OLD cells(row)[4], with the Upper estimate cell before it; NEW the row is | name | Expected | Tested |
     const t = data.tested?.[name];
     if (!t) { assert.equal(tested, '\u2013', `${name}: no real run is recorded, so the tested cell is an en dash`); continue; }
-    const figures = t.minUsd === t.maxUsd ? `$${t.minUsd.toFixed(2)}` : `$${t.minUsd.toFixed(2)}\u2013$${t.maxUsd.toFixed(2)}`;
+    const up = n => `$${(Math.ceil(Math.round(n * 100) / 10) / 10).toFixed(1)}`;   // CHANGED (14 Nov 2026, owner: "I think we could round it up and display $3.6"): OLD the figures to the cent; NEW rounded up to the tenth of a dollar
+    const figures = t.minUsd === t.maxUsd ? up(t.minUsd) : `${up(t.minUsd)}\u2013${up(t.maxUsd)}`;
     assert.equal(tested, `${figures} (${t.runs} run${t.runs === 1 ? '' : 's'})`, `${name}: the tested cell is the figures and the run count, no version or dates`);
   }
 });

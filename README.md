@@ -151,7 +151,7 @@ What each shipped chain costs per run, in US dollars. `council doctor` prints th
 |---|---|---|
 | **Planning chains** | | |
 | `plan-mini-council` | $9.52 | – |
-| `plan-medium-council` | $14.78 | $3.55 (1 run) |
+| `plan-medium-council` | $14.78 | $3.6 (1 run) |
 | `plan-high-council` | $31.56 | – |
 | `plan-the-high-council` | $31.71 | – |
 | **Variants** | | |
