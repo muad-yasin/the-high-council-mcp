@@ -4,7 +4,7 @@ This folder holds work prepared for 0.8.5 so that a later build session can star
 
 ## What it is based on
 
-Every note but two was read against the code at commit `0b4016a5`, and its line numbers are that commit's. Before this folder was added, `dev` took exactly that tree, through a merge that keeps dev's earlier snapshots in its history. Note 209 also cites two rows of the commit that added them, as it says. Note 216 was read at `6eb41961`, and note 213 at `2c727fd9`, each the tip of `dev` when it was written. When a later build starts, it reads the line numbers again against the code of that day.
+Every note but three was read against the code at commit `0b4016a5`, and its line numbers are that commit's. Before this folder was added, `dev` took exactly that tree, through a merge that keeps dev's earlier snapshots in its history. Note 209 also cites two rows of the commit that added them, as it says. Note 216 was read at `6eb41961`, note 213 at `2c727fd9` and note 217 at `07dbe925`, each the tip of `dev` when it was written; the `skills/` that note 217 reads is the same there as at `0b4016a5`. When a later build starts, it reads the line numbers again against the code of that day.
 
 ## What was run to prepare it, and what was not
 
@@ -19,6 +19,7 @@ How the claims were checked:
 - Each file-and-line claim of the first ten notes was checked against the file at `0b4016a5` by the session that wrote them.
 - Each of those notes was then reviewed, with spot-checks, by a second session, which corrected the cites it found off.
 - Note 213: the session that wrote it checked its cites and its "Today" cells against `2c727fd9` by script; a second session read it whole and spot-checked seven of its cites there.
+- Note 217: the session that wrote it read each of its six places in THC's own `skills/` and searched the tests and documents for the sentences they pin; a second session read the note whole and spot-checked fourteen of its cites at `07dbe925`.
 - Note 216's plan, and then the note itself, were reviewed by a second session, which read the code at `6eb41961` for itself and had what it found corrected.
 - A claim that could not be read in the code is marked "read, not run", "not established", "not checked" or "reported, not verified".
 
@@ -32,7 +33,7 @@ A note says, in this order:
 - what the change must not touch;
 - the questions only the owner can answer.
 
-Four notes depart from that order. Note 199 goes row by row, eight rows, with its questions collected at the end. Note 210 has an exit check, the audit run again, in place of a failing test. Note 216 opens with what is there today, since it lifts a rule, and adds a table of the sentences as drafts. Note 213 sets out the design, the record and a table of the sentences as drafts before its tests.
+Five notes depart from that order. Note 199 goes row by row, eight rows, with its questions collected at the end. Note 210 has an exit check, the audit run again, in place of a failing test. Note 216 opens with what is there today, since it lifts a rule, and adds a table of the sentences as drafts. Note 213 sets out the design, the record and a table of the sentences as drafts before its tests. Note 217 goes place by place, six places, with its gates and questions collected at the end.
 
 A sentence a person or a session would read is marked A-DRAFT: its words wait for the owner's yes. A note's options state each option's result.
 
@@ -54,6 +55,7 @@ The numbers are the items of the maintainer's own roadmap. That roadmap is not i
 | `210-dependency-advisories.md` | the lockfile holds dependency versions with published advisories | an A-DRAFT note; two questions; the build needs npm and the full suite |
 | `213-sustain-ownership.md` | today a sustained objection becomes the sustaining judge's own: the second step of a fix whose first step is built (a judge that restates a row shown in its prompt as `continues <its id>` is heard) | the sentences a model reads, for the owner's yes; a record field's meaning changes; three questions |
 | `216-grok-ban-lift.md` | the ban on xAI/Grok is lifted with 0.8.5: what refuses such a seat today, what the lift changes, and what stays refused | the owner's own rule and its new sentence; A-DRAFT sentences; two questions; a table filter that must not be emptied by accident |
+| `217-writing-skills-review.md` | an outside review of copies of five writing skills found six places in THC's own `skills/`: four defects, one of them only in part as a missing scope, and two wording points that hold in part | every proposed sentence is read by a model, for the owner's yes; one place is his pick of three options; one is legal wording; three questions |
 
 ## Built on dev
 
