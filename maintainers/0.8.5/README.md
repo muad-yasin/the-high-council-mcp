@@ -61,7 +61,7 @@ The numbers are the items of the maintainer's own roadmap. That roadmap is not i
 
 | Record | What it is about | Gates and open questions |
 | --- | --- | --- |
-| `gpt-6.2-chains.md` | three shipped chains seat GPT-6.2 Sol and GPT-6.2 Astra in place of GPT-6.1 Sol and GPT-6 Astra; three tables gain the two models' entries, and the zero-retention table is written whole from the list of 2026-11-23 | A-DRAFT sentences and labels; a Known limit, for the owner |
+| `gpt-6.2-chains.md` | three shipped chains seat GPT-6.2 Sol and GPT-6.2 Astra in place of GPT-6.1 Sol and GPT-6 Astra; three tables gain the two models' entries, and the zero-retention table is written whole from the list of 2026-11-23 | A-DRAFT sentences and labels |
 | the commit message of "relation: a judge's `continues` on a row it was shown is heard as its own objection" | a judge that restates a row of another seat shown in its prompt as `continues <its id>`, or the copy it took over by a sustain, is heard instead of refused; what a sustain does is unchanged | how a run that started before this change reads when it resumes is open (read, not run) |
 
 ## Not prepared

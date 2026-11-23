@@ -101,7 +101,18 @@ Each 6.2 seat has one zero-retention host, `azure`, priced exactly at the seat's
 - **Five test files** pinned what changed, and each was run once where it fails: the four that pin the models, before their edits (9 tests); and `test/known-limits.test.js` with its new pin, before `KNOWN-LIMITS.md` changed (1 test). Each changed test carries a note beside the change. The unit's tests run once on the final tree before the commit.
 - **No call to a 6.2 model.** This roster has not run, and none of its seats has been measured.
 
+## The Known limit on GPT-6 Astra
+
+`KNOWN-LIMITS.md` says: "GPT-6 Astra is reachable only through OpenRouter: there is no subscription route." After this change the line was checked for GPT-6.2 Astra too, and both models came out the same:
+- **"there is no subscription route" holds for both.** The session route, which hands a seat to the person's own Claude Code session, takes Claude models only (`src/claude-route.js:103-106`). An `external` seat is answered by a person or another session, and THC calls no model there.
+- **"only through OpenRouter" holds for what THC ships.** Both models' price rows and reasoning rows are OpenRouter rows, and every seat of either model in `chains/` is an OpenRouter seat: GPT-6.2 Astra in two shipped chains, GPT-6 Astra only in two retired chains in `chains/outdated/`, which the package leaves out (`package.json` `files`).
+- **A person's own price row gets a direct OpenAI seat past the price check and a dry run.**
+  - Without a row, a seat with `"provider": "openai"` for either model has no price (`needsPrice`, `src/cost.js:169`), and a start refuses it before anything is sent (`src/cli.js:3031-3038`, read, not run). A dry run of a chain with a direct GPT-6.2 Astra seat names that seat as unpriced and says how to add the row.
+  - A row for the model in the project's own `pricing.user.json` gives the seat a price (`src/price-table.js:24-26`). With it, `needsPrice` is false for either model, and the same dry run prices the GPT-6.2 Astra seat.
+  - Nothing after that was run: not a start's key check, its approval gate or its caps, and not the call.
+
+The owner chose to leave the line as it is.
+
 ## Open for the owner
 
-- **`KNOWN-LIMITS.md` keeps its line on GPT-6 Astra** ("reachable only through OpenRouter"). Whether GPT-6.2 Astra needs such a line is not checked.
 - **The version labels** (A-DRAFT, above).
