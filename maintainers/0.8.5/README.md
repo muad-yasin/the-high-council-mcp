@@ -8,7 +8,7 @@ Every note was read against the code at commit `0b4016a5`, and its line numbers 
 
 ## What was run to prepare it, and what was not
 
-No test was run on these commits, and nothing was built. Two things were run, and neither wrote a file:
+No test was run to prepare these notes, and nothing in them is built. Two things were run to prepare them, and neither wrote a file:
 - `npm audit --package-lock-only` on the lockfile of `0b4016a5`, once, on 23 Nov 2026, with npm 11.20.0. It asks the npm registry. Its output is the basis of note 210.
 - One evaluation of two pure functions of `src/`: `exchangeLayerOf` and `settingsDependOnCap` of `src/cache-order-gate.js`, called on the shipped chain files, with `shortExchangeOn` of `src/short-exchange.js`. It is the basis of one statement in note 209.
 
@@ -33,7 +33,7 @@ Two notes depart from that order. Note 199 goes row by row, eight rows, with its
 
 A sentence a person or a session would read is marked A-DRAFT: its words wait for the owner's yes. A note's options state each option's result.
 
-The numbers are the items of the maintainer's own roadmap. That roadmap is not in this repository; `ROADMAP-0.8.0.md`, which is here, is an older and different file. So each note restates its item in its own words.
+The numbers are the items of the maintainer's own roadmap. That roadmap is not in this repository; `archive/maintainers/ROADMAP-0.8.0.md` is an older and different file. So each note restates its item in its own words.
 
 ## The notes (`small-items/`)
 

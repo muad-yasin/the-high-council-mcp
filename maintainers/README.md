@@ -13,7 +13,7 @@ publishable.
 - `STATUS-LEDGER.md` - the v5 GUI feature status table (`test/status-ledger.test.js` checks it).
 - `ideas/` - the idea matrix (THCMCP and Sophi-A) and its PDF renders.
 - `proposals/` - design proposals kept as input for later planning, not build orders.
-- `ROADMAP-0.8.0.md` - the 0.8.0 plan: local web UI headline, prerequisites, debate and checklist items.
+- The 0.8.0 plan (`ROADMAP-0.8.0.md`) moved to `archive/maintainers/`; `archive/README.md` lists what moved and why.
 - `0.8.5/` - prepared for 0.8.5, not built: notes on small changes, each read against the code at the commit its header names. Its `README.md` says what was run to prepare them and what was not prepared.
 
 Moved here from the repository root (and one file from the gitignored `Review/`) on 2026-09-23.
