@@ -58,6 +58,7 @@ import { rootTaskOf, rootTaskPathOf } from './tree-root-task.js';
 import { budgetOf, capFactsOf, effectiveLimits, gateTree } from './tree-budget.js';
 import { describeFrontier, findPendingFrontier } from './tree-frontier.js';
 import { chainWayOn, previewOnlyWords } from './tree-ways-on.js';
+import { agreedOf } from './ending-matrix.js';   // 0.8.4 D1: the matrix's agreed reading, the one every reader of 'did the run end agreed' shares
 
 export const VERDICTS = Object.freeze(['ready', 'incomplete', 'blocked']);
 
@@ -201,7 +202,7 @@ function runFactsOf(runsDir, n, work, deny) {
   try { const c = contractCheckOf(trusted.dir, { work, deny, accepted: planAuthorityOf(n) }); contractExit = Number.isInteger(c.exit) ? c.exit : null; } catch { contractExit = null; }
   return {
     run: {
-      unreadable: null, passed: report.passed === true, signedOff: report.signed_text?.signed_off === true, sameAsSigned: report.delivered_text?.same_as_signed === true,
+      unreadable: null, passed: agreedOf(report), signedOff: report.signed_text?.signed_off === true, sameAsSigned: report.delivered_text?.same_as_signed === true,
       changedBy: Array.isArray(report.delivered_text?.changed_by) ? report.delivered_text.changed_by.map(String) : [],
       lint: milestoneLintOf(report),
       thinContractSha256: typeof report.thin_contract?.sha256 === 'string' ? report.thin_contract.sha256 : null, contractExit,
@@ -447,7 +448,7 @@ export function verdictOf(facts) {
     if (n.outcome === 'incomplete') { incomplete('closed_incomplete', k, `${k} was closed as incomplete by a person`); return; }
     const run = n.run;
     if (!run || run.unreadable) { blocked('report_unreadable', k, `${k}: ${run?.unreadable ?? 'its run folder was not read'}`); return; }
-    if (!run.passed) { blocked('not_passed', k, `${k}: the run did not pass`); return; }
+    if (!run.passed) { blocked('not_passed', k, `${k}: the run did not agree`); return; }
     // restore gap (C&C 14 Oct 2026): fail CLOSED. A node whose plan cannot be read must not judge ready (readiness is what `tree status`, the handoff and `tree check` tell a person; no code admits a child on the verdict alone, grepped 14 Oct 2026). `=== false`: a hand-built fact without the field is not judged here, the gatherer sets it for every closed node.
     if (n.planReadable === false) { blocked('plan_unreadable', k, `${k}: its plan file deliverable.md is missing, cannot be read, or is not the text whose hash report.json records`); }     // no return: the other checks of the report and the contract still speak (an edited sealed file is ALSO contract_check, an existing pin); the split checks below need the plan and are skipped by `if (!split)`
     if (!run.signedOff || !run.sameAsSigned) blocked('unsigned_change', k, `${k}: blocked: unsigned change - the delivered text is not the text the panel signed${run.changedBy.length ? ` (changed by ${run.changedBy.join(', ')})` : ''}`);

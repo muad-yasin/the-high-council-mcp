@@ -53,7 +53,8 @@ test('report schema: REPORT_SCHEMA_VERSION is the version the schema pins', () =
 // pause for a human; mock-budget stops at the cap and so writes no report.json by design).
 const ONE_SITTING = ['mock', 'mock-criteria-kinds', 'mock-unanimous', 'mock-debate', 'mock-dispute', 'mock-open', 'mock-partitioned',
   'mock-patch', 'mock-patch-fallback', 'mock-proposals', 'mock-questions', 'mock-relay', 'mock-security-review', 'mock-tiered',
-  'mock-advise-single', 'mock-advise-quick', 'mock-advise-standard', 'mock-advise-deep', 'mock-layered'];
+  'mock-layered'];   // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD: the list also held mock-advise-quick, mock-advise-standard and mock-advise-deep (18 names). NEW: those three are not shipped chains any more (they are fixtures in test/fixtures/advice-chains/); they keep their own rows below (ADVICE_ONE_SITTING). WHY: the drift test below compares this list with chains/mock*.json, so it moves with the thing it counts.
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD (wave 1): ADVICE_ONE_SITTING = mock-advise-quick, mock-advise-standard and mock-advise-deep, each run by name from a project folder holding a copy of its fixture, and its report.json validated (their reports carried the `advise` block). NEW: no such group. WHY: a chain file with an `advise` block is refused at the CLI start (exit 2) and by runChain, so no run folder or report exists to validate; the one thing that stays is the schema's side, asserted by the row 'an old advice report still validates' below.
 
 test('report schema: the list above still names every mock chain that finishes in one sitting', () => {
   const shipped = readdirSync(join(root, 'chains')).filter(f => /^mock.*\.json$/.test(f)).map(f => f.slice(0, -5));
@@ -76,7 +77,12 @@ for (const name of ONE_SITTING) {
     assert.equal(report.chain, name);
     // Brief 03 fix 6: who wrote the file, and when the run began and ended.
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-    assert.deepEqual(report.producer, { name: pkg.name, version: pkg.version });
+    // CHANGED ACCEPTED TEST (0.8.4, S1-06). OLD: assert.deepEqual(report.producer, { name: pkg.name, version: pkg.version }). NEW: name and version are asserted as before, and the producer also carries code_sha256 and sittings[].
+    // WHY: the producer now says which code wrote the report and which sittings the run had; both are additive (schemas/report-v1.json has no additionalProperties:false on producer), so the old two-key equality could not hold.
+    // 0.8.4: the producer also carries the code stamp (this tree can be read, so it is there) and one sitting entry per start or resume of the run.
+    assert.deepEqual({ name: report.producer.name, version: report.producer.version }, { name: pkg.name, version: pkg.version });
+    assert.match(report.producer.code_sha256, /^[0-9a-f]{64}$/);
+    assert.ok(report.producer.sittings.length >= 1 && report.producer.sittings.every(x => x.version === pkg.version && x.code_sha256 === report.producer.code_sha256 && Number.isInteger(x.pid)), JSON.stringify(report.producer.sittings));
     assert.ok(Date.parse(report.started_at) <= Date.parse(report.finished_at), `${name}: started_at <= finished_at`);
     // Brief 03 fix 2: signoff[].lab next to the deprecated, misnamed signoff[].provider.
     for (const e of report.signoff || []) {
@@ -86,6 +92,31 @@ for (const name of ONE_SITTING) {
     assertValid(report, name);
   });
 }
+
+// The schema's side of the removal (WORDING REM-w12, REM-w16): `advise` is no longer a property of report-v1.json (nothing writes it), a report an earlier version wrote for an advice call still validates (the schema leaves
+// additionalProperties open and schemaVersion is unchanged), and `stoppedBy` keeps its legacy values.
+test('report schema: `advise` is no longer a property, an old advice report (test/fixtures/report-advice-*.json) still validates, and stoppedBy keeps user, client_cancel and wall_clock', () => {
+  assert.equal('advise' in schema.properties, false, 'no `advise` property in schemas/report-v1.json');
+  for (const f of ['report-advice-single.json', 'report-advice-council.json']) {
+    const old = JSON.parse(readFileSync(join(root, 'test', 'fixtures', f), 'utf8'));
+    assert.ok('advise' in old, `${f}: the fixture is an old advice report`);
+    assert.equal(old.schemaVersion, REPORT_SCHEMA_VERSION, `${f}: schemaVersion unchanged`);
+    assert.ok(validate(old), `${f}: ${JSON.stringify(validate.errors, null, 2)}`);
+  }
+  assert.ok(schema.properties.stoppedBy.enum.includes('user') && schema.properties.stoppedBy.enum.includes('client_cancel') && schema.properties.stoppedBy.enum.includes('wall_clock'), 'the legacy stoppedBy values stay in the enum');
+});
+
+test('report schema: answered_on_another_route (0.8.4 FIX 5) is experimental, an old report still validates with it added, a row needs stage, written_route and route, and answered_under_earlier_wording keeps its cause const', () => {
+  const prop = schema.properties.answered_on_another_route;
+  assert.equal(prop['x-stability'], 'experimental');
+  const old = JSON.parse(readFileSync(join(root, 'test', 'fixtures', 'report-advice-single.json'), 'utf8'));
+  const row = { stage: 'panel-1-l3', pass: 1, written_route: 'openrouter', route: 'anthropic' };
+  assert.ok(validate({ ...old, answered_on_another_route: [row] }), `a report with the field: ${JSON.stringify(validate.errors)}`);
+  for (const [what, bad] of Object.entries({ 'a row with no written_route': { stage: 'x', route: 'anthropic' }, 'a row with no route': { stage: 'x', written_route: 'session' }, 'a row with no stage': { written_route: 'session', route: 'anthropic' }, 'a pass of 0': { ...row, pass: 0 } })) {
+    assert.equal(validate({ ...old, answered_on_another_route: [bad] }), false, `known-bad input: the schema accepted ${what}`);
+  }
+  assert.deepEqual(schema.properties.answered_under_earlier_wording.items.properties.cause, { const: 'prompt' }, 'the earlier-wording field keeps its cause const');
+});
 
 // Every optional stage at once, on mock seats. What each switch adds is pinned below, so a stage
 // that stops reaching report.json fails here rather than silently leaving its schema unchecked.
@@ -274,4 +305,130 @@ test('report schema: a run with a provider_error debate drop validates', async (
   const result = await runChain({ request: 'Do the thing.', config, log: () => {} });
   assert.ok((result.debate?.dropped || []).some(d => d.reason === 'provider_error'), 'precondition: a provider_error drop');
   assertValid(reportJsonShape({ runId: 'x', chain: 'mock-debate', task: 't', result }), 'provider_error drop');
+});
+
+// 0.8.4 S3: layer_debates rows are a record. A real exchange run (one judge's reply cannot be read, one raiser's answer cannot be read) validates and carries `omitted` and `flags`; the schema is not vacuous for either field.
+async function exchangeReport() {
+  const seat = (model, lab, layer) => ({ provider: 'mock', model, lab, layer });
+  const config = { name: 'schema-exchange', maxRounds: 1, signoff: 'unanimous', estimate: { promptTokens: 500, draftTokens: 500, critiqueTokens: 200 },
+    seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'mock', model: 'mock-builder', lab: 'author' }, reviser: { provider: 'mock', model: 'mock-builder', lab: 'author' },
+      critics: [seat('mock-exch-support-garbled', 'e1', 1), seat('mock-exch-contest-keep-clean', 'e2', 1), seat('mock-exch-garbled-keep-clean', 'e3', 1), seat('mock-critic-x', 'e9', 2)] } };
+  const result = await runChain({ config, request: 'A mock task.', log: () => {} });
+  return JSON.parse(JSON.stringify(reportJsonShape({ runId: 'schema-exchange', chain: config.name, task: 'tasks/t.md', result, config })));
+}
+test('report schema: a layer_debates row that carries omitted posts and a flagged raiser reply validates', async () => {
+  const report = await exchangeReport();
+  const row = report.layer_debates[0].objections[0];
+  // CHANGED ACCEPTED (0.8.4 N9, ruling 4). OLD: one omitted entry and one flag. NEW: one of each per round, two rounds (the second round always runs and meets the same unreadable replies). WHY: the loop is N9's.
+  assert.deepEqual([row.omitted.map(o => o.why), row.flags.map(f => f.kind)], [['unreadable', 'unreadable'], ['raiser_reply_unparsed', 'raiser_reply_unparsed']]);
+  assertValid(report, 'exchange');
+  assert.equal(validate(report), true, JSON.stringify((validate.errors || []).slice(0, 3)));
+});
+test('report schema: an omitted entry whose why is outside the enum is rejected (known-bad input)', async () => {
+  const report = await exchangeReport();
+  report.layer_debates[0].objections[0].omitted[0].why = 'shrugged';
+  assert.equal(validate(report), false);
+});
+test('report schema: a flag whose kind is outside the enum is rejected (known-bad input)', async () => {
+  const report = await exchangeReport();
+  report.layer_debates[0].objections[0].flags[0].kind = 'raiser_shrugged';
+  assert.equal(validate(report), false);
+});
+test('report schema: an exchange outcome outside the five words is rejected (known-bad input; holds since the first S1 slice)', async () => {
+  const report = await exchangeReport();
+  report.layer_debates[0].objections[0].outcome = 'upheld';
+  assert.equal(validate(report), false);
+});
+
+// 0.8.4 S3 (chunk C3): `not_run` (the exchange could not run: fewer than two heard judges) and `carried_from` (an objection carried into a later pass's exchange) are record fields too.
+async function exchangeReportOf(critics, extra = {}) {
+  const config = { name: 'schema-exchange-2', maxRounds: 3, signoff: 'unanimous', estimate: { promptTokens: 500, draftTokens: 500, critiqueTokens: 200 },
+    seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'mock', model: 'mock-builder', lab: 'author' }, reviser: { provider: 'mock', model: 'mock-builder', lab: 'author' },
+      critics: critics.map(([model, lab, layer]) => ({ provider: 'mock', model, lab, layer })) }, ...extra };
+  const result = await runChain({ config, request: 'A mock task.', log: () => {} });
+  return JSON.parse(JSON.stringify(reportJsonShape({ runId: 'schema-exchange-2', chain: config.name, task: 'tasks/t.md', result, config })));
+}
+test('report schema: a layer_debates row of a pass whose exchange could not run (a layer of one seat) carries not_run and validates; a not_run outside its enum is rejected (known-bad input)', async () => {
+  const report = await exchangeReportOf([['mock-exch-support-keep', 'e1', 1], ['mock-critic-x', 'e9', 2]]);
+  const row = report.layer_debates[0];
+  assert.deepEqual([row.not_run, row.objections.map(o => o.outcome)], ['fewer_than_two_heard', ['not_debated']]);
+  assertValid(report, 'not_run');
+  report.layer_debates[0].not_run = 'because';
+  assert.equal(validate(report), false);
+});
+test('report schema: an objection carried into a later pass\'s exchange carries carried_from (an integer) and validates; a carried_from that is not an integer is rejected (known-bad input)', async () => {
+  // CHANGED ACCEPTED (0.8.4 N9, ruling 4). OLD: `contest-amend` amended in round 1, the only round, so the objection was carried. NEW: the seven-round fixture (e1 amends in round 7, the last round that runs; the `alt` poster flips every round). WHY: an objection is not debated only at the stop.
+  const report = await exchangeReportOf([['mock-exch-support-keepamend2-id-sch', 'e1', 1], ['mock-exch-altp-keep-id-sch-clean', 'e2', 1], ['mock-critic-x', 'e9', 2]]);
+  const carried = report.layer_debates.flatMap(d => d.objections).find(o => o.carried_from);
+  assert.equal(carried?.carried_from, 1);
+  assertValid(report, 'carried_from');
+  carried.carried_from = 'first';
+  assert.equal(validate(report), false);
+});
+
+// 0.8.4 S2 (C&C's ruling on the schema): the objection id pattern widens to ^O-[0-9a-f]{8}(#r?[0-9]+)?$, so every old id stays valid (additive under schemaVersion 1).
+async function reportWithOneObjection() {
+  const report = await exchangeReportOf([['mock-exch-support-keep', 'e1', 1], ['mock-critic-x', 'e9', 2]], { maxRounds: 1 });
+  assert.ok(report.lastCritique.failures.length > 0, 'the run ended with an objection');
+  return report;
+}
+test('report schema: an objection id of the old shape (O- and eight hex digits) is still valid', async () => {
+  const report = await reportWithOneObjection();
+  assert.match(report.lastCritique.failures[0].id, /^O-[0-9a-f]{8}$/);
+  assert.equal(validate(report), true, JSON.stringify((validate.errors || []).slice(0, 3)));
+});
+test('report schema: a suffixed id (#2, #r2) is valid on an objection, on its reopens link and on its see_also pointer', async () => {
+  const report = await reportWithOneObjection();
+  const f = report.lastCritique.failures[0];
+  Object.assign(f, { id: `${f.id}#2`, same_key: true, reopens: `${f.id}#r2`, see_also: `${f.id}` });
+  assert.equal(validate(report), true, JSON.stringify((validate.errors || []).slice(0, 3)));
+  f.id = f.id.replace('#2', '#r12');
+  assert.equal(validate(report), true, JSON.stringify((validate.errors || []).slice(0, 3)));
+});
+test('report schema: a malformed suffix is rejected (known-bad input): #, #x, #2x, #r, and a suffix on the wrong place', async () => {
+  for (const bad of ['#', '#x', '#2x', '#r', '#2#3', ' #2']) {
+    const report = await reportWithOneObjection();
+    const f = report.lastCritique.failures[0];
+    f.id = `${f.id}${bad}`;
+    assert.equal(validate(report), false, `the schema accepted an id ending ${JSON.stringify(bad)}`);
+  }
+});
+
+// 0.8.4 lane C, unit 1: the per-seat persona record (src/persona-record.js) validates, and the schema refuses a value it should. The row is stamped the way src/cli.js's onStage stamps it.
+test('report schema: a run with a persona on a debating seat and on a judge validates; model_source, the set hash and the run-level fields are checked', async () => {
+  const { personaStampFor } = await import('../src/persona-record.js').catch(() => ({}));
+  const base = chain('mock-debate');
+  const config = { ...base, seats: { ...base.seats, proposers: base.seats.proposers.map((p, i) => (i === 0 ? { ...p, role: { persona: 'noah' } } : p)), critics: base.seats.critics.map((c, i) => (i === 0 ? { ...c, persona: 'Moses' } : c)) }, seat_personas: { enabled: true, form: 'voice' } };
+  const result = await runChain({ request: 'Do the thing.', config, log: () => {}, onStage: s => { if (personaStampFor) Object.assign(s, personaStampFor(s, config)); } });
+  const report = JSON.parse(JSON.stringify(reportJsonShape({ runId: 'x', chain: 'mock-debate', task: 't', result, config })));
+  assertValid(report, 'persona record');
+  const named = report.stages.filter(s => s.persona);
+  assert.ok(named.some(s => /^debate-/.test(s.label)) && named.some(s => /^panel-/.test(s.label)), 'precondition: a debating row and a judge row are named');
+  assert.ok(['personas_source', 'personas_sha256', 'personas_used'].every(k => k in report));
+  const withRow = patch => ({ ...report, stages: report.stages.map(s => (s === named[0] ? { ...s, ...patch } : s)) });
+  assert.ok(!validate(withRow({ model_source: 'verified' })), 'model_source is one of provider / declared / undeclared');
+  assert.ok(!validate(withRow({ persona_set_sha256: 'not-a-hash' })), 'persona_set_sha256 is a sha256 or null');
+  assert.ok(!validate(withRow({ persona_name: 7 })), 'persona_name is text or null');
+  assert.ok(!validate({ ...report, personas_source: 'guessed' }), 'personas_source is default / file / fallback / null');
+  assert.ok(!validate({ ...report, personas_sha256: 'abc' }), 'personas_sha256 is a sha256 or null');
+  assert.ok(validate({ ...report, personas_source: null, personas_sha256: null }), 'null on both when the rows name different sets');
+  // an older stage row (no stamp at all) still validates: the fields are never required
+  assert.ok(validate({ ...report, stages: report.stages.map(({ persona, persona_name, persona_set_sha256, model_source, ...rest }) => rest) }), 'an older report validates');
+});
+
+// 0.8.4 session switch (SSW-w7): roster_answers.panel_session_seats. The object is open (additionalProperties is not closed), so "a report with it validates" would pass on a schema that never heard of it; what pins the property is its own type and text, and a value that is not an integer being refused.
+test('report schema: roster_answers.panel_session_seats is an integer with the SSW-w7 text, and a report carrying it validates while a non-integer is rejected (known-bad input); a roster_answers without it still validates', async () => {
+  const prop = schema.properties.roster_answers.properties.panel_session_seats;
+  assert.ok(prop, 'the property is in the published schema');
+  assert.equal(prop.type, 'integer');
+  assert.equal(prop.description, 'Present only when a stage of the review panel was answered through a session seat: how many stages that was. Nothing checks that those stages were answered by separate sessions.');
+  assert.equal((schema.properties.roster_answers.required ?? []).includes('panel_session_seats'), false, 'never required: an older report has none');
+  const config = chain('mock-debate');
+  const result = await runChain({ request: 'Do the thing.', config, log: () => {} });
+  const base = JSON.parse(JSON.stringify(reportJsonShape({ runId: 'x', chain: 'mock-debate', task: 't', result, config })));
+  const withRoster = extra => ({ ...base, roster_answers: { design_companies: 1, recorded_companies: 1, unverified_seats: 0, seats: [], note: 'As declared by the client and the session; never verified.', ...extra } });
+  assertValid(withRoster({ panel_session_seats: 2 }), 'roster_answers with panel_session_seats');
+  assertValid(withRoster({}), 'roster_answers without it');
+  assert.equal(validate(withRoster({ panel_session_seats: 'two' })), false, 'a string is not a count');
+  assert.equal(validate(withRoster({ panel_session_seats: 1.5 })), false, 'nor is a fraction');
 });

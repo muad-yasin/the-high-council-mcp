@@ -11,6 +11,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lintChain } from '../src/chain-lint.js';
 import { priceOf } from '../src/cost.js';
+import { chainLintLines } from '../src/run-preflight.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = resolve(here, '../src/cli.js');
@@ -347,14 +348,22 @@ test('signoff_table.required needs signoff "unanimous": refused otherwise, clean
   assert.deepEqual(lintChain({ ...base, signoff: 'first', signoff_table: { required: false } }, 'chains/fixture.json'), []);
 });
 
-// B3 prep, JUDGE lane (severity tags, unit 1): the switch `severity: { enabled }` is for a unanimous panel only, a closed key set, and absent in every chain written before it.
-test('severity.enabled needs signoff "unanimous": clean with it, refused on "first", a typo and a non-boolean caught, and an off or absent switch changes nothing', () => {
-  const base = JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8'));
-  const kinds = c => lintChain(c, 'chains/fixture.json').map(f => f.kind);
-  assert.deepEqual(kinds({ ...base, severity: { enabled: true } }), []);
-  assert.deepEqual(kinds({ ...base }), []);
-  assert.ok(kinds({ ...base, signoff: 'first', severity: { enabled: true } }).includes('severity-needs-unanimous'));
-  assert.deepEqual(kinds({ ...base, signoff: 'first', severity: { enabled: false } }).filter(k => /severity/.test(k)), []);
-  assert.ok(kinds({ ...base, severity: { enable: true } }).includes('invalid-severity-config'), 'a typo in the key is caught');
-  assert.ok(kinds({ ...base, severity: { enabled: 'yes' } }).includes('invalid-severity-config'), 'a non-boolean is refused');
+// CHANGED ACCEPTED (0.8.4 S19, C&C's option (b): there is no `severity` switch; ratings are recorded on every layered unanimous chain). OLD: the test of the switch `severity: { enabled }`: clean with it on a unanimous chain, severity-needs-unanimous on first-mode, a typo and a non-boolean caught as invalid-severity-config. NEW (the whole old test goes, this replaces it; modelled on the layer-debate-removed test in test/layer-debate.test.js): the key itself is refused, in every form, by ONE finding of kind severity-switch-removed that names it (by difference with the plain chain, on a layered and on a flat chain), the CLI start turns it into a refusal (chainLintLines: 'will not run'), and a chain without the key gets none. WHY: the key left the lint's block table and the schema, so a typo or a non-boolean is no longer a wrong value of a setting but the removed setting itself; no setting is silently ignored. RED ON OLD SRC: no chain lint returned severity-switch-removed (the key was an accepted setting).
+test('lint: a chain that still names the removed severity key, in any form, is refused at load by one finding that names it; a chain without it gets none', () => {
+  const layered = JSON.parse(readFileSync(join(root, 'chains', 'mock-layered.json'), 'utf8'));
+  const flat = JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8'));
+  for (const [name, base] of [['layered', layered], ['flat', flat]]) {
+    const plain = lintChain(base, 'x.json');
+    assert.ok(!plain.some(f => f.kind === 'severity-switch-removed'), `${name}: a chain without the key gets no such finding`);
+    for (const block of [{ enabled: true }, { enabled: false }, { enable: true }, { enabled: 'yes' }, {}]) {
+      const keyed = { ...base, severity: block };
+      const added = lintChain(keyed, 'x.json').filter(f => !plain.some(g => g.kind === f.kind));
+      assert.deepEqual(added.map(f => f.kind), ['severity-switch-removed'], `${name} ${JSON.stringify(block)}`);
+      assert.match(added[0].message, /severity is not a setting any more/);
+      assert.match(added[0].fix, /Remove "severity" from x\.json/);
+      const lines = chainLintLines(keyed, 'x.json');   // the consumer (the CLI start, exit 1): every finding is a refusal
+      assert.ok(lines && /will not run/.test(lines[0]) && lines.some(l => l.includes('[severity-switch-removed]')), `${name}: the run is refused, not warned`);
+    }
+    assert.ok(!(chainLintLines(base, 'x.json') ?? []).some(l => l.includes('severity-switch-removed')), `${name}: a chain without the key is not refused for it`);
+  }
 });

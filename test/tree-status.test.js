@@ -315,14 +315,15 @@ function kidTree({ run = {}, lines = [] } = {}) {
   for (const [l, opts] of lines) writeLines(t, IDS[0], 'R/M1', l, opts);
   return t;
 }
-test('M6 pin: the two money figures are shown apart and never added: a settlement the gate rejects (+0.30 on a run that counts 0.70) and a charge the run counts twice (-0.30 on a run that reads 1.30)', () => {
+// CHANGED ACCEPTED (0.8.4 unit 6, D11; C&C via Mini-C&C R398). OLD: the row 3 half read a charge the run counts twice (-0.30 on a run that reads 1.30). NEW: the run counts that call once, at the worst case: $1.00 spent by the member runs and no adjustment line. WHY: an unsettled reservation is never reconciled; the row 5 half is unchanged.
+test('M6 pin: the two money figures are shown apart and never added: a settlement the gate rejects (+0.30 on a run that counts 0.70) and a charge the run counts once at the worst case (no adjustment on a run that reads 1.00)', () => {
   const row5 = kidTree({ run: { usage: [{ file: 'build', usd: 0.7, reservationId: 'r1' }] }, lines: [[[reservedLine('r1', 1.0, 'build'), settledLine('r1', 'recorded', 0.6)]]] });
   const t5 = view(row5);
   assert.match(t5, /Spent by the member runs: \$0\.70 \(2 runs started\)/); assert.match(t5, /adjustments: \$0\.30 \(1 reservation\)/); assert.match(t5, /accounting gate does not trust the record \(1 problem: settlement_without_evidence\)/);
   assert.doesNotMatch(t5, /\$1\.00/, 'the 1.00 that the two add up to is not printed');
   const row3 = kidTree({ run: { superseded: [{ file: 'x.charge-1', usd: 0.3, reservationId: 'r1', kind: 'billed' }] }, lines: [[[reservedLine('r1', 1.0, 'x')]]] });
   const t3 = view(row3);
-  assert.match(t3, /Spent by the member runs: \$1\.30/); assert.match(t3, /adjustments: -\$0\.30 \(1 reservation\)/); assert.doesNotMatch(t3, /accounting gate does not trust/);
+  assert.match(t3, /Spent by the member runs: \$1\.00/); assert.doesNotMatch(t3, /adjustments: -/); assert.doesNotMatch(t3, /accounting gate does not trust/);
   assert.match(t3, /Root cap \$100\.00\./);
 });
 

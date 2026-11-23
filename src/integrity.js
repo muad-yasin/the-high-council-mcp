@@ -46,3 +46,10 @@ export function verifyIntegrityFooter(fileContent) {
   }
   return { ok: true };
 }
+
+/** The body of a file written by withIntegrityFooter() when its footer is present and matches, else null (0.8.4: the dispatch bundle reads a NEEDS file's prompts only from a body that verifies). */
+export function verifiedBody(fileContent) {
+  if (typeof fileContent !== 'string' || !verifyIntegrityFooter(fileContent).ok) return null;
+  const match = fileContent.match(FOOTER_RE);
+  return fileContent.slice(0, fileContent.length - match[0].length);
+}

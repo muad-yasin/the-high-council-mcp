@@ -7,13 +7,17 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, existsSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { routeNextPass } from './helpers/route-pass.js';
 import { rulingGateText, parseRulingGateText, rulingsInForce } from '../src/rulings.js';
 import { requestRuling, rulingsOf, answerGateAsRelay, answerGate, readGateAnswer } from '../src/gate.js';
 import { rulingsSection } from '../src/roles.js';
 import { runChain, setPromptSpy, setCache } from '../src/chain.js';
 import { promptHashOf } from '../src/cache-integrity.js';
+import { runThroughChecks } from './helpers/build-check.js';
+// CHANGED ACCEPTED (0.8.4 N9, C&C's ruling 4: `layer_debate.rounds` is removed): its exchange fixture (`over`) set `layer_debate: { enabled: true, rounds: 1 }`; it now sets no `layer_debate` block at all (the key is removed, and so is the switch: the exchange runs N9's own loop on every layered unanimous chain; the assertions are unchanged and passed on the real loop in the R1 run).
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const CHECK_PRELOAD = join(root, 'test', 'helpers', 'build-check-only-preload.js');   // 0.8.4 S4: a child with the build-check wording in force
 const T0 = Date.parse('2026-10-30T12:00:00.000Z');
 
 test('G1: the pure helpers: a ruling\'s gate text round-trips; anything else is not a ruling; a prompt for pass R carries the rulings dated at or before R and no others', () => {
@@ -55,11 +59,12 @@ test('G3: a ruling is asked for as a session gate, relayed with his words, and t
   const g = readGateAnswer(d, 'g1', { now }).gate;
   assert.equal(g.kind, 'ruling');
   assert.equal(answerGateAsRelay(d, 'g1', { shownSha256: g.sha256, reason: 'relayed', personWords: '' }, { now }).code, 'person_words_required');
-  assert.equal(answerGateAsRelay(d, 'g1', { shownSha256: g.sha256, reason: 'relayed', personWords: 'Yes' }, { now }).ok, true);
+  // CHANGED ACCEPTED ROW (S20 slice 2, Q1). OLD words: 'Yes'. NEW: the words contain the ruling text. WHY: a ruling the session relays is accepted only with the person's words and the ruling text IN them (src/gate.js, src/rulings.js rulingTextInWords).
+  assert.equal(answerGateAsRelay(d, 'g1', { shownSha256: g.sha256, reason: 'relayed', personWords: 'Yes: Replace E5 by the amended R19.' }, { now }).ok, true);
   clock = T0 + 5 * 24 * 3600e3;   // five days later: the gate\'s own time limit is long past
   const after = rulingsOf(d, { now });
   assert.equal(after.pending.length, 0);
-  assert.deepEqual(after.rulings.map(r => ({ gate: r.gate, pass: r.pass, text: r.text, channel: r.channel, actor: r.actor, person_words: r.person_words })), [{ gate: 'g1', pass: 3, text: 'Replace E5 by the amended R19.', channel: 'session', actor: 'main-session', person_words: 'Yes' }]);
+  assert.deepEqual(after.rulings.map(r => ({ gate: r.gate, pass: r.pass, text: r.text, channel: r.channel, actor: r.actor, person_words: r.person_words })), [{ gate: 'g1', pass: 3, text: 'Replace E5 by the amended R19.', channel: 'session', actor: 'main-session', person_words: 'Yes: Replace E5 by the amended R19.' }]);
   clock = T0;
 });
 
@@ -136,7 +141,9 @@ const project = (l3 = 'o') => {
   writeFileSync(join(dir, 'tasks', 't.md'), '# A plan\n');
   const run = args => spawnSync(process.execPath, [join(root, 'src', 'cli.js'), ...args], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir } });
   const runDir = () => join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
-  return { dir, run, runDir, answer: (n, t) => writeFileSync(join(runDir(), `${n}.md`), t), files: () => readdirSync(runDir()), done: () => rmSync(dir, { recursive: true, force: true }) };
+  // 0.8.4 S4 (C&C's Q-m migration): the same command with the build-check wording in force; a run that waits at the build check is answered good_to_build by a test-only handler and resumed (test/helpers/build-check.js)
+  const runChecked = args => runThroughChecks(a => spawnSync(process.execPath, ['--import', CHECK_PRELOAD, join(root, 'src', 'cli.js'), ...a], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir } }), args, runDir);
+  return { dir, run, runChecked, runDir, answer: (n, t) => writeFileSync(join(runDir(), `${n}.md`), t), files: () => readdirSync(runDir()), done: () => rmSync(dir, { recursive: true, force: true }) };
 };
 const plan = n => `# Plan v${n}\n\n1. Boil.\n\nAssumptions: tea${'.'.repeat(n)}\n`;
 const atRevise1 = p => { assert.equal(p.run(['--chain', 'lad', '--task', 'tasks/t.md', '--ladder']).status, 3); p.answer('build', plan(1)); assert.equal(p.run(['--resume', p.runDir()]).status, 3); assert.ok(existsSync(join(p.runDir(), 'NEEDS-revise-1.md'))); };
@@ -149,20 +156,26 @@ test('C1: the whole verb: ruling-add asks for a ruling for the NEXT pass; the ru
     const add = p.run(['ruling-add', p.runDir(), '--ruling', 'Replace E5 by the amended R19.', '--relayed']);
     assert.equal(add.status, 0, add.stdout + add.stderr);
     assert.match(add.stdout, /ruling-add: a ruling for pass 2 waits for his answer as gate g1\. The run will not go on until it is answered or has expired\./);
-    assert.match(add.stdout, /council relay-answer .* g1 --person-words "<his answer, as he typed it in this window>"/);
+    // CHANGED ACCEPTED LINE (S20 slice 2, Q1). OLD: /--person-words "<his answer, as he typed it in this window>"/. NEW: the placeholder says the ruling text must be in his own words. WHY: a relayed ruling is now refused unless the person's words contain the ruling text, so the printed command must not lead a handler to a bare "Yes".
+    // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: `<his answer exactly as he typed it in this window; it is accepted only if he wrote the ruling text in it>`. NEW: `<their answer exactly as they typed it in this window; it is accepted only if they wrote the ruling text in it>` (K5). WHY: the reviewed relay line of src/gate-relay-cli.js:74.
+    assert.match(add.stdout, /council relay-answer .* g1 --person-words "<their answer exactly as they typed it in this window; it is accepted only if they wrote the ruling text in it>"/);
     const held = p.run(['--resume', p.runDir(), '--next-pass-layer-3']);
     assert.equal(held.status, 2);
     assert.match(held.stderr, /A ruling for pass 2 waits for the person's answer \(gate g1\): the pass would run without it, and a ruling given after that would change what its stages were asked\. Give the answer, or let the gate expire, or take the request back: council ruling-withdraw .* g1 --relayed \(the handler session, for a gate it asked for\), or council gate answer .* g1 --decline \(at a terminal\)\. Nothing was run and nothing was spent\./);
     assert.equal(p.files().some(f => /^panel-2/.test(f)), false);
     const none = p.run(['relay-answer', p.runDir(), 'g1']);
     assert.equal(none.status, 1); assert.match(none.stderr, /None were given\. Nothing was recorded\./);
-    const ok = p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'Yes, replace it.']);
+    // CHANGED ACCEPTED ROW (S20 slice 2, Q1). OLD words: 'Yes, replace it.'. NEW: the words contain the ruling text. WHY: a ruling the session relays is accepted only with the person's words and the ruling text IN them (src/gate.js, src/rulings.js rulingTextInWords).
+    const ok = p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'Yes, Replace E5 by the amended R19.']);
     assert.equal(ok.status, 0, ok.stdout + ok.stderr);
-    const go = p.run(['--resume', p.runDir(), '--next-pass-layer-3']);
-    assert.equal(go.status, 22, go.stdout + go.stderr);
+    // CHANGED ACCEPTED ROW (S20 slice 2, R2): the flag leg is the request (27), the handler's route and the plain resume; the assertions after it are unchanged.
+    routeNextPass(p);
+    // CHANGED ACCEPTED (0.8.4 S4, C&C's Q-m migration; OLD/NEW/WHY): OLD: this resume exited 22 at the layer-3 (ladder) sign-off. NEW: with the build-check wording in force the run waits at build-check-1, a test-only handler answers good_to_build, and the resumed run ends AGREED (exit 0). WHY: the handler's build check follows layer 3's sign-off (CA4); every other assertion of the row is unchanged.
+    const go = p.runChecked(['--resume', p.runDir()]);
+    assert.equal(go.status, 0, go.stdout + go.stderr);
     const rep = JSON.parse(readFileSync(join(p.runDir(), 'report.json'), 'utf8'));
-    assert.deepEqual(rep.owner_rulings.map(r => ({ gate: r.gate, pass: r.pass, text: r.text, channel: r.channel, person_words: r.person_words })), [{ gate: 'g1', pass: 2, text: 'Replace E5 by the amended R19.', channel: 'session', person_words: 'Yes, replace it.' }]);
-    assert.deepEqual(rep.relayed.map(r => [r.gate, r.kind, r.channel, r.person_words]), [['g1', 'ruling', 'session', 'Yes, replace it.']]);
+    assert.deepEqual(rep.owner_rulings.map(r => ({ gate: r.gate, pass: r.pass, text: r.text, channel: r.channel, person_words: r.person_words })), [{ gate: 'g1', pass: 2, text: 'Replace E5 by the amended R19.', channel: 'session', person_words: 'Yes, Replace E5 by the amended R19.' }]);
+    assert.deepEqual(rep.relayed.map(r => [r.gate, r.kind, r.channel, r.person_words]), [['g1', 'ruling', 'session', 'Yes, Replace E5 by the amended R19.']]);
   } finally { p.done(); }
 });
 
@@ -172,7 +185,8 @@ test('C2: a plain resume after the ruling was approved replays every stage at $0
     atRevise1(p);
     p.answer('revise-1', plan(2));
     assert.equal(p.run(['ruling-add', p.runDir(), '--ruling', 'Use black tea.', '--relayed']).status, 0);
-    assert.equal(p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'ok']).status, 0);
+    // CHANGED ACCEPTED ROW (S20 slice 2, Q1). OLD words: 'ok'. NEW: the words contain the ruling text. WHY: a ruling the session relays is accepted only with the person's words and the ruling text IN them (src/gate.js, src/rulings.js rulingTextInWords).
+    assert.equal(p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'ok. Use black tea.']).status, 0);
     const first = p.run(['--resume', p.runDir()]);
     assert.equal(first.status, 3, first.stdout + first.stderr);
     assert.ok(existsSync(join(p.runDir(), 'NEEDS-revise-2.md')));
@@ -215,7 +229,7 @@ test('C4: the relay of a ruling is refused once its pass has a stage on disk (th
 });
 
 test('P2: the layer exchange (blind posts and replies) reads the ruling from its pass on and is byte for byte unchanged before it (B3 runs the exchange at every layer)', async () => {
-  const over = { layer_debate: { enabled: true, rounds: 1 } };
+  const over = {};
   const two = suffix => ({ ...chain(suffix), ...over, seats: { ...chain(suffix).seats, critics: [{ provider: 'mock', model: `mock-critic-script-xo-rx1${suffix}`, lab: 'l1', layer: 1 }, { provider: 'mock', model: `mock-critic-script-xxo-rx1b${suffix}`, lab: 'l1b', layer: 1 }, { provider: 'mock', model: `mock-critic-script-o-rx2${suffix}`, lab: 'l2', layer: 2 }, { provider: 'mock', model: `mock-critic-script-o-rx3${suffix}`, lab: 'l3', layer: 3 }] } });
   const run = async (rulings, suffix) => { const seen = new Map(); setCache(null); setPromptSpy(p => { seen.set(p.label, { user: p.user, hash: promptHashOf(p.system, p.user) }); }); try { await runChain({ request: 'Plan a tea.', config: two(suffix), rulings, log: () => {} }); } finally { setPromptSpy(null); } return seen; };
   const none = await run([], 'a'); const withIt = await run([RULING], 'b');
@@ -234,7 +248,8 @@ test('G6: a damaged gate file of an approved ruling is listed as unreadable (its
   const d = gateFolder();
   requestRuling(d, { pass: 2, text: 'Original.', relayed: true }, { now });
   const g = readGateAnswer(d, 'g1', { now }).gate;
-  assert.equal(answerGateAsRelay(d, 'g1', { shownSha256: g.sha256, reason: 'x', personWords: 'yes' }, { now }).ok, true);
+  // CHANGED ACCEPTED ROW (S20 slice 2, Q1). OLD words: 'yes'. NEW: the words contain the ruling text. WHY: a ruling the session relays is accepted only with the person's words and the ruling text IN them (src/gate.js, src/rulings.js rulingTextInWords).
+  assert.equal(answerGateAsRelay(d, 'g1', { shownSha256: g.sha256, reason: 'x', personWords: 'yes. Original.' }, { now }).ok, true);
   assert.deepEqual(rulingsOf(d, { now }).rulings.map(r => r.gate), ['g1']);
   writeFileSync(join(d, 'gates', 'g1.json'), '{ not json');
   const after = rulingsOf(d, { now });
@@ -247,7 +262,8 @@ test('C5: a resume is refused when an approved ruling\'s gate file was damaged (
     atRevise1(p);
     p.answer('revise-1', plan(2));
     assert.equal(p.run(['ruling-add', p.runDir(), '--ruling', 'Use black tea.', '--relayed']).status, 0);
-    assert.equal(p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'ok']).status, 0);
+    // CHANGED ACCEPTED ROW (S20 slice 2, Q1). OLD words: 'ok'. NEW: the words contain the ruling text. WHY: a ruling the session relays is accepted only with the person's words and the ruling text IN them (src/gate.js, src/rulings.js rulingTextInWords).
+    assert.equal(p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'ok. Use black tea.']).status, 0);
     writeFileSync(join(p.runDir(), 'gates', 'g1.json'), '{ not json');
     const r = p.run(['--resume', p.runDir()]);
     assert.equal(r.status, 2, r.stdout + r.stderr);

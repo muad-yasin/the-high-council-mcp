@@ -23,7 +23,7 @@ test('MIX-1: a mixed stop names the cause per seat; the unrecognised seat keeps 
   assert.ok(lines[0].includes(`with HTTP 404: ${R_SEAT}, ${U_SEAT}. For ${R_SEAT} the answer names the max price; for ${U_SEAT} the cause has not been identified. `));
   assert.ok(!/ The cause has not been identified\./.test(lines[0]), 'no blanket "The cause has not been identified." sentence');
   const u = lines.find(l => l.startsWith("OpenRouter's answer for "));
-  assert.equal(u, `OpenRouter's answer for ${U_SEAT} does not say the price is the problem, so this program does not know the cause for that seat and recommends nothing for it. The price limit sent: ${U_SEAT}: $2 in / $6 out per million tokens.`);
+  assert.equal(u, `OpenRouter's answer for ${U_SEAT} does not say the price is the problem, so this program does not know the cause for that seat and recommends nothing for it. The price limit sent: ${U_SEAT}: $2 in / $6 out per million tokens. Every OpenRouter call also asks OpenRouter to skip the Open Inference host, and that cannot be switched off, so if no other host serves this model, the same HTTP 404 can come from that.`);
   assert.ok(lines.some(l => l.startsWith('Every OpenRouter call carries a price limit') && l.includes(`${R_SEAT}: $0.4 in / $1.6 out`) && l.includes(`found no host for ${R_SEAT} at or under that price`)));
 });
 
@@ -55,14 +55,16 @@ test('MIX-3: a mixed stop is never recommended a skip (a skip drops every refuse
   const allR = skippable(mixed({}, { recognised: true, said: SAID })); assert.deepEqual(recommendationOf(allR), { kind: 'skip' });
 });
 
-test('MIX-4: the continue lines name the cause to fix first; a tree member drops both (they begin as its filter expects); an advice call says it is not resumed', () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD the title ended "an advice call says it is not resumed" and the default message (no run path) ended "An advice call is not resumed: after the row is in and the cause for <seats> is found, ask for a new quote." NEW the title says the default message names no advice call, and the message ends "After the row is in and the cause for <seats> is found, ask again." WHY Muad's Q7: the default PriceRefused message says nothing about advice and is true for any failed call. (Refs: REM-w10.)
+test('MIX-4: the continue lines name the cause to fix first; a tree member drops both (they begin as its filter expects); the default message (no run path) says nothing about advice', () => {
   const text = priceRefusedWords(skippable(mixed()), { runPath: 'runs/R1' });
   assert.match(text, /\nAfter you fix the cause for openrouter\/other\/model and raise openrouter\/qwen\/qwen3\.7-plus if you accept the higher price, continue with: council --resume runs\/R1\n/);
   const kept = memberReasonLines(text);
   assert.ok(!kept.some(l => /^(After you fix the cause|Or skip |Continue with: )/.test(l)), 'a tree member is resumed with `council tree resume`, so neither --resume line reaches it');
   assert.ok(kept.some(l => l.startsWith('Recommended: ')), 'the rest of the reason stays');
   const advice = priceRefusedWords(mixed(), { runPath: null });
-  assert.match(advice, /An advice call is not resumed: after the row is in and the cause for openrouter\/other\/model is found, ask for a new quote\.$/);
+  assert.match(advice, /After the row is in and the cause for openrouter\/other\/model is found, ask again\.$/);
+  assert.doesNotMatch(advice, /advice|new quote/i, 'the default message carries no word about advice (Q7)');
   assert.ok(!advice.includes('--resume'));
 });
 
@@ -72,6 +74,10 @@ test('MIX-5: a recognised OWN-pin seat among unrecognised ones is told to raise 
   assert.ok(!/for example/.test(text), 'no pricing.user.json example for an own-pin seat');
   assert.ok(!text.split('\n').filter(l => !mayNameU(l)).some(l => l.includes(U_SEAT)));
 });
+
+// CHANGED ACCEPTED TEST (Open Inference block, 4 Nov 2026; S6-07's known gap): OLD: the unrecognised sets read exactly as captured from 47c51621. NEW: the line that ends "The price limit(s) sent: ..." gains ONE closing sentence naming the block as a possible cause; every other character is still the captured one. WHY: every OpenRouter call now asks OpenRouter to skip the Open Inference host, and a 404 with no price wording can come from that.
+const BLOCK_SENTENCE = plural => ` Every OpenRouter call also asks OpenRouter to skip the Open Inference host, and that cannot be switched off, so if no other host serves ${plural ? 'these models' : 'this model'}, the same HTTP 404 can come from that.`;
+const withBlock = (golden, plural) => { const out = golden.replace(/^(OpenRouter's answers? (?:do not all|does not) say the price is the problem.*)$/m, `$1${BLOCK_SENTENCE(plural)}`); assert.notEqual(out, golden, 'the unrecognised line was found'); return out; };
 
 test('MIX-6 (golden): sets that are all recognised or all unrecognised read exactly as before 4.1 (captured from 47c51621)', () => {
   // the fixture is the output as captured; its one date is the price table's "last compared" day, which a table refresh moves (a date in a test is never patched): ONLY the words "list on <date>" are swapped for the table's current day; every dollar figure and every other character is compared as captured
@@ -83,10 +89,11 @@ test('MIX-6 (golden): sets that are all recognised or all unrecognised read exac
   const own = mk('openrouter/table/model'); own.also = [mk('openrouter/own/model', { ownPin: true, ownFields: ['prompt'] })];
   assert.equal(priceRefusedWords(allRec, { runPath: 'runs/R1' }), g.allRec);
   assert.equal(priceRefusedWords(skippable(two()), { runPath: 'runs/R1' }), g.allRecSkippable);
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD the golden's allRecAdvice ended "\nAn advice call is not resumed: after the row is in, ask for a new quote." NEW it ends "\nAfter the row is in, ask again." (the fixture was edited by hand in the same commit; every other character is still the text captured from 47c51621). WHY Muad's Q7: the default PriceRefused message says nothing about advice and is true for any failed call. (Refs: REM-w9.)
   assert.equal(priceRefusedWords(allRec, { runPath: null }), g.allRecAdvice);
-  assert.equal(priceRefusedWords(allUnrec, { runPath: 'runs/R1' }), g.allUnrec);
-  assert.equal(priceRefusedWords(skippable(two({ recognised: false, said: 'Model not found' }, { recognised: false, said: 'x' })), { runPath: 'runs/R1' }), g.allUnrecSkippable);
+  assert.equal(priceRefusedWords(allUnrec, { runPath: 'runs/R1' }), withBlock(g.allUnrec, true));
+  assert.equal(priceRefusedWords(skippable(two({ recognised: false, said: 'Model not found' }, { recognised: false, said: 'x' })), { runPath: 'runs/R1' }), withBlock(g.allUnrecSkippable, true));
   assert.equal(priceRefusedWords(own, { runPath: 'runs/R1' }), g.ownPlusTable);
   assert.equal(priceRefusedWords(mk(R_SEAT), { runPath: 'runs/R1' }), g.singleRec);
-  assert.equal(priceRefusedWords(mk(R_SEAT, { recognised: false, said: 'Model not found' }), { runPath: null }), g.singleUnrec);
+  assert.equal(priceRefusedWords(mk(R_SEAT, { recognised: false, said: 'Model not found' }), { runPath: null }), withBlock(g.singleUnrec, false));
 });

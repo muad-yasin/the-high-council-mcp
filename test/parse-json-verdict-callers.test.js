@@ -13,7 +13,8 @@ const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'sr
 
 test('every parseJson call that feeds normaliseCritique passes { verdict: true }', () => {
   // R1 (18 Okt 2026), CHANGED ACCEPTED TEST: old bar = sinks `normaliseCritique(parsed` (the panel sink read `parsed` until the notes lane, 0aaa6c3, split it with splitNotes) and a hint written exactly `{ verdict: true }`; new bar = the sink is `normaliseCritique(parsed` or `normaliseCritique(verdictPart` (verdictPart is splitNotes(parsed).verdictPart, of the SAME parsed value), and the hint may carry more keys after `verdict: true` (the envelope's `expect`). why = the rename moved the sink and the envelope added a key; the panel verdict reads still all pass the hint, and the count floors (>= 2 sinks, >= 4 reads) are unchanged.
-  const sinks = src.map((l, i) => (/\bnormaliseCritique\((?:parsed|verdictPart)\b/.test(l) ? i : -1)).filter(i => i >= 0);
+  // CHANGED ACCEPTED (0.8.4 S7b A3, bb3e8a90; found by the box run of 08 Nov 2026): the panel sink now reads `verdictClean` (the verdict with the layer-2 rulings stripped), so the sink pattern knows that name too; before, the scan found 3 of the 4 critic reads.
+  const sinks = src.map((l, i) => (/\bnormaliseCritique\((?:parsed|verdictPart|verdictClean)\b/.test(l) ? i : -1)).filter(i => i >= 0);
   assert.ok(sinks.length >= 2, `expected the panel and the round-robin sinks, found ${sinks.length}`);
   const verdictCalls = new Set();
   for (const sink of sinks) {

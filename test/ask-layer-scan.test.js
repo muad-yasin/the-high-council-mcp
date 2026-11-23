@@ -20,6 +20,14 @@ test('ask-layer: every `reviewSeat(` call of the unanimous panel sits inside ask
   assert.ok(to > from, 'the end of askLayer found');
   const calls = [...src.matchAll(/\breviewSeat\(/g)].map(m => m.index);
   assert.ok(calls.length >= 3, `the panel's reviewSeat calls were found (${calls.length})`);
+  // CHANGED (0.8.4, C&C ruling 08 Nov 2026, an exemption after a read-only trace). OLD: no call outside askLayer's body at all. NEW: a call outside the body is allowed only when its OWN line carries the
+  // marker `ask-layer-exempt:` (with its reason), and exactly ONE call carries it (the count pin, so a second bypass cannot hide behind the marker). WHY: the sign-off re-ask of a top-layer judge whose
+  // "sign-off: no" leaves nothing standing (chain.js, refusedSignoffs) is asked once after the layer exchange, outside askLayer's loop; it does by hand what askLayer's wrap does for its own re-asks:
+  // the bound (its own label -reask3, one call per judge, priced in the dry run's maximum), the re-ask record (reaskedAt, re_asked) and the unanswered fallback (none is created for a -reask<n> tag).
+  const lineOf = i => src.slice(0, i).split('\n').length;
+  const lines = src.split('\n');
   const outside = calls.filter(i => i < from || i > to);
-  assert.deepEqual(outside.map(i => src.slice(0, i).split('\n').length), [], 'reviewSeat( called outside askLayer at these lines');
+  const exempt = outside.filter(i => lines[lineOf(i) - 1].includes('ask-layer-exempt:'));
+  assert.deepEqual(outside.filter(i => !exempt.includes(i)).map(lineOf), [], 'reviewSeat( called outside askLayer at these lines');
+  assert.equal(exempt.length, 1, 'exactly one reviewSeat( call outside askLayer carries the ask-layer-exempt marker (the sign-off re-ask)');
 });

@@ -94,6 +94,65 @@ test('two external critics: both are listed, either can be answered first, and t
   } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
 });
 
+// 0.8.4 (S9-02): external_prompt reads a long prompt in pages (max_chars, part). Neither argument: the whole prompt and the answer's keys as before. The pages put together are the whole prompt, cut by code point.
+test('external_prompt max_chars / part: the pages put together are the whole prompt; no argument gives the old answer; part without max_chars and a part past the end are refused', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-mcp-pages-'));
+  try {
+    mkdirSync(join(dir, 'tasks')); mkdirSync(join(dir, 'chains'));
+    writeFileSync(join(dir, 'tasks', 't.md'), '# A plan\n\nPlan a small note-taking app. \u{1F600}\n');
+    writeFileSync(join(dir, 'chains', 'one-ext.json'), JSON.stringify({
+      name: 'one-ext', description: 'test', maxRounds: 1, signoff: 'unanimous', estimate: { promptTokens: 100, draftTokens: 100, critiqueTokens: 100 },
+      seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'mock', model: 'mock-builder' }, reviser: { provider: 'mock', model: 'mock-builder' }, critics: [EXT('ea')] },
+    }));
+    const first = spawnSync(process.execPath, [cli, '--chain', 'one-ext', '--task', 'tasks/t.md'], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir }, timeout: 60_000 });
+    assert.equal(first.status, 3, first.stderr);
+    const run = readdirSync(join(dir, 'runs'))[0];
+    const whole = await call(dir, 'external_prompt', { run });
+    assert.equal(Object.hasOwn(whole, 'part') || Object.hasOwn(whole, 'parts') || Object.hasOwn(whole, 'total_chars'), false, 'no paging keys without the arguments');
+    const total = Array.from(whole.prompt).length;
+    assert.ok(total > 1500, `the prompt is long enough to page (${total} characters)`);
+    const pages = [];
+    const p1 = await call(dir, 'external_prompt', { run, max_chars: 700 });
+    assert.deepEqual([p1.part, p1.parts, p1.total_chars], [1, Math.ceil(total / 700), total]);
+    pages.push(p1.prompt);
+    for (let n = 2; n <= p1.parts; n++) pages.push((await call(dir, 'external_prompt', { run, max_chars: 700, part: n })).prompt);
+    assert.equal(pages.join(''), whole.prompt, 'the pages put together are the whole prompt');
+    assert.ok(pages.every(x => Array.from(x).length <= 700));
+    assert.equal(p1.waiting.length, 1);
+    assert.match((await call(dir, 'external_prompt', { run, max_chars: 700, part: p1.parts + 1 })).error, /does not exist/);
+    assert.match((await call(dir, 'external_prompt', { run, part: 2 })).error, /part needs max_chars/);
+  } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+});
+
+// 0.8.4 (S9-08): prepare_stage_prompt takes an optional stage, like external_prompt. No stage: the first waiting stage, written to stage_prompt.md as before. Another waiting stage: its own file, so the two bundles
+// do not overwrite each other; a stage the run is not waiting for is refused.
+test('prepare_stage_prompt stage: the first stage keeps stage_prompt.md, another waiting stage gets its own bundle, a stage not waited for is refused', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-mcp-prepare-'));
+  try {
+    mkdirSync(join(dir, 'tasks')); mkdirSync(join(dir, 'chains'));
+    writeFileSync(join(dir, 'tasks', 't.md'), '# A plan\n\nPlan a small note-taking app.\n');
+    writeFileSync(join(dir, 'chains', 'two-ext.json'), JSON.stringify({
+      name: 'two-ext', description: 'test', maxRounds: 1, signoff: 'unanimous', estimate: { promptTokens: 100, draftTokens: 100, critiqueTokens: 100 },
+      seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'mock', model: 'mock-builder' }, reviser: { provider: 'mock', model: 'mock-builder' }, critics: [EXT('ea'), { provider: 'mock', model: 'mock-critic-a', lab: 'mb' }, EXT('ec')] },
+    }));
+    const first = spawnSync(process.execPath, [cli, '--chain', 'two-ext', '--task', 'tasks/t.md'], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir }, timeout: 60_000 });
+    assert.equal(first.status, 3, first.stderr);
+    const run = readdirSync(join(dir, 'runs'))[0];
+    const runDir = join(dir, 'runs', run);
+    const a = await call(dir, 'prepare_stage_prompt', { run });
+    assert.equal(a.stage, 'panel-1-ea');
+    assert.equal(a.written, join(runDir, 'stage_prompt.md'), 'no stage: the old file name');
+    const b = await call(dir, 'prepare_stage_prompt', { run, stage: 'panel-1-ec' });
+    assert.equal(b.stage, 'panel-1-ec');
+    assert.equal(b.written, join(runDir, 'stage_prompt-panel-1-ec.md'));
+    assert.match(readFileSync(b.written, 'utf8'), /panel-1-ec/);
+    assert.match(readFileSync(a.written, 'utf8'), /panel-1-ea/, 'the first bundle was not overwritten');
+    const same = await call(dir, 'prepare_stage_prompt', { run, stage: 'panel-1-ea' });
+    assert.equal(same.written, join(runDir, 'stage_prompt.md'), 'naming the first stage is the same as naming none');
+    assert.match((await call(dir, 'prepare_stage_prompt', { run, stage: 'panel-1-mb' })).error, /not waiting/);
+  } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); }
+});
+
 // Bug audit 2026-09-28 (external seats #1): stage labels with a dot (plan-daily-7's `opus5.5-sub`)
 // failed the tools' old /^[a-z0-9-]+$/ schema, so no such stage could be answered over MCP.
 test('a dotted lab (opus5.5-sub) can be fetched and answered over MCP; a ".." label is refused', async () => {

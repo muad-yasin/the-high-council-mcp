@@ -15,6 +15,8 @@ import { EXIT_CONFLICT_ASKED } from '../src/exit-codes.js';
 import { readStoppedMarker } from '../src/stop-files.js';
 import { runResumability } from '../src/run-status.js';
 import { startTyped } from './helpers/typed-cap.js';
+import { resumeThroughPauses } from './helpers/answer-pauses.js';
+import { answerBuildChecks } from './helpers/build-check.js';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,8 +24,8 @@ const cli = join(root, 'src', 'cli.js');
 const inject = join(root, 'test', 'helpers', 'inject-decider.js');
 const RUN = '2026-10-18T09-00-00-000Z';
 const CRITERION = 'The plan defines a retry limit.';
-const X = { criterion: CRITERION, problem: 'No limit on retries.', quote: 'retries failed requests' };
-const Y = { criterion: CRITERION, problem: 'No owner is named.', quote: 'The worker' };
+const X = { criterion: CRITERION, problem: 'No limit on retries.', quote: 'retries failed requests', severity: 5 };
+const Y = { criterion: CRITERION, problem: 'No owner is named.', quote: 'The worker', severity: 5 };
 const idX = objectionId('la', X); const idY = objectionId('lb', Y);
 const meets = JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok' });
 const objects = f => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: f.problem }], failures: [f], verdict_line: 'no' });
@@ -44,6 +46,7 @@ const spawnCli = dir => args => new Promise(done => {
   child.on('exit', code => done({ code, out }));
 });
 
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the loopback stubs' failures carried no rating, and after the pick the run finished once the writer pauses were answered. NEW: X and Y carry severity 5; after the pick the run also stops at the handler's build check, which the test-only handler answers (test/helpers/build-check.js answerBuildChecks) before the run ends. WHY: ratingDemand and buildCheckSystem/buildCheckUser are recorded (src/prompts/recorded-084-b.js, src/build-check.js). No relation is written: the swing chain has no answer_back, so no relation is asked or read there.
 test('CD-22 (real verbs): the swing stops the run at exit 25; a plain resume says so at $0; a bad --prevail is refused with nothing run; a good one is recorded and the run finishes, the decider never paid twice', async () => {
   // pass 1 la raises X; pass 2 la is heard and silent, lb (layer 2) raises Y and a revise follows; pass 3 la raises X AGAIN (the swing); pass 4 everyone signs off.
   const la = await scripted([objects(X), meets, objects(X), meets]); const lb = await scripted([objects(Y), meets]); const lc = await scripted([meets]);
@@ -52,9 +55,10 @@ test('CD-22 (real verbs): the swing stops the run at exit 25; a plain resume say
     const dir = mkdtempSync(join(tmpdir(), 'thc-conflict-ask-')); mkdirSync(join(dir, 'tasks')); mkdirSync(join(dir, 'chains'));
     writeFileSync(join(dir, 'tasks', 't.md'), 'Write a worker plan with a retry limit.\n');
     const writer = { provider: 'mock', model: 'mock-builder', lab: 'writer' };
-    writeFileSync(join(dir, 'chains', 'swing.json'), JSON.stringify({ name: 'swing', description: 'A fixture.', criteria: [CRITERION], signoff: 'unanimous', maxOverseerRounds: 3, layerRevisions: { 1: 3, 2: 2 }, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 }, seats: { builder: writer, reviser: writer, critics: [seat('la', 1, la.url), seat('lb', 2, lb.url), seat('lc', 3, lc.url)], decider: seat('dec', undefined, dec.url) } }));
+    writeFileSync(join(dir, 'chains', 'swing.json'), JSON.stringify({ name: 'swing', description: 'A fixture.', criteria: [CRITERION], signoff: 'unanimous', maxOverseerRounds: 3, layerRevisions: { 1: 3, 2: 2 }, estimate: { promptTokens: 1000, draftTokens: 1000, critiqueTokens: 300 }, seats: { builder: writer, reviser: { provider: 'external', model: 'claude-code-session' }, critics: [seat('la', 1, la.url), seat('lb', 2, lb.url), seat('lc', 3, lc.url)], decider: seat('dec', undefined, dec.url) } }));
     const run = spawnCli(dir); const rd = join(dir, 'runs', RUN);
-    const first = await startTyped(run, ['--chain', 'swing', '--task', 'tasks/t.md', '--run-id', RUN], rd);
+    // CHANGED (0.8.4 HS, Muad 05 Nov 2026 22:19: every layered chain needs a handling session; chain-lint refuses one without). OLD: the reviser was the mock `writer` and the start reached the conflict in one sitting. NEW: the reviser is the external session, so the run pauses at each revision (exit 3: revise-1, revise-2) before the swing of pass 3; those pauses are answered (test/helpers/answer-pauses.js) and the run goes on to the exit 25 this test is about. WHY: the test is about the conflict stop, not the revisions. The assertions below are unchanged.
+    const first = await resumeThroughPauses(run, rd, await startTyped(run, ['--chain', 'swing', '--task', 'tasks/t.md', '--run-id', RUN], rd));
     assert.equal(first.code, EXIT_CONFLICT_ASKED, first.out);
     assert.ok(existsSync(join(rd, 'STOPPED-conflict.json')) && !existsSync(join(rd, 'report.json')), 'a stop, not a finished run');
     assert.equal(readStoppedMarker(rd).stoppedBy, 'conflict');
@@ -73,7 +77,9 @@ test('CD-22 (real verbs): the swing stops the run at exit 25; a plain resume say
     // --prevail without --resume, and on a run that is not stopped this way
     const lone = await run(['--chain', 'swing', '--task', 'tasks/t.md', '--prevail', idY]); assert.equal(lone.code, 2, lone.out); assert.match(lone.out, /answers a stopped run/);
     // the good choice: recorded, applied, the run finishes
-    const done = await run(['--resume', rd, '--prevail', `1=${idY}`]);
+    // CHANGED (0.8.4 HS): OLD `done` was the one `--prevail` sitting, which revised with the mock writer and finished. NEW: the revision that follows the pick (revise-3) is the external session's, so that sitting pauses (exit 3) and the run finishes after the pause is answered. WHY: same as above; the assertions on `done` and below are unchanged.
+    let done = await resumeThroughPauses(run, rd, await run(['--resume', rd, '--prevail', `1=${idY}`]));
+    for (let i = 0; i < 5 && done.code === 3 && answerBuildChecks(rd) > 0; i++) done = await resumeThroughPauses(run, rd, await run(['--resume', rd]));
     assert.ok([0, 22].includes(done.code), done.out);
     const meta = JSON.parse(readFileSync(join(rd, 'run.json'), 'utf8'));
     assert.deepEqual(meta.conflictChoices.map(c => [c.pass, c.n, c.prevail, c.via, 'by' in c]), [[3, 1, idY, 'cli', false]], 'the channel is recorded, no actor');

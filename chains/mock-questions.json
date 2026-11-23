@@ -1,5 +1,8 @@
 {
   "name": "mock-questions",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. Questions-first stage with defaults taken automatically (wait: false), then the debate chain.",
   "maxRounds": 2,
   "signoff": "unanimous",

@@ -70,3 +70,14 @@ One honest paragraph, kept where the piece lives:
 - and, if the piece is fiction under the two-question test, that it is - explicitly.
 
 **List the quotes specifically.** A note that lists invented texture but omits the quotes reads as exhaustive when it isn't - that exact gap let an invented quote sit in a most-read piece. **Never backfill a note from memory;** an honest URL can't be reconstructed, so unrecorded research gets redone.
+
+## One standard, a source's interest, and corrections
+
+Three duties that hold after the claims themselves are traced.
+
+- **The same standard for equivalent claims.** Decide the depth of the check from what the claim carries, then apply it to every claim of that weight, whoever made it. The test: would this figure have been traced if it had pointed the other way?
+- **A source's interest is part of the note.** Where a quoted source gains if the claim is believed - it sells the product, funds the study, is a party to the dispute - the note says so beside the quote, and the copy says so wherever a reader would weigh the claim differently for knowing it.
+- **A correction is published, not slipped in.** In order: fix the text; add a dated line saying what was wrong and what replaces it; update the sourcing note with the old claim, the new one and its source; find the copies the claim travelled into (a headline, a card, a notification, someone else's quote of it) and correct them or say that they exist; and if the error changed the piece's conclusion, say that at the top, not at the foot.
+
+These follow the International Fact-Checking Network's Code of Principles: its first principle (non-partisanship and fairness) with the criteria on equal standards and on disclosing sources' interests, and its fifth (an open and honest corrections policy). Those two principles and their criteria were read on the code's commitments page on 2026-11-12; the other three were not. The code is written for organisations that apply to be signatories. Here its ideas are applied to a single piece, and the correction steps above are this skill's own.
+

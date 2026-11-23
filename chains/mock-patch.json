@@ -1,5 +1,8 @@
 {
   "name": "mock-patch",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. Exercises the patch-mode reviser (src/patch-revise.js): search/replace blocks applied locally, so text nobody objected to stays byte-identical.",
   "maxRounds": 2,
   "stopOnPass": true,

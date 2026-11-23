@@ -17,6 +17,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { wordingText } from './helpers/wording-files.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -68,7 +69,9 @@ test('every mock chain, paused at an external reviser and resumed, replays its f
       const c = JSON.parse(readFileSync(join(root, 'chains', `${name}.json`), 'utf8'));
       if (!c.seats?.reviser) continue;
       const variant = `${name}-ext-reviser`;
-      writeFileSync(join(dir, 'chains', `${variant}.json`), JSON.stringify({ ...c, name: variant, seats: { ...c.seats, reviser: EXT } }));
+      // CHANGED (0.8.4 S5 U-C fix-up, 08 Nov 2026; C&C Q8). A LAYERED chain's stall that cannot be passed up is a stop for the person (exit 23), which ends the run before the replayed stages this test exists to compare. A window above the passes the run has (the lint's minimum is 2, there is no maximum) keeps the layered variant on the path the test is about; the exit-23 acceptance is gone.
+      const layered = (c.seats.critics || []).length > 0 && c.seats.critics.every(k => Number.isInteger(k.layer));
+      writeFileSync(join(dir, 'chains', `${variant}.json`), JSON.stringify({ ...c, name: variant, ...(layered && c.dispute?.enabled ? { dispute: { ...c.dispute, stall_rounds: 99 } } : {}), seats: { ...c.seats, reviser: EXT } }));
       const out = runToEnd(dir, variant, { first: ['--max-usd', '1000'] });
       assert.deepEqual(out.stale, [], `${variant}: ${out.log.join(', ')}\n${out.stale.join('\n')}`);
       assert.ok([0, 7, 22].includes(out.status), `${variant} reaches its end (22: finished, mock panel not agreed, 0.8.3): ${out.log.join(', ')}\n${out.stderr.slice(-800)}`);
@@ -106,8 +109,8 @@ test('mock chains stopped by the spend cap and resumed with a higher one replay 
 });
 
 test('Math.random is not called in src/chain.js or src/roles.js', () => {
-  for (const f of ['src/chain.js', 'src/roles.js']) {
-    const hits = readFileSync(join(root, f), 'utf8').split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => /Math\.random\s*\(/.test(l));
+  for (const [f, text] of [['src/chain.js', readFileSync(join(root, 'src/chain.js'), 'utf8')], ['the wording files', wordingText(root)]]) {
+    const hits = text.split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => /Math\.random\s*\(/.test(l));
     assert.deepEqual(hits, [], `${f}: a stage's input must not depend on an unseeded coin toss (use a seeded helper such as seededShuffle)`);
   }
 });

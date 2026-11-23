@@ -1,5 +1,8 @@
 {
   "name": "mock-external",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. The builder and reviser are external seats: the run pauses, writes NEEDS-<label>.md, and resumes from disk after <label>.md is written. Every other stage is mock.",
   "maxRounds": 2,
   "signoff": "unanimous",

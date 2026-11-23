@@ -8,7 +8,8 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { call } from '../src/providers.js';
-import { priceRoster, cacheReadMultiplierOf } from '../src/budget.js';
+import { cacheReadMultiplierOf } from '../src/cache-prices.js';   // CHANGED (0.8.4 seats unit): src/budget.js is removed (Muad 10 Nov 2026 02:09); the table lives in cache-prices.js
+import { costOf } from '../src/cost.js';
 import { setUserPrices, resetUserPrices } from '../src/price-table.js';
 
 const reply = usage => ({ content: [{ type: 'text', text: 'hi' }], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5, ...usage } });
@@ -38,7 +39,8 @@ test('no cache option: url, header names and body bytes are identical to what b0
     await call('anthropic', { model: 'claude-opus-5-5', system: 'You are a judge.', messages: [{ role: 'user', content: user }], maxTokens: 1000 });
     await call('anthropic', { model: 'claude-sonnet-5-5', system: 'S', messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }, { role: 'user', content: 'c "quoted" \u00e9' }], maxTokens: 64, temperature: 0.2, extra: { output_config: { effort: 'high' } } });
     assert.deepEqual(urls, BASE.map(b => b.url));
-    assert.deepEqual(sent.map(s => s.raw), BASE.map(b => b.body));
+    // CHANGED ACCEPTED TEST (0.8.4 long direct Claude calls): OLD: the bytes equal the captured base bytes. NEW: they equal the base bytes with ONE field appended, `"stream":true` (a direct Anthropic call is streamed); nothing else moved. WHY: the call is a stream now (test/anthropic-stream.test.js).
+    assert.deepEqual(sent.map(s => s.raw), BASE.map(b => b.body.replace(/\}$/, ',"stream":true}')));
     assert.deepEqual(sent.map(s => s.headers), BASE.map(b => b.headers));
     for (const s of sent) assert.ok(!s.raw.includes('cache_control'));
   });
@@ -111,22 +113,26 @@ test('a call WITHOUT cache gets the usage object it always had, even when the re
   });
 });
 
-test('cacheReadMultiplierOf: 0.05x for direct Opus 5.5 and Sonnet 5.5, the old 0.1x for everything else (Haiku 5.5, other hosts, other labs)', () => {
+test('cacheReadMultiplierOf: 0.05x for direct Opus 5.5 and Sonnet 5.5, 0.025x for direct Fable 5.2, the old 0.1x for everything else (Haiku 5.5, Fable 5.1, other hosts, other labs)', () => {
+  // CHANGED ACCEPTED TEST (0.8.4 seats unit): the Fable 5.2 line is new (Anthropic's pricing page, read 2026-11-09: a cache hit on Claude Fable 5.2 costs 2.5 percent of the input price, $0.20 per million tokens); Fable 5.1 keeps the 0.1x it had (its 0.025x is not applied, see src/cache-prices.js).
   assert.equal(cacheReadMultiplierOf('anthropic/claude-opus-5-5'), 0.05);
   assert.equal(cacheReadMultiplierOf('anthropic/claude-sonnet-5-5'), 0.05);
-  for (const k of ['anthropic/claude-haiku-5-5', 'openrouter/anthropic/claude-opus-5.5', 'anthropic/claude-sonnet-5', 'openai/gpt-6.1-sol', 'google/gemini-3.8-flash']) assert.equal(cacheReadMultiplierOf(k), 0.1, k);
+  assert.equal(cacheReadMultiplierOf('anthropic/claude-fable-5-2'), 0.025);
+  for (const k of ['anthropic/claude-haiku-5-5', 'anthropic/claude-fable-5-1', 'openrouter/anthropic/claude-opus-5.5', 'anthropic/claude-sonnet-5', 'openai/gpt-6.1-sol', 'google/gemini-3.8-flash']) assert.equal(cacheReadMultiplierOf(k), 0.1, k);
 });
 
-test('priceRoster: a cached input share is priced at the per-model read multiplier, and only the Anthropic 5.5 rows moved', () => {
+// CHANGED ACCEPTED TEST (0.8.4 seats unit, Muad 10 Nov 2026 02:09: src/budget.js and src/buys.js are removed). OLD: priceRoster({ perModel: 1e6, roster: [key], inputShare: 1, cacheHitRate: 1 }) priced a million fully cached input tokens. NEW: costOf, the module every run is priced with, prices the same million cached-read tokens (a marked call that read 1,000,000 tokens and sent none). WHY: the module that carried the check is gone; the claim (read multiplier per model, only the Anthropic 5.5 and Fable 5.2 rows moved) is the same, on the real code.
+test('costOf: a cached read is priced at the per-model read multiplier, and only the Anthropic 5.5 rows moved', () => {
   const dir = mkdtempSync(join(tmpdir(), 'cache-adapter-'));
   try {
-    writeFileSync(join(dir, 'pricing.user.json'), JSON.stringify({ 'anthropic/claude-opus-5-5': { in: 4, out: 20 }, 'anthropic/claude-sonnet-5-5': { in: 2, out: 10 }, 'anthropic/claude-haiku-5-5': { in: 0.1, out: 0.5 } }));
+    // CHANGED ACCEPTED (0.8.4, after the plan-the-high-council chain shipped a Haiku price row). OLD: the third user row was `anthropic/claude-haiku-5-5` at in 0.1 / out 0.5, and the third assertion expected $0.01 per million cached input for it. NEW: the third user row is `anthropic/claude-user-row-only-test`, a model id no shipped table prices (the figures and the $0.01 are unchanged). WHY: the shipped table now prices `anthropic/claude-haiku-5-5` at in 0.5 / out 2.5 (the over-100,000-token tier, so the cap never projects less than a long prompt bills); a user row only adds or raises a price (`effectiveRowByKey` takes the larger of the shipped and the user figure), so the $0.10 user row no longer lowered it and the result was $0.05. A user-only id stops this test from tracking shipped rows. Haiku 5.5's own 0.1x read multiplier is still pinned by the `cacheReadMultiplierOf` test above. The Opus and Sonnet rows stay at their shipped figures, because their 0.05x is keyed on those exact ids.
+    writeFileSync(join(dir, 'pricing.user.json'), JSON.stringify({ 'anthropic/claude-opus-5-5': { in: 4, out: 20 }, 'anthropic/claude-sonnet-5-5': { in: 2, out: 10 }, 'anthropic/claude-user-row-only-test': { in: 0.1, out: 0.5 } }));
     setUserPrices(dir);
-    const price = key => priceRoster({ perModel: 1e6, roster: [key], inputShare: 1, cacheHitRate: 1 }).rows[0].usd;
+    const price = key => { const [provider, ...rest] = key.split('/'); return costOf(provider, rest.join('/'), { input: 0, output: 0, cacheAsked: '5m', cacheRead: 1e6, cacheWrite: 0 }).usd; };
     assert.ok(Math.abs(price('anthropic/claude-opus-5-5') - 0.2) < 1e-9, 'Opus 5.5: $0.20 per million cached input');
     assert.ok(Math.abs(price('anthropic/claude-sonnet-5-5') - 0.1) < 1e-9, 'Sonnet 5.5: $0.10 per million');
-    assert.ok(Math.abs(price('anthropic/claude-haiku-5-5') - 0.01) < 1e-9, 'Haiku 5.5: $0.01 per million (up to a 100k prompt)');
-    const uncached = priceRoster({ perModel: 1e6, roster: ['anthropic/claude-opus-5-5'], inputShare: 1 }).rows[0].usd;
-    assert.ok(Math.abs(uncached - 4) < 1e-9, 'cacheHitRate 0 is unchanged');
+    assert.ok(Math.abs(price('anthropic/claude-user-row-only-test') - 0.01) < 1e-9, 'a model the multiplier table does not name reads at 0.1x: $0.01 per million on a $0.10 user row');
+    const uncached = costOf('anthropic', 'claude-opus-5-5', { input: 1e6, output: 0 }).usd;
+    assert.ok(Math.abs(uncached - 4) < 1e-9, 'an uncached million is unchanged');
   } finally { resetUserPrices(); rmSync(dir, { recursive: true, force: true }); }
 });

@@ -24,8 +24,7 @@ PLAN.md's "How" left the exact novelty/solo-signoff definitions to the builder. 
   novel for the objecting lab if no other lab also objected (`stance: 'object'`) to the same
   target (`on`) in that run. Grouped per run, not across runs, since `on` ids are only unique
   within a run.
-- **Solo signoff**: a lab's `signedOff: true` entry counts as a solo signoff if any other entry
-  in that run's `signoff` array has `signedOff: false`, or has a non-empty `objections` array.
+- **Solo signoff**: a lab's `signedOff: true` entry counts as a solo signoff if any other entry in that run's `signoff` array has `signedOff: false`, or has a non-empty `objections` array and a `signedOff` that is not `true`. An entry with `signedOff: true` never counts as objecting, though since 0.8.4 it can list objections rated below 4.
 - **Low-independence flag**: `novelObjectionRate < 0.10 && soloSignoffRate > 0.60`, both
   configurable via `verdictStats(dir, { novelObjectionFloor, soloSignoffCeiling })`. Defaults
   match PLAN.md's stated default.

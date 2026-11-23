@@ -17,7 +17,7 @@
 //      registration, so the next one waits for the one before to end).
 // A corrupt record is not recovered: the only action is `blocked`.
 import { hostname } from 'node:os';
-import { approvalValid, claimAlive, foldRecord, supersededByRootReplan, unansweredAdviceOf } from './tree-transitions.js';
+import { approvalValid, claimAlive, foldRecord, supersededByRootReplan } from './tree-transitions.js';
 import { TreeRefusal, appendTreeEvent, readTreeRecord } from './tree-record.js';
 import { returnedUsdOf, unreadableFloorOf } from './tree-budget.js';
 import { keepPlanCopy, waitsForChoice } from './tree-member.js';
@@ -86,10 +86,6 @@ export function planRecovery(record, { runFactsOf, facts = {}, now = () => Date.
   // AHEAD of the sticky check, and only for a replansRoot decision (the same record the writer appends: R@g+1). `record_corrupt` returns above, so it still wins; the opening is record-only and starts nothing.
   const interrupted = [...state.decisions].filter(([, d]) => d.replansRoot === true && !d.generated);
   if (interrupted.length) return interrupted.map(openingOf(state));
-  // ROADMAP 77: a recommendation request with NO call whose wait for the brief's approval has run out (or whose claim is dead) is ended here, so its hold is released by the next sitting or decide without anyone asking. Record-only. A request WITH calls is
-  // reconcileAdvice's (a call may outlive the process that registered it, and its folder says whether it ended).
-  const unanswered = unansweredAdviceOf(state, { ...facts, nowMs: nowOf() });
-  if (unanswered.length) return unanswered.map(x => ({ action: 'append', event: { event: 'advice_ended', ...x } }));
   // D2 F5a (CR-2G-001, CR-2G-002; Q3, Muad 25 Okt 2026 14:45 "Yes to all" on Astra's list: "allow narrowly defined free reconciliation under a block; keep execution blocked"): the RECORD-ONLY completions below (a finished run's end
   // from its own files, the release of a post-run claim proven dead on THIS host, the opening a recorded decision already authorized) run AHEAD of the sticky return, so a block can no longer hide the very facts its printed way
   // out needs (the replaced parent's opening that lifts parent_changed; the node_closed the root re-plan preflight reads). Each is one event the table checks as it always does; nothing here starts, resumes or registers, and

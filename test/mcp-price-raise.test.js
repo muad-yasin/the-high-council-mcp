@@ -60,7 +60,7 @@ test('MR-3 refusals, each with words and nothing written: a tree member, a runni
   const f = dearer();
   const cases = [
     [{ meta: { tree: { treeId: 't' } } }, /member of a recursive-councils tree.*tree_decide/],
-    [{ marker: 'wall_clock' }, /not stopped by a price refusal/],
+    [{ marker: 'overseer_cap' }, /not stopped by a price refusal/],   // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the marker was 'wall_clock'. NEW: 'overseer_cap'. WHY: wall_clock left STOP_CAUSES with the advice add-on (writeStoppedMarker throws on it); the case (a stop that is not a price refusal is refused) needs any other cause that stays.
     [{ stop: { recognised: false } }, /answer for at least one refused seat does not name the price.*for the whole stop/],
     [{ stop: { ownPin: true } }, /changed in the chain, not in pricing\.user\.json/],
     [{ meta: { cwd: '/elsewhere' } }, /started in a different project folder/],
@@ -72,6 +72,19 @@ test('MR-3 refusals, each with words and nothing written: a tree member, a runni
   const row = effectiveRow('openrouter', MODEL);
   const cheap = fixture(); assert.match((await call(cheap, { step: 'quote' }, hostList(row.in, row.out))).refusal, /at or under the price now in force for it/);
   const odd = fixture(); assert.match((await call(odd, { step: 'later' }, f)).refusal, /step is "quote" or "confirm"/);
+});
+
+// Q3 ROW: price_raise refuses an OLD advice folder on the folder's own files (src/stop-files.js isAdviceFolder), before anything else is read; nothing is written.
+test('MR-3b an old advice run folder (advice.meta.json or advise-log.json) is refused by its own files: no resume, no price to raise; the chain is never looked up and nothing is written', { timeout: 60_000 }, async () => {
+  for (const file of ['advice.meta.json', 'advise-log.json']) {
+    const fx = fixture();
+    writeFileSync(join(fx.dir, file), '{}');
+    let looked = 0;
+    const r = await priceRaiseResult({ runsDir: fx.runsDir, work: fx.work, args: { run: fx.run, step: 'quote' }, sameFolder: same, fetchImpl: dearer(), seatsOf: () => { looked += 1; return null; } });
+    assert.equal(r.refusal, 'this is an advice run, which has no resume and no price to raise here. Nothing was written.', file);
+    assert.equal(looked, 0, `${file}: the refusal is made before any chain is looked up`);
+    assert.equal(existsSync(join(fx.work, 'pricing.user.json')), false, `${file}: nothing written`);
+  }
 });
 
 test('MR-4 a changed pricing.user.json row changes the spending-limit scope, so resume_run stops at the person\'s limit gate (src/start-cap.js amend_scope)', { timeout: 60_000 }, () => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Writes maintainers/MODEL-CAPS.md (0.8.2 item 9; the owner's idea of 7 Oct 2026, C&C's draft): one row per model seated in a shipped chain, from the three sources that already hold the facts
-// (src/pricing.json, src/reasoning-table.json, chains/*.json) and the harness's own functions (retryCeilingOf, cutOffRetryCap, ADVICE_RETRY_MAX_TOKENS). It types no number of its own: edit the sources, then run
+// (src/pricing.json, src/reasoning-table.json, chains/*.json) and the harness's own functions (retryCeilingOf, cutOffRetryCap). It types no number of its own: edit the sources, then run
 // this script (`node scripts/model-caps-report.mjs`; `--check` exits 1 if the file differs). test/model-caps-report.test.js regenerates the text and fails while the committed file disagrees (the landing-page
 // and skills-catalog pattern). Pure: reads files, calls nothing, spends nothing.
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
@@ -8,7 +8,6 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { retryCeilingOf } from '../src/reasoning.js';
 import { cutOffRetryCap } from '../src/chain.js';
-import { ADVICE_RETRY_MAX_TOKENS } from '../src/advise.js';
 import { SEAT_DEFAULT_MAX_TOKENS, priceOf } from '../src/cost.js';
 import { isFreeProvider } from '../src/providers.js';
 
@@ -19,7 +18,6 @@ export const OUT_FILE = 'maintainers/MODEL-CAPS.md';
 const fmtTok = n => (Number.isFinite(n) ? n.toLocaleString('en-US') : '-');
 // The reasoning table's output-limit cell: a model whose lab pages state no limit has maxOutput null AND a dated note, and says so; null without a note (the router listed none) stays '-'.
 export const maxOutputCell = row => (row.maxOutput === null && row.maxOutputNote ? 'no published limit found' : typeof row.maxOutput === 'number' && row.maxOutputNote ? `${fmtTok(row.maxOutput)} (owner's pick)` : fmtTok(row.maxOutput));
-const fmtUsd = n => (Number.isFinite(n) ? `$${n}` : '-');
 // The first date in a row's free-text _source is the check date (later dates in it are history). A row with none falls back to the table's own date, said so.
 const checkedOf = (row, table) => (row?._source?.match(/\d{4}-\d{2}-\d{2}/) || [])[0] || (row ? `table ${table.asOf ?? '?'}` : '-');
 
@@ -34,11 +32,10 @@ export function generateModelCaps(root = DEFAULT_ROOT) {
   for (const file of readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json')).sort()) {
     const chain = JSON.parse(readFileSync(join(root, 'chains', file), 'utf8'));
     const name = file.replace(/\.json$/, '');
-    const advice = chain.advise && Number.isFinite(chain.advise.usd) ? chain.advise.usd : null;
     const walk = (node, path) => {
       if (Array.isArray(node)) { node.forEach((n, i) => walk(n, `${path}[${i}]`)); return; }
       if (!node || typeof node !== 'object') return;
-      if (typeof node.provider === 'string' && typeof node.model === 'string' && !['mock', 'external'].includes(node.provider)) seats.push({ chain: name, seat: node, advice });
+      if (typeof node.provider === 'string' && typeof node.model === 'string' && !['mock', 'external'].includes(node.provider)) seats.push({ chain: name, seat: node });
       for (const [k, v] of Object.entries(node)) walk(v, `${path}.${k}`);
     };
     walk(chain, '');
@@ -58,22 +55,20 @@ export function generateModelCaps(root = DEFAULT_ROOT) {
     const r = table.models?.[k];
     const caps = new Map();    // label -> chains
     const retries = new Map(); // label -> retry cap
-    const advice = [];
-    for (const { chain, seat, advice: usd } of list) {
+    for (const { chain, seat } of list) {
       for (const [field, cap] of [['maxTokens', seat.maxTokens ?? SEAT_DEFAULT_MAX_TOKENS], ['panelMaxTokens', seat.panelMaxTokens]]) {
         if (!Number.isFinite(cap)) continue;
-        const tag = `${field === 'panelMaxTokens' ? ' (panel)' : ''}${seat.maxTokens == null && field === 'maxTokens' ? ' (default)' : ''}${usd != null ? ' (advice)' : ''}`;
+        const tag = `${field === 'panelMaxTokens' ? ' (panel)' : ''}${seat.maxTokens == null && field === 'maxTokens' ? ' (default)' : ''}`;
         const label = `${fmtTok(cap)}${tag}`;
         if (!caps.has(label)) caps.set(label, new Set());
         caps.get(label).add(chain);
-        retries.set(label, usd != null ? cutOffRetryCap(cap, ADVICE_RETRY_MAX_TOKENS) : cutOffRetryCap(cap, retryCeilingOf(seat)));
+        retries.set(label, cutOffRetryCap(cap, retryCeilingOf(seat)));
       }
-      if (usd != null) advice.push(`${chain} ${fmtUsd(usd)}`);
     }
     const capCell = [...caps.entries()].map(([c, ch]) => `${c}: ${[...ch].sort().join(', ')}`).join('<br>');
     const retryCell = [...retries.entries()].map(([c, t]) => `${c} → ${fmtTok(t)}`).join('<br>');
     const unlisted = table.unlisted?.[k] || table.unlisted?.[k.replace(/^[^/]+\//, '')];
-    rows.push(`| \`${k}\` | ${price ? `${price.in} / ${price.out}` : '**no price row**'} | ${local ? 'local, $0 by construction' : checkedOf(price, pricing)} | ${r ? maxOutputCell(r) : local ? 'local model (no lab row)' : unlisted ? 'no reasoning row (not a reasoning model)' : '**no reasoning row**'} | ${r?.defaultEffort ?? '-'} | ${capCell} | ${retryCell} | ${advice.join('<br>') || '-'} | ${price?.critiqueTokens ? fmtTok(price.critiqueTokens) : '-'} |`);
+    rows.push(`| \`${k}\` | ${price ? `${price.in} / ${price.out}` : '**no price row**'} | ${local ? 'local, $0 by construction' : checkedOf(price, pricing)} | ${r ? maxOutputCell(r) : local ? 'local model (no lab row)' : unlisted ? 'no reasoning row (not a reasoning model)' : '**no reasoning row**'} | ${r?.defaultEffort ?? '-'} | ${capCell} | ${retryCell} | ${price?.critiqueTokens ? fmtTok(price.critiqueTokens) : '-'} |`);
   }
 
   return `# Model caps (GENERATED: edit the sources, then run the script; do not edit this file by hand)
@@ -82,12 +77,12 @@ Written by \`scripts/model-caps-report.mjs\` from \`src/pricing.json\` (table as
 To change a number, edit its source and run \`node scripts/model-caps-report.mjs\`; \`test/model-caps-report.test.js\` fails while this file disagrees with them.
 One row per model seated in a shipped chain (mock and external seats are excluded). "Price checked" is the first date in the row's own \`_source\` note, or the table's date when the row has none.
 
-| Model | Price in / out (USD per 1M tokens) | Price checked | Model's max output | Model's default effort | Our cap: chains | Retry after a cut-off (cap → retry) | Advice ceiling (advise.usd) | Typical judge reply (tokens) |
-|---|---|---|---|---|---|---|---|---|
+| Model | Price in / out (USD per 1M tokens) | Price checked | Model's max output | Model's default effort | Our cap: chains | Retry after a cut-off (cap → retry) | Typical judge reply (tokens) |
+|---|---|---|---|---|---|---|---|
 ${rows.join('\n')}
 
 Notes
-- "Retry after a cut-off": planning chains double the cap, bounded by the model's own ceiling (\`retryCeilingOf\`); advice chains bound it at ${fmtTok(ADVICE_RETRY_MAX_TOKENS)} (\`ADVICE_RETRY_MAX_TOKENS\`), never below the cap. "(panel)" is a seat's \`panelMaxTokens\`, the cap of its review calls.
+- "Retry after a cut-off": chains double the cap, bounded by the model's own ceiling (\`retryCeilingOf\`), never below the cap. "(panel)" is a seat's \`panelMaxTokens\`, the cap of its review calls.
 - "Our cap" is what a chain's seat sets; a seat that sets none gets ${fmtTok(SEAT_DEFAULT_MAX_TOKENS)} (shown "(default)"). "Model's max output" is the reasoning table's figure. For a direct provider it is the figure the provider's documents give; for a model in the refresh script's lab-limit map that records a number it is the lab's limit, or, where the row's note (\`maxOutputNote\`) says so, the owner's pick; for the other OpenRouter models it is the OpenRouter list's number, which can differ from the lab's. "no published limit found" means none was found on the lab pages named in the row's dated note (\`maxOutputNote\` in the reasoning table): the seat's cap is then the only bound the harness applies, and the retry column uses the fallback ceiling of \`retryCeilingOf\`. "-" means the table holds no figure. The spend cap projects every call at the seat's cap and, for an Anthropic seat, a possible second attempt at its retry cap.
 - Not in the data yet: the largest reply each OpenRouter endpoint accepts (it can be lower than the model's maximum, and a cap above it narrows routing) and measured speed (tokens per second). Neither is typed here.
 `;

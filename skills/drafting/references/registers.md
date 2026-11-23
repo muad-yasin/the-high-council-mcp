@@ -13,6 +13,7 @@ A register is not a tone setting. It decides what the piece is *for*, which Step
 | **Explanatory / documentation** | The reader believes something that costs them | Hand back control - the next action | Completeness performed instead of usefulness |
 | **Promotional** | A capability that did not exist before | One concrete consequence | Claiming the feeling instead of showing the cause |
 | **Memorial** | A death, a loss, a harm to a real person | Preserve | Any humour at all; solemnity standing in for a detail |
+| **Change note** (commit message, changelog entry, pull-request text) | Something changed for the people who use or maintain it | What the reader must do, or what cannot be undone | Praise of the change in place of the change; the work's history in place of its effect |
 | **Routine notice** | Something happened; it proves nothing | None | Being written as a piece |
 | **Status report / result summary** | A decision someone must make, or an open item | The open item, or the decision asked for | A verdict word stronger than the check behind it; a question's premise answered instead of checked; a status word with no date or conditions |
 
@@ -36,10 +37,22 @@ Prose about a result, for a reader who acts on the first line. The sentence it a
 
 A claim about proof is scoped to the sample it covers ("fits these cases", never "fixes the class").
 
+## The change note
+
+Prose about a change, for two readers: the one who must act on it now, and the one who searches for it a year later. The sentence it answers: **what changed for the person who uses it, what must they now do, and what can no longer be undone?**
+
+- **What the reader must do comes first** - a migration, a renamed flag, a removed option - because a reader who stops after two lines must still have met it.
+- **Then what changed, as behaviour the reader can observe**, with the before and the after where either is short enough to show. "Refactored the loader" describes the writer's day; "a missing config file now gives the default instead of an error" describes the reader's.
+- **It says what changed, never that the result is better.** "Faster", "improved" and "more robust" are claims that need a measurement, and a changelog is where an unmeasured one hardens into a product claim (`verification-and-critique`, Part 4).
+- **It names what cannot be walked back** - data migrated one way, a format that older versions cannot read - because the reader plans the upgrade around it.
+- **It leaves out how the work went.** Session names, ticket ids nobody outside can open, and the order things were tried are the writer's history; the next reader cannot use them.
+
 ## The hard calls
 
 **Warm vs critical, when a real contrast exists.** A company whose only unusual feature is that someone actually reads the applications is, implicitly, an indictment of its industry. Test: **does the contrast exist in the verified facts, or would you have to build it?** If you would have to build it, write it warm and drop the jab. Underselling a real contrast is recoverable; a sideways attack on a target who isn't in the record is not.
 
 **Memorial vs warm.** Memorial is never warm-with-restraint, and a living subject never gets memorial gravity ("a celebration of a life"). That is solemnity creep, and it reads as if you mistook the subject for dead.
+
+**Learning vs doing, in documentation.** Before drafting a documentation page, ask two things: does the page guide what the reader does, or inform what the reader understands; and is the reader acquiring a skill, or applying one they already have? The answers give four different texts - a lesson (doing, while learning), a recipe for one task (doing, at work), a reference to consult (understanding, at work), an explanation to think with (understanding, while learning) - and a page that tries to be two of them serves neither reader. Both questions and the four kinds are the Diátaxis framework's (`evidence.md`).
 
 **Promotional vs explanatory.** An announcement that explains how the feature works is two registers taped together and does neither job. Announce the capability, then link the documentation.

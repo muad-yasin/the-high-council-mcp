@@ -12,6 +12,7 @@ import { runFolderKind } from './run-files.js';
 import { join } from 'node:path';
 import { runIdToDate } from './spend.js';
 import { shapeRounds } from './shape-rounds.js';
+import { isQuestionStage } from './stage-contract.js';
 import { realDebate } from './canary.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
@@ -69,20 +70,20 @@ function accumulateVerdictOpportunities(report, byLab) {
     byLab.set(labName, lab);
   };
   if (Array.isArray(report.panelVerdicts)) {
-    for (const v of report.panelVerdicts) if (v?.lab) add(v.lab, 1, v.verdict === 'unheard' ? 1 : 0, v.reason_code === 'SEAT_UNREACHABLE' ? 1 : 0);
+    for (const v of report.panelVerdicts) if (v?.lab && !v.cut) add(v.lab, 1, v.verdict === 'unheard' ? 1 : 0, v.reason_code === 'SEAT_UNREACHABLE' ? 1 : 0);
     return;
   }
   // Legacy report: one opportunity per base critique/panel stage, never a retry, re-ask,
   // answered or question stage; unusable = dropouts plus final-round abstentions. Still blind to
   // a thrown call and to earlier rounds, which is why the rate is clamped and flagged `legacy`.
   for (const s of report.stages || []) {
-    if (!/^(critique-\d+|panel-\d+-.+)$/.test(s.label || '') || /-(retry|reask\d*|answered|question)$/.test(s.label)) continue;
+    if (!/^(critique-\d+|panel-\d+-.+)$/.test(s.label || '') || /-(retry|reask\d*|solo|answered|question)$/.test(s.label)) continue;
     if (s.lab) add(s.lab, 1, 0);
   }
   for (const d of report.dropouts || []) {
     if (/^(critique|panel)-/.test(d.stage || '') && d.lab) add(d.lab, 0, 1, 1);
   }
-  for (const s of Array.isArray(report.signoff) ? report.signoff : []) {
+  for (const s of (Array.isArray(report.signoff) ? report.signoff : []).filter(r => !r?.cut)) {
     if (s.signedOff === null && !s.passed && s.provider) add(s.provider, 0, 1);
   }
   for (const labName of new Set((report.stages || []).map(s => s.lab).filter(Boolean))) {
@@ -117,13 +118,13 @@ function accumulateIndependence(report, byLab) {
     }
   }
 
-  const signoff = Array.isArray(report.signoff) ? report.signoff : [];
+  const signoff = (Array.isArray(report.signoff) ? report.signoff : []).filter(r => !r?.cut);   // 0.8.4 --finish: a row marked `cut` counts for nothing
   for (const s of signoff) {
     if (s.signedOff !== true || !s.provider) continue;
     const lab = byLab.get(s.provider) || emptyLabAgg();
     lab.signoffs += 1;
-    const anotherStillObjects = signoff.some(o =>
-      o.provider !== s.provider && (o.signedOff === false || (Array.isArray(o.objections) && o.objections.length > 0)));
+    // 0.8.4 (C&C's ruling on the stats reader, 12 Nov 2026): another seat "still objects" only when it OBJECTED (signedOff false). A row that SIGNED OFF lists, since 0.8.4, the objections it holds below the bar (rated under 4: the seat counts as clear), so its list no longer means "objecting"; a row that did not sign off and did not object (signedOff null, an abstention) counts as it did before: by its list.
+    const anotherStillObjects = signoff.some(o => o.provider !== s.provider && (o.signedOff === false || (o.signedOff !== true && Array.isArray(o.objections) && o.objections.length > 0)));
     if (anotherStillObjects) lab.soloSignoffs += 1;
     byLab.set(s.provider, lab);
   }
@@ -142,9 +143,10 @@ function roundOf(label) {
 // gpt5.6-luna, fable5.1), so every lab became its own "stage type" (~170 instead of ~20). The kind
 // now comes from the label prefixes chain.js actually writes; anything else is its whole name minus
 // a trailing round number.
-const LAB_SUFFIXED_KINDS = ['alt-debate', 'alt-reply', 'alternative', 'canary-reply', 'dispute-review', 'preflight', 'propose', 'debate', 'reply', 'ambiguity', 'allocator', 'judge', 'descending'];
+const LAB_SUFFIXED_KINDS = ['return-alt', 'return-post', 'return-answer', 'alt-debate', 'alt-reply', 'alternative', 'canary-reply', 'dispute-review', 'preflight', 'propose', 'debate', 'reply', 'ambiguity', 'allocator', 'judge', 'descending'];
 export function stageKindOfFile(f) {
   const label = f.replace(/^NEEDS-/, '').replace(/\.md$/, '');
+  if (isQuestionStage(label)) return 'question';   // 0.8.4 q-warn2: the builder's prose answer to a critic's blocking question is its own type, not a panel or critique stage
   const round = label.match(/^(panel|critique|revise)-\d+(?:-|$)/);
   if (round) return round[1];
   const kind = LAB_SUFFIXED_KINDS.find(k => label.startsWith(`${k}-`));
@@ -221,7 +223,7 @@ export function verdictStats(runsDir, { days = 30, now = Date.now(), novelObject
     const chain = byChain.get(chainName) || emptyChainAgg();
     chain.runs += 1;
 
-    const signoff = Array.isArray(report.signoff) ? report.signoff : [];
+    const signoff = (Array.isArray(report.signoff) ? report.signoff : []).filter(r => !r?.cut);   // 0.8.4 --finish: a row marked `cut` counts for nothing
     // Bug-audit fix, 2026-09-23 (Review/BugAudit_Metrics_2026-09-23.md #1): an unheard seat
     // (signedOff === null) used to count toward "every seat signed off" - the 2026-09-17 pilot bug,
     // back in the reader: a capped run with one lost vote read signoffRate 1.0 while its own

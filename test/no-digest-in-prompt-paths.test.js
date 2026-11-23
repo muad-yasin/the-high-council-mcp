@@ -17,7 +17,8 @@ const srcDir = resolve(here, '../src');
 
 // Static, regex-based import extraction - a fallback deliberately allowed by the plan
 // ("statically walks... or greps, as fallback") rather than a full AST parse.
-const IMPORT_RE = /import\s+(?:[^'"]*?\s+from\s+)?['"](\.\.?\/[^'"]+)['"]/g;
+// 0.8.4 (the roles.js split): src/roles.js is a list of `export { ... } from './prompts/x.js'` lines, so an export-from is an edge too. Without it the walk from roles.js would stop at roles.js and every test below would pass having read none of the prompts files.
+const IMPORT_RE = /(?:import\s+(?:[^'"]*?\s+from\s+)?|export\s+(?:\*|\{[^}]*\})\s*from\s+)['"](\.\.?\/[^'"]+)['"]/g;
 
 function resolveImport(fromFile, spec) {
   let p = resolve(dirname(fromFile), spec);
@@ -58,6 +59,7 @@ test('nothing reachable from chain.js imports dissent-digest.js', () => {
 
 test('nothing reachable from roles.js imports dissent-digest.js', () => {
   const reachable = reachableFrom(rolesFile);
+  assert.ok([...reachable].some(f => f.includes(`${join('src', 'prompts')}/`) || f.includes(join(srcDir, 'prompts'))), 'the walk from roles.js reached no file under src/prompts/: it is not following the export lines');
   assert.ok(!reachable.has(digestFile),
     'src/roles.js (directly or transitively) imports src/dissent-digest.js - this breaks the ' +
     'structural read-only guarantee v6 item E depends on');

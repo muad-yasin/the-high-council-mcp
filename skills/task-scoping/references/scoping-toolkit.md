@@ -10,15 +10,39 @@ Criteria:    1. <yes/no-checkable property of the result>
 Non-goals:   - <deliberately not doing>
 Stop when:   <definition of done> | cap: <rounds / retries / spend / time>
 Risky steps: - <irreversible or external action> -> gate: <who confirms, when>
-Defaults:    - <assumption taken if no answer arrives>
+Defaults:    - <assumption taken if no answer arrives; my call, not the requester's answer>
 Order:       1. <riskiest unknown first> 2. <cheapest end-to-end> 3. <volume> 4. <polish>
 Effort:      <n steps / tool calls / agents this deserves>
 Open:        - <owner decisions not closed by this plan>
+Not covered: - <what could go wrong for a real user outside every criterion, the likeliest first>
+Dropped:     - <a criterion abandoned along the way, with its reason and who decided; not met unless the requester took it out>
 ```
 
 A substitute for what the request literally says is listed under Open until the requester has chosen it; the Request line is what the result is checked against at the end.
 
 Criteria describe the *property* checked, never a phrase the result must contain. "Makes no decision about any excluded topic" can be judged; "labels each excluded topic 'out of scope'" turns reviewers into string-matchers who fail a result for wording it got right. Keep criteria to the smallest atomic set - merge any two a reviewer would check by reading the same passage.
+
+## What "done" must name, by kind of task
+
+| Kind of task | The stop condition names |
+|---|---|
+| Bug fix | the input that shows the bug, failing before the change and passing after it, and the neighbouring cases still passing |
+| Feature | each criterion shown through the real entry point, and what was deliberately left for later |
+| Performance | a measured target on a named workload, against a baseline measured the same way |
+| Research | the question answered, each claim with its source and grade, and what stays unknown |
+| Migration or bulk change | every item accounted for (moved, skipped with a reason, failed), and the way back tried once |
+| Refactor | behaviour unchanged: the same checks pass before and after, and none of them was edited |
+| Configuration or operations | the state read back after the change, and the step that undoes it |
+
+A goal that names only an activity ("look into", "improve", "clean up") is rewritten until one of these fits.
+
+## Before a run goes unattended
+
+1. **What does done look like?** The end state, as the stop condition above.
+2. **Which check does it run on itself?** The command or comparison it runs, and what a failure looks like.
+3. **What is inside its fence?** The files, systems and budgets inside the fence, and what is outside it.
+4. **What ends it early?** The cap, the error it must not retry past, and the decision it may not take alone.
+5. **Who receives the result and signs it off?** A run whose output nobody is due to read has no done.
 
 ## The scope gate - run on every new idea before acting on it
 

@@ -26,7 +26,7 @@ function project() {
   return { work, run };
 }
 
-// [argv, what it prints with the switch on]: a command of a refused class (unit 3a: a tree, a paid side command, the advice add-on) gets its OWN sentence,
+// [argv, what it prints with the switch on]: a command of a refused class (unit 3a: a tree, a paid side command) gets its OWN sentence,
 // a known limit of this version. A main-path start no longer meets a refusal here: unit 4b2 arms it (test/caps-arming.test.js), and a chain with no cap in force
 // keeps today's path (W6). A resume is pinned in test/caps-start-refusals.test.js C5 (unit 3b): it runs the main path's checks first, so it needs a real run folder.
 const CLASS = /a known limit of this version/;
@@ -34,7 +34,7 @@ const SPENDING = [
   [['tree', 'resume', '2026-11-01T00-00-00-000Z', '--dry-run'], CLASS],   // `tree resume` takes no --dry-run: the token does not make it a dry run
   [['--rematch', 'runs/2026-11-01T00-00-00-000Z'], CLASS],
   [['--replay', 'runs/2026-11-01T00-00-00-000Z'], CLASS],
-  [['--advice-adopt', 'runs/2026-11-01T00-00-00-000Z', '--allow-unfenced'], CLASS],
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: a row for ['--advice-adopt', 'runs/<id>', '--allow-unfenced'] (the advice add-on's class). NEW: no row. WHY: the advice class left src/caps.js and --advice-adopt is an unknown option now (refused before the caps are read: test/caps-class-refusals.test.js C1 pins that with the switch on).
   [['handoff', '--from-run', 'runs/2026-11-01T00-00-00-000Z'], CLASS],
   [['digest', 'runs/2026-11-01T00-00-00-000Z'], CLASS],
   [['contract', 'draft', 'runs/2026-11-01T00-00-00-000Z'], CLASS],

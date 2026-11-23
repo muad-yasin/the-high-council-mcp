@@ -41,9 +41,10 @@ test('EF-3: the three fix lines of the unpriced-seat refusal say the example fig
 });
 
 test('EF-4: README spend-cap sentence ("since 0.8.3, the way out") and Known-limits bullet (which screens list the file), and the MCP refusal names who acts', () => {
-  const readme = text('README.md');
+  // CHANGED (0.8.4 apply, the README rework): the two sentences are Known limits, which moved word for word to KNOWN-LIMITS.md; OLD: README.md alone. NEW: the README and the limits file together (the presence checks find the sentences in either, and the absence check at the end covers both).
+  const readme = `${text('README.md')}\n${text('KNOWN-LIMITS.md')}`;
   assert.ok(readme.includes('(exit 5; the message names the seat and, since 0.8.3, the way out: add a row for it to `pricing.user.json`'));
   assert.ok(readme.includes("A run's limit screen, and the screen of a paid rematch, replay, handoff, contract draft or digest, lists the seats priced by that file, with their figures, so a low figure is visible before you type a limit; `council tree start` shows no such screen and uses the file's figure without saying so (`council doctor` and `--dry-run` list the file's rows)."));
   assert.ok(!readme.includes('the side commands (rematch, replay, handoff, digest, contract draft, tree start) show no such screen'));
-  assert.ok(text('src/mcp/advice.js').includes("'The file is read once at server start: a person fixes or removes pricing.user.json in the project folder and restarts the server; a new quote can then be asked for.'"));
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD the last assertion read a sentence in src/mcp/advice.js ("The file is read once at server start: ... a new quote can then be asked for."), the MCP refusal of the advice tools. NEW no such assertion. WHY the sentence left with the tools (src/mcp/advice.js keeps only adviceResult and two constants); no MCP tool refuses on pricing.user.json any more, the CLI child refuses at its own start. (WAVE 2 NOTE: the wave-1 remark that src/mcp/advice.js keeps adviceResult and two constants is out of date: that file is gone since commit 62350d40; the two constants are in src/mcp/hold-budget.js. No assertion changes.)
 });

@@ -12,6 +12,7 @@
 // raise; the member's own CLI still clamps it to the lifetime cap (PLAN 7.4).
 import { priceRefusedOf, priceStopLines } from './tree-price-stop.js';
 import { memberContinueCommand, memberFinishCommand, memberPrevailCommand } from './tree-redirect.js';
+import { roundStopsInWords, CONTINUE_WORDS, stopOffersContinue, didNotSignOffWords, isFinalReadStopOf, finalReadContinueWords, finalReadMemberFinishWords } from './overseer-rounds.js';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import * as api from './api.js';
@@ -21,6 +22,7 @@ import { DEAD_REASON, HELD_PHRASE, KEPT_PHRASE, claimAlive, deadKeys } from './t
 import { readTreeRecord, stateOf, treeDirOf } from './tree-record.js';
 import { MONEY_EPS } from './tree-budget.js';
 import { pausedAtExternalSeat, runEndOf, waitsForChoice } from './tree-member.js';
+import { awaitingExcerptApproval } from './run-status.js';
 import { renderDerivedNotAdmitted, renderHeldChildren, renderParentChanged } from './tree-stop.js';
 import { SITTING_LOCK_FILE, apiResumer, apiStarter, blockedFacts, clearStop, isDeadNode, recordOnlyPhase, runTree } from './tree-run.js';
 import { sittingFacts } from './tree-stop-view.js';
@@ -28,9 +30,9 @@ import { beginRoot } from './tree-start.js';
 import { rootUnstartedOf } from './tree-root-unstarted.js';
 import { fileProblemLine, writeTreeFiles } from './tree-files.js';
 import { formatUsd } from './cost.js';
-import { applyChoice, pendingChoiceOf, replacedOf } from './tree-choice.js';
+import { applyChoice, pendingChoiceOf, readStopOfRun, replacedOf } from './tree-choice.js';
 import { finalSentenceOf } from './tree-abandon.js';
-import { abandonCommand, chainWayOn, previewOnlyWords, topUpWayOn } from './tree-ways-on.js';
+import { abandonCommand, chainWayOn, excerptApprovalLines, previewOnlyWords, topUpWayOn } from './tree-ways-on.js';
 
 // D2 F18 S13 and the abandon and top-up commands live in src/tree-ways-on.js (no imports: tree-member and tree-ready read them without a cycle); chainWayOn is re-exported for its earlier importers (src/tree-status.js)
 export { chainWayOn };
@@ -125,9 +127,13 @@ function sittingBody(res, rootId) {
       break;
     case 'waiting': L.push(`${at} waits for an external answer. ${res.needs?.length ? `Write the reply the NEEDS file asks for (${res.needs.join(', ')}) into runs/${res.runId}/, then run \`council tree resume ${rootId}\`.` : `Run \`council tree resume ${rootId}\` once its answer file exists.`}`); break;
     case 'awaiting_choice': {
+      if (res.excerptApproval) { L.push(...excerptApprovalLines({ at, runId: res.runId, rootId, approval: res.excerptApproval })); break; }   // a member stopped at an approval of excerpts waits for ANSWERS at the gate, not a pick: no continue, finish or prevail (WORDING U1-w18)
       // D2 F13f S11 (A-DRAFT): `--close` refuses the root (src/tree-close.js closeRefusal, kind 'root'), so for R the way out named is ending the tree; any other node keeps its close
       const giveUp = lead => (res.node === 'R' ? `To end the tree instead: ${abandonCommand(rootId)}.` : `${lead} \`council tree decide ${rootId} --close ${res.node}\`.`);
-      L.push(res.conflict ? `${at} stopped at a conflict the decider asked you to choose, and waits for YOUR pick.` : `${at} stopped at its overseer-round limit, at a layer's revision limit, or because a seat of a layer stayed silent for too many passes in a row, and is NOT agreed: it waits for YOUR choice.`); stopped(); if (res.replaced) { L.push(`  ${res.node} cannot be given a choice: its plan was replaced (${res.replaced === 'held' ? `it is ${res.replacedPhrase ?? HELD_PHRASE}` : res.replaced === 'kept' ? `it is ${res.replacedPhrase ?? KEPT_PHRASE}` : 'it is dead'}). ${giveUp('To give the node up:')}`); break; } if (res.conflict) { L.push(`  Your pick: \`${memberPrevailCommand({ treeId: rootId, node: res.node })}\` (the stop lists the conflicts and their objection ids); then \`council tree resume ${rootId}\` applies it. ${giveUp('To give the node up instead:')}`); break; } L.push(`  Your choice: \`${memberContinueCommand({ treeId: rootId, node: res.node })}\` (more rounds, under its own grant) or \`${memberFinishCommand({ treeId: rootId, node: res.node })}\` (the dispute stage and the handoff run, the result stays not agreed); then \`council tree resume ${rootId}\` applies it. ${giveUp('To give the node up instead:')}`); break; }
+      L.push(res.conflict ? `${at} stopped at a conflict the decider asked you to choose, and waits for YOUR pick.` : `${at} stopped ${roundStopsInWords()}, and is NOT agreed: it waits for YOUR choice.`); stopped(); if (res.replaced) { L.push(`  ${res.node} cannot be given a choice: its plan was replaced (${res.replaced === 'held' ? `it is ${res.replacedPhrase ?? HELD_PHRASE}` : res.replaced === 'kept' ? `it is ${res.replacedPhrase ?? KEPT_PHRASE}` : 'it is dead'}). ${giveUp('To give the node up:')}`); break; } if (res.conflict) { L.push(`  Your pick: \`${memberPrevailCommand({ treeId: rootId, node: res.node })}\` (the stop lists the conflicts and their objection ids); then \`council tree resume ${rootId}\` applies it. ${giveUp('To give the node up instead:')}`); break; } // 0.8.4 L3, A-DRAFT (WORDING row L3-6): the finish clause says what the stop sentence said (didNotSignOffWords, from the stop the run waits at); and a stall stop with no pass left offers no --continue-node, which the tree refuses there (stopOffersContinue)
+      const frStop = isFinalReadStopOf(res.stop);   // 0.8.4 S16 (D; WORDING S16-w40)
+      const finishWays = `\`${memberFinishCommand({ treeId: rootId, node: res.node })}\` (${frStop ? finalReadMemberFinishWords(res.stop) : `the dispute stage and the handoff run, the result stays not agreed${didNotSignOffWords(res.stop)}`})`;
+      L.push(stopOffersContinue(res.stop) ? `  Your choice: \`${memberContinueCommand({ treeId: rootId, node: res.node })}\` (${frStop ? finalReadContinueWords(res.stop) : CONTINUE_WORDS}, under its own grant) or ${finishWays}; then \`council tree resume ${rootId}\` applies it. ${giveUp('To give the node up instead:')}` : `  No pass is left, so there is no \`--continue-node\`. Your choice: ${finishWays}; then \`council tree resume ${rootId}\` applies it. ${giveUp('To give the node up instead:')}`); break; }
     case 'budget_stop': L.push(`${at} stopped at its budget cap.`); stopped(); L.push(`  ${topUpWayOn(rootId, res.node)}`); break;
     case 'abandoned': L.push(res.sentence); break;
     case 'tree_refused':
@@ -179,8 +185,8 @@ export function stoppedNodesOf(state) {
 }
 /** Exit 20 (0.8.3): the sitting STOPPED FOR A PERSON and nothing broke: a stop holds children back (`held_by_stop`), or a sitting ran its step belt (`limit_reached`). Never 0 (not finished), and not 1, the fallback for "other" (crashed...), so a script can tell "a person must answer" from "something broke". Documented in README.md; src/cli.js names the same number (a test compares them). */
 export const EXIT_STOPPED_FOR_PERSON = 20;
-/** What a member run's exit code means at tree level (the resume paths; tree-run.js maps the same codes at start): 23 = a layered member stopped at its overseer limit, NOT agreed, waiting for the person's choice - never "crashed" (round semantics 2b); 25 = a member stopped at a conflict the decider asked about, waiting for the person's pick. */
-export const STATUS_OF_EXIT = Object.freeze({ 3: 'waiting', 4: 'budget_stop', 19: 'tree_refused', 23: 'awaiting_choice', 25: 'awaiting_choice' });
+/** What a member run's exit code means at tree level (the resume paths; tree-run.js maps the same codes at start): 23 = a layered member stopped at its overseer limit, NOT agreed, waiting for the person's choice - never "crashed" (round semantics 2b); 25 = a member stopped at a conflict the decider asked about, waiting for the person's pick; 26 = a member stopped at an approval of excerpts of the project (the chain's approve_excerpts), waiting for the person's answers at the gate (res.excerptApproval says which). */
+export const STATUS_OF_EXIT = Object.freeze({ 3: 'waiting', 4: 'budget_stop', 19: 'tree_refused', 23: 'awaiting_choice', 25: 'awaiting_choice', 26: 'awaiting_choice' });
 const EXIT_OF = { held_by_stop: EXIT_STOPPED_FOR_PERSON, limit_reached: EXIT_STOPPED_FOR_PERSON, awaiting_choice: EXIT_STOPPED_FOR_PERSON, nothing_to_do: 0, stopped_by_person: 0, waiting: 3, budget_stop: 4, tree_refused: 19, abandoned: 19 };       // ROADMAP 57: the code the README defines as "a tree refused a start or resume that its record does not allow"
 
 /**
@@ -196,11 +202,11 @@ export function exitCodeOf(sitting) {
 }
 
 /** `council tree resume`. `deps` = { startRun, resumeRun, startRootRun } is the seam a test uses (`startRootRun` has `api.run`'s shape: the root is a run, not a bundle). Returns the exit code: 0 nothing more to do, 3 waiting for an answer, 4 budget stop, 20 stopped for a person (an open stop or a pending replacement holds children back, or the step belt ran out; the end text says what to do), 19 refused by the tree, 1 anything else that needs the person. */
-export async function resumeHandler({ rootDir, rootId, work, stdout, stderr, now, facts, deps = {} }) {
+export async function resumeHandler({ rootDir, rootId, work, stdout, stderr, now, facts, deps = {}, env = {} }) {
   // everything printed may quote a run folder or a provider (STOPPED-* files, an output tail): control and bidi characters are removed (src/terminal-safe.js), as the CLI does for its log lines
   const out = s => stdout.write(`${terminalSafe(s)}\n`); const err = s => stderr.write(`${terminalSafe(s)}\n`);
-  const startRun = deps.startRun ?? apiStarter({ work });
-  const resumeRun = deps.resumeRun ?? apiResumer({ work });
+  const startRun = deps.startRun ?? apiStarter({ work, env });
+  const resumeRun = deps.resumeRun ?? apiResumer({ work, env });
   const startRootRun = deps.startRootRun ?? (opts => api.run(opts));
   const runsDir = dirname(rootDir);
   // ROADMAP 57: an abandoned tree is final. A FAST PATH before the sitting lock (nothing is touched: no lock file, no stop marker, no recovery, no root start) and the AUTHORITY under it, read again: a concurrent `decide --abandon` can land between the two
@@ -233,7 +239,7 @@ export async function resumeHandler({ rootDir, rootId, work, stdout, stderr, now
     // a root that was never started is started FIRST (no run is active, nothing else can be): the pin in tree.json is the task, the cap is the tree's own. The tree is already open (its original `tree start` was the person's request and its cap is in tree.json), so the cap is said before the launch
     const rootUnstarted = rootUnstartedOf(state, runsDir);                 // ONE predicate with the readers (src/tree-root-unstarted.js); the same test this line held inline
     if (rootUnstarted) {
-      const began = await beginRoot(rootDir, { work, startRun: startRootRun, now, announce: a => out(`Starting the root plan of tree ${a.treeId} on ${a.chain} (task ${a.task}): up to ${formatUsd(a.capUsd)}, ${Math.abs(a.capUsd - a.capInForceUsd) <= MONEY_EPS ? 'the cap now in force for this tree' : `the grant already recorded for the root plan (the cap now in force for the whole tree is ${formatUsd(a.capInForceUsd)})`}.`), onOutput: (s, stream) => (stream === 'stderr' ? stderr : stdout).write(s) });
+      const began = await beginRoot(rootDir, { work, startRun: startRootRun, now, env, announce: a => out(`Starting the root plan of tree ${a.treeId} on ${a.chain} (task ${a.task}): up to ${formatUsd(a.capUsd)}, ${Math.abs(a.capUsd - a.capInForceUsd) <= MONEY_EPS ? 'the cap now in force for this tree' : `the grant already recorded for the root plan (the cap now in force for the whole tree is ${formatUsd(a.capInForceUsd)})`}.`), onOutput: (s, stream) => (stream === 'stderr' ? stderr : stdout).write(s) });
       if (began.code !== 0) {
         // the root's exit code in this command's set: 3 waiting, 4 budget stop, 19 refused by the tree; a refusal, a launch that threw, or any other code is 1 (the root's own code and the next step are named)
         const status = STATUS_OF_EXIT[began.code];
@@ -241,7 +247,7 @@ export async function resumeHandler({ rootDir, rootId, work, stdout, stderr, now
         else if (began.launchError) err(`council tree resume: the root run could not be started: ${began.launchError}. Nothing was spent. Fix the cause, then run: council tree resume ${rootId}`);
         else if (status) {
           const needs = status === 'waiting' ? readdirSync(rootDir).filter(f => /^NEEDS-.*\.md$/.test(f) && !existsSync(join(rootDir, f.slice('NEEDS-'.length)))).sort() : [];
-          for (const l of sittingLines({ status, started: [], node: 'R', generation: 1, runId: rootId, exitCode: began.code, deadNode: false, stopped: stoppedReasonsOf(rootDir).map(x => `${x.name}: ${x.text}`), detail: null, needs }, rootId)) out(l);
+          for (const l of sittingLines({ status, started: [], node: 'R', generation: 1, runId: rootId, exitCode: began.code, deadNode: false, stopped: stoppedReasonsOf(rootDir).map(x => `${x.name}: ${x.text}`), detail: null, needs, ...(began.code === 26 ? { excerptApproval: awaitingExcerptApproval(rootDir) ?? { gate: null, status: 'invalid' } } : {}), ...(began.code === 23 && readStopOfRun(rootDir) ? { stop: readStopOfRun(rootDir).stop } : {}) }, rootId)) out(l);   // 0.8.4 L3 (a3): the root's first sitting says what a later one does
         } else err(`council tree resume: the root run of tree ${rootId} ended with exit code ${began.code}${existsSync(join(rootDir, 'run.json')) ? '' : ' (no run was made, nothing was spent)'}. Fix what the lines above say, then run: council tree resume ${rootId}`);
         // the root run may have moved the record: the two views are written from it, as `tree start` does after its root run
         for (const p of writeTreeFiles(rootDir, { work })) err(fileProblemLine(rootDir, p));
@@ -264,9 +270,11 @@ export async function resumeHandler({ rootDir, rootId, work, stdout, stderr, now
         return EXIT_OF.waiting;
       }
       if (active.phase === 'running' && active.claim && claimAlive(active.claim, facts)) { out(`${active.node} (run ${active.runId}) is running in another process. Nothing was started.`); return 1; }
+      const approval = awaitingExcerptApproval(dir);   // an approval of excerpts that waits for the person (or cannot be read) holds the member: it is resumed once the gate reads as answered, and its own resume applies the answers
+      if (approval) { for (const l of sittingLines({ status: 'awaiting_choice', started: [], node: active.node, runId: active.runId, excerptApproval: approval, stopped: [] }, rootId)) out(l); return EXIT_OF.awaiting_choice; }
       const pendingChoice = replacedOf(state, `${active.node}@g${active.generation}`) ? null : pendingChoiceOf(dir, active);   // member verb: the person's recorded choice for THIS stop (derived; a choice for another stop id is not pending)
       if (active.phase === 'running' && waitsForChoice(runEndOf(dir)) && !pendingChoice) {       // round semantics 2b: stopped at its overseer limit, waiting for a choice: nothing to resume, no node_resumed written
-        const res = { status: 'awaiting_choice', started: [], node: active.node, runId: active.runId, conflict: runEndOf(dir)?.kind === 'conflict_stopped', stopped: [], replaced: replacedOf(state, `${active.node}@g${active.generation}`) };
+        const res = { status: 'awaiting_choice', started: [], node: active.node, runId: active.runId, conflict: runEndOf(dir)?.kind === 'conflict_stopped', stopped: [], replaced: replacedOf(state, `${active.node}@g${active.generation}`), ...(readStopOfRun(dir) ? { stop: readStopOfRun(dir).stop } : {}) };
         for (const l of sittingLines(res, rootId)) out(l);
         return EXIT_OF.awaiting_choice;
       }
@@ -285,7 +293,7 @@ export async function resumeHandler({ rootDir, rootId, work, stdout, stderr, now
         // BUG-C-055 (bug audit 24 Okt 2026): a member refused at its price limit (exit 24) is explained here as tree-run.js explains it at the start: the marker's price lines, with the stop FILES listed by name only (as tree-run.js does)
         const registered = after.events.find(e => e.event === 'node_registered' && e.node === active.node && e.generation === active.generation);
         const priceRefused = code === 24 ? priceRefusedOf(dir, registered?.chain?.name ?? null) : null;
-        const r2 = { status, started: [], node: active.node, generation: active.generation, runId: active.runId, exitCode: code, conflict: code === 25, deadNode: code === 19 && isDeadNode(rootDir, active.node, active.generation), stopped: priceRefused ? stoppedReasonsOf(dir).map(s => s.name) : stoppedReasonsOf(dir).map(s => `${s.name}: ${s.text}`), detail: res?.outputTail ?? null, needs: [], ...(priceRefused ? { priceRefused, ranNothing: false } : {}) };
+        const r2 = { status, started: [], node: active.node, generation: active.generation, runId: active.runId, exitCode: code, conflict: code === 25, ...(code === 26 ? { excerptApproval: awaitingExcerptApproval(dir) ?? { gate: null, status: 'invalid' } } : {}), deadNode: code === 19 && isDeadNode(rootDir, active.node, active.generation), stopped: priceRefused ? stoppedReasonsOf(dir).map(s => s.name) : stoppedReasonsOf(dir).map(s => `${s.name}: ${s.text}`), detail: res?.outputTail ?? null, needs: [], ...(priceRefused ? { priceRefused, ranNothing: false } : {}) };
         out(`Resume number ${resumeCountOf(after, active.node, active.generation)} of ${active.node} ended with exit code ${code}.`);
         for (const l of sittingLines(r2, rootId)) out(l);
         return EXIT_OF[status] ?? 1;

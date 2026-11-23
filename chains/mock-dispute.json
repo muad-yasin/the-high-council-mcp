@@ -1,11 +1,14 @@
 {
   "name": "mock-dispute",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. Exercises the dispute stage and its stall rule: one holdout critic raises the same objection every round, so the run stops early instead of burning the full round cap on an argument that is not moving, records the unresolved dissent at the top of the deliverable, and still reports no consensus. The round cap is deliberately high (7) so a test can prove the stall rule stopped the run rather than the cap doing it.",
   "maxRounds": 7,
   "signoff": "unanimous",
   "dispute": {
     "enabled": true,
-    "stall_rounds": 2
+    "stall_rounds": 3
   },
   "estimate": {
     "promptTokens": 1000,

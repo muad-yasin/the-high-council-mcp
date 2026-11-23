@@ -179,7 +179,7 @@ test('the sitting for a consumer says WHY it waits: a provider closed incomplete
   assert.match(d.io.shown(), /These wait for it and will not start[^]*- R\/M1\/M2 \(not registered yet\): [^]*- R\/M2 \(not registered yet\): it expects an agreement from R\/M1/); assert.equal(/- R\/M1\/M3|- R\/M3/.test(d.io.shown()), false);
   const next = chooseNextChild(r.t.rootDir, { work: r.t.work });
   const why = next.waiting.flatMap(w => w.why).join(' | ');
-  assert.match(why, /R\/M1\/M1 was closed incomplete by a person/); assert.equal(/R\/M1\/M1 closed but the panel did not pass it/.test(why), false);
+  assert.match(why, /R\/M1\/M1 was closed incomplete by a person/); assert.equal(/R\/M1\/M1 closed but the panel did not agree on it/.test(why), false);
   assert.equal(phases(r)['R/M1/M1'], 'closed');
 });
 

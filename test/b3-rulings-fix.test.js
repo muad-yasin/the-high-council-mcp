@@ -7,12 +7,18 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, existsSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { routeNextPass } from './helpers/route-pass.js';
 import { rulingsInForce, withdrawalGateText, parseWithdrawalGateText } from '../src/rulings.js';
 import { requestRuling, requestWithdrawal, rulingsOf, answerGateAsRelay, answerGate, readGateAnswer, declineOwnRequest, figuresIn } from '../src/gate.js';
-import { runChain, setPromptSpy, setCache } from '../src/chain.js';
+import { runChain, setPromptSpy, setCache, RoundStopped } from '../src/chain.js';
+import { roundChoiceEntry } from '../src/overseer-rounds.js';
+import { setHeldForTest } from '../src/held-roles.js';
+import { DEMAND } from './helpers/rating-demand.js';
 import { promptHashOf } from '../src/cache-integrity.js';
+import { runThroughChecks } from './helpers/build-check.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const CHECK_PRELOAD = join(root, 'test', 'helpers', 'build-check-only-preload.js');   // 0.8.4 S4: a child with the build-check wording in force
 const T0 = Date.parse('2026-10-30T12:00:00.000Z');
 const folder = () => { const d = join(mkdtempSync(join(tmpdir(), 'b3-fix-')), 'run-1'); mkdirSync(d); return d; };
 const now = () => T0;
@@ -21,15 +27,23 @@ const MARK = /# Rulings by the person who owns this request/;
 // ---- D1, D2: the dispute prompts ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // B3's chain has `dispute.enabled`, so the reviser reads disputeUser at the end of a run that stops with open objections; the raising seats read disputeReviewUser only when `dispute.review` is on (it is NOT on in B3's chain).
 const chain = suffix => ({
-  name: 'rulfix', signoff: 'unanimous', maxOverseerRounds: 3, layerRevisions: { 1: 2, 2: 2 }, estimate: { promptTokens: 500, draftTokens: 500, critiqueTokens: 200 }, dispute: { enabled: true, stall_rounds: 2, review: true },
+  name: 'rulfix', signoff: 'unanimous', maxOverseerRounds: 3, layerRevisions: { 1: 2, 2: 2 }, estimate: { promptTokens: 500, draftTokens: 500, critiqueTokens: 200 }, dispute: { enabled: true, stall_rounds: 2, review: true }, answer_back: { enabled: true },
   seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'mock', model: 'mock-builder', lab: 'author' }, reviser: { provider: 'mock', model: 'mock-builder', lab: 'author' },
     critics: [{ provider: 'mock', model: `mock-critic-script-xxxxxx-df1${suffix}`, lab: 'l1', layer: 1 }, { provider: 'mock', model: `mock-critic-script-xo-df2${suffix}`, lab: 'l2', layer: 2 }, { provider: 'mock', model: `mock-critic-script-o-df3${suffix}`, lab: 'l3', layer: 3 }] },
 });
+// CHANGED (0.8.4 S5 U-C fix-up, 08 Nov 2026). OLD: one run reached the dispute stage. NEW: the pass-2 stall is passed up for one pass (2ba3dc84), layer 1 is asked again and uses its two revisions, and at pass 5 the run stops for the person (kind layer_bound, why revisions: RoundStopped), so the run is two steps, as test/stall-stop.test.js TS-4 does it: a probe run on throwaway judge names (the suffix + '0') finds the stop, then the run the rows read is made with the person's recorded `finish` for it (the stop id is kind:overseer_round:pass, so it does not depend on the names). WHY other names for the probe: the scripted judges answer by a process-wide ask counter per model name, so a second run on the same names would not replay the first. The prompts the rows read are those of the second run only. The labels from pass 3 on that W3 reads exist before the stop (panel-3-l2, revise-3, panel-4-l1, revise-4, panel-5-l1).
+// CHANGED AGAIN (0.8.4 SG-1, 08 Nov 2026). The stall gate (SG-1): a stall is passed up only on a chain that keeps the answer-back list AND has the rating demand recorded; without them the pass-2 stall is a stop for the person (climb_not_shown) and the run never reaches pass 3. So the chain keeps answer_back and the rating demand is injected (the held `ratingDemand` ALONE: the full held map would also fire the layer-1 go-up at pass 5 and change the run). The scripted judges rate every objection 5 under the demand (providers.js mockSeverityOf), so their verdicts stay readable. setHeldForTest replaces the whole override map and nothing resets it, so it is set around BOTH runs in one try/finally (D3, further down this file, runs without it).
+// NOTE (0.8.4 apply, job 16 probe): the two comments above describe the run as it was: the probe of job 16 shows the first go (no choice) now ends without a stop (stop null), highest panel pass 9, passes 1 to 9: panel-5-l1 is followed by panel-6-l2 (the run climbs where it used to stop at pass 5), then layer 3 at pass 9, the dispute and the final read. The two-step drive stays as written (with no stop the second go gets no choice); D1 dates its late ruling from the run's own last pass.
 async function promptsOf(rulings, suffix) {
   const seen = new Map();
   setCache(null);
-  setPromptSpy(p => { seen.set(p.label, { user: p.user, hash: promptHashOf(p.system, p.user) }); });
-  try { await runChain({ request: 'Plan a tea.', config: chain(suffix), rulings, log: () => {} }); } finally { setPromptSpy(null); }
+  setHeldForTest(DEMAND);
+  try {
+    const go = (names, roundChoices = []) => runChain({ request: 'Plan a tea.', config: chain(names), rulings, log: () => {}, roundChoices });
+    const stop = await go(`${suffix}0`).then(() => null, e => { if (!(e instanceof RoundStopped)) throw e; return e.stop; });
+    setPromptSpy(p => { seen.set(p.label, { user: p.user, hash: promptHashOf(p.system, p.user) }); });
+    await go(suffix, stop ? [roundChoiceEntry(stop, 'finish')] : []);
+  } finally { setPromptSpy(null); setHeldForTest(null); }
   return seen;
 }
 const RULING = { gate: 'g1', pass: 2, text: 'Replace E5 by the amended R19.', channel: 'session', actor: 'main-session', person_words: 'Yes, that is what I want.', at: '2026-10-30T12:00:00.000Z' };
@@ -37,7 +51,11 @@ const RULING = { gate: 'g1', pass: 2, text: 'Replace E5 by the amended R19.', ch
 test('D1: the reviser\'s dispute prompt carries the rulings in force at the last pass that ran; a ruling dated after that pass (none can be) and no ruling leave it byte for byte what it was', async () => {
   const none = await promptsOf([], 'a');
   const withIt = await promptsOf([RULING], 'b');
-  const late = await promptsOf([{ ...RULING, pass: 9 }], 'c');
+  // CHANGED ACCEPTED TEST (0.8.4 apply, job 16 probe): OLD: the late ruling was dated pass 9, one after the last pass the run reached. NEW: it is dated one after the last pass of THIS run's own labels, read from the run (the probe of job 16 shows the run now reaches pass 9: its first go no longer stops at pass 5, panel-5-l1 is followed by panel-6-l2 and the run climbs to layer 3 and the dispute stage; the dispute prompt reads rulings at the last panel round, src/chain.js:7471). WHY: the test's claim is 'a ruling dated after the last pass that ran changes nothing'; the date must follow the run, not a number. An earlier fix-up (pass 99) was taken back because the number had no source; this one has: the run's own labels.
+  const passOfLabel = l => Number((/^(?:panel|revise|ldebate|lreply|rule)-(\d+)/.exec(l) || [])[1]);
+  const lastPass = Math.max(0, ...[...none.keys()].map(passOfLabel).filter(Number.isFinite));
+  assert.ok(lastPass >= 2, `premise: the run reached a later pass (${[...none.keys()]})`);
+  const late = await promptsOf([{ ...RULING, pass: lastPass + 1 }], 'c');
   assert.ok(none.has('dispute'), `the run did not reach the dispute stage: ${[...none.keys()]}`);
   assert.match(withIt.get('dispute').user, MARK, 'the dispute prompt carries the ruling');
   assert.doesNotMatch(none.get('dispute').user, MARK);
@@ -103,7 +121,8 @@ test('W7: an approved ruling is withdrawn through a gate of its own kind: the ru
   requestRuling(d, { pass: 2, text: 'Use black tea.', relayed: true }, { now });
   assert.equal(requestWithdrawal(d, { gate: 'g1', pass: 3, relayed: true }, { now }).code, 'withdrawal_not_a_ruling', 'a waiting ruling is declined, not withdrawn');
   const g1 = readGateAnswer(d, 'g1', { now }).gate;
-  assert.equal(answerGateAsRelay(d, 'g1', { shownSha256: g1.sha256, reason: 'x', personWords: 'yes, black tea' }, { now }).ok, true);
+  // CHANGED ACCEPTED ROW (S20 slice 2, Q1). OLD words: 'yes, black tea'. NEW: the words contain the ruling text. WHY: a ruling the session relays is accepted only with the person's words and the ruling text IN them (src/gate.js, src/rulings.js rulingTextInWords).
+  assert.equal(answerGateAsRelay(d, 'g1', { shownSha256: g1.sha256, reason: 'x', personWords: 'yes, Use black tea.' }, { now }).ok, true);
   assert.equal(requestWithdrawal(d, { gate: 'g9', pass: 3, relayed: true }, { now }).code, 'withdrawal_not_a_ruling');
   const asked = requestWithdrawal(d, { gate: 'g1', pass: 3, relayed: true }, { now });
   assert.equal(asked.ok, true, JSON.stringify(asked));
@@ -152,7 +171,9 @@ const project = (l3 = 'x') => {
   writeFileSync(join(dir, 'tasks', 't.md'), '# A plan\n');
   const run = args => spawnSync(process.execPath, [join(root, 'src', 'cli.js'), ...args], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir } });
   const runDir = () => join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
-  return { dir, run, runDir, answer: (n, t) => writeFileSync(join(runDir(), `${n}.md`), t), files: () => readdirSync(runDir()), done: () => rmSync(dir, { recursive: true, force: true }) };
+  // 0.8.4 S4 (C&C's Q-m migration): the same command with the build-check wording in force; a run that waits at the build check is answered good_to_build by a test-only handler and resumed (test/helpers/build-check.js)
+  const runChecked = args => runThroughChecks(a => spawnSync(process.execPath, ['--import', CHECK_PRELOAD, join(root, 'src', 'cli.js'), ...a], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir } }), args, runDir);
+  return { dir, run, runChecked, runDir, answer: (n, t) => writeFileSync(join(runDir(), `${n}.md`), t), files: () => readdirSync(runDir()), done: () => rmSync(dir, { recursive: true, force: true }) };
 };
 const plan = n => `# Plan v${n}\n\n1. Boil.\n\nAssumptions: tea${'.'.repeat(n)}\n`;
 const atRevise1 = p => { assert.equal(p.run(['--chain', 'lad', '--task', 'tasks/t.md', '--ladder']).status, 3); p.answer('build', plan(1)); assert.equal(p.run(['--resume', p.runDir()]).status, 3); assert.ok(existsSync(join(p.runDir(), 'NEEDS-revise-1.md'))); };
@@ -185,7 +206,8 @@ test('W5: the whole withdrawal through the CLI: pass 2 carries the ruling; withd
   const p = project('o');
   try {
     ruleAt2(p);
-    assert.equal(p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'Yes, black tea.']).status, 0);
+    // CHANGED ACCEPTED ROW (S20 slice 2, Q1). OLD words: 'Yes, black tea.'. NEW: the words contain the ruling text. WHY: a ruling the session relays is accepted only with the person's words and the ruling text IN them (src/gate.js, src/rulings.js rulingTextInWords).
+    assert.equal(p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'Yes, Use black tea.']).status, 0);
     const first = p.run(['--resume', p.runDir()]);
     assert.equal(first.status, 3, first.stdout + first.stderr);
     const need2 = readFileSync(join(p.runDir(), 'NEEDS-revise-2.md'), 'utf8');
@@ -203,8 +225,11 @@ test('W5: the whole withdrawal through the CLI: pass 2 carries the ruling; withd
     assert.equal(none.status, 1);
     const ok = p.run(['relay-answer', p.runDir(), 'g2', '--person-words', 'Drop the black tea ruling.']);
     assert.equal(ok.status, 0, ok.stdout + ok.stderr);
-    const go = p.run(['--resume', p.runDir(), '--next-pass-layer-3']);
-    assert.equal(go.status, 22, go.stdout + go.stderr);
+    // CHANGED ACCEPTED ROW (S20 slice 2, R2): the flag leg is the request (27), the handler's route and the plain resume; the assertions after it are unchanged.
+    routeNextPass(p);
+    // CHANGED ACCEPTED (0.8.4 S4, C&C's Q-m migration; OLD/NEW/WHY): OLD: this resume exited 22 at the layer-3 (ladder) sign-off. NEW: with the build-check wording in force the run waits at build-check-1, a test-only handler answers good_to_build, and the resumed run ends AGREED (exit 0). WHY: the handler's build check follows layer 3's sign-off (CA4); every other assertion of the row is unchanged.
+    const go = p.runChecked(['--resume', p.runDir()]);
+    assert.equal(go.status, 0, go.stdout + go.stderr);
     assert.match(go.stdout, /panel-2-l1: .* - from disk/, 'pass 2 replays: it was asked with the ruling and still is');
     assert.equal(existsSync(join(p.runDir(), 'superseded')), false);
     assert.equal(readFileSync(join(p.runDir(), 'NEEDS-revise-2.md'), 'utf8'), need2, 'the prompt of the pass that carried the ruling is untouched');
@@ -219,7 +244,8 @@ test('W6: ruling-withdraw is refused and writes nothing: a gate that is not a ru
   const p = project();
   try {
     ruleAt2(p);
-    assert.equal(p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'ok']).status, 0);
+    // CHANGED ACCEPTED ROW (S20 slice 2, Q1). OLD words: 'ok'. NEW: the words contain the ruling text. WHY: a ruling the session relays is accepted only with the person's words and the ruling text IN them (src/gate.js, src/rulings.js rulingTextInWords).
+    assert.equal(p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'ok. Use black tea.']).status, 0);
     const pending = p.run(['ruling-withdraw', p.runDir(), 'g9', '--relayed']);
     assert.equal(pending.status, 2); assert.match(pending.stderr, /ruling-withdraw: this run has no gate g9\. Nothing was written\./);
     assert.equal(p.run(['--resume', p.runDir()]).status, 3);
@@ -243,7 +269,8 @@ test('W8: an approved ruling whose text file was changed is refused at resume wi
   const p = project();
   try {
     ruleAt2(p);
-    assert.equal(p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'ok']).status, 0);
+    // CHANGED ACCEPTED ROW (S20 slice 2, Q1). OLD words: 'ok'. NEW: the words contain the ruling text. WHY: a ruling the session relays is accepted only with the person's words and the ruling text IN them (src/gate.js, src/rulings.js rulingTextInWords).
+    assert.equal(p.run(['relay-answer', p.runDir(), 'g1', '--person-words', 'ok. Use black tea.']).status, 0);
     const file = readdirSync(p.runDir()).find(f => /^ruling-2-/.test(f));
     const sha = JSON.parse(readFileSync(join(p.runDir(), 'gates', 'g1.json'), 'utf8')).sha256;
     const original = readFileSync(join(p.runDir(), file), 'utf8');
@@ -262,8 +289,11 @@ test('X1: a request the session declined itself is findable in report.json (decl
   try {
     ruleAt2(p);
     assert.equal(p.run(['ruling-withdraw', p.runDir(), 'g1', '--relayed']).status, 0);
-    const go = p.run(['--resume', p.runDir(), '--next-pass-layer-3']);
-    assert.equal(go.status, 22, go.stdout + go.stderr);
+    // CHANGED ACCEPTED ROW (S20 slice 2, R2): the flag leg is the request (27), the handler's route and the plain resume; the assertions after it are unchanged.
+    routeNextPass(p);
+    // CHANGED ACCEPTED (0.8.4 S4, C&C's Q-m migration; OLD/NEW/WHY): OLD: this resume exited 22 at the layer-3 (ladder) sign-off. NEW: with the build-check wording in force the run waits at build-check-1, a test-only handler answers good_to_build, and the resumed run ends AGREED (exit 0). WHY: the handler's build check follows layer 3's sign-off (CA4); every other assertion of the row is unchanged.
+    const go = p.runChecked(['--resume', p.runDir()]);
+    assert.equal(go.status, 0, go.stdout + go.stderr);
     const rep = JSON.parse(readFileSync(join(p.runDir(), 'report.json'), 'utf8'));
     assert.deepEqual(rep.declined_requests.map(r => [r.gate, r.kind, r.actor]), [['g1', 'ruling', 'main-session']]);
     assert.match(rep.declined_requests[0].reason, /withdrawn by the handler session, which asked for it/);
@@ -275,7 +305,8 @@ test('X1: a request the session declined itself is findable in report.json (decl
 // ---- D3: the conflict decider ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // In B3 the decider is the handler's own session: its prompt is written to NEEDS-conflict-N.md before NEEDS-revise-N of the same pass. A fixture with a mock decider seat shows the same prompt through the spy.
 const CRITERION = 'The plan defines a retry limit.';
-const fail = (quote, problem) => ({ criterion: CRITERION, problem, quote });
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state; D3 only): OLD: the scripted failures carried no `severity`. NEW: `severity: 5` (a layered unanimous chain: the rating demand; 5 holds the sign-off as an unrated one did). WHY: ratingDemand recorded (src/ratings-demand.js). No `relation`: the decider fixture has no answer_back, so the judges are not asked for one and the repeat of X keeps its derived id.
+const fail = (quote, problem) => ({ criterion: CRITERION, problem, quote, severity: 5 });
 const meets = () => JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok' });
 const objects = f => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: f.problem }], failures: [f], verdict_line: 'no' });
 const X = fail('retries failed requests', 'No limit on retries.');

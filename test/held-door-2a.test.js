@@ -59,7 +59,8 @@ test('2a: the note is for a refused table only: an unreadable reply\'s re-ask ge
   const cut = await go('mock-critic-cut', { maxRounds: 1 });
   assert.ok(cut.seen.filter(p => /-reask\d$/.test(p.label)).length >= 1);
   assert.ok(cut.seen.every(p => !p.user.includes(NOTE)), 'no table gap: no note');
-  assert.match(H.criticReaskNote({ kind: 'no_table', ids: [1, 2, 3] }), /but it had no entry per criterion\./);
+  // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: /but it had no entry per criterion\./ NEW: /but it did not have one entry for each criterion\./ WHY: criticReaskNote (src/prompts/recorded-082.js:20), the resolved text of the row (RESOLVED_LIST).
+  assert.match(H.criticReaskNote({ kind: 'no_table', ids: [1, 2, 3] }), /but it did not have one entry for each criterion\./);
   assert.match(H.criticReaskNote({ kind: 'missing_rows', ids: [2, 5] }), /no entry for criteria 2 and 5 \(numbered as in the list above\)\./);
   assert.match(H.criticReaskNote({ kind: 'missing_rows', ids: [2, 3, 5] }), /criteria 2, 3 and 5 /);
   assert.match(H.criticReaskNote({ kind: 'no_evidence', ids: [1] }), /its entry for criterion 1 \(numbered as in the list above\) had no evidence\./);

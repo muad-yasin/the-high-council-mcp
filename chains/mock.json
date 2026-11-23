@@ -1,5 +1,6 @@
 {
   "name": "mock",
+  "draft_end_marker": { "enabled": true },
   "description": "Offline. Calls no API and costs nothing. Exercises every branch of the chain so the plumbing can be tested before any key exists.",
   "maxRounds": 2,
   "stopOnPass": true,

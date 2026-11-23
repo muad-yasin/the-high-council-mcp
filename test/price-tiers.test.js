@@ -28,10 +28,13 @@ test('PT-2: a malformed tiers list fails closed: the dearest valid tier prices e
   assert.equal(parseTiers({}).malformed, false); assert.deepEqual(parseTiers({}).tiers, []);
 });
 
-test('PT-3: on the shipped table rateFor with no size, or for a row without tiers, is exactly effectiveRow; tiersOf is empty for such a row', () => {
+// CHANGED ACCEPTED (0.8.4 cache part a). OLD: rateFor with no size, or for a row without tiers, was deepEqual to effectiveRow. NEW: the same, apart from the two keys cacheReadMult / cacheWriteMult that rateFor adds when the shipped row names cache prices
+// (cache_read / cache_write; none does until the cache fill). WHY: the multiples are the rate of ONE call and are derived from the shipped row's own fields, so the row without them is still exactly what it was.
+const bare = r => { if (!r) return r; const { cacheReadMult, cacheWriteMult, ...rest } = r; return rest; };
+test('PT-3: on the shipped table rateFor with no size, or for a row without tiers, is exactly effectiveRow (apart from the cache multiples a row with cache prices adds); tiersOf is empty for such a row', () => {
   const row = effectiveRow('openrouter', 'qwen/qwen3.7-plus');
-  assert.deepEqual(rateFor('openrouter', 'qwen/qwen3.7-plus'), row);
-  assert.deepEqual(rateFor('openrouter', 'deepseek/deepseek-v4.1-flash-1017', 5_000_000), effectiveRow('openrouter', 'deepseek/deepseek-v4.1-flash-1017'));
+  assert.deepEqual(bare(rateFor('openrouter', 'qwen/qwen3.7-plus')), row);
+  assert.deepEqual(bare(rateFor('openrouter', 'deepseek/deepseek-v4.1-flash-1017', 5_000_000)), effectiveRow('openrouter', 'deepseek/deepseek-v4.1-flash-1017'));
   assert.equal(rateFor('openrouter', 'vendor/not-in-the-table', 100), null);
   assert.ok(Array.isArray(tiersOf('openrouter', 'qwen/qwen3.7-plus')));
 });
@@ -65,7 +68,8 @@ test('PT-5: pinnedExtra carries the tier the call\'s own prompt reaches (a third
   // the UNWIRED shape: no third argument is the request of today, byte for byte (what every caller sends until DUALCAP passes a size)
   const { createHash } = await import('node:crypto');
   const digest = x => createHash('sha256').update(JSON.stringify(x)).digest('hex');
-  assert.equal(digest(pinnedExtra(seat, undefined)), digest({ provider: { max_price: { prompt: base.in, completion: base.out } } }));
+  // 0.8.4: the request of today also carries the Open Inference block (provider.ignore, his decision 8 of 28 Okt 2026); the object is otherwise the one it was, key for key
+  assert.equal(digest(pinnedExtra(seat, undefined)), digest({ provider: { ignore: ['open-inference'], max_price: { prompt: base.in, completion: base.out } } }));
   const own = { provider: { max_price: { prompt: 9, completion: 9 } } };
   assert.deepEqual(pinnedExtra(seat, own, { promptTokens: tier.from * 2 }).provider.max_price, { prompt: 9, completion: 9 });
 });

@@ -6,10 +6,15 @@
 import { recordHash, groundTruthSha256, sha256Of } from './thin-contract.js';
 import { criteriaHash, checksHash, checksOf } from './criteria-lock.js';
 import { RECORD_LINE_RE } from './handoff-contract-text.js';
+import { handoffWithoutNotes, notesInHandoff } from './handler-notes.js';
+import { withoutAcceptance } from './acceptance.js';
+import { withoutSummaryBlock } from './summary-block.js';
 
 const short = h => String(h || '').slice(0, 12);
 
-export function checkThinContract({ report, deliverableText, handoffText, taskText, contextBundle, hasContext, handoffCopyText, accepted = null }) {
+export function checkThinContract({ report, deliverableText: deliverableRaw, handoffText, taskText, contextBundle, hasContext, handoffCopyText, accepted = null, handlerNotes }) {
+  // 0.8.4 item 6: a summary block the handling session put at the top of deliverable.md after the run is not part of the file the run wrote: it is taken off first, by the hash the report records (src/summary-block.js), so a run whose only addition is that block gets the outcome it had without it from every comparison below; an edited block is not taken off and shows as a changed file.
+  const deliverableText = typeof deliverableRaw === 'string' ? withoutSummaryBlock(deliverableRaw, report?.delivered_text?.summary_block) : deliverableRaw;
   const t = report?.thin_contract;
   if (!t || typeof t !== 'object') return { items: [], exit: 2, note: 'this report.json has no thin_contract (a run from before 0.8.2, an advice run, or a run that had nothing to seal): there is nothing to check' };
   const items = [];
@@ -60,8 +65,35 @@ export function checkThinContract({ report, deliverableText, handoffText, taskTe
     else if (d.same_as_signed === false) add('unchecked', 'signed draft', 'a later stage changed the text (see delivered_text.changed_by): the signed draft is not a file in the run folder, so it cannot be recomputed');
   } else add('unchecked', 'delivered text', 'report.json has no delivered_text');
   if (hnd?.file_sha256 !== undefined) {
-    if (typeof handoffText === 'string') same('HANDOFF.md', sha256Of(handoffText), hnd.file_sha256, `HANDOFF.md is the file the run wrote (${short(hnd.file_sha256)})`, `HANDOFF.md was changed after the run wrote it (${short(sha256Of(handoffText))} vs ${short(hnd.file_sha256)})`, true);
-    else add('unchecked', 'HANDOFF.md', 'HANDOFF.md is not readable');
+    const notes = Array.isArray(report.handler_notes) ? report.handler_notes : [];
+    const inFile = typeof handoffText === 'string' ? notesInHandoff(handoffText) : 0;   // the count comes from the section the file really holds, never from report.json
+    if (typeof handoffText !== 'string') add('unchecked', 'HANDOFF.md', 'HANDOFF.md is not readable');
+    else if (report.acceptance && typeof report.acceptance === 'object') {
+      // 0.8.4 D2: `council accept` added the acceptance line and gave the seat's Status back after the run ended (src/acceptance.js, through the same rebuild as a note): file_sha256 follows the file, file_sha256_at_end is the file as the run wrote it.
+      // The acceptance comes out first, then the notes (when there are any), and what is left must be the file the run wrote.
+      const rowKey = r => JSON.stringify([r?.n, r?.at, r?.actor, r?.text, r?.objection ?? null]);
+      const agree = inFile === notes.length && (handlerNotes === undefined || (Array.isArray(handlerNotes) && handlerNotes.length === notes.length && handlerNotes.every((r, i) => rowKey(r) === rowKey(notes[i]))));
+      const noAcceptance = withoutAcceptance(handoffText, report.acceptance);
+      const original = !agree ? null : notes.length ? handoffWithoutNotes(noAcceptance, notes, hnd.file_sha256_at_end ?? null) : (typeof hnd.file_sha256_at_end === 'string' && sha256Of(noAcceptance) === hnd.file_sha256_at_end ? noAcceptance : null);
+      const added = `the acceptance${notes.length ? ` and the ${inFile} note${inFile === 1 ? '' : 's'}` : ''}`;   // WORDING U3-w15
+      if (!agree) add('drift', 'HANDOFF.md', 'HANDOFF.md, report.json and the notes file do not agree about the notes the handling session added after the run ended', true);   // A-DRAFT
+      else if (original === null || typeof hnd.file_sha256_at_end !== 'string') add('drift', 'HANDOFF.md', `HANDOFF.md is not the file the run wrote plus ${added} added after the run ended: it was changed after the run wrote it or after the last edit`, true);   // A-DRAFT
+      else if (sha256Of(handoffText) !== hnd.file_sha256) add('drift', 'HANDOFF.md', `HANDOFF.md was changed after the last edit (${short(sha256Of(handoffText))} vs ${short(hnd.file_sha256)})`, true);   // A-DRAFT
+      else add('ok', 'HANDOFF.md', `HANDOFF.md is the file the run wrote (${short(hnd.file_sha256_at_end)}) plus ${added} added after the run ended`, true);   // A-DRAFT
+    }
+    else if (!notes.length && inFile === 0 && hnd.file_sha256_at_end === undefined && (handlerNotes === undefined || (Array.isArray(handlerNotes) && handlerNotes.length === 0))) same('HANDOFF.md', sha256Of(handoffText), hnd.file_sha256, `HANDOFF.md is the file the run wrote (${short(hnd.file_sha256)})`, `HANDOFF.md was changed after the run wrote it (${short(sha256Of(handoffText))} vs ${short(hnd.file_sha256)})`, true);
+    else {
+      // 0.8.4 S18 (Q4.3): `council note-add` added the handling session's notes after the run ended; file_sha256 then follows the file with its notes and file_sha256_at_end is the file as the run wrote it (the run did not write the notes).
+      // When the file's section, report.json and the notes file (when it is handed in) do not hold the same number of notes, the line says so and gives no count.
+      const rowKey = r => JSON.stringify([r?.n, r?.at, r?.actor, r?.text, r?.objection ?? null]);
+      const agree = inFile > 0 && inFile === notes.length && (handlerNotes === undefined || (Array.isArray(handlerNotes) && handlerNotes.length === notes.length && handlerNotes.every((r, i) => rowKey(r) === rowKey(notes[i]))));
+      const count = `${inFile} note${inFile === 1 ? '' : 's'}`;   // A-DRAFT
+      const original = agree ? handoffWithoutNotes(handoffText, notes, hnd.file_sha256_at_end ?? null) : null;
+      if (!agree) add('drift', 'HANDOFF.md', 'HANDOFF.md, report.json and the notes file do not agree about the notes the handling session added after the run ended', true);   // A-DRAFT
+      else if (original === null || typeof hnd.file_sha256_at_end !== 'string') add('drift', 'HANDOFF.md', `HANDOFF.md is not the file the run wrote plus the ${count} the handling session added after the run ended: it was changed after the run wrote it or after the last note`, true);   // A-DRAFT
+      else if (sha256Of(handoffText) !== hnd.file_sha256) add('drift', 'HANDOFF.md', `HANDOFF.md was changed after the last note (${short(sha256Of(handoffText))} vs ${short(hnd.file_sha256)})`, true);   // A-DRAFT
+      else add('ok', 'HANDOFF.md', `HANDOFF.md is the file the run wrote (${short(hnd.file_sha256_at_end)}) plus the ${count} the handling session added after the run ended`, true);   // A-DRAFT
+    }
   } else add('na', 'HANDOFF.md', 'this report records no HANDOFF.md written by the run');
 
   // 6. A copy of HANDOFF.md the builder holds (`--handoff <file>`): the record hash it prints, plain text, against the run's, and the run it names. The LAST matching line is read (the harness writes its

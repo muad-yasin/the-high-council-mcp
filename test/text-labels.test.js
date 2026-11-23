@@ -82,3 +82,32 @@ test('renderTextLabelsBoard: a degraded finish is not described as a plain sign-
 test('changedAfterReviewSentence: a damaged record (same_as_signed:false, no changed_by list) is a sentence, not a throw', () => {
   assert.match(changedAfterReviewSentence({ delivered_text: { same_as_signed: false } }), /differs from the text the panel last reviewed/);
 });
+
+// 0.8.4 round 1. Row 58: an unsigned run whose text no later stage changed (job 89's shape: not signed, round cap, no dispute, no harness note) had a handoff made from "the signed text" although nothing was signed.
+test('buildTextLabels (row 58): the handoff of a run the panel did not sign is not "made from the signed text", whatever the stages after the review changed; a signed unchanged run still is', () => {
+  const unsigned = buildTextLabels({ reviewedDraft: 'P', signed: false, round: 2, openObjections: 2, body: 'P', deliverable: 'P', handoffMadeFrom: 'P' });
+  assert.equal(unsigned.delivered_text.same_as_signed, true, 'premise: nothing changed the text after the review');
+  assert.equal(unsigned.signed_text.signed_off, false, 'premise: nobody signed it');
+  assert.equal(unsigned.handoff_text.made_from_signed, false);
+  const signed = buildTextLabels({ reviewedDraft: 'P', signed: true, round: 2, body: 'P', deliverable: 'P', handoffMadeFrom: 'P' });
+  assert.equal(signed.handoff_text.made_from_signed, true, 'control: signed and unchanged');
+});
+
+// A1-3 and A1-5: what tells the case apart is the ending record and the kind of block handed to the BOARD section; the words themselves are not compared here (test/a1-ladder-sign-off.test.js runs the shape end to end).
+test('renderTextLabelsBoard (A1-3, A1-5): an unsigned run that ended agreed on the handler\'s build check is not "not accepted" and any other unsigned end reads as before; the ladder\'s block is told apart from a stall escalation\'s only when the note is there', () => {
+  const l = buildTextLabels({ reviewedDraft: 'P', signed: false, round: 4, openObjections: 3, body: 'P', deliverable: 'BLOCK\nP', harnessNotes: ['escalated_signoff_block'] });
+  const sections = { signedText: l.signed_text, deliveredText: l.delivered_text, outcome: 'no_consensus' };
+  const agreed = { kind: 'agreed', basis: ['layer_3_sign_off', 'handler_check'] };
+  const before = renderTextLabelsBoard({ ...sections, ending: null });
+  assert.match(before, /\*\*Not accepted:\*\*/, 'premise: with no ending the section is the unsigned one');
+  const withEnding = renderTextLabelsBoard({ ...sections, ending: agreed });
+  assert.doesNotMatch(withEnding, /Not accepted/);
+  assert.notEqual(withEnding, before, 'the ending changes the section');
+  for (const ending of [{ kind: 'agreed', basis: ['layer_3_sign_off', 'no_handling_session'] }, { kind: 'signed_off_at_top_not_agreed', basis: ['layer_3_sign_off', 'handler_not_yet'] }]) {
+    assert.equal(renderTextLabelsBoard({ ...sections, ending }), before, `control: ${JSON.stringify(ending)} reads as before`);
+  }
+  assert.notEqual(renderTextLabelsBoard({ ...sections, ending: agreed, ladderBlock: true }), renderTextLabelsBoard({ ...sections, ending: agreed, ladderBlock: false }), 'the ladder\'s block is told apart from a stall escalation\'s');
+  const plain = buildTextLabels({ reviewedDraft: 'P', signed: false, round: 4, openObjections: 3, body: 'P', deliverable: 'P' });
+  const noNote = { signedText: plain.signed_text, deliveredText: plain.delivered_text, outcome: 'no_consensus', ending: agreed };
+  assert.equal(renderTextLabelsBoard({ ...noNote, ladderBlock: true }), renderTextLabelsBoard({ ...noNote, ladderBlock: false }), 'control: with no block note the flag changes nothing');
+});

@@ -42,9 +42,6 @@ export function askTreeGate(rootDir, gateId, { expectPrefix, typedLabel = null, 
   return answerAtTerminal(rootDir, gateId, { decline, typed, stdin, stdout, stderr, onNotApproved, ...(now ? { now } : {}) });
 }
 
-/** The PERSON's answer to the advice add-on's brief gate (a gate of kind `advice` in a run folder, not a tree gate): the same terminal answer, which keeps its terminal check. Kept here because this file is one of the few that may import gate-cli.js (ROADMAP 77, step 4b). */
-export const askBriefAtTerminal = (runDir, gateId, { stdin, stdout, stderr, now } = {}) => answerAtTerminal(runDir, gateId, { startsRun: true, stdin, stdout, stderr, ...(now ? { now } : {}) });
-
 /**
  * K10 (C2a-record commit 5): the channel a gate was answered on -> who answered, for the record (`actor`, `via`). `cli` is a person at a terminal (the caller checks the tty); `elicitation` is a person through a client dialog; any other channel is nobody's answer to a tree gate (null: the record never calls it a person's).
  * A gate itself is answered only on a person's channel (src/gate.js PERSON_CHANNELS); the session channel of Atomic_Tree_Budget_Gate_Page section 4 is not built, and when it is, it maps to { actor: 'session', via: 'mcp' } here.

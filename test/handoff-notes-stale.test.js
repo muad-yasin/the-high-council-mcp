@@ -11,6 +11,7 @@ import { runChain, setPromptSpy, setCache, setBudget } from '../src/chain.js';
 import { setHeldForTest } from '../src/held-roles.js';
 import { reportJsonShape } from '../src/report-shape.js';
 import { noteId } from '../src/review-notes.js';
+import { CHECK, answer as checkAnswer } from './helpers/build-check.js';
 
 afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setBudget(null); });
 
@@ -29,7 +30,8 @@ function makeStore(initial) {
     get(label) {
       if (store.has(label)) return store.get(label);
       if (label === 'handoff' || label === 'handoff-notes') return null;
-      const text = label === 'panel-1-la' ? signoff({ proposals: [{ text: ITEM }] }) : label.startsWith('panel-') ? signoff() : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+      if (/^build-check-\d+$/.test(label)) return hitOf(checkAnswer('good_to_build'));   // the test-only handler (see the comment at sitting())
+      const text = label === 'panel-1-la' ? signoff({ proposals: [{ text: ITEM }] }) : (label.startsWith('panel-') || label.startsWith('final-read-')) ? signoff() : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
       return hitOf(text);
     },
   };
@@ -37,6 +39,8 @@ function makeStore(initial) {
 }
 
 async function sitting(cache, { external = false } = {}) {
+  // CHANGED ACCEPTED (0.8.4 S4, C&C's Q-m migration; OLD/NEW/WHY): OLD: the run held no build-check wording, so a layer-3 sign-off ended the pass and the run went on to the handoff. NEW: the build-check wording (CHECK) is injected and the stub holds a test-only handler's good_to_build for build-check-<n>. WHY: with the wording recorded a chain with an external writer WAITS at the build check after layer 3's sign-off and before the handoff; every assertion of the rows is unchanged.
+  setHeldForTest(CHECK);
   setCache(cache);
   const builder = external ? { provider: 'external', model: 'claude-code-session', lab: 'writer' } : { provider: 'mock', model: 'mock-builder', lab: 'writer' };
   const seat = (lab, layer) => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000, layer });

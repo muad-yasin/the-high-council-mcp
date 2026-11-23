@@ -1,17 +1,21 @@
-// B3 prep, JUDGE lane, unit 4a: layer 3's re-tags. With the chain's severity switch on, the TOP layer is shown the objection ledger with each open entry's severity IN FORCE and may answer with `retags`: [{ id, severity, reason }]. A re-tag counts only from a counted verdict of the
+// B3 prep, JUDGE lane, unit 4a: layer 3's re-tags. With the rating demand in force (M1/S19: ratings are recorded on every layered unanimous chain; the held word `ratingDemand` is injected for every test of this file), the TOP layer is shown the objection ledger with each open entry's severity IN FORCE and may answer with `retags`: [{ id, severity, reason }]. A re-tag counts only from a counted verdict of the
 // top layer, is checked against the ledger it was shown, takes effect when the pass settles, and is recorded (applied and refused). A re-tag that puts an objection into a holding band stops that pass from being signed off. $0, offline; every reply comes from a label-keyed cache.
-import test, { afterEach } from 'node:test';
+import test, { afterEach, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { runChain, setPromptSpy, setCache, setBudget } from '../src/chain.js';
 import { objectionId } from '../src/objection-ids.js';
 import { promptHashOf } from '../src/cache-integrity.js';
+import { setHeldForTest } from '../src/held-roles.js';
+import { DEMAND } from './helpers/rating-demand.js';
 const Sev = await import('../src/severity.js');
 
-afterEach(() => { setPromptSpy(null); setCache(null); setBudget(null); });
+beforeEach(() => setHeldForTest(DEMAND));   // M1 (S19): the rating demand is in force for every test of this file (there is no severity switch)
+afterEach(() => { setPromptSpy(null); setCache(null); setBudget(null); setHeldForTest(null); });
 const CRITERION = 'The plan defines a retry limit.';
 const DRAFT = 'The worker retries failed requests.';
 const EV = 'Section two sets the retry limit to five attempts.';
-const F = (problem, severity) => ({ criterion: CRITERION, problem, fix: 'Fix it.', ...(severity === undefined ? {} : { severity }) });
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the stub failures carried no relation. NEW: relation 'new' (a first raise); la's listing of F_LA again in pass 3 is `continues <ID_LA>`. WHY: relationRule is recorded (NS-0193): a judge failure without its relation is an unreadable reply, and a `new` on a standing id mints #2 (then the value in force would not hold it).
+const F = (problem, severity) => ({ criterion: CRITERION, problem, fix: 'Fix it.', relation: 'new', ...(severity === undefined ? {} : { severity }) });
 const F_LA = F('Layer one: no retry limit is specified.', 3);
 const ID_LA = objectionId('la', F_LA);
 const objecting = f => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [f], verdict_line: 'no' });
@@ -24,11 +28,11 @@ async function run(replies, { critics, maxRounds = 3, freedoms = true, answerBac
   setPromptSpy(p => { hashes.set(p.label, promptHashOf(p.system, p.user)); prompts.set(p.label, p.user); });
   setCache({ invalidate: () => {}, get(label) {
     served.push(label);
-    const text = label.startsWith('panel-') ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+    const text = (label.startsWith('panel-') || label.startsWith('final-read-')) ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
     return { text, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0, promptHash: hashes.get(label) };
   } });
   const seat = ([lab, layer]) => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000, layer });
-  const config = { name: 'fixture-retag', criteria: [CRITERION], maxRounds, signoff: 'unanimous', ...(answerBack ? { answer_back: { enabled: true } } : {}), ...(freedoms ? { freedoms: { pass: true } } : {}), severity: { enabled: true },
+  const config = { name: 'fixture-retag', criteria: [CRITERION], maxRounds, signoff: 'unanimous', ...(answerBack ? { answer_back: { enabled: true } } : {}), ...(freedoms ? { freedoms: { pass: true } } : {}),
     seats: { builder: seat(['writer']), reviser: seat(['writer']), critics: critics.map(seat) } };
   const r = await runChain({ request: 'Write a worker plan with a retry limit.', runId: 'r-retag', log: l => logs.push(l), config });
   return { r, served, logs, prompts };
@@ -60,13 +64,14 @@ test('overrides are measured against the raiser\'s FIRST tag, never the re-tagge
   assert.deepEqual(r0.snapshot().overrides.map(o => [o.first, o.claimed, o.direction]), [[3, 4, 'upgrade']]);
 });
 
+// CHANGED ACCEPTED (0.8.4 S19): OLD: run() put the switch key in the config. NEW: no key; the rating demand is injected for the file (beforeEach); the fixture was already layered, so the exchange and every label are unchanged; assertions unchanged. WHY: switch removed. RED ON OLD SRC: the old src keeps no ledger without the switch, so `r.severityRun` is undefined.
 test('a re-tag by layer 3 that puts a swept objection into a holding band stops that pass from being signed off; the objection is revised; the raiser listing it again at its own first tag is held by the value in force and records no override; the record has the re-tag; a closed row shows no severity', async () => {
   // The ledger is built from the passes that are FINISHED, so layer 3 sees an objection from the pass after the one that raised it: pass 1 layer 1 (la swept 3, lc held 8) is revised; pass 2 layer 1 is clean (la leaves its swept one unanswered), so layer 3 (lb) is asked and re-tags.
   const F_LC = F('Layer one: no owner.', 8); const ID_LC = objectionId('lc', F_LC);
   const replies = label => (label === 'panel-1-la' ? objecting(F_LA) : label === 'panel-1-lc' ? objecting(F_LC)
     : label === 'panel-2-lc' ? signoff(withdraw(ID_LC))
     : label === 'panel-2-lb' ? signoff({ retags: [{ id: ID_LA, severity: 7.5, reason: 'A retry limit that is missing makes the worker loop forever.' }] })
-    : label === 'panel-3-la' ? objecting(F_LA)
+    : label === 'panel-3-la' ? objecting({ ...F_LA, relation: `continues ${ID_LA}` })
     : label === 'panel-4-la' ? signoff(withdraw(ID_LA)) : undefined);
   const { r, served, prompts, logs } = await run(replies, { critics: [['la', 1], ['lc', 1], ['lb', 2]], maxRounds: 4 });
   assert.equal(served.includes('panel-1-lb'), false, 'pass 1: layer 1 objects, layer 3 is not asked');
@@ -74,7 +79,8 @@ test('a re-tag by layer 3 that puts a swept objection into a holding band stops 
   assert.ok(prompts.get('panel-2-lb').includes('"retags"'), 'and is told it may re-tag');
   assert.equal(r.panelVerdicts.find(v => v.round === 2 && v.lab === 'lb').verdict, 'signed_off', 'the seat signed (its meets:true is never rewritten)');
   assert.ok(served.includes('revise-2'), 'but the pass was not signed off: the re-tagged objection is revised');
-  assert.ok(logs.some(l => /layer 3 re-tagged/.test(l)), 'and the log says why');
+  // CHANGED ACCEPTED (0.8.4 S8 follow-up, found by the S8 unit set). OLD: `/layer 3 re-tagged/`. NEW: `/layer 2 re-tagged/`. WHY: this fixture's critics are layers 1, 1 and 2 (['lb', 2] is its top seat), so the run's top layer is 2; the log line now names the run's own top layer, and 'layer 3' was wrong for this run (the title's 'layer 3' means the top layer). The assertion is otherwise unchanged. The red of the OLD assertion on the new src is set-0008fba9 ('and the log says why'); the red of the NEW assertion is a tree with the pre-follow-up src (42c5c308), whose log prints the literal 'layer 3 re-tagged'.
+  assert.ok(logs.some(l => /layer 2 re-tagged/.test(l)), 'and the log says why');
   assert.equal(r.panelVerdicts.find(v => v.round === 3 && v.lab === 'la').verdict, 'objected', 'pass 3: la lists it again at its own first tag (3); the value in force (7.5) holds');
   assert.equal(served.includes('panel-3-lb'), false, 'layer 1 objects, so layer 3 is not asked in pass 3');
   assert.equal(r.passed, true, 'pass 4: la withdraws, layer 3 signs');
@@ -83,6 +89,7 @@ test('a re-tag by layer 3 that puts a swept objection into a holding band stops 
   assert.deepEqual(r.severityRun.overrides, [], 'a raiser claiming its own first tag is no override');
 });
 
+// CHANGED ACCEPTED (0.8.4 S19): OLD: run() put the switch key in the config. NEW: no key; the demand is injected for the file; layered fixtures, assertions unchanged. WHY: switch removed. RED ON OLD SRC: no ledger without the switch, so `severityRun` is undefined.
 test('B3 pins: a top-layer swept-only VERDICT passes (B3\'s shape); a top-layer swept-only STATED PASS ends top_layer_not_explicit with a true log line; a lower-layer swept-only stated pass lets the climb go on', async () => {
   const F_LB = F('Top layer: the limit has no unit.', 3); const F_LD = F('Top layer: no owner.', 8); const F_LC = F('Layer one: no owner.', 8);
   // (1) the verdict case
@@ -102,6 +109,7 @@ test('B3 pins: a top-layer swept-only VERDICT passes (B3\'s shape); a top-layer 
   assert.equal(l.r.passed, true);
 });
 
+// CHANGED ACCEPTED (0.8.4 S19): OLD: run() put the switch key in the config. NEW: no key; the demand is injected for the file (the ledger-shown record needs it); assertions unchanged. WHY: switch removed. RED ON OLD SRC: no ledger without the switch, so `r.severityRun.retags` throws.
 test('a volunteered re-tag in a pass with no ledger shown is recorded as refused (no_ledger_shown), never dropped, and changes nothing', async () => {
   // answer_back off: no ledger is built, so the top layer is told nothing about re-tags; a model that volunteers one is refused on the record.
   const replies = label => (label === 'panel-1-lb' ? signoff({ retags: [{ id: 'O-aaaaaaaa', severity: 8, reason: 'I think it is worse.' }] }) : undefined);
@@ -111,6 +119,7 @@ test('a volunteered re-tag in a pass with no ledger shown is recorded as refused
   assert.deepEqual(r.severityRun.retags_refused.map(x => [x.id, x.seat, x.pass, x.why]), [['O-aaaaaaaa', 'lb', 1, 'no_ledger_shown']]);
 });
 
+// CHANGED ACCEPTED (0.8.4 S19): OLD: run() put the switch key in the config. NEW: no key; the demand is injected for the file; assertions unchanged. WHY: switch removed. RED ON OLD SRC: no ledger without the switch, so `r.severityRun.retags` throws.
 test('a volunteered re-tag by a LOWER layer is recorded as refused (not_top_layer), never dropped, and changes nothing', async () => {
   const replies = label => (label === 'panel-1-la' ? signoff({ retags: [{ id: 'O-aaaaaaaa', severity: 9, reason: 'I want it worse.' }] }) : undefined);
   const { r } = await run(replies, { critics: [['la', 1], ['lb', 2]] });

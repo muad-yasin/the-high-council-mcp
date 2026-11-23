@@ -227,7 +227,8 @@ test('report-partial: capped --rematch and --replay folders get one too', () => 
   }
 });
 
-test('report-partial (0.8.1 M6): the stoppedBy values of an advice stop validate, an unknown one does not, and the board names each cause', () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD title 'the stoppedBy values of an advice stop validate, an unknown one does not, and the board names each cause'; OLD body (checkCauses): also read test/fixtures/report-advice-single.json and asserted renderPartialBoardMd with an `advise` result: cause wall_clock gave 'its wall-clock ceiling passed.' and cause user with no opinions gave ''. NEW title 'the stoppedBy values validate (budget, and the legacy user, client_cancel and wall_clock an earlier version wrote for an advice call), an unknown one does not'; NEW body: the schema assertions only. WHY: nothing writes the three legacy values any more and renderPartialBoardMd no longer reads an `advise` result (the add-on's words left with it), but schemas/report-v1.json keeps the three values so an old record still validates (WORDING REM-w16).
+test('report-partial (0.8.1 M6): the stoppedBy values validate (budget, and the legacy user, client_cancel and wall_clock that an earlier version wrote for an advice call), an unknown one does not', () => {
   const config = { ...chain('mock-budget'), name: 'mock-budget-zero' };
   setBudget(0.001);
   return runChain({ config, request: 'x', log: () => {} }).then(() => assert.fail('no stop'), e => {
@@ -240,7 +241,4 @@ test('report-partial (0.8.1 M6): the stoppedBy values of an advice stop validate
 function checkCauses(base) {
   for (const stoppedBy of ['budget', 'user', 'client_cancel', 'wall_clock']) assert.equal(validate({ ...base, stoppedBy }), true, `${stoppedBy}: ${JSON.stringify(validate.errors)}`);
   assert.equal(validate({ ...base, stoppedBy: 'gremlins' }), false);
-  const advise = { ...JSON.parse(readFileSync(join(root, 'test', 'fixtures', 'report-advice-single.json'), 'utf8')).advise, status: 'stopped' };
-  assert.match(renderPartialBoardMd({ runId: 'r', result: { advise }, cause: 'wall_clock' }), /^> \*\*Partial board\.\*\* This run did not finish: its wall-clock ceiling passed\./);
-  assert.equal(renderPartialBoardMd({ runId: 'r', result: { advise: { ...advise, opinions: [] } }, cause: 'user' }), '', 'nothing paid for: no board');
 }

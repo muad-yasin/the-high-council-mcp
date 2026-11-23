@@ -7,6 +7,7 @@ import * as C from '../src/cost.js';
 import { runSingleStage } from '../src/chain.js';
 import { readFileSync } from 'node:fs';
 import { tiersOf, effectiveRow, resetUserPrices } from '../src/price-table.js';
+import * as PT from '../src/price-table.js';   // namespace: cacheMultsOf is read through it so the file loads on a tree without the export (commit 7)
 
 afterEach(() => resetUserPrices());
 
@@ -56,9 +57,13 @@ test('PSW-5 costOf: the size is input + cacheRead + cacheWrite as reported (the 
   const cost = u => C.costOf(P, M, { output: 0, ...u }).usd;
   near(cost({ input: FROM - 1 }), usd(FROM - 1, BASE), 'input below the step');
   near(cost({ input: FROM }), usd(FROM, STEP), 'input at the step');
-  near(cost({ input: 1000, cacheRead: FROM }), usd(1000, STEP), 'a size reached only through cacheRead');
-  near(cost({ input: 1000, cacheWrite: FROM }), usd(1000, STEP), 'a size reached only through cacheWrite');
-  near(cost({ input: FROM - 2000, cacheWrite: 1000, cacheWrite1h: 1000 }), usd(FROM - 2000, BASE), 'cacheWrite1h is a part of cacheWrite: the size is FROM - 1000, still under the step');
+  // CHANGED ACCEPTED TEST (0.8.4 cache part a, commit 7; found by the box set, not predicted). OLD: a count only moved the SIZE; the figure was the input priced at the step (usd(1000, STEP)) whatever the count, because costOf priced the counted tokens at nothing. NEW: the shipped row now names cache_read /
+  // cache_write (the price fill), so the counted tokens are priced at the row's multiples of the call's input price (the step's, past the step); the size assertions are the same, the expected figures add the counted part. WHY: the test is about WHICH step prices the call; a priced count changes the dollar figure, not the step.
+  const m = typeof PT.cacheMultsOf === 'function' ? PT.cacheMultsOf(BASE) : { read: NaN, write: NaN };
+  const counted = (tokens, row, mult) => usd(tokens, row) * mult;
+  near(cost({ input: 1000, cacheRead: FROM }), usd(1000, STEP) + counted(FROM, STEP, m.read), 'a size reached only through cacheRead');
+  near(cost({ input: 1000, cacheWrite: FROM }), usd(1000, STEP) + counted(FROM, STEP, m.write), 'a size reached only through cacheWrite');
+  near(cost({ input: FROM - 2000, cacheWrite: 1000, cacheWrite1h: 1000 }), usd(FROM - 2000, BASE) + counted(1000, BASE, m.write), 'cacheWrite1h is a part of cacheWrite: the size is FROM - 1000, still under the step');
 });
 
 test('PSW-6 priceAt: no size = the base; a size asked for and broken = the dearest step; a fractional size is ceiled; priceOf stays the base row', () => {

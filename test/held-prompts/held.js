@@ -1,5 +1,5 @@
 // The DRAFTED sentences of the 0.8.2 wiring block, written exactly as they will appear in src/roles.js (one `export function` or `export const` per held name; the file is test data: nothing
-// here ships). Until the one ROLES_SHA256 re-record, src/held-roles.js lets a test inject them; at the re-record this body is copied into src/roles.js and test/held-prompts.test.js then refuses any
+// here ships). Until the release re-record of ROLES_SHA256, src/held-roles.js lets a test inject them; at the re-record this body is copied into a file under src/prompts/ (src/roles.js exports it by name) and test/held-prompts.test.js then refuses any
 // difference between the two. Every sentence here is one the owner has not yet approved: each carries the review item it comes from (PromptList_Review_Fable51_2026-10-07.md).
 // Names a sentence uses from roles.js (claimText and the like) are in scope there; here they are imported.
 import { claimText, boardText, HANDOFF_SYSTEM, reviserSystem, patchReviserSystem } from '../../src/roles.js';
@@ -9,7 +9,7 @@ import { claimText, boardText, HANDOFF_SYSTEM, reviserSystem, patchReviserSystem
 export function criticReaskNote({ kind, ids }) {
   const nums = [...(ids || [])];
   const which = nums.length === 1 ? `criterion ${nums[0]}` : `criteria ${nums.slice(0, -1).join(', ')} and ${nums[nums.length - 1]}`;
-  const lack = kind === 'no_table' ? 'it had no entry per criterion'
+  const lack = kind === 'no_table' ? 'it did not have one entry for each criterion'
     : kind === 'missing_rows' ? `it had no entry for ${which} (numbered as in the list above)`
       : kind === 'unreadable_verdict' ? `its entry for ${which} (numbered as in the list above) did not say MET or FAILED`
         : `its entry for ${which} (numbered as in the list above) had no evidence`;
@@ -40,8 +40,8 @@ export function answerBackSection({ objections, declined, changed }) {
 // chain with answer_back.enabled (where a judge is shown the reason next to its objection). `reviserSystemWithIds` / `patchReviserSystemWithIds` are reviserSystem / patchReviserSystem with the one sentence that gives
 // the DECLINED form replaced; `reviserIdsNote` lists the failures' ids after the reviser's user prompt, in the order the failures are listed there (the reviser's prompt numbers them 1., 2., ...). The replacement throws if
 // the sentence is not found, so a reworded REVISER_SYSTEM cannot silently leave two forms.
-const DECLINED_FORM = 'form: "DECLINED: <one-line reason>". These lines are stripped before your';
-const DECLINED_FORM_WITH_ID = 'form: "DECLINED: <id>: <one-line reason>", where <id> is the id listed for that objection at the end of the request (O- and eight characters). These lines are stripped before your';
+const DECLINED_FORM = 'form: "DECLINED: <one-line reason>". These lines are stripped before your\n  reply becomes the next draft and are recorded separately - they never\n  appear in the deliverable a critic grades.';
+const DECLINED_FORM_WITH_ID = 'form: "DECLINED: <id>: <one-line reason>", where <id> is the id listed with\n  that objection in what you are given (O- and eight characters). These\n  lines are stripped before your reply becomes the next draft and are recorded\n  separately - they never appear in the deliverable a critic grades.';
 function withIdForm(text) {
   if (!text.includes(DECLINED_FORM)) throw new Error('the reviser prompt no longer carries the DECLINED form sentence this replaces');
   return text.replace(DECLINED_FORM, DECLINED_FORM_WITH_ID);

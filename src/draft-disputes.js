@@ -6,6 +6,8 @@
 // channel (its job is to remove chain artifacts), so a DECLINED line in its reply is text, not a dispute.
 import { readFileSync } from 'node:fs';
 import { noteLineOf } from './review-notes.js';
+import { ledgerOutOn, takeLedgerBlock } from './scope-ledger.js';
+import { held } from './held-roles.js';
 
 // §5 (v3 plan, MISTRAL-3 accepted): a reviser that judges an objection to not
 // be a real defect ends its reply with one or more trailing "DECLINED: <reason>"
@@ -34,10 +36,27 @@ const wellFormedNote = line => { const n = noteLineOf(line); return n !== null &
 export const earlyFinishOf = line => { const m = /^EARLY-FINISH:[ \t]*(\S.*)$/.exec(String(line).trim()); return m ? m[1].trim() : null; };
 const wellFormedEarly = line => earlyFinishOf(line) !== null;
 
-export function parseDisputes(text, { disputedBlock = true, withIds = false } = {}) {
+// 0.8.4 S4 (Q-l, W34, the writer's fix note): ONE more trailer line, `FIX-TAKEN: <objection id>: the judge's line: <passage>` or `FIX-TAKEN: <objection id>: my own: <passage>`, that the reviser of a chain with answer_back ends its reply with
+// for each objection whose fix it took. Like the ledger block it is taken off the draft ONLY while the wording that asks for it is recorded (`fixNote`, default `fixNoteOn()`: held('writerFixNote')), so with the wording held a reply is read
+// byte for byte as before and such a line stays plain text. Taken, it is returned apart as `fixTaken` (the key is absent when none was taken); only the revise stage that asks for it reads the field, every other reader (the dispute rewrite, the
+// challenge's revise, the deep dive's revise, the allocator, the build) only strips. Well-formed = the exact uppercase word, a standing-style id (O- and eight hex digits, as DECLINED lines name it), one of the two fixed phrases (a typographic apostrophe in "judge's" is accepted), and a passage;
+// anything else is plain text and spends the closing budget. A declined objection uses the DECLINED line the reviser already has: there is no second decline form.
+const FIX_TAKEN_RE = /^FIX-TAKEN:[ \t]*[`*_<\[(]*(O-[0-9a-f]{8}(?:#r?\d+)?)(?![0-9a-f])[`*_>\])]*[ \t]*:[ \t]*((?:the|The) judge['\u2019]s line|(?:my|My) own)[ \t]*:[ \t]*(\S.*)$/;
+export const fixTakenOf = line => {
+  const m = FIX_TAKEN_RE.exec(String(line).trim());
+  return m ? { id: m[1], by: /^my own$/i.test(m[2]) ? 'writer_own' : 'judge_line', passage: m[3].trim() } : null;
+};
+export const fixNoteOn = () => typeof held('writerFixNote') === 'function';
+const wellFormedFix = line => fixTakenOf(line) !== null;
+
+// `ledgerBlock` (default: on exactly while the Scope ledger is out of the plan, src/scope-ledger.js - one switch, a one-way door at the roles.js re-record): a trailing "Scope ledger" block is taken off the
+// draft like a trailer and returned apart as `ledger` (`{ block }` = its raw lines, or `{ notTaken }` = why a ledger heading was left in the plan). Every reader that goes through stripDeclined / readModelDraft
+// therefore gets the plan without it. The key is absent while the switch is off, so the result is the shape it always was.
+export function parseDisputes(text, { disputedBlock = true, withIds = false, ledgerBlock = ledgerOutOn(), fixNote = fixNoteOn() } = {}) {
   let lines = text.split('\n');
   const noteLines = [];
   const earlyLines = [];   // top to bottom; the LAST one is the session's final word
+  const fixLines = [];   // top to bottom: the writer's FIX-TAKEN lines (only while the wording is recorded)
   const declined = [];
   const declinedIds = []; // 0.8.2 (owner, 7 Oct 2026, P13): in step with `declined`: the objection id a line answers ("DECLINED: O-1a2b3c4d: <reason>"), or null
   // Strip trailing DECLINED lines and a trailing Disputed block, in any order, until neither is
@@ -65,6 +84,7 @@ export function parseDisputes(text, { disputedBlock = true, withIds = false } = 
       if (line === '') { i--; continue; }
       if (wellFormedNote(line)) { noteLines.unshift(line); i--; changed = true; continue; }
       if (wellFormedEarly(line)) { earlyLines.unshift(earlyFinishOf(line)); i--; changed = true; continue; }
+      if (fixNote && wellFormedFix(line)) { fixLines.unshift(fixTakenOf(line)); i--; changed = true; continue; }
       if (!/^DECLINED:\s*.+/.test(line)) break;
       const rest = line.replace(/^DECLINED:\s*/, '');
       const { ids, reason } = withIds ? splitDeclinedId(rest) : { ids: [null], reason: rest }; // `withIds`: only the stage whose prompt asks for ids (the revise of a chain with answer_back.enabled); everywhere else a line is read as it always was
@@ -97,12 +117,13 @@ export function parseDisputes(text, { disputedBlock = true, withIds = false } = 
   // sentence all go. Only the strict lines are removed: the chatter stays where it is (silently deleting text that may be plan is the failure this closes). Known limit: a well-formed id line in the closing region that is plan text is stripped.
   {
     const strictRest = line => { const m = /^DECLINED:\s*(.+)/.exec(line.trim()); return m && splitDeclinedId(m[1]).ids[0] !== null ? m[1] : null; };
-    const hits = []; const noteHits = []; const earlyHits = []; let budget = CLOSING_LINES_MAX;
+    const hits = []; const noteHits = []; const earlyHits = []; const fixHits = []; let budget = CLOSING_LINES_MAX;
     for (let i = lines.length - 1; i >= 0; i--) {
       if (lines[i].trim() === '') continue;
       if (strictRest(lines[i]) !== null) { hits.push(i); continue; }
       if (wellFormedNote(lines[i])) { noteHits.push(i); continue; } // an answer line is free, like a strict DECLINED line
       if (wellFormedEarly(lines[i])) { earlyHits.push(i); continue; } // so is the early-finish line
+      if (fixNote && wellFormedFix(lines[i])) { fixHits.push(i); continue; } // and the writer's fix line
       if (budget === 0) break;
       budget--;
     }
@@ -113,19 +134,34 @@ export function parseDisputes(text, { disputedBlock = true, withIds = false } = 
     }
     for (const i of noteHits) noteLines.unshift(lines[i].trim()); // bottom to top, so unshift leaves them top to bottom, above the ones the first loop took
     for (const i of earlyHits) earlyLines.unshift(earlyFinishOf(lines[i]));
-    if (hits.length || noteHits.length || earlyHits.length) { const drop = new Set([...hits, ...noteHits, ...earlyHits]); lines = lines.filter((_, i) => !drop.has(i)); }
+    for (const i of fixHits) fixLines.unshift(fixTakenOf(lines[i]));
+    if (hits.length || noteHits.length || earlyHits.length || fixHits.length) { const drop = new Set([...hits, ...noteHits, ...earlyHits, ...fixHits]); lines = lines.filter((_, i) => !drop.has(i)); }
+  }
+  // The Scope ledger block, after the trailers (the real ledgers end with NOTE-TAKEN / DECLINED lines below the block). Trailers ABOVE the block are found by one more pass over what is left
+  // (ledgerBlock:false, so only the last block is ever taken).
+  let ledger;
+  if (ledgerBlock) {
+    const t = takeLedgerBlock(lines);
+    if (t.taken) {
+      const above = parseDisputes(t.rest.join('\n'), { disputedBlock, withIds, ledgerBlock: false, fixNote });
+      lines = above.draft.split('\n');
+      declined.unshift(...above.disputes); declinedIds.unshift(...above.disputeIds); noteLines.unshift(...above.noteLines);
+      if (above.earlyFinish !== null) earlyLines.unshift(above.earlyFinish);
+      if (above.fixTaken) fixLines.unshift(...above.fixTaken);
+      ledger = { block: t.block };
+    } else if (t.notTaken) ledger = { notTaken: t.notTaken };
   }
   while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
-  return { draft: lines.join('\n'), disputes: declined, disputeIds: declinedIds, noteLines, earlyFinish: earlyLines.length ? earlyLines[earlyLines.length - 1] : null };
+  return { draft: lines.join('\n'), disputes: declined, disputeIds: declinedIds, noteLines, earlyFinish: earlyLines.length ? earlyLines[earlyLines.length - 1] : null, ...(fixLines.length ? { fixTaken: fixLines } : {}), ...(ledgerBlock ? { ledger: ledger || null } : {}) };
 }
 
 // "O-1a2b3c4d: <reason>" (also "[O-1a2b3c4d] <reason>", "O-1a2b3c4d - <reason>", "O-1a2b3c4d <reason>"; any case) names the objection a DECLINED line answers (src/objection-ids.js: "O-" and eight hex digits).
 // A line with no id, or an id and nothing after it, stays whole as a reason with no id: a line is never lost and never matched to an objection by guesswork.
 function splitDeclinedId(rest) {
   // Audit fix cnc-prompts F5: an id may be wrapped in backticks, emphasis or angle/square brackets, and one line may name several ("`O-aaaaaaaa`, `O-bbbbbbbb` - reason").
-  const WRAP = '[`*_<\\[(]*'; const END = '[`*_>\\])]*'; const ONE = 'O-[0-9a-f]{8}(?![0-9a-f])';
+  const WRAP = '[`*_<\\[(]*'; const END = '[`*_>\\])]*'; const ONE = 'O-[0-9a-f]{8}(?:#r?\\d+)?(?![0-9a-f])';   // 0.8.4 S2: an id may carry a suffix (#2, #r2)
   const m = new RegExp(`^${WRAP}(${ONE}(?:${END}\\s*,\\s*${WRAP}${ONE})*)${END}\\s*(?:[:\\-\\u2013\\u2014]\\s*)?(\\S[\\s\\S]*)$`, 'i').exec(rest);
-  return m ? { ids: m[1].match(/O-[0-9a-f]{8}/gi).map(x => x.toLowerCase().replace(/^o-/, 'O-')), reason: m[2].trim() } : { ids: [null], reason: rest };
+  return m ? { ids: m[1].match(/O-[0-9a-f]{8}(?:#r?\d+)?/gi).map(x => x.toLowerCase().replace(/^o-/, 'O-')), reason: m[2].trim() } : { ids: [null], reason: rest };
 }
 
 /** Notes lane 2b-1b: the closing answer lines (strict NOTE-TAKEN / NOTE-DECLINED / NOTE-SAME) of a stage reply that is NOT a revise (the handoff reply, the standalone notes-answer reply). The SAME closing walk as parseDisputes

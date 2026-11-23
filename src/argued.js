@@ -100,23 +100,23 @@ export function buildArguedFacts({ proposals = [], scoreRows = [], debate = null
   const declined = (disputes || []).map(d => ({ round: d.round, reason: clip(d.reason) }));
   const unresolved = dispute?.ran ? {
     reason: dispute.reason,
-    open_objections: (dispute.open_objections || []).map(o => ({ lab: o.lab, criterion: clip(o.criterion, 200), problem: clip(o.problem), first_raised_round: o.first_raised_round })),
+    open_objections: (dispute.open_objections || []).filter(o => o.closed_by !== 'final_read').map(o => ({ lab: o.lab, criterion: clip(o.criterion, 200), problem: clip(o.problem), first_raised_round: o.first_raised_round })),
     ...(dispute.review ? { review: (dispute.review.entries || []).map(e => ({ ...Object.fromEntries(Object.entries(e).map(([k, v]) => [k, typeof v === 'string' ? clip(v) : v])) })) } : {}),
   } : null;
 
   const labs = [...new Set([
     ...props.map(p => p.lab), ...(alt?.items || []).map(a => a.lab), ...(alt?.dropouts || []).map(d => d.lab),
-    ...posts.map(p => p.by), ...(signoff || []).map(s => s.provider), ...(panelVerdicts || []).map(v => v.lab),
+    ...posts.map(p => p.by), ...(signoff || []).filter(s => !s.cut).map(s => s.provider), ...(panelVerdicts || []).filter(v => !v.cut).map(v => v.lab),   // 0.8.4 --finish: rows marked `cut` count for nothing
   ].filter(l => l && l !== 'canary'))];
   // A lab with a model on two layers writes two seat records under the one lab (lab identity, 20 Okt 2026): each seat's LAST verdict is kept, and the lab stands on the strictest of them (D7: a lab signed only if every seat did).
-  const lastBySeat = new Map(); for (const v of panelVerdicts || []) lastBySeat.set(v.seat ?? v.lab, v);
+  const lastBySeat = new Map(); for (const v of (panelVerdicts || []).filter(v => !v.cut)) lastBySeat.set(v.seat ?? v.lab, v);
   const VERDICT_RANK = { objected: 0, unheard: 1, passed: 2, signed_off: 3 };
   const lastVerdict = new Map(); for (const v of lastBySeat.values()) { const had = lastVerdict.get(v.lab); if (!had || (VERDICT_RANK[v.verdict] ?? 1) < (VERDICT_RANK[had.verdict] ?? 1)) lastVerdict.set(v.lab, v); }
   const SIGNOFF_RANK = { objected: 0, 'not heard': 1, 'passed (declined to give a verdict)': 2, 'signed off': 3 };
   const stances = labs.map(lab => {
     const mine = props.filter(p => p.lab === lab);
     const n = st => mine.filter(p => p.in_plan === st).length;
-    const so = (signoff || []).filter(s => s.provider === lab).sort((a, b) => SIGNOFF_RANK[signoffWord(a)] - SIGNOFF_RANK[signoffWord(b)])[0];   // several seats of one lab: the strictest
+    const so = (signoff || []).filter(s => !s.cut && s.provider === lab).sort((a, b) => SIGNOFF_RANK[signoffWord(a)] - SIGNOFF_RANK[signoffWord(b)])[0];   // several seats of one lab: the strictest
     const altMine = alt?.items.find(a => a.lab === lab);
     return {
       lab,

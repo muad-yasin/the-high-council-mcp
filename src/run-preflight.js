@@ -42,11 +42,11 @@ export function missingKeyLines(config, allSeats) {
  * The central policy file (work/policy.json): no file = { policy: null }. `taskText` is a function, called only when a policy is in force (the task file is read there because the policy gate runs first; a task without a
  * `target_file:` line is not a change request). `policyCwd`: where the file is looked for (a resume looks in the run's own folder). -> { policy: null } | { parseError } | { ok, reasons, checks, warnings }.
  */
-export function policyGate({ config, allSeats, work, policyCwd = work, taskText = () => '', signoffFlag, callFigureUsd = null }) {
+export function policyGate({ config, allSeats, work, policyCwd = work, taskText = () => '', signoffFlag, callFigureUsd = null, typedReads = null }) {
   const { policy, error: parseError } = loadPolicy(policyCwd);
   if (parseError) return { parseError };
   if (!policy) return { policy: null };
-  const ctx = buildPolicyContext(config, allSeats, join(work, 'runs'));
+  const ctx = buildPolicyContext(config, allSeats, join(work, 'runs'), Date.now(), typedReads);
   // T5b: a command that makes ONE call on a finished run (digest) is judged on that call's own figure, the one its --dry-run prints (projectStage). The chain its config stands for cannot say what one call costs: a stand-in with an unknown slot priced $0, and a readable chain
   // priced the whole run again. `figure: 'call'` is the wording the advice path already uses; there is no separate ceiling to warn about, so maximumUsd is not set.
   if (callFigureUsd !== null) { ctx.worstCaseUsd = callFigureUsd; ctx.maximumUsd = null; ctx.figure = 'call'; }
@@ -84,18 +84,21 @@ const INPUT_SCAN = Object.freeze({ exemptReservedHosts: true });
 /**
  * Credential-shaped strings in what every seat will read, every shape checked (the generic ones included), with the file and line, never the value. `contextFiles` are read with `readContext`; a file that cannot be read adds
  * nothing here (the run refuses it elsewhere). `criteriaPath`: a --criteria file; else the chain's own criteria. -> [{ where, line, name }]
+ * `inputSecretSources` is the list of texts it scans ([[where, text]]), so the person's --allow-secret-shaped hashes (outbound-scan.js inputValueHashes) read the SAME texts.
  */
-export function inputSecretFindings({ taskFile, taskText, contextFiles = [], readContext = () => '', handedDraft = '', criteriaPath = null, config }) {
+export function inputSecretSources({ taskFile, taskText, contextFiles = [], readContext = () => '', handedDraft = '', criteriaPath = null, config }) {
   return [
-    ...secretShapesIn(taskText, INPUT_SCAN).map(f => ({ where: taskFile, ...f })),
-    ...contextFiles.flatMap(f => { try { return secretShapesIn(readContext(f), INPUT_SCAN).map(x => ({ where: f, ...x })); } catch { return []; } }),
-    ...secretShapesIn(handedDraft || '', INPUT_SCAN).map(f => ({ where: 'the handed draft (--draft / --from-run)', ...f })),
+    [taskFile, taskText],
+    ...contextFiles.map(f => { try { return [f, readContext(f)]; } catch { return [f, '']; } }),
+    ['the handed draft (--draft / --from-run)', handedDraft || ''],
     // Verify pass 2026-09-28 F4: the criteria reach every seat too, and are echoed to run.log. A --criteria file by its own lines; criteria reused from --from-run by criterion number.
     ...(criteriaPath
-      ? secretShapesIn(readFileSync(criteriaPath, 'utf8'), INPUT_SCAN).map(f => ({ where: criteriaPath, ...f }))
-      : secretShapesIn((Array.isArray(config.criteria) ? config.criteria : []).map(c => (typeof c === 'string' ? c : JSON.stringify(c)).replace(/\n/g, ' ')).join('\n'), INPUT_SCAN)
-        .map(f => ({ where: 'the criteria reused from --from-run (criterion number)', ...f }))),
+      ? [[criteriaPath, readFileSync(criteriaPath, 'utf8')]]
+      : [['the criteria reused from --from-run (criterion number)', (Array.isArray(config.criteria) ? config.criteria : []).map(c => (typeof c === 'string' ? c : JSON.stringify(c)).replace(/\n/g, ' ')).join('\n')]]),
   ];
+}
+export function inputSecretFindings(args) {
+  return inputSecretSources(args).flatMap(([where, text]) => secretShapesIn(text, INPUT_SCAN).map(f => ({ where, ...f })));
 }
 
 /**

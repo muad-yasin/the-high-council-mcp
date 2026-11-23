@@ -1,5 +1,8 @@
 {
   "name": "mock-relay",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. Exercises the relay panel branch (each critic is handed the verdicts before it) before spending anything real on it.",
   "maxRounds": 2,
   "signoff": "unanimous",

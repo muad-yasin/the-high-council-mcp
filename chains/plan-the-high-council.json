@@ -1,0 +1,341 @@
+{
+  "name": "plan-the-high-council",
+  "draft_end_marker": {
+    "enabled": true
+  },
+  "summary": "Twelve judges, three proposers: four Claude seats on Anthropic, eleven seats on OpenRouter (nine models).",
+  "description": "The High Council on a new roster (0.8.4): a planning chain with three proposers (Claude Opus 5.5, DeepSeek V4.1 Flash, GPT-6.1 Sol) and a layered review panel of twelve judges in three layers: layer 1 Claude Haiku 5.5, GPT-6 Luna, GLM-5.3 Flash, MiniMax M3.1 Flash, DeepSeek V4.1 Flash; layer 2 Claude Opus 5.5, GPT-6.1 Sol, Mistral Large 4, Kimi K3.1 Pro, Qwen 3.8 27B; layer 3 Claude Fable 5.2 and GPT-6 Astra. Claude Opus 5.5, DeepSeek V4.1 Flash and GPT-6.1 Sol each both propose and judge, which is why \"judging\" is \"all-roles\". Each of its fifteen proposer and judge seats carries a persona name, and the chain switches the persona setting on in the form voice (seat_personas): each seat is asked to speak in the voice of its name, and its prompt carries the voice frame and one line for that name. The four Claude seats are called through Anthropic's API (provider anthropic) with an Anthropic key, and go through OpenRouter without one; the other eleven seats (nine models) are called through OpenRouter and need an OpenRouter key. Every OpenRouter seat asks OpenRouter not to route it to the Open Inference provider (provider.ignore); the two DeepSeek V4.1 Flash seats also ask it to skip the host Morph. Every layer has at least two judges. A layer signs off when all its judges do. Any objection at a lower layer sends the draft to the reviser; a round ends only when layer 3 gives its verdict, a sign-off or an objection. This chain runs the ladder (its ladder key: block 3, visits 3): layer 1 revises in blocks of 3, then layer 2 is asked (up to 3 visits), then layer 3 reads; each layer-3 visit is one top-layer read. It has no round limit: the run ends on agreement, on a stall the top layer holds, at the limit you type (--rounds counts top-layer reads) or when you stop it. When a stall at the top layer, a judge that stays silent after its solo ask, or your own stop ends the work for now, the run is stopped, resumable and NOT agreed, and you choose how to go on: continue, finish at once, finish after one last top-layer read, or revise the draft yourself; the run's spending limit still applies. On a ladder run the plan is never sent up a layer ahead of its turn: each layer is asked when the ladder's order reaches it. answer_back is on: a judge's own earlier objection is shown back to it, and only that judge can close it. The criteria, skeleton, build, revise and handoff stages, and the decider, need a Claude Code session (provider external): they pause the run (exit 3) until the session answers, and the answers should come from a separate fresh session, not the one that wrote the plan. Every API seat reasons at high, except Qwen 3.8 27B, which runs at xhigh because the model offers no high setting (the chain states xhigh for it); no Grok. Output caps are the largest reply the harness knows for each model: Claude Fable 5.2, Claude Opus 5.5, Claude Haiku 5.5, GPT-6.1 Sol, GPT-6 Astra, GPT-6 Luna and Qwen 3.8 27B 128,000 (for Qwen 3.8 27B the maintainer's choice; the lab's own figure is 131,072); DeepSeek V4.1 Flash 393,216; GLM-5.3 Flash 131,072. For Kimi K3.1 Pro, MiniMax M3.1 Flash and Mistral Large 4 no published limit was found, so the seat cap is 128,000. No proposer's cap is below the most the harness will retry its model at, so a proposal cut off at its cap is not asked again with a bigger one. The dry run's expected figure and its upper estimate leave out the memory block judge calls read from overseer round 2 on (up to 10000 tokens per call, paid input that neither figure prices), so they are not a ceiling: the limit you type is what stops spending. This roster has not run, and none of its mechanisms has been measured. Price your task with `npm run dry` and get an explicit go before any paid run. The review judges' proposals and improvement ideas are quoted; the writer's answers are its own claim, and no judge gives a verdict on them.",
+  "ladder": {
+    "block": 3,
+    "visits": 3
+  },
+  "signoff": "unanimous",
+  "signoff_table": {
+    "required": true
+  },
+  "answer_back": {
+    "enabled": true
+  },
+  "debate_hygiene": {
+    "shuffle": true,
+    "noQuoteMarks": true
+  },
+  "handoff_contract": {
+    "milestones": true
+  },
+  "judging": "all-roles",
+  "dispute": {
+    "enabled": true,
+    "stall_rounds": 3
+  },
+  "seat_personas": {
+    "enabled": true,
+    "form": "voice"
+  },
+  "proposals": {
+    "parts": 3,
+    "maxTokens": 393216
+  },
+  "debate": true,
+  "decisions": {
+    "enabled": true
+  },
+  "majority_guard": {
+    "enabled": true
+  },
+  "canary": {
+    "enabled": true,
+    "sampleRate": 0.1
+  },
+  "handoff": true,
+  "prompt_cache": { "enabled": true, "ttl": "5m" },
+  "reviewNotes": {
+    "enabled": true,
+    "perKind": 3
+  },
+  "estimate": {
+    "promptTokens": 28000,
+    "draftTokens": 10000,
+    "critiqueTokens": 5000
+  },
+  "seats": {
+    "criteria": {
+      "provider": "external",
+      "model": "subscription:opus-5.5",
+      "lab": "opus5.5-sub"
+    },
+    "skeleton": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "builder": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "reviser": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "handoff": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "decider": {
+      "provider": "external",
+      "model": "claude-code-session"
+    },
+    "proposers": [
+      {
+        "provider": "anthropic",
+        "model": "claude-opus-5-5",
+        "maxTokens": 128000,
+        "lab": "opus5.5",
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Noah"
+      },
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4.1-flash-1017",
+        "maxTokens": 393216,
+        "lab": "deepseek-v4.1-flash",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference",
+              "morph"
+            ]
+          }
+        },
+        "persona": "Husayn"
+      },
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6.1-sol",
+        "maxTokens": 128000,
+        "lab": "gpt6.1-sol",
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
+          }
+        },
+        "persona": "Abraham"
+      }
+    ],
+    "critics": [
+      {
+        "provider": "anthropic",
+        "model": "claude-haiku-5-5",
+        "maxTokens": 128000,
+        "lab": "haiku5.5",
+        "layer": 1,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Matthew"
+      },
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6-luna",
+        "maxTokens": 128000,
+        "lab": "gpt6-luna",
+        "layer": 1,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
+          }
+        },
+        "persona": "Merkel"
+      },
+      {
+        "provider": "openrouter",
+        "model": "z-ai/glm-5.3-flash",
+        "maxTokens": 131072,
+        "lab": "glm5.3-flash",
+        "layer": 1,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
+          }
+        },
+        "persona": "Herbert"
+      },
+      {
+        "provider": "openrouter",
+        "model": "minimax/minimax-m3.1-flash",
+        "maxTokens": 128000,
+        "lab": "minimax-m3.1-flash",
+        "layer": 1,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
+          }
+        },
+        "persona": "Van Gogh"
+      },
+      {
+        "provider": "openrouter",
+        "model": "deepseek/deepseek-v4.1-flash-1017",
+        "maxTokens": 393216,
+        "lab": "deepseek-v4.1-flash",
+        "layer": 1,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference",
+              "morph"
+            ]
+          }
+        },
+        "persona": "Aristotle"
+      },
+      {
+        "provider": "anthropic",
+        "model": "claude-opus-5-5",
+        "maxTokens": 128000,
+        "lab": "opus5.5",
+        "layer": 2,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Moses"
+      },
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6.1-sol",
+        "maxTokens": 128000,
+        "lab": "gpt6.1-sol",
+        "layer": 2,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
+          }
+        },
+        "persona": "Einstein"
+      },
+      {
+        "provider": "openrouter",
+        "model": "mistralai/mistral-large-4-0",
+        "maxTokens": 128000,
+        "lab": "mistral-large4",
+        "layer": 2,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
+          }
+        },
+        "persona": "da Vinci"
+      },
+      {
+        "provider": "openrouter",
+        "model": "moonshotai/kimi-k3.1-pro",
+        "maxTokens": 128000,
+        "lab": "kimi-k3.1-pro",
+        "layer": 2,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
+          }
+        },
+        "persona": "Archimedes"
+      },
+      {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.8-27b",
+        "maxTokens": 128000,
+        "lab": "qwen3.8-27b",
+        "layer": 2,
+        "extra": {
+          "reasoning": {
+            "effort": "xhigh"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
+          }
+        },
+        "persona": "Plato"
+      },
+      {
+        "provider": "anthropic",
+        "model": "claude-fable-5-2",
+        "maxTokens": 128000,
+        "lab": "fable5.2",
+        "layer": 3,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Melchizedek"
+      },
+      {
+        "provider": "openrouter",
+        "model": "openai/gpt-6-astra",
+        "maxTokens": 128000,
+        "lab": "gpt6-astra",
+        "layer": 3,
+        "extra": {
+          "reasoning": {
+            "effort": "high"
+          },
+          "provider": {
+            "ignore": [
+              "open-inference"
+            ]
+          }
+        },
+        "persona": "Karpathy"
+      }
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 // T2-4 (14 Oct 2026): "every lab signed off" was printed for every passed report. This file drives REAL mock chains through the CLI (one report per mode, no hand-written
-// records) and reads the sentence each report-reading site prints for it. Modes: unanimous (mock-open), first (mock: one critic passes), advise (mock-advise-single),
-// degraded (a unanimous chain where one seat only states a pass). A hand-written record with no signoff field is the "cannot tell" case and gets the neutral word.
+// records) and reads the sentence each report-reading site prints for it. Modes: unanimous (mock-open), first (mock: one critic passes), degraded (a unanimous chain where one seat only states a pass);
+// 0.8.4: the advice add-on is removed and its chains cannot run, so the advice cases read a STORED report of an earlier version (test/fixtures/report-advice-council.json, a real mock run of 2 Oct 2026), because the report readers still print an old advice report in its own words. A hand-written record with no signoff field is the "cannot tell" case and gets the neutral word.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -29,6 +29,9 @@ function realReport(chain, chainFile) {
   return { report: JSON.parse(readFileSync(join(runDir, 'report.json'), 'utf8')), stdout: r.stdout };
 }
 
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: adviceReport ran the chain mock-advise-standard through the CLI (wave 1 wrote the fixture chain into the work folder) and read the report.json it wrote. NEW: it reads the stored report of an earlier version, test/fixtures/report-advice-council.json (passed true, signoff null, an `advise` object). WHY: a chain with an `advise` block is refused now (exit 2), so no run can write such a report; the readers (src/verdict-headline.js adviceWords, the board, the replay, run_status) still print old ones, and that is what these tests pin.
+const adviceReport = () => ({ report: JSON.parse(readFileSync(join(root, 'test', 'fixtures', 'report-advice-council.json'), 'utf8')) });
+
 const degradedChain = {
   name: 'deg', maxRounds: 3, signoff: 'unanimous', freedoms: { pass: true }, estimate: { promptTokens: 500, draftTokens: 500, critiqueTokens: 200 },
   seats: { criteria: { provider: 'mock', model: 'mock-criteria' }, builder: { provider: 'mock', model: 'mock-builder', lab: 'author' }, reviser: { provider: 'mock', model: 'mock-builder', lab: 'author' },
@@ -54,8 +57,8 @@ for (const c of cases) {
   });
 }
 
-test('T2-4 advise: a real advice report is passed with no sign-off and says what it is, not "first" and not "every lab"', () => {
-  const { report } = realReport('mock-advise-single');
+test('T2-4 advise: a stored advice report (an earlier version\'s) is passed with no sign-off and says what it is, not "first" and not "every lab"', () => {
+  const { report } = adviceReport();
   assert.equal(report.passed, true);
   assert.equal(report.signoff, null, 'the same shape as a first-mode pass; only `advise` tells them apart');
   const words = verdictWords(report);
@@ -153,7 +156,7 @@ test('T2-4 c2 viewer data: /api/runs/<id> carries `verdict`, the words from the 
 
 // Commit 3 (C&C, 14 Oct 2026).
 test('T2-4 c3 advice with passed false: a stopped advice call is not "OPEN OBJECTIONS" either (it has no verdict and no objections)', () => {
-  const real = realReport('mock-advise-single').report;
+  const real = adviceReport().report;
   const stopped = { ...real, passed: false, advise: { ...real.advise, status: 'stopped' } }; // one field pair of a real advice report: what advise.js writes on a stop (partialDefaults() has passed false)
   const h = verdictHeadline(stopped);
   assert.equal(h.heading, 'Advice');
@@ -203,7 +206,7 @@ test('T2-4 c4 run_status shares adviceWords: an answered advice record with a nu
 });
 
 test('T2-4 c4 a stopped advice record WITH a verdict says it stopped even without stopped_by (status carries it)', () => {
-  const real = realReport('mock-advise-single').report.advise;
+  const real = adviceReport().report.advise;
   const words = VH.adviceWords({ ...real, status: 'stopped' });
   assert.match(words, /^advice from \d+ of \d+ seat\(s\), leaning \w+ \(stopped early\)$/);
   assert.equal(VH.adviceWords({ ...real, status: 'stopped', stopped_by: 'wall_clock' }), VH.adviceWords(real).replace(/$/, ' (stopped early: wall_clock)'), 'stopped_by, when present, keeps its shipped clause'); // PIN
@@ -212,6 +215,6 @@ test('T2-4 c4 a stopped advice record WITH a verdict says it stopped even withou
 });
 
 test('T2-4 c4 run_status shares adviceWords: a passed:true report holding a stopped advice record (hand-built shape) reads the stopped clause', () => {
-  const real = realReport('mock-advise-single').report;
+  const real = adviceReport().report;
   assert.match(finishedRunState({ ...real, advise: { ...real.advise, status: 'stopped' } }), /^done: advice from \d+ of \d+ seat\(s\), leaning \w+ \(stopped early\)$/);
 });

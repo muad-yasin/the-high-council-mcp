@@ -13,6 +13,7 @@ import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spendReport } from '../src/spend.js';
 import { runIdToDate } from '../src/spend.js';
+import { DEFAULT_MAX_USD } from '../src/default-cap.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = resolve(here, '../src/cli.js');
@@ -41,7 +42,7 @@ test('--rematch honours --max-usd: stops before the first stage over the cap, ex
 test('--rematch gets the same default ceiling as a normal run when --max-usd is not given', () => {
   const { dir, runId } = runOriginal();
   const r = run(dir, ['--rematch', join('runs', runId), '--rematch-seed', '1']);
-  assert.match(r.stdout, /cap:\s+\$7/);
+  assert.match(r.stdout, new RegExp(`cap:\\s+\\$${DEFAULT_MAX_USD}\\b`));   // 10 Nov 2026: the default cap is $12; read from the constant (it was a typed $7)
 });
 
 test('--replay honours --max-usd: stops at the cap, exit 4, marker on disk', () => {

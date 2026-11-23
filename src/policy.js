@@ -82,20 +82,20 @@ export function monthToDate(runsDir, now = Date.now()) {
 }
 
 // The EXPECTED figure of the dry run (typical review output), as it always was: a policy REFUSES on this one. The MAXIMUM (0.8.2 item 8c, estimateChainRows with maximum: true) only WARNS (owner, 7 Oct 2026: "make it a warning, not a refusal").
-function worstCaseRunUsd(config) {
-  return estimateChainRows(config).reduce((s, r) => s + r.usd, 0);
+function worstCaseRunUsd(config, typedReads = null) {
+  return estimateChainRows(config, { typedReads }).reduce((s, r) => s + r.usd, 0);
 }
 
 /**
  * Everything evaluatePolicy needs, computed once by the caller (cli.js) so this stays a pure
  * function - no filesystem access here beyond what the caller already did for the run itself.
  */
-export function buildPolicyContext(config, allSeats, runsDir, now = Date.now()) {
+export function buildPolicyContext(config, allSeats, runsDir, now = Date.now(), typedReads = null) {
   return {
     config,
     allSeats,
-    worstCaseUsd: worstCaseRunUsd(config),
-    maximumUsd: estimateChainRows(config, { maximum: true }).reduce((s, r) => s + r.usd, 0),
+    worstCaseUsd: worstCaseRunUsd(config, typedReads),
+    maximumUsd: estimateChainRows(config, { maximum: true, typedReads }).reduce((s, r) => s + r.usd, 0),
     ...(() => { const m = monthToDate(runsDir, now); return { monthToDateUsd: m.usd, monthUnknownFigures: m.unknownFigures, monthUnknownWhere: m.unknownWhere }; })(),
   };
 }
@@ -134,7 +134,7 @@ function configuredFields(policy) {
 // policy key would enforce nothing (a misspelt `max_usd_per_runs` let any spend through), and a value of the wrong type is skipped by the check
 // that reads it (`"allowed_providers": "openrouter"` admitted every provider). A top-level key that starts with "$" or "_" is metadata
 // (`$schema`, `_comment`) and is ignored: a misspelt policy key never starts with either (C&C ruling 13 Oct 2026). `advice_sensitivity_floor` is a
-// key whose VALUE src/advice-tier.js reads (documented: a value that is not one of the three levels is read as confidential), so only the key is checked.
+// key the advice tools of 0.8.3 read; they were removed in 0.8.4, and a policy.json that still holds it is accepted with the key ignored (the owner's ruling Q5), whatever its value.
 // Key names are project-writable text: shown JSON-quoted, control characters removed, cut at 60 characters.
 // one cleaning for any name out of a project-writable folder that goes into a refusal: terminal-safe (controls, escapes, bidi marks), no new line or tab, cut at 60 characters
 const cleanName = k => terminalSafe(k).replace(/[\n\t]/g, '').slice(0, 60);
@@ -197,7 +197,7 @@ export function evaluatePolicy(policy, ctx) {
     // Warns, never refuses (owner, 7 Oct 2026): the expected cost fits; a run in which every call writes its seat's whole output allowance could go past the limit. The spend cap, not this policy, is what stops it.
     warnings.push(ctx.figure === 'call'
       ? `max_usd_per_run: the expected cost of this call's chain (the first figure --dry-run prints) is $${worstCaseUsd.toFixed(4)}, within the $${policy.max_usd_per_run.toFixed(4)} limit, but the most this call can spend (its ceiling) is $${maximumUsd.toFixed(4)}, over it. It is sent only if you approve it, and its ceiling stops it at $${maximumUsd.toFixed(4)}.`
-      : `max_usd_per_run: this chain's expected cost is $${worstCaseUsd.toFixed(4)}, within the $${policy.max_usd_per_run.toFixed(4)} limit, but its upper estimate (every call at its whole output allowance; the UPPER ESTIMATE figure --dry-run prints) is $${maximumUsd.toFixed(4)}, over it. The run starts; only its spend cap stops a run that goes past the limit.`);
+      : `max_usd_per_run: this chain's expected cost is $${worstCaseUsd.toFixed(4)}, within the $${policy.max_usd_per_run.toFixed(4)} limit, but its upper estimate (every planned call at its whole output allowance, with re-asks and network retries at their expected cost; the UPPER ESTIMATE figure --dry-run prints) is $${maximumUsd.toFixed(4)}, over it. The run starts; only its spend cap stops a run that goes past the limit.`);
   }
 
   if (typeof policy.max_usd_per_month === 'number' && mtdUsd > policy.max_usd_per_month) {

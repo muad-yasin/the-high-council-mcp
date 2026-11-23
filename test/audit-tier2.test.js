@@ -240,19 +240,12 @@ test('73-verdicts 4: a criterion that drifts in trimming, case or a closing full
 import { evaluatePolicy } from '../src/policy.js';
 import { readChainFile } from './helpers/chain-file.js';
 
-test('cnc-money F1 (superseded by the owner\'s "Terminal rule only, no cap change", 7 Oct 2026; test/audit-advice-policy.test.js): the advice send path hands in the chain\'s expected cost and the call\'s ceiling and says so (figure "call"); the CLI wording is unchanged', () => {
+test('cnc-money F1 (superseded by the owner\'s "Terminal rule only, no cap change", 7 Oct 2026; test/audit-advice-policy.test.js): evaluatePolicy with figure "call" speaks of the call\'s chain and its ceiling; the CLI wording is unchanged', () => {
   const config = JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8'));
   const ctx = { config, allSeats: [], worstCaseUsd: 1.32 };
   const advice = evaluatePolicy({ max_usd_per_run: 1 }, { ...ctx, figure: 'call' });
   assert.equal(advice.ok, false);
   assert.match(advice.reasons.join(' '), /max_usd_per_run: the expected cost of this call's chain \(the first figure --dry-run prints\) is \$1\.3200, over the \$1\.0000 limit/);
   assert.match(evaluatePolicy({ max_usd_per_run: 1 }, ctx).reasons.join(' '), /this chain's expected cost \(the first figure --dry-run prints\) is \$1\.3200/, 'the CLI path keeps its words');
-  // 0.8.2 (owner via C&C, 7 Oct 2026, "Put the fix in 0.8.2"): one shared rule, advicePolicyVerdict, called by the quote, the start and the terminal answer; the rule's body refuses on the CLI's expected figure and warns on the ceiling
-  for (const f of ['send-path-refusals.js', 'send-path.js', 'gate-cli.js']) {
-    const src = readFileSync(join(root, 'src', f), 'utf8');
-    assert.match(src, /advicePolicyVerdict\(policy, config, /, `${f}: calls the one rule`);
-    assert.equal(/evaluatePolicy\(policy, \{/.test(src.replace(/function advicePolicyVerdict[\s\S]*?\n\}\n/, '')), false, `${f}: no second inline policy evaluation`);
-  }
-  const rule = readFileSync(join(root, 'src', 'send-path-refusals.js'), 'utf8').match(/function advicePolicyVerdict[\s\S]*?\n\}\n/)[0];
-  assert.match(rule, /\{ \.\.\.base, maximumUsd: Math\.max\(base\.maximumUsd, ceilingUsd\), figure: 'call' \}/, 'refuses on the CLI\'s expected figure, warns on the ceiling');
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the test went on to read src/send-path-refusals.js, src/send-path.js and src/gate-cli.js and pinned that each called the one rule advicePolicyVerdict (no second inline evaluatePolicy), and that the rule refused on the CLI's expected figure and warned on the ceiling. NEW: the evaluatePolicy rows above only. WHY: advicePolicyVerdict and its three callers left with the add-on; evaluatePolicy's `figure: 'call'` branch (src/policy.js) is what is left to pin (nothing in src/ passes it now: OPEN in the wave-2 result table).
 });

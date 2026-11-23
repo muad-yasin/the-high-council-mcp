@@ -43,7 +43,7 @@ uid. `region` is currently always `null` - no seat in this repo declares one yet
 so a future seat-level `region` (e.g. for the policy file's `allowed_regions` check) has somewhere to
 land in the audit trail without a schema version bump.
 
-**Advice calls (experimental).** A run of an advice chain (`council_advise`, or `council --chain advise-...`) always writes this
+**Advice calls (removed in 0.8.4).** A run of an advice chain (an earlier version's `council_advise`, or `council --chain advise-...`) always wrote this
 file, and its data lines may carry four more fields: `promptSha256` (the full sha256 of the exact prompt that went out),
 `promptBytes` (its size), `endpoint` (the host the provider says served the call: OpenRouter names one, most providers do not, so it is
 often `null`) and `scan` (`clean` when the outbound key scan was on for that call, `waived` when it was not). They say **which text went to

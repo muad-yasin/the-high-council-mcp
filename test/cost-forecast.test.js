@@ -36,14 +36,14 @@ test('test_cost_forecast_range: a fixture chain with known historical usage land
   // Two historical runs of the same chain, different token counts, so the
   // range has real width rather than being a single repeated number.
   add(ID(0), {
-    chain: 'verify',
+    chain: 'plan-mini-council',
     stages: [
       { label: 'criteria', provider: model.provider, model: model.model, usage: { input: 4000, output: 1000 } },
       { label: 'critique-1', provider: model.provider, model: model.model, usage: { input: 2000, output: 500 } },
     ],
   });
   add(ID(1), {
-    chain: 'verify',
+    chain: 'plan-mini-council',
     stages: [
       { label: 'criteria', provider: model.provider, model: model.model, usage: { input: 8000, output: 2000 } },
       { label: 'critique-1', provider: model.provider, model: model.model, usage: { input: 4000, output: 1000 } },
@@ -58,7 +58,7 @@ test('test_cost_forecast_range: a fixture chain with known historical usage land
   const expectedLow = costOf(model.provider, model.model, { input: 6000, output: 1500 }).usd;   // run 0's total
   const expectedHigh = costOf(model.provider, model.model, { input: 12000, output: 3000 }).usd;  // run 1's total
 
-  const f = forecastCost('verify', runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
+  const f = forecastCost('plan-mini-council', runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
   assert.equal(f.runsUsed, 2);
   assert.ok(Math.abs(f.low - expectedLow) / expectedLow < 0.10, `low ${f.low} not within 10% of expected ${expectedLow}`);
   assert.ok(Math.abs(f.high - expectedHigh) / expectedHigh < 0.10, `high ${f.high} not within 10% of expected ${expectedHigh}`);
@@ -68,24 +68,24 @@ test('test_cost_forecast_range: a fixture chain with known historical usage land
 test('a single historical run gives a zero-width range rather than inventing variance', () => {
   const { runs, add } = fixture();
   add(ID(0), {
-    chain: 'verify',
+    chain: 'plan-mini-council',
     stages: [{ label: 'criteria', provider: 'anthropic', model: 'claude-sonnet-5', usage: { input: 1000, output: 200 } }],
   });
-  const f = forecastCost('verify', runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
+  const f = forecastCost('plan-mini-council', runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
   assert.equal(f.runsUsed, 1);
   assert.equal(f.low, f.high);
 });
 
 test('no historical runs of this chain: a note, not an error', () => {
   const { runs } = fixture();
-  const f = forecastCost('verify', runs, { days: 30 });
+  const f = forecastCost('plan-mini-council', runs, { days: 30 });
   assert.equal(f.runsUsed, 0);
   assert.equal(f.low, null);
   assert.ok(f.note);
 });
 
 test('a missing runs directory degrades instead of throwing', () => {
-  const f = forecastCost('verify', '/no/such/directory/anywhere', { days: 30 });
+  const f = forecastCost('plan-mini-council', '/no/such/directory/anywhere', { days: 30 });
   assert.equal(f.runsUsed, 0);
   assert.equal(f.low, null);
 });
@@ -93,10 +93,10 @@ test('a missing runs directory degrades instead of throwing', () => {
 test('an unpriced provider/model pair is flagged, not silently counted as $0', () => {
   const { runs, add } = fixture();
   add(ID(0), {
-    chain: 'verify',
+    chain: 'plan-mini-council',
     stages: [{ label: 'criteria', provider: 'nobody', model: 'no-such-model', usage: { input: 999999, output: 999999 } }],
   });
-  const f = forecastCost('verify', runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
+  const f = forecastCost('plan-mini-council', runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
   assert.equal(f.low, 0);
   assert.equal(f.high, 0);
   assert.equal(f.partial, true, 'an unpriced model must set partial:true rather than reading as a real $0 estimate');
@@ -107,10 +107,10 @@ test('an unpriced provider/model pair is flagged, not silently counted as $0', (
 test('council --forecast-cost --chain prints a range from real history', () => {
   const { runs, add } = fixture();
   add(ID(0), {
-    chain: 'verify',
+    chain: 'plan-mini-council',
     stages: [{ label: 'criteria', provider: 'anthropic', model: 'claude-sonnet-5', usage: { input: 1000, output: 200 } }],
   });
-  const out = execFileSync('node', [cli, '--forecast-cost', '--chain', 'verify'], { encoding: 'utf8', cwd: runs.replace(/\/runs$/, '') });
-  assert.match(out, /Cost forecast for chain "verify"/);
+  const out = execFileSync('node', [cli, '--forecast-cost', '--chain', 'plan-mini-council'], { encoding: 'utf8', cwd: runs.replace(/\/runs$/, '') });
+  assert.match(out, /Cost forecast for chain "plan-mini-council"/);
   assert.match(out, /\$/);
 });

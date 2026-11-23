@@ -29,15 +29,25 @@ const ENV_PERSONAS_FILE = 'COUNCIL_PERSONAS_FILE';
  * §6 ("an operator may replace the whole set"). No file configured, or the
  * file can't be read, falls back to DEFAULT_PERSONAS - never throws.
  */
-export function loadPersonas({ personasFile, readFile = defaultReadFile } = {}) {
+export function loadPersonas(opts = {}) {
+  return loadPersonasWithSource(opts).set;
+}
+
+/**
+ * The same load, and where the set came from (0.8.4, lane C record): `source` is 'default' when no file is configured, 'file' when a configured file was read and parsed to an object, and
+ * 'fallback' when a file was configured but could not be read or parsed (or parsed to something that is not an object) and the shipped set was used without a message. loadPersonas keeps its
+ * behaviour exactly: it is this function's `set`.
+ */
+export function loadPersonasWithSource({ personasFile, readFile = defaultReadFile } = {}) {
   const path = personasFile ?? process.env[ENV_PERSONAS_FILE];
-  if (!path) return DEFAULT_PERSONAS;
+  if (!path) return { set: DEFAULT_PERSONAS, source: 'default' };
   try {
     const parsed = JSON.parse(readFile(path));
-    return parsed && typeof parsed === 'object' ? parsed : DEFAULT_PERSONAS;
+    if (parsed && typeof parsed === 'object') return { set: parsed, source: 'file' };
   } catch {
-    return DEFAULT_PERSONAS;
+    // an unreadable or unparseable file: the shipped set, as before (the source says 'fallback')
   }
+  return { set: DEFAULT_PERSONAS, source: 'fallback' };
 }
 
 function defaultReadFile(path) {

@@ -15,7 +15,7 @@ import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
-const ROUND = new Set(['overseer_cap', 'layer_bound', 'price_refused', 'conflict']);   // the causes that wait for the person (price_refused: A3a commit 2, exit 24; src/stop-files.js waitsForPerson)
+const ROUND = new Set(['overseer_cap', 'layer_bound', 'stall_stop', 'price_refused', 'conflict']);   // 0.8.4 S5 U-C: stall_stop waits for the person's choice too (added; the rows below then assert its words and status)   // the causes that wait for the person (price_refused: A3a commit 2, exit 24; src/stop-files.js waitsForPerson)
 const RUN_ID = '2026-10-15T10-00-00-000Z';
 
 function projectWith(cause) {

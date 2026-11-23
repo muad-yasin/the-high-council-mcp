@@ -3,9 +3,9 @@
   "manifest_version": "0.3",
   "name": "the-high-council",
   "display_name": "The High Council",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "description": "A planning council: models from different labs propose, debate and review one plan. Bring your own keys.",
-  "long_description": "The High Council runs one request past seats filled by models from different labs. Each lab proposes blind, the proposals are debated on the record, one plan is built and reviewed under a round cap, and the run folder keeps every stage.\n\n**Bring your own keys.** Nothing is hosted and there is no default key: add a key only for the labs you want to seat. The `mock` chains run offline, free, with no key at all, so you can try the tools first.\n\n**Spend ceiling.** Every run stops before any stage that could pass the ceiling you set here. Claude cannot lift it from a conversation.\n\nThis repo publishes the mechanism: the chains, the seat rosters, the stage order. We did have the Council measured by frontier AI on the run that planned update 0.8.3: the plan improved in every measured rubric but one, and that one was that it got longer and harder to read. What the repo does, concretely, is make disagreement between models *visible and recorded* instead of averaged away - you can read who objected to what, who withdrew a proposal under argument, and who held their position.",
+  "long_description": "The High Council runs one request past seats filled by models from different labs. Each lab proposes blind, the proposals are debated on the record, one plan is built and reviewed under a round cap, and the run folder keeps every stage.\n\n**Bring your own keys.** Nothing is hosted and there is no default key: add a key only for the labs you want to seat. The `mock` chains run offline, free, with no key at all, so you can try the tools first.\n\n**Spend ceiling.** Every run stops before any call that, by THC's estimate, would pass the ceiling you set here. Claude cannot lift it from a conversation.\n\nThis repo publishes the mechanism: the chains, the seat rosters, the stage order. We did have a selected Council debate measured by frontier AI on the run that planned update 0.8.3: the plan improved in every measured rubric but one, and that one was that it got longer and harder to read. What the repo does, concretely, is make disagreement between models *visible and recorded* instead of averaged away - you can read who objected to what, who withdrew a proposal under argument, and who held their position.",
   "author": {
     "name": "Muad Yasin",
     "url": "https://sower-industries.de/en/THC/"
@@ -94,6 +94,10 @@
       "description": "Answer a paused external stage and resume the run."
     },
     {
+      "name": "repair_reply",
+      "description": "Repair a paused stage's paid reply (punctuation, a table row's criterion text, or an id one character off), never a verdict, and resume the run."
+    },
+    {
       "name": "spend_report",
       "description": "What runs have cost across a window of days, read from disk."
     },
@@ -114,16 +118,16 @@
       "description": "Answer a stopped recursive-councils sub-plan as the session: quote first, then answer with a written reason."
     },
     {
+      "name": "stop_decide",
+      "description": "Answer a plan run's stop at an overseer-round cap, a layer's revision bound, a silent seat or a stall as the session: quote first, then answer with a written reason."
+    },
+    {
       "name": "price_raise",
       "description": "Raise a model's recorded price after a price refusal stopped a run: quote first, then confirm with the user's own yes."
     },
     {
-      "name": "council_quote",
-      "description": "Preview and price a request for advice from other AI labs. Nothing is sent, written or spent."
-    },
-    {
-      "name": "council_advise",
-      "description": "Ask other AI labs for advice on one decision, after a quote. It spends the user's own API money, and the user approves the exact text first."
+      "name": "pause_run",
+      "description": "Ask a running run to pause after the pass it is in. It stops before the next pass starts and spends nothing; the user decides when to resume."
     },
     {
       "name": "contract_read",
@@ -164,9 +168,9 @@
     "max_usd": {
       "type": "number",
       "title": "Spend ceiling per run (USD)",
-      "description": "The most one run may cost, billed to your own keys. The limit dialog suggests this figure, or a lower one Claude asks for, before each paid run; you type your limit there, up to this figure, and a run stops before any stage that could take it past that. Claude cannot raise or remove this ceiling from a chat; change it here.",
+      "description": "The most one run may cost, billed to your own keys. The limit dialog suggests this figure, or a lower one Claude asks for, before each paid run; you type your limit there, up to this figure, and a run stops before any call that, by THC's estimate, would take it past that. Claude cannot raise or remove this ceiling from a chat; change it here.",
       "required": true,
-      "default": 10,
+      "default": 12,
       "min": 0.5,
       "max": 200
     },

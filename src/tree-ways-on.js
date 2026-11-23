@@ -12,3 +12,11 @@ export const previewOnlyWords = treeId => `derived as a preview only (its fronti
 
 /** The way on for a node stopped at its budget cap: a larger grant, through the top-up form (src/tree-decide.js buildTopUp takes only a node in phase `stopped`). */
 export const topUpWayOn = (rootId, node) => `Resuming it needs a larger grant: \`council tree decide ${rootId} --top-up ${node} --amount <usd>\`.`;
+/**
+ * A-DRAFT (WORDING U1-w18): the lines for a run of a tree (the root or a member) stopped at an approval of excerpts of the project (exit 26), in the tree's sitting text. `at` names the node and run; `approval` = { gate, status }
+ * (src/run-status.js awaitingExcerptApproval). The member waits for the person's ANSWERS at the gate, then `council tree resume`; it is never offered continue, finish or --prevail-node.
+ */
+export function excerptApprovalLines({ at, runId, rootId, approval }) {
+  return [`${at} is stopped at an approval of excerpts of your project, and waits for YOUR answers.`, approval?.status === 'invalid' ? '  Its approval record cannot be read, so it is not resumed. Nothing was run and nothing was spent.' : `  Answer at a terminal with \`council gate answer runs/${runId} ${approval?.gate}\`, then run \`council tree resume ${rootId}\`.`];
+}
+

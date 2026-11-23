@@ -171,7 +171,14 @@ export function fitOpenRows(rows, render, { maxChars = LEDGER_MAX_CHARS, maxToke
   return { rows: sorted.slice(0, kept), left: sorted.length - kept, text, ...measure(text) };
 }
 
-/** Piece R: the writer's reason for each objection it DECLINED, id -> reason, WHOLE (his word, 1 Nov 2026: no cut at any length; nothing upstream bounds a reason, so a long one is a long block). `latest` is the answer-back record by lab ({ objections: [{ id, declined_reason }] }). */
-export function declinedReasonMap(latest) {
-  return new Map(Object.values(latest || {}).flatMap(e => (e?.objections || []).filter(x => typeof x.declined_reason === 'string' && x.declined_reason.trim()).map(x => [x.id, x.declined_reason])));
+/** Piece R, and W44 (M0 FIX 1, C&C's ruling): the writer's reason for each objection it DECLINED, id -> reason, WHOLE (his word, 1 Nov 2026: no cut at any length; nothing upstream bounds a reason, so a long one is a long block). It is read from the disputes history, not from the last answer-back: the reason follows the writer's MOST RECENT decline of that objection (a later decline replaces it; a revision that says nothing about the objection keeps it; an objection that was fixed stops standing and is not shown at all). `disputes` is the run's list of { round, reason, objection_id? } in the order it was written; the lines one revision wrote for one id are joined with ' / ', as the answer-back joins them; an entry with no id, an empty or a non-text reason is left out. */
+export function declinedReasonsFromDisputes(disputes) {
+  const byId = new Map();   // id -> { round, lines } of the latest revision that declined it
+  for (const d of disputes || []) {
+    if (!d || typeof d.objection_id !== 'string' || typeof d.reason !== 'string' || !d.reason.trim()) continue;
+    const id = d.objection_id.trim(); if (!id) continue;
+    const cur = byId.get(id);
+    if (cur && cur.round === d.round) cur.lines.push(d.reason); else byId.set(id, { round: d.round, lines: [d.reason] });
+  }
+  return new Map([...byId].map(([id, v]) => [id, v.lines.join(' / ')]));
 }

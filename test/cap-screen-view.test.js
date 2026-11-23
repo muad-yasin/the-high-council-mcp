@@ -28,13 +28,19 @@ test('V1 under the caps each screen opens with its cap in capitals ("ANTHROPIC s
   assert.match(a1, /^ANTHROPIC spending limit \(cap 1 of 2: anthropic, openrouter\)$/);
   assert.match(o.split('\n')[0], /^OPENROUTER spending limit \(cap 2 of 2: anthropic, openrouter\)$/);
   assert.match(a2, /Chain: probe\. Task: tasks\/x\.md\./);
-  assert.ok(a.includes(`Calls through anthropic, by the dry run's count: about ${formatUsd(0.06)}; worst case ${formatUsd(0.97)} (not a ceiling).`), `the figures through the one shared formatter: ${a}`);
-  assert.doesNotMatch(a, /every provider together|Most it could cost to finish/);
+  // CHANGED ACCEPTED TEST (0.8.4 unit 4, 04 Nov 2026; his picks OWNER 5 and 6). OLD: "...; worst case $0.97 (not a ceiling)." NEW: "...; upper estimate $0.97 (not a ceiling)." WHY: the figure is the dry run's upper estimate, which now includes a judge's re-asks and network retries at their expected cost, so it is no longer a worst case; the whole-run line says "Upper estimate to finish" for the same reason.
+  assert.ok(a.includes(`Calls through anthropic, by the dry run's count: about ${formatUsd(0.06)}; upper estimate ${formatUsd(0.97)} (not a ceiling).`), `the figures through the one shared formatter: ${a}`);
+  assert.doesNotMatch(a, /every provider together|Upper estimate to finish/);
   assert.ok(a.includes(ENFORCEMENT_SENTENCES.weak) && a.includes(COMPLETION_SENTENCE), 'the reviewed sentences stay as approved');
   // every kind of a per-cap screen opens the same way (a raise of the openrouter cap here)
   const raise = buildCapScreen({ kind: 'raise', subject, cap: { id: 'openrouter', of }, history: { previousCapUsd: 0.01, spentUsd: 0, floorUsd: 0 } }).text;
   assert.match(raise.split('\n')[0], /^OPENROUTER spending limit \(cap 2 of 2: anthropic, openrouter\)$/);
-  assert.match(raise.split('\n')[1], /^Continue this run\?/);
+  // CHANGED ACCEPTED (0.8.4, commit 3 of the 5xx fix-up, C&C's Q3 ruling R246, CL-E91). OLD: the head of this screen read "Continue this run?". NEW: "Raise this run's openrouter spending limit?" (a per-cap screen names its cap). WHY: the screen that asks for the figure names first what the figure is for. A-DRAFT.
+  assert.match(raise.split('\n')[1], /^Raise this run's openrouter spending limit\?/);
+  // NEW pins (C&C's Q3 ruling, R246): the other three kinds under a cap name their one limit in the head too (the legacy form once read "a openrouter")
+  for (const [kind, re] of [['raise_early', /^Raise this run's openrouter spending limit\?/], ['legacy', /^Set the openrouter spending limit for this run\?/], ['amend', /^Set this run's openrouter spending limit again\?/]]) {
+    assert.match(buildCapScreen({ kind, subject, cap: { id: 'openrouter', of }, history: { previousCapUsd: 0.01, spentUsd: 0, floorUsd: 0 } }).text.split('\n')[1], re, kind);
+  }
   assert.match(buildCapScreen({ kind: 'run', subject, estimate: { usd: 1 }, maximum: { usd: 2 }, priceAsOf: '2026-10-26', cap: { id: 'anthropic', of } }).text, /Calls through anthropic, by the dry run's count at the prices of 2026-10-26: about /, 'the price date stays under the caps');
   const none = buildCapScreen({ kind: 'run', subject, estimate: { usd: 0 }, maximum: { usd: 0 }, cap: { id: 'openrouter', of } }).text;
   assert.match(none, /No priced call goes through openrouter, by the dry run's count\./);
@@ -44,7 +50,7 @@ test('V2 with the switch off the screen is the reviewed one: the whole-run estim
   const t = buildCapScreen({ kind: 'run', subject, estimate: { usd: 3 }, maximum: { usd: 9 } }).text;
   assert.match(t, /^Start this run\? Chain: probe\. Task: tasks\/x\.md\.$/m);
   assert.match(t, /Estimate: about \$3\.00 for this run\./);
-  assert.match(t, /Most it could cost to finish, by the dry run's count: \$9\.00 \(not a ceiling: see below\)\./);
+  assert.match(t, /Upper estimate to finish, by the dry run's count: \$9\.00 \(not a ceiling: see below\)\./);
   assert.doesNotMatch(t, /spending limit \(cap/);
 });
 

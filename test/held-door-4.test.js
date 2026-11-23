@@ -63,7 +63,8 @@ test('P13 door: the reviser\'s prompts carry the rule and the failures\' ids, it
   setHeldForTest(ALL);
   const { r, seen } = await go();
   const rev = seen.find(p => p.label === 'revise-1');
-  assert.match(rev.system, /form: "DECLINED: <id>: <one-line reason>", where <id> is the id listed for that objection at the end of the request/);
+  // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the pin read `...where <id> is the id listed for that objection at the end of the request` (a fragment). NEW: the whole recorded sentence, `form: "DECLINED: <id>: <one-line reason>", where <id> is the id listed with that objection in what you are given (O- and eight characters). These lines are stripped before your reply becomes the next draft and are recorded separately - they never appear in the deliverable a critic grades.` (with its line breaks). WHY: the reviewed row that rewrote DECLINED_FORM_WITH_ID (src/prompts/recorded-082.js:63; the apply, commit 1).
+  assert.match(rev.system, /form: "DECLINED: <id>: <one-line reason>", where <id> is the id listed with\n  that objection in what you are given \(O- and eight characters\)\. These\n  lines are stripped before your reply becomes the next draft and are recorded\n  separately - they never appear in the deliverable a critic grades\./);
   assert.equal(rev.system.includes('form: "DECLINED: <one-line reason>"'), false, 'ONE form: the sentence is replaced, not joined by a second');
   assert.equal((rev.system.match(/DECLINED:/g) || []).length, 1 + (rev.system.match(/DECLINED: lines/g) || []).length, 'no second DECLINED form anywhere in the prompt');
   const id = (rev.user.split('# Ids of the failures above')[1].match(/^1\. (O-[0-9a-f]{8})$/m) || [])[1];

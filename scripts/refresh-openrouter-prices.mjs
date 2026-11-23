@@ -1,5 +1,6 @@
 // Re-reads OpenRouter's public model list and endpoints and sets src/pricing.json's `openrouter/*` rows to what the spend cap should count (0.8.1 pre-release audit, MAN-4 / MAN-7; PRICES lane, 1 Nov 2026), and records the HOST PICTURE behind each row.
-//   node scripts/refresh-openrouter-prices.mjs [models.json] [--endpoints <folder>] [--pages <folder>] [--fetch <folder>] [--hosts-only] [--list-hosts] [--write]
+//   node scripts/refresh-openrouter-prices.mjs [models.json] [--endpoints <folder>] [--pages <folder>] [--fetch <folder>] [--hosts-only | --cache-only] [--list-hosts] [--write]
+//     --cache-only: with --write, writes ONLY each row's cache_read / cache_write (add or raise, USD per Mtok, the dearest eligible host per field): no row is raised or lowered, no tiers, no host block, _openrouterCheckedAt does not move.
 //     A saved folder carries the day it was read in `_fetch.json` (written by --fetch); a block is dated with that day, never with today's, and --write refuses a folder without it (PRICING_CHECKED_AT sets the day by hand, for tests).
 //     --list-hosts: also prints every endpoint of every model with its precision, context length and output limit, and why one is left out.
 //     --hosts-only: with --write, writes ONLY the `hosts` blocks: no row is raised and _openrouterCheckedAt does not move (each block carries its own date).
@@ -14,6 +15,8 @@
 //     eligible host at BASE price (never lowered). Otherwise: a row below it is RAISED (the cap was projecting less than a host can bill), a row above it is LOWERED
 //     (the 0.8.1 rule "never lowers" was the audit-night script's own choice; a promotion that ends, a ZDR host or a first-party host are handled by the eligible set and by the pin, not by keeping a stale figure: a host that later
 //     raises its price above the row is excluded by the pin, which means fewer hosts or a refused call, never overspending);
+//   - the eligible set leaves out: fast tiers; hosts that cannot return the smallest maxTokens a shipped chain gives the model; hosts the page marks "Not used in Standard routing"; and (0.8.4) hosts that EVERY shipped seat of the model bans in
+//     extra.provider.ignore (read from the same walk of chains/*.json), EXCEPT Open Inference, which stays counted. A host that only some seats ban stays: a seat that does not ban it can still reach it, and that seat's pin is the row;
 //   - a row WITHOUT a host picture (no endpoints answer, or no eligible host) keeps the old rule: raised to the list's headline price when that is more than 5% above it, never lowered; it is reported;
 //   - rows with `expires` are not touched (test/pricing-expiry.test.js covers them);
 //   - writing counted prices needs answers read TODAY (the `_fetch.json` stamp of a --fetch made the same day, or PRICING_CHECKED_AT for tests): older answers are refused, because a host's price moves within a day.
@@ -39,6 +42,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const write = args.includes('--write');
 const hostsOnly = args.includes('--hosts-only');
+// --cache-only (0.8.4 cache part a): with --write, writes ONLY the cache_read / cache_write fields of each row: no `in` / `out` moves, no tiers, no host block, _openrouterCheckedAt does not move. The same read-today guards as a counted price.
+const cacheOnly = args.includes('--cache-only');
+if (cacheOnly && hostsOnly) { console.error('refused: --cache-only and --hosts-only each write a different part of the table; name one.'); process.exit(2); }
+const noPriceMoves = hostsOnly || cacheOnly;   // neither flag raises or lowers a row's `in` / `out`
 const listHosts = args.includes('--list-hosts');
 // --propose <model id>[,<model id>...]|all  [--largest-call-tokens <n>] [--ignore <slug>]...: PROPOSES a provider-preference.json (src/provider-preference.js) into <folder>/proposed-provider-preference.json and prints it. For each model the hosts
 // that are ELIGIBLE (the same filters as the host picture) AND whose BASE prices are at or below the median of the eligible hosts' base prices on both sides (the picture's stored median is tier-priced, so it is not used), cheapest first.
@@ -72,6 +79,8 @@ const pricingPath = join(root, 'src', 'pricing.json');
 const table = JSON.parse(readFileSync(pricingPath, 'utf8'));
 const perM = v => Number(v) * 1e6;
 const r6 = x => Math.round(x * 1e6) / 1e6;
+// a cache price the endpoints answer does not carry (absent, null or empty) is NOT zero: it is no figure (NaN), and a row names a cache price only when some eligible host lists one
+const perMOpt = v => (v === undefined || v === null || v === '' ? NaN : perM(v));
 
 // ---- the fetch step (the only code that touches the network besides the default models list) ----
 let fetchFailed = [];
@@ -104,12 +113,21 @@ const live = new Map(list.data.map(m => [m.id, m]));
 
 // the smallest output cap any shipped chain gives a seat of each OpenRouter model (the endpoints that cannot return that much are not candidates)
 const minCap = new Map();
+// the host slugs EVERY shipped seat of each OpenRouter model bans in extra.provider.ignore (0.8.4, the MiMo/PrimaLabs ban; read from this same walk, so the seats that give `need` are the seats that give the bans). Every call also carries 'open-inference'
+// (src/host-block.js adds it whatever a chain says), so every seat counts it as banned; it is then kept counted in the row (ROW_KEEPS below). A host leaves a model's ROW only when all of its shipped seats ban it: a seat that does not ban it can still reach it, and that seat's pin is the row. A model with no shipped seat has no entry (nothing is left out).
+const bannedByAll = new Map();
 for (const f of readdirSync(join(root, 'chains')).filter(f => f.endsWith('.json'))) {
   const c = JSON.parse(readFileSync(join(root, 'chains', f), 'utf8'));
   for (const v of Object.values(c.seats || {})) for (const s of (Array.isArray(v) ? v : [v])) {
-    if (s?.provider === 'openrouter') minCap.set(s.model, Math.min(minCap.get(s.model) ?? Infinity, s.maxTokens ?? 36000));
+    if (s?.provider === 'openrouter') {
+      minCap.set(s.model, Math.min(minCap.get(s.model) ?? Infinity, s.maxTokens ?? 36000));
+      const own = new Set(['open-inference', ...(Array.isArray(s.extra?.provider?.ignore) ? s.extra.provider.ignore.filter(g => typeof g === 'string') : [])]);
+      bannedByAll.set(s.model, bannedByAll.has(s.model) ? new Set([...bannedByAll.get(s.model)].filter(g => own.has(g))) : own);
+    }
   }
 }
+// slugs that stay counted in a row although every seat bans them: Open Inference, as before this rule (C&C ruling of 11 Nov 2026, variant B: the stated design of the last `hosts.filters` line, "Open Inference included"; the ban on it is the request's, not the table's)
+const ROW_KEEPS = new Set(['open-inference']);
 const TIER_WORDS = ['fast', 'ultrafast', 'priority', 'flex'];
 const FAST_TIER = new RegExp(`\\/(${TIER_WORDS.join('|')})\\b`);
 // an answer's own service_tier is a fast tier only when it IS one of the words above; any other value ("standard", "default", a word not seen yet) leaves the host counted (a wrong drop lowers the ceiling)
@@ -147,6 +165,9 @@ function hostPicture(id) {
   const all = (JSON.parse(readFileSync(fn, 'utf8')).data?.endpoints ?? []).map(e => ({
     tag: e.tag || '', provider: e.provider_name || '', quant: e.quantization || 'not stated', tier: e.service_tier, ctx: e.context_length ?? null, out_reason: '',
     bin: r6(perM(e.pricing?.prompt)), bout: r6(perM(e.pricing?.completion)), maxc: e.max_completion_tokens ?? null,
+    // cache prices (0.8.4 cache part a), per million tokens: the host's base price and its TIME-OF-DAY overrides (the cap has no clock, the same folding as cin/cout), NOT its prompt-size overrides: those reach a call through the tier's higher `in`, and the cache price is applied as a multiple of the call's own input price, so counting the tier here would count it twice
+    crs: [e.pricing, ...(Array.isArray(e.pricing?.overrides) ? e.pricing.overrides : []).filter(o => !Number.isInteger(o.min_prompt_tokens))].map(o => r6(perMOpt(o?.input_cache_read))).filter(Number.isFinite),
+    cws: [e.pricing, ...(Array.isArray(e.pricing?.overrides) ? e.pricing.overrides : []).filter(o => !Number.isInteger(o.min_prompt_tokens))].map(o => r6(perMOpt(o?.input_cache_write))).filter(Number.isFinite),
     // overrides: by PROMPT SIZE (min_prompt_tokens: the row's `tiers`, priced per call by rateFor) and by TIME OF DAY (utc windows: the cap has no clock, so they count in the host's base, `cin`/`cout`)
     tiers: (Array.isArray(e.pricing?.overrides) ? e.pricing.overrides : []).filter(o => Number.isInteger(o.min_prompt_tokens)).map(o => ({ from: o.min_prompt_tokens, in: r6(perM(o.prompt ?? e.pricing.prompt)), out: r6(perM(o.completion ?? e.pricing.completion)) })),
     tod: (Array.isArray(e.pricing?.overrides) ? e.pricing.overrides : []).filter(o => !Number.isInteger(o.min_prompt_tokens)).map(o => ({ in: r6(perM(o.prompt ?? e.pricing.prompt)), out: r6(perM(o.completion ?? e.pricing.completion)) })),
@@ -170,8 +191,12 @@ function hostPicture(id) {
       routingNote = r.rows.length === 0 ? (r.note || 'no host is marked "Not used in Standard routing"') : `${dropped.length} host(s) the page marks "Not used in Standard routing" left out${unmatched ? `; ${unmatched} page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)` : ''}`;
     }
   }
-  for (const e of all) e.out_reason = (FAST_TIER.test(e.tag) || isFastTierValue(e.tier)) ? 'fast tier' : !notTier.includes(e) ? '' : !able.includes(e) ? `output limit ${e.maxc} < ${need}` : dropped.includes(e) ? 'page: Not used in Standard routing' : '';
-  const eligible = able.filter(e => !dropped.includes(e));
+  // a host of a slug that every shipped seat of this model bans (bannedByAll above) is not a candidate for the model's row: applied HERE, after the page filter, so the page rows and the tier and length counts above are read as before
+  const bans = [...(bannedByAll.get(id) ?? [])].filter(g => !ROW_KEEPS.has(g));
+  const banned = e => bans.some(g => e.tag === g || e.tag.startsWith(`${g}/`));
+  const bannedHosts = able.filter(e => !dropped.includes(e) && banned(e));
+  for (const e of all) e.out_reason = (FAST_TIER.test(e.tag) || isFastTierValue(e.tier)) ? 'fast tier' : !notTier.includes(e) ? '' : !able.includes(e) ? `output limit ${e.maxc} < ${need}` : dropped.includes(e) ? 'page: Not used in Standard routing' : bannedHosts.includes(e) ? 'banned by every shipped seat of the model' : '';
+  const eligible = able.filter(e => !dropped.includes(e) && !bannedHosts.includes(e));
   if (!eligible.length) return { eligible: [], note: `NO ELIGIBLE HOST: ${all.length} endpoint(s) listed, ${notTier.length} outside the fast tiers, ${able.length} able to return ${need} tokens` };
   const side = k => { const v = eligible.map(e => e[k]).sort((a, b) => a - b); const n = v.length; return { low: v[0], median: n % 2 ? v[(n - 1) / 2] : r6((v[n / 2 - 1] + v[n / 2]) / 2), high: v[n - 1] }; };
   const filters = [
@@ -179,7 +204,10 @@ function hostPicture(id) {
     `output limit of at least ${need} tokens (the smallest maxTokens a shipped chain gives this model; ${notTier.length - able.length} host(s) left out${unpublished ? `; ${unpublished} publish no limit and are counted` : ''})`,
     routingNote,
     'a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure',
-    'hosts of every provider are counted, Open Inference included (a chain\'s own extra.provider.ignore is not applied to these figures)',
+    // A-DRAFT (Helper A's final words, 11 Nov 2026, pending the owner's wording review; written into every row's `hosts.filters`). The line below says which hosts a row leaves out by name; it is added only when there is one.
+    ...(bannedHosts.length ? [`${bannedHosts.length} host(s) left out because every shipped seat of this model bans them in extra.provider.ignore (${[...new Set(bannedHosts.map(e => e.tag.split('/')[0]))].join(', ')})`] : []),
+    // A-DRAFT (Helper A's final words, 11 Nov 2026, pending the owner's wording review): replaces "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)", which is false once a ban can leave a row
+    'hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)',
   ];
   // A row is TIER-DRIVEN when counting the dearest prompt-size / time-of-day tier gives a different figure than the base prices do: no single figure prices such a row right (the dearest tier refuses a call that cannot reach the tier,
   // the base price under-counts one that does), so the row keeps today's figure until the cap prices each call at the tier its own input reaches (unit 2b). The block says so.
@@ -191,7 +219,12 @@ function hostPicture(id) {
   const rateAt = b => ({ in: Math.max(...eligible.map(e => Math.max(e.cin, ...e.tiers.filter(t => t.from <= b).map(t => t.in)))), out: Math.max(...eligible.map(e => Math.max(e.cout, ...e.tiers.filter(t => t.from <= b).map(t => t.out)))) });
   const rowTiers = []; let prev = { in: baseHigh('in'), out: baseHigh('out') };
   for (const b of cuts) { const r = rateAt(b); if (r.in > prev.in + 1e-9 || r.out > prev.out + 1e-9) { const t = { from: b, in: Math.max(r.in, prev.in), out: Math.max(r.out, prev.out) }; rowTiers.push(t); prev = t; } }
-  return { eligible, all, rowTiers, hosts: { checked: HOSTS_READ ?? TODAY, count: eligible.length, providers: new Set(eligible.map(e => e.provider)).size, in: side('in'), out: side('out'), ...(tierDriven ? { tier_driven: true } : {}), filters } };
+  // the row's cache prices (0.8.4 cache part a): the dearest figure any eligible host lists, per field; a field no eligible host lists stays out (an absent price is UNKNOWN, priced at the input price, never inferred as free: a read price listed with no write price says nothing about the write)
+  const dearestCache = k => { const v = eligible.flatMap(e => e[k]); return v.length ? Math.max(...v) : null; };
+  const cache = { ...(dearestCache('crs') !== null ? { cache_read: dearestCache('crs') } : {}), ...(dearestCache('cws') !== null ? { cache_write: dearestCache('cws') } : {}) };
+  // the input price those figures were taken at: the dearest eligible host's BASE price (time-of-day folded in, prompt-size tiers not): src/price-table.js cacheMultsOf divides by it, so a row whose `in` is held above it (a tier-driven row) still gets the hosts' own multiples
+  if (Object.keys(cache).length) cache.cache_basis_in = baseHigh('in');
+  return { eligible, all, rowTiers, cache, hosts: { checked: HOSTS_READ ?? TODAY, count: eligible.length, providers: new Set(eligible.map(e => e.provider)).size, in: side('in'), out: side('out'), ...(tierDriven ? { tier_driven: true } : {}), filters } };
 }
 
 const changes = []; const lines = []; const unlisted = []; const hostEdits = []; const noHosts = []; const hostLines = [];
@@ -205,7 +238,7 @@ for (const [key, row] of Object.entries(table)) {
   const h = pic?.hosts;
   const dearest = h ? pic.eligible.filter(e => same(e.out, h.out.high) || same(e.in, h.in.high)).map(e => `${e.tag} ${e.quant} ctx ${e.ctx ?? '?'}`).join(', ') : '';
   const note = pic?.note ? `  ${pic.note}` : h ? `  dearest eligible host ${h.in.high}/${h.out.high} (input/output per Mtok; ${h.count} hosts; lowest ${h.in.low}/${h.out.low}, median ${h.in.median}/${h.out.median}; dearest: ${dearest})` : '';
-  if (h) hostEdits.push({ key, hosts: h, tiers: pic.rowTiers });
+  if (h) hostEdits.push({ key, hosts: h, tiers: pic.rowTiers, cache: pic.cache });
   else if (!row.expires) noHosts.push(id);
   if (listHosts && pic?.all) for (const e of [...pic.all].sort((x, y) => x.out - y.out)) hostLines.push(`    ${id}  ${e.tag.padEnd(30)} ${e.quant.padEnd(10)} ctx ${String(e.ctx ?? '?').padEnd(8)} max ${String(e.maxc ?? 'unpublished').padEnd(11)} ${e.in}/${e.out}${e.tiers.length ? `   (base ${e.bin}/${e.bout}; tier from ${e.tiers.map(t => `${t.from} tokens ${t.in}/${t.out}`).join(', ')})` : ''}${e.out_reason ? `   OUT: ${e.out_reason}` : ''}`);
   if (row.expires) { lines.push(`${id}: file ${row.in}/${row.out}, list ${r6(li)}/${r6(lo)}: KEPT (expires ${row.expires})`); continue; }
@@ -216,8 +249,8 @@ for (const [key, row] of Object.entries(table)) {
     const newIn = Math.max(row.in, baseIn), newOut = Math.max(row.out, baseOut);
     const heldNote = `the dearest tier is ${h.in.high}/${h.out.high}: no single figure prices it right; the tier is recorded in the row's tiers and not yet counted`;
     if (!same(newIn, row.in) || !same(newOut, row.out)) {
-      lines.push(`${id}: file ${row.in}/${row.out} -> ${newIn}/${newOut} (the dearest eligible host at base price; tier part held: ${heldNote})${note}  ${hostsOnly ? 'RAISE NOT APPLIED (--hosts-only)' : 'RAISED'}  evidence ${evidence}`);
-      if (!hostsOnly) changes.push({ key, row, newIn, newOut, evidence, n: h.count, dir: 'RAISED', basePart: true });
+      lines.push(`${id}: file ${row.in}/${row.out} -> ${newIn}/${newOut} (the dearest eligible host at base price; tier part held: ${heldNote})${note}  ${noPriceMoves ? `RAISE NOT APPLIED (${cacheOnly ? '--cache-only' : '--hosts-only'})` : 'RAISED'}  evidence ${evidence}`);
+      if (!noPriceMoves) changes.push({ key, row, newIn, newOut, evidence, n: h.count, dir: 'RAISED', basePart: true });
     } else lines.push(`${id}: file ${row.in}/${row.out} HELD (tier part: ${heldNote}; the base-price dearest host is ${baseIn}/${baseOut}, not above today's figure)${note}`);
     continue;
   }
@@ -226,16 +259,16 @@ for (const [key, row] of Object.entries(table)) {
     const newIn = h.in.high, newOut = h.out.high;
     if (!same(newIn, row.in) || !same(newOut, row.out)) {
       const dir = newIn >= row.in && newOut >= row.out ? 'RAISED' : newIn <= row.in && newOut <= row.out ? 'LOWERED' : 'CHANGED (one side up, one down)';
-      lines.push(`${id}: file ${row.in}/${row.out} -> ${newIn}/${newOut}${note}  ${hostsOnly ? `${dir} NOT APPLIED (--hosts-only)` : dir}  evidence ${evidence}`);
-      if (!hostsOnly) changes.push({ key, row, newIn, newOut, evidence, n: h.count, dir });
+      lines.push(`${id}: file ${row.in}/${row.out} -> ${newIn}/${newOut}${note}  ${noPriceMoves ? `${dir} NOT APPLIED (${cacheOnly ? '--cache-only' : '--hosts-only'})` : dir}  evidence ${evidence}`);
+      if (!noPriceMoves) changes.push({ key, row, newIn, newOut, evidence, n: h.count, dir });
     } else lines.push(`${id}: file ${row.in}/${row.out} = dearest eligible host${note}`);
     if (li > newIn * 1.05 || lo > newOut * 1.05) lines.push(`    (the list's headline ${r6(li)}/${r6(lo)} is above the dearest eligible host: a price tier, or a host the eligibility rules leave out, can account for the difference)`);
     continue;
   }
   const newIn = li > row.in * 1.05 ? r6(li) : row.in, newOut = lo > row.out * 1.05 ? r6(lo) : row.out;
   if (newIn !== row.in || newOut !== row.out) {
-    lines.push(`${id}: file ${row.in}/${row.out} -> ${newIn}/${newOut} (list ${r6(li)}/${r6(lo)})${note}  ${hostsOnly ? 'RAISE NOT APPLIED (--hosts-only)' : 'RAISED'}`);
-    if (!hostsOnly) changes.push({ key, row, newIn, newOut, li, lo, dir: 'RAISED' });
+    lines.push(`${id}: file ${row.in}/${row.out} -> ${newIn}/${newOut} (list ${r6(li)}/${r6(lo)})${note}  ${noPriceMoves ? `RAISE NOT APPLIED (${cacheOnly ? '--cache-only' : '--hosts-only'})` : 'RAISED'}`);
+    if (!noPriceMoves) changes.push({ key, row, newIn, newOut, li, lo, dir: 'RAISED' });
   } else if (row.in > li * 1.05 || row.out > lo * 1.05) lines.push(`${id}: file ${row.in}/${row.out} ABOVE list ${r6(li)}/${r6(lo)}: kept (no host picture for this row, so it is never lowered)${note}`);
   else lines.push(`${id}: file ${row.in}/${row.out} = list${note}`);
 }
@@ -325,6 +358,22 @@ if (write) {
   const num = n => (Number.isInteger(n) ? `${n}.0` : String(n));
   // the end of the row object that starts at `start` (the first line that closes it at the table's indent)
   const rowEnd = (key, start) => { const end = text.indexOf('\n  }', start); if (start < 0 || end < 0) throw new Error(`cannot find the row ${key} in src/pricing.json`); return end; };
+  // the cache fields of a row (0.8.4 cache part a). Where in / out are SET EXACTLY (a full write of a row that is not tier-driven: `exact`), they are too: the record then follows the market across releases, and the cap still errs high through the
+  // dearest host; a field no eligible host lists any more is removed (an absent price is unknown, priced at the input price). Where in / out are HELD (--cache-only, a tier-driven row) they are ADD or RAISE only (the basis only falls: a lower divisor
+  // never lowers a multiple). Returns the block without its old cache lines and the new lines to put before the row's tiers / host picture.
+  const cacheEdit = (block, cache, exact = false) => {
+    let lines = '';
+    for (const f of ['cache_read', 'cache_write', 'cache_basis_in']) {
+      const old = new RegExp(`,\\n    "${f}":\\s*([0-9.eE+-]+)`).exec(block);
+      const was = old ? Number(old[1]) : null;
+      if (old) block = block.replace(old[0], '');
+      const now = cache?.[f] ?? null;
+      const keep = exact ? now : was === null ? now : now === null ? was : f === 'cache_basis_in' ? Math.min(was, now) : Math.max(was, now);
+      if (keep !== null) lines += `,\n    "${f}": ${num(keep)}`;
+    }
+    if (!/"cache_read"|"cache_write"/.test(lines)) lines = '';   // a basis alone says nothing
+    return { block, lines };
+  };
   for (const c of changes) {
     const start = text.indexOf(`"${c.key}": {`);
     const end = rowEnd(c.key, start);
@@ -342,20 +391,31 @@ if (write) {
     const start = text.indexOf(`"${h.key}": {`);
     const end = rowEnd(h.key, start);
     let block = text.slice(start, end);
+    if (cacheOnly) {   // only the cache fields: add or raise, in place, before the row's tiers / host picture; every other byte of the row stays
+      const e2 = cacheEdit(block, h.cache);
+      block = e2.block;
+      const at2 = [block.indexOf(',\n    "tiers"'), block.indexOf(',\n    "hosts"')].filter(i => i >= 0).sort((x, y) => x - y)[0] ?? block.length;
+      block = block.slice(0, at2) + e2.lines + block.slice(at2);
+      text = text.slice(0, start) + block + text.slice(end);
+      continue;
+    }
     const at = block.indexOf(',\n    "hosts": {');
     if (at >= 0) block = block.slice(0, at);
     block = block.replace(/,\n    "tiers": \[[^\n]*\]/, '');   // a stale tiers line goes; the fresh one (if any) is written before the host picture
+    // the cache prices (0.8.4 cache part a): ADD or RAISE only, like every other price (the table never lowers a figure the package ships); a row that names none today gets the dearest eligible host's, and an older figure above it stays
+    let cacheLines = '';
+    if (!hostsOnly) { const e1 = cacheEdit(block, h.cache, !h.hosts.tier_driven); block = e1.block; cacheLines = e1.lines; }   // a counted price, so behind the same guards as `in` / `out`: --hosts-only writes the host picture and nothing else
     const tiersLine = h.tiers?.length ? `,\n    "tiers": ${JSON.stringify(h.tiers.map(t => ({ from: t.from, in: t.in, out: t.out })))}` : '';
     const pretty = JSON.stringify(h.hosts, null, 2).split('\n').map((l, i) => (i ? `    ${l}` : l)).join('\n');
-    block = `${block}${tiersLine},\n    "hosts": ${pretty}`;
+    block = `${block}${cacheLines}${tiersLine},\n    "hosts": ${pretty}`;
     text = text.slice(0, start) + block + text.slice(end);
   }
-  if (!/"_openrouterCheckedAt"/.test(text) && !hostsOnly) text = text.replace(/("asOf":\s*"[^"]*",?\n)/, `$1  "_openrouterCheckedAt": "${TODAY}",\n  "_openrouterStaleDays": 45,\n  "_openrouterNote": "The date every openrouter/* row was last compared with OpenRouter's live model list (scripts/refresh-openrouter-prices.mjs, which only RAISES a row below the list). test/pricing-freshness.test.js turns red _openrouterStaleDays after it: re-run the script before then (MAN-7). Direct-provider rows (anthropic/, openai/, google/...) are NOT covered by this date: they carry their own _source dates.",\n`);
-  else if (!hostsOnly) text = text.replace(/"_openrouterCheckedAt":\s*"[^"]*"/, `"_openrouterCheckedAt": "${HOSTS_READ ?? TODAY}"`);
+  if (!/"_openrouterCheckedAt"/.test(text) && !noPriceMoves) text = text.replace(/("asOf":\s*"[^"]*",?\n)/, `$1  "_openrouterCheckedAt": "${TODAY}",\n  "_openrouterStaleDays": 45,\n  "_openrouterNote": "The date every openrouter/* row was last compared with OpenRouter's live model list (scripts/refresh-openrouter-prices.mjs, which only RAISES a row below the list). test/pricing-freshness.test.js turns red _openrouterStaleDays after it: re-run the script before then (MAN-7). Direct-provider rows (anthropic/, openai/, google/...) are NOT covered by this date: they carry their own _source dates.",\n`);
+  else if (!noPriceMoves) text = text.replace(/"_openrouterCheckedAt":\s*"[^"]*"/, `"_openrouterCheckedAt": "${HOSTS_READ ?? TODAY}"`);
   // A-DRAFT (PRICES lane, 1 Nov 2026): the note says what the date now means
-  if (!hostsOnly && changes.some(c => c.evidence)) text = text.replace(/("_openrouterNote":\s*")((?:[^"\\]|\\.)*)"/, (m, pre) => `${pre}The day every openrouter/* row WITHOUT an \`expires\` date was last compared with OpenRouter's endpoints (scripts/refresh-openrouter-prices.mjs --fetch <folder> --write, answers read the same day): a row is the dearest eligible host per side, raised or lowered (a row whose dearest figure depends on a price tier counts the higher of today's figure and its dearest eligible host at base price; its tier part is recorded in the row's \`tiers\` and not yet counted by the spend cap, and its \`hosts\` block says \`tier_driven\`), and its \`hosts\` block records the check date, the host count, the lowest, median and highest price and the filters used. The script refuses to move this date while a row is not on OpenRouter's list or while the answers are not from today. test/pricing-freshness.test.js turns red _openrouterStaleDays after it: re-run the script before then (MAN-7). Direct-provider rows (anthropic/, openai/, google/...) are NOT covered by this date: they carry their own _source dates."`);
+  if (!noPriceMoves && changes.some(c => c.evidence)) text = text.replace(/("_openrouterNote":\s*")((?:[^"\\]|\\.)*)"/, (m, pre) => `${pre}The day every openrouter/* row WITHOUT an \`expires\` date was last compared with OpenRouter's endpoints (scripts/refresh-openrouter-prices.mjs --fetch <folder> --write, answers read the same day): a row WITH a host picture is the dearest eligible host per side, raised or lowered (a row whose dearest figure depends on a price tier counts the higher of today's figure and its dearest eligible host at base price; its tier part is recorded in the row's \`tiers\` and not yet counted by the spend cap, and its \`hosts\` block says \`tier_driven\`), and its \`hosts\` block records the check date, the host count, the lowest, median and highest price and the filters used. The script refuses to move this date while a row is not on OpenRouter's list or while the answers are not from today. test/pricing-freshness.test.js turns red _openrouterStaleDays + 1 days after it: re-run the script before then (MAN-7). Direct-provider rows (anthropic/, openai/, google/...) are NOT covered by this date: they carry their own _source dates."`);
   JSON.parse(text); // still valid
   writeFileSync(pricingPath, text);
   if (changes.length) console.log('\nA price moved: now run node scripts/regen-derived-figures.mjs (every figure that derives from the rows), then re-record the plan-high-council hash pin in test/plan-tiers.test.js by hand if its description changed.');
-  console.log(`\nwrote ${pricingPath}: ${changes.length} row(s) changed (${changes.filter(c => c.dir === 'RAISED').length} raised, ${changes.filter(c => c.dir === 'LOWERED').length} lowered), ${hostEdits.length} host picture(s) written${noHosts.length ? ` (none for ${noHosts.length} row(s): no endpoints answer given)` : ''}, _openrouterCheckedAt ${hostsOnly ? 'not moved' : (HOSTS_READ ?? TODAY)}`);
+  console.log(`\nwrote ${pricingPath}: ${changes.length} row(s) changed (${changes.filter(c => c.dir === 'RAISED').length} raised, ${changes.filter(c => c.dir === 'LOWERED').length} lowered), ${hostEdits.length} ${cacheOnly ? 'row(s) given their cache prices' : 'host picture(s) written'}${noHosts.length ? ` (none for ${noHosts.length} row(s): no endpoints answer given)` : ''}, _openrouterCheckedAt ${hostsOnly ? 'not moved' : (HOSTS_READ ?? TODAY)}`);
 } else console.log(`\n(dry: ${changes.length} row(s) would change, ${hostEdits.length} host picture(s) would be written; pass --write)`);

@@ -55,7 +55,7 @@ export function recordRoundStageAndCheckClose(label, roundPanelCounts, criticsCo
 
 // panel-2-opus5.5-sub-reask1-retry -> panel-2-opus5.5-sub: the seat, whatever attempt this was.
 function baseSeatLabel(label) {
-  return String(label).replace(/(-(retry|answered|question|reask\d+))+$/, '');
+  return String(label).replace(/(-(retry|answered|question|reask\d+|solo))+$/, '');
 }
 function seatSetFor(roundPanelCounts, round) {
   const key = `seats:${round}`;

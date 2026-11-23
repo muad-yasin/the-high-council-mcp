@@ -13,13 +13,15 @@ import { describeFrontier, findPendingFrontier } from './tree-frontier.js';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { sha256Of } from './thin-contract.js';
+import { CONTINUE_WORDS, didNotSignOffPhrase, isFinalReadStopOf, finalReadContinueWords, finalReadMemberRecordedFinish } from './overseer-rounds.js';
+import { topLayerNotSignedFrom } from './layers.js';
+import { readRunJson } from './run-files.js';
+import { PARTIAL_REPORT_FILE } from './report-shape.js';
 import { TreeRefusal, appendTreeEvent, readTreeRecord, stateOf, treeDirOf, unreadableRecordRefusal } from './tree-record.js';
 import { lockHolder } from './run-lock.js';
 import { SITTING_LOCK_FILE } from './tree-run.js';
 import { DEAD_REASON, candidatesOf, claimAlive, deadKeys, isSupersededGeneration, liveMembersOf } from './tree-transitions.js';
 import { TREE_GATE_KINDS, askTreeGate, recordTreeUse, requestTreeGate } from './tree-gate.js';
-import { askForRecommendation } from './tree-advice-route.js';
-import { reconcileAdvice } from './tree-advice-record.js';
 import { CHANGE_EMPTY, CHANGE_WORDS, changeRequestRefusal, draftTextRefusal } from './tree-session-draft.js';
 import { MONEY_EPS, acceptAccounting, amendCap, capFactsOf, ceilCents, closeReturnOf, effectiveCapUsd, effectiveLimits, problemCover, startingCapUsd, budgetOf, bundleAllowanceBytesOf, chainFigures, gateTree, topUp, unreadableFloorOf } from './tree-budget.js';
 import { chooseNode, choiceRefusal, readConflictStopOfRun, remainingGrantOf, waitingForChoice } from './tree-choice.js';
@@ -170,13 +172,8 @@ function nodeOf(state, arg) {
   return mine[0] ?? null;
 }
 
+export const heldWordsOf = budget => `held for children ${money(budget.heldUsd)}`;
 /** The top-up form (PLAN 7.5): only a node STOPPED at its cap, an amount the root cap still has free. -> { refusal } | { text, expect, formName, apply }. Nothing is written here. */
-/** Money held for a paid recommendation request is not money held for children (ROADMAP 77): budget.advice carries it apart. B-DRAFT wording; with no request open the words are exactly what they always were. */
-const adviceHeldOf = budget => (budget.advice ?? []).reduce((n, a) => n + a.heldUsd, 0);
-export const heldWordsOf = budget => {
-  const advice = adviceHeldOf(budget);
-  return advice > MONEY_EPS ? `held for children ${money(Math.max(0, budget.heldUsd - advice))} and for a recommendation request ${money(advice)}` : `held for children ${money(budget.heldUsd)}`;
-};
 function buildTopUp({ rootDir, rootId, nodeArg, amountRaw, work, ceiling }) {
   const record = readTreeRecord(rootDir);
   { const unreadable = unreadableRecordRefusal(record); if (unreadable) return { refusal: unreadable }; }
@@ -274,8 +271,8 @@ ${effect}
 Where the money stands now:
   spent, or in flight at its bound: ${money(budget.treeSpentUsd)}
   held for a spend that cannot be read: ${money(budget.unknownSpendHeldUsd)}
-  granted and not yet spent: ${money(budget.heldUsd - adviceHeldOf(budget))}
-${adviceHeldOf(budget) > MONEY_EPS ? `  held for a recommendation request: ${money(adviceHeldOf(budget))} (${budget.advice.filter(a => a.heldUsd > 0).map(a => `request ${a.adviceId}: set aside ${money(a.grantUsd)}, spent ${money(a.spentUsd)}`).join('; ')})\n` : ''}  ${free}
+  granted and not yet spent: ${money(budget.heldUsd)}
+  ${free}
   committed in all: ${money(committedUsd)} (the lowest total this form accepts: ${money(floorUsd)})
 
 The nodes that hold money or wait for it:${open.length ? '' : ' none'}
@@ -301,7 +298,7 @@ const ROW_WORDS = Object.freeze({
   0: 'the tree adds nothing for it',
   1: 'settled and proven: the run\'s own record accounts for it',
   2: 'reserved and not settled: the run counts the worst case',
-  3: 'reserved with evidence of the call: the run counts it twice, the tree removes the double count',
+  3: 'reserved with evidence of the call: the run counts the call once, at the larger of the worst case and the evidence',
   4: 'known only to the mirror (the run\'s own file lacks it): the tree adds the worst case less any evidence',
   5: 'settled but not proven: the tree adds the worst case less any evidence',
 });
@@ -331,7 +328,7 @@ function buildAccounting({ rootDir, rootId, nodeArg }) {
       lines.push(`     the tree counts at least ${money(p.figure.figureUsd)} for it, built from ${p.figure.files.length} file${p.figure.files.length === 1 ? '' : 's'} beside the report: ${p.figure.files.map(f => `${f.name} (sha256 ${f.sha256.slice(0, 12)})`).join(', ')}`);
       return;
     }
-    for (const k of p.keys) { const r = rowOf(k); if (r) lines.push(`     reservation ${k}: PLAN 7.1 row ${r.row} (${ROW_WORDS[r.row] ?? 'see PLAN 7.1'}); worst case ${money(r.worstCaseUsd)}, evidence ${money(r.evidenceUsd)} (${r.evidenceCount} record${r.evidenceCount === 1 ? '' : 's'}), the tree adds ${money(r.addedUsd)} to its spend.`); }
+    for (const k of p.keys) { const r = rowOf(k); if (r) lines.push(`     reservation ${k}: PLAN 7.1 row ${r.row} (${ROW_WORDS[r.row] ?? 'see PLAN 7.1'}); worst case ${money(r.worstCaseUsd)}, evidence ${money(r.evidenceUsd)} (${r.evidenceCount} record${r.evidenceCount === 1 ? '' : 's'})${r.settledOnlyUsd > 0 ? `, the run already counts ${money(r.settledOnlyUsd)} for it` : ''}, the tree adds ${money(r.addedUsd)} to its spend.`); }
   });
   const text = `Accept the charges the accounting gate cannot prove for ${n.node}?   (generation ${n.generation}, run ${n.runId})
 The accounting gate stops every paid start and resume in this tree while it finds a problem. These are the problems it finds about ${key}, word for word:
@@ -552,7 +549,7 @@ function choiceVerb({ rootDir, rootId, choice, nodeArg, prevailText = null, fact
   const n = nodeOf(state, nodeArg);
   const waiting = waitingForChoice(state, runsDir, facts ?? {});
   if (!n) { err(`tree decide: ${flag} ${nodeArg}: no such node in this tree. ${waiting.length ? `Waiting for a choice: ${[...new Set(waiting)].join(', ')}.` : 'No node is waiting for a choice.'} Nothing was written.`); return 1; }
-  const refusal = choiceRefusal({ state, runsDir, node: n.node, generation: n.generation, facts, rootId, want });
+  const refusal = choiceRefusal({ state, runsDir, node: n.node, generation: n.generation, facts, rootId, want, choice });
   if (refusal) { err(`tree decide: ${flag} ${nodeArg}: ${refusal.reason}. ${waiting.length ? `Waiting for a choice: ${[...new Set(waiting)].join(', ')}. ` : ''}Nothing was written.`); return 1; }
   let picks = null;
   if (choice === 'prevail') {
@@ -567,15 +564,18 @@ function choiceVerb({ rootDir, rootId, choice, nodeArg, prevailText = null, fact
   catch (e) { if (e instanceof TreeRefusal) { err(`tree decide: ${e.message}. Nothing was written but the refusal.`); return 19; } throw e; }
   const key = `${n.node}@g${n.generation}`;
   const grant = remainingGrantOf(rootDir, { node: n.node, generation: n.generation });
-  const word = choice === 'prevail' ? `go on with your pick (${picks.map(p => `${p.n}=${p.prevail}`).join(', ')})` : choice === 'continue' ? 'continue (it extends the limit that was reached)' : 'finish: the dispute stage and the handoff run, and the result stays "not agreed"';
+  const frStop = (() => { const st = readRunJson(join(runsDir, n.runId), PARTIAL_REPORT_FILE)?.stop; return isFinalReadStopOf(st) ? st : null; })();   // 0.8.4 S16 (D; WORDING S16-w40): the final-read stop says what its choices do
+  const word = choice === 'prevail' ? `go on with your pick (${picks.map(p => `${p.n}=${p.prevail}`).join(', ')})` : choice === 'continue' ? `continue (${frStop ? finalReadContinueWords(frStop) : CONTINUE_WORDS})` : frStop ? finalReadMemberRecordedFinish(frStop) : 'finish: the dispute stage and the handoff run, and the result stays "not agreed"';
   out(res.already ? `${key} already has your choice for stop ${res.stop}: ${word}. Nothing was written.` : `Recorded: ${key} will ${word} when it is resumed (stop ${res.stop}${res.replaced ? `; this replaces your earlier choice, ${res.replaced}` : ''}). Nothing was started and nothing was spent.`);
+  // 0.8.4 L3, A-DRAFT (WORDING row L3-7): a finish is recorded BEFORE the run applies it, so the gate here is the recorded key; the claim is the shared core's, read from the member's partial report (stop + layers[], chain.js snap `layers`). Silent when either does not read.
+  if (choice === 'finish' && !frStop) { const partial = readRunJson(join(runsDir, n.runId), PARTIAL_REPORT_FILE); const hit = topLayerNotSignedFrom({ layers: partial?.layers, stop: partial?.stop }); if (hit) out(`${didNotSignOffPhrase(hit.layer)[0].toUpperCase()}${didNotSignOffPhrase(hit.layer).slice(1)}.`); }
   out(`Money: it continues under its own grant, ${money(grant.remainingUsd)} left${grant.spendUnknown ? ' (what it spent could not be read in full, so this figure may be high)' : ''}. It may stop at its budget cap; \`council tree decide ${rootId} --top-up ${n.node} --amount <usd>\` is the way on. No new typed limit.`);
   out(`Next: \`${memberResumeCommand({ treeId: rootId })}\` applies it.`);
   return 0;
 }
 
 /** The handler src/tree-cli.js calls for `decide`. Exit codes as `approve`: 0 recorded, 1 not confirmed or refused, 2 usage / not built / no terminal, 19 the tree refuses to record it. */
-export async function decideHandler({ rootDir, rootId, flags, work, stdin, stdout, stderr, now, facts, ceiling, env, adviceDeps = {}, recommend = askForRecommendation, skipDraft = false }) {
+export async function decideHandler({ rootDir, rootId, flags, work, stdin, stdout, stderr, now, facts, ceiling, env, skipDraft = false }) {
   const out = s => stdout.write(`${s}\n`); const err = s => stderr.write(`${s}\n`);
   const clock = now ? { now } : {};
   const chosen = chooseForm(flags);
@@ -583,8 +583,6 @@ export async function decideHandler({ rootDir, rootId, flags, work, stdin, stdou
   // ROADMAP 57: a final tree answers every form with its one sentence BEFORE anything is typed or asked (the stop forms would otherwise ask for a long decision text first)
   const finalFirst = finalSentenceOf(rootDir);
   if (finalFirst) { err(`tree decide: ${finalFirst} Nothing was asked and nothing was written.`); return 1; }
-  // BUG-C-059 (bug audit 24 Okt 2026): a recommendation request whose process is gone (a closed terminal, SIGHUP, a throw out of the send) stays registered with its call and keeps its grant held, and only a new request's admission released stale ones. A person who then typed their own decision had the gate approval SPENT and `apply` refused ("a recommendation request is still open"), on every rerun. It is released here, first, by the SAME reconcile admission uses: a request ends only when its wait ran out or its claim is dead AND every call's folder shows an end, so a paid call that is still running keeps its hold.
-  reconcileAdvice(rootDir, { facts });       // the real clock, not the injected one: the handler's clock reads are counted by tests (the apply's use is the 6th read), and in production they are the same clock
   if (chosen.form === 'continue-node' || chosen.form === 'finish-node' || chosen.form === 'prevail-node') return choiceVerb({ rootDir, rootId, choice: chosen.form === 'continue-node' ? 'continue' : chosen.form === 'finish-node' ? 'finish' : 'prevail', nodeArg: chosen.value, prevailText: flags.prevail, facts, now, out, err });
   let build; let draftUse = null;       // GAP A: the session's draft this run offers (set in the stop forms below)
   if (chosen.form === 'abandon') build = () => buildAbandon({ rootDir, rootId, facts });
@@ -623,9 +621,6 @@ export async function decideHandler({ rootDir, rootId, flags, work, stdin, stdou
       if (q.answer) { err(`tree decide: this changes what ${pre.node} provides: use the regenerate form (council tree decide ${rootId}). No gate was requested and nothing was written.`); return 1; }
       changesProvides = false;
     }
-    // ROADMAP 77: on a ROOT re-plan the person may first ask for a paid recommendation (src/tree-advice-route.js). The route has ended its request before it returns, so everything below is built on figures with no hold. It is dormant until the
-    // brief wording has the owner's yes (the production brief builder is held). The chosen recommendation is the decision text VERBATIM and goes through the scans below like any typed text.
-    let recommended = null;
     if (chosen.form === 'regenerate' && flags.obligation === undefined) {
       // GAP A (Muad 23 Okt 2026, option B): a draft the SESSION wrote for this root stop is shown in FULL in the gate below and approved by typing the stop id; a person who does not want it says no there and types their own (the same run). The same scans a typed text gets run first (the record is not trusted: a draft that fails them is not offered). With a draft waiting, the paid recommendation is not offered.
       const waiting = skipDraft ? null : waitingDraft({ rootDir, stopArg: flags.stop });
@@ -633,16 +628,11 @@ export async function decideHandler({ rootDir, rootId, flags, work, stdin, stdou
         const refused = draftTextRefusal({ rootDir, text: waiting.text, reason: waiting.reason });
         if (refused) err(`tree decide: the session's draft ${waiting.draftId} was not used: ${refused}. You can type your own decision.`);
         else draftUse = waiting;
-      } else if (!skipDraft) {       // a person who said no to the session's draft is not offered paid advice instead
-        const rec = await recommend({ rootDir, rootId, stopId: flags.stop, work, stdin, stdout, stderr, env, ...clock, sittingHeld: args.sittingHeld, deps: adviceDeps });
-        if (rec.interrupted) { err('tree decide: stopped; nothing was decided.'); return 130; }
-        if (rec.kind === 'recommended') recommended = rec;
       }
     }
-    const typedText = draftUse ? { text: draftUse.text } : recommended ? { text: recommended.text } : await readDecisionText({ stdin, stdout });
+    const typedText = draftUse ? { text: draftUse.text } : await readDecisionText({ stdin, stdout });
     if (typedText.error) { err(`tree decide: ${typedText.error}. No gate was requested and nothing was written.`); return 1; }
-    // A chosen RECOMMENDATION is not scanned (C&C ruling B of 20 Okt, from Muad's 19 Okt: no screening of shown text; the return path marks it untrusted). Typed text is scanned exactly as before.
-    if (!recommended && !draftUse) {
+    if (!draftUse) {
       // the typed text reaches every regenerated child's context.md (part 7) and nothing scanned it: the SAME all-shapes scan a run applies to its inputs, BEFORE the gate text is built or any event is appended; the pattern name and the line, never the value, and the text is not echoed
       const keyed = textSecretFindings(typedText.text, 'the decision text');
       if (keyed.length) { err(`tree decide: the decision text holds ${keyed.length} credential-shaped string(s), which a regenerated sub-plan would carry to every seat:\n${secretRefusalLines(keyed).join('\n')}\nA tree takes no override: change the text and run the command again. No gate was requested and nothing was written.`); return 1; }
@@ -655,7 +645,7 @@ export async function decideHandler({ rootDir, rootId, flags, work, stdin, stdou
         if (pii.blocked) { err(`tree decide: the decision text holds personal data under --pii-gate ${mode.mode}, which a regenerated sub-plan would carry:\n${pii.findings.map(f => `  ${f.where}, line ${f.line}, col ${f.column}: ${f.type}${f.type === 'secret' && f.pattern ? ` (${f.pattern})` : ''}`).join('\n')}\nA tree takes no allow-list: change the text and run the command again. No gate was requested and nothing was written.`); return 1; }
       }
     }
-    build = () => buildStopDecision({ ...args, rootId, decisionText: typedText.text, changesProvides, fromRecommendation: recommended?.fromRecommendation ?? null, fromSessionDraft: draftUse ? { draftId: draftUse.draftId } : null });
+    build = () => buildStopDecision({ ...args, rootId, decisionText: typedText.text, changesProvides, fromSessionDraft: draftUse ? { draftId: draftUse.draftId } : null });
   }
   else { err(`council tree decide ${chosen.form}: not built`); return 2; }
 
@@ -682,7 +672,7 @@ export async function decideHandler({ rootDir, rootId, flags, work, stdin, stdou
       return 0;
     }
     out('Type your own decision.');
-    return decideHandler({ rootDir, rootId, flags, work, stdin, stdout, stderr, now, facts, ceiling, env, adviceDeps, recommend, skipDraft: true });
+    return decideHandler({ rootDir, rootId, flags, work, stdin, stdout, stderr, now, facts, ceiling, env, skipDraft: true });
   }
   if (code !== 0) return code;
 

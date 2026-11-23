@@ -1,6 +1,6 @@
 // Every MCP tool answers well inside a client's tool-call timeout (0.8.0 B7; wave-4 briefs 16 and 22).
-// The agents THC is used from give a call anywhere from 60 s (Cursor's CLI path, dsh, Zed's default) to
-// 300 s (Codex, Hermes, goose) and some gave up on a new server after a few seconds; a tool that
+// The agents THC is used from give a call anywhere from 30 s (the smallest documented limit; docs/mcp-clients.md "The hold") through
+// 60 s (Cursor's CLI path, dsh, Zed's default) to 300 s (Codex, Hermes, goose) and some gave up on a new server after a few seconds; a tool that
 // blocks (the run itself is a detached child, so none should) would look like a hung council. This
 // runs one real server over stdio through a full mock run - write_task, start_run to an external
 // pause, external_prompt, submit_stage, resume - and times every call. Offline, $0.
@@ -16,10 +16,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeLocked } from '../scripts/contract-fixtures.mjs';
+import { malformedProviderKeys } from './helpers/no-real-keys.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
-const BUDGET_MS = 15_000; // a quarter of the shortest client timeout we know of (60 s)
+const BUDGET_MS = 15_000; // half of the smallest documented client limit (30 s, docs/mcp-clients.md "The hold"), a quarter of the next one (60 s)
 
 // The detached children the server spawned for the runs in `dir`: it writes `.spawn.json` ({ pid }) into the run folder at every spawn it makes (src/run-status.js SPAWN_FILE), and nothing else is read, so a fixture's pid in some run.json is never waited for.
 function childrenIn(dir) {
@@ -41,8 +42,8 @@ async function waitForChildren(children, ms = 30_000) {
 }
 
 function client(cwd, extraEnv = {}) {
-  // COUNCIL_ADVISE_MOCK: the add-on's tools run their mock advice chains (offline, $0).
-  const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_ADVISE_MOCK: '1', COUNCIL_ADVISE_COOLDOWN_MS: '0', ...extraEnv } });
+  // 0.8.4 (the add-on removal): the advice tools and the mock-advice switch (COUNCIL_ADVISE_MOCK) are gone. The server gets malformed provider keys FIRST (so no tool of this test can reach a paid provider), then the test's own env.
+  const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys(), ...extraEnv } });
   const waiting = new Map();
   let buf = '';
   child.stdout.on('data', d => {
@@ -51,8 +52,7 @@ function client(cwd, extraEnv = {}) {
     while ((nl = buf.indexOf('\n')) !== -1) {
       const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
       let m; try { m = JSON.parse(line); } catch { continue; /* not JSON-RPC */ }
-      // A request from the server: the only one is council_advise's elicitation, answered the way a
-      // person who read the text and pressed "send" would.
+      // A request from the server (an elicitation), answered the way a person who pressed "send" would.
       if (m.method && m.id !== undefined) {
         child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result: m.method === 'elicitation/create' ? { action: 'accept', content: { send: true } } : {} }) + '\n');
       } else if (m.id !== undefined && waiting.has(m.id)) { waiting.get(m.id)(m); waiting.delete(m.id); }
@@ -76,12 +76,11 @@ function client(cwd, extraEnv = {}) {
       const m = await send('tools/call', { name, arguments: args });
       const ms = performance.now() - t0;
       let body = null;
-      // The add-on's tools answer in prose plus structuredContent; every older tool answers in JSON text.
+      // A tool may answer in prose plus structuredContent; the older tools answer in JSON text.
       try { body = JSON.parse(m.result.content.find(c => c.type === 'text').text); } catch { body = m.result?.structuredContent ?? m.result?.content?.[0]?.text ?? null; }
       return { ms, body };
     },
-    // Resolves when the SERVER has exited, not when it was told to: on stdin end, SIGTERM and exit the server writes a client-cancel STOP request into every advice run it started that has no report.json yet (src/mcp/advice.js leave() -> stopRun), so a
-    // test that removes its folder right after telling it to stop races that write (the ENOTEMPTY of the full-load box suite, test 1452 of the d43afe72 run).
+    // Resolves when the SERVER has exited, not when it was told to (0.8.4: the advice runs' client-cancel STOP writer of this exit is gone with the advice tools, the wait stays as the folder is removed right after).
     // Bounded like waitForChildren: a server that does not exit is a finding (named, and killed: it is this test's own spawn), never a hang of the whole file.
     stop: (ms = 10_000) => new Promise((done, fail) => {
       if (child.exitCode !== null || child.signalCode !== null) return done();
@@ -147,22 +146,6 @@ test('every MCP tool answers within the budget through a whole mock run, and eve
     await step('verdict_stats', {});
     await step('metrics_report', {});
 
-    // The add-on (0.8.1 M1, S1): a quote, a send the person approves through the elicitation dialog, and
-    // run_status holding for a change. Each hold is 1 s, far inside the budget.
-    const brief = {
-      schema_version: 'advice-brief/1', moment: 'before_commit',
-      question: 'Should the note list keep ticked items or remove them?',
-      decision_at_stake: 'Removing them loses the history; keeping them clutters the list.',
-      options_considered: [{ name: 'Keep', summary: 'Grey them out at the bottom.' }, { name: 'Remove', summary: 'Delete on tick.' }],
-      tried: [{ what: 'Asked two users', result: 'They disagreed.' }],
-      sensitivity: 'public', not_included: ['the conversation'],
-    };
-    const quote = await step('council_quote', { brief, mode: 'single' });
-    assert.ok(quote.quote_id, JSON.stringify(quote));
-    const advised = await step('council_advise', { quote_id: quote.quote_id, confirm_sha256: quote.text.sha256, wait_seconds: 1 });
-    assert.ok(advised.run, JSON.stringify(advised));
-    await step('run_status', { run: advised.run, wait_seconds: 1 });
-
     // The contract tools (0.8.2 item 6d): a run folder that holds a locked contract (made by the real contract code), then a read and a request. Both are $0 and local.
     writeLocked(join(dir, 'runs', 'lat-contract'));
     const read = await step('contract_read', { run: 'lat-contract' });
@@ -174,60 +157,36 @@ test('every MCP tool answers within the budget through a whole mock run, and eve
     const notRoot = await step('tree_status', { run });
     assert.match(notRoot.error, /not the root of a recursive-councils tree/, JSON.stringify(notRoot));
 
+    // 0.8.4 (the reply-repair tool): repair_reply for a stage that waits for no repair answers with a plain refusal and writes nothing, which is still a measured call.
+    const notRepair = await step('repair_reply', { run, stage: prompt.stage, decline: true });
+    assert.match(notRepair.error ?? '', /is not waiting for a repair of/, JSON.stringify(notRepair));
+
     // 0.8.3: tree_decide (a run that is not a tree root answers with a plain refusal) and price_raise (a run that no price refusal stopped answers with a plain refusal): each a measured call. tree_decide had no step here before (found red at the integration tip, disclosed).
     const notTree = await step('tree_decide', { run, step: 'quote', form: 'keep', reason: 'latency fixture' });
     assert.ok(notTree.refusal || notTree.error, JSON.stringify(notTree));       // a plain refusal of tree_decide for a run that is no tree root (its exact words are pinned by the tree tests)
     const notStopped = await step('price_raise', { run, step: 'quote' });
     assert.match(notStopped.refusal ?? notStopped.error ?? '', /not stopped by a price refusal|no such run|still running/, JSON.stringify(notStopped));
+    // 0.8.4 D5a: stop_decide for a run that is not stopped at a choice answers with a plain refusal and writes nothing, which is still a measured call (CHANGED ACCEPTED TEST: OLD no step for it, NEW one; WHY every registered tool must be exercised).
+    const notChoice = await step('stop_decide', { run, step: 'quote' });
+    assert.match(notChoice.error ?? '', /not stopped at a choice|the stop cannot be read|no such run/i, JSON.stringify(notChoice));
+
+    // 0.8.4 16c-MCP (EDITED, disclosed; OLD: no pause_run step, NEW: one; WHY: this test fails on a tool with no step): pause_run with neither person_words nor reason answers with a plain refusal and writes nothing, which is still a measured call (and cannot pause the live run of this fixture).
+    const noWords = await step('pause_run', { run });
+    assert.match(noWords.error ?? '', /needs person_words/, JSON.stringify(noWords));
 
     const untested = tools.filter(t => !timings.some(x => x.name === t));
     assert.deepEqual(untested, [], `a tool with no latency fixture: add a step to this test (${untested.join(', ')})`);
     const slowest = timings.reduce((a, b) => (b.ms > a.ms ? b : a));
     assert.ok(slowest.ms < BUDGET_MS, `slowest call ${slowest.name} ${slowest.ms} ms`);
-    // The cleanup below waits for exactly the children the server recorded: a wait that finds none passes as before the fix, so name them (the resumed run and the advice call; a start_run child makes its own folder after the spawn and is not recorded by the server).
+    // The cleanup below waits for exactly the children the server recorded: a wait that finds none passes as before the fix, so name it (the resumed run; a start_run child makes its own folder after the spawn and is not recorded by the server).
+    // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD the recorded children had to include the resumed run AND the advice call (advised.run). NEW only the resumed run. WHY the advice call is no longer part of this test (council_quote / council_advise are not registered).
     const waited = childrenIn(dir).map(k => k.run);
-    assert.ok(waited.includes(run) && waited.includes(advised.run), `the cleanup waits for the resumed run and the advice call, it found: ${JSON.stringify(waited)}`);
+    assert.ok(waited.includes(run), `the cleanup waits for the resumed run, it found: ${JSON.stringify(waited)}`);
     bodyPassed = true;
   } finally {
     await c.stop();
-    // The resumed run's child (and the advice call's) may still be finishing its last write: wait for every detached child to exit BEFORE removing the folder it writes into (it raced the removal as ENOTEMPTY under a 16-job box suite, 14 Oct 2026); the retry stays as a second line.
+    // The resumed run's child may still be finishing its last write: wait for every detached child to exit BEFORE removing the folder it writes into (it raced the removal as ENOTEMPTY under a 16-job box suite, 14 Oct 2026); the retry stays as a second line.
     // A child that never ends is a finding, but it must not replace the failure of the body that is already being thrown.
-    try { await waitForChildren(childrenIn(dir)); } catch (e) { if (bodyPassed) throw e; console.error(`cleanup: ${e.message}`); }
-    try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch (e) { if (bodyPassed) throw e; }
-  }
-});
-
-test('stop() resolves only once the server has exited, and by then it has written its client-cancel STOP request into an advice run that has no report.json (the writer the cleanup raced)', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'thc-latency-leave-'));
-  const hold = join(dir, 'release-the-advice-call');
-  const c = client(dir, { COUNCIL_MOCK_HOLD_FILE: hold });
-  let bodyPassed = false;
-  try {
-    await c.init();
-    const brief = {
-      schema_version: 'advice-brief/1', moment: 'before_commit',
-      question: 'Should the note list keep ticked items or remove them?',
-      decision_at_stake: 'Removing them loses the history; keeping them clutters the list.',
-      options_considered: [{ name: 'Keep', summary: 'Grey them out at the bottom.' }, { name: 'Remove', summary: 'Delete on tick.' }],
-      tried: [{ what: 'Asked two users', result: 'They disagreed.' }],
-      sensitivity: 'public', not_included: ['the conversation'],
-    };
-    const quote = (await c.call('council_quote', { brief, mode: 'single' })).body;
-    assert.ok(quote.quote_id, JSON.stringify(quote));
-    // the mock call is HELD in flight (the hold file does not exist yet), so the advice run has no report.json when the server is told to stop
-    const advised = (await c.call('council_advise', { quote_id: quote.quote_id, confirm_sha256: quote.text.sha256, wait_seconds: 0 })).body;
-    assert.ok(advised.run, JSON.stringify(advised));
-    const folder = join(dir, 'runs', advised.run);
-    assert.equal(existsSync(join(folder, 'report.json')), false, 'control: the advice run is still going');
-    assert.equal(existsSync(join(folder, 'STOP')), false, 'control: nobody has asked it to stop yet');
-    await c.stop();
-    assert.equal(existsSync(join(folder, 'report.json')), false, 'the hold held: the advice run was still going when the server exited');
-    assert.equal(existsSync(join(folder, 'STOP')), true, 'once stop() has resolved the server has exited, and its exit handler has written the STOP request');
-    assert.equal(JSON.parse(readFileSync(join(folder, 'STOP'), 'utf8')).by, 'client_cancel');
-    bodyPassed = true;
-  } finally {
-    await c.stop();
-    writeFileSync(hold, '');   // release the held call so the advice child ends
     try { await waitForChildren(childrenIn(dir)); } catch (e) { if (bodyPassed) throw e; console.error(`cleanup: ${e.message}`); }
     try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch (e) { if (bodyPassed) throw e; }
   }

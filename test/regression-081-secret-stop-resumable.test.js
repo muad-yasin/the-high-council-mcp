@@ -27,7 +27,9 @@ test('FX-8: a key-shaped stop reads resumable with the cause to fix (secret_bloc
   writeFileSync(join(runDir, `${pending}.md`), `# Plan\n\nUse ${KEY} here.\n`);
   assert.equal(run(dir, ['--resume', join('runs', id)]).status, 11);
   const s = runResumability(runDir, JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')));
-  assert.deepEqual([s.resumable, s.reason, s.needs], [true, 'secret_blocked', 'fix_cause']);
+  // CHANGED ACCEPTED (0.8.4, the found-secret pause; Muad 8 Nov 2026; C&C's scope word). OLD bar: [true, 'secret_blocked', 'fix_cause'] (an error word: "fix the cause"). NEW bar: a run paused by this build
+  // reads [true, 'paused_secret', 'person_choice'] (waiting for the person); a folder from an earlier build (no secret-stop.json) keeps the old reading, driven in test/secret-pause.test.js SP-4.
+  assert.deepEqual([s.resumable, s.reason, s.needs], [true, 'paused_secret', 'person_choice']);
   // The proof that "not resumable" would have been wrong: the resume the stop file names goes through.
   assert.notEqual(run(dir, ['--resume', join('runs', id), '--allow-secret-shaped']).status, 11);
 });

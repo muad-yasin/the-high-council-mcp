@@ -1,4 +1,4 @@
-// The invariant behind "the smallest total that gets past this stop" (S5-05). A run stopped by the spend gate at stage S names a total (the printed resume command and run_status.suggestedMaxUsd, one figure). Resuming at that total must
+// The invariant behind "the smallest total that lets the next call to a model be sent" (S5-05). A run stopped by the spend gate at stage S names a total (the printed resume command and run_status.suggestedMaxUsd, one figure). Resuming at that total must
 // SEND stage S (it does not stop at S again), and resuming at one cent less must stop at S again (the figure is the smallest, not a padded one). The gate decides on the call's EXPECTED cost, so the figure is the spend the resume starts
 // from plus the figure the gate decided on: for a planned call its expected cost; for the stop that REFUSED A THINKING RETRY the whole call's worst case, because that stop leaves no stage file and the resume re-runs the stage from its
 // first attempt (premise checked below). Real CLI, a loopback stub, $0: an OpenRouter seat on a local server. The stub either answers with a valid criteria list or cuts every reply off by thinking.
@@ -59,7 +59,8 @@ async function rig({ anthropic, answer }) {
     const status = runResumability(runDir, JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')));
     // the printed command and its sentence are in the stop's detail file (the console shows the path)
     const detail = readFileSync(join(runDir, 'STOPPED-budget.md'), 'utf8');
-    const printed = Number((detail.match(/the smallest total that gets past this stop is \$([0-9]+\.[0-9]+)/) ?? [])[1]);
+    // CHANGED ACCEPTED (0.8.4, commit 3 of the 5xx fix-up, C&C's (B) of R244). OLD: the stop sentence read "the smallest [total] that gets past this stop is $X". NEW: "the smallest total that lets the next call to a model be sent is $X". WHY: a counted 5xx can stop the call again at its re-send, so "gets past this stop" could be false; the figure is the total at which the NEXT call is sent, and the text now says only that.
+    const printed = Number((detail.match(/the smallest total that lets the next call to a model be sent is \$([0-9]+\.[0-9]+)/) ?? [])[1]);
     assert.equal(printed, status.suggestedMaxUsd, `the printed figure ${printed} and run_status ${status.suggestedMaxUsd} are one figure`);
     return status.suggestedMaxUsd;
   };
@@ -125,8 +126,8 @@ test('a stop that REFUSED a thinking retry: one cent under its figure stops at t
 // first call is in flight when the second is refused.
 const verdict = () => ({ model: 'anthropic/claude-opus-5', choices: [{ message: { content: JSON.stringify({ meets: true, criteria: [{ criterion: 'It exists.', verdict: 'MET', evidence: 'Checked.' }], failures: [], verdict_line: 'Pass.' }) }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 30 } });
 async function rigTwo() {
-  let requests = 0;
-  const srv = http.createServer((req, res) => { req.resume(); req.on('end', () => { requests += 1; setTimeout(() => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(verdict())); }, 600); }); });
+  let requests = 0; const bodies = [];
+  const srv = http.createServer((req, res) => { let raw = ''; req.on('data', d => { raw += d; }); req.on('end', () => { requests += 1; try { bodies.push(JSON.parse(raw)); } catch { bodies.push(null); } setTimeout(() => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(verdict())); }, 600); }); });
   await new Promise(r => srv.listen(0, '127.0.0.1', r)); srv.unref();
   const work = mkdtempSync(join(tmpdir(), 'thc-stop-two-')); mkdirSync(join(work, 'tasks')); mkdirSync(join(work, 'chains'));
   writeFileSync(join(work, 'tasks', 'x.md'), 'Plan a tiny change.\n');
@@ -135,15 +136,26 @@ async function rigTwo() {
   const env = { PATH: process.env.PATH, HOME: work, OPENROUTER_API_KEY: `sk-or-v1-${'e'.repeat(40)}`, COUNCIL_ALLOW_LOOPBACK_KEY_HOST: '1' };
   const go = args => new Promise(resolve => { const c = spawn(process.execPath, [cli, ...args], { cwd: work, env }); let out = ''; c.stdout.on('data', d => { out += d; }); c.stderr.on('data', d => { out += d; }); c.on('exit', code => resolve({ code, out })); });
   const runDir = join(work, 'runs', ID);
-  return { srv, runDir, go, requests: () => requests, seat: critic('lab-a') };
+  return { srv, runDir, go, requests: () => requests, bodies: () => bodies, seat: critic('lab-a') };
 }
 
 test('two paid seats in flight: the second is refused while the first is answered; the record\'s spend equals the resume\'s starting spend, and the suggested total is exact', async () => {
   const t = await rigTwo();
   try {
-    // above one review's expected cost, below two: the first is admitted, the second refused while the first is in flight (Efloor: an empty prompt, a lower bound of a real review's expected cost)
-    const Efloor = expectedCallUsd(t.seat, { system: '', user: '', label: 'panel-1-lab-a' });
-    const cap = Math.ceil(Efloor * 1.5 * 10000) / 10000;
+    // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: cap = 1.5 x the expected cost of an EMPTY prompt (Efloor, a lower bound of a review's cost). NEW: cap = 1.5 x the expected cost of the largest of the two REAL reviews, measured from the requests a priming run of the same chain sends. WHY: the recorded wording made a real review's prompt larger (the critic system text 3888 -> 4989 characters), so one review's expected cost went from 1.45 x Efloor to 1.56 x Efloor and the first review no longer fitted under 1.5 x Efloor (the run stopped at once with no request sent). The bar is unchanged: above each review's expected cost, below the two together.
+    const prime = await rigTwo();
+    let Ea; let Eb;
+    try {
+      assert.equal((await prime.go(['--chain', 'q', '--task', 'tasks/x.md', '--run-id', ID])).code, 21, 'the priming run stops for the typed limit as the real one does');
+      typeCap(prime.runDir, '50');
+      await prime.go(['--resume', prime.runDir]);   // its exit code does not matter here: the stub's replies carry no reply identity, so the run goes on to re-ask; only the first review of each seat is read
+      const reviews = prime.bodies().filter(b => b && Array.isArray(b.messages)).slice(0, 2);
+      assert.equal(reviews.length, 2, 'the priming run sent the two first reviews');
+      const text = (b, role) => b.messages.filter(m => m.role === role).map(m => (typeof m.content === 'string' ? m.content : '')).join('\n');
+      [Ea, Eb] = reviews.map(b => expectedCallUsd(t.seat, { system: text(b, 'system'), user: text(b, 'user'), label: 'panel-1-lab-a' }));
+    } finally { prime.srv.close(); }
+    const cap = Math.ceil(Math.max(Ea, Eb) * 1.5 * 10000) / 10000;
+    assert.ok(cap >= Math.max(Ea, Eb) && cap < Ea + Eb, `premise: the cap ${cap} is above each review's expected cost (${Ea}, ${Eb}) and below the two together`);
     const first = await t.go(['--chain', 'q', '--task', 'tasks/x.md', '--run-id', ID]); assert.equal(first.code, 21, first.out);
     typeCap(t.runDir, String(cap));
     const stop = await t.go(['--resume', t.runDir]);

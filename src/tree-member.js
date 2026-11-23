@@ -18,7 +18,7 @@ import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parseMilestones } from './milestones.js';
 import { bodyOfDelivered } from './tree-split.js';
-import { writeAtomic } from './stop-files.js';
+import { writeAtomic, ROUND_STOP_CAUSES, stoppedFileOf } from './stop-files.js';
 import { TreeRefusal, appendTreeEvent, appendTreeEventLocked, readTreeRecord, stateOf, withTreeLock } from './tree-record.js';
 import { treePiiAllowFrom, treePiiModeFrom } from './tree-pii-mode.js';
 import { nodeKey } from './tree-identity.js';
@@ -27,6 +27,7 @@ import { MONEY_EPS, accountingAcceptLines, budgetOf, gateTree, lifetimeCapOf, re
 import { abandonCommand, topUpWayOn } from './tree-ways-on.js';
 import { memberCeilingRefusal } from './tree-ceiling.js';
 import { bundleIdentityRefusal, continuationRefusal, deadRefusal, parentChangedEvent, rebuildDueRefusal, wayOutOf } from './tree-continuation.js';
+import { agreedOf } from './ending-matrix.js';   // 0.8.4 D1: the matrix's agreed reading, the one every reader of 'did the run end agreed' shares
 
 /** The fields of the lineage file and of run.json's `tree` field (PLAN 4.4, 10.4). Only the first four are required; the others are filled by the milestones that compute them (M3 the split hash, M4 the bundle hash). */
 export const TREE_FIELDS = Object.freeze(['treeId', 'node', 'generation', 'attempt', 'parentNode', 'depth', 'splitSha256', 'bundleSha256']);
@@ -248,7 +249,7 @@ function closedPartsOf(runDir) {
   let report = null;
   try { report = JSON.parse(readFileSync(join(runDir, 'report.json'), 'utf8')); } catch { return null; }
   const status = handoffStatusOf(runDir);
-  const passed = report?.passed === true;
+  const passed = agreedOf(report);   // 0.8.4 D1 (C&C 09 Nov 2026): the matrix's agreed reading, not `passed` alone: a signed-off run whose final read objected is not passed here
   // M4 (C&C): the run's thin-contract sha256 is pinned on the closing event, so a consumer's derivation (src/tree-derive-load.js) can tell a provider's plan that was re-sealed after the fact (PLAN 6.4 item 3).
   const thin = report?.thin_contract?.sha256;
   // Astra #13 (root piece; C&C 14 Oct 2026): the sha256 of the DELIVERED BODY is recorded on the closing event, and only when deliverable.md really hashes to it NOW (the check readNodePlan makes), so a later sitting can compare a repaired plan file against
@@ -295,7 +296,7 @@ export function runEndOf(runDir) {
   }
   if (existsSync(join(runDir, 'STOPPED-budget.json'))) return { kind: 'stopped' };
   // round semantics 2b: a layered member that stopped at its overseer limit (exit 23) ended CLEANLY and waits for the person's choice. It is NOT a budget stop (recovery must write no node_stopped / budget for it, and no top-up can help) and NOT an interrupted run (a sitting must not resume it): its own kind, which `tree decide --close` still accepts (tree-close.js).
-  if (['STOPPED-overseer_cap.json', 'STOPPED-layer_bound.json'].some(f => existsSync(join(runDir, f)))) return { kind: 'round_stopped' };
+  if (ROUND_STOP_CAUSES.map(stoppedFileOf).some(f => existsSync(join(runDir, f)))) return { kind: 'round_stopped' };   // the file names come from the one list of round-stop causes (0.8.4 S5 added stall_stop)
   // member verb (conflict ask, 19 Okt 2026): a member the conflict decider stopped for the person's choice (exit 25) ended cleanly and waits, like a round stop; the choice itself is a different one (src/tree-choice.js)
   if (existsSync(join(runDir, 'STOPPED-conflict.json'))) return { kind: 'conflict_stopped' };
   return null;

@@ -17,14 +17,13 @@
 //   from the real environment or the Desktop field, never from a project .env (env-file NEVER_FROM_ENV_FILE: the notice names it and it is ignored), as for
 //   the other operator-only settings; .env.example and the AI-README list name it.
 // THE SWITCH AT THE START (unit 2; C&C's ruling 4: read at the start FIRST). src/cli.js reads it once, right after a project .env is applied and before any
-//   command runs; every paid path passes there (the MCP server, the JS API, tree members, advice adopt and the http server all spawn src/cli.js). A
+//   command runs; every paid path passes there (the MCP server, the JS API, tree members and the http server all spawn src/cli.js). A
 //   command that may spend (commandMaySpend below; FAIL CLOSED: what is not listed as spending nothing may spend) is refused, exit 2, before anything is
 //   written, while the switch cannot be read, and, UNTIL THE CAPS ARE ARMED, while it is on (capsNotArmedSentence, A-DRAFT, temporary: the arming unit
 //   removes it). A command that spends nothing runs as before. Over-refusal by design: a usage error on a spending path (`--chain x` with no task,
 //   `--resume x --help`, an unknown first word) gets the switch's sentence instead of its own while the switch is on or unreadable.
 // A DRY RUN IS NEVER REFUSED BY THE SWITCH (C&C's fix-up of unit 2, 1 Nov 2026: B3's re-pin is a dry run with the switch set): exactly the token `--dry-run`, on
-//   a command that takes it, prices and calls nothing (`--advice-adopt` takes none, so beside it the token is no dry run: NO_DRY_RUN_MARKERS below, C&C's
-//   fix-up 2, 1 Nov 2026). Until the arming unit a dry run with the switch on prints today's single-cap figures; from unit 4 the
+//   a command that takes it, prices and calls nothing. Until the arming unit a dry run with the switch on prints today's single-cap figures; from unit 4 the
 //   typed-limit and option-B start refusals skip a dry run too, and it prints the per-cap figures (C&C). RULED (C&C's Q1b, 1 Nov 2026): a dry run with the switch
 //   on, of a command or chain a real start would refuse (a refused class, an uncovered seat), REPORTS that refusal the way it reports unpriced seats today and
 //   calls nothing, never exit 2 for the refusal itself: the exception is "a dry run calls nothing", never "the switch ignores dry runs".
@@ -50,7 +49,7 @@
 //   so its suggestion half is moot with the switch ON); unchanged for a chain with none. policy.json max_usd_per_run / max_usd_per_month: unchanged (they
 //   compare the dry run's whole-run expected figure; an operator policy, not a cap a person types).
 // PATHS WITH THE SWITCH ON. Trees (council tree start, a member's --tree-node start, council tree resume): REFUSED before anything is sent (C&C, 1 Nov
-//   2026; a README Known-limits line, A-DRAFT; "trees under per-cap mode" is an open 0.8.4 item). The advice add-on (--advice-adopt) and the paid side
+//   2026; a README Known-limits line, A-DRAFT; "trees under per-cap mode" is an open 0.8.4 item). The paid side
 //   commands (post-run handoff, contract draft, digest, rematch, replay) are REFUSED the same way (C&C's ruling 3, after the check that B3's handler path
 //   uses none of them), one Known-limits line each, open 0.8.4 items. These refusals land behind the not-armed refusal, before the arming lifts it.
 // IN-PROCESS (the shape pinned in unit 1, built in unit 4a; the CACHE lane rebases on it; the buckets live in chain.js `capBuckets`, beside `budget`, so budgetState()
@@ -68,7 +67,7 @@
 //                         capName (the cap that stopped), capSpentUsd (that cap's RECORDED spend), capAssumedUsd (that cap's worst case for replayed stages
 //                         with no figure; omitted when 0). capUsd = that cap's limit (finite, so cli.js historyOfRun still opens the raise screen); spentUsd
 //                         = the run's recorded total, as before; projectedStageUsd and gateStageUsd keep their per-call meaning. The stopped cap's floor =
-//                         capSpentUsd + capAssumedUsd, and its suggested total = resumeCeilingUsd({ cap: capUsd, spent: that floor, projected:
+//                         capSpentUsd + capAssumedUsd, and its smallest total for the next call to a model to be sent = resumeCeilingUsd({ cap: capUsd, spent: that floor, projected:
 //                         projectedStageUsd, gate: gateStageUsd }).
 //   BudgetExceeded        capName, beside the base's gate and retryRefused; cap = that cap's limit; spent = that cap's COUNTED spend (assumed included), also
 //                         after the settle-after-siblings fix-up (both stop writers read that cap's bucket, never the run total); its message names the cap
@@ -104,6 +103,14 @@ export const CAP_CEILING_NAMES = Object.freeze(BILLING_CAP_IDS.map(capCeilingNam
 // The one billing predicate (it lived in src/start-scope.js; chainIsPaid reads it from here): a seat bills when its provider is not mock, not external (a person or
 // another session answers) and not a free local provider. A mock seat with mockBills is still not a paid seat: the declaration only places an offline seat in a cap.
 export const isPaidSeat = seat => !!seat && seat.provider !== 'mock' && seat.provider !== 'external' && !isFreeProvider(seat.provider);
+
+/**
+ * The cap a RECORDED figure counts in: the one its own stage record names (`capName`, written with the caps armed) when it is a billing cap id, else none (the figure counts in the run total only). The ONE rule: invoke()'s replay
+ * (src/chain.js replayCapOf) and the limit screen's per-limit figure (src/stale-stages.js) both read it. Where a record names none, two readers fall back differently and the screen counts it in no limit: replayCapOf counts it in the cap of the
+ * CURRENT seat's account, and cli.js (superseded stages, countEarlierSpend) counts it in the run total only. That can only be a step that bills through no cap (a mock, external or free seat), or a record written with the switch off, which a resume
+ * under armed caps refuses (capsResumeVerdict: an OFF-to-ON flip of a run that holds maxUsd, and a run whose limits are not on record, are refused), so the figures agree for every step that bills.
+ */
+export const recordedCapOf = record => (BILLING_CAP_IDS.includes(record?.capName) ? record.capName : null);
 
 /** The account a seat's calls are billed through: seat.provider for a seat that bills, a mock seat's valid mockBills, else null (free). Read on the resolved roster. */
 export function billingAccountOf(seat) {
@@ -156,13 +163,13 @@ export function parseCapsSetting(raw) {
 // WHICH COMMANDS MAY SPEND (unit 2: the switch's check at the start of src/cli.js). FAIL CLOSED: a command runs while the switch is unreadable or on but not
 // armed only when it is listed here as spending nothing. Every subcommand of src/cli.js (its SUBCOMMANDS) is in exactly one list, and every verb of
 // `council tree` is classified (test/caps-switch-commands.test.js reads both from the source, so a new one forces a decision).
-export const NON_SPENDING_SUBCOMMANDS = Object.freeze(['--version', '-v', 'advise-rate', 'check-lock', 'demo', 'doctor', 'export-board', 'fence', 'gate', 'init', 'lint-criteria', 'relay-answer', 'replay', 'ruling-add', 'retag-add', 'ruling-withdraw', 'stop', 'verify-handoff']);
+export const NON_SPENDING_SUBCOMMANDS = Object.freeze(['--version', '-v', 'accept', 'check-lock', 'demo', 'doctor', 'export-board', 'fence', 'gate', 'init', 'lint-criteria', 'pause', 'relay-answer', 'replay', 'ruling-add', 'retag-add', 'note-add', 'summary-add', 'ruling-withdraw', 'route-decide', 'refresh-zdr-list', 'verify-handoff']);
 export const SPENDING_SUBCOMMANDS = Object.freeze(['digest', 'handoff']);
 // Subcommands decided by their verb: these verbs spend nothing (a gated record, a read, a stop); any other verb of the two, a new one included, may spend.
 export const NON_SPENDING_VERBS = Object.freeze({ tree: Object.freeze(['approve', 'check', 'decide', 'status', 'stop']), contract: Object.freeze(['amend', 'check', 'lock', 'show']) });
-// The main path (no subcommand): a run marker means a start, a resume, a rematch, a replay or an adopted advice call, whatever else is on the line (the rematch and
+// The main path (no subcommand): a run marker means a start, a resume, a rematch, or a replay, whatever else is on the line (the rematch and
 // replay blocks run before the report blocks); without one, a report, the MCP server (each run it starts checks the switch itself) or the usage print spends nothing.
-const RUN_MARKERS = Object.freeze(['--task', '--resume', '--rematch', '--replay', '--advice-adopt']);
+const RUN_MARKERS = Object.freeze(['--task', '--resume', '--rematch', '--replay']);
 const NO_RUN_MODES = Object.freeze(['--spend', '--cost-today', '--stats', '--metrics', '--forecast-cost', '--mcp', '--help', '-h']);
 const flagNameOf = a => (typeof a === 'string' && a.startsWith('--') ? a.split('=')[0] : a);   // `--task=x` is `--task` (the CLI reads both forms)
 // A dry run spends nothing (C&C's fix-up, 1 Nov 2026). The token is EXACTLY `--dry-run` on the raw arguments, the CLI's own test (`argv.includes('--dry-run')`
@@ -171,9 +178,6 @@ const flagNameOf = a => (typeof a === 'string' && a.startsWith('--') ? a.split('
 // sideDryRun), by handoff and digest (sideDryRun), and by these verbs; any other verb with the token keeps its rule (`tree resume` takes no --dry-run).
 const DRY_RUN = '--dry-run';
 const DRY_RUN_VERBS = Object.freeze({ contract: Object.freeze(['draft']), tree: Object.freeze(['start']) });
-// Fix-up 2 (C&C, 1 Nov 2026): a run marker that takes no --dry-run is never a dry run. The adopt path admits only --advice-adopt, --max-usd, --chain and --allow-unfenced
-// (src/cli.js ADOPT_FLAGS) and refuses any other flag, so `--advice-adopt x --dry-run` is a spending line (with the switch on: the advice sentence, not the dry-run note).
-const NO_DRY_RUN_MARKERS = Object.freeze(['--advice-adopt']);
 
 /** true when the command these arguments name may spend (or cannot be shown to spend nothing); false for the usage print, a dry run and the commands listed above. */
 export function commandMaySpend(argv = []) {
@@ -184,23 +188,22 @@ export function commandMaySpend(argv = []) {
   if (SPENDING_SUBCOMMANDS.includes(first)) return !dry;
   if (Object.hasOwn(NON_SPENDING_VERBS, first)) return !NON_SPENDING_VERBS[first].includes(argv[1]) && !(dry && DRY_RUN_VERBS[first].includes(argv[1]));
   const names = argv.map(flagNameOf);
-  if (dry && !names.some(n => NO_DRY_RUN_MARKERS.includes(n))) return false;
+  if (dry) return false;
   if (names.some(n => RUN_MARKERS.includes(n))) return true;
   return !names.some(n => NO_RUN_MODES.includes(n));
 }
 
-// THE REFUSED CLASSES with the switch on (unit 3a; C&C's ruling 3 and its answers Q1a / Q1b of 1 Nov 2026). A recursive-council tree, the paid side commands and the
-// advice add-on cannot run with a cap per provider (a known limit of this version; README "Known limits", one bullet per class). Each prints its OWN sentence, BEFORE
+// THE REFUSED CLASSES with the switch on (unit 3a; C&C's ruling 3 and its answers Q1a / Q1b of 1 Nov 2026). A recursive-council tree and the paid side commands
+// cannot run with a cap per provider (a known limit of this version; KNOWN-LIMITS.md, one bullet per class). Each prints its OWN sentence, BEFORE
 // the not-armed refusal (Q1a: observable on its own, with its own red); a tree member exits 19 (src/tree-run.js reads that as `tree_refused` and keeps the member's
 // sentence), every other class 2. A DRY RUN of such a command, one the command honours (commandMaySpend says it spends nothing), prints capsDryRunNote and goes on
 // (Q1b: it reports the refusal and calls nothing); a class line that is not an honoured dry run (`tree resume x --dry-run`) is refused.
 const SIDE_SUBCOMMANDS = Object.freeze({ handoff: 'council handoff', digest: 'council digest' });
 const classOf = (kind, command, exit = 2) => Object.freeze({ kind, command, exit });
-/** { kind: 'tree' | 'side' | 'advice', command, exit } for a command of a class the switch refuses, else null. */
+/** { kind: 'tree' | 'side', command, exit } for a command of a class the switch refuses, else null. */
 export function capsRefusedClassOf(argv = []) {
   if (argv.includes('--tree-node')) return classOf('tree', 'a tree member', 19);
   if (argv[0] === 'tree' && (argv[1] === 'start' || argv[1] === 'resume')) return classOf('tree', `council tree ${argv[1]}`);
-  if (argv.includes('--advice-adopt')) return classOf('advice', 'the advice add-on');
   if (Object.hasOwn(SIDE_SUBCOMMANDS, argv[0])) return classOf('side', SIDE_SUBCOMMANDS[argv[0]]);
   if (argv[0] === 'contract' && argv[1] === 'draft') return classOf('side', 'council contract draft');
   for (const f of ['--rematch', '--replay']) if (argv.includes(f)) return classOf('side', `council ${f}`);
@@ -208,7 +211,7 @@ export function capsRefusedClassOf(argv = []) {
 }
 const classReasonOf = c => `${c.kind === 'tree' ? 'a recursive-council tree' : c.command} cannot run with a spending cap per provider (a known limit of this version)`;
 /** The refusal of a refused class (A-DRAFT). */
-export const capsClassRefusalSentence = (c, caps) => `${CAPS_SETTING} is set (${caps.join(', ')}), and ${classReasonOf(c)}. Leave ${CAPS_SETTING} empty to ${c.kind === 'tree' ? 'run the tree' : c.kind === 'advice' ? 'ask for advice' : 'run it'} with one ${c.kind === 'advice' ? 'approved price' : 'typed limit'}. Nothing was ${c.kind === 'advice' ? 'sent' : 'started'}.`;
+export const capsClassRefusalSentence = (c, caps) => `${CAPS_SETTING} is set (${caps.join(', ')}), and ${classReasonOf(c)}. Leave ${CAPS_SETTING} empty to ${c.kind === 'tree' ? 'run the tree' : 'run it'} with one typed limit. Nothing was started.`;
 /** What a dry run of a refused class says before it goes on (A-DRAFT): a real run would be refused; the dry run calls nothing. */
 export const capsDryRunNote = (c, caps) => `With ${CAPS_SETTING} set (${caps.join(', ')}), a real run of this command would be refused: ${classReasonOf(c)}. This dry run goes on and calls nothing.`;
 
@@ -223,12 +226,11 @@ export const capsNotArmedSentence = caps => `${CAPS_SETTING} is set (${caps.join
 // and then a start arms (4b2) and a resume takes its folder's class (4c1, "THE RESUME"). Every other line
 // that may spend keeps the not-armed refusal at the top (fail closed). The list is computed once (src/uncovered.js capsStartRefusals); a dry run reports it, as
 // text lines and as the JSON field `startRefusals` (absent when empty), and calls nothing (Q1b). A RESUME TAKES THE CLASS OF ITS RUN FOLDER, never of the
-// --resume flag (C&C): a tree member's run (run.json's tree lineage) is a tree, exit 19; an advice folder (src/stop-files.js isAdviceFolder) an advice call, after
-// the advice path's own refusal of a chain that says resumeAfterStop false; a plain run's resume (B3 resumes after every external seat) is no class.
+// --resume flag (C&C): a tree member's run (run.json's tree lineage) is a tree, exit 19; a plain run's resume (B3 resumes after every external seat) is no class.
 /** true for a main start or resume that is no refused class: with the switch on it meets the start refusals after its own checks, not the top refusal. */
 export const capsDeferredStart = (argv = []) => !capsRefusedClassOf(argv) && (argv.includes('--task') || argv.includes('--resume'));
-/** The class of a resumed run folder, from what the folder is: { tree: run.json's lineage, advice: an advice folder }. Null for a plain run. */
-export const capsResumeClassOf = ({ tree = null, advice = false } = {}) => (tree ? classOf('tree', 'a tree member', 19) : advice ? classOf('advice', 'the advice add-on') : null);
+/** The class of a resumed run folder, from what the folder is: { tree: run.json's lineage }. Null for a plain run. */
+export const capsResumeClassOf = ({ tree = null } = {}) => (tree ? classOf('tree', 'a tree member', 19) : null);
 /** A refused class as a start refusal ({ code, exit, sentence }): what a dry run reports for it in `startRefusals`. */
 export const capsClassRefusalEntry = (c, caps) => Object.freeze({ code: `${c.kind}_refused`, exit: c.exit, sentence: capsClassRefusalSentence(c, caps) });
 

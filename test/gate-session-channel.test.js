@@ -16,7 +16,8 @@ const session = (sha, extra = {}) => ({ channel: SESSION_CHANNEL, shownSha256: s
 test('the person channels are unchanged, and the session channel is listed apart for the two tree kinds only', () => {
   assert.deepEqual([...PERSON_CHANNELS], ['cli', 'elicitation']);
   // EDITED, disclosed (OLD: ['tree_decide'] alone; the frontier gate was closed until the Atomic conditions existed: they are now checked by src/tree-approve-session.js and the frontier_approved table row)
-  assert.equal(SESSION_CHANNEL, 'session'); assert.deepEqual([...SESSION_ELIGIBLE_KINDS], ['tree_decide', 'tree_frontier']);
+  assert.equal(SESSION_CHANNEL, 'session'); assert.deepEqual([...SESSION_ELIGIBLE_KINDS], ['tree_decide', 'tree_frontier', 'stop_decision', 'acceptance']);   // CHANGED ACCEPTED TEST (0.8.4 D2): OLD ['tree_decide', 'tree_frontier', 'stop_decision']; NEW adds 'acceptance': the handling session answers the acceptance of a finished run's plan, but only with its per-objection person test (answerGate refuses it without) and only a gate it asked for itself.
+     // CHANGED ACCEPTED TEST (0.8.4 D5a, R357): OLD ['tree_decide', 'tree_frontier']; NEW adds the handling session's round-stop gate; WHY the plan's "tree shape" answers over a session-answered gate kind
 });
 
 test('SEND PATH: a session answer on an advice gate is refused with its own code, even with a reason, and nothing is appended', () => {

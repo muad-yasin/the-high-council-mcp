@@ -72,7 +72,8 @@ test('the exact key set: two figures, each with its reservations, and no field t
 test('M6 exit 14 (report half): the two figures, each against its own source, in the four accounting cases (PLAN 7.1 rows 1-3, 4, 5)', () => {
   const cases = [
     ['clean (rows 1 and none)', clean, { members: 0.6, adjust: 0, rows: [1], adding: [] }],
-    ['row 3: a charge record the run counts besides the worst case', row3, { members: 1.3, adjust: -0.3, rows: [3], adding: [3] }],
+    // CHANGED ACCEPTED (0.8.4 unit 6, D11; C&C via Mini-C&C R398). OLD: members 1.3, adjust -0.3, adding [3] (the run counted the worst case AND the charge; the tree removed the charge). NEW: members 1.0, adjust 0, no adjusting row (the run counts the call once, at the larger of the worst case and the charge). WHY: an unsettled reservation is never reconciled; the tree total (1.00) is unchanged.
+    ['row 3: a charge record the run counts once, at the worst case', row3, { members: 1.0, adjust: 0, rows: [3], adding: [] }],
     ['row 4: only the mirror holds the reservation', row4, { members: 0, adjust: 2.5, rows: [], adding: [4] }],
     ['row 5: a settlement the record cannot prove', row5, { members: 0.7, adjust: 0.3, rows: [], adding: [5] }],
   ];

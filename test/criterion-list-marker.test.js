@@ -5,8 +5,10 @@ import assert from 'node:assert/strict';
 import { objectionId, objectionKey, stallSignature, stripListMarker, legacyStallSignature } from '../src/objection-ids.js';
 import { missingCriteriaRows, signoffTableGap } from '../src/criteria-ledger.js';
 import { runChain, setCache, setPromptSpy, setBudget } from '../src/chain.js';
+import { setHeldForTest } from '../src/held-roles.js';
+import { DEMAND } from './helpers/rating-demand.js';
 
-afterEach(() => { setCache(null); setPromptSpy(null); setBudget(null); });
+afterEach(() => { setHeldForTest(null); setCache(null); setPromptSpy(null); setBudget(null); });
 const CRIT = 'The plan contradicts or reopens no settled item and refers to settled items by number.';
 const F = (lab, criterion, quote) => ({ lab, criterion, ...(quote === undefined ? {} : { quote }), problem: 'p' });
 
@@ -44,10 +46,13 @@ const DRAFT = 'The worker retries failed requests.';
 const objects = (criterion, f) => JSON.stringify({ meets: false, criteria: [{ criterion, verdict: 'FAILED', evidence: f.problem }], failures: [f], verdict_line: 'no' });
 const meets = c => JSON.stringify({ meets: true, criteria: [{ criterion: c, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok' });
 async function stallRun(firstCriterion, secondCriterion) {
-  const f = c => ({ criterion: c, problem: 'No limit on retries.', quote: 'retries failed requests' });
+  setHeldForTest(DEMAND);   // CHANGED (0.8.4 SG-1, C&C 08 Nov 2026): the stall goes up only with the answer-back list AND the rating demand; the objections are rated 5 (a rating changes neither the id nor the stall window)
+  // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the scripted failure carried no `relation`. NEW: pass 1 says `new`; pass 2 says `continues <id>` when it is the same objection (the numbered and the plain form are one id) and `new` when the criterion differs. WHY: relationRule recorded (src/chain.js relation gate).
   const base = 'The plan defines a retry limit.';
+  const f = (c, relation) => ({ severity: 5, criterion: c, problem: 'No limit on retries.', quote: 'retries failed requests', relation });
+  const idFirst = objectionId('raiser-alpha', f(base));
   setCache({ invalidate() {}, get(label) {
-    const text = label === 'panel-1-raiser-alpha' ? objects(base, f(firstCriterion)) : label === 'panel-2-raiser-alpha' ? objects(base, f(secondCriterion)) : label.startsWith('panel-') ? meets(base) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+    const text = label === 'panel-1-raiser-alpha' ? objects(base, f(firstCriterion, 'new')) : label === 'panel-2-raiser-alpha' ? objects(base, f(secondCriterion, secondCriterion === base ? `continues ${idFirst}` : 'new')) : (label.startsWith('panel-') || label.startsWith('final-read-')) ? meets(base) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
     return { text, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 };
   } });
   const seat = (lab, layer) => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000, layer });
@@ -60,5 +65,8 @@ test('stall rule: "1. <criterion>" in pass 1 and "<criterion>" in pass 2 is the 
   const same = await stallRun('1. The plan defines a retry limit.', 'The plan defines a retry limit.');
   assert.equal(same.escalations?.[0]?.round, 2, 'the stall fired in pass 2 and the plan was passed up: the numbered and the plain form are one stuck objection');
   const other = await stallRun('1. The plan defines a retry limit.', 'The plan names its owner.');
-  assert.notEqual(other.escalations?.[0]?.round, 2, 'a different criterion does not stall in pass 2 (carried objections can make it stall a pass later, as before)');
+  // CHANGED (0.8.4 S5, Q13, R3): the stall is per objection. The first objection stood unanswered in pass 2 (the judge objected to something else and left it open, so it is carried), so it stalls ALONE in pass 2; the objection of the
+  // different criterion stood once and is not passed up with it. Before: the whole pass's set was compared and a changed set did not stall in pass 2.
+  const f = c => ({ criterion: c, problem: 'No limit on retries.', quote: 'retries failed requests' });   // unrated is fine here: objectionId reads no severity
+  assert.deepEqual(other.escalations?.[0]?.ids, [objectionId('raiser-alpha', f('1. The plan defines a retry limit.'))], 'only the objection that stood in both passes is passed up; the different criterion is another objection');
 });

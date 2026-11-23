@@ -16,6 +16,7 @@ import { listGates } from '../src/gate.js';
 import { budgetOf } from '../src/run-budget.js';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
 import { stopIdOf } from '../src/overseer-rounds.js';
+import { resumeThroughPauses } from './helpers/answer-pauses.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const schema = JSON.parse(readFileSync(join(root, 'schemas', 'report-v1.json'), 'utf8'));
@@ -47,7 +48,8 @@ test('F4: a --finish puts the stop with chosen: finish into report.json, the sch
     // EDITED 23 Okt 2026 (lane D; stale test, not a changed behaviour). OLD: ['finish'], "the one value the writer can write". e13a779 (20 Okt 2026, ROADMAP 83 commit 2; Muad 20 Okt 2026 12:50,
     // "ROADMAP 83 (EARLY FINISH BY THE MAIN SESSION, OVERSEER STILL DECIDES) SHIPS IN 0.8.3") added a second writer, chain.js earlyFinish (kind early_finish), that writes chosen: 'early'.
     // A --finish still writes 'finish' (asserted above); the schema declares both and rejects any other value (asserted below).
-    assert.deepEqual(schema.properties.stop.properties.chosen?.enum, ['finish', 'early'], 'the schema declares chosen, with the two values the writers (chain.js finishedStop: finish; earlyFinish: early) write');
+    // CHANGED ACCEPTED (0.8.4 S16, E): a third writer, chain.js finishedStop with chosen 'rule' (a run with no handling session ended at a stop), so the schema declares three values.
+    assert.deepEqual(schema.properties.stop.properties.chosen?.enum, ['finish', 'early', 'rule'], 'the schema declares chosen, with the three values the writers (chain.js finishedStop: finish or rule; earlyFinish: early) write');
     assert.doesNotMatch(schema.properties.stop.description, /only in report-partial\.json/);
     assert.ok(!validate({ ...report, stop: { ...report.stop, chosen: 'continue' } }), 'a value the writer never writes is rejected');
   } finally { p.done(); }
@@ -138,6 +140,7 @@ test('F7-4 (paid chain): the heal sends nothing to a paid seat and creates no us
   const dir = mkdtempSync(join(tmpdir(), 'rfx-paid-')); mkdirSync(join(dir, 'chains')); mkdirSync(join(dir, 'tasks'));
   const cfg = chainOf([judge('o', 'a', 'l1', 1), judge('o', 'b', 'l2', 2), judge('x', 'c', 'l3', 3)]);
   cfg.name = 'ovpaid'; cfg.handoff = true;
+  cfg.seats.reviser = { provider: 'external', model: 'claude-code-session' };   // CHANGED (0.8.4 HS, Muad 05 Nov 2026 22:19): a layered chain with a paid seat needs a handling session (chain-lint refuses it otherwise). OLD: the reviser was a mock seat. The paid seat under test is unchanged; the run now pauses at each revision, answered below (test/helpers/answer-pauses.js).
   cfg.seats.handoff = { provider: 'openrouter', model: 'anthropic/claude-opus-5', originalProvider: 'anthropic', maxTokens: 500, baseUrl: `http://127.0.0.1:${srv.address().port}` };
   writeFileSync(join(dir, 'chains', 'ovpaid.json'), JSON.stringify(cfg)); writeFileSync(join(dir, 'tasks', 't.md'), '# A plan\n');
   const env = { PATH: process.env.PATH, HOME: dir, ...malformedProviderKeys(), OPENROUTER_API_KEY: `sk-or-v1-${'e'.repeat(40)}`, COUNCIL_ALLOW_LOOPBACK_KEY_HOST: '1' };
@@ -147,7 +150,7 @@ test('F7-4 (paid chain): the heal sends nothing to a paid seat and creates no us
     assert.equal(start.status, 21, start.stdout + start.stderr);
     const runDir = join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
     typeCap(runDir, '4');
-    const stop = await run(['--resume', runDir]);
+    const stop = await resumeThroughPauses(run, runDir, await run(['--resume', runDir]));
     assert.equal(stop.status, 23, stop.stdout + stop.stderr);
     assert.equal(requests, 0, 'the stop comes before the paid handoff seat');
     const usageBefore = usageOf(runDir);
@@ -173,6 +176,7 @@ test('F7-5 (paid stage file missing): the heal re-sends exactly that stage once,
   const dir = mkdtempSync(join(tmpdir(), 'rfx-paid2-')); mkdirSync(join(dir, 'chains')); mkdirSync(join(dir, 'tasks'));
   const cfg = chainOf([judge('o', 'a', 'l1', 1), judge('o', 'b', 'l2', 2), judge('x', 'c', 'l3', 3)]);
   cfg.name = 'ovpaid2';
+  cfg.seats.reviser = { provider: 'external', model: 'claude-code-session' };   // CHANGED (0.8.4 HS): see ovpaid above - the reviser is the handling session; the paid BUILDER under test is unchanged
   cfg.seats.builder = { provider: 'openrouter', model: 'anthropic/claude-opus-5', originalProvider: 'anthropic', maxTokens: 500, lab: 'author', baseUrl: `http://127.0.0.1:${srv.address().port}` };
   writeFileSync(join(dir, 'chains', 'ovpaid2.json'), JSON.stringify(cfg)); writeFileSync(join(dir, 'tasks', 't.md'), '# A plan\n');
   const env = { PATH: process.env.PATH, HOME: dir, ...malformedProviderKeys(), OPENROUTER_API_KEY: `sk-or-v1-${'e'.repeat(40)}`, COUNCIL_ALLOW_LOOPBACK_KEY_HOST: '1' };
@@ -183,7 +187,7 @@ test('F7-5 (paid stage file missing): the heal re-sends exactly that stage once,
     assert.equal(start.status, 21, start.stdout + start.stderr);
     const runDir = join(dir, 'runs', readdirSync(join(dir, 'runs'))[0]);
     typeCap(runDir, '4');
-    const stop = await run(['--resume', runDir]);
+    const stop = await resumeThroughPauses(run, runDir, await run(['--resume', runDir]));
     assert.equal(stop.status, 23, stop.stdout + stop.stderr);
     assert.equal(requests, 1, 'the paid build stage was sent once');
     const gatesBefore = JSON.stringify(listGates(runDir));

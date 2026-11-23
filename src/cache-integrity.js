@@ -13,6 +13,7 @@
 // not an oversight - see maintainers/DECISIONS.md).
 import { createHash } from 'node:crypto';
 import { withoutPriceLimits } from './price-limits.js';
+import { withoutHostBlock } from './host-block.js';
 
 /** A short fingerprint of the inputs a cached stage's validity depends on. */
 export function fingerprintInputs(taskText, config) {
@@ -20,9 +21,15 @@ export function fingerprintInputs(taskText, config) {
   // resumed run read every finished stage as stale. A config without one hashes exactly as before.
   let forHash = config;
   if (config && typeof config === 'object' && 'summary' in config) { const { summary: _display, ...rest } = config; forHash = rest; }
+  // 0.8.4 (the permanent ladder): the chain file's `ladder` key says which layer a pass STARTS at, never what a stage asked or answered, and the run's own numbers are saved in run.json at its start (a resume reads those). Editing the key must
+  // not make a resumed run read every finished stage as stale. A config with no `ladder` hashes exactly as before.
+  if (forHash && typeof forHash === 'object' && 'ladder' in forHash) { const { ladder: _ladderKey, ...rest } = forHash; forHash = rest; }
   // A seat's own price limit (extra.provider.max_price prompt/completion) filters hosts by price and changes nothing a finished stage said: raising it keeps the stages, like raising a pricing.user.json row.
   // A config with no limit hashes exactly as before (src/price-limits.js returns it unchanged). 0.8.3: a stage an older build wrote for a config that carries a limit reads as stale once.
   forHash = withoutPriceLimits(forHash);
+  // 0.8.4 (Open Inference block): the slug is sent on every OpenRouter call whatever the config says (src/price-pin.js), so its entry in a seat's extra.provider.ignore changes nothing a finished stage said: a run paused on a chain
+  // file without it resumes on one with it and keeps its stages. Any other edit of an ignore list still changes the fingerprint (src/host-block.js). A config with no such entry hashes exactly as before.
+  forHash = withoutHostBlock(forHash);
   return createHash('sha256').update(JSON.stringify({ taskText, config: forHash })).digest('hex').slice(0, 12);
 }
 
@@ -43,16 +50,16 @@ export function fingerprintInputs(taskText, config) {
  * hash) passed the coarse check and cannot be checked more finely; it is trusted and recorded.
  */
 export function cacheVerdict(hit, promptHash) {
-  if (hit.staleInputs) return { status: 'stale', why: 'the task text or chain config changed since it was cached' };
+  if (hit.staleInputs) return { status: 'stale', why: 'the task text or chain config changed since it was cached', cause: 'inputs' };
   if (hit.promptHash) {
     return hit.promptHash === promptHash ? { status: 'fresh' }
-      : { status: 'stale', why: 'it answered a different prompt than the one this stage is asked now' };
+      : { status: 'stale', why: 'it answered a different prompt than the one this stage is asked now', cause: 'prompt' };   // 0.8.4 T14 (CA2/D17): `cause` tells a changed prompt from the other stale reasons; only 'prompt' can be kept as it is when THC's wording changed (src/stale-guard.js decides); 'inputs' and 'no_record' are cache misses as before.
   }
   if (hit.inputsFingerprint) return { status: 'unverified', why: 'it was cached before prompt hashes were recorded; its task and chain still match, but not that it answered this exact prompt' };
   // `fromDisk` is set by the CLI's run-folder cache. An entry there with no record of its inputs is a
   // pre-fingerprint file and is stale. A caller's own in-memory cache (a direct runChain() caller,
   // the tests) records none by construction; its hits stay trusted, as unverified.
-  if (hit.fromDisk) return { status: 'stale', why: 'it carries no record of what it answered (cached before input fingerprints existed)' };
+  if (hit.fromDisk) return { status: 'stale', why: 'it carries no record of what it answered (cached before input fingerprints existed)', cause: 'no_record' };
   return { status: 'unverified', why: 'the cache that supplied it records no fingerprint or prompt hash' };
 }
 

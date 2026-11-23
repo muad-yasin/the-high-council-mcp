@@ -1,7 +1,7 @@
 // ROADMAP 77 / Muad's two-way refusal (20 Okt 2026; C&C thcmcp-6d: defaults accepted, admission at the raised price). When a new root plan's input is over the tree's allowance, `tree decide` offers BOTH ways on: a shorter decision / --fresh, or
 // --allow-size <bytes>, which prices THIS new root plan at the raised size, shows the old and the new price on the gate screen, records the raise on the decision (allowanceBytes) and registers the plan under it. A session never raises it. All words A-DRAFT.
 // Rows: AS-1 the refusal names both ways (nothing recorded); AS-2 the raise: screen, record, approval figures, registration over the old limit, children keep the tree's number; AS-3 bad values and the wrong forms are refused in words;
-// AS-4 the table refuses a raise from the session or on a decision that does not re-plan the root; AS-5 a refusal of a chosen recommendation says the advice was paid for.
+// AS-4 the table refuses a raise from the session or on a decision that does not re-plan the root. (AS-5, a refusal of a chosen recommendation says the advice was paid for, was removed in 0.8.4 with the recommendation route: CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: AS-5 passed fromRecommendation to buildStopDecision and expected the sentence "The advice you chose this from was already paid for; this refusal spends nothing more." NEW: the test is removed. WHY: the sentence and the option are gone from src/tree-decide-size.js.)
 // AS-8 the root re-plan screen prices cheapest, expected and upper estimate for the same input.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -77,12 +77,6 @@ test('AS-4 the table refuses a raise recorded by the session, and on a decision 
   assert.doesNotMatch(why({ ...base, actor: 'person', via: 'terminal' }), /never raises it/);
   const shape = n => TR.eventShapeError({ schema: 'tree-events/1', id: 'e1', at: '2026-10-20T12:00:00.000Z', ...base, allowanceBytes: n });
   assert.equal(shape(6000), null); assert.match(shape(0) ?? '', /allowanceBytes/); assert.match(shape(1.5) ?? '', /allowanceBytes/);
-});
-
-test('AS-5 a chosen recommendation refused for size says the advice was already paid for', { timeout: 600_000 }, async () => {
-  const S = await driveToDepthTwoReplan({ stopBeforeReplan: true });
-  const r = buildStopDecision({ rootDir: S.rootDir, rootId: S.rootId, form: 'regenerate', stopArg: S.rootStop.id, decisionText: sizedText(S), work: S.work, sittingHeld: () => false, fromRecommendation: { n: 1, adviceId: 'rec-x' }, offerRaise: true });
-  assert.match(r.refusal ?? '', /The advice you chose this from was already paid for; this refusal spends nothing more\./);
 });
 
 test('AS-6 THE 2 MB BOUNDARY (C&C 20 Okt, Q1): a decision that makes context.md exactly MAX_CONTEXT_FILE_BYTES passes that check (and is offered a size raise), one byte more is refused with NO number and no raise, because the member refuses such a file at its start', { timeout: 600_000 }, async () => {

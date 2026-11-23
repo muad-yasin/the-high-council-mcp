@@ -38,7 +38,9 @@ test('C1 a per-cap limit screen (start and raise) leaves out the pricing.user.js
 test('C2 the screen with the switch off is byte for byte what it was, both paragraphs included (sha256 of the text from fixed inputs)', () => {
   const plain = buildCapScreen(INPUT);
   assert.ok(plain.text.includes('Priced from pricing.user.json') && plain.text.includes('Host preference ('), plain.text);
-  assert.equal(createHash('sha256').update(plain.text).digest('hex'), 'f5e0b91abfe94970b9c30d4e343e92cda669cced7c8330f759fbef05290739ad', plain.text);
+  // CHANGED ACCEPTED (0.8.4 unit 4, 04 Nov 2026; A-DRAFT). OLD: the screen's maximum line read "Most it could cost to finish" and its weak enforcement sentence said the check adds up "what the run has spent and the most that call could cost"; the digest was 'f5e0b91abfe94970b9c30d4e343e92cda669cced7c8330f759fbef05290739ad'.
+  // NEW: the line reads "Upper estimate to finish" and the sentence says what the check really adds up (what the run has counted and what the call is expected to cost; a re-ask or a retry at the expected cost of the call it repeats). WHY: his picks OWNER 5 and 6 (the figure is no longer a true maximum, and a re-ask can overrun the cap).
+  assert.equal(createHash('sha256').update(plain.text).digest('hex'), '0e0b5e7ad8aee681a3c75bf1b1020da76109c5861d15faab9cf3c8d733334569', plain.text);
 });
 
 test('C3 the dry run (switch on, the real CLI, --dry-run) names the price source and the host preference, each once', () => {

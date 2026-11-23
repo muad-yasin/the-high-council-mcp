@@ -11,6 +11,38 @@ import http from 'node:http';
 import { runChain, setBudget, setCache, budgetState, BudgetExceeded } from '../src/chain.js';
 import * as chainModule from '../src/chain.js';   // recordedSpentOf is read off the namespace so this file still loads (and its older tests still run) against a tree that lacks it
 import { readUsage, readUsd, worstCaseOf } from '../src/cost.js';
+import { setUserPrices, resetUserPrices } from '../src/price-table.js';
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// CHANGED ACCEPTED TEST (the 11 Nov 2026 refresh; the price table moved under it).
+// OLD: the six "usage is unreadable" tests below priced their seat at the SHIPPED row of
+//   mistralai/mistral-medium-3-5 (1.5 in / 7.5 out) against a typed cap of 0.05: one unreadable-usage
+//   charge, a worst case of about $0.0496 for this stub's prompt (derived: the charge the 11 Nov run printed, 0.0545556, divided
+//   by the row's 1.1 rise; not measured on the fixture row), sat 0.8% under that cap.
+// NEW: the seat is priced by a row THIS FILE owns: a user price row (the project's pricing.user.json,
+//   read through setUserPrices) for an id the shipped table does not hold, frozen at the old figures
+//   1.5 / 7.5; the stub's reply names the same id, so chain.js priceAnswer prices the answer by that row
+//   too. No shipped row is read in these six tests (traced by reading: price lookups go through effectiveRow, which
+//   merges the user row; nothing in a run resets it). The fixture id has no reasoning-table row, so the call sends no
+//   default effort field: the stub ignores the request body, so that is inert here. The cap stays 0.05.
+// WHY: the refresh raised the shipped mistral-medium-3-5 row by 10% on both sides (1.65 / 8.25), one charge
+//   became $0.0545556 and the typed cap was under it. The test followed the price table; a cap typed 10% higher
+//   would only follow the next move. Every assert is kept: finite, above 0, at or under the cap, at most 4 calls, the log line.
+// MARGIN the asserts rest on (the code does not guarantee `spent <= cap`: an unreadable charge is one attempt's
+//   worst case, added after the gate): about $0.0496 against 0.05, 0.8%, and it holds by these numbers only. It moves with
+//   the stub's prompt size or the fixture's prices, never with the price table. If a prompt change breaks it, raise the cap
+//   here with a new CHANGED ACCEPTED TEST note.
+const SHIPPED_PRICES = JSON.parse(readFileSync(new URL('../src/pricing.json', import.meta.url), 'utf8'));
+const FIXTURE_ID = 'mistralai/usage-fixture-test';
+function useFixtureRow() {
+  assert.equal(SHIPPED_PRICES[`openrouter/${FIXTURE_ID}`], undefined, 'premise: the shipped table does not price this id');
+  const dir = mkdtempSync(join(tmpdir(), 'usage-fixture-'));
+  writeFileSync(join(dir, 'pricing.user.json'), JSON.stringify({ [`openrouter/${FIXTURE_ID}`]: { in: 1.5, out: 7.5 } }));
+  setUserPrices(dir);
+  return () => { resetUserPrices(); rmSync(dir, { recursive: true, force: true }); };
+}
 
 const CRITIQUE = JSON.stringify({ meets: false, criteria: [{ criterion: 'It exists.', verdict: 'fail', evidence: 'no' }], failures: [{ criterion: 'It exists.', problem: 'Still missing.' }] });
 
@@ -31,16 +63,19 @@ for (const [name, raw] of Object.entries(BAD_USAGE)) {
       req.resume(); req.on('end', () => {
         calls++;
         res.setHeader('content-type', 'application/json');
-        const head = `{"model":"mistralai/mistral-medium-3-5","choices":[{"message":{"content":${JSON.stringify(CRITIQUE)}},"finish_reason":"stop"}]`;
+        const head = `{"model":"${FIXTURE_ID}","choices":[{"message":{"content":${JSON.stringify(CRITIQUE)}},"finish_reason":"stop"}]`;
         res.end(raw === null ? `${head}}` : `${head},"usage":${raw}}`);
       });
     });
     await new Promise(r => srv.listen(0, '127.0.0.1', r));
     const prevKey = process.env.OPENROUTER_API_KEY;
     process.env.OPENROUTER_API_KEY = 'stub-not-a-key';
-    const seat = lab => ({ provider: 'openrouter', model: 'mistralai/mistral-medium-3-5', maxTokens: 2000, lab, baseUrl: `http://127.0.0.1:${srv.address().port}` });
+    const seat = lab => ({ provider: 'openrouter', model: FIXTURE_ID, maxTokens: 2000, lab, baseUrl: `http://127.0.0.1:${srv.address().port}` });
     const cap = 0.05;
+    let restoreRow = () => {};
     try {
+      restoreRow = useFixtureRow();
+      assert.ok(worstCaseOf('openrouter', FIXTURE_ID, { promptChars: 100, maxTokens: 2000 }).usd > 0.01, 'fixture: one call projects over $0.01 at the fixture row, not at a shipped one');
       setCache(null); setBudget(cap);
       const config = { name: 'usage', signoff: 'unanimous', maxRounds: 7, criteria: ['It exists.'], seats: { builder: seat('b'), reviser: seat('b'), critics: [seat('c')] } };
       const logs = [];
@@ -50,7 +85,7 @@ for (const [name, raw] of Object.entries(BAD_USAGE)) {
       assert.ok(calls <= 4, `the cap must stop the run after a few calls, made ${calls}`);
       assert.ok(logs.some(l => /usage the spend cap cannot read/.test(l)), 'the charge is logged');
     } finally {
-      srv.close(); setBudget(null);
+      restoreRow(); srv.close(); setBudget(null);
       if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = prevKey;
     }
   });
@@ -114,7 +149,11 @@ test('the stage keeps the RECORDED usd (0) when the cap is charged a worst case;
       const r = await replayWith(PRICED, recorded);
       assert.equal(r.build.usd, 0, `${name}: the stage's returned usd is the recorded figure, not the worst case`);
       assert.equal(r.budget.assumed.stages, 1, `${name}: the budget names one assumed stage`);
-      assert.equal(r.budget.assumed.usd, invalid.budget.spent - (await replayWith(PRICED, { usd: 0 })).budget.spent, `${name}: the assumed part is exactly the one attempt the cap was charged`);
+      // CHANGED ACCEPTED TEST (11 Nov 2026; routed by C&C onto this diff). OLD: assert.equal(assumed.usd, invalid.spent - zero.spent), a strict equality of two floats: assumed.usd is 0.492 on every tree, the other side
+      //   (invalid.spent - zero.spent, a float difference) came out 0.492 on one tree, 0.49200000000000005 on another and 0.4920000000000002 on a third; it was green only where the rounding agreed (the cause is not traced further).
+      // NEW: the same two values must agree to 1e-12, the tolerance the next assert already uses. WHY: the row asserts that the assumed part IS the one attempt the cap was charged; a missing or a doubled attempt
+      //   is off by about 0.49, so the row can still fail. RED RUN: the existing red of this test on the final tree (it failed on the float difference), cited, not a new run.
+      assert.ok(Math.abs(r.budget.assumed.usd - (invalid.budget.spent - (await replayWith(PRICED, { usd: 0 })).budget.spent)) < 1e-12, `${name}: the assumed part is exactly the one attempt the cap was charged`);
       assert.ok(Math.abs(chainModule.recordedSpentOf(r.budget) - (await replayWith(PRICED, { usd: 0 })).budget.spent) < 1e-12, `${name}: the recorded spend leaves the assumed part out`);
     }
     // A MALFORMED figure is the same as an absent one (C&C 14 Oct 2026, closing the class): the stage records what src/spend.js reads it as (unknown: 0), the cap is charged one attempt, the budget names it.

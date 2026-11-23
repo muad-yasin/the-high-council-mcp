@@ -8,7 +8,7 @@ import { driveToDepthTwoReplan } from './helpers/depth-two-replan.js';
 let S;
 const fixture = async () => { S ??= await driveToDepthTwoReplan(); return S; };
 
-test('DEPTH-2 FIXTURE: a real tree at depth 2 - R/M1 split into three children, two of them closed passed, the independent one NOT passed with a blocked-child stop - then a root re-plan decided (R@g2 opened, nothing of it approved or registered)', async () => {
+test('DEPTH-2 FIXTURE: a real tree at depth 2 - R/M1 split into three children, two of them closed passed, the independent one NOT passed with a stop (source node_closed) - then a root re-plan decided (R@g2 opened, nothing of it approved or registered)', async () => {
   const f = await fixture();
   const phase = (n, g = 1) => { const x = f.nodeOf(n, g); return x ? [x.phase, x.outcome] : null; };
   assert.deepEqual(phase('R/M1'), ['closed', 'passed']); assert.deepEqual(phase('R/M3'), ['closed', 'passed']);
@@ -16,7 +16,8 @@ test('DEPTH-2 FIXTURE: a real tree at depth 2 - R/M1 split into three children, 
   assert.equal(phase('R/M1/M3')[0], 'closed'); assert.notEqual(phase('R/M1/M3')[1], 'passed');
   assert.equal(f.nodeOf('R/M2', 1), undefined, 'R/M2 expects from R/M1 and was never registered');
   assert.deepEqual(f.kinds('split_verified').map(e => [e.node, e.generation, e.children]).filter(x => x[0] === 'R/M1'), [['R/M1', 1, ['R/M1/M1', 'R/M1/M2', 'R/M1/M3']]]);
-  assert.deepEqual([f.childStop.node, f.childStop.source], ['R/M1/M3', 'blocked']);
+  // CHANGED ACCEPTED (10 Nov 2026, base reds, test-only; the Status clamp efe7f4fc made an unsigned child close with Status needs_decision): OLD: [f.childStop.node, f.childStop.source] = ['R/M1/M3', 'blocked']. NEW: 'node_closed'. WHY: see leg 6 of test/helpers/depth-two-replan.js.
+  assert.deepEqual([f.childStop.node, f.childStop.source], ['R/M1/M3', 'node_closed']);
   assert.deepEqual([f.rootStop.node, f.rootStop.source], ['R', 'obligation']);
   assert.equal(f.decision.replansRoot, true); assert.deepEqual(f.opened.nodes, [{ node: 'R', generation: 2 }]);
   assert.equal(f.nodeOf('R', 2), undefined, 'R@g2 is decided, not registered');

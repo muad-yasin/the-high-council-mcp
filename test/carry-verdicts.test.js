@@ -33,11 +33,12 @@ test('an unchanged draft re-asks only the unheard seat; the others\' clean verdi
 });
 
 test('when the unheard seat is heard and clean on the unchanged draft, the panel is unanimous on that draft', async () => {
-  // The cache stands in for a seat that is unreadable in round 2 (and both re-asks) and answers in
+  // The cache stands in for a seat that is unreadable in round 2 (and both re-asks, and its solo ask) and answers in
   // round 3. Round 1 is an objection round (the mock critic fails the first draft), so it is revised.
+  // CHANGED ACCEPTED (0.8.4 ladder unit, the solo ask, 10 Nov 2026; found by the box set): OLD bar: the seat is silent for its ask and its two re-asks (`panel-2-x`, `-reask1`, `-reask2`). NEW: also for its one solo ask (`-solo`), which an unscripted label would answer from outside the script.
   const bad = { text: 'not json at all', usage: { input: 1, output: 3, stop: 'stop' }, provider: 'mock', model: 'mock-critic-x', usd: 0 };
   const good = { text: JSON.stringify({ meets: true, criteria: [{ criterion: 'It names an owner.', verdict: 'MET', evidence: 'Section 1.' }], failures: [], verdict_line: 'All met.' }), usage: { input: 1, output: 30, stop: 'stop' }, provider: 'mock', model: 'mock-critic-x', usd: 0 };
-  setCache({ get: label => /^panel-2-x(-reask\d)?$/.test(label) ? bad : label === 'panel-3-x' ? good : null });
+  setCache({ get: label => /^panel-2-x(-reask\d|-solo)?$/.test(label) ? bad : label === 'panel-3-x' ? good : null });
   setBudget(null);
   const stages = [];
   const r = await runChain({ request: 'A test request.', config: config([seat('mock-critic-a'), seat('mock-critic-x', { lab: 'x' })], 4), log: () => {}, onStage: s => stages.push(s.label) });

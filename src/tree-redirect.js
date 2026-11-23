@@ -2,6 +2,8 @@
 // and, if so, the exact sentence and command that point at the tree: the MCP tools submit_stage and resume_run return it and spawn nothing, and the CLI's `--resume` of a member prints the same.
 // The tree id comes from run.json's `tree` field (the lineage the member was started with), never from the folder name. run.json is project-writable text: the id, node and generation are shown (and put into
 // a command line) only when they have the shape of a real one; a run.json whose id is not of that shape still redirects, without a command.
+import { roundStopsInWords, CONTINUE_WORDS, stopOffersContinue, didNotSignOffWords, isFinalReadStopOf, finalReadContinueWords, finalReadMemberFinishWords } from './overseer-rounds.js';
+
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const NODE = /^R(\/[A-Za-z][A-Za-z0-9_-]*)*$/;
 
@@ -49,7 +51,14 @@ export function memberStopContinue(member, kind, council = member.council ?? 'co
     case 'secret': return `${who} Fix the cause first: the key-shaped text came from an earlier stage's output or the chain, and the tree's resume has no override for this refusal, so resuming without a fix stops here again.\n\n${resume}\n\n${giveUp}`;
     case 'error': return `${who} Fix the cause, then the tree resumes it once:\n\n${resume}\n\n${giveUp}`;
     case 'truncated': return `${who} The saved stages replay for free and the reply that stopped the run stays on disk. If the cause is that reply, replace it (or move it aside), then the tree resumes it. The tree pins a node's chain file and input files, so a token limit cannot be changed for a member: resuming without a fix stops here again.\n\n${resume}\n\n${giveUp}`;
-    case 'round_stop': return `${who} It stopped at its overseer-round limit, at a layer's revision limit, or because a seat of a layer stayed silent for too many passes in a row, and is NOT agreed. Your choice goes through the tree: to go on (it extends the limit that was reached, under its own grant):\n\n    ${memberContinueCommand(member, council)}\n\nTo end it here (the dispute stage and the handoff run, the result stays "not agreed"):\n\n    ${memberFinishCommand(member, council)}\n\nThen \`${memberResumeCommand(member, council).trim()}\` applies it. ${giveUp}`;
+    case 'round_stop': {   // 0.8.4 S5 (A-DRAFT): `member.stop` (the stop of report-partial.json, when it reads) decides what is true here: whether a pass is left, which continue clause is true, and whether Muad's phrase may be said
+      const stop = member.stop ?? null; const signOff = didNotSignOffWords(stop);
+      const frStop = isFinalReadStopOf(stop);   // 0.8.4 S16 (D; WORDING S16-w40): the final-read stop says what it does
+      const finish = `To end it here (${frStop ? finalReadMemberFinishWords(stop) : `the dispute stage and the handoff run, the result stays "not agreed"${signOff}`}):\n\n    ${memberFinishCommand(member, council)}\n\nThen \`${memberResumeCommand(member, council).trim()}\` applies it. ${giveUp}`;
+      if (!stopOffersContinue(stop)) return `${who} It stopped ${roundStopsInWords()}, and is NOT agreed. No pass is left, so it cannot go on. Your choice goes through the tree: ${finish[0].toLowerCase()}${finish.slice(1)}`;
+      const goOn = stop?.kind === 'stall_stop' ? 'it counts the stalled objections afresh' : frStop ? finalReadContinueWords(stop) : Number.isInteger(stop?.pass) ? 'it extends the limit that was reached' : CONTINUE_WORDS;
+      return `${who} It stopped ${roundStopsInWords()}, and is NOT agreed. Your choice goes through the tree: to go on (${goOn}, under its own grant):\n\n    ${memberContinueCommand(member, council)}\n\n${finish}`;
+    }
     case 'conflict': return `${who} The decider asked for YOU to choose which objection prevails, or neither. Your pick goes through the tree:\n\n    ${memberPrevailCommand(member, council, member.picksTemplate)}\n\nThen \`${memberResumeCommand(member, council).trim()}\` applies it. ${giveUp}`;
     case 'preflight': return `${who} The task description is this node's own input, written by the tree and pinned by it, so it cannot be edited for a member; a resume asks the same seats the same question again. The exit is to give the node up:\n\n${close}\n`;
     default: throw new Error(`memberStopContinue: unknown kind ${kind}`);

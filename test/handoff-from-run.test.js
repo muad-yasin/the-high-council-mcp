@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { spendReport } from '../src/spend.js';
 import { pickDraft, readCriteria, stopState, partialBanner, externalPromptText } from '../src/handoff-from-run.js';
 import { parseLock, checkLock } from '../src/criteria-lock.js';
+import { ROUND_STOPPED_STATE } from '../src/stop-files.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -223,13 +224,14 @@ test('the policy gate applies: a policy the chain does not meet stops the handof
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('stopState (0.8.1 M6): an advice call stopped at exit 18 reads as stopped by its cause, never as finished or crashed', () => {
-  for (const [cause, words] of [['user', 'a person'], ['client_cancel', 'its client'], ['wall_clock', 'its wall-clock ceiling']]) {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: "stopState (0.8.1 M6): an advice call stopped at exit 18 reads as stopped by its cause" (STOPPED-user.json, STOPPED-client_cancel.json, STOPPED-wall_clock.json, each read as "stopped by a person / its client / its wall-clock ceiling"). NEW: the markers the code still writes: a run stopped at a round limit or waiting for a person's choice reads as the round-stop state. WHY: user, client_cancel and wall_clock left STOP_CAUSES with the add-on, so readStoppedMarker no longer reads those three files (an old advice folder is refused by handoff before stopState is asked: test/regression-081-handoff-advice-refused.test.js); the legacy mapping in src/handoff-from-run.js stopState is unreachable now (OPEN in the wave-2 result table).
+test('stopState (0.8.1 M6): a run stopped at a round limit or waiting for the person reads as the round-stop state, never as finished or crashed', () => {
+  for (const cause of ['overseer_cap', 'layer_bound', 'stall_stop', 'price_refused', 'conflict']) {
     const dir = mkdtempSync(join(tmpdir(), 'thc-handoff-stop-'));
     try {
       writeFileSync(join(dir, `STOPPED-${cause}.json`), JSON.stringify({ schema: 'stopped/1', stoppedBy: cause }));
       writeFileSync(join(dir, 'report-partial.json'), '{}');
-      assert.deepEqual(stopState(dir), { finished: false, signedOff: false, reason: `stopped by ${words}` });
+      assert.deepEqual(stopState(dir), { finished: false, signedOff: false, reason: ROUND_STOPPED_STATE }, cause);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }
 });

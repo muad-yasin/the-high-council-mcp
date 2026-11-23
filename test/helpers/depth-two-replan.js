@@ -5,7 +5,7 @@
 //   leg 3 `tree approve`          -> the children frontier is approved
 //   leg 4 sitting                 -> R/M1 (draft = child-plan.md: it SPLITS, with its own questions, signed) and the independent R/M3 close passed; R/M1's own split is verified and ITS children frontier waits
 //   leg 5 `tree approve`          -> R/M1's children frontier (R/M1/M1, R/M1/M2, R/M1/M3) is approved
-//   leg 6 sitting                 -> R/M1/M1 and R/M1/M2 close passed, R/M1/M3 closes NOT passed (its draft is not signed; it is the INDEPENDENT child: a consumer's critics see its provider's settled text, which carries the mock marker) and a blocked-child stop opens on it; the sitting ends held by the stop
+//   leg 6 sitting                 -> R/M1/M1 and R/M1/M2 close passed, R/M1/M3 closes NOT passed (its draft is not signed; it is the INDEPENDENT child: a consumer's critics see its provider's settled text, which carries the mock marker) and a stop opens on it (source node_closed: the Status clamp turns its handoff Status into needs_decision, see leg 6 below); the sitting ends held by the stop
 //   leg 7 `decide --obligation`   -> the obligation route opens a ROOT stop (source obligation)
 //   leg 8 `decide` on the root stop -> a new root plan (replansRoot): the decision and generation R@g2 are recorded
 // What is NOT a verb, as in test/tree-whole-mock.test.js: the plan a model would have written is handed to each run as a DRAFT (api.run's `draft`); the typed text is scripted.
@@ -85,11 +85,12 @@ export async function driveToDepthTwoReplan({ taskText = 'Plan a tiny change.\n'
   if (stopAfterChildFrontier) return S;       // D2 T5 (lane T, G2): R/M1's children frontier is approved, none of them registered yet
   // leg 6
   r = await S.sit(); assert.equal(r.code, 20, `leg 6: ${r.text} || nodes: ${[...S.state().nodes.values()].map(x => `${x.node}@g${x.generation} ${x.phase}/${x.outcome}/${x.closedStatus}`).join('; ')}`);
-  const stops = kinds('needs_decision_opened'); assert.equal(stops.length, 1, `leg 6: one blocked-child stop expected: ${JSON.stringify(stops)} ${r.text}`);
+  const stops = kinds('needs_decision_opened'); assert.equal(stops.length, 1, `leg 6: one child stop expected: ${JSON.stringify(stops)} ${r.text}`);
   [S.childStop] = stops;
-  assert.deepEqual([S.childStop.node, S.childStop.source], ['R/M1/M3', 'blocked'], 'leg 6');
+  // CHANGED ACCEPTED (10 Nov 2026, base reds, test-only; the Status clamp efe7f4fc made an unsigned child close with Status needs_decision): OLD: assert.deepEqual([S.childStop.node, S.childStop.source], ['R/M1/M3', 'blocked'], 'leg 6'). NEW: the source is 'node_closed'. WHY: R/M1/M3 closes without agreement, its handoff Status ready_for_build is replaced by needs_decision (src/handoff-status.js), src/tree-detect.js opens a node_closed stop for it and no blocked stop beside it. This helper only needs a child stop for the obligation route of leg 7, which is source-independent (src/tree-decide-stop.js); the blocked source keeps its coverage in test/tree-blocked-child.test.js.
+  assert.deepEqual([S.childStop.node, S.childStop.source], ['R/M1/M3', 'node_closed'], 'leg 6');
   S.decide = decide;
-  if (stopAtChildStop) return S;       // bundle unit step 2 (slot route): the blocked child's stop is still open
+  if (stopAtChildStop) return S;       // bundle unit step 2 (slot route): the child's stop (node_closed) is still open
   // leg 7
   let d = await decide(S.childStop.id, 'The root rule C1 is wrong, fix it at the root.', { obligation: 'R@g1:C1' }); assert.equal(d.code, 0, `leg 7: ${d.text}`);
   S.rootStop = kinds('needs_decision_opened').find(e => e.source === 'obligation'); assert.ok(S.rootStop, 'leg 7: the root stop');

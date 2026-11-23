@@ -93,6 +93,20 @@ test('an unsigned run reads "not accepted, N open objections"; the dispute pass 
   } finally { w.clean(); }
 });
 
+// 0.8.4 round 1 (row 58). The shape of the job that printed it: a run the panel did not sign (two judges object to every ask, the round cap ends it), no dispute, no harness note, the handoff made from the very text the panel last reviewed.
+test('row 58: an unsigned run whose text nothing changed after the review: the handoff is NOT "made from the signed text" (nothing was signed)', () => {
+  const w = go(config({ maxRounds: 2 }, { critics: [{ provider: 'mock', model: 'mock-critic-holdout', lab: 'la' }, { provider: 'mock', model: 'mock-critic-holdout', lab: 'lb' }] }));
+  try {
+    assert.equal(w.report.passed, false, 'premise: the panel did not sign off');
+    assert.equal(w.report.signed_text.signed_off, false, 'premise: nothing was signed');
+    assert.equal(w.report.delivered_text.same_as_signed, true, 'premise: nothing changed the text after the review');
+    assert.deepEqual(w.report.delivered_text.harness_notes, [], 'premise: no harness note above the body');
+    assert.equal(w.report.handoff_text.made_from_sha256, w.report.signed_text.sha256, 'premise: the handoff was made from the text the panel last reviewed');
+    assert.equal(w.report.handoff_text.made_from_signed, false);
+    assert.equal(validate(w.report), true, JSON.stringify(validate.errors));
+  } finally { w.clean(); }
+});
+
 test('BOARD.md of a debate chain carries the signed/delivered section when the plan is not accepted', () => {
   const base = JSON.parse(readFileSync(join(root, 'chains', 'mock-debate.json'), 'utf8'));
   const w = go({ ...base, name: 'sv', maxRounds: 3, dispute: { enabled: true, stall_rounds: 2 }, seats: { ...base.seats, critics: [{ provider: 'mock', model: 'mock-critic-holdout', lab: 'hold' }] } });

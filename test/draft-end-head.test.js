@@ -1,20 +1,26 @@
 // B3 prep, JUDGE lane, unit H: the head of a judge's user prompt (everything up to the end of the draft) is returned by the code that builds the prompt (roles.js `criticUserHead`, `layerDebateUserHead`, `layerReplyUserHead`), so the
-// prompt cache (CACHE lane) takes its breakpoint from an INDEX, never from a text search. The end marker (`draft_end_marker`, A-DRAFT placeholder) is behind its own chain switch AND the notes lane; with the switch off every
+// prompt cache (CACHE lane) takes its breakpoint from an INDEX, never from a text search. The end marker (`draft_end_marker`) is behind the chain's switch AND the held words of the start line (0.8.4 D27: the notes lane no longer matters); with the gate off every
 // string is byte-identical to today's. The contract in words: Review/084/cnc/Boundary_DraftEnd.md (maintainer-local).
 // (Pass 1 shows the judge the draft itself: chain.js builds `shown` as the draft plus the changes since the last patch, and there is none in pass 1.)
 // The functions are read off the module namespace on purpose: a missing export fails each test by name, not the whole file at import.
-import test from 'node:test';
+import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as R from '../src/roles.js';
+import { setHeldForTest } from '../src/held-roles.js';
+import { draftStartLine, draftBoundarySentence } from './held-prompts/held-084-d27.js';
 import { lintChain } from '../src/chain-lint.js';
 import { createHash } from 'node:crypto';
 import { runChain, setPromptSpy, setCache } from '../src/chain.js';
 import { reviewNotesActive } from '../src/review-notes-lane.js';
+import { wordingExportSpan, wordingBetween } from './helpers/wording-files.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+afterEach(() => { setHeldForTest(null); });
+const WORDS = { draftStartLine, draftBoundarySentence };
+const HELD = { draftStartLine: undefined, draftBoundarySentence: undefined };   // hides the two D27 names whether or not src/roles.js records them
 const request = 'Plan a tea service.';
 const criteria = ['It states its assumptions.', 'It lists the steps.'];
 const draft = '# Plan\n\n1. Boil.\n2. Steep.\n\nAssumptions: black tea.';
@@ -93,59 +99,72 @@ test('the head does not change when the caller appends text after the builder\'s
 });
 
 test('PIN: criticUser\'s own span names no "role" and no applySeatRole (the same words test/stage-isolation.test.js scans for); the heads sit outside it', () => {
-  const src = readFileSync(join(root, 'src', 'roles.js'), 'utf8');
-  const start = src.indexOf('export function criticUser(');
-  const span = src.slice(start, src.indexOf('\nexport ', start + 10));
+  const span = wordingExportSpan(root, 'export function criticUser(');
   assert.doesNotMatch(span, /\brole\b/i); assert.doesNotMatch(span, /\bapplySeatRole\b/);
-  assert.doesNotMatch(src.slice(src.indexOf('export function criticUserHead('), start), /\brole\b/i);
+  assert.doesNotMatch(wordingBetween(root, 'export function criticUserHead(', 'export function criticUser('), /\brole\b/i);
 });
 
-test('the switch: draft_end_marker { enabled } needs the notes lane, a typo is caught, and an absent or false switch changes nothing', () => {
+test('the switch: draft_end_marker { enabled } no longer needs the notes lane (D27), a typo is caught, and an absent or false switch changes nothing', () => {
   const base = JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8'));
   const kinds = c => lintChain(c, 'chains/fixture.json').map(f => f.kind);
   assert.deepEqual(kinds({ ...base, reviewNotes: { enabled: true, perKind: 3 }, draft_end_marker: { enabled: true } }).filter(k => /marker|notes/.test(k)), []);
-  assert.ok(kinds({ ...base, draft_end_marker: { enabled: true } }).includes('draft-end-marker-needs-notes'), 'without the notes lane the marker would be silently inert');
+  // CHANGED ACCEPTED (0.8.4 D27, 09 Nov 2026, C&C ruling; WORDING D27-w4). OLD: the switch without the notes lane was refused as 'draft-end-marker-needs-notes' (the marker was written only beside the notes lane's asks). NEW: it is valid and no marker or notes finding is raised. WHY: his pick "Start + end lines, all chains" puts the switch on in every shipped chain that reads a plan, notes lane or not; the boundary no longer depends on the lane.
+  assert.deepEqual(kinds({ ...base, draft_end_marker: { enabled: true } }).filter(k => /marker|notes/.test(k)), [], 'the switch alone is valid');
   assert.deepEqual(kinds({ ...base, draft_end_marker: { enabled: false } }).filter(k => /marker/.test(k)), []);
   assert.ok(kinds({ ...base, reviewNotes: { enabled: true, perKind: 3 }, draft_end_marker: { enable: true } }).includes('invalid-draft-end-marker-config'));
 });
 
 const SIGNED = 'REVISED MOCK DELIVERABLE\n\nBody.\n\nAssumptions: none.';   // the mock critics sign off on a draft that carries this line, so a run is ONE pass on exactly this draft
-const mockChain = extra => ({ ...JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8')), ...extra });
+// 0.8.4 D27 fix-up (found by the unit-end set): the shipped chains now CARRY the switch, so a fixture meant to have none must remove it; `extra` names it only in the arms that want it.
+const mockChain = extra => { const c = { ...JSON.parse(readFileSync(join(root, 'chains', 'mock-unanimous.json'), 'utf8')), ...extra }; if (!('draft_end_marker' in extra)) delete c.draft_end_marker; return c; };
 async function panelPrompts(extra) {
   const seen = [];
   setPromptSpy(({ label, user }) => { if (/^panel-/.test(label)) seen.push({ label, user }); });
   try { await runChain({ request, config: mockChain(extra), draft: SIGNED, log: () => {} }); } finally { setPromptSpy(null); setCache(null); }
   return seen;
 }
-test('through the real call sites: the marker appears only with BOTH the switch and the notes lane; each of the other three combinations leaves every judge prompt without it', async () => {
+test('through the real call sites: the end line appears only with the switch AND both held words of the start line recorded, notes lane or not; every other combination leaves every judge prompt without it', async () => {
+  // CHANGED ACCEPTED (0.8.4 D27, 09 Nov 2026; C&C ruling: the whole boundary arrives at the release). OLD: the marker appeared with the switch AND the notes lane (the lane alone, or the switch alone, sent none). NEW: it appears with the switch AND the two held words recorded (injected here); the notes lane is no part of the gate, and with the words held the switch alone sends nothing, lane or not. WHY: his pick "Start + end lines, all chains" switches the boundary on in every shipped chain; no 0.8.4 run shows half a boundary, so the end line waits for its start line.
   const lane = { reviewNotes: { enabled: true, perKind: 3 } };
-  assert.equal(reviewNotesActive(mockChain(lane)), true, 'the notes lane is active in this repo state (else the "on" run below would fail for the wrong reason)');
-  for (const [name, extra] of [['neither', {}], ['notes lane only (how the nine shipped chains are configured)', lane], ['switch only, no notes lane', { draft_end_marker: { enabled: true } }]]) {
-    assert.equal(reviewNotesActive(mockChain(extra)), extra.reviewNotes ? true : false, `${name}: the lane is ${extra.reviewNotes ? 'on' : 'off'} as the case says`);
+  assert.equal(reviewNotesActive(mockChain(lane)), true, 'the notes lane is active in this repo state (else the lane arms below prove nothing)');
+  const none = async (name, extra) => {
     const seen = await panelPrompts(extra);
     assert.ok(seen.length > 0, name);
-    for (const s of seen) assert.equal(s.user.includes(R.DRAFT_END_MARKER), false, `${name}: ${s.label} carries no marker`);
-  }
-  const on = await panelPrompts({ ...lane, draft_end_marker: { enabled: true } });
-  assert.deepEqual([...new Set(on.map(s => s.label.split('-')[1]))], ['1'], 'one pass only, on exactly the signed draft');
-  for (const s of on) {
-    assert.equal(s.user.split(R.DRAFT_END_MARKER).length, 2, `${s.label}: the marker appears once`);
-    const at = s.user.indexOf(R.DRAFT_END_MARKER);
-    assert.ok(s.user.indexOf('# Draft under review') < at, `${s.label}: after the draft header`);
-    assert.ok(s.user.slice(0, at).endsWith(`${SIGNED}\n\n`), `${s.label}: directly after the draft`);
+    for (const s of seen) assert.equal(s.user.includes(R.DRAFT_END_MARKER), false, `${name}: ${s.label} carries no end line`);
+  };
+  setHeldForTest(HELD);
+  for (const [name, extra] of [['neither', {}], ['notes lane only', lane], ['switch only, words held', { draft_end_marker: { enabled: true } }], ['switch and notes lane, words held', { ...lane, draft_end_marker: { enabled: true } }]]) await none(name, extra);
+  setHeldForTest(WORDS);
+  for (const [name, extra] of [['neither, words recorded', {}], ['notes lane only, words recorded', lane]]) await none(name, extra);
+  for (const extra of [{ draft_end_marker: { enabled: true } }, { ...lane, draft_end_marker: { enabled: true } }]) {
+    const on = await panelPrompts(extra);
+    assert.deepEqual([...new Set(on.map(s => s.label.split('-')[1]))], ['1'], 'one pass only, on exactly the signed draft');
+    for (const s of on) {
+      assert.equal(s.user.split(R.DRAFT_END_MARKER).length, 2, `${s.label}: the end line appears once`);
+      const at = s.user.indexOf(R.DRAFT_END_MARKER);
+      assert.ok(s.user.indexOf('# Draft under review') < at, `${s.label}: after the draft header`);
+      assert.ok(s.user.slice(0, at).endsWith(`${SIGNED}\n\n`), `${s.label}: directly after the draft`);
+    }
   }
 });
 
-test('source scan: every unanimous-loop R.criticUser( call in chain.js passes the same endMarker, the bigger-cap retry included; the first-mode calls pass none', () => {
+test('source scan: every R.criticUser( call in chain.js passes the gate\'s endMarker: the unanimous loop, its bigger-cap retry, the first-mode loop and the final read alike', () => {
   const src = readFileSync(join(root, 'src', 'chain.js'), 'utf8');
-  const calls = [...src.matchAll(/R\.criticUser\(\{[^}]*\}\)/g)].map(m => m[0]);
-  const unanimous = calls.filter(c => /answeredQuestion/.test(c));
+  // CHANGED ACCEPTED (0.8.4 D38 option I, 09 Nov 2026): seven of the eight call sites now build their arguments ONCE as `const cu = { ... }` (the same object feeds R.criticUser(cu) and the head the excerpt block follows,
+  // R.criticUserHead(cu)); only the final read's size estimate still names its arguments inline. The scan reads both forms and wraps each argument object as the call it stands for, so every later row reads as before.
+  const calls = [...src.matchAll(/(?:const cu = |R\.criticUser\()(\{[^}]*\})/g)].map(m => `R.criticUser(${m[1]})`);
+  assert.equal(calls.length, 8, 'the eight call sites: the unanimous loop 2, the first-mode loop 3, the final read 3');
+  // CHANGED ACCEPTED (0.8.4 D27, 09 Nov 2026; C&C ruling; supersedes the FM-critic row of 08 Nov below). OLD: the first-mode loop's three calls pass NO endMarker and the scan asserted "first mode never carries the marker" of each. NEW: each of the three passes `endMarker: endMarkerOn`, the gate's own flag, like the unanimous loop. WHY: his D27 pick "switched on in every shipped chain" (OWNER 8); the old assertion recorded the state of the tree while the marker was off everywhere, not a decision of his.
+  const firstMode = calls.filter(c => !/\bprior\b/.test(c) && /endMarker: endMarkerOn/.test(c));
+  assert.equal(firstMode.length, 3, 'the three first-mode calls (critique, its bigger-cap retry, the one that answers a blocking question), told apart by having no `prior` and passing the gate flag');
+  assert.equal(calls.filter(c => /answeredQuestion/.test(c) && !/\bprior\b/.test(c)).length, 1, 'one of them names answeredQuestion (the first-mode blocking-question call)');
+  const unanimous = calls.filter(c => /answeredQuestion/.test(c) && /\bprior\b/.test(c));
   assert.equal(unanimous.length, 2, 'the two unanimous-loop call sites (first ask and the bigger-cap retry)');
-  for (const c of unanimous) assert.match(c, /endMarker/, c);
-  // the final read (runFinalRead) is the one other call that carries it: it passes its own `endMarker` parameter, which the call site fills with the same endMarkerOn (the notes lane + draft_end_marker switch)
-  const finalRead = calls.filter(c => !/answeredQuestion/.test(c) && /endMarker/.test(c));
-  assert.equal(finalRead.length, 1, 'exactly one call outside the unanimous loop carries the marker: the final read');
-  assert.match(finalRead[0], /endMarker \}\)$/, finalRead[0]);
-  for (const c of calls.filter(c => !/answeredQuestion/.test(c) && !/endMarker/.test(c))) assert.doesNotMatch(c, /endMarker/, `first mode never carries the marker: ${c}`);
+  for (const c of unanimous) assert.match(c, /endMarker: endMarkerOn/, c);
+  // the final read (runFinalRead) passes its own `endMarker` parameter, which the call site fills with the same endMarkerOn (the switch AND both held words of the start line)
+  // CHANGED ACCEPTED (0.8.4 S16, rooms and parts). OLD: 1. NEW: 3. WHY: the final read builds its user text at three places, all inside runFinalRead and all passing its own `endMarker` parameter: the size estimate for the room check (promptCharsFor), the first ask of a seat's list, and each later part of a long list.
+  const finalRead = calls.filter(c => /endMarker \}\)$/.test(c));
+  assert.equal(finalRead.length, 3, 'three calls in the final read: the room estimate, the first ask, the later parts');
+  assert.equal(firstMode.length + unanimous.length + finalRead.length, calls.length, 'every call is one of the three kinds, so none passes no flag');
   assert.match(src, /endMarker: endMarkerOn, invoke, record, log,/, 'the final read is handed the same endMarkerOn');
 });

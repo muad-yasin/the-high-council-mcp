@@ -1,48 +1,37 @@
-// 0.8.2 (owner via C&C, 7 Oct 2026: "Put the fix in 0.8.2, not 0.8.3"): `council gate answer` on an ADVICE gate re-checks policy.json the way the quote did, on the same figures the
-// CLI's adopt gate compares (the chain's dry-run expected cost; the gate's recorded ceiling), shows the same "Policy warning:" lines before the question, and refuses an approval the
-// policy refuses (nothing written). Declining is always allowed. $0: the shipped priced Sol chain, nothing is sent (the gate is answered or left pending).
+// 0.8.2 (owner via C&C, 7 Oct 2026: "Put the fix in 0.8.2, not 0.8.3"): `council gate answer` on an ADVICE gate re-checked policy.json the way the quote did and refused an approval the policy refused.
+// 0.8.4 (the add-on removal, wave 2): nothing makes an advice gate any more and src/gate-cli.js no longer has that policy check (advicePolicyAtTerminal) or the price / seats / sensitivity / masks / follow-up
+// lines of an advice gate's screen, so the five tests of this file about the advice terminal policy are removed with the code. The file keeps the one thing a person can still meet: an OLD gate of the kind
+// `advice` (a ledger an earlier version wrote) is a gate of an unknown kind to this version, and its terminal screen is the plain one (WORDING REM-w28). $0, nothing is sent.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { PassThrough } from 'node:stream';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { answerAtTerminal } from '../src/gate-cli.js';
-import { readGateAnswer } from '../src/gate.js';
-import { malformedProviderKeys } from './helpers/no-real-keys.js';
+import { readGateAnswer, requestGate } from '../src/gate.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-const BRIEF = () => ({
-  schema_version: 'advice-brief/1', moment: 'before_commit',
-  question: 'Should we drop the legacy invoices column before the release?',
-  decision_at_stake: 'A dropped column cannot be restored once the migration has run in production.',
-  options_considered: [{ name: 'Drop it now', summary: 'Run the migration before the release.' }, { name: 'Do less', summary: 'Keep the column and add a new one beside it.' }],
-  tried: [{ what: 'Ran the migration on a copy of the data', result: 'It passed in 3 seconds.' }],
-  sensitivity: 'internal', not_included: ['the conversation', 'environment variables'], excerpts: [],
-});
+const BRIEF_TEXT = '# A brief\n\nShould we drop the legacy invoices column before the release?\n';
 
-// A pending advice gate made by the real MCP flow (a client that cannot elicit: the call returns "awaiting" and the terminal is the way to answer).
-async function pendingGate(policy) {
+// NEW (0.8.4 add-on removal, wave 2; REM-w28): the gate is built by hand in the shape an earlier version recorded (kind advice, with a price, seats and a sensitivity), then shown with `council gate show` and put to a
+// terminal (typed n). Both screens carry the gate line and `expires:` and none of the five advice lines; the record keeps the fields (they are the ledger's, byte-stable).
+function oldAdviceGate() {
   const dir = mkdtempSync(join(tmpdir(), 'thc-term-policy-')); mkdirSync(join(dir, 'runs'));
-  if (policy !== undefined) writeFileSync(join(dir, 'policy.json'), typeof policy === 'string' ? policy : JSON.stringify(policy));
-  const child = spawn(process.execPath, [cli, '--mcp'], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, COUNCIL_ADVISE_MOCK: '0', COUNCIL_ADVISE_COOLDOWN_MS: '0', ...malformedProviderKeys() } });
-  const pending = new Map(); let buf = ''; let n = 0;
-  child.stdout.on('data', d => { buf += d; let nl; while ((nl = buf.indexOf('\n')) !== -1) { const line = buf.slice(0, nl); buf = buf.slice(nl + 1); let m; try { m = JSON.parse(line); } catch { continue; } if (m.id !== undefined && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } } });
-  const rpc = (method, params) => new Promise(r => { const id = ++n; pending.set(id, r); child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`); });
-  try {
-    await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'terminal-policy', version: '0' } });
-    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
-    const q = (await rpc('tools/call', { name: 'council_quote', arguments: { brief: BRIEF(), mode: 'single' } })).result;
-    if (q.isError) return { dir, refusedAtQuote: JSON.stringify(q) };
-    await rpc('tools/call', { name: 'council_advise', arguments: { quote_id: q.structuredContent.quote_id, confirm_sha256: q.structuredContent.text.sha256 } });
-    const run = readdirSync(join(dir, 'runs'))[0];
-    return { dir, run: join(dir, 'runs', run) };
-  } finally { child.stdin.end(); await Promise.race([new Promise(r => child.on('exit', r)), sleep(3000)]); child.kill(); }
+  const id = '2026-10-03T06-00-00-001Z';
+  const run = join(dir, 'runs', id);
+  mkdirSync(run);
+  writeFileSync(join(run, 'advice-brief.md'), BRIEF_TEXT);
+  const g = requestGate(run, { kind: 'advice', textPath: 'advice-brief.md', price: { ceiling_usd: 1.5 }, seats: [{ lab: 'mock-a', model: 'mock-x', retention: 'unknown' }], sensitivity: { label: 'internal', set_by: 'test' } });
+  assert.ok(g.ok, g.message);
+  assert.equal(readGateAnswer(run, 'g1').status, 'pending');
+  return { dir, id, run };
 }
+const FIVE = [/^price:/m, /^seats:/m, /^sensitivity:/m, /^masked before sending:/m, /^follow-up:/m];
+const GATE_LINE = /^gate g1 \(advice\): advice-brief\.md, \d+ bytes, sha256 [0-9a-f]{64}$/m;
 function terminal(...typed) {
   const stdin = new PassThrough(); stdin.isTTY = true; stdin.setRawMode = () => {};
   const stdout = new PassThrough(); stdout.isTTY = true; const stderr = new PassThrough();
@@ -50,69 +39,25 @@ function terminal(...typed) {
   for (const t of typed) stdin.write(`${t}\n`);
   return { stdin, stdout, stderr, shown: () => shown, errs: () => errs };
 }
-const answer = async (run, typed, opts = {}) => { const t = terminal(...typed); const code = await answerAtTerminal(run, 'g1', { ...opts, stdin: t.stdin, stdout: t.stdout, stderr: t.stderr }); return { code, shown: t.shown(), errs: t.errs() }; };
 
-test('the terminal refuses an approval the policy refuses: a $0.25 limit lies between the preview\'s expected $0.057 and the CLI\'s $0.40, so it must read the CLI figure; nothing is written', async () => {
-  const g = await pendingGate(undefined); // the quote is made with no policy; the policy is the person\'s own file and is read when the terminal answers
-  assert.ok(g.run, g.refusedAtQuote);
-  writeFileSync(join(g.dir, 'policy.json'), JSON.stringify({ max_usd_per_run: 0.25 }));
-  assert.equal(readGateAnswer(g.run, 'g1').status, 'pending');
-  const r = await answer(g.run, ['y']);
-  assert.equal(r.code, 1, `${r.shown}${r.errs}`);
-  assert.match(r.errs, /policy\.json refuses this call: max_usd_per_run: the expected cost of this call's chain \(the first figure --dry-run prints\) is \$0\.40\d\d/);
-  assert.equal(/Approve sending/.test(r.shown), false, 'no question was asked');
-  assert.equal(readGateAnswer(g.run, 'g1').status, 'pending', 'nothing was written');
+test('REM-w28: `council gate show` of an old gate of the kind "advice" (an unknown kind now) prints the gate line and expires: and no price, seats, sensitivity, masked-before-sending or follow-up line', () => {
+  const { dir, id } = oldAdviceGate();
+  const shown = spawnSync(process.execPath, [cli, 'gate', 'show', join('runs', id), 'g1'], { cwd: dir, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: dir }, timeout: 60_000 });
+  assert.equal(shown.status, 0, shown.stderr);
+  assert.match(shown.stdout, GATE_LINE);
+  assert.match(shown.stdout, /^expires: /m);
+  for (const re of FIVE) assert.doesNotMatch(shown.stdout, re);
 });
 
-test('the terminal shows the same "Policy warning:" line before the question when only the ceiling is over the limit, and the approval then goes through', async () => {
-  const g = await pendingGate(undefined);
-  writeFileSync(join(g.dir, 'policy.json'), JSON.stringify({ max_usd_per_run: 1 }));
-  const r = await answer(g.run, ['y']);
-  assert.equal(r.code, 0, `${r.shown}${r.errs}`);
-  const line = r.shown.split('\n').find(l => l.startsWith('Policy warning: max_usd_per_run:'));
-  assert.ok(line, r.shown.slice(0, 600));
-  assert.match(line, /its ceiling\) is \$1\.3200, over it/);
-  assert.ok(r.shown.indexOf('Policy warning:') < r.shown.indexOf('Approve sending'), 'the warning comes before the question');
-  assert.equal(readGateAnswer(g.run, 'g1').status, 'approved');
-});
-
-test('declining is always allowed, even when the policy refuses the call; an unreadable policy.json refuses an approval (fail closed) and still allows a decline', async () => {
-  const a = await pendingGate(undefined);
-  writeFileSync(join(a.dir, 'policy.json'), JSON.stringify({ max_usd_per_run: 0.25 }));
-  const d = await answer(a.run, ['y'], { decline: true });
-  assert.equal(d.code, 0, `${d.shown}${d.errs}`);
-  assert.equal(readGateAnswer(a.run, 'g1').status, 'declined');
-  const b = await pendingGate(undefined);
-  writeFileSync(join(b.dir, 'policy.json'), '{ broken');
-  const refused = await answer(b.run, ['y']);
-  assert.equal(refused.code, 1);
-  assert.match(refused.errs, /policy\.json/);
-  assert.equal(readGateAnswer(b.run, 'g1').status, 'pending');
-  assert.equal((await answer(b.run, ['y'], { decline: true })).code, 0);
-});
-
-test('with no policy, or a policy that says nothing about the run\'s cost, the terminal prints exactly what it printed before (no policy line, same bytes)', async () => {
-  const none = await pendingGate(undefined);
-  const empty = await pendingGate({});
-  const norm = (t, g) => t.split(g.run).join('RUN').replace(/expires: .*/g, 'expires: X').replace(/gate g1 .*\n/, 'gate g1\n').replace(/sha256 [0-9a-f]{64}/g, 'sha256 H').replace(/runs\/[^\s]+/g, 'runs/R');
-  const a = await answer(none.run, ['n']); const b = await answer(empty.run, ['n']);
-  assert.equal(/Policy/.test(a.shown + b.shown), false);
-  assert.equal(norm(a.shown, none), norm(b.shown, empty), 'a policy with no max_usd_per_run adds nothing');
-  assert.equal(a.code, 1); assert.equal(b.code, 1);
-});
-
-test('an advice run folder that is not inside a runs/ folder cannot be approved at the terminal (the project\'s policy.json cannot be located: fail closed); declining still works; no policy.json anywhere needed to trigger it', async () => {
-  const { cpSync } = await import('node:fs');
-  const g = await pendingGate(undefined);
-  const outside = join(mkdtempSync(join(tmpdir(), 'thc-copied-')), 'run-copy'); // the parent has no policy.json and is not named runs
-  cpSync(g.run, outside, { recursive: true });
-  const refused = await answer(outside, ['y']);
-  assert.equal(refused.code, 1, `${refused.shown}${refused.errs}`);
-  assert.match(refused.errs, /this advice run is not inside a runs\/ folder, so its project's policy\.json cannot be located/);
-  assert.equal(readGateAnswer(outside, 'g1').status, 'pending', 'nothing was written');
-  assert.equal(/Approve sending/.test(refused.shown), false, 'no question was asked');
-  assert.equal((await answer(outside, ['y'], { decline: true })).code, 0, 'declining is still allowed');
-  assert.equal(readGateAnswer(outside, 'g1').status, 'declined');
-  // the same gate in its own runs/ folder is unaffected
-  assert.equal((await answer(g.run, ['y'])).code, 0);
+test('REM-w28: the terminal answer of the same gate shows the same plain screen before it asks, and a typed n approves nothing', async () => {
+  const { run } = oldAdviceGate();
+  const t = terminal('n');
+  const code = await answerAtTerminal(run, 'g1', { stdin: t.stdin, stdout: t.stdout, stderr: t.stderr });
+  const shown = t.shown();
+  assert.match(shown, GATE_LINE, `${shown}${t.errs()}`);
+  assert.match(shown, /^expires: /m);
+  for (const re of FIVE) assert.doesNotMatch(shown, re);
+  assert.equal(code, 1, 'a typed n is not confirmed');
+  assert.match(shown, /Not confirmed\. Nothing was written; the gate stays pending\./);
+  assert.equal(readGateAnswer(run, 'g1').status, 'pending');
 });

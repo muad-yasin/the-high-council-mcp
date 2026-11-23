@@ -57,3 +57,48 @@ test('PRN-2 (money): a refused call, recognised or not, books $0 against the cap
     if (had === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = had;
   }
 });
+
+// 0.8.4, S6-07's known gap (Open Inference blocked at the call): a 404 on a pinned call becomes PriceRefused whether or not the body names the max price, so an `ignore` that leaves no host reads as a price stop. How OpenRouter words
+// that 404 is documented nowhere and was not probed (a probe is a paid call), so the body below is SYNTHETIC: it has no price wording. The stop stays the unrecognised stop, recommends nothing, and names the block as a possible cause.
+test('PRN-3: a 404 with no price wording on a call that carried the Open Inference block: the words name the block as a possible cause, claim no price cause and recommend nothing; a 404 that names the max price does not mention it', async () => {
+  const { runSingleStage } = await import('../src/chain.js');
+  const { PriceRefused, priceRefusedWords } = await import('../src/price-refused.js');
+  const had = process.env.OPENROUTER_API_KEY; process.env.OPENROUTER_API_KEY = 'sk-test';
+  const prev = process.env.COUNCIL_ALLOW_LOOPBACK_KEY_HOST; process.env.COUNCIL_ALLOW_LOOPBACK_KEY_HOST = '1';
+  const BLOCK = 'Every OpenRouter call also asks OpenRouter to skip the Open Inference host, and that cannot be switched off, so if no other host serves this model, the same HTTP 404 can come from that.';
+  let posted = null;
+  const srv = createServer((req, res) => { let s = ''; req.on('data', c => { s += c; }); req.on('end', () => { posted = JSON.parse(s); res.writeHead(404, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'No endpoints found for qwen/qwen3.7-plus', code: 404 } })); }); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  try {
+    let err = null;
+    try { await runSingleStage({ provider: 'openrouter', model: MODEL, lab: 'orx', maxTokens: 500, baseUrl: `http://127.0.0.1:${srv.address().port}/v1` }, { system: 's', user: 'u', label: 'ignore-probe' }); } catch (e) { err = e; }
+    assert.ok(err instanceof PriceRefused, 'a pinned call that gets a 404 still stops for the person');
+    assert.equal(err.recognised, false, 'no price wording: not recognised');
+    const words = priceRefusedWords(err, { runPath: 'runs/R1' });
+    assert.ok(words.includes(BLOCK), words);
+    assert.ok(!/was refused at the price limit/.test(words) && !words.includes('Recommended') && !words.includes('pricing.user.json'), 'no price cause is claimed and nothing is recommended');
+    assert.match(words.split('\n')[0], /The cause has not been identified\./);
+    assert.ok(words.includes('No endpoints found for qwen/qwen3.7-plus'), 'the provider\'s own text is still quoted');
+    assert.equal(err.message.includes(BLOCK), true, 'the error\'s own message carries it too');
+    assert.deepEqual(posted.provider.ignore, ['open-inference'], 'the call carried the block');
+  } finally {
+    srv.close();
+    if (prev === undefined) delete process.env.COUNCIL_ALLOW_LOOPBACK_KEY_HOST; else process.env.COUNCIL_ALLOW_LOOPBACK_KEY_HOST = prev;
+    if (had === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = had;
+  }
+});
+
+test('PRN-3b: the same words for several seats (plural), for a mixed set (only the unrecognised seat\'s line) and not at all for a 404 that names the max price', async () => {
+  const { PriceRefused, priceRefusedWords } = await import('../src/price-refused.js');
+  const BLOCK = 'Every OpenRouter call also asks OpenRouter to skip the Open Inference host, and that cannot be switched off, so if no other host serves this model, the same HTTP 404 can come from that.';
+  {
+    const mk = over => new PriceRefused({ seat: `openrouter/${MODEL}`, label: 'panel-1-orx', pin: { prompt: 0.4, completion: 1.6 }, row: { in: 0.4, out: 1.6 }, said: 'Model not found', recognised: false, lab: 'orx', ...over });
+    const many = priceRefusedWords(Object.assign(mk({}), { also: [mk({ seat: 'openrouter/other/model' })] }), { runPath: 'runs/R1' });
+    assert.ok(many.includes(BLOCK.replace('this model', 'these models')), many);
+    const mixed = priceRefusedWords(Object.assign(mk({ recognised: true, said: 'No endpoints found that satisfy the max price for this request' }), { also: [mk({ seat: 'openrouter/other/model' })] }), { runPath: 'runs/R1' });
+    assert.equal(mixed.split(BLOCK).length - 1, 1, 'once, on the unrecognised seat\'s line');
+    assert.ok(mixed.split('\n').find(l => l.startsWith("OpenRouter's answer for openrouter/other/model")).endsWith(BLOCK));
+    const named = priceRefusedWords(mk({ recognised: true, said: 'No endpoints found that satisfy the max price for this request' }), { runPath: 'runs/R1' });
+    assert.ok(!named.includes('Open Inference'), 'a 404 that names the max price keeps its price words only');
+  }
+});

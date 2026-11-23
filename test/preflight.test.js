@@ -18,22 +18,13 @@ import { preflightCheck, requiredDeliverableSections, checkArtifactReferences, p
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-test('requiredDeliverableSections: proposal-mode chains require a Scope ledger, others require nothing', () => {
-  assert.deepEqual(requiredDeliverableSections({ proposals: { parts: 3 } }), ['Scope ledger']);
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: proposal-mode chains required a `Scope ledger` section in the deliverable. NEW: they require nothing (the ledger is kept in its own file, so the plan carries no such section). WHY: proposalsSectionLedgerOut recorded (ledgerOutOn() is true, src/scope-ledger.js:13; the section list drops it, src/preflight.js).
+test('requiredDeliverableSections: no chain requires a section (the Scope ledger is kept in its own file)', () => {
+  assert.deepEqual(requiredDeliverableSections({ proposals: { parts: 3 } }), []);
   assert.deepEqual(requiredDeliverableSections({}), []);
 });
 
-test('test_preflight_catches_keyword_conflict: names both the required section and the matched phrase, zero API calls needed', () => {
-  const chainConfig = { proposals: { parts: 3 } };
-  const criteriaText = 'The deliverable must be a standalone, publication-ready document.';
-  const warnings = preflightCheck(chainConfig, criteriaText);
-  assert.equal(warnings.length > 0, true);
-  assert.ok(warnings.some(w => w.section === 'Scope ledger' && w.keyword === 'standalone'));
-  assert.ok(warnings.some(w => w.keyword === 'publication-ready'));
-  for (const w of warnings) assert.match(w.message, /Scope ledger/);
-  // This function is pure text matching - the mere fact it returns synchronously
-  // with no network dependency is the "zero API calls" property the test asks to pin.
-});
+// REMOVED (0.8.4, the twelve unowned tip reds, row R05; ruling C: a state no run can reach). OLD: 'test_preflight_catches_keyword_conflict' gave preflightCheck a proposal-mode chain ({ proposals: { parts: 3 } }) and a text with the trigger words 'standalone' and 'publication-ready', and expected warnings that name the required section 'Scope ledger' and the matched keyword. NEW: no test. WHY: requiredDeliverableSections (src/preflight.js) adds 'Scope ledger' only while ledgerOutOn() (src/scope-ledger.js) is false; ledgerOutOn() is true whenever src/roles.js exports proposalsSectionLedgerOut (recorded since dc60423a), and nothing under src/ overrides held() (only the test seam setHeldForTest does, and a scan pins that no src file calls it). Both callers (the criteria prompt in src/chain.js and the pre-flight in src/cli.js) pass no other input, so on the tip no config yields a required section, and preflightCheck returns [] for every config and every text. The sibling just above pins the empty section list; the two rows below stay green but cannot fail on a nonempty list. The keyword check (TRIGGER_KEYWORDS and its warning) stays in src/ and cannot fire: a FOR_085 line.
 
 test('test_preflight_known_misses_semantic_conflicts: the same conflict, rephrased without trigger words, passes with no warning', () => {
   const chainConfig = { proposals: { parts: 3 } };

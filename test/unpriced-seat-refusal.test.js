@@ -12,6 +12,8 @@ import { unpricedSeats } from '../src/unpriced.js';
 import { needsPrice } from '../src/cost.js';
 import { runSingleStage, setBudget, UnpricedSeat } from '../src/chain.js';
 import { dryRunReport } from '../src/dry-run.js';
+import { DEFAULT_MAX_USD } from '../src/default-cap.js';
+const DEFAULT_CAP_REFUSAL = new RegExp(`spend cap of \\$${DEFAULT_MAX_USD}\\.00 cannot hold it`);   // 10 Nov 2026: the default cap is $12; the figure is read, not typed
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -49,7 +51,7 @@ test('the CLI refuses a chain with an unpriced seat under the default cap: exit 
   const r = spawnSync(process.execPath, [cli, '--chain', 'up', '--task', 'tasks/t.md'], { cwd: dir, encoding: 'utf8', env, timeout: 60_000 });
   assert.equal(r.status, 5, r.stdout + r.stderr);
   assert.match(r.stderr, /openrouter\/vendor\/not-in-the-price-table/);
-  assert.match(r.stderr, /spend cap of \$7\.00 cannot hold it/);
+  assert.match(r.stderr, DEFAULT_CAP_REFUSAL);
   assert.match(r.stderr, /Nothing was sent and nothing was spent/);
   assert.match(r.stderr, /pricing\.user\.json in your project folder/); assert.doesNotMatch(r.stderr, /--max-usd none/, '`none` is no way out of an unpriced seat any more (a paid start always ends at a typed limit)');
   assert.equal(existsSync(join(dir, 'runs')) && readdirSync(join(dir, 'runs')).length > 0, false, 'refused before a run folder exists');
@@ -66,10 +68,10 @@ test('the dry run shows the same refusal at $0: the text names the cap, and the 
   writeFileSync(join(dir, 'chains', 'up.json'), JSON.stringify(cfg));
   const env = { PATH: process.env.PATH, HOME: dir };
   const out = spawnSync(process.execPath, [cli, '--chain', 'up', '--dry-run'], { cwd: dir, encoding: 'utf8', env }).stdout;
-  assert.match(out, /spend cap of \$7\.00 cannot hold it/);
-  assert.equal(dryRunReport(cfg, { defaultCapUsd: 7 }).cap.unpricedSeatsRefused, true);
+  assert.match(out, DEFAULT_CAP_REFUSAL);
+  assert.equal(dryRunReport(cfg, { defaultCapUsd: DEFAULT_MAX_USD }).cap.unpricedSeatsRefused, true);
   assert.equal(dryRunReport(cfg, { defaultCapUsd: null }).cap.unpricedSeatsRefused, false, 'no cap, nothing to refuse');
-  assert.equal(dryRunReport(JSON.parse(require_json('cheap-7-v2')), { defaultCapUsd: 7 }).cap.unpricedSeatsRefused, false);
+  assert.equal(dryRunReport(JSON.parse(require_json('cheap-7-v2')), { defaultCapUsd: DEFAULT_MAX_USD }).cap.unpricedSeatsRefused, false);
 });
 
 test('invoke() is the backstop: under a cap an unpriced seat is refused before the call is sent; with no cap, or a priced seat, the call goes out', async () => {
@@ -94,7 +96,7 @@ test('invoke() is the backstop: under a cap an unpriced seat is refused before t
 
 test('review fixes (item 8): the dry-run flag looks at every seat slot (an unpriced seat of a stage that is switched off is refused too), and --rematch / --replay refuse under a cap with exit 5 before paying', () => {
   const cfg = { name: 'off', description: 'x', maxRounds: 1, signoff: 'first', seats: { criteria: { provider: 'mock', model: 'mock' }, builder: { provider: 'mock', model: 'mock' }, critics: [{ provider: 'mock', model: 'mock' }], coldRead: { ...UNPRICED } } };
-  assert.equal(dryRunReport(cfg, { defaultCapUsd: 7 }).cap.unpricedSeatsRefused, true, 'coldRead is not enabled, so no planned row names it, and the run is still refused');
+  assert.equal(dryRunReport(cfg, { defaultCapUsd: DEFAULT_MAX_USD }).cap.unpricedSeatsRefused, true, 'coldRead is not enabled, so no planned row names it, and the run is still refused');
   const dir = mkdtempSync(join(tmpdir(), 'thc-unpriced-side-'));
   mkdirSync(join(dir, 'tasks')); mkdirSync(join(dir, 'chains'));
   writeFileSync(join(dir, 'tasks', 't.md'), 'Plan a small thing.\n');
@@ -109,6 +111,6 @@ test('review fixes (item 8): the dry-run flag looks at every seat slot (an unpri
   for (const flags of [['--rematch', `runs/${id}`], ['--replay', `runs/${id}`, '--replay-date', '2026-10-07']]) {
     const r = spawnSync(process.execPath, [cli, ...flags], { cwd: dir, encoding: 'utf8', env: { ...env, OPENROUTER_API_KEY: 'sk-or-v1-' + 'f'.repeat(40) }, timeout: 120_000 });
     assert.equal(r.status, 5, `${flags[0]}: ${r.stdout}${r.stderr}`);
-    assert.match(r.stderr, /spend cap of \$7\.00 cannot hold it/, flags[0]);
+    assert.match(r.stderr, DEFAULT_CAP_REFUSAL, flags[0]);
   }
 });

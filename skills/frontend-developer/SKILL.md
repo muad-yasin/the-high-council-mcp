@@ -17,7 +17,7 @@ When a UI bug recurs in the same shape, ask first **"can this class be made unre
 1. **UI is never logic.** No business rules, derived-value math or state mutation in a component; reading a flag to decide *what to show* is fine. A component is a deep module - small surface (inputs in, events out) hiding its wiring. A caller reaching into a child to make it behave means the surface is wrong.
 2. **React to events; don't poll state that has one, and unsubscribe on teardown.** A sibling that may not exist yet is resolved at first use, never assumed from initialization order; state that can already be true before mount (an event fired during bootstrap) gets a one-time sync right after subscribing (the ordering rule is `backend-developer`'s rule 7).
 3. **Real hit targets.** The numbers (the WCAG 2.2 floor and the platform guidance) are `ux-design`'s. Art may be smaller if the *hit area* meets them - computed from real bounds, not eyeballed.
-4. **Follow the established pattern before inventing one.** Check how a similar screen does layout, animation, state and input before adding a library or hand-rolling something a helper already does. Settled layout choices stay settled.
+4. **Follow the established pattern before inventing one.** Check how a similar screen does layout, animation, state and input before adding a library or hand-rolling something a helper already does. Settled layout choices stay settled. Look at how the project's toolchain is set up - compiler, framework mode, linter - and only then apply a framework rule: a setting may already do what the rule asks (the review-side line is in `backend-developer`'s verification reference).
 5. **Audit per-frame work:** an unthrottled read of a slow source every tick (about once a second is usually enough); slow-changing data visited at frame rate (split a fast active subset from a throttled sweep); verbose logging left in a hot path. Never drive animation through a system that marks elements dirty every frame when nothing changed.
 6. **No dynamic content in a fixed-size box unless overflow is intended.** Many text systems' default overflow does not clip - surplus text paints over its neighbors, silently. Growing content gets a growing container (remove the fixed height; a bigger constant is not the fix); a genuinely fixed box gets shorter content and explicit truncation. **Measure the longest real value against the container**, not a screenshot of a typical one: auto-size text hides overflow in one screenshot and ships it to another device. Truncation can fail vertically too, dropping a whole line with no ellipsis - it looks like a missing binding, not a sizing bug.
 7. **Name where surplus space goes.** Each screen names **one** destination (a scroll region, a spacer, a background) and every sibling declares it won't grow. **Text never absorbs surplus.** Left unnamed, an unrelated growth flag becomes the destination: one project shipped a ~450-unit hole mid-screen that survived six visual passes, all captured at the one aspect ratio where surplus was zero.
@@ -43,12 +43,22 @@ Every data-bound element handles **locked/unavailable, first-time/empty, loading
 `ux-design` decides the accessible design; this is what the code must do. WCAG 2.2 AA is the reference.
 
 - **Native elements first.** A real `<button>`, link, `<label for>` or platform control brings focus, keyboard and screen-reader semantics for free; a clickable `<div>` brings none. Add ARIA only where no native element fits - wrong ARIA is worse than none.
-- **Everything works from the keyboard**, in a logical order, with a visible focus indicator that sticky headers, banners and overlays never cover. Dialogs move focus in, trap it, and return it on close.
+- **Everything works from the keyboard**, in a logical order, with a visible focus indicator that sticky headers, banners and overlays never cover. Where a measurable indicator is wanted, WCAG 2.2's Focus Appearance (2.4.13, level AAA) gives one: an area at least that of a perimeter 2 CSS px thick around the component, at 3:1 contrast against its unfocused look (AAA goes beyond the AA reference here; adopting it is a design decision, not the implementer's). Dialogs move focus in, trap it, and return it on close.
 - **Every control has an accessible name** - icon-only buttons included - and every input a programmatic label.
 - **Announce async changes** that matter (errors, completed saves, loading results) through the platform's status or live-region mechanism.
 - **Color never carries meaning alone** (`ux-design` owns the rule); in code, every color-coded state also sets a shape, icon, sign or word.
 - **Respect reduced-motion settings** (`prefers-reduced-motion` on the web) for anything beyond small transitions.
 - **Content reflows at a 320 CSS px wide viewport (about 400% zoom) without two-axis scrolling, and text resizes to 200% without loss** (WCAG 1.4.10 Reflow, 1.4.4 Resize Text).
+
+## Terminal and CLI output
+
+A command line is an interface too, with two readers: a person and a program.
+
+- **Results go to stdout, messages and errors to stderr, and the exit code carries the outcome.** An error printed with exit code 0 is a success to every script that calls the tool.
+- **A program reads a declared machine format (a `--json` flag, a stable schema), never the human text.** The wording for people stays free to improve only while nothing parses it.
+- **Color and cursor control only when the output is a terminal**, and none when `NO_COLOR` is set to a non-empty value unless the user's own flag or configuration asks for color: in a pipe or a log file the codes are noise to the next reader. Meaning never rides on color alone here either.
+- **An unknown flag or argument is an error, never ignored** - a mistyped `--dry-run` that is silently dropped runs the real thing.
+- **Long work shows progress on stderr and ends with one line saying what happened and where the output is**, so silence is not taken for a hang.
 
 ## Right-sizing
 
@@ -74,5 +84,22 @@ Read `references/timing-lifecycle-input.md` before live verification, lifecycle 
 "It compiles," "the handler ran" and a screenshot that looks right are not evidence. Generated UI is measurably weak exactly here: a 2026 peer-reviewed study of six AI UI design generators (W4A 2026, five WCAG criteria) found 29% compliance, and naming accessibility in the prompt *lowered* it. Code-writing agents were not measured, so treat the result as a prior for them. Pair signals structurally, then compute the check. **Never let the same agent both write the check and certify the result**, and say plainly what was not verified.
 
 **A capture at one viewport shape is not evidence about the others.** Verify at a short design floor, the most common real device, the tallest or widest ceiling, and a split-screen or tablet shape.
+
+## Mistakes to flag
+
+- Business rules or derived-value math inside a component; a caller reaching into a child to make it behave.
+- State polled where an event exists; a subscription never removed; a startup event with no one-time sync.
+- A hit area below the floor, or sized by eye.
+- Dynamic content in a fixed-size box; overflow checked on a typical value instead of the longest real one.
+- Surplus space with no named destination, or text absorbing it; a glow or shadow clipped by its container.
+- A press-and-hold with a release path that skips the reset; a pending count that a destroyed trigger never releases.
+- Only the active state implemented; show logic built from accumulating booleans.
+- A number or date formatted or parsed outside the shared, locale-pinned formatter; a preview computed apart from the call that commits.
+- A clickable `<div>` where a native control fits; a control with no accessible name; focus hidden behind an overlay; meaning carried by color alone.
+- An error printed with exit code 0; human-formatted output parsed by a program; color codes written into a pipe; an unknown flag ignored.
+- A value re-derived from how a mockup renders instead of read from the file.
+- A lifecycle handler that breaks when it fires twice; a viewport measurement cached at startup.
+- A framework rule applied without a look at how the project's toolchain is set up.
+- A capture at one viewport shape offered as proof; the agent that wrote the check certifying the result.
 
 Verification protocol, the evidence graded, and the review checklist: `references/verification-and-review.md`.

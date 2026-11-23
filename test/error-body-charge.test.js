@@ -1,9 +1,9 @@
 // S5-03 (owner's pick, 28 Okt 2026): a provider's reply that is an error body (HTTP 200, `error`, no `choices`) is charged at the usage figure the body carries; with none, at a typical cost for that call (the gate's expected cost,
-// expectedCallUsd); a call the dry run does not plan (no expected size) keeps the worst case. Before, every such reply was charged one attempt's WORST case. Offline: stubbed fetch, the real invoke().
+// expectedCallUsd); a call the dry run does not plan (no expected size) at a typical size for what it writes (0.8.4 unit 3, D43). Before, every such reply was charged one attempt's WORST case. Offline: stubbed fetch, the real invoke().
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runChain, runSingleStage, setBudget, setCache, budgetState, setChargeHook, setPromptSpy } from '../src/chain.js';
-import { costOf, expectedCallUsd, projectAttempts } from '../src/cost.js';
+import { costOf, expectedCallUsd, projectAttempts, promptCharsOf, promptTokensOfChars } from '../src/cost.js';
 
 const stubFetch = handler => { const original = globalThis.fetch; globalThis.fetch = handler; return () => { globalThis.fetch = original; }; };
 const reply200 = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -49,14 +49,16 @@ test('an error body whose usage is zero is charged nothing and writes no charge 
   });
 });
 
-test('a call the dry run does not plan (no expected size) keeps the worst case for an error body', async () => {
+test('a call the dry run does not plan (no expected size) is charged a typical cost for an error body, not its worst case (0.8.4 unit 3, D43)', async () => {
   await withKey(async () => {
     const restore = stubFetch(async () => reply200({ error: { message: 'upstream failed' } }));
     try {
       setCache(null); setBudget(1000);
       const { first } = projectAttempts(SEAT, { system: 'S', user: 'U' });
+      const typical = costOf(SEAT.provider, SEAT.model, { input: promptTokensOfChars(promptCharsOf({ system: 'S', user: 'U' })), output: 1200 }).usd;   // the prompt plus a critique-sized output
+      assert.ok(typical > 0 && typical < first, 'fixture: a typical cost is a real figure below the worst case');
       await assert.rejects(() => runSingleStage(SEAT, { system: 'S', user: 'U', label: 'solo', log: () => {} }));
-      assert.ok(Math.abs(budgetState().spent - first) < 1e-9, `charged ${budgetState().spent}, one attempt's worst case is ${first}`);
+      assert.ok(Math.abs(budgetState().spent - typical) < 1e-9, `charged ${budgetState().spent}, a typical cost is ${typical} (one attempt's worst case is ${first})`);
     } finally { restore(); setBudget(null); }
   });
 });

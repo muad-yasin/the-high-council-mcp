@@ -32,6 +32,13 @@ export function cutDespiteSupport(proposals, debate) {
 }
 
 /**
+ * The ONE reader of `holds_layer` on a signoff[] row (M1; src/chain.js writes it from the sign-off tally's own predicate): the objections of a STATED PASS that holds an objection of its own, whose row reads signedOff null and objections null and so says nothing of what holds its layer.
+ * The exported HTML board and the replay transcript add `holdsLayerWords(row)` beside the word; [] / '' for a row that holds nothing. (A-DRAFT wording.)
+ */
+export const holdsLayerOf = row => (Array.isArray(row?.holds_layer) ? row.holds_layer : []);
+export const holdsLayerWords = row => { const held = holdsLayerOf(row); return held.length ? ` (its own ${held.length === 1 ? 'objection' : 'objections'} ${held.map(o => o.id).join(', ')} still ${held.length === 1 ? 'holds' : 'hold'} back its layer's sign-off)` : ''; };
+
+/**
  * One row per review round from panelVerdicts: each lab's verdict, and the counts. `carried` marks a
  * verdict reused on an unchanged draft (R1), so a round is never read as more heard than it was.
  * undefined when there were no panel verdicts (a run that never reached review).
@@ -40,6 +47,7 @@ export function disagreementMap(panelVerdicts) {
   if (!Array.isArray(panelVerdicts) || !panelVerdicts.length) return undefined;
   const rounds = new Map();
   for (const v of panelVerdicts) {
+    if (v.cut) continue;   // 0.8.4 --finish: a cut-off layer's reply is on the record, marked, and counts for no round
     if (!rounds.has(v.round)) rounds.set(v.round, []);
     rounds.get(v.round).push(v);
   }
@@ -47,7 +55,7 @@ export function disagreementMap(panelVerdicts) {
     const n = k => vs.filter(v => v.verdict === k).length;
     return {
       round,
-      labs: Object.fromEntries(vs.map(v => [v.lab, v.carried ? `${v.verdict} (carried)` : v.verdict])),
+      labs: Object.fromEntries(vs.map(v => [v.seat ?? v.lab, v.carried ? `${v.verdict} (carried)` : v.verdict])),
       signed_off: n('signed_off'), objected: n('objected'), unheard: n('unheard'), passed: n('passed'),
     };
   });

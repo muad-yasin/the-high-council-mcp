@@ -14,7 +14,7 @@ import { DEAD_REASON, claimAlive, deadKeys, heldKeys, heldPhraseOf, keptKeys } f
 import { runEndOf, waitsForChoice } from './tree-member.js';
 import { parsePrevail } from './conflict-decider.js';
 import { closeReturnOf, unreadableFloorOf } from './tree-budget.js';
-import { stopIdOf, roundChoiceEntry } from './overseer-rounds.js';
+import { stopIdOf, roundChoiceEntry, stopOffersContinue, roundStopsInWords } from './overseer-rounds.js';
 import { PARTIAL_REPORT_FILE } from './report-shape.js';
 
 const keyOf = n => `${n.node}@g${n.generation}`;
@@ -24,6 +24,7 @@ const readJson = file => { try { return JSON.parse(readFileSync(file, 'utf8')); 
 export function readStopOfRun(runDir) {
   const stop = readJson(join(runDir, PARTIAL_REPORT_FILE))?.stop;
   if (stop === null || typeof stop !== 'object' || Array.isArray(stop) || typeof stop.kind !== 'string' || !Number.isInteger(stop.overseer_round) || !Number.isInteger(stop.pass)) return null;
+  if (stop.kind === 'budget_stop') return null;   // 0.8.4 (relay of --finish-now): a spending stop is no round stop a member's choice answers; its partial report carries a stop object only for the person-only stop gate
   return { stop, id: stopIdOf(stop) };
 }
 
@@ -68,7 +69,7 @@ export function waitingForChoice(state, runsDir, facts = {}) {
 }
 
 /** Why a person cannot give this node a choice right now, or null. Used by the verb (before anything is written) and by chooseNode (under the tree lock). */
-export function choiceRefusal({ state, runsDir, node, generation, facts = {}, rootId = null, want = 'round' }) {
+export function choiceRefusal({ state, runsDir, node, generation, facts = {}, rootId = null, want = 'round', choice = null }) {
   const n = state.nodes.get(`${node}@g${generation}`);
   if (!n) return { kind: 'unknown', reason: `no such node in this tree: ${node}` };
   const give = n.node === 'R' ? `to end the whole tree for good use \`council tree decide ${rootId ?? '<tree id>'} --abandon\`` : `to give the node up use \`council tree decide ${rootId ?? '<tree id>'} --close ${n.node}\``;
@@ -76,7 +77,7 @@ export function choiceRefusal({ state, runsDir, node, generation, facts = {}, ro
   if (replaced === 'dead') return { kind: 'dead', reason: `${keyOf(n)} is dead (${DEAD_REASON}): a choice would promise a resume that cannot happen; ${give}` };
   if (replaced === 'held' || replaced === 'kept') return { kind: replaced, reason: `${keyOf(n)} is ${heldPhraseOf(state, `${n.node}@g${n.generation}`)}: it is neither resumed nor given a choice` };
   if (n.postRun) return { kind: 'post_run', reason: `${keyOf(n)} is in a post-run paid call (pid ${n.postRun.pid}); it ends the call first` };
-  if (n.phase !== 'running') return { kind: 'phase', reason: `${keyOf(n)} is ${n.phase === 'stopped' ? 'stopped at its budget cap (that needs --top-up, not a choice)' : n.phase}: a choice is for a node stopped at its overseer limit` };
+  if (n.phase !== 'running') return { kind: 'phase', reason: `${keyOf(n)} is ${n.phase === 'stopped' ? 'stopped at its budget cap (that needs --top-up, not a choice)' : n.phase}: a choice is for a node stopped ${roundStopsInWords()}` };
   if (claimAlive(n.claim, facts)) return { kind: 'claim', reason: `${keyOf(n)} is running: pid ${n.claim.pid} on ${n.claim.host} holds its claim` };
   const runDir = join(runsDir, n.runId);
   const end = runEndOf(runDir);
@@ -87,10 +88,12 @@ export function choiceRefusal({ state, runsDir, node, generation, facts = {}, ro
     // no 'consumed' refusal here (unlike the overseer limit): run.json's entries are project-writable text, so one must never lock the person out; a pick given again simply replaces the entry at the next `tree resume` (pendingChoiceOf: applied false)
     return null;
   }
-  if (end?.kind === 'conflict_stopped') return { kind: 'conflict_stop', reason: `${keyOf(n)} is stopped at a conflict the decider asked you to choose, not at an overseer limit: answer it with \`council tree decide ${rootId ?? '<tree id>'} --prevail-node ${n.node} --prevail <n>=<objection id>|neither\`, then \`council tree resume ${rootId ?? '<tree id>'}\` applies it` };
-  if (end?.kind !== 'round_stopped') return { kind: 'not_round_stopped', reason: `${keyOf(n)} is not stopped at an overseer limit${end ? ` (its run ended: ${end.kind})` : ' (it is not waiting for a choice)'}` };
+  if (end?.kind === 'conflict_stopped') return { kind: 'conflict_stop', reason: `${keyOf(n)} is stopped at a conflict the decider asked you to choose, which --continue-node and --finish-node do not answer: answer it with \`council tree decide ${rootId ?? '<tree id>'} --prevail-node ${n.node} --prevail <n>=<objection id>|neither\`, then \`council tree resume ${rootId ?? '<tree id>'}\` applies it` };
+  if (end?.kind !== 'round_stopped') return { kind: 'not_round_stopped', reason: `${keyOf(n)} is not stopped for --continue-node or --finish-node${end ? ` (its run ended: ${end.kind})` : ''}; a choice is for a node stopped ${roundStopsInWords()}` };
   const at = readStopOfRun(runDir);
   if (!at) return { kind: 'stop_unreadable', reason: `${keyOf(n)}'s stop does not read (${PARTIAL_REPORT_FILE} is missing or holds no stop), so no choice can be recorded for it; ${give}` };
+  // 0.8.4 S5 (A-DRAFT, C&C's one predicate): a continue at a stall with no pass left cannot go on; the way out is the same `give` text as every other refusal
+  if (choice === 'continue' && !stopOffersContinue(at.stop)) return { kind: 'no_pass_left', reason: `${keyOf(n)} stopped at a stall and no pass is left, so it cannot go on; ${give}` };
   const done = roundChoiceOf(runDir, at.id);
   // "consumed" counts only an entry the TREE RECORD backs (the same stop id and the same choice): run.json is project-writable text, so an entry nobody recorded must never lock the person out; the sitting replaces it from the record (applyChoice)
   if (done && n.choice && n.choice.stop === at.id && n.choice.choice === done.choice) return { kind: 'consumed', reason: `${keyOf(n)}'s choice for this stop (${at.id}) was already applied to its run (${done.choice}); it can only be changed by the next stop` };
@@ -108,7 +111,7 @@ export function chooseNode(rootDir, { node, generation = 1, choice, rootId = nul
     const record = readTreeRecord(rootDir);
     const state = stateOf(record);
     const runsDir = dirname(rootDir);
-    const refusal = choiceRefusal({ state, runsDir, node, generation, facts, rootId, want: choice === 'prevail' ? 'conflict' : 'round' })
+    const refusal = choiceRefusal({ state, runsDir, node, generation, facts, rootId, want: choice === 'prevail' ? 'conflict' : 'round', choice })
       ?? (choice === 'prevail' ? (() => { const at0 = readConflictStopOfRun(join(runsDir, state.nodes.get(`${node}@g${generation}`).runId)); const ok = picksOf(picks, at0.stop); return ok.ok ? null : { kind: 'bad_pick', reason: ok.why }; })() : null);
     if (refusal) {
       appendTreeEventLocked(rootDir, { event: 'blocked', reason: 'continuation_refused', scope: `${node}@g${generation}`, check: 'choice', detail: refusal.reason }, { facts, now });

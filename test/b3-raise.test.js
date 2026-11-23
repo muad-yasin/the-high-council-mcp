@@ -38,6 +38,7 @@ test('R1: without --raise-cap a run that has not stopped at its limit simply con
 
 test('R2: the early-raise screen tells the truth: the run is under a limit (not stopped at it), and the floor is the limit it has now', () => {
   const t = buildCapScreen({ kind: 'raise_early', history: { previousCapUsd: 10, spentUsd: 2, floorUsd: 2 }, subject: { chain: 'c', task: 't' } }).text;
+  assert.match(t.split('\n')[0], /^Raise the spending limit of this run\? Chain: c\. Task: t\.$/, 'the early raise names what the figure is for, first (C&C\'s Q3, R246: it read "Continue this run?")');
   assert.match(t, /This run is under a limit of \$10\.00: \$2\.00 counted\./);
   assert.match(t, /It must be above \$10\.00, the limit it has now\./);
   assert.doesNotMatch(t, /stopped at its limit/);
@@ -195,9 +196,11 @@ test('R3b: a raise after a BUDGET STOP is unchanged: a total above the counted f
   assert.deepEqual([ok.status, ok.capUsd], ['authorized', 9.6]);
 });
 
-test('R9: the relay is fenced: only src/gate.js (the definition) and src/gate-relay-cli.js name answerGateAsRelay', async () => {
+// CHANGED ACCEPTED TEST (0.8.4 S20 slice 1, C&C's R2 YES): OLD: only gate.js (the definition) and gate-relay-cli.js named answerGateAsRelay. NEW: run-controls.js too, the one interface that records a relayed RAISE; gate-relay-cli.js still names it for a ruling,
+// its withdrawal and a re-tag until slice 2. WHY: one recorder of a raise answer for the terminal, the window and the relay (test/run-controls.test.js pins it).
+test('R9: the relay is fenced: only src/gate.js (the definition), src/run-controls.js and src/gate-relay-cli.js name answerGateAsRelay', async () => {
   const { readdirSync: rd, readFileSync: rf } = await import('node:fs');
   const src = new URL('../src/', import.meta.url);
   const named = rd(src).filter(f => f.endsWith('.js') && /\banswerGateAsRelay\b/.test(rf(new URL(f, src), 'utf8')));
-  assert.deepEqual(named.sort(), ['gate-relay-cli.js', 'gate.js']);
+  assert.deepEqual(named.sort(), ['gate-relay-cli.js', 'gate.js', 'run-controls.js']);
 });

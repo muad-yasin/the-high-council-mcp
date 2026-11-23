@@ -53,25 +53,33 @@ test('R1 b4: the seventh overseer objection is the overseer cap: a stop, not a r
 });
 
 test('R1 b5: a PERMANENTLY UNHEARD layer-1 seat reaches the stop: two re-ask passes are allowed, the third is the stop (a loop bounded only by the pass cap until now)', () => {
-  const r = run(cfg(), Array(10).fill(unheard(1)));
+  // CHANGED ACCEPTED (0.8.4 ladder unit, the solo ask; owed list 'Solo ask', 10 Nov 2026). OLD: the default allowed two re-ask passes (['ask_again','ask_again','stop'], passes 3, reasks 2). NEW: the default is 0 (UNHEARD_PASSES_BEFORE_STOP: the solo ask replaces the repeated passes), so the first unheard pass is the stop; the old behaviour is still what `reasks: 2` (a person's continues) gives, and is kept as the second assertion.
+  const now = run(cfg(), Array(10).fill(unheard(1)));
+  assert.deepEqual(now.map(x => x.action), ['stop']);
+  assert.deepEqual(now[0].stop, { kind: 'layer_bound', why: 'unheard', layer: 1, passes: 1, reasks: 0, overseerRound: 1 });
+  const r = run(cfg({ reasks: 2 }), Array(10).fill(unheard(1)));
   assert.deepEqual(r.map(x => x.action), ['ask_again', 'ask_again', 'stop']);
   assert.deepEqual(r[2].stop, { kind: 'layer_bound', why: 'unheard', layer: 1, passes: 3, reasks: 2, overseerRound: 1 });
 });
 
 test('R1 b6: the unheard count is CONSECUTIVE: a revise between two unheard passes resets it', () => {
-  const r = run(cfg(), [unheard(1), unheard(1), obj1, unheard(1), unheard(1), unheard(1)]);
+  // CHANGED ACCEPTED (0.8.4 ladder unit, the solo ask; owed list 'Solo ask', 10 Nov 2026). OLD: cfg() allowed two re-ask passes by default. NEW: the row states its allowance (`reasks: 2`), the logic it pins (the count is consecutive) is unchanged.
+  const r = run(cfg({ reasks: 2 }), [unheard(1), unheard(1), obj1, unheard(1), unheard(1), unheard(1)]);
   assert.deepEqual(r.map(x => x.action), ['ask_again', 'ask_again', 'revise', 'ask_again', 'ask_again', 'stop']);
 });
 
 test('R1 b7: the pass counter counts every pass of the overseer round and starts again at the next one', () => {
-  const r = run(cfg(), [obj1, unheard(1), obj2, verdictNo, obj1]);
+  const r = run(cfg({ reasks: 2 }), [obj1, unheard(1), obj2, verdictNo, obj1]);   // CHANGED ACCEPTED (0.8.4 ladder unit, the solo ask; owed list 'Solo ask', 10 Nov 2026). the row states its allowance (`reasks: 2`; the default is now 0)
   assert.deepEqual(r.map(x => x.state.passInRound), [1, 2, 3, 0, 1]);
   assert.deepEqual(r.map(x => x.state.overseerRound), [1, 1, 1, 2, 2]);
 });
 
 test('R1 b8: passCeiling is maxOverseerRounds x (b1 + b2 + 1) x (reasks + 1) (the unheard count is consecutive, so every productive pass can follow `reasks` unheard ones), and null for a malformed config (the chain-lint input)', () => {
+  // The default factor stays 3 (the ceiling is a backstop and counts the two re-ask passes the lone-heard pass of layer 1 keeps: the owner's "silent judge being asked twice", 10 Nov 2026), so the old figures 189 and 231 stand; the round before had moved them to 63 and 77 (factor 1) and this one moves them back.
   assert.equal(OR.passCeiling({ maxOverseerRounds: 7, layerRevisions: { 1: 5, 2: 3 } }), 189);
   assert.equal(OR.passCeiling({ maxOverseerRounds: 7, layerRevisions: { 1: 7, 2: 3 } }), 231);
+  assert.equal(OR.passCeiling({ maxOverseerRounds: 7, layerRevisions: { 1: 5, 2: 3 }, reasks: 2 }), 189);
+  assert.equal(OR.passCeiling({ maxOverseerRounds: 7, layerRevisions: { 1: 7, 2: 3 }, reasks: 2 }), 231);
   assert.equal(OR.passCeiling({ maxOverseerRounds: 7, layerRevisions: { 1: 5, 2: 3 }, reasks: 0 }), 63);
   for (const bad of [undefined, {}, { maxOverseerRounds: 0, layerRevisions: { 1: 5, 2: 3 } }, { maxOverseerRounds: 7, layerRevisions: { 1: 5 } }, { maxOverseerRounds: 7, layerRevisions: { 1: 5, 2: 3 }, reasks: -1 }, { maxOverseerRounds: 7.5, layerRevisions: { 1: 5, 2: 3 } }]) assert.equal(OR.passCeiling(bad), null);
 });
@@ -93,7 +101,7 @@ test('R1 b10: the module imports nothing and is pure (no clock, no randomness, n
 });
 
 test('R1 b11: the ceiling is REACHED and never passed: the worst legal sequence (two unheard passes before every productive pass, for all seven overseer rounds) takes exactly passCeiling passes and its last result is the overseer cap', () => {
-  const config = cfg();
+  const config = cfg({ reasks: 2 });   // CHANGED ACCEPTED (0.8.4 ladder unit, the solo ask; owed list 'Solo ask', 10 Nov 2026). the row states its allowance: the worst legal sequence is the one with two unheard passes before every productive pass
   const round = [];
   for (let i = 0; i < 5; i++) round.push(unheard(1), unheard(1), obj1);
   for (let i = 0; i < 3; i++) round.push(unheard(2), unheard(2), obj2);

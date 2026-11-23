@@ -1,9 +1,9 @@
 // 0.8.3 M6 S8-7 (the whole-tree mock test; C5's frame): ONE tree, driven end to end through the person's real verbs on all-mock chains, $0. `council tree start` (startHandler), the sitting (`tree resume`, resumeHandler),
 // `tree approve` (approveHandler) and `tree decide` (decideHandler), each with a scripted terminal; no record event is written by hand, no report or run file is edited, and no src function is called to move the tree on.
 // The legs, in order:
-//   1 tree start -> 2 the root's split is verified -> 3 the children frontier is approved -> 4 the children run: R/M1 closes NOT passed and a blocked-child stop opens, R/M3 closes passed, R/M2 waits ->
+//   1 tree start -> 2 the root's split is verified -> 3 the children frontier is approved -> 4 the children run: R/M1 closes NOT passed and a stop opens (source node_closed since the Status clamp), R/M3 closes passed, R/M2 waits ->
 //   5 the OBLIGATION route: `decide --stop <child stop> --obligation R@g1:C1` (a criterion the root carries) opens a ROOT stop (source obligation) and the root_affected block -> 6 `decide` on that root stop is a new root
-//   plan (replansRoot); the block is lifted by that very decision -> 7 the root frontier is approved and R@g2 is registered and STARTED from its bundle -> 8 R@g2's draft is not signed, so R@g2 closes blocked on its OWN
+//   plan (replansRoot); the block is lifted by that very decision -> 7 the root frontier is approved and R@g2 is registered and STARTED from its bundle -> 8 R@g2's draft is not signed, so R@g2 closes not passed on its OWN
 //   (before any children frontier exists): a stop for the live root generation -> 9 `decide` -> approve: R@g3 starts and is split-verified -> 9b R@g3's children frontier is approved and its children run -> 10 the money.
 // What is NOT a verb, said once: (a) the plan a model would have written is handed to each root and child run as a DRAFT (api.run's `draft`, as test/helpers/sitting.js draftStarter does for children): the mock builder
 // cannot write a split block, and neither `tree start` nor the sitting's default starter takes a draft. So the starters here are the product's own api.run calls with that one extra option, nothing else changed (same
@@ -140,7 +140,7 @@ test('leg 3 - `council tree approve` records the children frontier: previewed an
   S.leg3 = true;
 });
 
-test('leg 4 - the children run: R/M1 closes NOT passed and a blocked-child stop opens on it, the independent R/M3 closes passed, R/M2 (which expects R/M1) is held back unregistered; the sitting ends held by the stop', async () => {
+test('leg 4 - the children run: R/M1 closes NOT passed and a stop (node_closed) opens on it, the independent R/M3 closes passed, R/M2 (which expects R/M1) is held back unregistered; the sitting ends held by the stop', async () => {
   need(S.leg3, 3);
   const out = await sit();
   assert.equal(out.code, 20, out.text);
@@ -152,7 +152,8 @@ test('leg 4 - the children run: R/M1 closes NOT passed and a blocked-child stop 
   const stops = kinds('needs_decision_opened');
   assert.equal(stops.length, 1, JSON.stringify(stops));
   const [stop] = stops; S.childStop = stop;
-  assert.deepEqual([stop.node, stop.generation, stop.source, stop.blockedBy.map(b => b.code), stop.affected.map(a => a.node)], ['R/M1', 1, 'blocked', ['not_passed'], ['R/M1', 'R/M2']]);
+  // CHANGED ACCEPTED (10 Nov 2026, base reds, test-only; the Status clamp efe7f4fc made an unsigned child close with Status needs_decision): OLD: deepEqual([stop.node, stop.generation, stop.source, stop.blockedBy.map(b => b.code), stop.affected.map(a => a.node)], ['R/M1', 1, 'blocked', ['not_passed'], ['R/M1', 'R/M2']]). NEW: source 'node_closed', no blockedBy (that field belongs to a blocked stop), the affected set unchanged. WHY: R/M1 closes without agreement and its Status is clamped to needs_decision; src/tree-detect.js opens the node_closed stop with the same affectedFor arguments as the blocked writer, so the affected set is the same. The walk's later legs answer this stop with the regenerate form and an obligation, which does not read the stop's source.
+  assert.deepEqual([stop.node, stop.generation, stop.source, stop.blockedBy, stop.affected.map(a => a.node)], ['R/M1', 1, 'node_closed', undefined, ['R/M1', 'R/M2']]);
   const rootRun = nodeOf('R', 1).runId;
   for (const k of ['R/M1@g1', 'R/M3@g1']) {
     const reg = kinds('node_registered').find(e => `${e.node}@g${e.generation}` === k);
@@ -245,13 +246,14 @@ test('leg 7 - the root frontier is approved and R@g2 is registered and STARTED f
   S.leg7 = true;
 });
 
-test('leg 8 - R@g2 closes blocked on its OWN, before any children frontier: one stop for the LIVE root generation (source blocked, not_passed), no split verified, no frontier waits, and the sitting names a new root plan as the way out', async () => {
+test('leg 8 - R@g2 closes not passed on its OWN, before any children frontier: one stop for the LIVE root generation (source node_closed), no split verified, no frontier waits, and the sitting names a new root plan as the way out', async () => {
   need(S.leg7, 7);
   assert.equal(S.sit7.code, 20, S.sit7.text);
   const stops = kinds('needs_decision_opened').filter(e => e.generation === 2);
   assert.equal(stops.length, 1, JSON.stringify(stops));
   const [stop] = stops; S.stop2 = stop;
-  assert.deepEqual([stop.node, stop.source, stop.blockedBy.map(b => b.code), stop.affected], ['R', 'blocked', ['not_passed'], [{ node: 'R', generation: 2 }]], 'a stop for the LIVE root generation');
+  // CHANGED ACCEPTED (10 Nov 2026, base reds, test-only; the Status clamp efe7f4fc made an unsigned child close with Status needs_decision): OLD: deepEqual([stop.node, stop.source, stop.blockedBy.map(b => b.code), stop.affected], ['R', 'blocked', ['not_passed'], [{ node: 'R', generation: 2 }]]). NEW: source 'node_closed', no blockedBy, affected unchanged. WHY: the root chain of this walk (splitRootConfig) has a milestone handoff, so the unsigned R@g2 is clamped to needs_decision as well (tree-detect handles the root: its stop is pinned to the root).
+  assert.deepEqual([stop.node, stop.source, stop.blockedBy, stop.affected], ['R', 'node_closed', undefined, [{ node: 'R', generation: 2 }]], 'a stop for the LIVE root generation');
   assert.equal(kinds('split_verified').filter(e => e.generation === 2).length, 0, 'an unsigned plan has no verified split');
   assert.equal(findPendingFrontier({ rootDir: S.rootDir }), null, 'no children frontier waits: X1 cannot fire for this root plan');
   // X5: R@g2 never finished passed, so the held node STAYS held (not released, not dead), and a closed node holds no money
@@ -272,7 +274,7 @@ test('leg 9 - `decide` on R@g2\'s stop -> approve -> R@g3 starts from its bundle
   assert.deepEqual(keysOf(heldKeys(state())), ['R/M3@g1'], 'X4 before: the sibling of the first era is still held when R@g2\'s stop is answered');
   const d = await decide(S.stop2.id, 'Third plan, this one signed.');
   assert.equal(d.code, 0, d.text);
-  assert.ok(d.text.includes(`Answer stop ${S.stop2.id} (blocked, R@g2) with a NEW ROOT plan?`), d.text);
+  assert.ok(d.text.includes(`Answer stop ${S.stop2.id} (node_closed, R@g2) with a NEW ROOT plan?`), d.text);      // CHANGED ACCEPTED (10 Nov 2026, base reds, test-only; the Status clamp efe7f4fc made an unsigned child close with Status needs_decision): OLD '(blocked, R@g2)', NEW '(node_closed, R@g2)': the decide screen prints the stop's source (describeStop)
   assert.match(d.text, /SET ASIDE from now on \(1 node[^)]*\):\n {2}- R@g2\n/);
   const decision = kinds('decision_recorded').at(-1); const [opened] = kinds('generation_opened').filter(e => e.nodes.some(x => x.node === 'R' && x.generation === 3));
   assert.deepEqual([decision.replansRoot, decision.stopId, opened.decisionId], [true, S.stop2.id, decision.id]);

@@ -11,7 +11,6 @@ import { spendReport, costToday } from '../src/spend.js';
 import { metricsReport } from '../src/metrics.js';
 import { verdictStats } from '../src/verdict-stats.js';
 import { forecastCost } from '../src/cost-forecast.js';
-import { readLedger } from '../src/advice-guards.js';
 import { dailyUsage } from '../src/http-server.js';
 import { track } from './helpers/temp-trees.js';
 
@@ -61,12 +60,9 @@ test('the kind is asked BEFORE the date and the window: a dangling link with a s
   assert.equal(r.symbolicLinksNotCounted, 4); assert.equal(r.count, 1); assert.equal(r.totalUsd, 0.04);
 });
 
-test('the other two walkers of runs/ use the same predicate: the advice ledger (a money guard: a linked run folder must not count another run\'s advise-log twice) and the clone-only daily cap', () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: "the other two walkers of runs/ use the same predicate: the advice ledger (readLedger of src/advice-guards.js, an advise-log counted once) and the clone-only daily cap". NEW: the one other walker, the clone-only daily cap (dailyUsage), is pinned; the advice ledger half is removed. WHY: src/advice-guards.js is removed with the add-on; an old advise-log.json is no longer read by anything here.
+test('the other walker of runs/ uses the same predicate: the clone-only daily cap counts a linked run folder once and names the links it did not count', () => {
   const runs = runsWithLinks();
-  const log = { ts: Date.parse('2026-10-11T10:00:00Z'), quoted: { ceiling_usd: 1 }, spent_usd: 0.5 };
-  writeFileSync(join(runs, REAL, 'advise-log.json'), JSON.stringify(log));
-  const ledger = readLedger(runs, { now: NOW });
-  assert.equal(ledger.filter(e => e.run).length, 1, 'the advise-log of the real run counts ONCE, not once through the link'); assert.equal(ledger.symbolicLinksNotCounted, 2);
   const usage = dailyUsage(runs, NOW);
   assert.equal(usage.usd, 0.04); assert.equal(usage.count, 1); assert.equal(usage.symbolicLinksNotCounted, 2);
 });

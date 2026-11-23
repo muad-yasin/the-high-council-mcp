@@ -38,12 +38,11 @@ test('the demo runs the whole mechanism: debate changes proposals, the panel spl
   assert.match(out, /a new file per run, never overwritten/);
 });
 
-test('the scope ledger names every proposal once, with the debate outcome', () => {
-  const ledger = out.slice(out.indexOf('## Scope ledger'), out.indexOf('DEBATE BOARD'));
-  assert.match(ledger, /^LABA-1 - accepted - /m);
-  assert.match(ledger, /^LABA-2 - withdrawn - /m);
-  assert.match(ledger, /^LABB-1 - accepted - .*as amended/m);
-  assert.match(ledger, /^LABB-2 - accepted - .*as amended/m);
+// CHANGED ACCEPTED TEST (0.8.4, the twelve unowned tip reds, row R03). OLD: the plan the demo prints carries a "## Scope ledger" section, read between that heading and "DEBATE BOARD", that names every proposal once with the debate outcome (LABA-1 - accepted - ..., LABA-2 - withdrawn - ..., LABB-1 and LABB-2 accepted as amended). NEW: the per-proposal outcome claim is DROPPED, not moved; the row pins what the demo prints of the ledger at work: the plan carries no "## Scope ledger" section, the two ledger checks of the writer stages (build and revise-1) read "clean - every proposal has one line", the note for the withdrawn proposal LABA-2 is printed, and the scoreboard tallies stay. WHY: the ledger is kept out of the plan since proposalsSectionLedgerOut was recorded (dc60423a); it lives in the run's result, `council demo` writes no file and prints no per-proposal ledger line. The demo printing the ledger is not part of this row.
+test('the scope ledger is kept out of the plan and checked at each writer stage: the demo prints no Scope ledger section, two clean ledger checks, the withdrawn-proposal note and the scoreboard tallies', () => {
+  assert.equal(out.indexOf('## Scope ledger'), -1, 'the plan carries no Scope ledger section');
+  assert.deepEqual(out.match(/^ {2}ledger check \(.*\): .*$/gm), ['  ledger check (build): clean - every proposal has one line', '  ledger check (revise-1): clean - every proposal has one line'], 'the ledger is checked after the build and after the revision, and is clean');
+  assert.match(out, /^ {2}note: 1 withdrawn proposal\(s\) with no surviving owner: LABA-2 - the builder is told to reassign each or drop it, with a reason, in the Scope ledger\.$/m);
   assert.match(out, /lab-a +proposed 2 +accepted 1 +cut 0 +withdrawn 1 +unaccounted 0/);
   assert.match(out, /lab-b +proposed 2 +accepted 2 +cut 0 +withdrawn 0 +unaccounted 0/);
 });

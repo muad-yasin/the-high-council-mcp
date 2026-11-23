@@ -1,6 +1,6 @@
 // The specific refusals of whole command classes with the per-provider caps switch ON (0.8.4 DUALCAP unit 3a; C&C's rulings of 1 Nov 2026): a recursive-council
-// tree (tree start, tree resume, a member's start), the paid side commands (post-run handoff, contract draft, digest, --rematch, --replay) and the advice add-on
-// (--advice-adopt) cannot run with a cap per provider. Each prints ITS OWN sentence, before the not-armed refusal (Q1a), and nothing is written; a tree member exits 19
+// tree (tree start, tree resume, a member's start), the paid side commands (post-run handoff, contract draft, digest, --rematch, --replay)
+// cannot run with a cap per provider. (0.8.4, the add-on removal, wave 2: the advice add-on was a third class, --advice-adopt; the add-on and the option are gone, see P1 and C1.) Each prints ITS OWN sentence, before the not-armed refusal (Q1a), and nothing is written; a tree member exits 19
 // (the code the tree sitting reads as "the tree refused"), every other class 2. A DRY RUN of such a command is not refused: it says a real run would be (Q1b), goes on
 // and calls nothing. Offline, $0: the CLI from a temp folder, a minimal environment, the shipped mock chain. The new exports are read through a namespace import, so on
 // the code before the change each pure test fails by assertion.
@@ -31,7 +31,8 @@ function project() {
   return { work, run };
 }
 
-test('P1: the refused classes: tree start, tree resume and a member start are a tree; post-run handoff, contract draft, digest, --rematch and --replay are side commands, each named; --advice-adopt is the advice add-on; everything else is none of them', () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: --advice-adopt was a refused class ['advice', 'the advice add-on', 2]. NEW: it is in the list of argv that are none of the classes (capsRefusedClassOf returns null). WHY: the advice class left src/caps.js and --advice-adopt is an unknown option now (test/cli-unknown-flag.test.js; C1 below shows the CLI refuses it before the caps are looked at).
+test('P1: the refused classes: tree start, tree resume and a member start are a tree; post-run handoff, contract draft, digest, --rematch and --replay are side commands, each named; everything else, --advice-adopt (removed with the add-on) included, is none of them', () => {
   assert.equal(typeof caps.capsRefusedClassOf, 'function');
   const of = argv => { const c = caps.capsRefusedClassOf(argv); return c && [c.kind, c.command, c.exit]; };
   assert.deepEqual(of(['tree', 'start', '--task', 't', '--chain', 'c']), ['tree', 'council tree start', 2]);
@@ -42,11 +43,11 @@ test('P1: the refused classes: tree start, tree resume and a member start are a 
   assert.deepEqual(of(['digest', 'runs/x', '--provider', 'openrouter']), ['side', 'council digest', 2]);
   assert.deepEqual(of(['--rematch', 'runs/x']), ['side', 'council --rematch', 2]);
   assert.deepEqual(of(['--replay', 'runs/x']), ['side', 'council --replay', 2]);
-  assert.deepEqual(of(['--advice-adopt', 'runs/x', '--allow-unfenced']), ['advice', 'the advice add-on', 2]);
-  for (const argv of [['--task', 't', '--chain', 'c'], ['--resume', 'runs/x'], ['tree', 'status', 'x'], ['tree', 'decide', 'x'], ['contract', 'show', 'runs/x'], ['doctor'], [], ['--spend']]) assert.equal(caps.capsRefusedClassOf(argv), null, argv.join(' ') || '(none)');
+  for (const argv of [['--advice-adopt', 'runs/x', '--allow-unfenced'], ['--task', 't', '--chain', 'c'], ['--resume', 'runs/x'], ['tree', 'status', 'x'], ['tree', 'decide', 'x'], ['contract', 'show', 'runs/x'], ['doctor'], [], ['--spend']]) assert.equal(caps.capsRefusedClassOf(argv), null, argv.join(' ') || '(none)');
 });
 
-test('P2: the class sentence names the setting, the caps and the command, says it is a known limit and how to run with one limit, and that nothing was started (sent, for advice); the dry-run note says a real run would be refused and that the dry run goes on (A-DRAFT)', () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the title ended "(sent, for advice)" and the test asserted the advice sentence of a `--advice-adopt` class ("the advice add-on", "Nothing was sent."). NEW: the tree and side-command sentences only; the title drops the advice clause. WHY: the advice class left src/caps.js with the add-on.
+test('P2: the class sentence names the setting, the caps and the command, says it is a known limit and how to run with one limit, and that nothing was started; the dry-run note says a real run would be refused and that the dry run goes on (A-DRAFT)', () => {
   const caps2 = ['anthropic', 'openrouter'];
   const tree = caps.capsClassRefusalSentence(caps.capsRefusedClassOf(['tree', 'start']), caps2);
   assert.match(tree, /^COUNCIL_SPEND_CAPS is set \(anthropic, openrouter\)/);
@@ -57,9 +58,6 @@ test('P2: the class sentence names the setting, the caps and the command, says i
   const side = caps.capsClassRefusalSentence(caps.capsRefusedClassOf(['--rematch', 'runs/x']), caps2);
   assert.match(side, /council --rematch/);
   assert.match(side, /Nothing was started\.$/);
-  const advice = caps.capsClassRefusalSentence(caps.capsRefusedClassOf(['--advice-adopt', 'runs/x']), caps2);
-  assert.match(advice, /the advice add-on/);
-  assert.match(advice, /Nothing was sent\.$/);
   const note = caps.capsDryRunNote(caps.capsRefusedClassOf(['tree', 'start']), caps2);
   assert.match(note, /^With COUNCIL_SPEND_CAPS set \(anthropic, openrouter\), a real run of this command would be refused: /);
   assert.match(note, /This dry run goes on and calls nothing\.$/);
@@ -77,7 +75,6 @@ test('C1 SWITCH ON: a real run of each refused class prints its own sentence, no
     [['digest', `runs/${RUN}`, '--provider', 'openrouter'], 2, /council digest/],
     [['--rematch', `runs/${RUN}`], 2, /council --rematch/],
     [['--replay', `runs/${RUN}`], 2, /council --replay/],
-    [['--advice-adopt', `runs/${RUN}`, '--allow-unfenced'], 2, /the advice add-on/],
   ]) {
     const r = run(args, ON);
     assert.equal(r.code, exit, `${args.join(' ')}\n${r.out}`);
@@ -89,12 +86,16 @@ test('C1 SWITCH ON: a real run of each refused class prints its own sentence, no
   const tl = run(['tree', 'resume', RUN, '--dry-run'], ON);
   assert.equal(tl.code, 2, tl.out);
   assert.match(tl.out, /recursive-council tree/, 'tree resume takes no --dry-run, so the token does not make it a dry run: it is refused');
-  // fix-up 2 (C&C, 1 Nov 2026): --advice-adopt takes no --dry-run either (the adopt path admits only --max-usd, --chain, --allow-unfenced), so beside it the token is no dry run:
-  // the advice sentence, never the dry-run note
-  const ad = run(['--advice-adopt', `runs/${RUN}`, '--dry-run'], ON);
-  assert.equal(ad.code, 2, ad.out);
-  assert.match(ad.out, /Leave COUNCIL_SPEND_CAPS empty to ask for advice with one approved price\. Nothing was sent\./);
-  assert.doesNotMatch(ad.out, NOTE, 'not the dry-run note');
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD (fix-up 2, C&C 1 Nov 2026): `--advice-adopt <run> --dry-run` with the switch on printed the advice sentence ("Leave COUNCIL_SPEND_CAPS empty to ask for advice with one approved price. Nothing was sent.") and never the dry-run note. NEW: `--advice-adopt` is an unknown option, so with the switch on the CLI refuses it as one (exit 2, before the caps are looked at), with or without --dry-run, and prints neither a caps sentence nor the dry-run note. WHY: the advice class and the option left with the add-on.
+  for (const args of [['--advice-adopt', `runs/${RUN}`, '--allow-unfenced'], ['--advice-adopt', `runs/${RUN}`, '--dry-run']]) {
+    const ad = run(args, ON);
+    assert.equal(ad.code, 2, ad.out);
+    assert.match(ad.out, /^--advice-adopt: not an option of this command/, ad.out);
+    assert.doesNotMatch(ad.out, NOT_ARMED);
+    assert.doesNotMatch(ad.out, /Leave COUNCIL_SPEND_CAPS empty|Nothing was sent\./);
+    assert.doesNotMatch(ad.out, NOTE, 'not the dry-run note');
+    assert.equal(existsSync(join(work, 'runs')), false, `${args.join(' ')} wrote a runs/ folder`);
+  }
 });
 
 test('C2 SWITCH ON: a DRY RUN of a refused class is not refused: it prints the note and goes on; rematch and replay of a finished mock run price it and exit 0', () => {

@@ -7,7 +7,7 @@
 // What can be known: a DECLINED line may carry the id of the objection it answers (0.8.2, owner 7 Oct, P13: `DECLINED: O-1a2b3c4d: <reason>`, src/draft-disputes.js); such a reason is attached to that objection, and a line with no
 // usable id is given as a reason for the round, matched to no objection. The changed passages are a paragraph diff of the draft
 // before and after the revise, so they work in full-rewrite mode as well as patch mode.
-import { evidenceSpans, normQuoteTight } from './post-quotes.js';
+import { evidenceSpans, evidenceRefusal, normQuoteTight, markSpans } from './post-quotes.js';
 import { objectionId } from './objection-ids.js';
 import { mergeSeverity, readSeverity } from './severity.js';
 // The harness's own escapes in a passage it showed a judge (a leading `#` becomes `\#`, a defused tag starts with `&lt;`: src/roles.js claimText and the held writerText) are undone, so a passage copied from what the judge was shown still matches the draft.
@@ -70,9 +70,10 @@ export const answerBackSummary = (round, byLab) => Object.entries(byLab).map(([l
  *   round after round (test/verdict-words.test.js pins that). It is returned in `unanswered` instead, in the same shape as a carried failure, and the caller decides (Astra's 0.8.2 review,
  *   7 Oct 2026, F1: an unanswered objection under a clean sign-off used to vanish, while a withdrawal with no quote was kept; src/chain.js now re-asks that judge once and carries
  *   whatever is still unanswered, once the re-ask sentence is recorded).
+ * `texts` (0.8.4 D14, optional): src/quote-check.js spanTexts for this call; with it a `sustained` row carries `spans` ([{ text, located_in }], the quoted passages of the answer's evidence, as markSpans marks them); without it nothing differs.
  * Returns { carried: [failure...], unanswered: [failure...], records: [{ id, status, effect }] }; `carried` entries are failures the caller adds to the judge's own, `records` go to report.json (`answer_back_replies`).
  */
-export function applyAnswers({ lab, critique, own, shownDraft, round, sources = null }) {
+export function applyAnswers({ lab, critique, own, shownDraft, round, sources = null, texts = null }) {
   const answers = Array.isArray(critique?.answers) ? critique.answers.filter(a => a && typeof a === 'object' && !Array.isArray(a)) : [];
   const listed = new Set((critique?.failures || []).map(f => objectionId(lab, f)));
   const idKey = v => String(v ?? '').trim().toLowerCase(); // a padded or re-cased id is the same id (an exact match would turn a refused withdrawal into a dropped objection)
@@ -97,8 +98,11 @@ export function applyAnswers({ lab, critique, own, shownDraft, round, sources = 
       const peer = quoted || !sources ? null : (sources[o.id] || []).find(s => spans.some(q => normQuoteTight(s.text).includes(normQuoteTight(q))));
       if (quoted) records.push({ id, status, quoted: true, effect: 'withdrawn' });
       else if (peer) records.push({ id, status, quoted: true, effect: 'withdrawn', quoted_from: 'reviewer', quoted_ref: peer.lab, ...(peer.layer !== undefined ? { quoted_layer: peer.layer } : {}) });
-      else { records.push({ id, status, quoted: false, effect: 'withdrawal_refused' }); carry(o); }
-    } else if (status === 'sustained') { records.push({ id, status, effect: 'sustained' }); carry(o); }
+      else { records.push({ id, status, quoted: false, effect: 'withdrawal_refused', refusal: evidenceRefusal(a.evidence) }); carry(o); }   // 0.8.4 S17 (S17-w1): the reason is one word on the row
+    } else if (status === 'sustained') {
+      const marks = texts ? markSpans(evidenceSpans(a.evidence), texts) : [];   // 0.8.4 D14 (plan A T7.3, WORDING U2-w4): a sustained answer's passage is marked as an objection's are, a record only (it keeps or drops nothing)
+      records.push({ id, status, effect: 'sustained', ...(marks.length ? { spans: marks } : {}) }); carry(o);
+    }
     else { records.push({ id, status, effect: 'unreadable_answer' }); carry(o); } // 3b: a word that is neither (fixed, resolved, open, "") must not drop an objection the judge did not list again
   }
   const unanswered = [];

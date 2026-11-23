@@ -1,5 +1,6 @@
 {
   "name": "mock-criteria-kinds",
+  "draft_end_marker": { "enabled": true },
   "description": "Offline. Calls no API and costs nothing. The mock chain with criterion kinds on: every criterion is checkable (with its command) or judgement, and the board counts them.",
   "maxRounds": 2,
   "stopOnPass": true,

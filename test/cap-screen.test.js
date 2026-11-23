@@ -11,7 +11,7 @@ const RUN = { kind: 'run', subject: { chain: 'plan-premium-7', task: 'tasks/x.md
 test('CS-1 the five fields of a run, word for word: estimate with its scope and price date, the bounded maximum, the BLANK limit (no number but the example), the ceiling, the suggestion that is not the limit', () => {
   const s = screen.buildCapScreen(RUN);
   assert.equal(s.fields.estimate, 'Estimate: about $2.50 for this run, at the prices of 2026-10-13.');
-  assert.equal(s.fields.maximum, 'Most it could cost to finish, by the dry run\'s count: $6.20 (not a ceiling: see below).');
+  assert.equal(s.fields.maximum, 'Upper estimate to finish, by the dry run\'s count: $6.20 (not a ceiling: see below).');
   assert.equal(s.fields.limit, 'Your limit: type the total, in US dollars, that this run may spend (for example 5). THC refuses any call whose projected cost would take the total past it.');
   assert.deepEqual(s.fields.ceilings, ['Ceiling in force: $10.00 (set by COUNCIL_MAX_USD_LIMIT). You cannot type more.']);
   assert.equal(s.fields.suggestion, 'Configured suggestion: $7.00 (from MAX_USD_PER_RUN). It is shown only; it is not your limit until you type it.');
@@ -22,14 +22,14 @@ test('CS-1 the five fields of a run, word for word: estimate with its scope and 
 test('CS-2 a TREE says its estimate covers the root run only and its maximum is unknown, with the reason; an unknown maximum is the word "unknown", never a number', () => {
   const s = screen.buildCapScreen({ ...RUN, kind: 'tree', estimate: { usd: 1.1, scope: 'the root run only' }, maximum: { unknown: 'the sub-plans are not known before the plan is split' }, suggestion: null });
   assert.equal(s.fields.estimate, 'Estimate: about $1.10 for the root run only, at the prices of 2026-10-13.');
-  assert.equal(s.fields.maximum, 'Most it could cost to finish, by the dry run\'s count: unknown (the sub-plans are not known before the plan is split).');
+  assert.equal(s.fields.maximum, 'Upper estimate to finish, by the dry run\'s count: unknown (the sub-plans are not known before the plan is split).');
   assert.ok(s.text.startsWith('Start this tree?') && s.fields.limit.includes('this tree may spend') && s.fields.suggestion === null && !s.text.includes('Configured suggestion'));
 });
 
 test('CS-3 a missing or non-finite figure is said so (never "$NaN"), and several ceilings are all listed', () => {
   const s = screen.buildCapScreen({ ...RUN, estimate: { usd: NaN, scope: 'x' }, maximum: undefined, ceilings: [{ usd: 10, source: 'COUNCIL_MAX_USD_LIMIT' }, { usd: 4, source: "the extension's max_usd" }, { usd: NaN, source: 'broken' }] });
   assert.equal(s.fields.estimate, 'Estimate: not available.');
-  assert.equal(s.fields.maximum, 'Most it could cost to finish, by the dry run\'s count: unknown (it was not computed).');
+  assert.equal(s.fields.maximum, 'Upper estimate to finish, by the dry run\'s count: unknown (it was not computed).');
   assert.equal(s.fields.ceilings.length, 2); assert.ok(!s.text.includes('NaN'), s.text);
   assert.equal(screen.buildCapScreen({}).fields.estimate, 'Estimate: not available.');
 });
@@ -74,16 +74,21 @@ test('user-priced seats: a row the merge ignored is not listed here (doctor says
 test('legacy / raise / amend screens: the history block states what the run has already counted; the limit is a TOTAL for the whole run above the floor; no estimate lines', async () => {
   const { formatUsd: $ } = await import('../src/cost.js');   // the screen prints money the way the rest of THC does
   const legacy = screen.buildCapScreen({ ...RUN, kind: 'legacy', history: { spentUsd: 4.2, unsettledUsd: 0.7, floorUsd: 4.2 } });
-  assert.match(legacy.text, /^Continue this run\?/);
+  // CHANGED ACCEPTED (0.8.4, commit 3 of the 5xx fix-up, C&C's Q3 ruling R246, CL-E91). OLD: the head of this screen read "Continue this run?". NEW: "Set a spending limit for this run?". WHY: the screen that asks for the figure names first what the figure is for. A-DRAFT.
+  assert.match(legacy.text, /^Set a spending limit for this run\?/);
   assert.ok(legacy.text.includes(`This run was started before a typed limit existed.\nAlready counted: ${$(4.2)}, of which ${$(0.7)} is for calls that were still running when the run stopped and may or may not have been billed.`), legacy.text);
   assert.ok(legacy.text.includes(`Your new limit: type the TOTAL, in US dollars, for the whole run (not extra). It must be above ${$(4.2)}, what the run has already counted.`), legacy.text);
-  assert.doesNotMatch(legacy.text, /Estimate:|Most it could cost/);
+  assert.doesNotMatch(legacy.text, /Estimate:|Upper estimate to finish/);
   const raise = screen.buildCapScreen({ ...RUN, kind: 'raise', history: { previousCapUsd: 5, spentUsd: 5.5, projectedStageUsd: 0.6, suggestedUsd: 6.1, floorUsd: 5.5 } });
   assert.ok(raise.text.includes(`This run stopped at its limit of ${$(5)}: ${$(5.5)} counted, and the next stage could cost up to ${$(0.6)}.`), raise.text);
-  assert.ok(raise.text.includes(`The smallest total that gets past this stop: ${$(6.1)}.`), raise.text);
+  // CHANGED ACCEPTED (0.8.4, commit 3 of the 5xx fix-up, C&C's (B) of R244). OLD: the stop sentence read "the smallest [total] that gets past this stop is $X". NEW: "the smallest total that lets the next call to a model be sent is $X". WHY: a counted 5xx can stop the call again at its re-send, so "gets past this stop" could be false; the figure is the total at which the NEXT call is sent, and the text now says only that.
+  assert.ok(raise.text.includes(`The smallest total that lets the next call to a model be sent: ${$(6.1)}.`), raise.text);
+  // NEW pins of the other heads (C&C's Q3, R246): the stop screen and the amend screen say what the figure is for, first
+  assert.match(raise.text, /^Raise the spending limit of this run\? Chain: /); assert.doesNotMatch(raise.text, /Continue this run/);
   const amend = screen.buildCapScreen({ ...RUN, kind: 'amend', history: { previousCapUsd: 5, spentUsd: 3, floorUsd: 3, changed: ['the chain file', 'the policy file'] } });
   assert.ok(amend.text.includes('Changed since the limit for this run was typed: the chain file; the policy file.'), amend.text);
   assert.ok(amend.text.includes(`Previous limit: ${$(5)}. Already counted: ${$(3)}.`), amend.text);
+  assert.match(amend.text, /^Set the spending limit of this run again\? Chain: /);
   const unknown = screen.buildCapScreen({ ...RUN, kind: 'amend', history: { previousCapUsd: 5, spentUsd: 3, floorUsd: 3, changed: null } });
   assert.match(unknown.text, /the earlier state of this run cannot be shown/);
 });

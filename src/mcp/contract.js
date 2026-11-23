@@ -7,6 +7,7 @@
 //
 // What comes back. The obligations and the requests are text written by a model (the draft) or by whoever filed a request, so `contract_read` returns them as untrusted fields (src/mcp/untrusted.js).
 // A contract that does not verify (the ledger, the approval, the files) is not returned at all: an error says what failed, because a builder must not work from obligations that were changed after a person approved them.
+import { claimComposed } from '../return-path.js';
 import { z } from 'zod';
 import { trustedRunDir } from '../run-files.js';
 import { checkContract, loadCurrent, requestAmendment, amendedLine, REASON_MAX_CHARS } from '../contract-record.js';
@@ -32,7 +33,7 @@ export function registerContractTools(server, { runsDir }) {
     if (g.refusal) return failed('no_such_run', g.refusal);
     const cur = loadCurrent(g.dir);
     if (cur.problem) return failed('contract_unreadable', cur.problem, 'tell the person: the contract of this run does not read, so do not work from it');
-    if (cur.none) return failed('no_contract', `run ${run} has no locked contract`, 'a person locks one with council contract lock');
+    if (cur.none) { const refusal = failed('no_contract', `run ${run} has no locked contract`, 'a person locks one with council contract lock'); claimComposed('isError', refusal.content[0].text); return refusal; }   // F3: the sentence is the server's own words; `run` is checked against RUN above (a claim lives in src/return-path.js's per-call store)
     const check = checkContract(g.dir);
     if (check.exit !== 0) return failed('contract_unverified', `the contract of run ${run} does not verify: ${check.lines.slice(0, 5).join(' | ')}`, 'tell the person: the record changed after it was approved (council contract check says where), so do not work from it');
     const { record, state } = cur;

@@ -1,0 +1,3 @@
+// 0.8.4 S16: the one gate of the final read. A leaf file (no imports) so stage-system.js, call-gates.js, chain.js and cli.js can all read it without an import cycle.
+/** 0.8.4 S16: THE gate of the final read (Q9, N6: an obligation of every layered run, no switch): a unanimous chain whose every critic carries a layer. A chain file that names `final_read` is refused by the lint (src/chain-lint.js `final-read-removed`). Read by chain.js, src/call-gates.js `finalReadOn` (cost rows, the ceiling's Cl), src/stage-system.js (the dispute text) and the CLI's stop sentence. */
+export const finalReadGate = config => config?.signoff === 'unanimous' && Array.isArray(config?.seats?.critics) && config.seats.critics.length > 0 && config.seats.critics.every(c => c.layer !== undefined);

@@ -53,13 +53,17 @@ export function projectTree({ root, child, limits = DEFAULT_LIMITS, capUsd = nul
 
 const CONDITIONS = 'one clean pass of each chain at its assumed prompt sizes, at the default limits, before any root re-plan or top-up';
 
-export function projectionLines(p, { capUsd = null } = {}) {
+/** 0.8.4 H-CC-a (WORDING CH-1): the one phrase both the start line and the dry run say when `--child-chain` was not given. */
+export const NO_CHILD_CHAIN_WORDS = '--child-chain was not given, so the sub-plans run on the root chain.';
+
+export function projectionLines(p, { capUsd = null, childNamed = true } = {}) {
   const lines = [`Tree cost, PROJECTED, ${CONDITIONS} (nothing was started, written or spent):`];
   const row = (label, f, extra) => lines.push(f.priced
     ? `  ${label}  ${f.name}   PROJECTED expected ${formatUsd(f.expectedUsd)}, upper estimate ${formatUsd(f.maximumUsd)}${extra(f)}`
     : `  ${label}  ${f.name}   not priced`);
   row('root plan  ', p.root, f => `   (one run${f.taskTokens ? `; your task is about ${f.taskTokens} tokens` : ''})`);
   row('sub-plan   ', p.child, f => `, cheapest end ${formatUsd(f.cheapestUsd)}   (per run, at the chain's assumed sizes; cheapest end: the least one run is projected to cost)`);
+  if (!childNamed) lines.push(`  ${NO_CHILD_CHAIN_WORDS}`);
   for (const f of [p.root, p.child]) {
     for (const u of f.unpriced) {
       lines.push(`  ${f.name}: the seat ${u.provider}/${u.model} is not priced: no total for the whole tree can be given (council tree start refuses a chain with an unpriced seat).`);

@@ -1,0 +1,40 @@
+{
+  "schema": "context-windows/1",
+  "asOf": "2026-11-09",
+  "_note": "0.8.4 S16 (H, Muad 09 Nov 2026): the input window W, in tokens, of each OpenRouter model a shipped chain seats, for the final read's room rule (a part's whole prompt at chars/4 plus the seat's cap must fit in HALF of W). Written by scripts/refresh-context-windows.mjs. W is the SMALLEST context_length over the model's hosts (OpenRouter /api/v1/models/<id>/endpoints) and the router's own list figure; the hosts counted are the ones the price rows count, minus the page-only 'Not used in Standard routing' flag: fast, ultrafast, priority and flex tiers are left out, and so is a host whose published output limit is below the smallest maxTokens a shipped chain gives the model. A model missing from this table has no W: the final read makes no room check for it (it reads as before). The first fill of 2026-11-09 was made by an equivalent pass outside the script (no node on the author's laptop); a run of the script must reproduce it.",
+  "_direct": "Typed, not generated: a DIRECT Anthropic seat (provider anthropic) that a shipped chain seats at layer 2 or 3. Source: https://platform.claude.com/docs/en/models/fable-5-1/overview.md and .../opus-5-5/overview.md, read 2026-11-09 (both: 'Context window: 1M tokens'), taken as 1,000,000; the exact integer is only in the Models API (max_input_tokens), which is not queried. A direct seat's refusal for size has no cited shape: such a seat that is refused did not read, as today. Added 2026-11-10 (seats unit): claude-fable-5-2 and claude-sonnet-5-5, each \"Context window 1M tokens\" (and \"Max output 128K tokens\") on https://platform.claude.com/docs/en/models/overview, taken as 1,000,000.",
+  "direct": {
+    "anthropic/claude-fable-5-1": 1000000,
+    "anthropic/claude-fable-5-2": 1000000,
+    "anthropic/claude-opus-5-5": 1000000,
+    "anthropic/claude-sonnet-5-5": 1000000
+  },
+  "models": {
+    "anthropic/claude-fable-5.2": 1000000,
+    "anthropic/claude-haiku-5.5": 1000000,
+    "anthropic/claude-opus-5.5": 1000000,
+    "anthropic/claude-sonnet-5.5": 1000000,
+    "deepseek/deepseek-v4-pro-0813": 1000000,
+    "deepseek/deepseek-v4.1-flash-1017": 1000000,
+    "google/gemini-3.8-flash": 1048576,
+    "google/gemini-4-argon": 1048576,
+    "meta/muse-spark-1.3": 1048576,
+    "minimax/minimax-m3": 262144,
+    "minimax/minimax-m3.1-flash": 1000000,
+    "mistralai/mistral-large-4-0": 524288,
+    "moonshotai/kimi-k3.1-pro": 1048576,
+    "openai/gpt-6-astra": 1050000,
+    "openai/gpt-6-luna": 1050000,
+    "openai/gpt-6.1-sol": 1050000,
+    "openai/gpt-6.1-terra": 1050000,
+    "qwen/qwen3.8-27b": 262144,
+    "qwen/qwen3.8-flash": 1000000,
+    "qwen/qwen3.8-max-0902": 1000000,
+    "stepfun/step-5-preview": 1000000,
+    "tencent/hy4-preview": 262144,
+    "xiaomi/mimo-v2.6-flash": 1000000,
+    "xiaomi/mimo-v2.6-pro": 1048576,
+    "z-ai/glm-5.3": 1000000,
+    "z-ai/glm-5.3-flash": 1048575
+  }
+}

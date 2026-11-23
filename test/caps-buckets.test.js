@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as chain from '../src/chain.js';
-import { costOf, projectAttempts } from '../src/cost.js';
+import { costOf, projectAttempts, expectedCallUsd } from '../src/cost.js';
 
 const { runChain, setBudget, setCache, budgetState, BudgetExceeded, setReservationSink, setPromptSpy, countEarlierSpend } = chain;
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -144,12 +144,13 @@ test('E7 CAPS ARMED: the thinking retry is gated on the cap of its account: a ca
     await assert.rejects(() => runChain({ request: 'A request.', config: RETRY_CONFIG, log: () => {} }));
     setPromptSpy(null);
     const { retry } = projectAttempts(SEAT, sent);
+    const expected = expectedCallUsd(SEAT, { ...sent, label: 'criteria' });   // 0.8.4 unit 4: a call with an expected size has its retry checked at that expected cost, not at the retry's worst case
     const wasted = costOf('anthropic', 'claude-sonnet-5', { input: IN, output: OUT, thinking: OUT }).usd;
-    assert.ok(retry > 0 && wasted > 0, 'fixture');
+    assert.ok(retry > 0 && wasted > 0 && expected > 0 && expected < retry / 2, 'fixture');
     calls = 0;
     const charges = [];
     chain.setChargeHook(c => charges.push(c));
-    setCache(null); arm({ anthropic: wasted + retry / 2 });
+    setCache(null); arm({ anthropic: wasted + expected / 2 });
     let err = null;
     try { await runChain({ request: 'A request.', config: RETRY_CONFIG, log: () => {} }); } catch (e) { err = e; }
     chain.setChargeHook(null);
@@ -158,6 +159,7 @@ test('E7 CAPS ARMED: the thinking retry is gated on the cap of its account: a ca
     assert.equal(charges[0].capName, 'anthropic', 'the waste charge names its cap (the CLI writes it to the charge file)');
     assert.ok(err instanceof BudgetExceeded, String(err));
     assert.equal(err.retryRefused, true);
+    assert.ok(near(err.gate, wasted + expected) && err.gate < err.projected, `0.8.4 unit 4: the stop's figure is the wasted attempt + the retry's expected cost (${err.gate} vs ${wasted + expected})`);
     assert.equal(err.capName, 'anthropic');
     assert.ok(near(err.spent, wasted), `that cap's spend is the wasted attempt (${err.spent} vs ${wasted})`);
     assert.equal(calls, 1, 'the retry was not sent');

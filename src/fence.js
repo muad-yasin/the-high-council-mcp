@@ -20,6 +20,7 @@ import { readFileSync, existsSync, statSync, realpathSync } from 'node:fs';
 import { resolve, relative, isAbsolute, sep } from 'node:path';
 import { pathRefusal, redactSecrets } from './tools.js';
 import { countHidden, stripLeadingBom } from './hidden-chars.js';
+import { held } from './held-roles.js';
 
 // Per-file ceiling. A fenced file is read by a person before it is sent, and a 200KB paste
 // is not read by anyone - it is scrolled past. Truncation is marked in the text so both the
@@ -171,3 +172,17 @@ truncated, which is marked inside its block.
 Cite these blocks when you make a claim about the code. If a claim cannot be checked against
 what is shown here, say so and mark it UNVERIFIED rather than asserting it.
 `;
+
+/**
+ * The header `council fence` writes into a task (0.8.4 D30, plan A T1.5). FENCE_HEADER itself never changes a byte. Once the drafted sentence is recorded in src/roles.js (held name `fenceHeaderOnlySource`; excerpts
+ * ship in 0.8.4, so seats are shown project text beyond the fenced blocks) the header's sentence "They are the only source you can see." is replaced by it, exactly once; until then this IS FENCE_HEADER. The header
+ * is written into the task file when it is fenced, so a recorded change reaches only tasks fenced afterwards. Loud if the sentence is not in the header exactly once.
+ */
+export function fenceHeader() {
+  const text = held('fenceHeaderOnlySource')?.();
+  if (typeof text !== 'string' || !text) return FENCE_HEADER;
+  const anchor = 'They are the only source you can see.';
+  const found = FENCE_HEADER.split(anchor).length - 1;
+  if (found !== 1) throw new Error(`fenceHeader: the fence header must carry "${anchor}" once (found ${found}), so the excerpt clause has no place to go`);
+  return FENCE_HEADER.replace(anchor, () => text);
+}

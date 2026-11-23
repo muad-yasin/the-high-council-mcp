@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The High Council skills - the thinking step, written down</title>
-<meta name="description" content="Ten free Claude Code skills for the part of building that decides whether it works: scoping, sourcing, verification, handoff, safe tool use, and backend, frontend, UX and visual engineering. MIT. No efficacy claims.">
+<meta name="description" content="Free Claude Code skills for the part of building that decides whether it works: scoping, sourcing, verification, handoff, safe tool use, engineering and design, writing, and work inside a game engine. MIT. No efficacy claims.">
 <style>
 @font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 600; font-display: swap; src: url(fonts/SpaceGrotesk-600-latin.woff2) format('woff2'); }
 @font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 700; font-display: swap; src: url(fonts/SpaceGrotesk-700-latin.woff2) format('woff2'); }
@@ -56,7 +56,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
   <div class="wrap">
     <div class="eyebrow">The High Council &middot; Skills</div>
     <h1>You can build anything in a weekend.<br>So can everyone else.</h1>
-    <p class="lede">What decides the outcome now is the part most people skip: deciding what is worth building, and proving it actually works. These nineteen skills write that part down, so your AI coding agent does it too.</p>
+    <p class="lede">What decides the outcome now is the part most people skip: deciding what is worth building, and proving it actually works. These skills write that part down, so your AI coding agent does it too.</p>
     <p class="sub">Free and MIT-licensed. They work in any Claude Code project, with or without The High Council harness. No account, no API key, nothing to install beyond copying folders.</p>
     <div class="honest"><strong>No efficacy claim.</strong> Nothing here has been measured against working without these skills, so we don't say they make results better. Every rule says what it guards against and why - most began as a real failure on a real project - so you can judge each one yourself.</div>
   </div>
@@ -67,7 +67,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
     <div class="eyebrow">What a skill is</div>
     <h2>Rules your agent loads only when they apply</h2>
     <p>A skill is a folder with a <code>SKILL.md</code> file: a focused set of rules, checklists, and a list of mistakes to flag. Claude Code reads the short description of every installed skill and loads a skill's full rules only when a task matches it. Deeper material sits in a <code>references/</code> folder that is opened only when needed, so a large collection costs little until it's used.</p>
-    <p>The rules are concrete on purpose. Not "be careful with migrations," but "prove compatibility with a frozen real example that would fail if you were wrong - a careful read-through is not a substitute."</p>
+    <p>The rules are concrete on purpose. Not "be careful with migrations," but "Golden fixtures prove compatibility; a careful read-through does not. Freeze one real example per meaningful state at the current version and load each in a test."</p>
   </div>
 </section>
 
@@ -75,15 +75,16 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
   <div class="wrap">
     <div class="eyebrow">Core agentic work</div>
     <h2>For any task an agent takes on</h2>
-    <p>Five skills for the work around the work: defining it, sourcing it, checking it, carrying it across sessions and agents, and acting on the world safely. They apply to coding and non-coding tasks alike, and to setups where several models propose, critique, and hand work to each other.</p>
+    <p>Skills for the work around the work: defining it, sourcing it, checking it, carrying it across sessions and agents, acting on the world safely, operating a screen through a computer-use tool, writing the files an agent loads, vetting someone else's skill before it is loaded, and running the session that is in charge of other sessions. They apply to coding and non-coding tasks alike, and to setups where several models propose, critique, and hand work to each other.</p>
     <div class="grid">
       <article class="card" data-skill="task-scoping">
         <h3><code>task-scoping</code></h3>
-        <p class="when">Starting a multi-step or unclear task, delegating, or deciding whether something is really done.</p>
+        <p class="when">Starting a multi-step or unclear task, delegating, starting an unattended run, or deciding whether something is really done.</p>
         <div class="label">Guards against</div>
         <ul>
           <li>Acting before "done" and a stop condition are written down</li>
           <li>Silent assumptions; questions asked without a stated default</li>
+          <li>A default recorded as the requester's decision</li>
           <li>Risky, irreversible steps discovered only when reached</li>
           <li>Partial results reported as if they closed the whole problem</li>
         </ul>
@@ -101,35 +102,86 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
       </article>
       <article class="card" data-skill="verification-and-critique">
         <h3><code>verification-and-critique</code></h3>
-        <p class="when">Before reporting anything done, when reviewing any output, when designing a review, vote, or debate.</p>
+        <p class="when">Before reporting anything done, when reviewing any output, when answering a review's findings, when designing a review, vote, or debate.</p>
         <div class="label">Guards against</div>
         <ul>
           <li>Self-review treated as proof; logs trusted over artifacts</li>
           <li>Tests edited in the same change that makes them pass</li>
           <li>Unreadable or missing verdicts counted as passes</li>
+          <li>An empty result read as clean; a finding that blocks without being demonstrated</li>
           <li>Debate where agreement flips a correct answer to a wrong one</li>
         </ul>
       </article>
       <article class="card" data-skill="context-and-handoff">
         <h3><code>context-and-handoff</code></h3>
-        <p class="when">Long or multi-session work, delegation, pausing and resuming, several agents sharing one workspace.</p>
+        <p class="when">Long or multi-session work, delegation, pausing and resuming, writing or relying on an instruction file, several agents sharing one workspace.</p>
         <div class="label">Guards against</div>
         <ul>
           <li>Quality decay from overloaded context</li>
           <li>State that lives only in a conversation that will be lost</li>
+          <li>A stale document followed against the code</li>
           <li>Vague briefs and handoffs that hide what already failed</li>
           <li>A peer agent's word treated as the owner's approval</li>
         </ul>
       </article>
       <article class="card" data-skill="tool-and-action-discipline">
         <h3><code>tool-and-action-discipline</code></h3>
-        <p class="when">Any action that changes state, spends money, or is visible to others - and designing tools for agents.</p>
+        <p class="when">Any action that changes state, spends money, or is visible to others; loading a third-party skill or plugin - and designing tools for agents.</p>
         <div class="label">Guards against</div>
         <ul>
           <li>Destructive commands aimed at a pattern instead of a confirmed list</li>
           <li>Spending checked after the call instead of before it</li>
           <li>Instructions smuggled in through tool output or fetched pages</li>
+          <li>Third-party skills and plugins loaded unread</li>
           <li>Human approval gates skipped, faked, or routed around</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="computer-use-discipline">
+        <h3><code>computer-use-discipline</code></h3>
+        <p class="when">An agent operating a desktop, its apps or web pages through a computer-use tool: clicking, typing, reading the screen.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>The tool's "OK" taken for what the application did</li>
+          <li>A click or a submit repeated after a timeout</li>
+          <li>Text on the screen followed as an instruction</li>
+          <li>Purchases, sends and consent prompts clicked without the person's confirmation</li>
+          <li>A screenshot offered as proof of a save or a send</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="agent-instruction-writing">
+        <h3><code>agent-instruction-writing</code></h3>
+        <p class="when">Writing or changing a skill, wording or ordering the rules of a CLAUDE.md, an AGENTS.md or a rules file, or when an agent keeps missing a written rule.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>A rule left to wording when it needed enforcement</li>
+          <li>A description that does not say when to load the skill</li>
+          <li>The rule that matters most at the end of a long file</li>
+          <li>"Unless it matters" and other soft exceptions</li>
+          <li>Rules nobody dares delete because their reason is gone</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="skill-and-plugin-vetting">
+        <h3><code>skill-and-plugin-vetting</code></h3>
+        <p class="when">Before installing someone else's skill or plugin, before starting an agent in a cloned repository that carries agent files, and before taking an update.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>A skill or plugin loaded unread</li>
+          <li>A review of the files a skill names, not the files it contains</li>
+          <li>Compiled files accepted beside readable source</li>
+          <li>A scanner's pass reported as "safe"</li>
+          <li>An update taken without reading the difference</li>
+        </ul>
+      </article>
+      <article class="card" data-skill="command-and-control">
+        <h3><code>command-and-control</code></h3>
+        <p class="when">When a session is put in charge of other sessions: dispatching work, reviewing finished units, speaking to the owner, and getting a release done.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>The coordinator doing the dispatched work itself</li>
+          <li>A review of every step, and reviews nobody asked for</li>
+          <li>"Your rule" said of the session's own reading</li>
+          <li>Decisions for the owner buried in status text</li>
+          <li>The strongest model on a job a cheaper one does</li>
         </ul>
       </article>
     </div>
@@ -140,7 +192,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
   <div class="wrap">
     <div class="eyebrow">Building software</div>
     <h2>For the code, the screens, and how they look</h2>
-    <p>Four engineering and design skills that work across stacks - web, mobile, desktop, game UI, command-line tools - because they target failure classes, not frameworks.</p>
+    <p>Five engineering and design skills that work across stacks - web, mobile, desktop, game UI, command-line tools - because they target failure classes, not frameworks.</p>
     <div class="grid">
       <article class="card" data-skill="backend-developer">
         <h3><code>backend-developer</code></h3>
@@ -153,6 +205,17 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
           <li>"Ran successfully" with no output artifact actually checked</li>
         </ul>
       </article>
+      <article class="card" data-skill="test-suite-discipline">
+        <h3><code>test-suite-discipline</code></h3>
+        <p class="when">Writing or reviewing a change's tests, a suite grown slow or noisy, a test about to be deleted, skipped or pinned to exact wording, and the rule for what runs when.</p>
+        <div class="label">Guards against</div>
+        <ul>
+          <li>Tests that turn red on every intended change and catch no defect</li>
+          <li>Skipped and quarantined tests with no way back</li>
+          <li>A run of some tests reported as "the tests pass"</li>
+          <li>No named point at which the whole suite runs</li>
+        </ul>
+      </article>
       <article class="card" data-skill="frontend-developer">
         <h3><code>frontend-developer</code></h3>
         <p class="when">Anything that renders or reacts to input, down to wiring one button or showing one number.</p>
@@ -162,6 +225,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
           <li>Text overflowing fixed boxes; layouts correct at one screen size only</li>
           <li>Controls a keyboard or screen reader cannot use</li>
           <li>Design mockups reproduced by eye instead of by their real values</li>
+          <li>Command-line errors that exit with success; output only a person can parse</li>
         </ul>
       </article>
       <article class="card" data-skill="ux-design">
@@ -171,6 +235,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
         <ul>
           <li>Visual design before the user's path is mapped</li>
           <li>Missing empty, locked, loading, and error states</li>
+          <li>A destructive action with no undo and no question first</li>
           <li>Notifications louder than the information deserves</li>
           <li>Manipulative patterns shipped because they were profitable</li>
         </ul>
@@ -263,13 +328,14 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
     <div class="grid">
       <article class="card" data-skill="fact-checking">
         <h3><code>fact-checking</code></h3>
-        <p class="when">Before drafting from real events, and before publishing any claim about a real person or organization.</p>
+        <p class="when">Before drafting from real events, before publishing any claim about a real person or organization, and when a published claim turns out wrong.</p>
         <div class="label">Guards against</div>
         <ul>
           <li>Quotes nobody said, or said less sharply</li>
           <li>Figures and rulings never traced to the original document</li>
           <li>False claims inherited from an earlier draft</li>
           <li>A charge written up as a conviction</li>
+          <li>A published error fixed silently</li>
           <li>AI-written text published with no disclosure where the law asks for it</li>
         </ul>
       </article>
@@ -283,6 +349,7 @@ footer { padding:40px 0 64px; color:var(--muted); font-size:14px; }
           <li>Endings that explain instead of land</li>
           <li>A headline and first sentence that say the same thing twice</li>
           <li>A status report that says yes about a check that could only say yes</li>
+          <li>A change note that praises the change instead of stating it</li>
         </ul>
       </article>
       <article class="card" data-skill="line-editing">
@@ -369,7 +436,7 @@ claude plugin install the-high-council@the-high-council</pre>
 
 <footer>
   <div class="wrap">
-    <p>The High Council skills &middot; MIT license &middot; Last updated 2026-10-05 &middot; <a href="index.html">The High Council harness</a></p>
+    <p>The High Council skills &middot; MIT license &middot; Last updated 2026-11-13 &middot; <a href="index.html">The High Council harness</a></p>
     <p>No claim is made that these skills improve results. It has not been measured.</p>
   </div>
 </footer>

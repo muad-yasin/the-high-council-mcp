@@ -109,7 +109,7 @@ test('L7: a provider that closed but whose panel did not pass is not eligible: i
   closeByHand(t, 'R/M1', k1.runId, false);
   const pick = chooseNextChild(t.rootDir, { work: t.work });
   assert.equal(pick.kind, 'child'); assert.equal(pick.node, 'R/M3', 'R/M2 expects from R/M1, so the independent R/M3 goes first');
-  assert.deepEqual(pick.waiting.map(w => w.node), ['R/M2']); assert.match(pick.waiting[0].why.join(' '), /R\/M1 closed but the panel did not pass it/);
+  assert.deepEqual(pick.waiting.map(w => w.node), ['R/M2']); assert.match(pick.waiting[0].why.join(' '), /R\/M1 closed but the panel did not agree on it/);   // CHANGED ACCEPTED (0.8.4 D1): was /R\/M1 closed but the panel did not pass it/ (the reason now names the agreed reading)
   assert.equal(registerNextChild(t.rootDir, { work: t.work }).node, 'R/M3');
   closeByHand(t, 'R/M3', stateOf(readTreeRecord(t.rootDir)).nodes.get('R/M3@g1').runId, true);
   const last = registerNextChild(t.rootDir, { work: t.work });

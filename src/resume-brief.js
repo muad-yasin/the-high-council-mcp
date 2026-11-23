@@ -11,11 +11,14 @@
 // itself hallucinate state and become a new silent-failure vector, which this project has
 // already been burned by once (the lab-dropout incident) and does not want a second version of.
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { isAdviceFolder } from './stop-files.js';
 import { join } from 'node:path';
-import { stageKindOf, stageKindsFor } from './stage-contract.js';
+import { answerShapeKindOf, stageKindsFor } from './stage-contract.js';
 import { checkClaimStaleness } from './peer-claim.js';
 import { memberResumeCommand, memberWho } from './tree-redirect.js';
 import { outdatedChainHint } from './chain-name.js';
+import { awaitingExcerptApproval } from './run-status.js';
+import { excerptWaitWords } from './excerpt-approval.js';
 
 // Mirrors src/mcp/server.js's waiting(dir), duplicated rather than imported: server.js is
 // the MCP entrypoint (constructs and owns the server instance as a side effect of import),
@@ -55,7 +58,7 @@ function completedKinds(dir, chainConfig) {
   const files = readdirSync(dir).filter(f => f.endsWith('.md') && !f.startsWith('NEEDS-') && f !== 'RESUME.md' && f !== 'BOARD.md' && f !== 'HANDOFF.md' && f !== 'deliverable.md' && f !== 'WARNINGS.md' && f !== 'proposals.md' && f !== 'proposals-pool.md');
   const seen = new Set();
   for (const f of files) {
-    const kind = stageKindOf(f.replace(/\.md$/, ''));
+    const kind = answerShapeKindOf(f.replace(/\.md$/, ''));   // 0.8.4 q-warn: a `-question` answer is not a finished panel or critique stage
     if (kind) seen.add(kind);
   }
   // Preserve chain-run order rather than filesystem order, so the brief reads as a timeline.
@@ -71,6 +74,8 @@ export function generateResumeBrief({ runId, dir, runMeta, chainConfig, readTask
   const done = chainConfig ? completedKinds(dir, chainConfig) : [];
   const pending = pendingStage(dir);
   const deliverableDone = existsSync(join(dir, 'deliverable.md'));
+  // 0.8.4 D10 slice 2c: a run stopped at an excerpt approval says so first; the state is the record's (a gate with no excerpts_recorded line), the same basis as the resume refusal (exit 26).
+  const excerptWait = deliverableDone ? null : awaitingExcerptApproval(dir);
 
   const lines = [];
   lines.push(`# RESUME BRIEF — run ${runId}`);
@@ -96,6 +101,9 @@ export function generateResumeBrief({ runId, dir, runMeta, chainConfig, readTask
   lines.push('## Currently pending');
   if (deliverableDone) {
     lines.push('Stage: none - run is complete');
+  } else if (excerptWait) {
+    lines.push('Stage: stopped at an approval of excerpts of the project');
+    lines.push(`Waiting on: the excerpt approval, gate ${excerptWait.gate}, which ${excerptWaitWords(excerptWait.status, `council gate answer ${dir} ${excerptWait.gate}`).phrase}`);
   } else if (pending) {
     lines.push(`Stage: ${pending}`);
     lines.push('Waiting on: an external seat\'s reply (see NEEDS-<stage>.md, or dispatch it with prepare_stage_prompt)');
@@ -123,10 +131,11 @@ export function generateResumeBrief({ runId, dir, runMeta, chainConfig, readTask
   lines.push('');
   lines.push('## Next action for the driving session');
   if (deliverableDone) lines.push(`Run is complete. Deliverable at ${join(dir, 'deliverable.md')}.`);
+  else if (excerptWait) lines.push(`${excerptWaitWords(excerptWait.status, `council gate answer ${dir} ${excerptWait.gate}`).tail} Every resume (resume_run, submit_stage, \`council --resume\`) is refused with exit 26 meanwhile. Call run_status(${JSON.stringify(runId)}) to see where it stands.`);
   else if (pending && member) lines.push(`Answer stage "${pending}" (prepare_stage_prompt(${JSON.stringify(runId)}, ${JSON.stringify(pending)}) bundles it; submit_stage writes the answer and does NOT resume a tree member), then run \`${memberResumeCommand(member)}\` in a terminal (${memberWho(member, pending)}).`);
   else if (pending) lines.push(`Call prepare_stage_prompt(${JSON.stringify(runId)}, ${JSON.stringify(pending)}), or answer it directly and call submit_stage.`);
-  // 0.8.1 decided rule 6: an advice call is never resumed; it is asked again.
-  else if (existsSync(join(dir, 'advice.meta.json')) || existsSync(join(dir, 'advise-log.json'))) lines.push(`This is an advice call, which is not resumed. Call run_status(${JSON.stringify(runId)}) for what it has; to ask again, start with council_quote.`);
+  // an old advice call's folder is never resumed (the add-on was removed in 0.8.4)
+  else if (isAdviceFolder(dir)) lines.push(`This is an advice call, which is not resumed. Call run_status(${JSON.stringify(runId)}) for what it has.`);
   else if (member) lines.push(`Call run_status(${JSON.stringify(runId)}) to check current progress. To continue this node run \`${memberResumeCommand(member)}\` in a terminal (${memberWho(member, null)}); resume_run does not resume a tree member.`);
   else lines.push(`Call resume_run(${JSON.stringify(runId)}) or run_status(${JSON.stringify(runId)}) to check current progress.`);
 

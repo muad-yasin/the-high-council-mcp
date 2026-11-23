@@ -9,12 +9,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { runChain, setPromptSpy, setCache, setBudget, RoundStopped } from '../src/chain.js';
+import { setHeldForTest } from '../src/held-roles.js';
+import { DEMAND } from './helpers/rating-demand.js';
 import { reportJsonShape } from '../src/report-shape.js';
 import { effectiveLimits, stopIdOf, passCeiling, stopSentence, canSendUp, roundChoiceEntry } from '../src/overseer-rounds.js';
 import * as HESC from './held-prompts/held-escalation.js';
+import { objectionId } from '../src/objection-ids.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-afterEach(() => { setPromptSpy(null); setCache(null); setBudget(null); });
+afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setBudget(null); });
 
 // ---- the CLI, end to end on mock judges
 const judge = (pattern, id, lab, layer) => ({ provider: 'mock', model: `mock-critic-script-${pattern}-${id}`, lab, layer });
@@ -69,7 +72,9 @@ test('SU-1 end to end: an older run folder that recorded a send-up at layer 1\'s
     assert.match(board, /sent up a layer while its objections were still open/);
     assert.match(board, /still open when layer 1 had used its revisions in pass 2/);
     assert.ok(!/stood unchanged/.test(r.stdout + r.stderr), 'nor does the run log or the final verdict line');
-    assert.match(board, /the plan was sent up a layer, whose judges reviewed it/);
+    // CHANGED (0.8.4 apply, the red pins of ROUND2 INTRO-7fe-base). OLD: the match took the intro's tail "whose judges reviewed it", which the new words change on the branch where no ruling was read (this run's ruling stage is answered unreadably by the mock). NEW: the match is scoped to the passed-up section and keeps only what tells this case apart from a stall's ("sent up", not "passed up"); the layer table's own "the plan was sent up a layer while ..." is outside the section.
+    assert.ok(board.includes('## Objections passed up a layer'), 'premise: the board has the passed-up section');
+    assert.match(board.slice(board.indexOf('## Objections passed up a layer')).split('\n## ')[0], /the plan was sent up a layer, whose judges/);
     assert.deepEqual(schemaOk(report).errors ?? null, null, 'the report still validates');
   } finally { p.done(); }
 });
@@ -109,19 +114,22 @@ test('SU-2 a typed --send-up is refused in every mode and writes nothing: at a l
 // ---- the chain, on the cache stub: wording and the stall path
 const CRITERION = 'The plan defines a retry limit.';
 const DRAFT = 'The worker retries failed requests.';
-const X = { criterion: CRITERION, problem: 'No limit on retries.', quote: 'retries failed requests' };
+const X = { severity: 5, criterion: CRITERION, problem: 'No limit on retries.', quote: 'retries failed requests' };   // 0.8.4 SG-1: rated 5 (the stall half runs with the rating demand; a rating changes neither the id nor the stall window)
 const meets = () => JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok' });
 const objects = f => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: f.problem }], failures: [f], verdict_line: 'no' });
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the stub raised X in passes 1 and 2 with no relation. NEW: pass 1 carries relation 'new', pass 2 (the same seat raising X again) `continues <id>`. WHY: relationRule is recorded (NS-0193): a judge failure without its relation is an unreadable reply, and a `new` on a standing id mints #2.
 async function chainRun({ roundChoices = [], stall = false }) {
   const prompts = new Map();
   setPromptSpy(p => { prompts.set(p.label, p); });
+  setHeldForTest(stall ? DEMAND : null);   // 0.8.4 SG-1: the stall climb needs the rating demand (and answer_back, in the config); the person's send_up is not gated
   setCache({ invalidate() {}, get(label) {
-    const text = label === 'panel-1-raiser-alpha' || label === 'panel-2-raiser-alpha' ? objects(X) : label.startsWith('panel-') ? meets() : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+    const text = label === 'panel-1-raiser-alpha' ? objects({ ...X, relation: 'new' }) : label === 'panel-2-raiser-alpha' ? objects({ ...X, relation: `continues ${objectionId('raiser-alpha', X)}` }) : (label.startsWith('panel-') || label.startsWith('final-read-')) ? meets() : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
     return { text, provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 };
   } });
   const seat = (lab, layer) => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000, layer });
   const builder = { provider: 'mock', model: 'mock-builder', lab: 'writer' };
-  const config = { name: 'fixture-sup', criteria: [CRITERION], signoff: 'unanimous', answer_back: { enabled: true }, ...(stall ? { dispute: { enabled: true, stall_rounds: 2 } } : {}),
+  // CHANGED ACCEPTED TEST (0.8.4 apply, job 12 row 'SU-3'): OLD: `answer_back: { enabled: true }` on every run of this stub. NEW: answer_back (and the dispute window) only on the stall half: `...(stall ? { answer_back: { enabled: true }, dispute: { enabled: true, stall_rounds: 2 } } : {})`; the send-up half runs on a chain without the answer-back list, as the SU-1 CLI chain does (its stop is read in the TAP: SU-1 ok). WHY: the TAP's error line "without a choice the run stops at layer 1's revision bound" (expected true, actual false): with ratingDemand and layerOneGoUpLine recorded, the automatic go-up at layer 1's revision bound (src/chain.js:6676, `layer1BoundGoUp(stop) && callGates.goUpOn && layerOneGoUpLineOn()`, goUpOn = ledgerOn && severityOn = answer_back on && the demand, src/call-gates.js:47-49) sends layer 1's objection up instead of stopping, so the first run no longer stops. Where the chain has no answer-back list the go-up cannot fire and the stop stands, the state an older run folder with a recorded send-up came from. The relation fields of the stub stay (the stall half reads them; an off-chain ignores them, caa86e36). Nothing after the first assertion ran in job 12: the send-up replay and the stall half are for the box to decide.
+  const config = { name: 'fixture-sup', criteria: [CRITERION], signoff: 'unanimous', ...(stall ? { answer_back: { enabled: true }, dispute: { enabled: true, stall_rounds: 2 } } : {}),
     maxOverseerRounds: 1, layerRevisions: { 1: 1, 2: 1 }, seats: { builder, reviser: builder, critics: [seat('raiser-alpha', 1), seat('mid-beta', 2), seat('top-gamma', 3)] } };
   const result = await runChain({ request: 'Write a worker plan with a retry limit.', runId: 'r-sup', log: () => {}, config, roundChoices }).catch(e => { e.prompts = prompts; throw e; });
   return { result, prompts, report: JSON.parse(JSON.stringify(reportJsonShape({ runId: 'r-sup', chain: 'fixture-sup', task: 't.md', result, config }))) };

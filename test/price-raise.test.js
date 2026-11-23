@@ -56,10 +56,10 @@ test('PR-4 no offer when the cheapest host is not above the limit (the price is 
 });
 
 test('PR-5 who is asked at all: a terminal, a plain run, only recognised price refusals, no own-pin seat, only OpenRouter', { timeout: 60_000 }, () => {
-  const ok = { set: [refused('openrouter/a/b', { prompt: 1, completion: 1 })], tty: true, adviceOn: false, member: false };
+  const ok = { set: [refused('openrouter/a/b', { prompt: 1, completion: 1 })], tty: true, member: false };
   assert.equal(mayOffer(ok).ok, true);
   assert.equal(mayOffer({ ...ok, tty: false }).ok, false);
-  assert.equal(mayOffer({ ...ok, adviceOn: true }).ok, false);
+    // CHANGED ACCEPTED TEST (0.8.4 add-on removal, box set fix): OLD: an advice call is never offered a price raise (adviceOn). NEW: the row and the parameter are gone. WHY: the advice add-on is removed.
   assert.equal(mayOffer({ ...ok, member: true }).ok, false);
   assert.equal(mayOffer({ ...ok, set: [{ ...ok.set[0], recognised: false }] }).ok, false);
   assert.equal(mayOffer({ ...ok, set: [{ ...ok.set[0], ownPin: true }] }).ok, false);
@@ -91,7 +91,8 @@ test('PR-8 a host name is network text: escape, control and bidi characters neve
 });
 
 // HIGH unit fix-up (C&C thcmcp-cd, 24 Okt 2026; Muad 23 Okt 2026: "High should be *our* default setting. Some models are so cheap that *their* default is Max effort, and we can go with that"). A seat on a model whose own default is above
-// high (the table's defaultAboveHigh: GLM-5.3, GLM-5.3 Flash, Qwen 3.8 Max) states no effort, so the call carries no reasoning field and the old test (a composed reasoning field) said "does not reason": the offer could name a host that does
+// high (the table's defaultAboveHigh: GLM-5.3, GLM-5.3 Flash, Qwen 3.8 Max) stated no effort, so the call carried no reasoning field and the old test (a composed reasoning field) said "does not reason": the offer could name a host that does
+// (2 Nov 2026: the harness now sends such a seat high, so this holds through the first test as well; the table test stays as a backstop and these answers are unchanged)
 // not list `reasoning` for a model that thinks by default. needsOfSeat is the one place that answers it, for the terminal path (src/cli.js) and the MCP path (src/mcp/price-raise.js).
 test('PR-9 a seat on a model whose own default is above high reasons for the price-stop offer although it states no effort: the offer skips a host without `reasoning`; the two callers use the one function', async () => {
   const { needsOfSeat } = await import('../src/price-raise.js');

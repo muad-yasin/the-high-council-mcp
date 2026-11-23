@@ -62,6 +62,32 @@ test('a correctly quoted repo claim verifies', () => {
   assert.deepEqual(quoteWarnings(marked, 'panel'), [], 'a verified quote is not a warning');
 });
 
+// 0.8.4 F2 (gap check S8-01): "accept/withdraw" reads as a repo path, so on a run with fenced source a
+// REAL quote from the draft was checked against the fenced source only and marked invented. A quote found
+// word for word in the draft is never marked invented; one found nowhere still is.
+const DRAFT = 'Step 3: the author may accept/withdraw each post before the round ends.\nStep 4: publish.';
+const PATHY = { criterion: 'Choice handling', problem: 'Step 3 lists accept/withdraw but never says who decides.', fix: 'Name the decider.' };
+
+// the status, and one flag per warning line saying whether it is the invented-quote sentence
+const outcome = marked => ({ status: marked[0].quote_status, warnings: quoteWarnings(marked, 'panel').map(w => /does NOT appear/.test(w)) });
+
+test('a quote that is in the draft is not marked invented, although the objection reads like a repo path', () => {
+  assert.equal(looksLikeRepoClaim(PATHY.problem), true, 'precondition: this wording does read as a path');
+  const marked = markFailures([{ ...PATHY, quote: 'the author  may accept/withdraw each post' }], fencedSourceOf(FENCED), DRAFT);
+  // no mark and no warning line (the log, the record and the reviser prompt all read these); whitespace is matched as in the fenced check
+  assert.deepEqual(outcome(marked), { status: undefined, warnings: [] });
+});
+
+test('a quote found in neither the draft nor the fenced source is still marked unverified', () => {
+  const marked = markFailures([{ ...PATHY, quote: 'words that appear in neither place' }], fencedSourceOf(FENCED), DRAFT);
+  assert.deepEqual(outcome(marked), { status: 'unverified', warnings: [true] });
+});
+
+test('with a draft given, a quote that is in the fenced source stays verified', () => {
+  const real = { criterion: 'Version', problem: 'SaveSystem.cs pins Version = 3.', quote: 'int Version = 3;' };
+  assert.deepEqual(outcome(markFailures([real], fencedSourceOf(FENCED), DRAFT)), { status: 'verified', warnings: [] });
+});
+
 test('an objection about the plan itself is never asked for a quote', () => {
   const marked = markFailures([
     { criterion: 'Scope', problem: 'The plan does not state its assumptions.' },

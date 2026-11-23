@@ -43,8 +43,8 @@ test('through the one door every panel call goes by (criticPromptFor), a shipped
   assert.ok(criticPromptFor(seat, false, undefined, cfg).startsWith(HEAD));
   assert.ok(finalReadSystemFor(seat, cfg).startsWith(HEAD));
   for (const again of [false, true]) {
-    assert.ok(layerDebateSystemFor({ ...cfg, layer_debate: { enabled: true } }, seat, again).startsWith(HEAD), `post prompt, ${again ? 'round 2+' : 'round 1'}`);
-    assert.ok(layerReplySystemFor({ ...cfg, layer_debate: { enabled: true } }, seat, again).startsWith(HEAD), `answer prompt, ${again ? 'round 2+' : 'round 1'}`);
+    assert.ok(layerDebateSystemFor(cfg, seat, again).startsWith(HEAD), `post prompt, ${again ? 'round 2+' : 'round 1'}`);
+    assert.ok(layerReplySystemFor(cfg, seat, again).startsWith(HEAD), `answer prompt, ${again ? 'round 2+' : 'round 1'}`);
   }
 });
 

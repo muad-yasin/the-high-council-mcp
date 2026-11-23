@@ -52,7 +52,7 @@ export function lockBlock(criteria, { runId, checks } = {}) {
     '',
     LOCK_HEADING,
     '',
-    `The council settled these ${list.length} acceptance criteria before it drafted. The harness wrote this block, not a model.`,
+    `These ${list.length} acceptance criteria are the ones this run used. The harness wrote this block, not a model.`,
     `Fingerprint ${hash.slice(0, 12)}. To check that a copy of this file still carries them: \`council check-lock <this file>\`.`,
     '',
     ...pairs.flatMap((p, i) => [`C${i + 1}. ${p.text}`, ...(checkList[i] ? [`   check: ${checkList[i].check} (on: ${checkList[i].on})`] : [])]),

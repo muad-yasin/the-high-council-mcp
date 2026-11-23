@@ -17,7 +17,8 @@ const thin = { sha256: 'a'.repeat(64) };
 test('the section says: read the plan and list blockers before coding, never edit the criteria, the record hash in plain text, the replan triggers', () => {
   const t = builderSection({ thin, runId: 'run-1', hasChecks: true });
   assert.match(t, /^## Before you build \(written by the harness, not by a seat\)/);
-  assert.match(t, /write down every blocker/);
+  // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: /write down every blocker/. NEW: the whole recorded first two sentences of item 1. WHY: item 1 now points at the handoff's "Verify first" section (src/prompts/recorded-084-a.js verifyFirstItemOne, row NS-0170, entry 4 of D17).
+  assert.ok(t.includes("1. Read this whole plan before you change anything. Before you write code, work through the 'Verify first' section of the handoff, and add any blocker you see that it does not name: a step you cannot do with the tools you have, a criterion you cannot check, a fact the plan assumes that nobody verified."));
   assert.match(t, /Do not edit them; where a criterion names a check/);
   assert.match(t, new RegExp(`record sha256 ${'a'.repeat(64)}, run run-1\\.`));
   assert.match(t, /## Replan triggers/);

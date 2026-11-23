@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { supersededSpendOf, supersededUnknownFilesOf } from './superseded.js';
-import { unsettledUsd } from './spend-reservations.js';
+import { countedExtrasOf } from './counted-spend.js';
 import { runSpendOf, usageSpendOf, capSpentOf } from './spend.js';
 
 const readJson = p => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
@@ -30,7 +30,7 @@ export function budgetOf(dir, report) {
       // Money path #2: stages a resume re-ran keep their first payment in superseded/.
       + supersededSpendOf(dir)
       // 0.8.2 item 8b: a call in flight when the process died stays charged at its worst case, so a killed run's remaining budget is what a resume will enforce.
-      + unsettledUsd(dir);
+      + countedExtrasOf(dir).usd;   // 0.8.4 unit 6: unsettled reservations no file carries, and settled calls with no file (src/counted-spend.js)
   }
   // DUALCAP 4c2: a run under per-provider caps (run.json `caps`, the limits typed for it) has no run-wide cap: `capUsd` is null and `caps` gives each cap's limit, the spend
   // recorded through it (the stopped cap's own figure from its stop file, else derived from the folder) and what is left; the stop names its cap. Absent for any other run.

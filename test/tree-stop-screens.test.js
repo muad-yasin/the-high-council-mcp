@@ -26,8 +26,9 @@ const decide = (r, flags, answers) => {
   return { io, run };
 };
 // CHANGED ACCEPTED TEST (money-test conversion, lane C (drafted by lane B, reviewed by C), 24 Okt 2026; C&C ruling (c); this test passed on fad02049 and typed the same class of figure). OLD: cap 9.84 typed (first share 3.27 under the cheapest end 4.119, then 4.90 for two: admitted, under the at-most 4.919). NEW: the cap is a function of priced-debate's own dry-run figures: the pool X = 2 x S, S half way between the cheapest end and the at-most figure, so the first of three gets X / 3 (under the cheapest end) and the two left get S each (over it, under the at-most). WHY: the figures move with every recorded or reworded sentence in src/roles.js.
+// CHANGED ACCEPTED TEST (0.8.4 unit 4, 04 Nov 2026; his picks OWNER 5 and 6). OLD: S is half way between the cheapest end and the at-most figure. NEW: half way between the cheapest end and the LESSER of the at-most and 1.5 x the cheapest end, which is the old midpoint whenever the at-most is under 1.5 x the cheapest end and otherwise the largest share the relation below allows. WHY: the at-most figure now includes three network retries of the dearest call (priced-debate: 4.92 -> 17.66), and a midpoint that high would give the first of three a share over the cheapest end, which is not the case the test is about.
 const stopScreenCap = () => {
-  const f = pricedDebateFigures(); const S = ceilCents((f.cheapestUsd + f.atMostUsd) / 2);
+  const f = pricedDebateFigures(); const S = ceilCents((f.cheapestUsd + Math.min(f.atMostUsd, 1.5 * f.cheapestUsd)) / 2);
   assert.ok(2 * S / 3 < f.cheapestUsd && S >= f.cheapestUsd && S < f.atMostUsd, 'fixture: the first of three is under the cheapest end, the two left are over it and under the at-most');
   return capFor(S, 2, ROOT_HANDOFF);
 };

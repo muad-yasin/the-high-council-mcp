@@ -83,7 +83,7 @@ test('C4: usage: both flags together, a choice without --resume, and --continue 
     mkdirSync(join(q.dir, 'runs', 'x'), { recursive: true });
     writeFileSync(join(q.dir, 'runs', 'x', 'run.json'), JSON.stringify({ chain: 'ovc', task: 'tasks/t.md', cwd: q.dir }));
     const r = q.run(['--resume', join(q.dir, 'runs', 'x'), '--continue']);
-    assert.equal(r.status, 2, r.stdout + r.stderr); assert.match(r.stderr, /not stopped at an overseer limit/);
+    assert.equal(r.status, 2, r.stdout + r.stderr); assert.match(r.stderr, /not stopped for --continue or --finish, so there is nothing to answer/);   // CHANGED (0.8.4 S5 U-C1 fix-up 2, A-DRAFT, H-S5-c3): OLD /not stopped at an overseer limit/
   } finally { q.done(); }
 });
 
@@ -132,12 +132,12 @@ test('C6: effectiveLimits: no choices = the chain\'s own limits; a continue rais
   const base = roundLimitsOf(cfg);
   const none = effectiveLimits(cfg, []);
   assert.deepEqual([none.passes, none.overseer, none.layerRevisions], [base.passes, base.overseer, base.layerRevisions]);
-  assert.deepEqual(none.advanceConfigAt(1), { maxOverseerRounds: 4, layerRevisions: { 1: 3, 2: 2 }, reasks: 2 });
+  assert.deepEqual(none.advanceConfigAt(1), { maxOverseerRounds: 4, layerRevisions: { 1: 3, 2: 2 }, reasks: 0 });   // CHANGED ACCEPTED (0.8.4 ladder unit, the solo ask; owed list 'Solo ask', 10 Nov 2026). OLD: reasks 2 (two re-ask passes). NEW: 0 (the re-asks happen inside the pass, then the solo ask).
   const e = effectiveLimits(cfg, [choice({ add: 2 }), choice({ stop: 't', kind: 'layer_bound', why: 'revisions', layer: 1, overseer_round: 2, add: 3 }), choice({ stop: 'u', kind: 'layer_bound', why: 'unheard', layer: 2, overseer_round: 3, add: 2 }), choice({ stop: 'v', choice: 'finish', add: 0 })]);
   assert.equal(e.overseer, 6);
-  assert.deepEqual(e.advanceConfigAt(1), { maxOverseerRounds: 6, layerRevisions: { 1: 3, 2: 2 }, reasks: 2 });
-  assert.deepEqual(e.advanceConfigAt(2), { maxOverseerRounds: 6, layerRevisions: { 1: 6, 2: 2 }, reasks: 2 }, 'the extension belongs to overseer round 2');
-  assert.deepEqual(e.advanceConfigAt(3), { maxOverseerRounds: 6, layerRevisions: { 1: 3, 2: 2 }, reasks: 4 });
+  assert.deepEqual(e.advanceConfigAt(1), { maxOverseerRounds: 6, layerRevisions: { 1: 3, 2: 2 }, reasks: 0 });
+  assert.deepEqual(e.advanceConfigAt(2), { maxOverseerRounds: 6, layerRevisions: { 1: 6, 2: 2 }, reasks: 0 }, 'the extension belongs to overseer round 2');
+  assert.deepEqual(e.advanceConfigAt(3), { maxOverseerRounds: 6, layerRevisions: { 1: 3, 2: 2 }, reasks: 2 });   // CHANGED ACCEPTED (0.8.4 ladder unit, the solo ask; owed list 'Solo ask', 10 Nov 2026), the same change as line 135. OLD: reasks 4 (the 2 re-ask passes of the old base plus the 2 of the 'unheard' choice at round 3). NEW: 2 (the base is 0 now, UNHEARD_PASSES_BEFORE_STOP; only the choice's 2 remain).
   assert.equal(e.passes, passCeiling({ maxOverseerRounds: 6, layerRevisions: { 1: 6, 2: 2 }, reasks: 4 }), 'the backstop covers every extension at once, so the replay can never hit the old ceiling first');
   assert.ok(e.passes > base.passes);
 });

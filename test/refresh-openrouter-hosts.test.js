@@ -9,6 +9,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } fro
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as PT from '../src/price-table.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = join('scripts', 'refresh-openrouter-prices.mjs');
@@ -39,12 +40,12 @@ const DIVIDER = label => `<tr class="or-table__row" data-testid="routing-mode-di
 const page = (above, label, below) => `<html><body><table><tbody>${above.join('')}${label === null ? '' : DIVIDER(label)}${below.join('')}</tbody></table></body></html>`;
 const ALPHA_PAGE = page([prow('Aaa', '0.1', '0.4'), prow('Bbb', '0.2', '0.8')], 'Not used in Standard routing:', [prow('Eee', '0.45', '1.80')]);
 
-function tree({ endpoints = { 'vendor__alpha.json': { data: { endpoints: ALPHA } } }, pages = { 'vendor__alpha.html': ALPHA_PAGE }, rows = ROWS } = {}) {
+function tree({ endpoints = { 'vendor__alpha.json': { data: { endpoints: ALPHA } } }, pages = { 'vendor__alpha.html': ALPHA_PAGE }, rows = ROWS, chains = { 'fixture.json': CHAIN } } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'rfp-hosts-'));
   mkdirSync(join(dir, 'scripts')); mkdirSync(join(dir, 'src')); mkdirSync(join(dir, 'chains')); mkdirSync(join(dir, 'ep'));
   copyFileSync(join(root, SCRIPT), join(dir, SCRIPT));
   writeFileSync(join(dir, 'src', 'pricing.json'), `${JSON.stringify(rows, null, 2)}\n`);
-  writeFileSync(join(dir, 'chains', 'fixture.json'), JSON.stringify(CHAIN));
+  for (const [f, v] of Object.entries(chains)) writeFileSync(join(dir, 'chains', f), JSON.stringify(v));
   for (const [f, v] of Object.entries(endpoints)) writeFileSync(join(dir, 'ep', f), JSON.stringify(v));
   for (const [f, v] of Object.entries(pages)) writeFileSync(join(dir, 'ep', f), v);
   // the model list: every openrouter row at its own price (per token)
@@ -70,7 +71,8 @@ test('RFH-1: the host picture is the eligible hosts only (tiers, the length boun
   assert.deepEqual(row.hosts.out, { low: 0.4, median: 0.8, high: 1 });
   assert.equal(row.hosts.filters.length, 5);
   assert.match(row.hosts.filters[3], /counts in this host picture at its dearest figure/);
-  assert.match(row.hosts.filters[4], /Open Inference included/);
+  // CHANGED ACCEPTED TEST (0.8.4 release chores, 11 Nov 2026, the MiMo/PrimaLabs ban). OLD: the last filter line read "hosts of every provider are counted, Open Inference included (a chain's own extra.provider.ignore is not applied to these figures)". NEW: Open Inference stays counted, but a host that EVERY shipped seat of the model bans in its own extra.provider.ignore leaves the row, so the line says so (Helper A's final words, 11 Nov 2026; still A-DRAFT until the owner's wording review). WHY: the old sentence is false once a ban can leave a row (RFH-9).
+  assert.match(row.hosts.filters[4], /Open Inference included, except any other host that every shipped seat of the model bans in its own extra\.provider\.ignore/);
   assert.match(row.hosts.filters[0], /tiers left out \(2 host\(s\)\)/);
   assert.match(row.hosts.filters[1], /at least 360000 tokens.*1 host\(s\) left out; 1 publish no limit and are counted/);
   assert.match(row.hosts.filters[2], /1 host\(s\) the page marks "Not used in Standard routing" left out/);
@@ -340,4 +342,203 @@ test('RFU-8: a row WRITES its tiers (0.8.4 unit 2b): at each prompt-size thresho
   assert.equal(again.status, 0, again.stderr);
   assert.equal(readFileSync(join(dir, 'src', 'pricing.json'), 'utf8'), first, 'the same input twice gives the same bytes, one tiers line');
   assert.equal(first.split('"tiers"').length - 1, 1);
+});
+
+// 0.8.4 cache part a: the row names the cache prices of its dearest eligible hosts (cache_read / cache_write, USD per Mtok, from the endpoints answer's input_cache_read / input_cache_write). Written without a run (no tests on the laptop).
+const cacheEp = (provider, tag, i, o, extra) => ep(provider, tag, i, o, 400000, { pricing: { prompt: String(i / 1e6), completion: String(o / 1e6), ...extra } });
+const perM = v => String(v / 1e6);
+test('RFU-9: a row WRITES the dearest cache read and cache write price any ELIGIBLE host lists, per field, before its tiers and host picture; a host that lists none (null) is no figure, not zero; a fast-tier host is not counted; a second run gives the same bytes', () => {
+  const eps = [
+    cacheEp('A', 'a', 0.1, 0.5, { input_cache_read: perM(0.01) }),
+    cacheEp('B', 'b', 0.2, 0.9, { input_cache_read: perM(0.04), input_cache_write: perM(0.25) }),
+    cacheEp('C', 'c', 0.15, 0.6, { input_cache_read: null, input_cache_write: null }),
+    cacheEp('D', 'd/priority', 0.9, 3.6, { input_cache_read: perM(5), input_cache_write: perM(9) }),   // a fast tier by tag: left out, so its prices are not counted
+  ];
+  const dir = tree({ endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+  const r = runToday(dir);
+  assert.equal(r.status, 0, r.stderr);
+  const a = rowsOf(dir)['openrouter/vendor/alpha'];
+  assert.deepEqual([a.cache_read, a.cache_write], [0.04, 0.25], 'the dearest eligible figure per field; the null host and the fast-tier host change nothing');
+  assert.equal(Object.keys(a).at(-1), 'hosts', 'the host picture stays the last key');
+  assert.ok(Object.keys(a).indexOf('cache_write') < Object.keys(a).indexOf('hosts'));
+  const first = readFileSync(join(dir, 'src', 'pricing.json'), 'utf8');
+  const again = runToday(dir);
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(readFileSync(join(dir, 'src', 'pricing.json'), 'utf8'), first, 'the same input twice gives the same bytes, one cache_read line and one cache_write line');
+  assert.equal(first.split('"cache_read"').length - 1, 1);
+});
+
+test('RFU-10: under --cache-only cache prices ADD or RAISE only (a full write of a row that is not tier-driven sets them exactly: RFU-18): a figure already on the row above the hosts\' stays, one below is raised, and a row whose eligible hosts list no cache price gets no cache field (reads and writes then cost the input price)', () => {
+  const eps = [cacheEp('A', 'a', 0.1, 0.5, { input_cache_read: perM(0.02), input_cache_write: perM(0.25) })];
+  const rows = { ...ROWS, 'openrouter/vendor/alpha': { in: 0.05, out: 0.1, cache_read: 0.5, cache_write: 0.1, _source: 'fixture' } };
+  const dir = tree({ rows, endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+  const r = runToday(dir, ['--cache-only']);
+  assert.equal(r.status, 0, r.stderr);
+  const a = rowsOf(dir)['openrouter/vendor/alpha'];
+  assert.deepEqual([a.cache_read, a.cache_write], [0.5, 0.25], 'cache_read 0.5 is above the host\'s 0.02 and stays; cache_write 0.1 is below 0.25 and is raised');
+  const none = tree({ endpoints: { 'vendor__alpha.json': { data: { endpoints: [ep('A', 'a', 0.1, 0.5, 400000)] } } }, pages: {} });
+  const r2 = runToday(none);
+  assert.equal(r2.status, 0, r2.stderr);
+  const b = rowsOf(none)['openrouter/vendor/alpha'];
+  assert.equal('cache_read' in b || 'cache_write' in b, false, 'no host lists a cache price: the row names none');
+});
+
+test('RFU-11: a prompt-size override\'s cache price is NOT counted (the tier reaches a call through the higher `in`, and the cache price is a multiple of that `in`: counting it here would count the tier twice); a time-of-day override\'s IS (the cap has no clock, as for `in`/`out`)', () => {
+  const ov = (extra) => ({ prompt: perM(0.2), completion: perM(1), ...extra });
+  const eps = [cacheEp('A', 'a', 0.1, 0.5, { input_cache_read: perM(0.01), input_cache_write: perM(0.125), overrides: [
+    ov({ min_prompt_tokens: 272000, input_cache_read: perM(0.02), input_cache_write: perM(0.25) }),
+    ov({ utc_start: '00:00', utc_end: '06:00', prompt: perM(0.1), input_cache_read: perM(0.015), input_cache_write: perM(0.13) }),
+  ] })];
+  const dir = tree({ endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+  const r = runToday(dir);
+  assert.equal(r.status, 0, r.stderr);
+  const a = rowsOf(dir)['openrouter/vendor/alpha'];
+  assert.deepEqual([a.cache_read, a.cache_write], [0.015, 0.13], 'the night window raises both; the 272000-token tier (0.02 / 0.25) is left to the tier');
+});
+
+test('RFU-12 (NAMED PIN: the parent writes no cache field at all, so this passes there; FAIL CONDITION: --hosts-only writes or changes a cache_read / cache_write line): --hosts-only writes the host picture and nothing else, cache prices included', () => {
+  const eps = [cacheEp('A', 'a', 0.1, 0.5, { input_cache_read: perM(0.01), input_cache_write: perM(0.125) })];
+  const dir = tree({ endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+  const r = runToday(dir, ['--hosts-only']);
+  assert.equal(r.status, 0, r.stderr);
+  const a = rowsOf(dir)['openrouter/vendor/alpha'];
+  assert.equal('cache_read' in a || 'cache_write' in a, false);
+  assert.ok(a.hosts, 'the host picture was written');
+});
+
+test('RFU-13: the cache write the cap prices is the DEAREST host\'s USD figure: two hosts (in 1.0 with a write of 1.25; in 1.2 with no write) give a row whose write per Mtok, multiple times its own `in`, is 1.25 (the multiple is only a representation)', () => {
+  const eps = [cacheEp('A', 'a', 1.0, 4, { input_cache_read: perM(0.1), input_cache_write: perM(1.25) }), cacheEp('B', 'b', 1.2, 4.8, { input_cache_read: perM(0.12) })];
+  const dir = tree({ endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+  const r = runToday(dir);
+  assert.equal(r.status, 0, r.stderr);
+  const a = rowsOf(dir)['openrouter/vendor/alpha'];
+  assert.equal(a.in, 1.2);
+  assert.equal(a.cache_write, 1.25, 'host B lists no write: it adds no figure and lowers none');
+  const m = typeof PT.cacheMultsOf === 'function' ? PT.cacheMultsOf(a) : { write: NaN };
+  assert.ok(Math.abs(m.write * a.in - 1.25) < 1e-9, `the write the cap gets: ${m.write} x ${a.in}`);
+});
+
+test('RFU-14: --cache-only writes ONLY the cache fields (added or raised) into a row that already has its tiers and host picture: in / out, _source, tiers, the host block and _openrouterCheckedAt keep every byte; a second run changes nothing', () => {
+  const eps = [cacheEp('A', 'a', 0.1, 0.5, { input_cache_read: perM(0.01), input_cache_write: perM(0.125) })];
+  const dir = tree({ endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+  assert.equal(runToday(dir).status, 0);
+  const before = rowsOf(dir);
+  const eps2 = [cacheEp('A', 'a', 0.1, 0.5, { input_cache_read: perM(0.03), input_cache_write: perM(0.125) })];
+  writeFileSync(join(dir, 'ep', 'vendor__alpha.json'), JSON.stringify({ data: { endpoints: eps2 } }));
+  const r = runToday(dir, ['--cache-only']);
+  assert.equal(r.status, 0, r.stderr);
+  const after = rowsOf(dir);
+  assert.equal(after['openrouter/vendor/alpha'].cache_read, 0.03, 'raised');
+  assert.deepEqual({ ...after, 'openrouter/vendor/alpha': { ...after['openrouter/vendor/alpha'], cache_read: 0 } }, { ...before, 'openrouter/vendor/alpha': { ...before['openrouter/vendor/alpha'], cache_read: 0 } }, 'nothing else in the table moved');
+  const first = readFileSync(join(dir, 'src', 'pricing.json'), 'utf8');
+  assert.equal(runToday(dir, ['--cache-only']).status, 0);
+  assert.equal(readFileSync(join(dir, 'src', 'pricing.json'), 'utf8'), first);
+  // a row with NO host picture yet gets the two fields and nothing else
+  const bare = tree({ endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+  assert.equal(runToday(bare, ['--cache-only']).status, 0);
+  const b = rowsOf(bare)['openrouter/vendor/alpha'];
+  assert.deepEqual([b.in, b.out, b._source, 'hosts' in b, 'tiers' in b, b.cache_read, b.cache_write], [0.3, 1.2, 'fixture', false, false, 0.01, 0.125]);
+  assert.equal(rowsOf(bare)._openrouterCheckedAt, '2026-10-25');
+});
+
+test('RFU-15: --cache-only together with --hosts-only is refused (exit 2), nothing written', () => {
+  const dir = tree();
+  const was = readFileSync(join(dir, 'src', 'pricing.json'), 'utf8');
+  const r = runToday(dir, ['--cache-only', '--hosts-only']);
+  assert.equal(r.status, 2);
+  assert.equal(readFileSync(join(dir, 'src', 'pricing.json'), 'utf8'), was);
+});
+
+test('RFU-16: a host that lists a cache READ price and no write price (null) says nothing about the write: the row gets cache_read and NO cache_write (an absent write is unknown, priced at the input price; it is never inferred as free), with and without --cache-only; a literal 0 the API returns IS a price and is written', () => {
+  const eps = [cacheEp('A', 'a', 0.1, 0.5, { input_cache_read: perM(0.01), input_cache_write: null })];
+  for (const extra of [[], ['--cache-only']]) {
+    const dir = tree({ endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+    const r = runToday(dir, extra);
+    assert.equal(r.status, 0, r.stderr);
+    const a = rowsOf(dir)['openrouter/vendor/alpha'];
+    assert.equal(a.cache_read, 0.01);
+    assert.equal('cache_write' in a, false, `no write price listed (${extra.join(' ') || 'full run'})`);
+  }
+  const zero = tree({ endpoints: { 'vendor__alpha.json': { data: { endpoints: [cacheEp('A', 'a', 0.1, 0.5, { input_cache_read: perM(0.01), input_cache_write: '0' })] } } }, pages: {} });
+  assert.equal(runToday(zero, ['--cache-only']).status, 0);
+  assert.equal(rowsOf(zero)['openrouter/vendor/alpha'].cache_write, 0, 'a literal 0 from the API is a figure');
+});
+
+test('RFU-17: the script writes cache_basis_in, the dearest eligible host\'s BASE input price, beside the cache figures (a held row keeps its higher `in`, a prompt-size override is not the base), and it only falls: an older, lower basis stays', () => {
+  const ov = { min_prompt_tokens: 100000, prompt: perM(0.55), completion: perM(2.75), input_cache_read: perM(0.055), input_cache_write: perM(0.6875) };
+  const eps = [cacheEp('A', 'a', 0.11, 0.55, { input_cache_read: perM(0.011), input_cache_write: perM(0.1375), overrides: [ov] })];
+  const rows = { ...ROWS, 'openrouter/vendor/alpha': { in: 0.55, out: 2.75, _source: 'fixture' } };   // held above the base host, as a tier-driven row is
+  const dir = tree({ rows, endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+  const r = runToday(dir, ['--cache-only']);
+  assert.equal(r.status, 0, r.stderr);
+  const a = rowsOf(dir)['openrouter/vendor/alpha'];
+  assert.deepEqual([a.in, a.cache_read, a.cache_write, a.cache_basis_in], [0.55, 0.011, 0.1375, 0.11], 'in untouched; the figures and the base they were taken at');
+  const m = typeof PT.cacheMultsOf === 'function' ? PT.cacheMultsOf(a) : { read: NaN, write: NaN };
+  assert.ok(Math.abs(m.read - 0.1) < 1e-9 && Math.abs(m.write - 1.25) < 1e-9, JSON.stringify(m));
+  const lower = tree({ rows: { ...rows, 'openrouter/vendor/alpha': { ...rows['openrouter/vendor/alpha'], cache_basis_in: 0.05 } }, endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+  assert.equal(runToday(lower, ['--cache-only']).status, 0);
+  assert.equal(rowsOf(lower)['openrouter/vendor/alpha'].cache_basis_in, 0.05, 'the basis only falls');
+  const nothing = tree({ rows, endpoints: { 'vendor__alpha.json': { data: { endpoints: [ep('A', 'a', 0.11, 0.55, 400000)] } } }, pages: {} });
+  assert.equal(runToday(nothing, ['--cache-only']).status, 0);
+  assert.equal('cache_basis_in' in rowsOf(nothing)['openrouter/vendor/alpha'], false, 'a basis without cache figures says nothing: none is written');
+});
+
+test('RFU-18: a FULL write sets the cache figures and the basis EXACTLY, like in / out (a host\'s cache price that fell gives the lower figure; a field no eligible host lists any more is removed); the same fixture under --cache-only keeps the higher figures (add or raise only); a tier-driven row\'s full write keeps them too', () => {
+  const eps = [cacheEp('A', 'a', 0.1, 0.5, { input_cache_read: perM(0.02), input_cache_write: perM(0.25) })];
+  const rows = { ...ROWS, 'openrouter/vendor/alpha': { in: 0.3, out: 1.2, cache_read: 0.5, cache_write: 0.9, cache_basis_in: 0.3, _source: 'fixture' } };
+  const full = tree({ rows, endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+  assert.equal(runToday(full).status, 0);
+  const f = rowsOf(full)['openrouter/vendor/alpha'];
+  assert.deepEqual([f.in, f.cache_read, f.cache_write, f.cache_basis_in], [0.1, 0.02, 0.25, 0.1], 'set exactly, as in is');
+  const only = tree({ rows, endpoints: { 'vendor__alpha.json': { data: { endpoints: eps } } }, pages: {} });
+  assert.equal(runToday(only, ['--cache-only']).status, 0);
+  const o = rowsOf(only)['openrouter/vendor/alpha'];
+  assert.deepEqual([o.in, o.cache_read, o.cache_write, o.cache_basis_in], [0.3, 0.5, 0.9, 0.1], 'add or raise: the higher figures stay, the basis falls');
+  const none = tree({ rows, endpoints: { 'vendor__alpha.json': { data: { endpoints: [ep('A', 'a', 0.1, 0.5, 400000)] } } }, pages: {} });
+  assert.equal(runToday(none).status, 0);
+  const n = rowsOf(none)['openrouter/vendor/alpha'];
+  assert.equal(['cache_read', 'cache_write', 'cache_basis_in'].some(k => k in n), false, 'no eligible host lists a cache price any more: none is kept');
+  const held = tree({ rows, endpoints: { 'vendor__alpha.json': { data: { endpoints: [cacheEp('A', 'a', 0.1, 0.5, { input_cache_read: perM(0.02), input_cache_write: perM(0.25), overrides: [{ min_prompt_tokens: 100000, prompt: perM(0.4), completion: perM(2) }] })] } } }, pages: {} });
+  assert.equal(runToday(held).status, 0);
+  const t = rowsOf(held)['openrouter/vendor/alpha'];
+  assert.equal(t.hosts.tier_driven, true);
+  assert.deepEqual([t.cache_read, t.cache_write], [0.5, 0.9], 'a tier-driven row is held: the higher figures stay');
+});
+
+// NEW TEST (0.8.4 release chores, 11 Nov 2026: Muad, "blacklist PrimaLabs for Mimo"; C&C's rule: a host leaves a model's ROW only when EVERY shipped seat of that model bans it; a seat that does not ban it can still reach it, and that seat's price limit is the row).
+// The bans are read from the same walk of chains/*.json that gives each model's output need. Open Inference is the one exception (C&C ruling of 11 Nov 2026, variant B): the host block bans it on every call, and it stays counted in a row as it always did.
+// Three models, each with its dearest host banned or not: alpha (both shipped seats ban "aaa", the dearest host), beta (only one of two seats bans "bbb2", the dearest host), gamma (no shipped seat, "aaa" is the dearest host).
+test('RFH-9: a host that EVERY shipped seat of a model bans in extra.provider.ignore leaves the model\'s row (Open Inference stays counted); a host only some seats ban stays; a model with no shipped seat loses nothing', () => {
+  const seat = (model, ignore) => ({ provider: 'openrouter', model, maxTokens: 8000, ...(ignore ? { extra: { provider: { ignore } } } : {}) });
+  const chains = {
+    'one.json': { seats: { critics: [seat('vendor/alpha', ['aaa']), seat('vendor/beta', ['bbb2'])] } },
+    'two.json': { seats: { critics: [seat('vendor/alpha', ['aaa', 'zzz']), seat('vendor/beta')] } },
+  };
+  const rows = {
+    asOf: '2026-10-23', _openrouterCheckedAt: '2026-10-25', _openrouterStaleDays: 45, _openrouterNote: 'old note',
+    'openrouter/vendor/alpha': { in: 0.3, out: 1.2, _source: 'fixture' },
+    'openrouter/vendor/beta': { in: 0.4, out: 0.8, _source: 'fixture' },
+    'openrouter/vendor/gamma': { in: 0.1, out: 0.1, _source: 'fixture' },
+  };
+  const endpoints = {
+    'vendor__alpha.json': { data: { endpoints: [ep('Aaa', 'aaa/fp8', 1.5, 6.0, 400000), ep('Bbb', 'bbb', 0.2, 0.8, 400000), ep('Oi', 'open-inference/fp4', 0.9, 3.6, 400000)] } },
+    'vendor__beta.json': { data: { endpoints: [ep('Bb2', 'bbb2/fp8', 1.0, 2.0, 400000), ep('Ccc', 'ccc', 0.5, 1.0, 400000)] } },
+    'vendor__gamma.json': { data: { endpoints: [ep('Aaa', 'aaa/fp8', 1.5, 3.0, 400000), ep('Oi', 'open-inference/fp4', 0.9, 1.8, 400000)] } },
+  };
+  const dir = tree({ rows, endpoints, pages: {}, chains });
+  const r = run(dir);
+  assert.equal(r.status, 0, r.stderr);
+  const out = rowsOf(dir);
+  const a = out['openrouter/vendor/alpha'], b = out['openrouter/vendor/beta'], g = out['openrouter/vendor/gamma'];
+  // alpha: "aaa" (both seats, the dearest host, 1.5/6) leaves; Open Inference (0.9/3.6) stays counted and now sets the row, Bbb is the third host
+  assert.deepEqual([a.in, a.out, a.hosts.count], [0.9, 3.6, 2], 'both shipped seats ban aaa: it does not set the row; open-inference stays counted and does');
+  assert.equal(a.hosts.filters.length, 6);
+  assert.match(a.hosts.filters[4], /1 host\(s\) left out because every shipped seat of this model bans them in extra\.provider\.ignore \(aaa\)/);
+  // beta: only one of its two shipped seats bans "bbb2", so it stays and sets the row (the other seat can still reach it)
+  assert.deepEqual([b.in, b.out, b.hosts.count], [1, 2, 2]);
+  assert.equal(b.hosts.filters.length, 5, 'nothing left out: no line about banned hosts');
+  // gamma: no shipped seat: no ban, the dearest host (aaa, 1.5/3) sets the row
+  assert.deepEqual([g.in, g.out, g.hosts.count], [1.5, 3, 2]);
+  assert.equal(g.hosts.filters.length, 5);
+  for (const row of [a, b, g]) assert.match(row.hosts.filters[row.hosts.filters.length - 1], /Open Inference included, except any other host that every shipped seat of the model bans in its own extra\.provider\.ignore/);
 });

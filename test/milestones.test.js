@@ -6,7 +6,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseMilestones, lintMilestones, STATUS_VALUES } from '../src/milestones.js';
+import { parseMilestones, lintMilestones, STATUS_VALUES, PROMPT_ONLY_HEADING, PROMPT_ONLY_MESSAGE } from '../src/milestones.js';
+import { reviewNotesRevise, reviewNotesAnswer } from '../src/roles.js';
 import { buildStageContract } from '../src/stage-contract.js';
 import { lintChain } from '../src/chain-lint.js';
 import Ajv2020 from 'ajv/dist/2020.js';
@@ -164,4 +165,30 @@ test('link: no "- discharges:" line is needed; a check naming a criterion that d
   assert.deepEqual(kinds3(noDischarges), []);
   assert.ok(kinds3(GOOD.replace('- check: C3 |', '- check: C9 |')).includes('unknown_criterion'));
   assert.deepEqual(kinds3(noDischarges.replace('- check: C2 | npm test', '- check: C2, C3 | npm test').replace('- check: C3 | open the list by hand => three items show\n', '- check: open the list by hand => three items show\n')), []);
+});
+
+// 0.8.4 (a bench handoff told the build session to look for a section "Proposals and improvement ideas from the review judges", a title only the handoff seat's prompt has): the lint
+// names it. roles.js is byte-pinned, so milestones.js keeps the literal and this test holds it equal to both prompts' heading. A-DRAFT: PROMPT_ONLY_MESSAGE is public text.
+test('names_prompt_only_section: the literal is the heading both prompts give the review judges\' section', () => {
+  assert.ok(reviewNotesRevise({ rows: [] }).split('\n').includes(`## ${PROMPT_ONLY_HEADING}`), 'the writer prompt');
+  assert.ok(reviewNotesAnswer({ rows: [] }).split('\n').includes(`## ${PROMPT_ONLY_HEADING}`), 'the handoff seat prompt');
+});
+
+test('names_prompt_only_section: a handoff that points at that title is found; one that carries the heading itself, the board\'s shorter title, or nothing is not', () => {
+  const pointing = `${GOOD}\n- [ ] Each judge idea under "${PROMPT_ONLY_HEADING}" that is marked NOTE-TAKEN is done as a task.\n`;
+  const f = lintMilestones({ text: pointing, criteriaIds: ['C1', 'C2', 'C3'] }).findings.filter(x => x.kind === 'names_prompt_only_section');
+  assert.equal(f.length, 1);
+  assert.equal(f[0].message, PROMPT_ONLY_MESSAGE);
+  // no milestones at all: the finding still comes with no_milestones
+  assert.deepEqual(lintMilestones({ text: `see "${PROMPT_ONLY_HEADING}"`, criteriaIds: [] }).findings.map(x => x.kind), ['no_milestones', 'names_prompt_only_section']);
+  const kinds = t => lintMilestones({ text: t, criteriaIds: ['C1', 'C2', 'C3'] }).findings.map(x => x.kind);
+  assert.ok(!kinds(`${GOOD}\n## ${PROMPT_ONLY_HEADING}\n\nIdeas.\n`).includes('names_prompt_only_section'), 'the handoff has the section itself');
+  assert.ok(!kinds(`${GOOD}\n- [ ] Read "Proposals and improvement ideas" on the board.\n`).includes('names_prompt_only_section'), 'the board\'s title');
+  // the plan itself carries the heading (the writer is given the same one): the pointer is true
+  assert.ok(!lintMilestones({ text: pointing, criteriaIds: ['C1', 'C2', 'C3'], planText: `# Plan\n\n## ${PROMPT_ONLY_HEADING}\n\n- idea\n` }).findings.some(x => x.kind === 'names_prompt_only_section'), 'the plan has the section');
+  assert.ok(lintMilestones({ text: pointing, criteriaIds: ['C1', 'C2', 'C3'], planText: '# Plan\n\nNo notes here.\n' }).findings.some(x => x.kind === 'names_prompt_only_section'), 'a plan without it');
+  assert.ok(!lintMilestones({ text: pointing, criteriaIds: ['C1', 'C2', 'C3'], planText: null }).findings.some(x => x.kind === 'names_prompt_only_section'), 'a plan that could not be read: nothing is claimed');
+  // a fenced example of the title is not a pointer
+  assert.ok(!kinds(`${GOOD}\n\`\`\`\nSee "${PROMPT_ONLY_HEADING}"\n\`\`\`\n`).includes('names_prompt_only_section'), 'inside a fence');
+  assert.ok(!kinds(GOOD).includes('names_prompt_only_section'));
 });

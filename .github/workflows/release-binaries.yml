@@ -2,13 +2,12 @@ name: Build binaries
 
 # Builds the Linux binary, the Linux AppImage and the Windows .exe, smoke-tests each one, and
 # uploads them as workflow artifacts. It does not publish a GitHub release - cutting one is the
-# maintainer's own step. Everything runs on one Linux runner: pkg cross-builds the .exe, and the
+# maintainer's own step. From 0.8.4 on a release carries no binaries, so a version tag does not start
+# it: it runs only when started by hand (workflow_dispatch). Everything runs on one Linux runner: pkg cross-builds the .exe, and the
 # .exe is smoke-tested under Wine (evidence it runs under Windows' loader, not a real-Windows test).
 
 on:
   workflow_dispatch:
-  push:
-    tags: ['v*']
 
 permissions:
   contents: read

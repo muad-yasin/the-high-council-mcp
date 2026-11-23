@@ -96,7 +96,7 @@ function fixSeat(seat, ctx) {
     cap = lowered ? Math.max(old, CAP_REASONING_WAS_OFF) : CAP_REASONING_WAS_OFF;
     if (ctx.isPanel && !panel) panel = CAP_DEFAULT_ABOVE_HIGH;
   }
-  if (!ctx.advice && CHEAP_SEAT_MODELS.has(`${seat.provider}/${seat.model}`)) cap = Math.max(old, CAP_CHEAP_SEAT);
+  if (CHEAP_SEAT_MODELS.has(`${seat.provider}/${seat.model}`)) cap = Math.max(old, CAP_CHEAP_SEAT);
   const after = { extra, maxTokens: cap, panelMaxTokens: panel };
   if (JSON.stringify(before) === JSON.stringify(after)) return null;
   ctx.report.push(`  ${ctx.where}: ${seat.provider}/${seat.model}  ${lowered ? '[was lowered] ' : ''}cap ${before.maxTokens ?? 'default'}${after.maxTokens !== before.maxTokens ? ` -> ${after.maxTokens}` : ''}  extra ${JSON.stringify(before.extra ?? null)} -> ${JSON.stringify(after.extra ?? null)}`);
@@ -169,7 +169,7 @@ for (const file of readdirSync(join(root, 'chains')).filter(f => f.endsWith('.js
   const edits = [];
   for (const [s, path] of seats) {
     if (s.provider === 'mock' || s.provider === 'external') continue;
-    const next = fixSeat(structuredClone(s), { where: '/' + path.join('/'), report, advice: !!cfg.advise, isPanel: path.includes('critics') });
+    const next = fixSeat(structuredClone(s), { where: '/' + path.join('/'), report, isPanel: path.includes('critics') });
     if (next) edits.push({ path, seat: next });
   }
   if (!edits.length) continue;

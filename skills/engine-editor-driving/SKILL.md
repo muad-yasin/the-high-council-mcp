@@ -23,7 +23,7 @@ An editor, its import workers and a test run are a multi-gigabyte job. Start one
 - **Compile state first.** A menu tool, bake or batch method run while compile errors exist, or a recompile is unfinished, executes the last good assembly and reports success. Before it: a fresh compile with zero errors. After it: check the artifact, not the log - a value only the new code writes (`backend-developer`, the stale-build run). After a script edit the call's return is not the finish line: prove the compile on disk (a freshly written assembly, the reload line in the editor log), not by a flag.
 - **Worked case.** A bridge says "prefab rebuilt, success"; the console holds one compile error; the saved prefab lacks the new field. The rebuild is **not done**. Cite the compile error first, read the saved prefab for a value only the new code writes, and do not re-run the tool until the compile is clean.
 - **Read the console after every mesh, material, prefab, import or script call**, and treat a new warning as a finding until explained. An empty console is evidence only after a known test line you just logged shows up in it (a nonce): a console tool can hide entries behind the window's own filters. If the nonce is missing, read the log file instead, and know which one: the per-project log by default, a global log when the editor was started to use one. "No console errors" says nothing threw, not that the thing is visible or correct.
-- **Save explicitly.** Nothing documents an automatic scene save. A scripted edit to an asset is not written unless the asset is marked dirty and saved; until then the live value and the file can differ, and without it the value reverts when the editor reopens.
+- **Save explicitly, then count.** Nothing documents an automatic scene save. A scripted edit to an asset is not written unless the asset is marked dirty and saved; until then the live value and the file can differ, and without it the value reverts when the editor reopens. Count a scene's or a prefab's objects before the save and again in the saved file: a save can succeed and drop some (`backend-developer`).
 
 ## 2. Readiness flags are advisory; prove liveness and completion by effect
 
@@ -52,7 +52,7 @@ A scene-reload prompt, a save prompt or the Safe Mode prompt blocks every call a
 
 ## 7. One owner per editor, one bridge
 
-Pin which editor instance a session talks to before its first mutating call. A shared editor shares compile state, the scene and play state, so calls land in the wrong project, and one session's compile errors poison another's runs. Exactly one session owns an editor at a time; the other plans or edits only files the owner is not touching (`context-and-handoff`). Pin the bridge itself by tag or commit and re-read its release notes at each bump: a pin recorded on one day was superseded by a new release three days later, and the fix the project needed was in the new one. Do not install two bridges at once: conflicts between them are documented.
+Pin which editor instance a session talks to before its first mutating call. Where the bridge lets a call name its target, every mutating call names that instance. A call cut off by a reload goes back to that same instance, once you have checked that it did not land (section 3) and resolved its ids again (section 4), never to another editor that happens to answer: the wrong project can take the write without complaint. A shared editor shares compile state, the scene and play state, so calls land in the wrong project, and one session's compile errors poison another's runs. Exactly one session owns an editor at a time; the other plans or edits only files the owner is not touching (`context-and-handoff`). Pin the bridge itself by tag or commit and re-read its release notes at each bump: a pin recorded on one day was superseded by a new release three days later, and the fix the project needed was in the new one. Do not install two bridges at once: conflicts between them are documented.
 
 ## 8. Escape hatches, spend and telemetry
 
@@ -80,6 +80,7 @@ Nothing here was confirmed against an Unreal or Godot project. Questions to answ
 
 ## Mistakes to flag
 
+- A write sent to whichever editor answered after a reload; a saved scene or prefab never counted against what was there before.
 - A success reply accepted with no read-back through a second channel.
 - A menu tool, bake or batch run on a broken or unfinished compile, then trusted from its log.
 - Blocking on a ready flag instead of proving liveness and completion by effect.

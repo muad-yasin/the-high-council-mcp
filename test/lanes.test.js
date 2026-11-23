@@ -8,9 +8,11 @@ import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
 import { LANE_IDS, withLane, laneTextOf, setLaneTextsForTest } from '../src/lanes.js';
 import { lintChain } from '../src/chain-lint.js';
+import { extraWithHighDefault } from '../src/reasoning.js';
 import { runChain, ExternalPause } from '../src/chain.js';
 import * as R from '../src/roles.js';
 import { readChainFile } from './helpers/chain-file.js';
+import { WORDING_FILES } from './helpers/wording-files.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const chainFile = n => readChainFile(root, n);
@@ -55,13 +57,20 @@ async function criticSystemSeen(extra = {}, lane = 'security_failure') {
 test('wiring, unanimous panel: the lane paragraph reaches the critic\'s real system prompt, and is absent without a lane', async () => {
   try {
     setLaneTextsForTest({ security_failure: 'LANE-SEC-PARAGRAPH' });
-    const withText = await criticSystemSeen();
+    const ON = { answer_back: { enabled: true } };   // C&C GO answer back off: the relation sentence is sent only where a judge is shown its own earlier objections (answer_back on)
+    const withText = await criticSystemSeen(ON);
     assert.ok(withText, 'the external critic paused the run');
     assert.match(withText.label, /^panel-1/);
-    assert.ok(withText.system.endsWith('\n\nLANE-SEC-PARAGRAPH'), 'the paragraph is the last thing in the prompt');
-    const noLane = await criticSystemSeen({}, null);
+    // 0.8.4 (WORDING_0.8.4.md E4 and the row of panelPromptFor, recorded relationRule): a unanimous panel prompt ends with the relation sentence, so the lane paragraph is the last thing of the critic's own prompt and the relation tail follows it.
+    const tail = `\n\n${R.relationRule()}`;
+    assert.ok(withText.system.endsWith(`\n\nLANE-SEC-PARAGRAPH${tail}`), 'the paragraph is the last thing of the critic prompt; the relation sentence follows it');
+    const noLane = await criticSystemSeen(ON, null);
     assert.ok(!noLane.system.includes('LANE-SEC-PARAGRAPH'));
-    assert.equal(noLane.system, R.criticSystem(false), 'no lane: exactly the shipped critic prompt');
+    assert.ok(noLane.system.endsWith(tail), 'no lane: the prompt still ends with the relation sentence');
+    assert.equal(withText.system, `${noLane.system.slice(0, -tail.length)}\n\nLANE-SEC-PARAGRAPH${tail}`, 'the lane paragraph is the only difference between the two prompts');
+    assert.ok(noLane.system.startsWith(R.criticSystem(false).slice(0, 200)), 'no lane: the shipped critic prompt opens the text');
+    const off = await criticSystemSeen({});   // answer_back off: no relation sentence, the lane paragraph is the very end
+    assert.ok(off.system.endsWith('\n\nLANE-SEC-PARAGRAPH') && !off.system.includes(R.relationRule()), 'answer_back off: the prompt carries no relation sentence');
   } finally { setLaneTextsForTest(null); }
 });
 
@@ -83,9 +92,12 @@ test('source scan: a critic system prompt is built in ONE place (src/stage-syste
   const sys = bareIn(read('stage-system.js'));
   assert.equal(sys.length, 1, `bare uses in stage-system.js: ${sys.map(([n]) => n)}`);
   assert.match(sys[0][1], /withLane\(seat,/, 'and that one is inside criticPromptFor, which applies the lane');
-  const others = readdirSync(join(root, 'src')).filter(f => f.endsWith('.js') && !['stage-system.js', 'roles.js'].includes(f)).flatMap(f => bareIn(read(f)).map(([n]) => `${f}:${n}`));
+  const others = readdirSync(join(root, 'src')).filter(f => f.endsWith('.js') && ![ 'stage-system.js', ...WORDING_FILES.map(w => w.replace(/^src\//, '')) ].includes(f)).flatMap(f => bareIn(read(f)).map(([n]) => `${f}:${n}`));
   assert.deepEqual(others, [], 'no other src file builds a critic system prompt bare (roles.js defines it)');
-  assert.equal(read('chain.js').filter(l => /criticPromptFor\(/.test(l)).length, 4, 'chain.js: the four call sites (the helper moved)');
+  // CHANGED ACCEPTED (0.8.4 held-text unit). OLD: chain.js holds 4 `criticPromptFor(` call sites. NEW: 4 call sites that build a critic prompt through the one helper: 2 call criticPromptFor( directly (the first-mode critic) and 2 call panelPromptFor( (the panel seats), which is criticPromptFor plus the held relation sentence, so the estimate and the send read one text. WHY: panelPromptFor lives in stage-system.js and calls criticPromptFor; the count of 4 is unchanged.
+  // CHANGED ACCEPTED (0.8.4 FM-critic, 08 Nov 2026). OLD: 4. NEW: 5. WHY: the first-mode loop's `critique-<r>-answered` call (the critic asked once more after a blocking question) builds its prompt through criticPromptFor( like the first-mode critic's two other calls; every critic prompt still goes through the one helper.
+  assert.equal(read('chain.js').filter(l => /(criticPromptFor|panelPromptFor)\(/.test(l)).length, 5, 'chain.js: the five call sites (the helper moved; two reach it through panelPromptFor)');
+  assert.match(read('stage-system.js').join('\n'), /export const panelPromptFor = \(seat, open, opts, config\) => criticPromptFor\(seat, open, opts, config, climbSortingFor\(seat, config\)\)/, 'panelPromptFor is criticPromptFor plus the held tail');   // CHANGED ACCEPTED (S8 money step). OLD: the regex stopped after `config)`. NEW: panelPromptFor passes the sorting predicate as the fifth argument (src/stage-system.js climbSortingFor: a top-layer seat, the sorting on). WHY: the prompt sent and the estimate's system text read ONE predicate. Red on fbb65694: its panelPromptFor has no fifth argument.
 });
 
 test('report.json panelVerdicts carry the lane, only for a seat that has one', async () => {
@@ -109,7 +121,7 @@ test('report.json panelVerdicts carry the lane in first mode too (the five first
 test('lint: a lane on an advise chain or inside a descending seat map would silently do nothing, so it is refused; a prototype name is never a lane', () => {
   const base = chainFile('plan-lanes-4');
   const kinds = cfg => lintChain(cfg, 'x.json').filter(f => f.kind === 'invalid-lane').length;
-  assert.equal(kinds({ ...base, advise: { enabled: true, rounds: 1, usd: 1 } }), 1, 'advise chains build their own advisor prompts');
+    // CHANGED ACCEPTED TEST (0.8.4 add-on removal, box set fix): OLD: a lane on an advise chain is refused (invalid-lane). NEW: the row is gone. WHY: an advise block is refused as a whole (advise-removed), not as a lane.
   assert.equal(kinds({ ...base, seats: { ...base.seats, descending: { plan: { provider: 'mock', model: 'm', lane: 'security_failure' } } } }), 1);
   assert.equal(laneTextOf('constructor'), '');
   assert.equal(laneTextOf('__proto__'), '');
@@ -129,7 +141,8 @@ test('plan-lanes-4: lints clean; one writer off the panel; three reviewers with 
   assert.ok(!critics.some(s => s.lab === c.seats.builder.lab), 'the writer holds no panel seat');
   for (const s of critics) {
     const high = s.extra?.reasoning?.effort === 'high';
-    if (s.model === 'z-ai/glm-5.3-flash') assert.equal(s.extra, undefined, 'GLM 5.3 Flash defaults above high: no setting');
+    // CHANGED ACCEPTED TEST (2 Nov 2026): OLD: GLM 5.3 Flash defaults above high, no setting. NEW: this archived file leaves it unset and the harness sends it high.
+    if (s.model === 'z-ai/glm-5.3-flash') assert.equal(extraWithHighDefault(s, s.maxTokens)?.reasoning?.effort, 'high', 'GLM 5.3 Flash is sent high by the harness');
     else assert.ok(high, `${s.model} states reasoning high`);
   }
   const glm = critics.find(s => s.model === 'z-ai/glm-5.3-flash');
@@ -169,7 +182,8 @@ test('plan-lanes-4: every seat that states reasoning high has a dated row in src
   for (const [role, seat] of Object.entries({ builder: c.seats.builder, reviser: c.seats.reviser, handoff: c.seats.handoff, ...Object.fromEntries(c.seats.critics.map((s, i) => [`critic${i}`, s])) })) {
     const row = rows[`openrouter/${seat.model}`];
     assert.ok(row, `${role}: no row for openrouter/${seat.model} in the reasoning table`);
-    if (row.defaultAboveHigh) assert.equal(seat.extra, undefined, `${role}: a model whose default is above high gets no setting`);
+    // CHANGED ACCEPTED TEST (2 Nov 2026, owner: "High for THC's chains, default to High on all chains"). OLD: a model whose own default is above high gets no setting. NEW: this archived file leaves such a seat unset, and the harness sends it high.
+    if (row.defaultAboveHigh) assert.equal(extraWithHighDefault(seat, seat.maxTokens)?.reasoning?.effort, 'high', `${role}: a model whose default is above high is sent high by the harness`);
     else { assert.equal(row.form, 'openrouter-effort'); assert.equal(seat.extra?.reasoning?.effort, 'high', `${role} states reasoning high`); }
   }
   assert.equal(rows['openrouter/anthropic/claude-sonnet-5.5'].defaultEffort, 'high');

@@ -44,7 +44,8 @@ test('--accounting: the text gives every problem about that node word for word w
     assert.equal(code, 0, d.io.shown() + d.io.errors());
     const shown = d.io.shown();
     assert.match(shown, /Accept the charges the accounting gate cannot prove for R\/M1\?/); assert.ok(shown.includes(`1. settlement_without_evidence: ${g0.problems[0].detail}`), 'the detail, verbatim');
-    assert.match(shown, /PLAN 7\.1 row 5 \(settled but not proven: the tree adds the worst case less any evidence\); worst case \$1\.00, evidence \$0\.00 \(0 records\), the tree adds \$1\.00 to its spend\./);
+    // CHANGED ACCEPTED (0.8.4 unit 6, D11; Mini-C&C R421). OLD: `evidence $0.00 (0 records), the tree adds $1.00`. NEW: `evidence $0.00 (0 records), the run already counts $0.60 for it, the tree adds $0.40`. WHY: the run's own figure now counts the settled 0.60 of a call whose usage file is gone, so the tree takes it off what it adds and the worst case is counted once (0.60 + 0.40 = 1.00, the plan's figure); the clause is printed only when that amount is above zero.
+    assert.match(shown, /PLAN 7\.1 row 5 \(settled but not proven: the tree adds the worst case less any evidence\); worst case \$1\.00, evidence \$0\.00 \(0 records\), the run already counts \$0\.60 for it, the tree adds \$0\.40 to its spend\./);
     assert.match(shown, /Accepting changes no number: no cap, grant or reservation line is touched/); assert.match(shown, /A different problem later, or the same one with other figures, is a new stop/);
     assert.match(shown, /To approve, type the node path: R\/M1\n/); assert.match(shown, /Type the node path shown in the last line above: /);
     const acc = events(c).filter(e => e.event === 'accounting_accepted');

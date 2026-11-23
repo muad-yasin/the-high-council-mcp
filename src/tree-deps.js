@@ -102,7 +102,7 @@ export function subtreeEligible(facts) {
   for (const f of facts) {
     if (!f.closed) why.push(`${f.node} has not closed`);
     else if (f.incomplete) why.push(`${f.node} was closed incomplete by a person`);
-    else if (!f.passed) why.push(`${f.node} closed but the panel did not pass it`);
+    else if (!f.passed) why.push(`${f.node} closed but the panel did not agree on it`);
     else if (f.status == null) why.push(`${f.node} ended with no recorded Status`);          // R2 follow-up: the readiness rule blocks it (no lint), so eligibility fails closed too (two readers, one rule)
     else if (!statusPolicyOk({ status: f.status, hasDecompose: f.hasDecompose === true, hasNeeds: f.hasNeeds === true, accepted: f.statusAccepted === true })) why.push(f.status === 'needs_decision' ? `${f.node} ended with needs_decision` : `${f.node} ended with the Status ${f.status}, which its split does not allow`);
     // M6 (C&C's OPTION A, rulings rows 120 and 128): the readiness rule's lint input, judged by THE status policy WITH its findings, in BOTH directions with no exception. undefined = not given (hand-built facts); null = the report records

@@ -5,7 +5,7 @@
 // ALLOWED: a start with `dry-run` in the same call (it prices and calls nothing); lint, doctor and price-only uses never start a run, so they do not match; a line (or the one above) carrying `// zero-spend-ok: <why>` for a start that is
 // provably unable to reach a key (say how). The marker needs its reason on the same line: a bare `zero-spend-ok:` is itself a hit (C&C, 14 Oct 2026: it was a free bypass). A file with a marker must also use test/helpers/no-real-keys.js
 // (malformed provider keys: never filled from .env, never sent), in one of its TWO forms and with NO exemption: `malformedProviderKeys()` for a child process's env, `withMalformedKeysInProcess(fn)` for code that runs in this process
-// (C&C, 14 Oct 2026: an in-process fixture is the class this exists for, because in-process code reads keys from process.env). A test that runs an advice session for real (`COUNCIL_ADVISE_MOCK` set to '0') must use the helper too.
+// (C&C, 14 Oct 2026: an in-process fixture is the class this exists for, because in-process code reads keys from process.env). (0.8.4: COUNCIL_ADVISE_MOCK is no longer an escape for a test that starts the MCP server: the helper is the only thing the scan accepts.)
 // WHAT IT DOES NOT SEE: a chain built inline in the test (those use mock providers); a chain name held in a variable; and the helper check is FILE-LEVEL (C&C accepted it as a recorded limit, 14 Oct 2026): one use of the helper anywhere in a
 // file satisfies the rule for the whole file, so a second child process in that file that forgets it is not caught; a server entry passed into a helper whose spawn line only says `entry` (as in `boot({ entry: [server] })`) and a start built by pushing `'--mcp'` into an array later; a COMMENT containing `COUNCIL_ADVISE_MOCK: '1'` satisfies the server-start rule (the same text match as everywhere else); and an in-process answer that reaches no provider call at all (src/gate-cli.js `answerAtTerminal` only writes the ledger) is outside the helper's reach.
 import test from 'node:test';
@@ -23,6 +23,7 @@ const FREE = new Set(['mock', 'external', 'ollama']);
 const REASONED = /zero-spend-ok:\s*\S/;
 
 // 0.8.3 (lane B): the retired chains in chains/outdated/ count as real too: a test that copies one into a temp project and starts it would spend, so the scan reads both folders.
+// 0.8.4 (the add-on removal): test/fixtures/advice-chains/ holds one MOCK-only chain (mock-advise-quick, a fixture for the `advise`-block refusals); nothing there has a real seat, so the scan does not read it.
 export function realChains(chainsDir = join(root, 'chains')) {
   const out = new Set();
   const dirs = [chainsDir, join(chainsDir, 'outdated')].filter(existsSync);
@@ -64,7 +65,6 @@ export function bareMarkers(text) {
 }
 
 const HELPER = /malformedProviderKeys|withMalformedKeysInProcess/;
-const MOCK_ON = /COUNCIL_ADVISE_MOCK['"]?\s*(:|=)\s*['"]?1\b/;
 // A test line that STARTS the MCP server: `'--mcp'` as an argv element (`[cli, '--mcp']`, `[['--mcp'], ...]`), or a spawn of the server entry itself (`[server]`, `[join(root, ...server.args...`).
 const ARGV_START = /[\[,]\s*['"`]--mcp['"`]\s*[\],]/;                                                  // `'--mcp'` as an argv element, any quote style
 const COMMAND_START = /\b(spawn|spawnSync|exec|execSync|execFile|execFileSync)\w*\([^\n]*(--mcp\b|run mcp\b)/;       // a command string: `council --mcp`, `npm run mcp`
@@ -76,21 +76,16 @@ export function markersWithoutKeys(text) {
   return text.split('\n').flatMap((l, i) => (REASONED.test(l) ? [i + 1] : []));
 }
 /**
- * Line numbers where a test starts the MCP server in a file that neither sets `COUNCIL_ADVISE_MOCK` to '1' nor uses either form of the helper (C&C, 14 Oct 2026: an UNSET variable is real mode by design, so a server a test starts must not be
- * able to reach a usable key, WHATEVER the file does: first built for files that approve a gate, widened the same day to every server start, fail closed). File-level, like the rest. There is no gate-approval pattern list any more
- * (so the `elicit` word C&C asked for has nothing to join: the count and the rule match because the rule has no condition beyond the server start).
+ * Line numbers where a test starts the MCP server in a file that does not use either form of the malformed-keys helper (C&C, 14 Oct 2026: a server a test starts must not be able to reach a usable key, WHATEVER the file does: first built for files that approve a gate,
+ * widened the same day to every server start, fail closed). File-level, like the rest. 0.8.4 (the add-on removal, Muad's Q8 (a)): the server no longer reads COUNCIL_ADVISE_MOCK, so the old "mock mode is set" escape is gone: what the scan accepts is a helper that makes
+ * spending impossible (the keys are malformed), never a flag that declares it.
  */
-export function mcpServerWithoutMockOrKeys(text) {
-  if (HELPER.test(text) || MOCK_ON.test(text)) return [];
+export function mcpServerWithoutKeys(text) {
+  if (HELPER.test(text)) return [];
   const names = [...text.matchAll(MCP_ENTRY_VARIABLE)].map(m => m[1]);
   const viaVariable = names.length || /server\.args/.test(text)
     ? new RegExp(`\\b(spawn|spawnSync)\\w*\\([^\\n]*\\[\\s*(${[...names, 'join\\(root,\\s*\\.\\.\\.server\\.args'].join('|')})`) : null;
   return text.split('\n').flatMap((l, i) => (ARGV_START.test(l) || COMMAND_START.test(l) || INLINE_ENTRY.test(l) || (viaVariable && viaVariable.test(l)) ? [i + 1] : []));
-}
-/** Line numbers where a real-mode advice session is switched on (`COUNCIL_ADVISE_MOCK` set to '0') in a file that never uses either form of the helper. */
-export function mockOffWithoutKeys(text) {
-  if (HELPER.test(text)) return [];
-  return text.split('\n').flatMap((l, i) => (/COUNCIL_ADVISE_MOCK['"]?\s*(:|=)\s*['"]?0\b/.test(l) ? [i + 1] : []));
 }
 
 test('no test starts a run on a shipped chain with a real provider seat (the suite costs $0 whatever keys are reachable)', () => {
@@ -102,13 +97,12 @@ test('no test starts a run on a shipped chain with a real provider seat (the sui
     for (const h of paidStarts(text, real)) hits.push(`test/${f}:${h.line} ${h.how} on "${h.chain}"`);
     for (const n of bareMarkers(text)) hits.push(`test/${f}:${n} a zero-spend-ok marker with no reason`);
     for (const n of markersWithoutKeys(text)) hits.push(`test/${f}:${n} a zero-spend-ok marker in a file that never uses malformedProviderKeys() or withMalformedKeysInProcess() (test/helpers/no-real-keys.js)`);
-    for (const n of mcpServerWithoutMockOrKeys(text)) hits.push(`test/${f}:${n} an MCP server started with COUNCIL_ADVISE_MOCK unset (real mode), in a file that uses no malformed-keys helper (test/helpers/no-real-keys.js)`);
-    for (const n of mockOffWithoutKeys(text)) hits.push(`test/${f}:${n} a real-mode advice session (COUNCIL_ADVISE_MOCK 0) in a file that never uses the malformed-keys helper (test/helpers/no-real-keys.js)`);
+    for (const n of mcpServerWithoutKeys(text)) hits.push(`test/${f}:${n} an MCP server started in a file that uses no malformed-keys helper (test/helpers/no-real-keys.js)`);
   }
   assert.deepEqual(hits, [], `${hits.join('; ')}\n` + 'a test that starts a run on a real chain can bill a user whose clone holds a key: use a mock chain, or prove no key is reachable and mark the line `// zero-spend-ok: <why>` (a reason is required, and the file uses the malformed-keys helper in one of its two forms)');
 });
 
-test('the scanner flags a start on a real chain and lets a dry run, a mock chain and a REASONED marked line through; a bare marker is a hit, and a marked file (or a real-mode advice session) must use the malformed-keys helper, with no in-process exemption', () => {
+test('the scanner flags a start on a real chain and lets a dry run, a mock chain and a REASONED marked line through; a bare marker is a hit, and a marked file must use the malformed-keys helper, with no in-process exemption', () => {
   const real = new Set(['single-vendor-openai']);
   assert.equal(paidStarts("{ name: 'start_run', arguments: { chain: 'single-vendor-openai', task: 't' } }", real).length, 1, 'start_run on a real chain');
   assert.equal(paidStarts("spawnSync(node, [cli, '--task', 't.md', '--chain', 'single-vendor-openai'])", real).length, 1, 'a CLI child on a real chain');
@@ -131,27 +125,24 @@ test('the scanner flags a start on a real chain and lets a dry run, a mock chain
   assert.deepEqual(markersWithoutKeys('// zero-spend-ok: a keyless clone\nenv: { ...malformedProviderKeys() }'), [], 'with the helper');
   assert.deepEqual(markersWithoutKeys('// zero-spend-ok: in-process, spawns nothing'), [1], 'an in-process fixture is NOT exempt any more (C&C, 14 Oct 2026): its reason text cannot excuse it');
   assert.deepEqual(markersWithoutKeys('// zero-spend-ok: runs here\nwithMalformedKeysInProcess(() => run())'), [], 'the in-process form satisfies the rule');
-  assert.deepEqual(mockOffWithoutKeys("env: { COUNCIL_ADVISE_MOCK: '0' }"), [1], 'a real-mode advice session with no helper');
-  assert.deepEqual(mockOffWithoutKeys("mcpSession(dir, { COUNCIL_ADVISE_MOCK: '0', ...malformedProviderKeys() })"), [], 'with the child-env form');
-  assert.deepEqual(mockOffWithoutKeys("COUNCIL_ADVISE_MOCK: '1'"), [], 'the mock form is not real mode');
   // C&C, 14 Oct 2026: an UNSET variable is real mode; a test that STARTS the server must set it to '1' or carry a helper form, whatever else the file does (widened the same day from "files that approve a gate").
   const SERVER = "const child = spawn(process.execPath, [cli, '--mcp'], { cwd });";
-  assert.deepEqual(mcpServerWithoutMockOrKeys(SERVER), [1], 'a real-mode server start');
-  assert.deepEqual(mcpServerWithoutMockOrKeys(`a\nconst args = () => [cliPath, '--mcp'];`), [2], 'a start through a helper (the argv element alone is enough)');
-  assert.deepEqual(mcpServerWithoutMockOrKeys("for (const [args, dotenv] of [[['--mcp'], 'X=1']]) run(args);"), [1], 'an argv array passed to a runner');
-  assert.deepEqual(mcpServerWithoutMockOrKeys('spawn(process.execPath, [cli, "--mcp"], { cwd });'), [1], 'double quotes');
-  assert.deepEqual(mcpServerWithoutMockOrKeys('spawn(process.execPath, [cli, `--mcp`], { cwd });'), [1], 'a template literal');
-  assert.deepEqual(mcpServerWithoutMockOrKeys("execSync('node src/cli.js --mcp < in.json');"), [1], 'a command string');
-  assert.deepEqual(mcpServerWithoutMockOrKeys("execSync('npm run mcp');"), [1], 'npm run mcp');
-  assert.deepEqual(mcpServerWithoutMockOrKeys("const server = join(root, 'src', 'mcp', 'server.js');\nconst r = spawnSync(process.execPath, [server], { cwd });"), [2], 'the direct entry in a variable named server');
-  assert.deepEqual(mcpServerWithoutMockOrKeys("const entry = join(root, 'src/mcp/server.js');\nconst r = spawn(process.execPath, [entry], { cwd });"), [2], 'the direct entry in a variable of any name');
-  assert.deepEqual(mcpServerWithoutMockOrKeys("const r = spawnSync(process.execPath, [join(root, 'src', 'mcp', 'server.js')], { cwd });"), [1], 'the direct entry written inline');
-  assert.deepEqual(mcpServerWithoutMockOrKeys("const server = resolve(here, '../src/ui/server.js');\nconst c = spawn(process.execPath, [server], { env });"), [], 'the UI host server is not the MCP server');
-  assert.deepEqual(mcpServerWithoutMockOrKeys("const c = spawn(process.execPath, [join(root, ...server.args[0].split('/'))], { cwd });"), [1], 'the direct entry of a bundle manifest');
-  assert.deepEqual(mcpServerWithoutMockOrKeys(`${SERVER} // COUNCIL_ADVISE_MOCK: '1'`), [], 'the mock mode is set');
-  assert.deepEqual(mcpServerWithoutMockOrKeys(`${SERVER}\nenv: { ...malformedProviderKeys() }`), [], 'a helper form');
-  assert.deepEqual(mcpServerWithoutMockOrKeys("assert.deepEqual(npm.packageArguments, [{ type: 'positional', value: '--mcp' }]);"), [], 'a manifest assertion is not a start');
-  assert.deepEqual(mcpServerWithoutMockOrKeys("// the docs say run `council --mcp` to serve"), [], 'prose naming the flag is not a start');
+  assert.deepEqual(mcpServerWithoutKeys(SERVER), [1], 'a real-mode server start');
+  assert.deepEqual(mcpServerWithoutKeys(`a\nconst args = () => [cliPath, '--mcp'];`), [2], 'a start through a helper (the argv element alone is enough)');
+  assert.deepEqual(mcpServerWithoutKeys("for (const [args, dotenv] of [[['--mcp'], 'X=1']]) run(args);"), [1], 'an argv array passed to a runner');
+  assert.deepEqual(mcpServerWithoutKeys('spawn(process.execPath, [cli, "--mcp"], { cwd });'), [1], 'double quotes');
+  assert.deepEqual(mcpServerWithoutKeys('spawn(process.execPath, [cli, `--mcp`], { cwd });'), [1], 'a template literal');
+  assert.deepEqual(mcpServerWithoutKeys("execSync('node src/cli.js --mcp < in.json');"), [1], 'a command string');
+  assert.deepEqual(mcpServerWithoutKeys("execSync('npm run mcp');"), [1], 'npm run mcp');
+  assert.deepEqual(mcpServerWithoutKeys("const server = join(root, 'src', 'mcp', 'server.js');\nconst r = spawnSync(process.execPath, [server], { cwd });"), [2], 'the direct entry in a variable named server');
+  assert.deepEqual(mcpServerWithoutKeys("const entry = join(root, 'src/mcp/server.js');\nconst r = spawn(process.execPath, [entry], { cwd });"), [2], 'the direct entry in a variable of any name');
+  assert.deepEqual(mcpServerWithoutKeys("const r = spawnSync(process.execPath, [join(root, 'src', 'mcp', 'server.js')], { cwd });"), [1], 'the direct entry written inline');
+  assert.deepEqual(mcpServerWithoutKeys("const server = resolve(here, '../src/ui/server.js');\nconst c = spawn(process.execPath, [server], { env });"), [], 'the UI host server is not the MCP server');
+  assert.deepEqual(mcpServerWithoutKeys("const c = spawn(process.execPath, [join(root, ...server.args[0].split('/'))], { cwd });"), [1], 'the direct entry of a bundle manifest');
+  assert.deepEqual(mcpServerWithoutKeys(`${SERVER} // COUNCIL_ADVISE_MOCK: '1'`), [1], '0.8.4: a mock flag no longer excuses a server start (the server does not read it)');
+  assert.deepEqual(mcpServerWithoutKeys(`${SERVER}\nenv: { ...malformedProviderKeys() }`), [], 'a helper form');
+  assert.deepEqual(mcpServerWithoutKeys("assert.deepEqual(npm.packageArguments, [{ type: 'positional', value: '--mcp' }]);"), [], 'a manifest assertion is not a start');
+  assert.deepEqual(mcpServerWithoutKeys("// the docs say run `council --mcp` to serve"), [], 'prose naming the flag is not a start');
 });
 
 test('the malformed-keys helper: every paid provider key is present and unusable, so a .env cannot fill it and nothing is sent (control: an EMPTY value is filled from the .env)', () => {

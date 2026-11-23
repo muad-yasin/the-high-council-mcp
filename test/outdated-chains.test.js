@@ -9,8 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { malformedProviderKeys } from './helpers/no-real-keys.js';
-import { OUTDATED_CHAINS, OUTDATED_0_8_2, OUTDATED_0_8_3, outdatedChainHint, outdatedAdviceChainHint } from '../src/chain-name.js';
-import { admitChain } from '../src/send-path-refusals.js';
+import { OUTDATED_CHAINS, OUTDATED_0_8_2, OUTDATED_0_8_3, REMOVED_ADVICE_CHAINS, outdatedChainHint } from '../src/chain-name.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src/cli.js');
@@ -25,7 +24,7 @@ test('OUTDATED_CHAINS equals the files in chains/outdated/, none of them is also
 });
 
 test('no current doc or schema text still sends a reader to archive/chains/ (A-DRAFT, 0.8.3 lane B: the folder is gone; the old path in config/chain-schema.json and the README was false)', () => {
-  for (const f of ['README.md', 'AI-README.md', 'config/chain-schema.json', 'TROUBLESHOOTING.md', 'CONTRIBUTING.md', 'PERSONAS.md', 'docs/index.html', 'docs/skills.html']) {
+  for (const f of ['README.md', 'KNOWN-LIMITS.md', 'AI-README.md', 'config/chain-schema.json', 'TROUBLESHOOTING.md', 'CONTRIBUTING.md', 'PERSONAS.md', 'docs/index.html', 'docs/skills.html']) {
     assert.doesNotMatch(readFileSync(join(root, f), 'utf8'), /archive\/chains/, `${f} still names the folder that no longer exists`);
   }
 });
@@ -35,15 +34,32 @@ test('the hint names chains/outdated/ for a 0.8.2 name and a 0.8.3 name, and say
   assert.match(old, new RegExp(`chains/outdated/${OUTDATED_0_8_2[0]}\\.json`)); assert.match(old, /retired from the package \(0\.8\.2\)/);
   assert.match(neu, new RegExp(`chains/outdated/${OUTDATED_0_8_3[0]}\\.json`)); assert.match(neu, /retired from the package \(0\.8\.3\)/);
   assert.doesNotMatch(old + neu, /archive\/chains/, 'the old folder is not named');
-  for (const kept of ['plan-mini-council', 'verify', 'mock', 'no-such-chain']) assert.equal(outdatedChainHint(kept), '', kept);
+  for (const kept of ['plan-mini-council', 'plan-medium-council', 'mock', 'no-such-chain']) assert.equal(outdatedChainHint(kept), '', kept);
+  // 0.8.4 (seats and retirements unit, Muad 10 Nov 2026): these four moved to chains/outdated/; a --chain that names one says so and where the file is.
+  for (const gone of ['verify', 'plan-mini-council-sol-session', 'plan-default-opro-council', 'plan-china-mini-council']) {
+    assert.ok(OUTDATED_CHAINS.includes(gone), `${gone} is listed`);
+    assert.match(outdatedChainHint(gone), new RegExp(`"${gone}" was retired from the package \\(0\\.8\\.4\\).*chains/outdated/${gone}\\.json`), gone);
+  }
 });
 
-test('an advice chain that was retired says where it went and that the copy goes to COUNCIL_ADVICE_CHAINS_DIR (never a project chains/); admission refuses it by that sentence; a kept or unknown name keeps the old refusal', () => {
-  const h = outdatedAdviceChainHint('advise-premium');
-  assert.match(h, /chains\/outdated\/advise-premium\.json/); assert.match(h, /COUNCIL_ADVICE_CHAINS_DIR/); assert.doesNotMatch(h, /this project's chains\//);
-  assert.match(admitChain('advise-premium', null), /^no advice chain "advise-premium" in the package\..*COUNCIL_ADVICE_CHAINS_DIR/);
-  assert.equal(admitChain('no-such', null), '"no-such" is not an advise chain', 'an unknown name keeps the old sentence');
-  assert.equal(outdatedAdviceChainHint('advise-single'), '');
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD 'an advice chain that was retired says where it went and that the copy goes to COUNCIL_ADVICE_CHAINS_DIR': advise-premium and advise-single named chains/outdated/<name>.json and a copy step ("retired from the package (0.8.3|0.8.4)"), and admission refused them by that sentence. NEW each of the eight names in REMOVED_ADVICE_CHAINS gets ONE sentence, that the chain "was removed in 0.8.4 with the advice add-on. Its file is no longer in the repository; the git history keeps it.", with no file and no copy step; admission refuses it by that sentence; a name that is not one of the eight keeps the old refusal. WHY the eight advise-* files in chains/outdated/ are deleted with the add-on, so a hint naming a file that does not exist would be false. (Refs: REM-w1, Muad's Q9.)
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD (wave 1): the test also asserted outdatedAdviceChainHint(name) equals the sentence, that admitChain(name, null) from src/send-path-refusals.js starts with `no advice chain "<name>" in the package.` plus the sentence, and that admitChain('no-such', null) is '"no-such" is not an advise chain'. NEW: the hint is asserted through outdatedChainHint alone, and a new row shows that no advise-* or mock-advise-* file is in chains/ or chains/outdated/. WHY: outdatedAdviceChainHint (src/chain-name.js) and src/send-path-refusals.js (admitChain) left with the advice add-on; the sentence of REM-w1 is unchanged and is also asserted on the real verb in the CLI test below.
+test('a removed advice chain says it was removed in 0.8.4 with the advice add-on and names no file; no advise chain file is left in chains/ or chains/outdated/', () => {
+  assert.equal(REMOVED_ADVICE_CHAINS.length, 8);
+  for (const name of REMOVED_ADVICE_CHAINS) {
+    const sentence = ` "${name}" was removed in 0.8.4 with the advice add-on. Its file is no longer in the repository; the git history keeps it.`;
+    assert.equal(outdatedChainHint(name), sentence, name);
+    assert.doesNotMatch(sentence, /chains\/outdated|COUNCIL_ADVICE_CHAINS_DIR/);
+    assert.equal(OUTDATED_CHAINS.includes(name), false, `${name} is not an outdated chain any more`);
+    assert.equal(existsSync(join(root, 'chains', 'outdated', `${name}.json`)), false, `${name}.json is not in the repository`);
+    assert.equal(existsSync(join(root, 'chains', `${name}.json`)), false, `${name}.json is not shipped`);
+  }
+  for (const dir of ['chains', join('chains', 'outdated')]) {
+    assert.deepEqual(readdirSync(join(root, dir)).filter(f => /^(mock-)?advise-/.test(f)), [], `${dir} holds no advise chain file`);
+  }
+  assert.equal(outdatedChainHint('no-such'), '');
+  // a kept or still-retired non-advice name is unaffected by the removal
+  assert.match(outdatedChainHint('plan-daily-7'), /chains\/outdated\/plan-daily-7\.json/);
 });
 
 test('CLI: --chain <retired name> says it was retired and where to copy it from; an unknown name gets no such hint', () => {
@@ -60,6 +76,12 @@ test('CLI: --chain <retired name> says it was retired and where to copy it from;
     const b = run('no-such-chain');
     assert.equal(b.status, 1);
     assert.doesNotMatch(b.stderr, /chains\/outdated/);
+    // NEW (0.8.4 add-on removal; REM-w1, Q9): a removed advice chain gets the removed-chain sentence on the real verb, and no file is named.
+    const gone = run('advise-single');
+    assert.equal(gone.status, 1, gone.stdout + gone.stderr);
+    assert.match(gone.stderr, /No such chain: "advise-single"/);
+    assert.match(gone.stderr, /"advise-single" was removed in 0\.8\.4 with the advice add-on\. Its file is no longer in the repository; the git history keeps it\./);
+    assert.doesNotMatch(gone.stderr, /chains\/outdated\/advise-single/);
     // the copy the hint asks for works: the file in the project's own chains/ is found before the package's
     mkdirSync(join(dir, 'chains')); writeFileSync(join(dir, 'chains', 'plan-daily-7.json'), JSON.stringify(JSON.parse(readFileSync(join(root, 'chains', 'outdated', 'plan-daily-7.json'), 'utf8'))));
     const c = run('plan-daily-7');

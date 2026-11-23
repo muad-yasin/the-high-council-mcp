@@ -12,6 +12,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { recordLostCharge } from '../src/superseded.js';
 import { startTyped } from './helpers/typed-cap.js';
+import { runSpentUsd } from '../src/spend.js';
+import { unsettledReservations } from '../src/spend-reservations.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cli = join(root, 'src', 'cli.js');
@@ -40,18 +42,27 @@ const startWithStub = async handler => {
   try { await startTyped(spawnCli, ['--chain', 'cf', '--task', 'tasks/t.md', '--run-id', RUN], runDir); } finally { srv.closeAllConnections(); srv.close(); }
   const supDir = join(runDir, 'superseded');
   const charges = readdirSync(supDir).filter(f => /\.charge-\d+\.usage\.json$/.test(f)).map(f => ({ f, ...JSON.parse(readFileSync(join(supDir, f), 'utf8')) }));
-  return charges;
+  return Object.assign(charges, { runDir });   // the run folder rides along, so a test can read the spend back the way `council --spend` does
 };
 
-// the real verb: a loopback server that reads the request and drops the connection
-test('the CLI: a dropped connection leaves a charge file with the cause, the request host and the time it ran', async () => {
+// the real verb: a loopback server that reads the request and drops the connection. 0.8.4 (network-error resume, his decision 9 of 28 Okt 2026): a dropped connection is asked again while the run has resumes left (3 per run), so this call is sent 4 times and
+// every attempt leaves its own charge file with the same facts. (Before, it was sent once and left one file; the 3 asked-again attempts wait 1.5 s, 3 s and 6 s, which is most of this test's 15 s.)
+test('the CLI: a dropped connection leaves a charge file per attempt (4), each with the cause, the request host and the time it ran', async () => {
   const charges = await startWithStub((req, res) => { req.resume(); req.on('end', () => req.socket.destroy()); });
   const billed = charges.filter(c => c.kind === 'billed');
-  assert.equal(billed.length, 1, JSON.stringify(charges));
-  assert.match(billed[0].cause, /^TypeError > .*(UND_ERR_SOCKET|ECONNRESET)/);
-  assert.equal(billed[0].host, '127.0.0.1');
-  assert.ok(Number.isFinite(billed[0].ms) && billed[0].ms >= 0, `ms is a figure: ${billed[0].ms}`);
-  assert.ok(!('providerCode' in billed[0]));
+  assert.equal(billed.length, 4, `the first attempt and 3 asked-again attempts, one charge file each: ${JSON.stringify(charges)}`);
+  assert.ok(billed.every(b => b.f.startsWith('build.charge-')), 'all four belong to the stage that failed');
+  const byFile = [...billed].sort((a, b) => Number(a.f.match(/charge-(\d+)/)[1]) - Number(b.f.match(/charge-(\d+)/)[1]));
+  assert.deepEqual(byFile.map(b => b.resumed), [1, 2, 3, undefined], 'the first three name the run\'s resume that followed them; the fourth, after which the run stopped, names none');
+  for (const b of billed) {
+    assert.match(b.cause, /^TypeError > .*(UND_ERR_SOCKET|ECONNRESET)/);
+    assert.equal(b.host, '127.0.0.1');
+    assert.ok(Number.isFinite(b.ms) && b.ms >= 0, `ms is a figure: ${b.ms}`);
+    assert.ok(!('providerCode' in b));
+  }
+  // counted once where the product reads it: `council --spend` and a resume read the run folder, not the process
+  assert.ok(Math.abs(runSpentUsd(charges.runDir) - billed.reduce((n, b) => n + b.usd, 0)) < 1e-9, 'the spend read back from the run folder is the four attempts, each once');
+  assert.deepEqual(unsettledReservations(charges.runDir), [], 'no reservation is left unsettled');
 });
 
 test('the CLI: a 200 error reply leaves a charge file with the error code and the host', async () => {

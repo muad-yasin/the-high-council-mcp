@@ -1,5 +1,8 @@
 {
   "name": "mock-partitioned",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. Exercises v1 context partitioning (config.proposals.partition): one proposer seat (mock-a) gets a per-seat focus instruction, one (mock-b) is deliberately left out of `slices` and gets no instruction, proving partial partitioning and that an unsliced seat's prompt is unaffected. Mechanism only - no claim this changes proposal quality or diversity.",
   "maxRounds": 1,
   "signoff": "first",

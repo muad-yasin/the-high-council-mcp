@@ -17,6 +17,10 @@
 //                                       A user row (pricing.user.json) can still only RAISE, field by field. A row whose `tiers` is malformed prices at its DEAREST tier for every size (fail closed). `tiersOf(provider, model)` -> the valid tiers, ascending, or [].
 //   userPriceLines()                    the doctor / dry-run lines about user rows ("provider/model: your price row ...") or []
 //   UserPriceFileError                  .message is the sentence a person reads (HELD as an E item), .file, .row, .why
+//   cacheMultsOf(shippedRow)            -> { read, write } (0.8.4 cache part a) the cache prices of a SHIPPED OpenRouter row as multiples of that row's own `in`: `cache_read` / `cache_write` are USD per million tokens (from the endpoints API's input_cache_read / input_cache_write,
+//                                       the dearest eligible host per field, scripts/refresh-openrouter-prices.mjs, with `cache_basis_in`, the dearest eligible host's BASE input price they were taken at: the multiples divide by that, not by an `in` held above it); null = the row names none (a price the endpoints answer does not give is UNKNOWN, not free: a read then costs the input price and so does a write; only a figure the API returns, a literal 0 included, is a price). A field that is present and not a finite
+//                                       number >= 0 fails closed (read = the input price, write = 2.5x); a read above the input price counts as the input price. rateFor / rateOfRow hand them on as `cacheReadMult` / `cacheWriteMult`, so a tier or a seat's own pin that raises `in` raises the cache prices with it and never lowers them.
+//                                       A USER row stays { in, out, note }: it can raise `in`/`out`, it names no cache price.
 // MERGE RULE (per field, both `in` and `out`): when the shipped table has a usable row for the key, the effective figure is the HIGHER of the two; a user figure below the shipped one is ignored and named by ignoredUserFields. A model the shipped
 // table does not have (or whose shipped row is unusable) is priced by the user row as given. Nothing here lowers a price the package ships.
 // A USER ROW is { in, out, note? }: `in` and `out` finite numbers ABOVE 0 (free is a provider, not a row), `note` an optional short string, nothing else; the key is "provider/model" with a KNOWN, non-free provider.
@@ -109,8 +113,26 @@ export function parseTiers(row) {
   if (!Array.isArray(row.tiers) || !row.tiers.every(validTier) || row.tiers.some((t, i) => i > 0 && t.from <= row.tiers[i - 1].from)) return { tiers: Array.isArray(row.tiers) ? row.tiers.filter(validTier) : [], malformed: true };
   return { tiers: row.tiers.map(t => ({ from: t.from, in: t.in, out: t.out })), malformed: false };
 }
-/** Pure: the rate of one call from an effective base { in, out }, a shipped row's tiers and the prompt size. See rateFor above. */
+/** Pure: the cache prices of a shipped row as multiples of its `in`; see the contract above. */
+export function cacheMultsOf(row) {
+  if (!row || typeof row !== 'object' || !(Number.isFinite(row.in) && row.in > 0)) return { read: null, write: null };
+  // The divisor is the input price the cache figures were taken AT: the dearest eligible host's BASE price (`cache_basis_in`, written with them by the refresh script). A held tier-driven row keeps an `in` above that
+  // (the table never lowers a price), and dividing by it would make every multiple too low (a tier's higher input price then reaches the cache price too weakly). Never above `in`; absent or malformed: `in`.
+  // WHAT THE MULTIPLE IS: a USD ratio, the dearest eligible host's cache price (per field) over the dearest eligible BASE input price. It is not any one host's own ratio: the dearest read and the dearest write, and the dearest input price,
+  // can come from different hosts. THE CONSEQUENCE (it errs high, on purpose): below a prompt-size tier the cap can price a read or a write above a host's own figure (gpt-6.1-terra: a read at 0.06 where a host lists 0.05, when the row's `in`
+  // is held at 1.2 over a base of 1.0); past a tier it meets the host's tier figure (2.0 x 0.05 = 0.1 read, 2.0 x 1.25 = 2.5 write).
+  const basis = Number.isFinite(row.cache_basis_in) && row.cache_basis_in > 0 ? Math.min(row.cache_basis_in, row.in) : row.in;
+  const one = (v, closed, cap) => (v === undefined ? null : Number.isFinite(v) && v >= 0 ? Math.min(cap, v / basis) : closed);
+  return { read: one(row.cache_read, 1, 1), write: one(row.cache_write, 2.5, Infinity) };   // a read is never dearer than the input price; a malformed write is priced as the dearest write OpenRouter documents (2.5x, the 12-hour lifetime)
+}
+/** Pure: the rate of one call from an effective base { in, out }, a shipped row's tiers and the prompt size, plus the shipped row's cache multiples when it names any. See rateFor above. */
 export function rateOfRow(base, shippedRow, promptTokens) {
+  const r = rateOfRowPrices(base, shippedRow, promptTokens);
+  if (!r) return r;
+  const m = cacheMultsOf(shippedRow);
+  return m.read === null && m.write === null ? r : { ...r, ...(m.read !== null ? { cacheReadMult: m.read } : {}), ...(m.write !== null ? { cacheWriteMult: m.write } : {}) };
+}
+function rateOfRowPrices(base, shippedRow, promptTokens) {
   if (!base) return null;
   const { tiers, malformed } = parseTiers(shippedRow);
   if (!tiers.length && !malformed) return base;

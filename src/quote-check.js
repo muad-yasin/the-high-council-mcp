@@ -17,6 +17,10 @@
 // It is also not a truth test. A quote that appears verbatim proves the seat read the source,
 // not that its conclusion is right.
 
+import { markSpans, evidenceSpans } from './post-quotes.js';
+import { criterionKeyOf } from './objection-ids.js';
+import { criterionIndexOf } from './criteria-ledger.js';
+
 // Fenced code blocks, parsed the CommonMark way: an opening fence is 3+ backticks (or tildes),
 // indented at most 3 spaces; the block ends at a line of the SAME character, at least as long,
 // with nothing after it; an unclosed block runs to the end. Pre-release audit 2026-09-23
@@ -127,30 +131,72 @@ export function looksLikeRepoClaim(text) {
  *   'verified'    - claims the repo, carried a quote, and the quote is in the fenced source.
  *   'unverified'  - claims the repo, carried a quote, and that quote is NOT in the source.
  *                   The strongest signal available that a seat is inventing detail.
+ *   'in_excerpt'  - claims the repo, carried a quote, the quote is not in the fenced source but is in a recorded excerpt (its id is attached as `excerpt_id`).
  *   'unquoted'    - claims the repo, carried no quote at all.
  *   null          - makes no repo claim, or there is no fenced source to check against, in
  *                   which case marking would be theatre.
+ *
+ * `draft` (0.8.4 F2, gap check S8-01): the text the judges were shown. The repo-claim patterns
+ * are loose by design ("accept/withdraw" reads as a path), and a quote the seat took from the
+ * draft is not an invented claim about the repository whatever its objection looks like. So a
+ * quote that is not in the fenced source but IS in the draft gets no mark (no status at all:
+ * nothing was invented, and nothing was checked against the source either). A quote found in
+ * neither place is still 'unverified'. With no draft given the rule is the old one.
+ *
+ * `spans` (0.8.4 D14, plan A T7.2/T7.3; WORDING U2-w1): beside `quote_status`, and whether or not the task is checkable, a failure that quotes anything carries `spans: [{ text, located_in }]`: the quote itself, the quoted passages of its problem and
+ * its fix, and those of the evidence of the FAILED table row of the same criterion (`rows`: [{ criterion, evidence }], the first row with the same criterion; none from a caller that has no table), each at least 8 characters once
+ * normalised and each once. `located_in` is the first of draft, fenced_source, excerpt, request, criteria that holds the span, else null. The comparison is normQuote (case, emphasis and quote marks do not matter), NOT the
+ * quote check's own case-sensitive compare above, so a span can be located while its quote_status says unverified. Marks are record only: nothing is gated or removed, and neither the id nor the stall key reads them.
+ * `request` and `criteria` are the task text and the criteria list the seats were given. A row pairs with a failure when both resolve to the same criterion of that list (the pairing normaliseCritique uses), else when the id reads
+ * their texts alike. `marks: false` makes none (the caller whose draft is not the one the raiser was shown: a ruling given in a layer's ordinary review, src/chain.js settleInCallRulings).
+ *
+ * `excerpts` (0.8.4 D41, plan A T5.3): the recorded excerpts the seats were shown, entries of excerpts.jsonl that carry text. An excerpt is never fenced source (the fence is read once from the task), so the fenced check is
+ * unchanged; a quote that is not in the fenced source but is in an excerpt gets 'in_excerpt' with that excerpt's id. The caller passes [] unless the excerpt words are recorded. Checkability still comes from the fenced source.
  */
-export function markFailures(failures, fenced) {
+/**
+ * 0.8.4 D14 (plan A T7.3; WORDING U2-w1): the five texts a span is looked for in, in the order of the rule (the first that holds it names it): [[name, text], ...] for markSpans (src/post-quotes.js). The excerpts are the entries that carry
+ * text, one text each; the criteria are joined by newlines. The ONE copy: markFailures and the answer-back records (src/answer-back.js applyAnswers) both take it.
+ */
+export function spanTexts({ draft = '', fenced = '', excerpts = [], request = '', criteria = [] } = {}) {
+  const shown = (excerpts || []).filter(e => typeof e?.text === 'string' && e.text !== '');
+  return [['draft', draft], ['fenced_source', String(fenced || '')], ...shown.map(e => ['excerpt', e.text]), ['request', request], ['criteria', Array.isArray(criteria) ? criteria.join('\n') : criteria]];
+}
+
+export function markFailures(failures, fenced, draft = '', excerpts = [], { request = '', criteria = [], rows = [], marks = true } = {}) {
   const source = String(fenced || '');
-  const checkable = source.trim().length > 0;
-  return (failures || []).map(f => {
-    if (!checkable) return { ...f };
+  const shown = (excerpts || []).filter(e => typeof e?.text === 'string' && e.text !== '');
+  const checkable = source.trim().length > 0 || shown.length > 0;   // 0.8.4 A7: an unfenced task is checkable once an excerpt is visible (the run-stable prompt clause asks for quotes from it)
+  const texts = spanTexts({ draft, fenced, excerpts, request, criteria });
+  const list = Array.isArray(criteria) ? criteria : [];
+  const sameCriterion = (a, b) => { const ia = list.length ? criterionIndexOf(a, list) : -1; return (ia >= 0 && ia === criterionIndexOf(b, list)) || criterionKeyOf(a) === criterionKeyOf(b); };   // the run's own pairing (src/criteria-ledger.js: both resolve to the same list criterion) or the id's reading of the text
+  const spansOf = f => {   // the quote itself, the quoted passages of the problem and the fix, and the quoted passages of the FAILED table row of the same criterion (the first such row), each once
+    if (!marks) return [];
+    const row = (rows || []).find(r => r && sameCriterion(r.criterion, f.criterion));
+    return markSpans([typeof f.quote === 'string' ? f.quote : '', ...evidenceSpans(f.problem), ...evidenceSpans(f.fix), ...evidenceSpans(row?.evidence)], texts);
+  };
+  return (failures || []).map(({ spans: _earlier, ...f }) => {   // marks are made here, never inherited from an input copy
+    const spans = spansOf(f);
+    const out = g => (spans.length ? { ...g, spans } : g);
+    if (!checkable) return out({ ...f });
     const claims = looksLikeRepoClaim(f.problem) || looksLikeRepoClaim(f.criterion);
-    if (!claims) return { ...f };
-    if (!f.quote) return { ...f, quote_status: 'unquoted' };
-    return { ...f, quote_status: quoteAppears(f.quote, source) ? 'verified' : 'unverified' };
+    if (!claims) return out({ ...f });
+    if (!f.quote) return out({ ...f, quote_status: 'unquoted' });
+    if (quoteAppears(f.quote, source)) return out({ ...f, quote_status: 'verified' });
+    const inEx = shown.find(e => quoteAppears(f.quote, e.text));
+    if (inEx) return out({ ...f, quote_status: 'in_excerpt', excerpt_id: inEx.id });
+    if (quoteAppears(f.quote, draft)) return out({ ...f });
+    return out({ ...f, quote_status: 'unverified' });
   });
 }
 
 /** One line per marked failure, for the run log and WARNINGS.md. */
-export function quoteWarnings(marked, seatLabel = 'a seat') {
+export function quoteWarnings(marked, seatLabel = 'a seat', { fenced = true } = {}) {
   const out = [];
   for (const f of marked || []) {
     if (f.quote_status === 'unquoted') {
-      out.push(`${seatLabel}: "${f.criterion}" makes a claim about the repository without quoting the fenced source - kept, but nobody checked it.`);
+      out.push(fenced ? `${seatLabel}: "${f.criterion}" makes a claim about the repository without quoting the fenced source - kept, but nobody checked it.` : `${seatLabel}: "${f.criterion}" makes a claim about the repository without quoting an excerpt - kept, but nobody checked it.`);   // WORDING A7-w6
     } else if (f.quote_status === 'unverified') {
-      out.push(`${seatLabel}: "${f.criterion}" quotes text that does NOT appear in the fenced source - treat this objection's detail as invented until a human checks it.`);
+      out.push(fenced ? `${seatLabel}: "${f.criterion}" quotes text that does NOT appear in the fenced source - treat this objection's detail as invented until a human checks it.` : `${seatLabel}: "${f.criterion}" quotes text that does NOT appear in any excerpt shown - treat this objection's detail as invented until a human checks it.`);   // WORDING A7-w6
     }
   }
   return out;

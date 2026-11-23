@@ -1,6 +1,6 @@
 ---
 name: task-scoping
-description: Turns a request into bounded, checkable work before acting - acceptance criteria and a stop condition first, only the clarifying questions that change the outcome, written non-goals, risky steps flagged up front, work ordered by risk, effort sized to the task, any change to what was literally asked put back to the requester, and a review checkpoint after anything is reported done. Use at the start of any multi-step or ambiguous task, before delegating, when a new idea arrives mid-task, when scope feels fuzzy, and when something is reported finished. Not for sourcing facts (research-and-sourcing), proving correctness (verification-and-critique), handoffs (context-and-handoff) or tool safety (tool-and-action-discipline).
+description: Turns a request into bounded, checkable work before acting - acceptance criteria and a stop condition first, only the questions that change the outcome, written non-goals, risky steps flagged up front, work ordered by risk, effort sized to the task, a substitute for what was asked put back to the requester, and a review checkpoint after work is reported done. Use at the start of any multi-step or ambiguous task, before delegating or an unattended run, when a new idea arrives mid-task, when scope feels fuzzy, and when something is reported finished. Not for sourcing facts (research-and-sourcing), proving correctness (verification-and-critique), handoffs (context-and-handoff) or tool safety (tool-and-action-discipline).
 license: MIT
 ---
 
@@ -18,18 +18,22 @@ Before the first action that changes anything, turn the request into work that h
 ## 2. Write the spec - short enough to re-read in a minute
 
 1. **Goal** - the question this work answers, in one sentence.
-2. **Acceptance criteria** - each answerable yes or no by inspecting the result. "Is well written" is not checkable; "names the version it was written against" is. Never ask "could this be better?" - that question has no false answer, so every pass adds scope. Ask whether each written criterion is met.
-3. **Explicit non-goals** - what is deliberately not being done. This list matters as much as the scope list; writing it down stops it being relitigated.
-4. **Stop condition** - what "done" means, plus a hard cap on rounds, retries, time, or spend. An agent with no written stop condition either stops too early or never stops.
+2. **Acceptance criteria** - each answerable yes or no by inspecting the result. "Is well written" is not checkable; "names the version it was written against" is. Never ask "could this be better?" - that question has no false answer, so every pass adds scope. Ask whether each written criterion is met. List every part of the request that could be left out without the rest failing: each becomes a criterion or a written non-goal - what is on neither list is what gets dropped unnoticed.
+3. **Explicit non-goals** - what is deliberately not being done. This list matters as much as the scope list; writing it down stops it being relitigated. Where it can be, a non-goal is a fence that can be checked: "no file outside X is touched", "no new dependency".
+4. **Stop condition** - what "done" means, plus a hard cap on rounds, retries, time, or spend. An agent with no written stop condition either stops too early or never stops. "Done" names an end state that can be observed, not an activity - "investigate the cache" never ends (what it must name, by kind of task: `references/scoping-toolkit.md`). Inside the cap, a repeat of a failed round changes something - the brief, the worker, or the approach - because an unchanged attempt has no reason to end differently.
 5. **Risky steps, flagged now** - anything irreversible, destructive, externally visible, or costly is named in the plan before execution starts, with where a human confirmation gate sits. Discovering a risky step when you reach it is how it gets taken without one.
+
+In a plan of several steps, every step also ends on something that can be checked, or nobody can say it was finished rather than skipped. Before asking for approval, read the spec as the one who has to build from it - a fresh reader is better - and list what that builder would still have to ask; answer each in the spec, or ask it.
 
 As a working heuristic, not a measured limit: scope is 3-5 concrete items. More than five is a prompt to cut rather than accept - sort Must/Should/Could/Won't, and put Won't in writing rather than silently dropping it.
 
 ## 3. Ask only the questions that change the outcome
 
-- **Ask only when two reasonable readings lead to different deliverables.** Never ask what the request already answers, or what the plan can decide itself with a stated assumption.
-- **Every question carries the default you would otherwise take**, stated as a decision. If nobody answers, the default applies and the result says so under "Assumptions."
-- **When blocked on a decision that is genuinely the requester's**, stop and ask - don't guess past it. When not blocked, proceed on the stated default rather than stalling.
+- **Ask only when two reasonable readings lead to different deliverables.** Never ask what the request already answers, what the requester has already decided in writing, what the environment can answer (read the file, run the command), or what the plan can decide itself with a stated assumption.
+- **Every question carries the default you would otherwise take**, stated as a decision. If nobody answers, the default applies and the result says so under "Assumptions." A default you took is recorded as your call, not as the requester's agreement; and an answer approves the option as it was worded - what the wording left out is still open.
+- **A choice states what each option gives the requester.** The effort each one takes goes on its own line, for the requester to weigh; folded into the descriptions, convenience picks unseen.
+- **Ask what can be asked now in one round, and write each answer into the spec** in the same pass: it becomes a criterion, joins the non-goals, or stands as a named assumption. A question whose wording depends on an earlier answer waits for it; an answer that lives only in the conversation is gone at the next summary.
+- **When blocked on a decision that is genuinely the requester's**, stop and ask - don't guess past it. When not blocked, proceed on the stated default rather than stalling. A question blocks only what depends on its answer: the rest goes on, and what does wait is named to the requester with its reason. (Seen: a whole batch waited overnight on the approval of its first item, while the requester expected the rest to be under way.)
 - **Check the question's premise before answering it.** When the evidence contradicts what the question assumes - "where is the missing data?" asked when most of the failures had all their data - say so first, then answer the question that remains.
 
 ## 4. Order and size the work
@@ -37,7 +41,8 @@ As a working heuristic, not a measured limit: scope is 3-5 concrete items. More 
 - **Order by risk and dependency, not ease.** The unproven thing first; safe polish last. A plan that front-loads comfortable work discovers its real problem late.
 - **Prove the cheapest end-to-end path first.** Push one trivial instance through the real pipeline before investing in volume - convention mismatches fail by looking broken, not by erroring.
 - **Build one, verify it, then duplicate.** Redoing one is cheap; redoing twelve is not. Verifying the one includes its cost: measure it against a control on size, memory and time before duplicating - a blow-up multiplies with the volume (one generated mesh type came out 12x the size of its control, and was found only after the full run).
-- **Size effort to the task, explicitly.** Name how many steps, tool calls, or parallel agents the task deserves. One published research orchestrator spawned dozens of subagents for simple queries until effort tiers were written into its prompt, and its multi-agent runs used roughly 15x the tokens of a chat (Anthropic, 2025). Use more agents where work is genuinely parallel or independence genuinely matters. Where the model exposes an effort or thinking-budget setting, pick it for the task rather than leaving the maximum on.
+- **Size effort to the task, explicitly.** Name how many steps, tool calls, or parallel agents the task deserves. One published research orchestrator spawned dozens of subagents for simple queries until effort tiers were written into its prompt, and its multi-agent runs used roughly 15x the tokens of a chat (Anthropic, 2025). Use more agents where work is genuinely parallel or independence genuinely matters. Where the model exposes an effort or thinking-budget setting, pick it for the task rather than leaving the maximum on. Scoping is sized too: for a single lookup or a change of one line, the spec is one line of goal and one line of check - a full spec for a trivial task is scope creep of its own.
+- **Before a run goes unattended, five answers are written:** the end state, the check the run applies to itself, its fence, what ends it early, and who receives the result and signs it off (`references/scoping-toolkit.md`).
 - **Spec now, build later is a real state** when a dependency would otherwise force doing the same work twice. Say what it is waiting on.
 - **Separate settled from open.** Research answers "how does this work"; "whether" and "what for" are owner decisions. Never close an open decision by guessing and presenting the guess as a finding.
 
@@ -53,6 +58,7 @@ As a working heuristic, not a measured limit: scope is 3-5 concrete items. More 
 
 - Does the result still match the spec, or did scope expand quietly? Did a written non-goal sneak back in?
 - **Is each criterion actually met, or "mostly working"?** Name the difference.
+- **A criterion dropped along the way counts as not met unless the requester took it out.** It is reported with its reason and who decided, never left out of the report (a criterion changed after the results: `verification-and-critique`).
 - **A partial answer states plainly what it does not close.** A narrowly-scoped pass left to stand in for the whole named problem reads as false completeness to anyone skimming the status.
 - **The same class of mistake a second time earns a mechanical guard** (a test, a lint rule, a scripted check), not a note to try harder - a boolean check can't be talked past the way a remembered rule can.
 - **A review that always passes is suspect** (`verification-and-critique`).
@@ -64,9 +70,12 @@ Give real assessments, not encouragement. If the plan is weaker than an alternat
 
 ## Mistakes to flag
 
-- Acting before acceptance criteria and a stop condition exist.
+- Acting before acceptance criteria and a stop condition exist; a stop condition that names an activity; a failed round repeated unchanged.
 - Criteria that can't be answered yes or no.
 - A clarifying question with no stated default, or a silent assumption with no "Assumptions" line.
+- A question the environment or the requester's own notes could have answered; a choice with effort folded into its options instead of shown on its own line.
+- A default recorded as the requester's decision; an answer stretched past the wording it approved.
+- Work that did not depend on a pending answer left waiting for it.
 - A risky or irreversible step not named until it was reached.
 - Easiest-first ordering that defers the unproven part.
 - Volume built before one instance passed end to end.
@@ -75,8 +84,9 @@ Give real assessments, not encouragement. If the plan is weaker than an alternat
 - A reversal of a standing decision adopted silently.
 - A requested deliverable replaced by a substitute that was recorded but never put to the requester.
 - A question answered without checking whether its premise holds.
-- A partial result reported without naming what it doesn't close.
+- A partial result reported without naming what it doesn't close; a dropped criterion missing from the report.
+- An unattended run started without its stop and its sign-off written.
 - A recurring mistake answered with a reminder instead of a guard.
 - Time estimates with no measured base rate behind them - name dependencies and uncertainty instead.
 
-Spec template, estimation techniques, and the scope-gate questions in full: `references/scoping-toolkit.md`.
+Spec template, what "done" names by kind of task, the unattended-run questions, estimation techniques, and the scope-gate questions in full: `references/scoping-toolkit.md`.

@@ -18,11 +18,11 @@ import * as H from './held-prompts/held-083.js';
 afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setBudget(null); });
 
 const CRITERION = 'The plan defines a retry limit.';
-const F_A = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.' };
-const F_B = { criterion: CRITERION, problem: 'Layer two: the retry limit has no unit.', fix: 'Give it a unit.' };
+const F_A = { criterion: CRITERION, problem: 'Layer one: no retry limit is specified.', fix: 'Specify one.', severity: 5, relation: 'new' };   // K1, K3: relationRule and ratingDemand are recorded
+const F_B = { criterion: CRITERION, problem: 'Layer two: the retry limit has no unit.', fix: 'Give it a unit.', severity: 5, relation: 'new' };   // K1, K3
 const ID_A = objectionId('la', F_A); const ID_B = objectionId('lb', F_B);
 const DRAFT = 'The worker retries failed requests.'; const QUOTE = '`The worker retries failed requests.`';
-const verdict = (meets, extra = {}) => JSON.stringify({ meets, criteria: [{ criterion: CRITERION, verdict: meets ? 'MET' : 'FAILED', evidence: meets ? 'Checked.' : 'Missing.' }], failures: meets ? [] : [F_A], verdict_line: meets ? 'ok' : 'no', ...extra });
+const verdict = (meets, extra = {}, failure = F_A) => JSON.stringify({ meets, criteria: [{ criterion: CRITERION, verdict: meets ? 'MET' : 'FAILED', evidence: meets ? 'Checked.' : 'Missing.' }], failures: meets ? [] : [failure], verdict_line: meets ? 'ok' : 'no', ...extra });
 const objecting = (f, extra = {}) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [f], verdict_line: 'no', ...extra });
 const withdraw = (id, evidence = QUOTE) => ({ answers: [{ id, status: 'withdrawn', evidence }] });
 const P = (...t) => t.map(text => ({ text })); const I = (...t) => t.map(text => ({ text, about: `about ${text}` }));
@@ -37,8 +37,8 @@ async function run(replies, { usage = () => ({ input: 0, output: 0 }), extra = {
   setCache({ invalidate() {}, get(label) {
     served.push(label);
     if (label.endsWith('-question')) return { text: 'The limit is a number of attempts.', provider: 'mock', model: 'm', usage: { input: 0, output: 0 }, usd: 0 };
-    const text = label.startsWith('panel-') ? (replies(label) ?? verdict(true)) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
-    return { text, provider: 'mock', model: 'm', usage: label.startsWith('panel-') ? usage(label) : { input: 0, output: 0 }, usd: 0 };
+    const text = (label.startsWith('panel-') || label.startsWith('final-read-')) ? (replies(label) ?? verdict(true)) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+    return { text, provider: 'mock', model: 'm', usage: (label.startsWith('panel-') || label.startsWith('final-read-')) ? usage(label) : { input: 0, output: 0 }, usd: 0 };
   } });
   const seat = (lab, layer) => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000, layer });
   const config = { name: 'fixture-reask', criteria: [CRITERION], maxRounds, signoff: 'unanimous', answer_back: { enabled: true }, ...(notes ? { reviewNotes: notes } : {}), ...extra,
@@ -49,7 +49,8 @@ async function run(replies, { usage = () => ({ input: 0, output: 0 }), extra = {
 // Round 1: la clean, lb objects. Rounds 2-3: la objects (lb is not asked). Round 4: la withdraws its objection, lb is asked: `lb4(label)` is what it says (its first reply and its re-asks).
 const retention = lb4 => label => {
   if (label === 'panel-1-lb') return objecting(F_B);
-  if (label === 'panel-2-la' || label === 'panel-3-la') return verdict(false);
+  if (label === 'panel-2-la') return verdict(false);
+  if (label === 'panel-3-la') return verdict(false, {}, { ...F_A, relation: `continues ${ID_A}` });   // K2: la's own repeat in a later pass
   if (label === 'panel-4-la') return verdict(true, withdraw(ID_A));
   if (/^panel-4-lb/.test(label)) return lb4(label);
   return undefined;
@@ -126,7 +127,7 @@ test('RR-7: the first reply was CUT OFF at its cap but parsed, carried notes and
 
 test('RR-8: a seat that ends the pass UNHEARD keeps the drop: an incomplete-table first reply with notes, then a re-ask that is unreadable: nothing is read, one verdict_not_recorded', async () => {
   const noTable = JSON.stringify({ meets: true, criteria: [], failures: [], verdict_line: 'ok', proposals: P('lost-p') });
-  const { report, served } = await run(l => (l === 'panel-1-la' ? noTable : /^panel-1-la-reask/.test(l) ? 'not json at all' : undefined), { extra: { signoff_table: { required: true } }, maxRounds: 1 });
+  const { report, served } = await run(l => (l === 'panel-1-la' ? noTable : /^panel-1-la-(reask|solo)/.test(l) ? 'not json at all' : undefined), { extra: { signoff_table: { required: true } }, maxRounds: 1 });
   assert.ok(served.includes('panel-1-la-reask1'));
   assert.deepEqual(itemsOf(report), []);
   assert.deepEqual(droppedOf(report), ['la:1:verdict_not_recorded']);

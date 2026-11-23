@@ -38,18 +38,17 @@ test('K2: every subcommand of src/cli.js is classified exactly once (a new one f
   assert.deepEqual(treeVerbs.filter(v => caps.commandMaySpend(['tree', v])).sort(), ['resume', 'start'], 'only start and resume spend');
 });
 
-test('K3: the commands that may spend: every start, resume, rematch, replay, adopted advice call, post-run handoff or contract draft, digest, tree start and tree resume; a run marker wins over a report mode on the same line; only the exact `--dry-run` token is a dry run, and only where the command takes it', () => {
+test('K3: the commands that may spend: every start, resume, rematch, replay, post-run handoff or contract draft, digest, tree start and tree resume; a run marker wins over a report mode on the same line; only the exact `--dry-run` token is a dry run, and only where the command takes it', () => {
   for (const argv of [
     ['--task', 'tasks/x.md', '--chain', 'mock'],
     ['--task=tasks/x.md', '--chain', 'mock'],
     ['--dry', '--task', 'tasks/x.md', '--chain', 'mock'],
     ['--dry-run=yes', '--task', 'tasks/x.md', '--chain', 'mock'],
     ['tree', 'resume', 'x', '--dry-run'],
-    ['--advice-adopt', 'runs/x', '--dry-run'],   // a run marker that takes no --dry-run (the adopt path admits only --max-usd, --chain, --allow-unfenced): never a dry run
+    // CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: two rows with ['--advice-adopt', 'runs/x', ...] (an adopted advice call: with --dry-run "never a dry run", and with --allow-unfenced) in this may-spend list. NEW: no such rows. WHY: --advice-adopt is an unknown option now (the CLI refuses it before this question is asked: test/cli-unknown-flag.test.js), so it is no command with a rule of its own here.
     ['--resume', 'runs/x'],
     ['--rematch', 'runs/x'],
     ['--replay', 'runs/x'],
-    ['--advice-adopt', 'runs/x', '--allow-unfenced'],
     ['--rematch', 'runs/x', '--spend'],
     ['--resume', 'runs/x', '--help'],
     ['--chain', 'mock'],
@@ -83,8 +82,10 @@ test('K4: the commands that spend nothing still run with the switch on: the usag
     ['relay-answer', 'runs/x', 'g1', '--total', '5'],
     ['ruling-add', 'runs/x', '--ruling', 'r'],
     ['retag-add', 'runs/x', '--retag-objection', 'O-aaaaaaaa', '--retag-severity', '2', '--retag-reason', 'r'],
+    ['note-add', 'runs/x', '--note', 'n'],   // 0.8.4 S18 (Q4.3): the handling session's note after the end: no harness call
+    ['summary-add', 'runs/x', '--summary-file', 'f.md'],   // 0.8.4 item 6: the handling session's summary block after the end: no harness call
     ['ruling-withdraw', 'runs/x', 'g1'],
-    ['stop', 'runs/x'],
+    // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD this list held ['stop', 'runs/x'] (the advice call's stop verb) as a command that spends nothing. NEW the row is gone; `council tree stop` below stays. WHY `council stop` and `council advise-rate` are removed verbs (src/caps.js NON_SPENDING_SUBCOMMANDS lost both words), so they are no longer commands that spend nothing.
     ['tree', 'status', 'x'],
     ['tree', 'check', 'x'],
     ['tree', 'stop', 'x'],
@@ -98,7 +99,8 @@ test('K4: the commands that spend nothing still run with the switch on: the usag
   ]) assert.equal(caps.commandMaySpend(argv), false, argv.join(' ') || '(no arguments)');
 });
 
-test('K6: a DRY RUN spends nothing, so the switch never refuses it (C&C, 1 Nov 2026: B3\'s re-pin is a dry run with the switch set): the main dry run of a start or a resume, the dry runs of a rematch, a replay, handoff, digest, contract draft and tree start (an adopted advice call takes no --dry-run: K3)', () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the title ended "(an adopted advice call takes no --dry-run: K3)". NEW: the title names the nine dry runs only; the rows are unchanged. WHY: the adopted advice call (`--advice-adopt`) is an unknown option now, and K3 no longer holds its rows.
+test('K6: a DRY RUN spends nothing, so the switch never refuses it (C&C, 1 Nov 2026: B3\'s re-pin is a dry run with the switch set): the main dry run of a start or a resume, the dry runs of a rematch, a replay, handoff, digest, contract draft and tree start', () => {
   for (const argv of [
     ['--dry-run', '--task', 'tasks/x.md', '--chain', 'mock'],
     ['--task', 'tasks/x.md', '--chain', 'debate-084-b3', '--dry-run'],

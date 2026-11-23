@@ -75,7 +75,7 @@ for (const [name, args] of Object.entries(COMMANDS)) {
       assert.match(r.stdout, /^Chain: mock-budget - /m);
       assert.match(r.stdout, /TOTAL .* \$[0-9.]+ {2}per run {2}\(expected\)/);
       // CHANGED ACCEPTED (label rename, 20 Okt 2026): OLD /MAXIMUM / NEW /UPPER ESTIMATE / - the printed row label only.
-      assert.match(r.stdout, /UPPER ESTIMATE .* \$[0-9.]+ {2}per run {2}\(every call at its whole output allowance\)/);
+      assert.match(r.stdout, /UPPER ESTIMATE .* \$[0-9.]+ {2}per run {2}\(every planned call at its whole output allowance; re-asks and network retries at their expected cost\)/);
     }
   }));
 }

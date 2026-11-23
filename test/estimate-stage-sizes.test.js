@@ -64,8 +64,10 @@ test('SS-3 clamp: a key above the seat\'s cap prices at the cap (a seat with max
   for (const r of debates) assert.equal(r.output, 5000, r.label);
 });
 
-test('SS-4 PIN: the MAXIMUM figure is unchanged by the keys (all rows, both passes\' structure)', () => {
-  assert.deepEqual(rowsOf(withKeys(SEVEN_OCT), true), rowsOf(base(), true));
+// CHANGED ACCEPTED TEST (0.8.4 unit 4, 04 Nov 2026; his picks OWNER 5 and 6). OLD: the whole maximum is unchanged by the keys. NEW: every row except the one `network-retries` row is; that row prices three retries at the EXPECTED cost of the dearest planned call, and the keys move expected costs. WHY: "each automatic retry after a network error at that call's expected cost" (his pick).
+const withoutRetries = rows => rows.filter(r => r.label !== 'network-retries');
+test('SS-4 PIN: the MAXIMUM figure is unchanged by the keys (all rows but the network-retries row, both passes\' structure)', () => {
+  assert.deepEqual(withoutRetries(rowsOf(withKeys(SEVEN_OCT), true)), withoutRetries(rowsOf(base(), true)));
 });
 
 test('SS-5 PIN: an invalid value (0, -5, \'big\', null, NaN, undefined) is ignored = today\'s constants', () => {

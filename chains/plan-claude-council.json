@@ -1,11 +1,13 @@
 {
   "name": "plan-claude-council",
-  "description": "The Claude-only Council (0.8.3): a planning chain that runs entirely on your Claude subscription, next to the three planning chains (plan-mini-council, plan-medium-council, plan-high-council). It runs the planning stages without the alternatives stage and without the deep dive, with three proposers (Claude Haiku 5.5, Claude Sonnet 5.5, Claude Opus 5.5) and a layered review panel of six named judges in three layers: layer 1 Claude Haiku 5.5, Claude Sonnet 5.5; layer 2 Claude Sonnet 5.5, Claude Opus 5.5; layer 3 Claude Opus 5.5 and Claude Fable 5.1. Every proposer, every judge and the writer are Claude models from one company, Anthropic: this chain does not give the independence of judges from different companies that the other chains are built for. Sonnet 5.5 sits in layers 1 and 2 and Opus 5.5 in layers 2 and 3 as separate seats, each answered in its own fresh session, so the two see neither each other's reasoning nor the session that wrote the plan; nothing in the harness checks that the sessions were separate. Every layer has at least two judges. A layer is asked only when every layer below it signed off, and a layer signs off when all its judges do. Any objection at a lower layer sends the draft to the reviser and the climb starts again at layer 1; a round ends only when layer 3 gives its verdict, a sign-off or an objection. This chain allows 2 such overseer rounds (maxOverseerRounds) and, inside one round, 1 revision of layer 1 and 1 of layer 2 (layerRevisions). When either limit is reached the run stops, resumable and NOT agreed, and you choose: continue (it extends the limit that was reached; the run's spending limit still applies), or finish (the dispute stage and the handoff run and the result stays \"not agreed\"), or revise the draft yourself. Every seat is external (provider external): each one pauses the run (exit 3) until it is answered, so a run stops for every proposal, debate post, reply and verdict, up to 24 judge answers at the limits. A Claude Code session can answer the stops one by one with the external_prompt and submit_stage tools, starting a fresh sub-agent on each seat's model for each answer. The reasoning effort of a seat is whatever its session runs at; set it to high. answer_back is on: a judge's own earlier objection is shown back to it, and only that judge can close it. The criteria, skeleton, build, revise and handoff stages need a Claude Code session (provider external): they pause the run (exit 3) until the session answers. No Grok, no Kimi. Dry run (0.8.3, the dry run's assumed sizes): $0.00 expected and an upper estimate of $0.00 in API cost: every call is answered through your Claude subscription and uses your plan's usage instead of money. This roster has not run, and none of its mechanisms has been measured.",
-  "summary": "Six Claude judges in three layers, all on your Claude subscription: one company, separate sessions.",
-  "maxOverseerRounds": 2,
-  "layerRevisions": {
-    "1": 1,
-    "2": 1
+  "draft_end_marker": {
+    "enabled": true
+  },
+  "description": "The Claude-only Council (0.8.4): a planning chain that runs on Claude models only, next to the other six planning chains (plan-mini-council, plan-medium-council, plan-high-council, plan-the-high-council, plan-china-medium-council, plan-china-high-council). It runs the planning stages without the alternatives stage and without the deep dive, with three proposers (Claude Sonnet 5.5, Claude Opus 5.5, Claude Fable 5.2) and a layered review panel of eight named judges in three layers: layer 1 Claude Haiku 5.5, Claude Haiku 5.5, Claude Sonnet 5.5; layer 2 Claude Sonnet 5.5, Claude Sonnet 5.5, Claude Opus 5.5; layer 3 Claude Fable 5.2 and Claude Opus 5.5. Each seat carries a persona name in the form title (seat_personas), which is the title of the seat and changes nothing the seat does. Every proposer, every judge and the writer are Claude models from one company, Anthropic: this chain does not give the independence of judges from different companies that the other chains are built for. A model that sits in several seats is still one lab: Claude Haiku 5.5 twice in layer 1, Claude Sonnet 5.5 once in layer 1 and twice in layer 2, Claude Opus 5.5 in layers 2 and 3 and Claude Fable 5.2 in layer 3 make four labs among the eight judges, and every seat has its own call, its own record and its own persona name. Exactly these eight vote; Claude Sonnet 5.5, Claude Opus 5.5 and Claude Fable 5.2 each both propose and judge, which is why \"judging\" is \"all-roles\". Every layer has at least two judges. A layer signs off when all its judges do. Any objection at a lower layer sends the draft to the reviser; a round ends only when layer 3 gives its verdict, a sign-off or an objection. This chain runs the ladder (its ladder key: block 3, visits 3): layer 1 revises in blocks of 3, then layer 2 is asked (up to 3 visits), then layer 3 reads; each layer-3 visit is one top-layer read. It has no round limit: the run ends on agreement, on a stall the top layer holds, at the limit you type (--rounds counts top-layer reads) or when you stop it. When a stall at the top layer, a judge that stays silent after its solo ask, or your own stop ends the work for now, the run is stopped, resumable and NOT agreed, and you choose how to go on: continue, finish at once, finish after one last top-layer read, or revise the draft yourself; the run's spending limit still applies. On a ladder run the plan is never sent up a layer ahead of its turn: each layer is asked when the ladder's order reaches it. The eleven model seats (three proposers, eight judges) are called through Anthropic's API (provider anthropic) with an Anthropic key and no other key; without an Anthropic key they go through OpenRouter and need an OpenRouter key instead. Every API seat reasons at high; the six session seats run at whatever effort their session runs at. With --claude-route session the eleven model seats are answered by Claude Code sessions of your own instead, one session for each seat plus the session that drives the run: no API key and no API cost for them, and the run pauses at each such seat until its session has answered. Nothing checks that the sessions were separate, and one session answering several seats gives up the independence those seats are for; a seat's effort is the effort its session runs at. answer_back is on: a judge's own earlier objection is shown back to it, and only that judge can close it. The criteria, skeleton, build, revise and handoff stages need a Claude Code session (provider external): they pause the run (exit 3) until the session answers. No Grok, no Kimi. Output caps are the largest reply the harness knows for each model: Claude Haiku 5.5, Claude Sonnet 5.5, Claude Opus 5.5 and Claude Fable 5.2 128,000. Dry run (0.8.4, prices of 2026-11-11, the dry run's assumed sizes): $37.11 expected (3 top-layer reads, the read that signs off counted, each after a climb of about 8 layer-1 passes and 1 layer-2 pass: the average of one measured run) and an upper estimate of $2021.10 (7 top-layer reads, an assumption, each with the full ladder below it), about $37.11 plus a Claude subscription. The upper estimate counts the in-pass re-asks (up to 2 per seat) and the solo ask of a silent judge at the review's expected cost, but leaves out answer-back calls, the memory block judge calls read from overseer round 2 on (up to 10000 tokens per call, paid input that neither figure prices) and the larger prompt the top layer reads, so it is not a ceiling: the limit you type is what stops spending. No proposer's cap is below the most the harness will retry its model at, so a proposal cut off at its cap is not asked again with a bigger one. The upper estimate ($2021.10) and the cheapest end ($22.94, one overseer round, the dry run's floor) are above the default cap of $12. On the command line that cap is not a limit for a paid run: it is the figure the dry run compares a chain with. The Claude Desktop bundle's default Spend ceiling of $12 is a hard ceiling nobody can type above, so with that default this chain probably cannot finish (an inference from the dry run's floor, not a run): raise the ceiling setting first. This roster has not run, and none of its mechanisms has been measured. Price your task with `npm run dry` and get an explicit go before any paid run.",
+  "summary": "Eight Claude judges, three Claude proposers, on your Anthropic key: one company, so no independence across companies.",
+  "ladder": {
+    "block": 3,
+    "visits": 3
   },
   "signoff": "unanimous",
   "judging": "all-roles",
@@ -24,7 +26,11 @@
   },
   "dispute": {
     "enabled": true,
-    "stall_rounds": 2
+    "stall_rounds": 3
+  },
+  "seat_personas": {
+    "enabled": true,
+    "form": "title"
   },
   "proposals": {
     "parts": 3,
@@ -42,6 +48,7 @@
     "sampleRate": 0.1
   },
   "handoff": true,
+  "prompt_cache": { "enabled": true, "ttl": "1h" },
   "reviewNotes": {
     "enabled": true,
     "perKind": 3
@@ -85,66 +92,146 @@
     },
     "proposers": [
       {
-        "provider": "external",
-        "model": "subscription:haiku-5.5",
-        "lab": "haiku5.5-sub",
-        "maxTokens": 128000
+        "provider": "anthropic",
+        "model": "claude-sonnet-5-5",
+        "maxTokens": 128000,
+        "lab": "sonnet5.5",
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Noah"
       },
       {
-        "provider": "external",
-        "model": "subscription:sonnet-5.5",
-        "lab": "sonnet5.5-sub",
-        "maxTokens": 128000
+        "provider": "anthropic",
+        "model": "claude-opus-5-5",
+        "maxTokens": 128000,
+        "lab": "opus5.5",
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Husayn"
       },
       {
-        "provider": "external",
-        "model": "subscription:opus-5.5",
-        "lab": "opus5.5-sub",
-        "maxTokens": 128000
+        "provider": "anthropic",
+        "model": "claude-fable-5-2",
+        "maxTokens": 128000,
+        "lab": "fable5.2",
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Abraham"
       }
     ],
     "critics": [
       {
-        "provider": "external",
-        "model": "subscription:haiku-5.5",
-        "lab": "haiku5.5-sub",
+        "provider": "anthropic",
+        "model": "claude-haiku-5-5",
         "maxTokens": 128000,
-        "layer": 1
+        "lab": "haiku5.5",
+        "layer": 1,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Matthew"
       },
       {
-        "provider": "external",
-        "model": "subscription:sonnet-5.5",
-        "lab": "sonnet5.5-sub",
+        "provider": "anthropic",
+        "model": "claude-haiku-5-5",
         "maxTokens": 128000,
-        "layer": 1
+        "lab": "haiku5.5",
+        "layer": 1,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Van Gogh"
       },
       {
-        "provider": "external",
-        "model": "subscription:sonnet-5.5",
-        "lab": "sonnet5.5-sub",
+        "provider": "anthropic",
+        "model": "claude-sonnet-5-5",
         "maxTokens": 128000,
-        "layer": 2
+        "lab": "sonnet5.5",
+        "layer": 1,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Herbert"
       },
       {
-        "provider": "external",
-        "model": "subscription:opus-5.5",
-        "lab": "opus5.5-sub",
+        "provider": "anthropic",
+        "model": "claude-sonnet-5-5",
         "maxTokens": 128000,
-        "layer": 2
+        "lab": "sonnet5.5",
+        "layer": 2,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Plato"
       },
       {
-        "provider": "external",
-        "model": "subscription:opus-5.5",
-        "lab": "opus5.5-sub",
+        "provider": "anthropic",
+        "model": "claude-sonnet-5-5",
         "maxTokens": 128000,
-        "layer": 3
+        "lab": "sonnet5.5",
+        "layer": 2,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "da Vinci"
       },
       {
-        "provider": "external",
-        "model": "subscription:fable-5.1",
-        "lab": "fable5.1-sub",
+        "provider": "anthropic",
+        "model": "claude-opus-5-5",
         "maxTokens": 128000,
-        "layer": 3
+        "lab": "opus5.5",
+        "layer": 2,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Moses"
+      },
+      {
+        "provider": "anthropic",
+        "model": "claude-fable-5-2",
+        "maxTokens": 128000,
+        "lab": "fable5.2",
+        "layer": 3,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Melchizedek"
+      },
+      {
+        "provider": "anthropic",
+        "model": "claude-opus-5-5",
+        "maxTokens": 128000,
+        "lab": "opus5.5",
+        "layer": 3,
+        "extra": {
+          "output_config": {
+            "effort": "high"
+          }
+        },
+        "persona": "Karpathy"
       }
     ]
   }

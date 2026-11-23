@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { objectionId } from '../src/objection-ids.js';
 import {
-  SEVERITY_LINES, SEVERITY_SCALE, readSeverity, bandOf, holdsSignOff, openAtIds, effectiveSeverity, checkRetag, settleVerdict, SETTLE_WORDS, severityOf, lintSeverityChain, mergeSeverity, endRecord, settleStateOf,
+  SEVERITY_LINES, SEVERITY_SCALE, readSeverity, bandOf, holdsSignOff, openAtIds, effectiveSeverity, checkRetag, settleVerdict, SETTLE_WORDS, severityOf, mergeSeverity, endRecord, settleStateOf,
 } from '../src/severity.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -117,16 +117,6 @@ test('openAtIds: the ids still holding a layer\'s climb or sign-off = every obje
   // An objection with no readable tag (exchange-born, or a copy that lost it) is HELD, never swept and never a throw; a withdrawal settles it like any other; a valid re-tag gives it a value.
   assert.deepEqual(openAtIds([{ id: 'O-9', state: 'upheld' }, { id: 'O-8', severity: 'x', state: 'withdrawn' }, { id: 'O-7', state: 'unresolved' }], []), ['O-9', 'O-7']);
   assert.deepEqual(openAtIds([{ id: 'O-7', state: 'unresolved' }], [{ id: 'O-7', from: null, to: 2, by: 'layer3', reason: 'Wording only.', pass: 2 }]), []);
-});
-
-test('lintSeverityChain: the switch is for a unanimous panel only (first mode would silently ignore tags), and the file carries the only copy of its words', () => {
-  assert.deepEqual(lintSeverityChain({ signoff: 'unanimous', severity: { enabled: true } }), []);
-  assert.deepEqual(lintSeverityChain({ signoff: 'unanimous' }), []);
-  assert.deepEqual(lintSeverityChain({ signoff: 'first', severity: { enabled: false } }), []);
-  const bad = lintSeverityChain({ signoff: 'first', severity: { enabled: true } });
-  assert.equal(bad.length, 1); assert.equal(bad[0].kind, 'severity-needs-unanimous');
-  const bad2 = lintSeverityChain({ severity: { enabled: true } });
-  assert.equal(bad2[0].kind, 'severity-needs-unanimous');
 });
 
 test('mergeSeverity: two copies of one objection id keep the highest readable tag; an unreadable copy never lowers it and two unreadable copies stay unreadable', () => {

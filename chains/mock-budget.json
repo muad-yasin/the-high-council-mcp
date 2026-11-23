@@ -1,5 +1,6 @@
 {
   "name": "mock-budget",
+  "draft_end_marker": { "enabled": true },
   "description": "Offline, and the only mock chain that costs anything on paper. Its seats use mock/mock-priced, a $1000-per-Mtok test fixture price, so the per-run spend cap can be exercised without a key or a real call: run it with --max-usd 1 to watch a run stop cleanly, then resume it with a higher ceiling.",
   "maxRounds": 2,
   "stopOnPass": true,

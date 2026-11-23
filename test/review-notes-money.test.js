@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { estimateChainRows, summarise, DEFAULT_ESTIMATE, estimateTokens } from '../src/cost.js';
+import { estimateChainRows, summarise, DEFAULT_ESTIMATE, estimateTokens, previewOfLadder } from '../src/cost.js';
 import { systemTextsFor } from '../src/stage-system.js';
 import { roundLimitsOf } from '../src/overseer-rounds.js';
 import { setHeldForTest } from '../src/held-roles.js';
@@ -93,10 +93,13 @@ test('NM-5 (the key is on the four planning-tier chains, the two Chinese chains,
   // R1 (18 Okt 2026), CHANGED ACCEPTED TEST: old bar = exactly the four planning-tier chains; new bar = those four plus plan-china-mini-council and plan-china-medium-council (both carry reviewNotes {enabled:true, perKind:3} like their siblings); why = picks 59-62 added plan-china-mini-council and plan-china-medium-council as 'the same machinery' as their tier siblings (m6-closing/China_Chains_Gate_Note.md lines 8, 12; Muad 15 Okt 22:34 'additional and advertised', 23:09 '4: all three'); each carries exactly the sibling's value, so the typed list names them; the lists stay hand-typed. The two Chinese chains are listed as their siblings are (China_Chains_Gate_Note, picks 59-62, 16 Okt 2026); Muad's yes on the chain at M7.
   // CHANGED ACCEPTED TEST (notes lane per-tier key commit, 16 Okt 2026): it pinned 'exactly one chain, plan-high-council' while the tiers' keys were a later commit (Muad 15 Okt 23:09: "4: all three" tiers).
   // R2 (18 Okt 2026), CHANGED ACCEPTED TEST: old bar = six carriers; new bar = those six plus plan-claude-council (76's file carries reviewNotes; every seat is external, so the lane costs $0 there). WHY: a new shipped chain.
+  // CHANGED ACCEPTED TEST (0.8.4 seats unit, Muad 10 Nov 2026 01:23): the carriers do not change (the list below is the same seven); what changed is the R2 note above: plan-claude-council now has eleven paid Anthropic API seats, so the lane is NOT $0 there. WHY: the note said every seat is external.
   // OLD (23 Okt 2026, lane B commit 2): eight carriers; NEW: nine, plus plan-default-opro-council (a new shipped chain; its writer is a paid OpenRouter seat, see NM-8).
   // OLD (20 Okt 2026): seven carriers; NEW: those plus plan-china-high-council (paid seats: it is a lane chain with a memory block). WHY: a new shipped chain.
   const carrying = readdirSync(join(ROOT, 'chains')).filter(f => f.endsWith('.json')).filter(f => JSON.parse(readFileSync(join(ROOT, 'chains', f), 'utf8')).reviewNotes !== undefined);
-  assert.deepEqual(carrying, ['plan-china-high-council.json', 'plan-china-medium-council.json', 'plan-china-mini-council.json', 'plan-claude-council.json', 'plan-default-opro-council.json', 'plan-high-council.json', 'plan-medium-council.json', 'plan-mini-council-sol-session.json', 'plan-mini-council.json']);
+// CHANGED ACCEPTED TEST (30 Okt 2026, the plan-the-high-council chain). OLD: the list stops at the chains shipped before it. NEW: plan-the-high-council.json joins. WHY: it is a shipped planning chain that carries the key (copied from plan-high-council); the list is hand-typed on purpose and grows by the chain it counts.
+  // CHANGED ACCEPTED TEST (0.8.4 seats unit, Muad 10 Nov 2026 01:10): OLD: ten carriers incl. plan-china-mini-council, plan-default-opro-council and plan-mini-council-sol-session. NEW: seven; those three moved to chains/outdated/. WHY: the typed list shrinks by the chains it counts.
+  assert.deepEqual(carrying, ['plan-china-high-council.json', 'plan-china-medium-council.json', 'plan-claude-council.json', 'plan-high-council.json', 'plan-medium-council.json', 'plan-mini-council.json', 'plan-the-high-council.json']);
 });
 
 test('NM-6 (the cap screen line is for a FULL run only): a one-call screen (handoff --from-run, draft, digest, any side verb) and a chain with no overseer rounds get no clause', () => {
@@ -104,7 +107,7 @@ test('NM-6 (the cap screen line is for a FULL run only): a one-call screen (hand
   const cfg = shape('same');
   assert.ok(capScreenMemoryClause(cfg, { fullRun: true }).includes('judge calls read'));   // A2: E194 wording
   assert.equal(capScreenMemoryClause(cfg, { fullRun: false }), '');
-  const noRounds = { ...cfg }; delete noRounds.maxOverseerRounds; delete noRounds.layerRevisions;
+  const noRounds = { ...cfg }; delete noRounds.maxOverseerRounds; delete noRounds.layerRevisions; delete noRounds.ladder;   // FINDING (not on the owed list of the ladder unit; 10 Nov 2026). OLD: the two keys; a ladder key is a round-structured chain too (review-notes-lane.js: a ladder chain has a round 2)
   assert.equal(capScreenMemoryClause(noRounds, { fullRun: true }), '');
 });
 
@@ -121,7 +124,7 @@ test('NM-7 (the audit log is one line per provider call): a harness record is no
 test('NM-8 (review fix F9, 18 Okt 2026): the MAXIMUM prices the notes input at the lane\'s read caps for every planned overseer round; the expected figure keeps the asked lengths and one round; the shipped chains\' notes rows stay $0 (external writers)', () => {
   withWords(WORDS);
   const c = shape('none');
-  const k = notesConfigOf(c); const judges = c.seats.critics.length; const rounds = roundLimitsOf(c).overseer;
+  const k = notesConfigOf(c); const judges = c.seats.critics.length; const rounds = roundLimitsOf(c).overseer ?? previewOfLadder(roundLimitsOf(c), true)?.reads;   // FINDING (not on the owed list of the ladder unit; 10 Nov 2026). OLD: roundLimitsOf(c).overseer only; a ladder chain's planned rounds are its preview reads (7, cost.js)
   assert.ok(Number.isInteger(rounds) && rounds > 1, 'the fixture chain plans several overseer rounds');
   const a = { ...DEFAULT_ESTIMATE, ...(c.estimate || {}) };
   const expected = rowOf(estimateChainRows(c), 'notes-answer'); const maximum = rowOf(estimateChainRows(c, { maximum: true }), 'notes-answer');

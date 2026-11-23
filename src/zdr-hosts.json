@@ -1,0 +1,5855 @@
+{
+ "asOf": "2026-11-10",
+ "models": {
+  "amazon/nova-2-lite-v1": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 0.3,
+     "out": 2.5
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 0.3,
+     "out": 2.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "amazon/nova-lite-v1": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 0.06,
+     "out": 0.24
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 0.06,
+     "out": 0.24
+    }
+   },
+   "safety_retention": 0
+  },
+  "amazon/nova-micro-v1": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 0.035,
+     "out": 0.14
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 0.035,
+     "out": 0.14
+    }
+   },
+   "safety_retention": 0
+  },
+  "amazon/nova-premier-v1": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 2.5,
+     "out": 12.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "amazon/nova-pro-v1": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 0.8,
+     "out": 3.2
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 0.8,
+     "out": 3.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "amazon/titan-embed-image-v1": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 0.8,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "amazon/titan-embed-text-v1": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 0.1,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "amazon/titan-embed-text-v2": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 0.02,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthracite-org/magnum-v4-72b": {
+   "hosts": {
+    "mancer/fp8": {
+     "in": 2.5,
+     "out": 5
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-haiku-4.5": {
+   "hosts": {
+    "amazon-bedrock/eu-west-1": {
+     "in": 1.1,
+     "out": 5.5
+    },
+    "amazon-bedrock/global": {
+     "in": 1,
+     "out": 5
+    },
+    "amazon-bedrock/us": {
+     "in": 1.1,
+     "out": 5.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-haiku-5.5": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 0.1,
+     "out": 0.5
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 0.11,
+     "out": 0.55
+    },
+    "amazon-bedrock/us-east-1": {
+     "in": 0.11,
+     "out": 0.55
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-opus-4.1": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 15,
+     "out": 75
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-opus-4.5": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 5,
+     "out": 25
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 5.5,
+     "out": 27.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-opus-4.6": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 5,
+     "out": 25
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-opus-4.7": {
+   "hosts": {
+    "amazon-bedrock/eu-west-1": {
+     "in": 5.5,
+     "out": 27.5
+    },
+    "amazon-bedrock/global": {
+     "in": 5,
+     "out": 25
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-opus-4.8": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 5,
+     "out": 25
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 5.5,
+     "out": 27.5
+    },
+    "amazon-bedrock/us": {
+     "in": 5.5,
+     "out": 27.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-opus-5": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 5,
+     "out": 25
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 5.5,
+     "out": 27.5
+    },
+    "amazon-bedrock/us-east-1": {
+     "in": 5.5,
+     "out": 27.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-opus-5.5": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 4,
+     "out": 20
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 4.4,
+     "out": 22
+    },
+    "amazon-bedrock/us-east-1": {
+     "in": 4.4,
+     "out": 22
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-sonnet-4.5": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 3,
+     "out": 15
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 3.3,
+     "out": 16.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-sonnet-4.6": {
+   "hosts": {
+    "amazon-bedrock/eu-west-1": {
+     "in": 3.3,
+     "out": 16.5
+    },
+    "amazon-bedrock/global": {
+     "in": 3,
+     "out": 15
+    },
+    "amazon-bedrock/us": {
+     "in": 3.3,
+     "out": 16.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-sonnet-5": {
+   "hosts": {
+    "amazon-bedrock/eu-west-1": {
+     "in": 2.2,
+     "out": 11
+    },
+    "amazon-bedrock/global": {
+     "in": 2,
+     "out": 10
+    },
+    "amazon-bedrock/us-east-1": {
+     "in": 2.2,
+     "out": 11
+    }
+   },
+   "safety_retention": 0
+  },
+  "anthropic/claude-sonnet-5.5": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 2,
+     "out": 10
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 2.2,
+     "out": 11
+    },
+    "amazon-bedrock/us-east-1": {
+     "in": 2.2,
+     "out": 11
+    }
+   },
+   "safety_retention": 0
+  },
+  "assemblyai/universal-3-5-pro": {
+   "hosts": {
+    "assemblyai": {
+     "in": 83.3333,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "assemblyai/universal-3-6-pro": {
+   "hosts": {
+    "assemblyai": {
+     "in": 83.3333,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "baai/bge-base-en-v1.5": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.005,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "baai/bge-large-en-v1.5": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.01,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "baai/bge-m3": {
+   "hosts": {
+    "deepinfra/fp32": {
+     "in": 0.01,
+     "out": 0
+    },
+    "parasail": {
+     "in": 0.01,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "baseten/elephant-1": {
+   "hosts": {
+    "baseten": {
+     "in": 0.035,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "baseten/joey-1": {
+   "hosts": {
+    "baseten": {
+     "in": 0.01,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "baseten/mammoth-1": {
+   "hosts": {
+    "baseten": {
+     "in": 0.1,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance-seed/seed-1.6": {
+   "hosts": {
+    "seed/fp8": {
+     "in": 0.25,
+     "out": 2
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance-seed/seed-1.6-flash": {
+   "hosts": {
+    "seed/fp8": {
+     "in": 0.075,
+     "out": 0.3
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance-seed/seed-2-1-turbo": {
+   "hosts": {
+    "seed/fp8": {
+     "in": 0.5,
+     "out": 2.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance-seed/seed-2.0-code": {
+   "hosts": {
+    "seed/fp8": {
+     "in": 0.5,
+     "out": 3
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance-seed/seed-2.0-lite": {
+   "hosts": {
+    "seed/fp8": {
+     "in": 0.25,
+     "out": 2
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance-seed/seed-2.0-mini": {
+   "hosts": {
+    "seed/fp8": {
+     "in": 0.1,
+     "out": 0.4
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance-seed/seed-audio-1-0": {
+   "hosts": {
+    "seed": {
+     "in": 0,
+     "out": 2500
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance-seed/seedream-4.5": {
+   "hosts": {
+    "seed": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance-seed/seedream-5-0-flash": {
+   "hosts": {
+    "seed": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance-seed/seedream-5-0-lite": {
+   "hosts": {
+    "seed": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance-seed/seedream-5-0-pro": {
+   "hosts": {
+    "seed": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "bytedance/ui-tars-1.5-7b": {
+   "hosts": {
+    "parasail/bf16": {
+     "in": 0.1,
+     "out": 0.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "canopylabs/orpheus-3b-0.1-ft": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 7,
+     "out": 0
+    },
+    "together": {
+     "in": 15,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "cloudflare/clairic": {
+   "hosts": {
+    "cloudflare": {
+     "in": 0.1,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "cloudflare/clef": {
+   "hosts": {
+    "cloudflare": {
+     "in": 0.24,
+     "out": 0
+    },
+    "deepinfra/fp8": {
+     "in": 0.192,
+     "out": 0
+    },
+    "primeintellect": {
+     "in": 0.24,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "cloudflare/clef-flash": {
+   "hosts": {
+    "cloudflare": {
+     "in": 0.038,
+     "out": 0
+    },
+    "deepinfra/fp8": {
+     "in": 0.019,
+     "out": 0
+    },
+    "makora/bf16": {
+     "in": 0.036,
+     "out": 0
+    },
+    "primeintellect": {
+     "in": 0.038,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "cloudflare/clef-omni": {
+   "hosts": {
+    "cloudflare": {
+     "in": 0.15,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "cognitivecomputations/dolphin-mistral-24b-venice-edition": {
+   "hosts": {
+    "venice/fp16": {
+     "in": 0.2,
+     "out": 0.9
+    }
+   },
+   "safety_retention": 0
+  },
+  "cohere/command-a-plus": {
+   "hosts": {
+    "cohere/fp8": {
+     "in": 0.3,
+     "out": 1.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepgram/aura-2": {
+   "hosts": {
+    "deepgram": {
+     "in": 30,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepgram/flux-tts": {
+   "hosts": {
+    "deepgram": {
+     "in": 45,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepgram/nova-3": {
+   "hosts": {
+    "deepgram": {
+     "in": 71.66666667,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-chat": {
+   "hosts": {
+    "deepinfra/fp4": {
+     "in": 0.32,
+     "out": 0.89
+    },
+    "deepinfra/fp4/flex": {
+     "in": 0.256,
+     "out": 0.712
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-chat-v3-0324": {
+   "hosts": {
+    "siliconflow/fp8": {
+     "in": 0.25,
+     "out": 1
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-chat-v3.1": {
+   "hosts": {
+    "coreweave/fp8": {
+     "in": 0.5,
+     "out": 1.5
+    },
+    "deepinfra/fp4": {
+     "in": 0.25,
+     "out": 0.95
+    },
+    "sambanova/fp8": {
+     "in": 0.65,
+     "out": 1.5
+    },
+    "siliconflow/fp8": {
+     "in": 0.27,
+     "out": 1
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-r1-0528": {
+   "hosts": {
+    "deepinfra/fp4": {
+     "in": 0.5,
+     "out": 2.15
+    },
+    "siliconflow/fp8": {
+     "in": 0.5,
+     "out": 2.18
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-v3.1-terminus": {
+   "hosts": {
+    "siliconflow/fp8": {
+     "in": 0.27,
+     "out": 1
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-v3.2": {
+   "hosts": {
+    "deepinfra/fp4": {
+     "in": 0.26,
+     "out": 0.38
+    },
+    "digitalocean": {
+     "in": 0.3,
+     "out": 0.96
+    },
+    "phala": {
+     "in": 1,
+     "out": 1
+    },
+    "siliconflow/fp8": {
+     "in": 0.259,
+     "out": 0.8
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-v3.2-exp": {
+   "hosts": {
+    "siliconflow/fp8": {
+     "in": 0.27,
+     "out": 0.41
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-v4-flash": {
+   "hosts": {
+    "azure/us": {
+     "in": 0.21,
+     "out": 0.56
+    },
+    "deepinfra/fp8": {
+     "in": 0.09,
+     "out": 0.18
+    },
+    "fireworks": {
+     "in": 0.105,
+     "out": 0.21
+    },
+    "mancer/fp8": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "parasail/fp8": {
+     "in": 0.14,
+     "out": 0.28
+    },
+    "relace/fp4": {
+     "in": 0.05,
+     "out": 0.45
+    },
+    "siliconflow/fp8": {
+     "in": 0.13,
+     "out": 0.28
+    },
+    "venice": {
+     "in": 0.0966,
+     "out": 0.1925
+    },
+    "wafer/mxfp4": {
+     "in": 0.12,
+     "out": 0.17
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-v4-flash-0731": {
+   "hosts": {
+    "baseten/fp32": {
+     "in": 0.13,
+     "out": 0.26
+    },
+    "baseten/fp8": {
+     "in": 0.13,
+     "out": 0.26
+    },
+    "cloudflare": {
+     "in": 0.44,
+     "out": 1.32
+    },
+    "cohere/fp8": {
+     "in": 0.14,
+     "out": 0.28
+    },
+    "coreweave/fp8": {
+     "in": 0.13,
+     "out": 0.27
+    },
+    "deepinfra/fp8": {
+     "in": 0.06,
+     "out": 0.18
+    },
+    "digitalocean": {
+     "in": 0.119,
+     "out": 0.238
+    },
+    "inceptron/fp4": {
+     "in": 0.13,
+     "out": 0.495
+    },
+    "mancer/fp8": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "novita/fp8": {
+     "in": 0.4092,
+     "out": 1.2276
+    },
+    "parasail/fp8": {
+     "in": 0.14,
+     "out": 0.28
+    },
+    "phala": {
+     "in": 0.44,
+     "out": 1.32
+    },
+    "primeintellect/fp4": {
+     "in": 0.44,
+     "out": 1.32
+    },
+    "reka": {
+     "in": 0.1,
+     "out": 0.28
+    },
+    "relace/fp4": {
+     "in": 0.07,
+     "out": 0.14
+    },
+    "sail-research/fp4": {
+     "in": 0.15,
+     "out": 0.3
+    },
+    "sail-research/us": {
+     "in": 0.15,
+     "out": 0.3
+    },
+    "siliconflow/fp8": {
+     "in": 0.22,
+     "out": 0.66
+    },
+    "venice": {
+     "in": 0.13,
+     "out": 0.26
+    },
+    "wafer/fast": {
+     "in": 0.14,
+     "out": 0.23
+    },
+    "wafer/us": {
+     "in": 0.0434,
+     "out": 0.3
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-v4-flash-vision-exp": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.2156,
+     "out": 0.6468
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-v4-pro": {
+   "hosts": {
+    "azure/us": {
+     "in": 1.91,
+     "out": 3.83
+    },
+    "deepinfra/fp8": {
+     "in": 1.3,
+     "out": 2.6
+    },
+    "digitalocean": {
+     "in": 1.044,
+     "out": 2.088
+    },
+    "novita/fp8": {
+     "in": 1.6,
+     "out": 3.2
+    },
+    "relace/fp4": {
+     "in": 0.9,
+     "out": 1.5
+    },
+    "siliconflow/fp8": {
+     "in": 1,
+     "out": 1.5
+    },
+    "venice": {
+     "in": 1.65,
+     "out": 3.301
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-v4-pro-0813": {
+   "hosts": {
+    "baseten/fp4": {
+     "in": 1.32,
+     "out": 3.96
+    },
+    "cloudflare": {
+     "in": 1.32,
+     "out": 3.96
+    },
+    "coreweave/fp8": {
+     "in": 1.31,
+     "out": 3.96
+    },
+    "deepinfra/fp8": {
+     "in": 1.3,
+     "out": 2.6
+    },
+    "digitalocean": {
+     "in": 1.32,
+     "out": 3.96
+    },
+    "nebius/fp8": {
+     "in": 1.32,
+     "out": 3.96
+    },
+    "novita/fp8": {
+     "in": 0.99,
+     "out": 2.97
+    },
+    "parasail/fast": {
+     "in": 1.98,
+     "out": 5.94
+    },
+    "parasail/fp8": {
+     "in": 1.32,
+     "out": 3.96
+    },
+    "phala": {
+     "in": 1.45,
+     "out": 4.36
+    },
+    "relace/fp4": {
+     "in": 0.0999,
+     "out": 8
+    },
+    "sail-research/fp4": {
+     "in": 1.35,
+     "out": 2.4
+    },
+    "sail-research/us": {
+     "in": 1.35,
+     "out": 2.4
+    },
+    "siliconflow/fp8": {
+     "in": 1.32,
+     "out": 3.96
+    },
+    "together": {
+     "in": 1.32,
+     "out": 3.96
+    },
+    "venice": {
+     "in": 1.65,
+     "out": 4.95
+    },
+    "wafer/mxfp4": {
+     "in": 0.285,
+     "out": 4.3
+    },
+    "wafer/us": {
+     "in": 0.111,
+     "out": 4.44
+    }
+   },
+   "safety_retention": 0
+  },
+  "deepseek/deepseek-v4.1-flash": {
+   "hosts": {
+    "baseten": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "baseten/us": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "cohere/fp8": {
+     "in": 0.195,
+     "out": 0.66
+    },
+    "coreweave/fp8": {
+     "in": 0.13,
+     "out": 0.65
+    },
+    "crusoe/fp8": {
+     "in": 0.29,
+     "out": 1.2
+    },
+    "deepinfra/fp8": {
+     "in": 0.14,
+     "out": 0.42
+    },
+    "deepinfra/fp8/flex": {
+     "in": 0.112,
+     "out": 0.336
+    },
+    "deepinfra/fp8/priority": {
+     "in": 0.21,
+     "out": 0.63
+    },
+    "digitalocean": {
+     "in": 0.225,
+     "out": 0.9
+    },
+    "fireworks": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "fireworks/spot": {
+     "in": 0.21,
+     "out": 0.84
+    },
+    "fireworks/us": {
+     "in": 0.45,
+     "out": 1.8
+    },
+    "inference-net/fp8": {
+     "in": 0.103,
+     "out": 0.6
+    },
+    "inference-net/us": {
+     "in": 0.103,
+     "out": 0.6
+    },
+    "makora/fp8": {
+     "in": 0.26,
+     "out": 1.17
+    },
+    "mancer/fp8": {
+     "in": 0.2,
+     "out": 0.75
+    },
+    "modal": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "morph/fp8": {
+     "in": 0.022,
+     "out": 0.4
+    },
+    "novita/fp8": {
+     "in": 0.195,
+     "out": 0.78
+    },
+    "parasail/fast": {
+     "in": 0.45,
+     "out": 1.8
+    },
+    "parasail/fp8": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "phala": {
+     "in": 0.21,
+     "out": 0.84
+    },
+    "primeintellect": {
+     "in": 0.039,
+     "out": 1.2
+    },
+    "reka": {
+     "in": 0.12,
+     "out": 0.96
+    },
+    "relace/fp4": {
+     "in": 0.006,
+     "out": 0.5
+    },
+    "siliconflow/fp8": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "together": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "venice/fp8": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "wafer/mxfp4": {
+     "in": 0.19,
+     "out": 0.65
+    },
+    "wafer/us": {
+     "in": 0.051,
+     "out": 0.567
+    }
+   },
+   "safety_retention": 1
+  },
+  "deepseek/deepseek-v4.1-flash-1017": {
+   "hosts": {
+    "baseten": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "baseten/fast": {
+     "in": 0.6,
+     "out": 2.4
+    },
+    "cloudflare": {
+     "in": 0.1,
+     "out": 0.6
+    },
+    "cohere/fp8": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "coreweave/fp8": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "crusoe/fp8": {
+     "in": 0.29,
+     "out": 1.2
+    },
+    "decart/fp8": {
+     "in": 0.123,
+     "out": 0.492
+    },
+    "deepinfra/fp8": {
+     "in": 0.098,
+     "out": 0.294
+    },
+    "deepinfra/fp8/flex": {
+     "in": 0.0784,
+     "out": 0.2352
+    },
+    "deepinfra/fp8/priority": {
+     "in": 0.147,
+     "out": 0.441
+    },
+    "dekallm": {
+     "in": 0.18,
+     "out": 0.68
+    },
+    "digitalocean": {
+     "in": 0.18,
+     "out": 0.72
+    },
+    "fireworks": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "fireworks/spot": {
+     "in": 0.21,
+     "out": 0.84
+    },
+    "fireworks/us": {
+     "in": 0.45,
+     "out": 1.8
+    },
+    "inference-net/fp8": {
+     "in": 0.08,
+     "out": 0.577
+    },
+    "inference-net/us": {
+     "in": 0.08,
+     "out": 0.577
+    },
+    "ionstream": {
+     "in": 0.165,
+     "out": 0.495
+    },
+    "ionstream/flex": {
+     "in": 0.0825,
+     "out": 0.2475
+    },
+    "makora/fp8": {
+     "in": 0.15,
+     "out": 1.2
+    },
+    "mistral/fp8": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "modal": {
+     "in": 0.25,
+     "out": 1
+    },
+    "modelrun/fp4": {
+     "in": 0.17,
+     "out": 0.67
+    },
+    "morph/fp8": {
+     "in": 0.022,
+     "out": 0.4
+    },
+    "near-ai": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "nebius/fp8": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "novita/fp8": {
+     "in": 0.165,
+     "out": 0.66
+    },
+    "parasail/fp8": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "particle-ai/us": {
+     "in": 0.05,
+     "out": 0.5
+    },
+    "particle-ai/us/flex": {
+     "in": 0.025,
+     "out": 0.25
+    },
+    "phala": {
+     "in": 0.2,
+     "out": 1.2
+    },
+    "primalabs": {
+     "in": 0.24,
+     "out": 0.96
+    },
+    "primeintellect": {
+     "in": 0.04368,
+     "out": 0.7
+    },
+    "reka": {
+     "in": 0.16,
+     "out": 1.1
+    },
+    "relace/fp4": {
+     "in": 0.006,
+     "out": 0.5
+    },
+    "river": {
+     "in": 0.12,
+     "out": 0.48
+    },
+    "sail-research/fp4": {
+     "in": 0.1515,
+     "out": 0.225
+    },
+    "sail-research/fp4/us": {
+     "in": 0.101,
+     "out": 0.15
+    },
+    "siliconflow/fp8": {
+     "in": 0.3,
+     "out": 0.55
+    },
+    "together": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "venice/fp8": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "wafer/mxfp4": {
+     "in": 0.066,
+     "out": 0.5
+    },
+    "wafer/us": {
+     "in": 0.038,
+     "out": 0.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "elevenlabs/eleven-flash-v2": {
+   "hosts": {
+    "elevenlabs": {
+     "in": 40,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "elevenlabs/eleven-flash-v2.5": {
+   "hosts": {
+    "elevenlabs": {
+     "in": 40,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "elevenlabs/eleven-multilingual-v2": {
+   "hosts": {
+    "elevenlabs": {
+     "in": 80,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "elevenlabs/eleven-turbo-v2": {
+   "hosts": {
+    "elevenlabs": {
+     "in": 40,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "elevenlabs/eleven-turbo-v2.5": {
+   "hosts": {
+    "elevenlabs": {
+     "in": 40,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "elevenlabs/eleven-v3": {
+   "hosts": {
+    "elevenlabs": {
+     "in": 80,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "elevenlabs/eleven-v3-conversational": {
+   "hosts": {
+    "elevenlabs": {
+     "in": 40,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "elevenlabs/eleven-v4": {
+   "hosts": {
+    "elevenlabs": {
+     "in": 80,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "elevenlabs/eleven-v4-turbo": {
+   "hosts": {
+    "elevenlabs": {
+     "in": 40,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "elevenlabs/scribe-v2": {
+   "hosts": {
+    "elevenlabs": {
+     "in": 61.11111111,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "elevenlabs/scribe-v2-medical": {
+   "hosts": {
+    "elevenlabs": {
+     "in": 61.11111111,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "elorian/glimpse": {
+   "hosts": {
+    "together": {
+     "in": 0.6,
+     "out": 3
+    }
+   },
+   "safety_retention": 0
+  },
+  "fireworks/ember-1": {
+   "hosts": {
+    "fireworks": {
+     "in": 3,
+     "out": 15
+    }
+   },
+   "safety_retention": 0
+  },
+  "fish-audio/drama-3": {
+   "hosts": {
+    "fish-audio": {
+     "in": 2,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "fish-audio/s1": {
+   "hosts": {
+    "fish-audio": {
+     "in": 15,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "fish-audio/s2-pro": {
+   "hosts": {
+    "fish-audio": {
+     "in": 15,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "fish-audio/s2.1-pro": {
+   "hosts": {
+    "fish-audio": {
+     "in": 15,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "fish-audio/s2.1-pro-free:free": {
+   "hosts": {
+    "fish-audio": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "fish-audio/transcribe-1": {
+   "hosts": {
+    "fish-audio": {
+     "in": 100,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "fish-audio/transcribe-1-pro": {
+   "hosts": {
+    "fish-audio": {
+     "in": 100,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "google/chirp-3": {
+   "hosts": {},
+   "safety_retention": 1
+  },
+  "google/gemini-2.5-flash-image": {
+   "hosts": {},
+   "safety_retention": 1
+  },
+  "google/gemini-2.5-pro-preview": {
+   "hosts": {},
+   "safety_retention": 1
+  },
+  "google/gemini-3-flash-preview": {
+   "hosts": {},
+   "safety_retention": 3
+  },
+  "google/gemini-3-pro-image": {
+   "hosts": {},
+   "safety_retention": 1
+  },
+  "google/gemini-3.1-flash-image": {
+   "hosts": {},
+   "safety_retention": 2
+  },
+  "google/gemini-3.1-flash-lite": {
+   "hosts": {},
+   "safety_retention": 5
+  },
+  "google/gemini-3.1-flash-lite-image": {
+   "hosts": {},
+   "safety_retention": 1
+  },
+  "google/gemini-3.1-flash-tts-preview": {
+   "hosts": {},
+   "safety_retention": 1
+  },
+  "google/gemini-3.1-pro-preview": {
+   "hosts": {},
+   "safety_retention": 3
+  },
+  "google/gemini-3.5-flash": {
+   "hosts": {},
+   "safety_retention": 4
+  },
+  "google/gemini-3.5-flash-lite": {
+   "hosts": {},
+   "safety_retention": 5
+  },
+  "google/gemini-3.6-flash": {
+   "hosts": {},
+   "safety_retention": 4
+  },
+  "google/gemini-3.7-flash": {
+   "hosts": {},
+   "safety_retention": 4
+  },
+  "google/gemini-3.8-flash": {
+   "hosts": {},
+   "safety_retention": 4
+  },
+  "google/gemini-3.8-flash-lite-tts": {
+   "hosts": {},
+   "safety_retention": 1
+  },
+  "google/gemini-3.8-flash-tts": {
+   "hosts": {},
+   "safety_retention": 1
+  },
+  "google/gemini-4-argon": {
+   "hosts": {},
+   "safety_retention": 3
+  },
+  "google/gemini-embedding-001": {
+   "hosts": {},
+   "safety_retention": 1
+  },
+  "google/gemini-embedding-2": {
+   "hosts": {},
+   "safety_retention": 3
+  },
+  "google/gemma-2-27b-it": {
+   "hosts": {
+    "nextbit/int4": {
+     "in": 0.65,
+     "out": 0.65
+    }
+   },
+   "safety_retention": 0
+  },
+  "google/gemma-3-12b-it": {
+   "hosts": {
+    "deepinfra/bf16": {
+     "in": 0.05,
+     "out": 0.15
+    },
+    "deepinfra/bf16/flex": {
+     "in": 0.04,
+     "out": 0.12
+    },
+    "deepinfra/bf16/priority": {
+     "in": 0.075,
+     "out": 0.225
+    },
+    "nextbit/int4": {
+     "in": 0.075,
+     "out": 0.15
+    }
+   },
+   "safety_retention": 0
+  },
+  "google/gemma-3-27b-it": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.08,
+     "out": 0.16
+    },
+    "nebius/fp8": {
+     "in": 0.1,
+     "out": 0.3
+    },
+    "nextbit/fp8": {
+     "in": 0.08,
+     "out": 0.35
+    },
+    "parasail/fp8": {
+     "in": 0.08,
+     "out": 0.45
+    }
+   },
+   "safety_retention": 0
+  },
+  "google/gemma-3-4b-it": {
+   "hosts": {
+    "deepinfra/bf16": {
+     "in": 0.05,
+     "out": 0.1
+    },
+    "parasail/bf16": {
+     "in": 0.04,
+     "out": 0.05
+    }
+   },
+   "safety_retention": 0
+  },
+  "google/gemma-4-26b-a4b-it": {
+   "hosts": {
+    "akashml/fp4": {
+     "in": 0.07,
+     "out": 0.24
+    },
+    "cloudflare": {
+     "in": 0.1,
+     "out": 0.3
+    },
+    "coreweave/bf16": {
+     "in": 0.1,
+     "out": 0.3
+    },
+    "deepinfra/fp8": {
+     "in": 0.07,
+     "out": 0.34
+    },
+    "dekallm/bf16": {
+     "in": 0.06,
+     "out": 0.33
+    },
+    "io-net/bf16": {
+     "in": 0.081,
+     "out": 0.279
+    },
+    "makora": {
+     "in": 0.08,
+     "out": 0.1
+    },
+    "nextbit/bf16": {
+     "in": 0.0765,
+     "out": 0.255
+    },
+    "novita/bf16": {
+     "in": 0.13,
+     "out": 0.4
+    },
+    "parasail/bf16": {
+     "in": 0.13,
+     "out": 0.4
+    },
+    "primeintellect/bf16": {
+     "in": 0.018,
+     "out": 0.053
+    },
+    "siliconflow/fp8": {
+     "in": 0.14,
+     "out": 0.4
+    },
+    "venice/bf16": {
+     "in": 0.13,
+     "out": 0.4
+    }
+   },
+   "safety_retention": 1
+  },
+  "google/gemma-4-31b-it": {
+   "hosts": {
+    "coreweave/fp4": {
+     "in": 0.1,
+     "out": 0.34
+    },
+    "crusoe/bf16": {
+     "in": 0.14,
+     "out": 0.4
+    },
+    "deepinfra/fp8": {
+     "in": 0.2,
+     "out": 0.4
+    },
+    "deepinfra/fp8/flex": {
+     "in": 0.16,
+     "out": 0.32
+    },
+    "deepinfra/fp8/priority": {
+     "in": 0.3,
+     "out": 0.6
+    },
+    "deepinfra/turbo": {
+     "in": 0.135,
+     "out": 0.51
+    },
+    "dekallm": {
+     "in": 0.14,
+     "out": 0.4
+    },
+    "io-net": {
+     "in": 0.361,
+     "out": 1.0925
+    },
+    "modal": {
+     "in": 0.34,
+     "out": 0.1
+    },
+    "modelrun/fp4": {
+     "in": 0.75,
+     "out": 1
+    },
+    "nextbit/fp4": {
+     "in": 0.15,
+     "out": 0.4
+    },
+    "novita/bf16": {
+     "in": 0.14,
+     "out": 0.4
+    },
+    "parasail/fp8": {
+     "in": 0.15,
+     "out": 0.4
+    },
+    "primeintellect/fp4": {
+     "in": 0.2,
+     "out": 0.335
+    },
+    "sambanova": {
+     "in": 0.38,
+     "out": 1.15
+    },
+    "siliconflow/fp8": {
+     "in": 0.75,
+     "out": 1
+    },
+    "venice/fp4": {
+     "in": 0.12,
+     "out": 0.36
+    }
+   },
+   "safety_retention": 0
+  },
+  "gryphe/mythomax-l2-13b": {
+   "hosts": {
+    "mancer/fp8": {
+     "in": 0.35,
+     "out": 0.6
+    },
+    "parasail/fp16": {
+     "in": 0.08,
+     "out": 0.11
+    }
+   },
+   "safety_retention": 0
+  },
+  "hexgrad/kokoro-82m": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.62,
+     "out": 0
+    },
+    "together": {
+     "in": 4,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "ibm-granite/granite-4.2-8b": {
+   "hosts": {
+    "coreweave/bf16": {
+     "in": 0.06,
+     "out": 0.15
+    },
+    "deepinfra/bf16": {
+     "in": 0.06,
+     "out": 0.25
+    }
+   },
+   "safety_retention": 0
+  },
+  "inclusionai/ling-3.0-flash": {
+   "hosts": {
+    "deepinfra/bf16": {
+     "in": 0.06,
+     "out": 0.18
+    },
+    "novita": {
+     "in": 0.021,
+     "out": 0.063
+    }
+   },
+   "safety_retention": 0
+  },
+  "inclusionai/ling-3.0-flash-vl": {
+   "hosts": {
+    "deepinfra/fp16": {
+     "in": 0.06,
+     "out": 0.18
+    }
+   },
+   "safety_retention": 0
+  },
+  "inclusionai/ling-3.0-tiny": {
+   "hosts": {
+    "antdigital/fp8": {
+     "in": 0.015,
+     "out": 0.045
+    }
+   },
+   "safety_retention": 0
+  },
+  "inclusionai/ling-3.1-flash": {
+   "hosts": {
+    "deepinfra/fp4": {
+     "in": 0.075,
+     "out": 0.225
+    },
+    "novita": {
+     "in": 0.045,
+     "out": 0.135
+    }
+   },
+   "safety_retention": 0
+  },
+  "inference-net/schematron-v2-small": {
+   "hosts": {
+    "inference-net/bf16": {
+     "in": 0.05,
+     "out": 0.23
+    },
+    "inference-net/us": {
+     "in": 0.05,
+     "out": 0.23
+    }
+   },
+   "safety_retention": 0
+  },
+  "inference-net/schematron-v2-turbo": {
+   "hosts": {
+    "inference-net/bf16": {
+     "in": 0.03,
+     "out": 0.15
+    },
+    "inference-net/us": {
+     "in": 0.03,
+     "out": 0.15
+    }
+   },
+   "safety_retention": 0
+  },
+  "intfloat/e5-base-v2": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.005,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "intfloat/e5-large-v2": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.01,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "intfloat/multilingual-e5-large": {
+   "hosts": {
+    "deepinfra/fp32": {
+     "in": 0.01,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "jaredpalmer/kev-4b": {
+   "hosts": {
+    "phala": {
+     "in": 0.042,
+     "out": 0
+    },
+    "siliconflow/fp8": {
+     "in": 0.042,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "krea/k3-edit": {
+   "hosts": {
+    "krea": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "krea/krea-2-large": {
+   "hosts": {
+    "krea": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "krea/krea-2-medium": {
+   "hosts": {
+    "krea": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "krea/krea-2-medium-turbo": {
+   "hosts": {
+    "krea": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "liquid/d1": {
+   "hosts": {
+    "liquid": {
+     "in": 0.02,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "liquid/d1-ultra": {
+   "hosts": {
+    "liquid": {
+     "in": 0.042,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "liquid/d1.1": {
+   "hosts": {
+    "liquid": {
+     "in": 0.02,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "liquid/lfm-2.5-24b-a2b": {
+   "hosts": {
+    "liquid/fp8": {
+     "in": 0.05,
+     "out": 0.7
+    }
+   },
+   "safety_retention": 0
+  },
+  "liquid/lfm-3-1.7b": {
+   "hosts": {
+    "liquid/fp8": {
+     "in": 0.08,
+     "out": 0.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "mancer/weaver": {
+   "hosts": {
+    "mancer/fp8": {
+     "in": 0.4,
+     "out": 0.75
+    }
+   },
+   "safety_retention": 0
+  },
+  "meta-llama/llama-3.1-70b-instruct": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 0.72,
+     "out": 0.72
+    }
+   },
+   "safety_retention": 0
+  },
+  "meta-llama/llama-3.1-8b-instruct": {
+   "hosts": {
+    "cloudflare/fp8": {
+     "in": 0.152,
+     "out": 0.287
+    },
+    "coreweave/bf16": {
+     "in": 0.22,
+     "out": 0.22
+    },
+    "deepinfra/fp8": {
+     "in": 0.02,
+     "out": 0.04
+    },
+    "groq": {
+     "in": 0.05,
+     "out": 0.08
+    }
+   },
+   "safety_retention": 0
+  },
+  "meta-llama/llama-3.2-1b-instruct": {
+   "hosts": {
+    "cloudflare": {
+     "in": 0.027,
+     "out": 0.201
+    }
+   },
+   "safety_retention": 0
+  },
+  "meta-llama/llama-3.2-3b-instruct": {
+   "hosts": {
+    "cloudflare": {
+     "in": 0.0509,
+     "out": 0.335
+    },
+    "parasail/bf16": {
+     "in": 0.05,
+     "out": 0.33
+    }
+   },
+   "safety_retention": 0
+  },
+  "meta-llama/llama-3.3-70b-instruct": {
+   "hosts": {
+    "akashml/fp8": {
+     "in": 0.2,
+     "out": 0.52
+    },
+    "cloudflare/fp8": {
+     "in": 0.293,
+     "out": 2.253
+    },
+    "coreweave/fp16": {
+     "in": 0.71,
+     "out": 0.71
+    },
+    "deepinfra/turbo": {
+     "in": 0.1,
+     "out": 0.32
+    },
+    "groq": {
+     "in": 0.59,
+     "out": 0.79
+    },
+    "parasail/fp8": {
+     "in": 0.22,
+     "out": 0.5
+    },
+    "sambanova-turbo": {
+     "in": 0.6,
+     "out": 1.2
+    }
+   },
+   "safety_retention": 2
+  },
+  "meta-llama/llama-4-maverick": {
+   "hosts": {
+    "parasail/fp8": {
+     "in": 0.35,
+     "out": 1
+    }
+   },
+   "safety_retention": 1
+  },
+  "meta-llama/llama-4-scout": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.1,
+     "out": 0.3
+    },
+    "deepinfra/fp8/flex": {
+     "in": 0.08,
+     "out": 0.24
+    },
+    "deepinfra/fp8/priority": {
+     "in": 0.15,
+     "out": 0.45
+    }
+   },
+   "safety_retention": 1
+  },
+  "meta-llama/llama-guard-4-12b": {
+   "hosts": {
+    "deepinfra/bf16": {
+     "in": 0.18,
+     "out": 0.18
+    },
+    "deepinfra/bf16/flex": {
+     "in": 0.144,
+     "out": 0.144
+    },
+    "deepinfra/bf16/priority": {
+     "in": 0.27,
+     "out": 0.27
+    }
+   },
+   "safety_retention": 0
+  },
+  "meta/muse-glimmer-30b": {
+   "hosts": {
+    "deepinfra/bf16": {
+     "in": 0.3,
+     "out": 1.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "meta/muse-spark-open": {
+   "hosts": {
+    "baseten/fp4": {
+     "in": 1.25,
+     "out": 4.25
+    },
+    "makora/fp4": {
+     "in": 1.25,
+     "out": 4.25
+    },
+    "modal": {
+     "in": 1.25,
+     "out": 4.25
+    },
+    "nebius/fp4": {
+     "in": 1.25,
+     "out": 4.25
+    },
+    "together": {
+     "in": 1.25,
+     "out": 4.25
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/mai-image-2.5": {
+   "hosts": {
+    "azure": {
+     "in": 5,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/mai-image-2.5-pro": {
+   "hosts": {
+    "azure": {
+     "in": 5,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/mai-image-2.6": {
+   "hosts": {
+    "azure": {
+     "in": 5,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/mai-image-2.6-flash": {
+   "hosts": {
+    "azure": {
+     "in": 1.75,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/mai-transcribe-1.5": {
+   "hosts": {
+    "azure": {
+     "in": 360000,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/mai-transcribe-2": {
+   "hosts": {
+    "azure": {
+     "in": 100000,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/mai-voice-2": {
+   "hosts": {
+    "azure": {
+     "in": 22,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/mai-voice-2-flash": {
+   "hosts": {
+    "azure": {
+     "in": 15,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/mai-voice-2.1": {
+   "hosts": {
+    "azure": {
+     "in": 22,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/mai-voice-2.1-flash": {
+   "hosts": {
+    "azure": {
+     "in": 15,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/microsoft-decision-1": {
+   "hosts": {
+    "azure": {
+     "in": 0.042,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "microsoft/phi-4": {
+   "hosts": {
+    "deepinfra/bf16": {
+     "in": 0.07,
+     "out": 0.14
+    },
+    "deepinfra/bf16/flex": {
+     "in": 0.056,
+     "out": 0.112
+    }
+   },
+   "safety_retention": 0
+  },
+  "minimax/minimax-m2.5": {
+   "hosts": {
+    "digitalocean": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "venice": {
+     "in": 0.27,
+     "out": 0.95
+    }
+   },
+   "safety_retention": 0
+  },
+  "minimax/minimax-m2.7": {
+   "hosts": {
+    "groq": {
+     "in": 0.6,
+     "out": 1.8
+    }
+   },
+   "safety_retention": 0
+  },
+  "minimax/minimax-m3": {
+   "hosts": {
+    "coreweave/fp4": {
+     "in": 0.23,
+     "out": 0.96
+    },
+    "deepinfra/fp8": {
+     "in": 0.28,
+     "out": 1.1
+    },
+    "deepinfra/fp8/flex": {
+     "in": 0.224,
+     "out": 0.88
+    },
+    "modelrun/fp8": {
+     "in": 0.3,
+     "out": 1.3
+    },
+    "novita/fp8": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "parasail/fast": {
+     "in": 0.45,
+     "out": 1.8
+    },
+    "parasail/fp8": {
+     "in": 0.3,
+     "out": 1.2
+    },
+    "venice/fp8": {
+     "in": 0.3,
+     "out": 1.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "minimax/minimax-m3.1-flash": {
+   "hosts": {
+    "digitalocean": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "fireworks": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "inference-net/fp4": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "inference-net/fp4/us": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "modelrun/fp4": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "nebius/fp4": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "novita/fp16": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "parasail/fp8": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "sambanova": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "together": {
+     "in": 0.15,
+     "out": 0.6
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/codestral-2508": {
+   "hosts": {
+    "mistral": {
+     "in": 0.3,
+     "out": 0.9
+    },
+    "mistral/eu": {
+     "in": 0.33,
+     "out": 0.99
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/codestral-embed-2505": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.165,
+     "out": 0
+    },
+    "mistral/zdr": {
+     "in": 0.15,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/devstral-2512": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.4,
+     "out": 2
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/ministral-14b-2512": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.22,
+     "out": 0.22
+    },
+    "mistral/zdr": {
+     "in": 0.2,
+     "out": 0.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/ministral-3b-2512": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.11,
+     "out": 0.11
+    },
+    "mistral/zdr": {
+     "in": 0.1,
+     "out": 0.1
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/ministral-8b-2512": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.165,
+     "out": 0.165
+    },
+    "mistral/zdr": {
+     "in": 0.15,
+     "out": 0.15
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-embed-2312": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.11,
+     "out": 0
+    },
+    "mistral/zdr": {
+     "in": 0.1,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-large": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 2.2,
+     "out": 6.6
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-large-2407": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 2.2,
+     "out": 6.6
+    },
+    "mistral/zdr": {
+     "in": 2,
+     "out": 6
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-large-2512": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.55,
+     "out": 1.65
+    },
+    "mistral/zdr": {
+     "in": 0.5,
+     "out": 1.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-large-4-0": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.77,
+     "out": 2.31
+    },
+    "mistral/zdr": {
+     "in": 0.7,
+     "out": 2.1
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-medium-3": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.44,
+     "out": 2.2
+    },
+    "mistral/zdr": {
+     "in": 0.4,
+     "out": 2
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-medium-3-5": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 1.65,
+     "out": 8.25
+    },
+    "mistral/zdr": {
+     "in": 1.5,
+     "out": 7.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-medium-3.1": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.44,
+     "out": 2.2
+    },
+    "mistral/zdr": {
+     "in": 0.4,
+     "out": 2
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-nemo": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.029,
+     "out": 0.03
+    },
+    "dekallm/fp8": {
+     "in": 0.018,
+     "out": 0.03
+    },
+    "io-net/fp16": {
+     "in": 0.01656,
+     "out": 0.0216
+    },
+    "mistral/eu": {
+     "in": 0.15,
+     "out": 0.15
+    },
+    "parasail/fp8": {
+     "in": 0.03,
+     "out": 0.03
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-saba": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.22,
+     "out": 0.66
+    },
+    "mistral/zdr": {
+     "in": 0.2,
+     "out": 0.6
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-small-24b-instruct-2501": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.05,
+     "out": 0.08
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-small-2603": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.165,
+     "out": 0.66
+    },
+    "mistral/us": {
+     "in": 0.165,
+     "out": 0.66
+    },
+    "mistral/zdr": {
+     "in": 0.15,
+     "out": 0.6
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-small-3.1-24b-instruct": {
+   "hosts": {
+    "cloudflare": {
+     "in": 0.351,
+     "out": 0.555
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mistral-small-3.2-24b-instruct": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.075,
+     "out": 0.2
+    },
+    "mistral/eu": {
+     "in": 0.1,
+     "out": 0.3
+    },
+    "parasail/bf16": {
+     "in": 0.09,
+     "out": 0.3
+    },
+    "venice/fp8": {
+     "in": 0.09375,
+     "out": 0.25
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/mixtral-8x22b-instruct": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 2.2,
+     "out": 6.6
+    },
+    "mistral/zdr": {
+     "in": 2,
+     "out": 6
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/voxtral-mini-3b-2507": {
+   "hosts": {
+    "deepinfra/bf16": {
+     "in": 16.6667,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/voxtral-mini-transcribe": {
+   "hosts": {
+    "mistral": {
+     "in": 50,
+     "out": 0
+    },
+    "mistral/eu": {
+     "in": 55,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/voxtral-mini-transcribe-3-0": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 64.1667,
+     "out": 0
+    },
+    "mistral/us": {
+     "in": 64.1667,
+     "out": 0
+    },
+    "mistral/zdr": {
+     "in": 58.3333,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/voxtral-mini-tts-2603": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 17.6,
+     "out": 0
+    },
+    "mistral/zdr": {
+     "in": 16,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/voxtral-mini-tts-3-0": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 14.3,
+     "out": 0
+    },
+    "mistral/zdr": {
+     "in": 13,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/voxtral-small-24b-2507": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 0.11,
+     "out": 0.33
+    },
+    "mistral/zdr": {
+     "in": 0.1,
+     "out": 0.3
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/voxtral-small-24b-2507-stt": {
+   "hosts": {
+    "deepinfra/bf16": {
+     "in": 50,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "mistralai/voxtral-small-transcribe-3-0": {
+   "hosts": {
+    "mistral/eu": {
+     "in": 73.3333,
+     "out": 0
+    },
+    "mistral/us": {
+     "in": 73.3333,
+     "out": 0
+    },
+    "mistral/zdr": {
+     "in": 66.6667,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "moondream/moondream3-preview": {
+   "hosts": {
+    "primeintellect/fp8": {
+     "in": 0.3,
+     "out": 2.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "moondream/moondream3.1-9b-a2b": {
+   "hosts": {
+    "primeintellect/fp8": {
+     "in": 0.3,
+     "out": 2.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "moondream/parakeet-ultra": {
+   "hosts": {
+    "primeintellect/bf16": {
+     "in": 16.6667,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "moonshotai/kimi-k2": {
+   "hosts": {
+    "novita/fp8": {
+     "in": 0.57,
+     "out": 2.3
+    }
+   },
+   "safety_retention": 0
+  },
+  "moonshotai/kimi-k2-0905": {
+   "hosts": {
+    "novita/fp8": {
+     "in": 0.6,
+     "out": 2.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "moonshotai/kimi-k2-thinking": {
+   "hosts": {
+    "novita/bf16": {
+     "in": 0.6,
+     "out": 2.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "moonshotai/kimi-k2.5": {
+   "hosts": {
+    "amazon-bedrock/us-east-2": {
+     "in": 0.6,
+     "out": 3
+    },
+    "novita": {
+     "in": 0.57,
+     "out": 2.85
+    },
+    "siliconflow/int4": {
+     "in": 0.5,
+     "out": 2.5
+    },
+    "venice": {
+     "in": 0.532,
+     "out": 3.325
+    }
+   },
+   "safety_retention": 0
+  },
+  "moonshotai/kimi-k2.6": {
+   "hosts": {
+    "cloudflare": {
+     "in": 0.95,
+     "out": 4
+    },
+    "coreweave/fp4": {
+     "in": 0.65,
+     "out": 3.41
+    },
+    "crusoe/bf16": {
+     "in": 0.7,
+     "out": 3.5
+    },
+    "deepinfra/fp4": {
+     "in": 0.75,
+     "out": 3.5
+    },
+    "digitalocean": {
+     "in": 0.57,
+     "out": 2.4
+    },
+    "inceptron/int4": {
+     "in": 0.7995,
+     "out": 3.75
+    },
+    "moonshotai": {
+     "in": 0.95,
+     "out": 4
+    },
+    "novita": {
+     "in": 0.8,
+     "out": 3.4
+    },
+    "parasail/int4": {
+     "in": 0.75,
+     "out": 3.5
+    },
+    "phala": {
+     "in": 1.09,
+     "out": 4.6
+    },
+    "siliconflow/fp8": {
+     "in": 0.77,
+     "out": 3.4
+    },
+    "venice/int4": {
+     "in": 0.75,
+     "out": 3.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "moonshotai/kimi-k2.7-code": {
+   "hosts": {
+    "cloudflare": {
+     "in": 0.95,
+     "out": 4
+    },
+    "coreweave/int4": {
+     "in": 0.6,
+     "out": 3
+    },
+    "inceptron/int4": {
+     "in": 0.6,
+     "out": 3.5
+    },
+    "moonshotai": {
+     "in": 0.95,
+     "out": 4
+    },
+    "moonshotai/highspeed": {
+     "in": 1.9,
+     "out": 8
+    },
+    "novita/int4": {
+     "in": 0.912,
+     "out": 3.84
+    },
+    "siliconflow/fp8": {
+     "in": 0.85916,
+     "out": 3.8
+    },
+    "venice/int4": {
+     "in": 0.75,
+     "out": 3.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "moonshotai/kimi-k3": {
+   "hosts": {
+    "amazon-bedrock/us-east-2": {
+     "in": 3,
+     "out": 15
+    },
+    "baseten/fp8": {
+     "in": 3,
+     "out": 15
+    },
+    "decart/mxfp4": {
+     "in": 1.95,
+     "out": 9.75
+    },
+    "deepinfra/mxfp4": {
+     "in": 2.85,
+     "out": 14.25
+    },
+    "digitalocean": {
+     "in": 2.55,
+     "out": 12.95
+    },
+    "fireworks": {
+     "in": 3,
+     "out": 15
+    },
+    "fireworks/fast": {
+     "in": 4.5,
+     "out": 22.5
+    },
+    "fireworks/us": {
+     "in": 4.5,
+     "out": 22.5
+    },
+    "inference-net/fast": {
+     "in": 0.45,
+     "out": 18
+    },
+    "inference-net/fp4": {
+     "in": 0.234,
+     "out": 15
+    },
+    "inference-net/us": {
+     "in": 0.234,
+     "out": 15
+    },
+    "inference-net/us/fast": {
+     "in": 0.45,
+     "out": 18
+    },
+    "io-net/fp4": {
+     "in": 2.3,
+     "out": 14
+    },
+    "makora/fp4": {
+     "in": 1,
+     "out": 16
+    },
+    "modal/mxfp4": {
+     "in": 3,
+     "out": 15
+    },
+    "moonshotai": {
+     "in": 3,
+     "out": 15
+    },
+    "parasail/fast": {
+     "in": 4.5,
+     "out": 22.5
+    },
+    "parasail/fp4": {
+     "in": 3,
+     "out": 15
+    },
+    "pareto-alpha/us": {
+     "in": 1,
+     "out": 11.25
+    },
+    "phala": {
+     "in": 2.55,
+     "out": 12.75
+    },
+    "relace/fp4": {
+     "in": 0.1824,
+     "out": 9.3388
+    },
+    "sail-research/fp4": {
+     "in": 0.276,
+     "out": 13.264
+    },
+    "sail-research/fp4/us": {
+     "in": 0.281,
+     "out": 13.498
+    },
+    "together": {
+     "in": 3,
+     "out": 15
+    },
+    "wafer": {
+     "in": 0.192,
+     "out": 16
+    },
+    "wafer/fast": {
+     "in": 0.181,
+     "out": 16
+    },
+    "wafer/us": {
+     "in": 0.276,
+     "out": 9.6
+    }
+   },
+   "safety_retention": 0
+  },
+  "moonshotai/kimi-k3.1-pro": {
+   "hosts": {
+    "akashml/fp4": {
+     "in": 1.75,
+     "out": 10
+    },
+    "deepinfra/bf16": {
+     "in": 1.9,
+     "out": 9.5
+    },
+    "digitalocean": {
+     "in": 2,
+     "out": 10
+    },
+    "fireworks": {
+     "in": 2,
+     "out": 10
+    },
+    "inference-net/fast": {
+     "in": 2.7,
+     "out": 13.5
+    },
+    "inference-net/mxfp4": {
+     "in": 1.8,
+     "out": 9
+    },
+    "inference-net/mxfp4/us": {
+     "in": 1.8,
+     "out": 9
+    },
+    "inference-net/us/fast": {
+     "in": 2.7,
+     "out": 13.5
+    },
+    "modal/mxfp4": {
+     "in": 2,
+     "out": 10
+    },
+    "moonshotai/highspeed": {
+     "in": 4,
+     "out": 20
+    },
+    "moonshotai/mxfp4": {
+     "in": 2,
+     "out": 10
+    },
+    "morph/fp8": {
+     "in": 1.676,
+     "out": 12
+    },
+    "nebius/fp4": {
+     "in": 2,
+     "out": 10
+    },
+    "parasail/fp4": {
+     "in": 2,
+     "out": 10
+    },
+    "phala": {
+     "in": 2,
+     "out": 10
+    },
+    "phala/us": {
+     "in": 1.8,
+     "out": 8.2
+    },
+    "primalabs/mxfp4": {
+     "in": 1.8,
+     "out": 9
+    },
+    "relace/fp4": {
+     "in": 0.3926,
+     "out": 10.5634
+    },
+    "sail-research/fp4": {
+     "in": 1.5,
+     "out": 10
+    },
+    "sail-research/fp4/us": {
+     "in": 1.1,
+     "out": 10
+    },
+    "together": {
+     "in": 2,
+     "out": 10
+    },
+    "wafer/mxfp4": {
+     "in": 1.8,
+     "out": 9
+    },
+    "wafer/us": {
+     "in": 0.15,
+     "out": 10
+    }
+   },
+   "safety_retention": 0
+  },
+  "morph/morph-v3-fast": {
+   "hosts": {
+    "morph/fp8": {
+     "in": 0.8,
+     "out": 1.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "morph/morph-v3-large": {
+   "hosts": {
+    "morph/fp8": {
+     "in": 0.9,
+     "out": 1.9
+    }
+   },
+   "safety_retention": 0
+  },
+  "morph/reflex": {
+   "hosts": {
+    "morph/bf16": {
+     "in": 0.042,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "nace-ai/drex-max": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.06,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "nace-ai/drex-max-finance": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.06,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "nace-ai/drex-v1.5": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.04,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "nace-ai/drex-v2.0": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.06,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "nousresearch/hermes-4-405b": {
+   "hosts": {
+    "nebius/fp8": {
+     "in": 1,
+     "out": 3
+    }
+   },
+   "safety_retention": 0
+  },
+  "nvidia/nemotron-3-nano-30b-a3b": {
+   "hosts": {
+    "nebius/fp8": {
+     "in": 0.06,
+     "out": 0.24
+    }
+   },
+   "safety_retention": 0
+  },
+  "nvidia/nemotron-3-super-120b-a12b": {
+   "hosts": {
+    "crusoe/fp8": {
+     "in": 0.3,
+     "out": 2.4
+    },
+    "deepinfra/bf16": {
+     "in": 0.075,
+     "out": 0.4
+    },
+    "dekallm/fp8": {
+     "in": 0.08,
+     "out": 0.45
+    }
+   },
+   "safety_retention": 0
+  },
+  "nvidia/nemotron-3-ultra-550b-a55b": {
+   "hosts": {
+    "baseten/fp4": {
+     "in": 0.6,
+     "out": 2.4
+    },
+    "baseten/fp4/us": {
+     "in": 0.6,
+     "out": 2.4
+    },
+    "deepinfra/fp4": {
+     "in": 0.5,
+     "out": 2.2
+    },
+    "deepinfra/fp4/flex": {
+     "in": 0.4,
+     "out": 1.76
+    },
+    "venice/fp8": {
+     "in": 0.625,
+     "out": 3.125
+    }
+   },
+   "safety_retention": 0
+  },
+  "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 3.33,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "nvidia/nemotron-3.5-content-safety": {
+   "hosts": {
+    "deepinfra/bf16": {
+     "in": 0.2,
+     "out": 0.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "nvidia/nemotron-3.5-lightning": {
+   "hosts": {
+    "coreweave/bf16": {
+     "in": 0.07,
+     "out": 0.2
+    },
+    "deepinfra/bf16": {
+     "in": 0.06,
+     "out": 0.16
+    },
+    "fireworks": {
+     "in": 0.05,
+     "out": 0.2
+    },
+    "io-net": {
+     "in": 0.0469,
+     "out": 0.134
+    }
+   },
+   "safety_retention": 0
+  },
+  "nvidia/nemotron-3.5-super-vl": {
+   "hosts": {
+    "baseten/fp4": {
+     "in": 0.2,
+     "out": 0.5
+    },
+    "coreweave/nvfp4": {
+     "in": 0.15,
+     "out": 0.47
+    },
+    "crusoe/bf16": {
+     "in": 0.1,
+     "out": 0.4
+    },
+    "deepinfra/fp4": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "io-net/nvfp4": {
+     "in": 0.09,
+     "out": 0.3
+    },
+    "nebius/bf16": {
+     "in": 0.3,
+     "out": 0.9
+    },
+    "primeintellect/nvfp4": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "together": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "venice/fp4": {
+     "in": 0.2,
+     "out": 0.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "nvidia/nemotron-3.5-transcribe": {
+   "hosts": {
+    "deepinfra/bf16": {
+     "in": 33.3,
+     "out": 0
+    },
+    "primeintellect/bf16": {
+     "in": 16.6667,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "nvidia/parakeet-tdt-0.6b-v3": {
+   "hosts": {
+    "primeintellect/bf16": {
+     "in": 16.6667,
+     "out": 0
+    },
+    "together": {
+     "in": 25,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-3.5-turbo-0613": {
+   "hosts": {
+    "azure": {
+     "in": 1,
+     "out": 2
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-3.5-turbo-16k": {
+   "hosts": {
+    "azure": {
+     "in": 3,
+     "out": 4
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-4": {
+   "hosts": {
+    "azure": {
+     "in": 30,
+     "out": 60
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-4.1": {
+   "hosts": {
+    "azure": {
+     "in": 2,
+     "out": 8
+    },
+    "azure/swedencentral": {
+     "in": 2.2,
+     "out": 8.8
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-4.1-mini": {
+   "hosts": {
+    "azure": {
+     "in": 0.4,
+     "out": 1.6
+    },
+    "azure/swedencentral": {
+     "in": 0.44,
+     "out": 1.76
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-4.1-nano": {
+   "hosts": {
+    "azure": {
+     "in": 0.1,
+     "out": 0.4
+    },
+    "azure/swedencentral": {
+     "in": 0.11,
+     "out": 0.44
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-4o": {
+   "hosts": {
+    "azure": {
+     "in": 2.5,
+     "out": 10
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-4o-2024-05-13": {
+   "hosts": {
+    "azure": {
+     "in": 5,
+     "out": 15
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-4o-2024-08-06": {
+   "hosts": {
+    "azure": {
+     "in": 2.5,
+     "out": 10
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-4o-mini": {
+   "hosts": {
+    "azure": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "azure/swedencentral": {
+     "in": 0.165,
+     "out": 0.66
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5": {
+   "hosts": {
+    "azure": {
+     "in": 1.25,
+     "out": 10
+    },
+    "azure/swedencentral": {
+     "in": 1.375,
+     "out": 11
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5-mini": {
+   "hosts": {
+    "azure": {
+     "in": 0.25,
+     "out": 2
+    },
+    "azure/swedencentral": {
+     "in": 0.275,
+     "out": 2.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5-nano": {
+   "hosts": {
+    "azure": {
+     "in": 0.05,
+     "out": 0.4
+    },
+    "azure/swedencentral": {
+     "in": 0.055,
+     "out": 0.44
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.1": {
+   "hosts": {
+    "azure": {
+     "in": 1.25,
+     "out": 10
+    },
+    "azure/swedencentral": {
+     "in": 1.375,
+     "out": 11
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.1-codex": {
+   "hosts": {
+    "azure": {
+     "in": 1.25,
+     "out": 10
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.1-codex-max": {
+   "hosts": {
+    "azure": {
+     "in": 1.25,
+     "out": 10
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.1-codex-mini": {
+   "hosts": {
+    "azure": {
+     "in": 0.25,
+     "out": 2
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.2": {
+   "hosts": {
+    "azure": {
+     "in": 1.75,
+     "out": 14
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.2-chat": {
+   "hosts": {
+    "azure": {
+     "in": 1.75,
+     "out": 14
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.2-codex": {
+   "hosts": {
+    "azure": {
+     "in": 1.75,
+     "out": 14
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.3-codex": {
+   "hosts": {
+    "azure": {
+     "in": 1.75,
+     "out": 14
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.4": {
+   "hosts": {
+    "azure": {
+     "in": 2.5,
+     "out": 15
+    },
+    "azure/eu": {
+     "in": 2.75,
+     "out": 16.5
+    },
+    "azure/us": {
+     "in": 2.75,
+     "out": 16.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.4-mini": {
+   "hosts": {
+    "azure": {
+     "in": 0.75,
+     "out": 4.5
+    },
+    "azure/us": {
+     "in": 0.825,
+     "out": 4.95
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.4-nano": {
+   "hosts": {
+    "azure": {
+     "in": 0.2,
+     "out": 1.25
+    },
+    "azure/us": {
+     "in": 0.22,
+     "out": 1.375
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.4-pro": {
+   "hosts": {
+    "azure": {
+     "in": 30,
+     "out": 180
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.5": {
+   "hosts": {
+    "azure": {
+     "in": 5,
+     "out": 30
+    },
+    "azure/eu": {
+     "in": 5.5,
+     "out": 33
+    },
+    "azure/us": {
+     "in": 5.5,
+     "out": 33
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.6-luna": {
+   "hosts": {
+    "azure": {
+     "in": 0.2,
+     "out": 1.2
+    },
+    "azure/eu": {
+     "in": 0.22,
+     "out": 1.32
+    },
+    "azure/us": {
+     "in": 0.22,
+     "out": 1.32
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.6-luna-pro": {
+   "hosts": {
+    "azure": {
+     "in": 0.2,
+     "out": 1.2
+    },
+    "azure/eu": {
+     "in": 0.22,
+     "out": 1.32
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.6-sol": {
+   "hosts": {
+    "azure": {
+     "in": 4,
+     "out": 20
+    },
+    "azure/eu": {
+     "in": 4.4,
+     "out": 22
+    },
+    "azure/us": {
+     "in": 4.4,
+     "out": 22
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.6-sol-pro": {
+   "hosts": {
+    "azure": {
+     "in": 4,
+     "out": 20
+    },
+    "azure/eu": {
+     "in": 4.4,
+     "out": 22
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.6-terra": {
+   "hosts": {
+    "azure": {
+     "in": 2,
+     "out": 12
+    },
+    "azure/eu": {
+     "in": 2.2,
+     "out": 13.2
+    },
+    "azure/us": {
+     "in": 2.2,
+     "out": 13.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-5.6-terra-pro": {
+   "hosts": {
+    "azure": {
+     "in": 2,
+     "out": 12
+    },
+    "azure/eu": {
+     "in": 2.2,
+     "out": 13.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-6-astra": {
+   "hosts": {
+    "azure": {
+     "in": 10,
+     "out": 50
+    },
+    "azure/us": {
+     "in": 11,
+     "out": 55
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-6-astra-pro": {
+   "hosts": {
+    "azure": {
+     "in": 10,
+     "out": 50
+    },
+    "azure/us": {
+     "in": 11,
+     "out": 55
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-6-luna": {
+   "hosts": {
+    "azure": {
+     "in": 0.1,
+     "out": 0.5
+    },
+    "azure/eu": {
+     "in": 0.11,
+     "out": 0.55
+    },
+    "azure/us": {
+     "in": 0.11,
+     "out": 0.55
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-6-luna-decisions": {
+   "hosts": {
+    "azure": {
+     "in": 0.1,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-6-luna-pro": {
+   "hosts": {
+    "azure": {
+     "in": 0.1,
+     "out": 0.5
+    },
+    "azure/eu": {
+     "in": 0.11,
+     "out": 0.55
+    },
+    "azure/us": {
+     "in": 0.11,
+     "out": 0.55
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-6-sol": {
+   "hosts": {
+    "azure": {
+     "in": 2,
+     "out": 10
+    },
+    "azure/eu": {
+     "in": 2.2,
+     "out": 11
+    },
+    "azure/us": {
+     "in": 2.2,
+     "out": 11
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-6-sol-pro": {
+   "hosts": {
+    "azure": {
+     "in": 2,
+     "out": 10
+    },
+    "azure/eu": {
+     "in": 2.2,
+     "out": 11
+    },
+    "azure/us": {
+     "in": 2.2,
+     "out": 11
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-6.1-sol": {
+   "hosts": {
+    "azure": {
+     "in": 2,
+     "out": 10
+    },
+    "azure/eu": {
+     "in": 2.2,
+     "out": 11
+    },
+    "azure/us": {
+     "in": 2.2,
+     "out": 11
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-6.1-sol-pro": {
+   "hosts": {
+    "azure": {
+     "in": 2,
+     "out": 10
+    },
+    "azure/eu": {
+     "in": 2.2,
+     "out": 11
+    },
+    "azure/us": {
+     "in": 2.2,
+     "out": 11
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-6.1-terra": {
+   "hosts": {
+    "azure": {
+     "in": 1,
+     "out": 5
+    },
+    "azure/eu": {
+     "in": 1.2,
+     "out": 6
+    },
+    "azure/us": {
+     "in": 1.1,
+     "out": 5.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-6.1-terra-pro": {
+   "hosts": {
+    "azure": {
+     "in": 1,
+     "out": 5
+    },
+    "azure/eu": {
+     "in": 1.2,
+     "out": 6
+    },
+    "azure/us": {
+     "in": 1.1,
+     "out": 5.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-oss-120b": {
+   "hosts": {
+    "akashml/fp4": {
+     "in": 0.03,
+     "out": 0.187
+    },
+    "amazon-bedrock": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "baseten/fp4": {
+     "in": 0.1,
+     "out": 0.5
+    },
+    "baseten/fp4/us": {
+     "in": 0.1,
+     "out": 0.5
+    },
+    "cerebras/fp16": {
+     "in": 0.35,
+     "out": 0.75
+    },
+    "coreweave/fp4": {
+     "in": 0.03,
+     "out": 0.17
+    },
+    "crusoe/bf16": {
+     "in": 0.05,
+     "out": 0.25
+    },
+    "deepinfra/bf16": {
+     "in": 0.037,
+     "out": 0.17
+    },
+    "deepinfra/fp8": {
+     "in": 0.2,
+     "out": 0.95
+    },
+    "dekallm/bf16": {
+     "in": 0.03,
+     "out": 0.18
+    },
+    "digitalocean": {
+     "in": 0.06,
+     "out": 0.42
+    },
+    "groq": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "mancer/fp8": {
+     "in": 0.055,
+     "out": 0.25
+    },
+    "near-ai/fp4": {
+     "in": 0.03,
+     "out": 0.15
+    },
+    "nebius/fp4": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "parasail/fast": {
+     "in": 0.15,
+     "out": 0.75
+    },
+    "parasail/fp4": {
+     "in": 0.1,
+     "out": 0.75
+    },
+    "phala": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "primeintellect/fp4": {
+     "in": 0.051,
+     "out": 0.109
+    },
+    "sail-research/fp4": {
+     "in": 0.06,
+     "out": 0.4
+    },
+    "sambanova": {
+     "in": 0.14,
+     "out": 0.95
+    },
+    "siliconflow/fp8": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "together": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "venice/int4": {
+     "in": 0.03,
+     "out": 0.15
+    }
+   },
+   "safety_retention": 1
+  },
+  "openai/gpt-oss-20b": {
+   "hosts": {
+    "akashml/fp4": {
+     "in": 0.02,
+     "out": 0.1
+    },
+    "amazon-bedrock": {
+     "in": 0.07,
+     "out": 0.15
+    },
+    "amazon-bedrock/eu-west-1": {
+     "in": 0.07,
+     "out": 0.15
+    },
+    "coreweave/fp4": {
+     "in": 0.03,
+     "out": 0.13
+    },
+    "deepinfra/bf16": {
+     "in": 0.03,
+     "out": 0.14
+    },
+    "dekallm/bf16": {
+     "in": 0.029,
+     "out": 0.14
+    },
+    "groq": {
+     "in": 0.075,
+     "out": 0.3
+    },
+    "parasail/fp4": {
+     "in": 0.03,
+     "out": 0.15
+    },
+    "primeintellect/fp4": {
+     "in": 0.02,
+     "out": 0.03
+    },
+    "siliconflow/fp8": {
+     "in": 0.04,
+     "out": 0.18
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/gpt-oss-safeguard-20b": {
+   "hosts": {
+    "groq": {
+     "in": 0.075,
+     "out": 0.3
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/text-embedding-3-large": {
+   "hosts": {
+    "azure": {
+     "in": 0.13,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/text-embedding-3-small": {
+   "hosts": {
+    "azure": {
+     "in": 0.02,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/whisper-large-v3": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 7.5,
+     "out": 0
+    },
+    "groq": {
+     "in": 30.83333333,
+     "out": 0
+    },
+    "together": {
+     "in": 25,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "openai/whisper-large-v3-turbo": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 3.33,
+     "out": 0
+    },
+    "groq": {
+     "in": 11.11111111,
+     "out": 0
+    },
+    "primeintellect/bf16": {
+     "in": 11.11111111,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "particle-ai/particle-1": {
+   "hosts": {
+    "particle-ai/us": {
+     "in": 0.05,
+     "out": 0.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "perceptron/perceptron-mk1": {
+   "hosts": {
+    "perceptron": {
+     "in": 0.15,
+     "out": 1.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "perceptron/perceptron-mk1.5": {
+   "hosts": {
+    "perceptron": {
+     "in": 0.15,
+     "out": 1.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "perplexity/pplx-decider-flash-v1.2": {
+   "hosts": {
+    "perplexity": {
+     "in": 0.01,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "perplexity/pplx-decider-v1.2": {
+   "hosts": {
+    "perplexity": {
+     "in": 0.02,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "perplexity/pplx-embed-v1-0.6b": {
+   "hosts": {
+    "perplexity/int8": {
+     "in": 0.004,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "perplexity/pplx-embed-v1-4b": {
+   "hosts": {
+    "perplexity/int8": {
+     "in": 0.03,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "perplexity/sonar": {
+   "hosts": {
+    "perplexity": {
+     "in": 1,
+     "out": 1
+    }
+   },
+   "safety_retention": 0
+  },
+  "perplexity/sonar-deep-research": {
+   "hosts": {
+    "perplexity": {
+     "in": 2,
+     "out": 8
+    }
+   },
+   "safety_retention": 0
+  },
+  "perplexity/sonar-pro": {
+   "hosts": {
+    "perplexity": {
+     "in": 3,
+     "out": 15
+    }
+   },
+   "safety_retention": 0
+  },
+  "perplexity/sonar-pro-search": {
+   "hosts": {
+    "perplexity": {
+     "in": 3,
+     "out": 15
+    }
+   },
+   "safety_retention": 0
+  },
+  "perplexity/sonar-reasoning-pro": {
+   "hosts": {
+    "perplexity": {
+     "in": 2,
+     "out": 8
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen-2.5-72b-instruct": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.36,
+     "out": 0.4
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen-2.5-7b-instruct": {
+   "hosts": {
+    "phala": {
+     "in": 0.1,
+     "out": 0.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen-2.5-coder-32b-instruct": {
+   "hosts": {
+    "cloudflare": {
+     "in": 0.66,
+     "out": 1
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen2.5-vl-72b-instruct": {
+   "hosts": {
+    "parasail/fp8": {
+     "in": 0.8,
+     "out": 1
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-14b": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.12,
+     "out": 0.24
+    },
+    "nextbit/int4": {
+     "in": 0.1,
+     "out": 0.22
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-235b-a22b-2507": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.09,
+     "out": 0.55
+    },
+    "parasail/fp8": {
+     "in": 0.14,
+     "out": 0.8
+    },
+    "venice/fp8": {
+     "in": 0.15,
+     "out": 0.75
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-235b-a22b-thinking-2507": {
+   "hosts": {
+    "venice/fp8": {
+     "in": 0.45,
+     "out": 3.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-30b-a3b": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.12,
+     "out": 0.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-30b-a3b-instruct-2507": {
+   "hosts": {
+    "dekallm": {
+     "in": 0.09,
+     "out": 0.3
+    },
+    "nebius/fp8": {
+     "in": 0.1,
+     "out": 0.3
+    },
+    "siliconflow/fp8": {
+     "in": 0.09,
+     "out": 0.3
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-32b": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.08,
+     "out": 0.28
+    },
+    "siliconflow/fp8": {
+     "in": 0.14,
+     "out": 0.57
+    },
+    "tenstorrent/fp8": {
+     "in": 0.14,
+     "out": 0.4
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-asr-0.6b": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 3.33,
+     "out": 0
+    },
+    "primeintellect/bf16": {
+     "in": 3.33,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-asr-1.7b": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 7.5,
+     "out": 0
+    },
+    "primeintellect/bf16": {
+     "in": 7.5,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-coder": {
+   "hosts": {
+    "deepinfra/turbo": {
+     "in": 0.3,
+     "out": 1
+    },
+    "venice/fp8": {
+     "in": 0.35,
+     "out": 1.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-coder-30b-a3b-instruct": {
+   "hosts": {
+    "amazon-bedrock/us-west-2": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "siliconflow/fp8": {
+     "in": 0.07,
+     "out": 0.28
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-coder-next": {
+   "hosts": {
+    "parasail/bf16": {
+     "in": 0.12,
+     "out": 0.8
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-embedding-4b": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.02,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-embedding-8b": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.01,
+     "out": 0
+    },
+    "nebius/bf16": {
+     "in": 0.01,
+     "out": 0
+    },
+    "siliconflow/fp8": {
+     "in": 0.04,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-next-80b-a3b-instruct": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.09,
+     "out": 1.1
+    },
+    "deepinfra/fp8/flex": {
+     "in": 0.072,
+     "out": 0.88
+    },
+    "deepinfra/fp8/priority": {
+     "in": 0.135,
+     "out": 1.65
+    },
+    "parasail/fp8": {
+     "in": 0.1,
+     "out": 1.1
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-reranker-8b": {
+   "hosts": {
+    "fireworks": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-vl-235b-a22b-instruct": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.2,
+     "out": 0.88
+    },
+    "parasail/fp8": {
+     "in": 0.21,
+     "out": 1.9
+    },
+    "venice/fp8": {
+     "in": 0.21,
+     "out": 1.9
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-vl-30b-a3b-instruct": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.15,
+     "out": 0.6
+    },
+    "novita/bf16": {
+     "in": 0.2,
+     "out": 0.7
+    },
+    "siliconflow/fp8": {
+     "in": 0.29,
+     "out": 1
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-vl-30b-a3b-thinking": {
+   "hosts": {
+    "siliconflow/fp8": {
+     "in": 0.29,
+     "out": 1
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3-vl-8b-instruct": {
+   "hosts": {
+    "parasail/bf16": {
+     "in": 0.25,
+     "out": 0.75
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3.5-122b-a10b": {
+   "hosts": {
+    "novita/bf16": {
+     "in": 0.4,
+     "out": 3.2
+    },
+    "siliconflow/fp8": {
+     "in": 0.26,
+     "out": 2.08
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3.5-27b": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.26,
+     "out": 2.6
+    },
+    "novita/bf16": {
+     "in": 0.3,
+     "out": 2.4
+    },
+    "phala": {
+     "in": 0.3,
+     "out": 2.4
+    },
+    "siliconflow/fp8": {
+     "in": 0.25,
+     "out": 2
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3.5-35b-a3b": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.14,
+     "out": 1
+    },
+    "parasail/fp8": {
+     "in": 0.15,
+     "out": 1
+    },
+    "siliconflow/fp8": {
+     "in": 0.24,
+     "out": 1.8
+    },
+    "venice": {
+     "in": 0.15,
+     "out": 1
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3.5-397b-a17b": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.45,
+     "out": 3
+    },
+    "novita": {
+     "in": 0.6,
+     "out": 3.6
+    },
+    "parasail/fp8": {
+     "in": 0.5,
+     "out": 3.6
+    },
+    "phala": {
+     "in": 0.55,
+     "out": 3.5
+    },
+    "venice": {
+     "in": 0.75,
+     "out": 4.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3.5-9b": {
+   "hosts": {
+    "deepinfra/bf16": {
+     "in": 0.1,
+     "out": 0.15
+    },
+    "parasail/bf16": {
+     "in": 0.1,
+     "out": 0.25
+    },
+    "primeintellect/bf16": {
+     "in": 0.106,
+     "out": 0.156
+    },
+    "siliconflow/fp8": {
+     "in": 0.1,
+     "out": 0.15
+    },
+    "together": {
+     "in": 0.17,
+     "out": 0.25
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3.6-27b": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.32,
+     "out": 3.2
+    },
+    "phala": {
+     "in": 0.32,
+     "out": 3.25
+    },
+    "reka": {
+     "in": 0.2,
+     "out": 3
+    },
+    "siliconflow/fp8": {
+     "in": 0.3,
+     "out": 3.2
+    },
+    "venice/fp8": {
+     "in": 0.325,
+     "out": 3.25
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3.6-35b-a3b": {
+   "hosts": {
+    "akashml/fp8": {
+     "in": 0.1,
+     "out": 0.9
+    },
+    "coreweave/fp8": {
+     "in": 0.1,
+     "out": 0.89
+    },
+    "deepinfra/fp8": {
+     "in": 0.1,
+     "out": 0.95
+    },
+    "dekallm": {
+     "in": 0.1,
+     "out": 1
+    },
+    "parasail/fp8": {
+     "in": 0.1,
+     "out": 0.9
+    },
+    "phala": {
+     "in": 0.2,
+     "out": 1.27
+    },
+    "primeintellect/fp8": {
+     "in": 0.012,
+     "out": 0.109
+    },
+    "siliconflow/fp8": {
+     "in": 0.24,
+     "out": 1.8
+    },
+    "venice/fp8": {
+     "in": 0.1,
+     "out": 1
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3.8-2.4t-a95b": {
+   "hosts": {
+    "novita": {
+     "in": 2,
+     "out": 6
+    },
+    "siliconflow/fp8": {
+     "in": 2,
+     "out": 6
+    },
+    "venice": {
+     "in": 2,
+     "out": 6
+    }
+   },
+   "safety_retention": 0
+  },
+  "qwen/qwen3.8-27b": {
+   "hosts": {
+    "akashml/fp8": {
+     "in": 0.225,
+     "out": 1.98
+    },
+    "cerebras/fp16": {
+     "in": 0.99,
+     "out": 1.49
+    },
+    "cloudflare": {
+     "in": 0.45,
+     "out": 3.2
+    },
+    "coreweave/fp8": {
+     "in": 0.4,
+     "out": 3
+    },
+    "deepinfra/bf16": {
+     "in": 0.15,
+     "out": 1.875
+    },
+    "dekallm": {
+     "in": 0.04,
+     "out": 2.5
+    },
+    "ionstream/fp8": {
+     "in": 0.04,
+     "out": 1.95
+    },
+    "mancer/fp8": {
+     "in": 0.15,
+     "out": 1.25
+    },
+    "modal": {
+     "in": 0.04,
+     "out": 2.3
+    },
+    "modelrun/fp4": {
+     "in": 0.2,
+     "out": 2.5
+    },
+    "near-ai/fp8": {
+     "in": 0.04,
+     "out": 1.35
+    },
+    "nebius/fp4": {
+     "in": 0.45,
+     "out": 3
+    },
+    "novita": {
+     "in": 0.42,
+     "out": 3
+    },
+    "parasail/fp8": {
+     "in": 0.24,
+     "out": 2.2
+    },
+    "phala": {
+     "in": 0.2,
+     "out": 2.5
+    },
+    "primeintellect/fp8": {
+     "in": 0.13,
+     "out": 0.924
+    },
+    "reka/fp8": {
+     "in": 0.15,
+     "out": 2.5
+    },
+    "tenstorrent/fp8": {
+     "in": 0.15,
+     "out": 1.6
+    },
+    "venice/fp8": {
+     "in": 0.45,
+     "out": 3.2
+    },
+    "wafer/fp8": {
+     "in": 0.06,
+     "out": 2.3
+    }
+   },
+   "safety_retention": 0
+  },
+  "reflection/beam-1.0-501b-a23b": {
+   "hosts": {
+    "baseten/fp4": {
+     "in": 0.4,
+     "out": 1.2
+    },
+    "coreweave/nvfp4": {
+     "in": 0.3,
+     "out": 1
+    },
+    "digitalocean": {
+     "in": 0.4,
+     "out": 1.2
+    },
+    "nebius/fp4": {
+     "in": 0.25,
+     "out": 1
+    },
+    "together": {
+     "in": 0.4,
+     "out": 1.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "rekaai/reka-edge": {
+   "hosts": {
+    "reka": {
+     "in": 0.1,
+     "out": 0.1
+    }
+   },
+   "safety_retention": 0
+  },
+  "rekaai/reka-flash-3": {
+   "hosts": {
+    "reka": {
+     "in": 0.1,
+     "out": 0.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "relace/relace-apply-3": {
+   "hosts": {
+    "relace/fp8": {
+     "in": 0.85,
+     "out": 1.25
+    }
+   },
+   "safety_retention": 0
+  },
+  "relace/relace-search": {
+   "hosts": {
+    "relace/bf16": {
+     "in": 1,
+     "out": 3
+    }
+   },
+   "safety_retention": 0
+  },
+  "ricursiveai/ripple-65b-preview": {
+   "hosts": {
+    "primeintellect/bf16": {
+     "in": 0.1,
+     "out": 0.3
+    },
+    "together": {
+     "in": 0.2,
+     "out": 0.6
+    }
+   },
+   "safety_retention": 0
+  },
+  "sao10k/l3-lunaris-8b": {
+   "hosts": {
+    "deepinfra/turbo": {
+     "in": 0.04,
+     "out": 0.05
+    },
+    "parasail/bf16": {
+     "in": 0.04,
+     "out": 0.05
+    }
+   },
+   "safety_retention": 0
+  },
+  "sao10k/l3.1-euryale-70b": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.85,
+     "out": 0.85
+    }
+   },
+   "safety_retention": 0
+  },
+  "scaledown/classify-1": {
+   "hosts": {
+    "scaledown": {
+     "in": 0.04,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "scaledown/extract": {
+   "hosts": {
+    "scaledown": {
+     "in": 0.04,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "scaledown/summarize": {
+   "hosts": {
+    "scaledown": {
+     "in": 0.04,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "sentence-transformers/all-minilm-l12-v2": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.005,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "sentence-transformers/all-minilm-l6-v2": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.005,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "sentence-transformers/all-mpnet-base-v2": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.005,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "sentence-transformers/multi-qa-mpnet-base-dot-v1": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.005,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "sentence-transformers/paraphrase-minilm-l6-v2": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.005,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "sesame/csm-1b": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 7,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "stepfun/step-3.5-flash": {
+   "hosts": {
+    "siliconflow/fp8": {
+     "in": 0.1,
+     "out": 0.3
+    }
+   },
+   "safety_retention": 0
+  },
+  "stepfun/step-3.7-flash": {
+   "hosts": {
+    "novita/fp8": {
+     "in": 0.2,
+     "out": 1.15
+    }
+   },
+   "safety_retention": 0
+  },
+  "stepfun/step-5-preview": {
+   "hosts": {
+    "featherless/fp4": {
+     "in": 1,
+     "out": 2.7
+    }
+   },
+   "safety_retention": 0
+  },
+  "tencent/hunyuan-a13b-instruct": {
+   "hosts": {
+    "siliconflow/fp8": {
+     "in": 0.14,
+     "out": 0.57
+    }
+   },
+   "safety_retention": 0
+  },
+  "tencent/hy-image-v3.5-preview": {
+   "hosts": {
+    "tencent": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "tencent/hy-mt2-1.8b": {
+   "hosts": {
+    "tencent/fp8": {
+     "in": 0.044,
+     "out": 0.177
+    }
+   },
+   "safety_retention": 0
+  },
+  "tencent/hy-mt2-30b-a3b": {
+   "hosts": {
+    "tencent/fp8": {
+     "in": 0.074,
+     "out": 0.295
+    }
+   },
+   "safety_retention": 0
+  },
+  "tencent/hy-mt2-7b": {
+   "hosts": {
+    "tencent/fp8": {
+     "in": 0.074,
+     "out": 0.295
+    }
+   },
+   "safety_retention": 0
+  },
+  "tencent/hy3": {
+   "hosts": {
+    "novita": {
+     "in": 0.14,
+     "out": 0.58
+    },
+    "phala": {
+     "in": 0.15,
+     "out": 0.64
+    },
+    "tencent/fp8": {
+     "in": 0.132,
+     "out": 0.528
+    }
+   },
+   "safety_retention": 0
+  },
+  "tencent/hy4": {
+   "hosts": {
+    "tencent/fp4": {
+     "in": 0.417,
+     "out": 1.2505
+    }
+   },
+   "safety_retention": 0
+  },
+  "tencent/hy4-preview": {
+   "hosts": {
+    "deepinfra/fp4": {
+     "in": 0.834,
+     "out": 2.501
+    },
+    "novita/fp8": {
+     "in": 0.834,
+     "out": 2.501
+    },
+    "siliconflow/fp8": {
+     "in": 0.834,
+     "out": 2.501
+    },
+    "tencent/fp8": {
+     "in": 0.834,
+     "out": 2.501
+    }
+   },
+   "safety_retention": 0
+  },
+  "thedrummer/cydonia-24b-v4.1": {
+   "hosts": {
+    "parasail/bf16": {
+     "in": 0.3,
+     "out": 0.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "thedrummer/skyfall-36b-v2": {
+   "hosts": {
+    "parasail/fp8": {
+     "in": 0.55,
+     "out": 0.8
+    }
+   },
+   "safety_retention": 0
+  },
+  "thedrummer/unslopnemo-12b": {
+   "hosts": {
+    "parasail/bf16": {
+     "in": 0.4,
+     "out": 0.4
+    }
+   },
+   "safety_retention": 0
+  },
+  "thenlper/gte-base": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.005,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "thenlper/gte-large": {
+   "hosts": {
+    "deepinfra/us": {
+     "in": 0.01,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "thinkingmachines/inkling": {
+   "hosts": {
+    "together": {
+     "in": 1,
+     "out": 4.05
+    }
+   },
+   "safety_retention": 0
+  },
+  "thinkingmachines/inkling-small": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.45,
+     "out": 1.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "togethercomputer/tev1-4b-experimental": {
+   "hosts": {
+    "together": {
+     "in": 0.042,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "typesafe/jev-1.13": {
+   "hosts": {
+    "typesafe": {
+     "in": 0.042,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "typesafe/jev-1.14": {
+   "hosts": {
+    "typesafe": {
+     "in": 0.042,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "unbiased/pareto-26.10": {
+   "hosts": {
+    "unbiased": {
+     "in": 0.8,
+     "out": 3.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "undi95/remm-slerp-l2-13b": {
+   "hosts": {
+    "mancer/fp8": {
+     "in": 0.35,
+     "out": 0.65
+    }
+   },
+   "safety_retention": 0
+  },
+  "upstage/solar-decide": {
+   "hosts": {
+    "upstage/zdr": {
+     "in": 0.05,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "upstage/solar-decide-flash": {
+   "hosts": {
+    "upstage/zdr": {
+     "in": 0.05,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "upstage/solar-mini4": {
+   "hosts": {
+    "upstage/zdr": {
+     "in": 0.05,
+     "out": 0.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "upstage/solar-pro4": {
+   "hosts": {
+    "upstage/zdr": {
+     "in": 0.15,
+     "out": 0.6
+    }
+   },
+   "safety_retention": 0
+  },
+  "writer/palmyra-x5": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 0.6,
+     "out": 6
+    }
+   },
+   "safety_retention": 0
+  },
+  "xiaomi/mimo-v2.5": {
+   "hosts": {
+    "venice/fp8": {
+     "in": 0.4,
+     "out": 2
+    }
+   },
+   "safety_retention": 0
+  },
+  "xiaomi/mimo-v2.5-pro": {
+   "hosts": {
+    "digitalocean": {
+     "in": 0.48,
+     "out": 1.8
+    }
+   },
+   "safety_retention": 0
+  },
+  "xiaomi/mimo-v2.6-flash": {
+   "hosts": {
+    "cohere/fp8": {
+     "in": 0.14,
+     "out": 0.28
+    },
+    "deepinfra/fp8": {
+     "in": 0.14,
+     "out": 0.28
+    },
+    "makora/fp8": {
+     "in": 0.14,
+     "out": 0.28
+    },
+    "venice/fp8": {
+     "in": 0.175,
+     "out": 0.35
+    }
+   },
+   "safety_retention": 0
+  },
+  "xiaomi/mimo-v2.6-pro": {
+   "hosts": {
+    "deepinfra/fp8": {
+     "in": 0.387,
+     "out": 0.783
+    },
+    "primalabs/fp8": {
+     "in": 4,
+     "out": 8
+    }
+   },
+   "safety_retention": 0
+  },
+  "xingchen-agi/xing4.0-29b-a4b:free": {
+   "hosts": {
+    "phala": {
+     "in": 0,
+     "out": 0
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-4.5": {
+   "hosts": {
+    "z-ai/fp8": {
+     "in": 0.6,
+     "out": 2.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-4.5-air": {
+   "hosts": {
+    "novita/bf16": {
+     "in": 0.13,
+     "out": 0.85
+    },
+    "siliconflow/fp8": {
+     "in": 0.14,
+     "out": 0.86
+    },
+    "z-ai/fp8": {
+     "in": 0.2,
+     "out": 1.1
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-4.5v": {
+   "hosts": {
+    "novita/fp8": {
+     "in": 0.6,
+     "out": 1.8
+    },
+    "z-ai/fp8": {
+     "in": 0.6,
+     "out": 1.8
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-4.6": {
+   "hosts": {
+    "deepinfra/fp4": {
+     "in": 0.5,
+     "out": 2
+    },
+    "deepinfra/fp4/flex": {
+     "in": 0.4,
+     "out": 1.6
+    },
+    "novita/bf16": {
+     "in": 0.55,
+     "out": 2.2
+    },
+    "venice/fp4": {
+     "in": 0.43,
+     "out": 1.75
+    },
+    "z-ai/fp4": {
+     "in": 0.6,
+     "out": 2.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-4.6v": {
+   "hosts": {
+    "novita/bf16": {
+     "in": 0.3,
+     "out": 0.9
+    },
+    "z-ai/fp8": {
+     "in": 0.3,
+     "out": 0.9
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-4.7": {
+   "hosts": {
+    "deepinfra/fp4": {
+     "in": 0.4,
+     "out": 1.75
+    },
+    "deepinfra/fp4/flex": {
+     "in": 0.32,
+     "out": 1.4
+    },
+    "mancer/fp4": {
+     "in": 0.7,
+     "out": 2.5
+    },
+    "novita/fp8": {
+     "in": 0.6,
+     "out": 2.2
+    },
+    "venice/fp4": {
+     "in": 0.4004,
+     "out": 1.9292
+    },
+    "z-ai/fp4": {
+     "in": 0.6,
+     "out": 2.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-4.7-flash": {
+   "hosts": {
+    "cloudflare": {
+     "in": 0.0605,
+     "out": 0.4
+    },
+    "novita/bf16": {
+     "in": 0.07,
+     "out": 0.4
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-5": {
+   "hosts": {
+    "amazon-bedrock": {
+     "in": 1,
+     "out": 3.2
+    },
+    "novita/fp8": {
+     "in": 1,
+     "out": 3.2
+    },
+    "siliconflow/fp8": {
+     "in": 0.95,
+     "out": 2.55
+    },
+    "venice/fp8": {
+     "in": 1,
+     "out": 3.2
+    },
+    "venice/turbo": {
+     "in": 1.2,
+     "out": 4
+    },
+    "z-ai/fp8": {
+     "in": 1,
+     "out": 3.2
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-5-turbo": {
+   "hosts": {
+    "z-ai": {
+     "in": 1.2,
+     "out": 4
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-5.1": {
+   "hosts": {
+    "novita/fp8": {
+     "in": 1.38,
+     "out": 4.4
+    },
+    "phala": {
+     "in": 1.21,
+     "out": 4.2
+    },
+    "siliconflow/fp8": {
+     "in": 1.19,
+     "out": 3.74
+    },
+    "venice/fp8": {
+     "in": 1.4014,
+     "out": 4.4044
+    },
+    "z-ai/fp8": {
+     "in": 1.4,
+     "out": 4.4
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-5.2": {
+   "hosts": {
+    "baseten/fast": {
+     "in": 2.1,
+     "out": 6.6
+    },
+    "baseten/fp8": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "baseten/fp8/us": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "baseten/us/fast": {
+     "in": 2.1,
+     "out": 6.6
+    },
+    "cloudflare": {
+     "in": 0.19,
+     "out": 8
+    },
+    "coreweave/fp4": {
+     "in": 0.62,
+     "out": 2.42
+    },
+    "deepinfra/fp4": {
+     "in": 0.5625,
+     "out": 1.8
+    },
+    "deepinfra/fp4/flex": {
+     "in": 0.45,
+     "out": 1.44
+    },
+    "digitalocean": {
+     "in": 0.7,
+     "out": 2.2
+    },
+    "inceptron/fp4": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "mistral/eu": {
+     "in": 1.54,
+     "out": 4.84
+    },
+    "mistral/zdr": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "morph/fp8": {
+     "in": 1.145,
+     "out": 2.338
+    },
+    "nebius/fp4": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "novita/fp8": {
+     "in": 0.6496,
+     "out": 2.0416
+    },
+    "parasail/fp4": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "relace/fp4": {
+     "in": 0.0065,
+     "out": 7.9898
+    },
+    "siliconflow/fp8": {
+     "in": 0.7,
+     "out": 2.2
+    },
+    "together": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "venice/fp8": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "wafer": {
+     "in": 0.19,
+     "out": 8
+    },
+    "wafer/us": {
+     "in": 0.006,
+     "out": 6.8
+    },
+    "z-ai/fp8": {
+     "in": 1.4,
+     "out": 4.4
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-5.3": {
+   "hosts": {
+    "akashml/fp4": {
+     "in": 0.19,
+     "out": 4.4
+    },
+    "amazon-bedrock/us-east-1": {
+     "in": 1.68,
+     "out": 5.28
+    },
+    "baseten/fast": {
+     "in": 2.1,
+     "out": 6.6
+    },
+    "baseten/fp4": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "baseten/fp4/us": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "baseten/us/fast": {
+     "in": 2.1,
+     "out": 6.6
+    },
+    "cloudflare": {
+     "in": 0.7,
+     "out": 2.2
+    },
+    "coreweave/nvfp4": {
+     "in": 0.75,
+     "out": 3
+    },
+    "crusoe/fp4": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "decart/fp4": {
+     "in": 0.56,
+     "out": 1.78
+    },
+    "deepinfra/fp4": {
+     "in": 0.5625,
+     "out": 2.5
+    },
+    "digitalocean": {
+     "in": 0.91,
+     "out": 2.86
+    },
+    "fireworks": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "fireworks/fast": {
+     "in": 2.1,
+     "out": 6.6
+    },
+    "fireworks/spot": {
+     "in": 0.98,
+     "out": 3.08
+    },
+    "inceptron/fp4": {
+     "in": 1,
+     "out": 4.9
+    },
+    "inference-net/fp4": {
+     "in": 0.08,
+     "out": 3.6
+    },
+    "inference-net/us": {
+     "in": 0.08,
+     "out": 3.6
+    },
+    "makora/fp4": {
+     "in": 0.3,
+     "out": 2
+    },
+    "mistral/nvfp4/eu": {
+     "in": 1.54,
+     "out": 4.84
+    },
+    "mistral/zdr": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "modal": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "morph/fp8": {
+     "in": 1.145,
+     "out": 2.338
+    },
+    "nebius/fp4": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "novita/fp8": {
+     "in": 0.63,
+     "out": 1.98
+    },
+    "parasail/fast": {
+     "in": 2.1,
+     "out": 6.6
+    },
+    "parasail/fp8": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "phala": {
+     "in": 0.84,
+     "out": 2.64
+    },
+    "primeintellect": {
+     "in": 0.4,
+     "out": 2.464
+    },
+    "reka": {
+     "in": 0.14,
+     "out": 2.1
+    },
+    "relace/fp4": {
+     "in": 0.0703,
+     "out": 4.3843
+    },
+    "sail-research/fp8": {
+     "in": 1.05,
+     "out": 4.2
+    },
+    "sail-research/us": {
+     "in": 0.75,
+     "out": 3
+    },
+    "siliconflow/fp8": {
+     "in": 0.7,
+     "out": 2.2
+    },
+    "tenstorrent/fp8": {
+     "in": 0.6,
+     "out": 2.5
+    },
+    "together": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "venice": {
+     "in": 1.4,
+     "out": 4.4
+    },
+    "wafer/fp4": {
+     "in": 0.179,
+     "out": 1.4
+    },
+    "wafer/us": {
+     "in": 0.0699,
+     "out": 1.4
+    },
+    "z-ai/fp8": {
+     "in": 1.4,
+     "out": 4.4
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-5.3-flash": {
+   "hosts": {
+    "baseten/fp8": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "baseten/fp8/us": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "cohere/nvfp4": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "coreweave/nvfp4": {
+     "in": 0.12,
+     "out": 0.38
+    },
+    "crusoe/fp4": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "deepinfra/fp4": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "digitalocean": {
+     "in": 0.1125,
+     "out": 0.375
+    },
+    "fireworks": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "inceptron/fp8": {
+     "in": 0.175,
+     "out": 0.45
+    },
+    "inference-net/fp4": {
+     "in": 0.108,
+     "out": 0.35
+    },
+    "inference-net/us": {
+     "in": 0.108,
+     "out": 0.35
+    },
+    "makora/fp4": {
+     "in": 0.14,
+     "out": 0.24
+    },
+    "mistral": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "modal/fp4": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "morph/fp8": {
+     "in": 0.06,
+     "out": 0.122
+    },
+    "near-ai/fp8": {
+     "in": 0.08,
+     "out": 0.5
+    },
+    "nebius/fp4": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "nextbit/fp4": {
+     "in": 0.12,
+     "out": 0.45
+    },
+    "novita/fp8": {
+     "in": 0.084,
+     "out": 0.28
+    },
+    "parasail/fast": {
+     "in": 0.1875,
+     "out": 0.625
+    },
+    "parasail/fp4": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "particle-ai/nvfp4": {
+     "in": 0.1,
+     "out": 0.5
+    },
+    "phala/nvfp4": {
+     "in": 0.1125,
+     "out": 0.375
+    },
+    "primeintellect": {
+     "in": 0.0525,
+     "out": 0.25
+    },
+    "reka": {
+     "in": 0.12,
+     "out": 0.3
+    },
+    "relace/fp4": {
+     "in": 0.0335,
+     "out": 0.083
+    },
+    "sail-research/fp4": {
+     "in": 0.175,
+     "out": 0.625
+    },
+    "sail-research/us": {
+     "in": 0.175,
+     "out": 0.625
+    },
+    "siliconflow/fp8": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "tenstorrent/fp8": {
+     "in": 0.075,
+     "out": 0.25
+    },
+    "together": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "venice": {
+     "in": 0.15,
+     "out": 0.5
+    },
+    "wafer/nvfp4": {
+     "in": 0.054,
+     "out": 0.2
+    },
+    "wafer/us": {
+     "in": 0.0353,
+     "out": 0.184
+    },
+    "z-ai/fp8": {
+     "in": 0.15,
+     "out": 0.5
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-5.3-flashx": {
+   "hosts": {
+    "z-ai/fp8": {
+     "in": 0.37,
+     "out": 1.25
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-5.3-flashx-legal": {
+   "hosts": {
+    "z-ai/fp8": {
+     "in": 0.37,
+     "out": 1.25
+    }
+   },
+   "safety_retention": 0
+  },
+  "z-ai/glm-5v-turbo": {
+   "hosts": {
+    "z-ai/fp8": {
+     "in": 1.2,
+     "out": 4
+    }
+   },
+   "safety_retention": 0
+  }
+ }
+}

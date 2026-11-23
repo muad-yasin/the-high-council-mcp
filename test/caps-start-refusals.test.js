@@ -2,7 +2,7 @@
 // longer refused at the top: it runs the main path's own checks and then, before anything is written and in this order, meets: a seat that is not mock carrying
 // mockBills (refused WHATEVER the switch says; the chain lint answers that one first on every CLI line, see the note before C5), seats no enabled cap covers (exit 5), a cap in force without a ceiling of its own
 // while COUNCIL_MAX_USD_LIMIT is set (option B, exit 2), and last the not-armed refusal that stands until the caps are armed. A resume takes the class of its RUN
-// FOLDER, never of the --resume flag (C&C): a tree member's run (run.json's tree lineage) is refused as a tree, exit 19; an advice folder as an advice call, exit 2;
+// FOLDER, never of the --resume flag (C&C): a tree member's run (run.json's tree lineage) is refused as a tree, exit 19; an old advice folder as an advice call, exit 2 (REM-w21, on the folder's own files);
 // a plain run's resume (B3 resumes after every external seat) meets the not-armed line and nothing earlier. A dry run reports each refusal, in its text and in the
 // JSON field `startRefusals` (absent when there is none), exits 0 and calls nothing (Q1b). Offline, $0: the CLI from a temp folder, a minimal environment, mock and
 // external seats only. The new exports (src/caps.js, src/uncovered.js) are read through namespace imports, so on the code before the change each pure test fails by assertion.
@@ -31,8 +31,9 @@ const TWO_CAPS = read(root, 'test', 'fixtures', 'caps', 'mock-bills-two-caps.jso
 // A seat that is not mock carrying mockBills: an external seat (P3: the run-time refusal, which the chain lint pre-empts on every CLI line).
 const EXT_BILLS = { ...MOCK, name: 'ext-bills', seats: { ...MOCK.seats, builder: { provider: 'external', model: 'claude-code-session', mockBills: 'openrouter' } } };
 // A plain layered run that pauses at an external seat, as B3 does: the shipped mock-layered chain with its builder answered by a session.
+// CHANGED (0.8.4 HS, Muad 05 Nov 2026 22:19: every layered chain needs a handling session, chain-lint refuses one without). OLD: only the builder was external, and mock-layered's own mock REVISER stayed. NEW: the reviser is the session too (the handling session is read from the reviser first), so the chain passes the lint; the run still pauses at the build first, so the exit-3 assertions below are the same.
 const LAYERED = read(root, 'chains', 'mock-layered.json');
-const LAYERED_PAUSE = { ...LAYERED, name: 'layered-pause', seats: { ...LAYERED.seats, builder: { provider: 'external', model: 'claude-code-session' } } };
+const LAYERED_PAUSE = { ...LAYERED, name: 'layered-pause', seats: { ...LAYERED.seats, builder: { provider: 'external', model: 'claude-code-session' }, reviser: { provider: 'external', model: 'claude-code-session' } } };
 
 function project(chains = []) {
   const work = mkdtempSync(join(tmpdir(), 'thc-caps-start-'));
@@ -65,12 +66,13 @@ function adviceRun(work, chain) {
   return dir;
 }
 
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the list of lines that keep the top refusal held ['--advice-adopt', 'runs/x']. NEW: it does not. WHY: `--advice-adopt` is an unknown option now (refused before the caps are read: test/cli-unknown-flag.test.js); capsDeferredStart's answers for every other line are unchanged.
 test('P1: the lines that meet the start refusals instead of the top one: a main start or resume that is no refused class; every other line that may spend keeps the top refusal (fail closed)', () => {
   assert.equal(typeof caps.capsDeferredStart, 'function');
   for (const argv of [['--task', 'tasks/x.md', '--chain', 'mock'], ['--chain', 'mock', '--task', 'tasks/x.md', '--max-usd', '1'], ['--resume', 'runs/x'], ['--resume', 'runs/x', '--max-usd', '2']]) {
     assert.equal(caps.capsDeferredStart(argv), true, argv.join(' '));
   }
-  for (const argv of [['--rematch', 'runs/x'], ['--replay', 'runs/x'], ['--advice-adopt', 'runs/x'], ['--task', 'tasks/x.md', '--rematch', 'runs/x'], ['--tree-node', 'n.json', '--task', 'tasks/x.md'],
+  for (const argv of [['--rematch', 'runs/x'], ['--replay', 'runs/x'], ['--task', 'tasks/x.md', '--rematch', 'runs/x'], ['--tree-node', 'n.json', '--task', 'tasks/x.md'],
     ['tree', 'start', '--task', 'tasks/x.md'], ['tree', 'resume', 'x'], ['handoff', '--from-run', 'runs/x'], ['digest', 'runs/x'], ['--chain', 'mock'], ['frobnicate']]) {
     assert.equal(caps.capsDeferredStart(argv), false, argv.join(' '));
   }
@@ -189,27 +191,47 @@ test('C6 SWITCH ON, a tree member\'s run folder (run.json\'s tree lineage) is re
   assert.deepEqual(listing(dir), before);
 });
 
-test('C7 SWITCH ON, an advice folder on --resume: its chain says resumeAfterStop false, so its own refusal answers (switch or not), exit 2, before any not-armed line; the folder is untouched', () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD the chain mock-advise-standard was found in the package's chains/. NEW COUNCIL_ADVICE_CHAINS_DIR names test/fixtures/advice-chains/ (the operator folder is searched first). WHY the chain left chains/ with the add-on and is a fixture now; the refusal is unchanged.
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: the chain mock-advise-standard was found through COUNCIL_ADVICE_CHAINS_DIR = the fixture folder, and the refusal came from the chain saying resumeAfterStop false. NEW: no env setting and no chain lookup: the folder's own files (advice.meta.json) decide, and the REM-w21 sentence is printed whole. WHY: the operator folder and the "advice chain" lookup left with src/send-profiles.js; the refusal is made BEFORE any chain is looked up (Q3 row: --resume refusal).
+test('C7 SWITCH ON, an old advice folder on --resume: its own refusal answers (switch or not) on the folder\'s own files, exit 2, REM-w21 whole, before any not-armed line; the folder is untouched', () => {
   const { work, run } = project();
-  const dir = adviceRun(work, 'mock-advise-single');
+  const dir = adviceRun(work, 'mock-advise-quick');
   const before = listing(dir);
   const r = run(['--resume', `runs/${RUN}`], BOTH);
   assert.equal(r.code, 2, r.out);
-  assert.match(r.out, /is an advice call, which is not continued/);
+  assert.ok(r.out.includes(`--resume: ${RUN} is an advice call, which is not continued, whatever ended it. Nothing was sent and nothing was spent.`), r.out);
   assert.doesNotMatch(r.out, NOT_ARMED);
   assert.deepEqual(listing(dir), before);
 });
 
-test('C8 SWITCH ON, an advice folder whose chain says resumeAfterStop true (the lint refuses that chain; a start does not lint) is still an advice call: the advice sentence, exit 2; the folder is untouched', () => {
-  const dirs = mkdtempSync(join(tmpdir(), 'thc-caps-advice-chains-'));
-  writeFileSync(join(dirs, 'mock-advise-resumable.json'), JSON.stringify({ ...read(root, 'chains', 'mock-advise-single.json'), name: 'mock-advise-resumable', resumeAfterStop: true }, null, 2));
+// NEW (0.8.4 add-on removal; Q3 and Q9): an OLD advice folder whose chain is no longer anywhere (advise-single left the repository with the add-on) is still never resumed: exit 2, the removed-chain sentence (REM-w1), nothing written.
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD (wave 1): the sentence said "no advice chain advise-single" and carried the REM-w1 removed-chain sentence. NEW: REM-w21 only, and no chain is named as missing. WHY: the refusal is made before any chain lookup, so the unknown-chain text (and REM-w1 with it) is never reached; REM-w1 is pinned in test/child-chain-move.test.js CM-5 and test/outdated-chains.test.js.
+test('C7b SWITCH ON, an old advice folder of a removed advice chain on --resume: exit 2 with the same sentence, no chain lookup, before any not-armed line; the folder is untouched', () => {
   const { work, run } = project();
-  const dir = adviceRun(work, 'mock-advise-resumable');
+  const dir = adviceRun(work, 'advise-single');
   const before = listing(dir);
-  const r = run(['--resume', `runs/${RUN}`], { ...BOTH, COUNCIL_ADVICE_CHAINS_DIR: dirs });
+  const r = run(['--resume', `runs/${RUN}`], BOTH);
   assert.equal(r.code, 2, r.out);
-  assert.match(r.out, /the advice add-on cannot run with a spending cap per provider/);
+  assert.ok(r.out.includes(`--resume: ${RUN} is an advice call, which is not continued, whatever ended it. Nothing was sent and nothing was spent.`), r.out);
+  assert.doesNotMatch(r.out, /no such chain|no advice chain|was removed in 0\.8\.4/i);
   assert.doesNotMatch(r.out, NOT_ARMED);
+  assert.deepEqual(listing(dir), before);
+});
+
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: C8 wrote a chain with an `advise` block and resumeAfterStop true into an operator folder, and the refusal came "the advice add-on cannot run with a spending cap per provider". NEW (the shadowing row): the project's own chains/ holds a plain planning chain of the folder's chain name, and the old advice folder is still refused on its own files, the REM-w21 sentence, exit 2. WHY: the advice caps class and the operator chain folder are gone; what the old test protected (a chain file cannot turn an advice folder into a resumable run) is the shadowing rule.
+test('C8 SWITCH ON, an old advice folder whose chain name is also a plain planning chain in the project (the shadowing row): still an advice call, REM-w21, exit 2; the folder is untouched', () => {
+  const { work, run } = project([{ ...MOCK, name: 'advise-standard' }]);
+  const dir = adviceRun(work, 'advise-standard');
+  const before = listing(dir);
+  const r = run(['--resume', `runs/${RUN}`], BOTH);
+  assert.equal(r.code, 2, r.out);
+  assert.ok(r.out.includes(`--resume: ${RUN} is an advice call, which is not continued, whatever ended it. Nothing was sent and nothing was spent.`), r.out);
+  assert.doesNotMatch(r.out, NOT_ARMED);
+  assert.deepEqual(listing(dir), before);
+  // the same folder with the switch OFF: the same refusal (the folder decides, not the switch)
+  const off = run(['--resume', `runs/${RUN}`]);
+  assert.equal(off.code, 2, off.out);
+  assert.ok(off.out.includes('is an advice call, which is not continued'), off.out);
   assert.deepEqual(listing(dir), before);
 });
 

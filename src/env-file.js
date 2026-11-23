@@ -4,13 +4,12 @@
 //  - A value the real environment already has stays. "Has" is PRESENT (non-blank, not a placeholder), not usable: a malformed shell key is not replaced.
 //  - A project's .env is part of the project, which an agent or a cloned repo can write, so it may not set what changes how the process or its children run
 //    (NODE_OPTIONS=--require x.cjs ran code in every spawned child that holds the keys), nor the plugin dialog's own variables (COUNCIL_PLUGIN_*, read BEFORE
-//    the operator's exported key), nor the loopback-key switch (the code says only the environment may set it), nor the operator-only advice settings (rule 5d), nor a path-valued mock test seam (COUNCIL_MOCK_HOLD_FILE),
+//    the operator's exported key), nor the loopback-key switch (the code says only the environment may set it), nor a path-valued mock test seam (COUNCIL_MOCK_HOLD_FILE),
 //    nor where the machine's tools look for their own configuration (HOST_LEVEL below) or the persona file (COUNCIL_PERSONAS_FILE).
 //    A refused name is reported once to `onIgnored`, never silently dropped.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { keyPresent, PLUGIN_ENV_PREFIX } from './key-env.js';
-import { OPERATOR_ONLY_ENV } from './send-profiles.js';
 import { CAPS_SETTING, CAP_CEILING_NAMES } from './caps.js';
 
 // NODE_ENV is a common application setting that loads no code: it stays allowed. Every other NODE_* name (NODE_OPTIONS, NODE_EXTRA_CA_CERTS, NODE_USE_ENV_PROXY...) is refused.
@@ -30,15 +29,19 @@ const HOST_LEVEL = /^(XDG_.*|USERPROFILE|HOMEDRIVE|HOMEPATH|TEMP|TMP|APPDATA|LOC
 // COUNCIL_MOCK_PRESTART_MS and COUNCIL_MOCK_DELAY_MS, which are not refused either.
 // COUNCIL_PERSONAS_FILE (13 Oct 2026, audit item 11): a path-valued setting that REPLACES the whole persona set every debate seat is given (src/personas.js), so a project-writable file would choose what the seats are told to be; it is the operator's choice.
 // COUNCIL_TEST_SPAWN_HOLD_FILE (13 Oct 2026, a test seam in src/mcp/server.js, HOLD_FILE's twin): path-valued, and the server writes `<path>.entered` through any symlink the project put there, so a project-writable file may not name it.
-// ALLOWED on purpose, so the next audit does not raise it again: COUNCIL_ADVISE_MOCK (and COUNCIL_MOCK_PRESTART_MS / _DELAY_MS / _UNTIL_STOP): a mode flag or a bounded number, not a path. A project that switches the advice chains
-// to mock costs nothing and sends nothing real.
+// ALLOWED on purpose, so the next audit does not raise it again: COUNCIL_MOCK_PRESTART_MS / _DELAY_MS / _UNTIL_STOP: a mode flag or a bounded number, not a path.
 // COUNCIL_PII_GATE (19 Okt 2026, owner: a standing `warn` may only come from the USER): the default now STOPS at a finding, so a project-writable file setting `warn` would silently remove the stop. Refused here like the loopback-key
 // switch; set it in the real environment or the Claude Desktop field. Refusing is the strict direction: the run still stops.
 // COUNCIL_WORKDIR (14 Oct 2026, C&C's entry 12): the folder the MCP server writes tasks and runs in. src/mcp/server.js reads it when it is imported, which is BEFORE src/cli.js applies a .env (a static import), so a .env value
 // never moved the work folder of this process; but it did reach every child the server starts and any later reader, and a project-writable file must not choose where the person's runs are written. Refused by name, so the notice says so.
 // COUNCIL_SPEND_CAPS (0.8.4 DUALCAP unit 2, C&C's ruling 2 of 1 Nov 2026; src/caps.js): the per-provider caps switch is the operator's. With it on, the operator's COUNCIL_MAX_USD_LIMIT bounds no cap (each cap has
 // its own ceiling), so a project-writable file that could turn it on could set that ceiling aside. Refused here like COUNCIL_PII_GATE; set it in the real environment or the Claude Desktop field.
-const NEVER_FROM_ENV_FILE = Object.freeze(['COUNCIL_ALLOW_LOOPBACK_KEY_HOST', 'COUNCIL_MOCK_HOLD_FILE', 'COUNCIL_TEST_SPAWN_HOLD_FILE', 'COUNCIL_PERSONAS_FILE', 'COUNCIL_WORKDIR', 'COUNCIL_PII_GATE', CAPS_SETTING]);
+// COUNCIL_ZERO_RETENTION (0.8.4 the optional zero-retention setting; src/zero-retention.js ZERO_RETENTION_ENV): which hosts the person's text may reach through OpenRouter. A project-writable file must not be able to switch a person's typed `on` off or to turn it on for
+// them; only the person's own flag, shell variable or MCP argument sets it (test/env-file-zero-retention.test.js pins the name equal to the constant). Refused by name, so the notice says so.
+// COUNCIL_CLAUDE_ROUTE (0.8.4 the OpenRouter switch, C&C's ruling Q7 of 10 Nov 2026; src/claude-route.js CLAUDE_ROUTE_ENV): where the Claude seats are called, straight to Anthropic or through OpenRouter. It changes where the person's text goes
+// (for a model with no zero-retention host, to a host that may keep it), so a project-writable file must not be able to move a person who holds both keys; only the person's own flag, shell variable or MCP argument sets it. Refused by name, so the notice says so.
+// The name is typed here (not imported) so this early-loaded module pulls in nothing of the chain; test/env-file-claude-route.test.js pins it equal to the constant.
+const NEVER_FROM_ENV_FILE = Object.freeze(['COUNCIL_ALLOW_LOOPBACK_KEY_HOST', 'COUNCIL_MOCK_HOLD_FILE', 'COUNCIL_TEST_SPAWN_HOLD_FILE', 'COUNCIL_PERSONAS_FILE', 'COUNCIL_WORKDIR', 'COUNCIL_PII_GATE', CAPS_SETTING, 'COUNCIL_CLAUDE_ROUTE', 'COUNCIL_ZERO_RETENTION']);
 
 /**
  * WHICH .env file is read for a folder (13 Oct 2026, Haiku job 8, C&C): the folder's own `.env`, else the package's (the clone's: `cp .env.example .env` in a cloned checkout), else the folder's (which does not exist). ONE function for
@@ -48,8 +51,8 @@ export function envFilePathFor(folder, pkg) {
   return [join(folder, '.env'), join(pkg, '.env')].find(existsSync) || join(folder, '.env');
 }
 
-/** True when a project .env may not set `name` (the caller tells the user to set it in the real environment). Operator-only advice settings are refused too. */
-export const envFileRefuses = name => PROCESS_LEVEL.test(name) || HOST_LEVEL.test(name) || name.startsWith(PLUGIN_ENV_PREFIX) || NEVER_FROM_ENV_FILE.includes(name) || OPERATOR_ONLY_ENV.includes(name);
+/** True when a project .env may not set `name` (the caller tells the user to set it in the real environment). */
+export const envFileRefuses = name => PROCESS_LEVEL.test(name) || HOST_LEVEL.test(name) || name.startsWith(PLUGIN_ENV_PREFIX) || NEVER_FROM_ENV_FILE.includes(name);
 
 // The spend settings (13 Oct 2026, audit item 11, S02-2). A name written on two lines keeps its FIRST value and the second is dropped without a word: for these names that is a cap the person may have meant the other way
 // round (`MAX_USD_PER_RUN=2` ... `MAX_USD_PER_RUN=20` runs at 2). Their repeat is reported to `onRepeatedMoney` and the caller refuses to start; any other name keeps the old, silent rule.

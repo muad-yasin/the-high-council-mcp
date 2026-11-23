@@ -48,8 +48,9 @@ const USAGE = [
   '       council tree stop <rootId>',
   '       council tree check <rootId> <id> pass|fail',
   '       council tree status <rootId>',
-  '       council tree start --task <file> --chain <root chain> --child-chain <name> --max-usd <usd> [--pii-gate warn|hard-stop | --allow-pii <types found>]',
-  '       council tree start --task <file> --chain <root chain> --child-chain <name> --dry-run [--max-usd <usd>]   (prices a tree; starts nothing)',
+  '       council tree start --task <file> --chain <root chain> [--child-chain <name>] --max-usd <usd> [--pii-gate warn|hard-stop | --allow-pii <types found>]',
+  '       council tree start --task <file> --chain <root chain> [--child-chain <name>] --dry-run [--max-usd <usd>]   (prices a tree; starts nothing)',
+  '       (without --child-chain the sub-plans run on the root chain)',
   'An approval is never an option: `approve`, `decide` and `check` show you the exact text and ask you at a terminal. `decide --continue-node`, `--finish-node` and `--prevail-node` record your choice for a stopped node: they open no approval gate, ask nothing and start no run; `council tree resume` applies the choice.',
 ];
 // Options a reader might try in order to approve without reading; the refusal says so instead of "not an option".
@@ -72,6 +73,9 @@ export function parseTreeArgs(args) {
     if (!a.startsWith('-')) { pos.push(a); continue; }
     if (!a.startsWith('--')) return { error: `${a}: a positional that starts with a dash is refused (the tree has no single-dash option)` };
     if (verb === 'start' && NO_OVERRIDE.has(a.slice(2))) return { error: `${a}: a tree takes no override of the key scan: change the task, or use a normal \`council --task\` run with the flag` };
+    // 0.8.4 the Claude route: a tree starts its member runs with the environment, not with a command line, so a route typed here would reach none of them. Refused by name, so nobody believes they chose OpenRouter for the tree.
+    if (a === '--zero-retention') return { error: `${a}: not an option of \`council tree ${verb}\`: the member runs are started with the environment, so set COUNCIL_ZERO_RETENTION (on or off) for the tree.` };
+    if (a === '--claude-route') return { error: `${a}: not an option of \`council tree ${verb}\`: the member runs are started with the environment, so set COUNCIL_CLAUDE_ROUTE (auto, anthropic, openrouter or session) there` };
     if (APPROVAL_LOOKALIKES.has(a.slice(2))) return { error: `${a}: no option approves anything. \`council tree ${verb}\` shows you the exact text and asks you at a terminal` };
     if (spec.value.includes(a) || (spec.shared ?? []).includes(a)) {
       if (rest[i + 1] === undefined || rest[i + 1].startsWith('--')) return { error: `${a} needs a value` };
@@ -109,15 +113,15 @@ export function resolveRoot(work, arg) {
 export const DEFAULT_HANDLERS = { approve: approveHandler, decide: decideHandler, resume: resumeHandler, stop: stopHandler, check: checkHandler, status: statusHandler, start: startHandler };
 
 /** Runs one `council tree` command. `io` carries the streams (a test drives them); `handlers` is the seam a test or a later commit fills. Returns the exit code: 0 done, 1 refused or not confirmed, 2 usage; `resume` also answers 3 (a child waits for an external answer), 4 (a child stopped at its cap), 19 (the tree refused a start) and 20 (the sitting stopped for a person and nothing broke: an open stop or a pending replacement holds children back, or the step belt ran out), the codes of the runs it reports plus the tree's own. */
-export async function treeCommand(args, { work = process.cwd(), stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, now, handlers = DEFAULT_HANDLERS, ceiling, piiSetting } = {}) {
+export async function treeCommand(args, { work = process.cwd(), stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, now, handlers = DEFAULT_HANDLERS, ceiling, piiSetting, claudeRouteEnv } = {}) {
   const err = s => stderr.write(`${s}\n`);
   const p = parseTreeArgs(args);
   if (p.error) { err(`tree: ${p.error}`); for (const l of USAGE) err(l); return 2; }
   // a verb that parses but has no handler yet answers like a later verb: plainly, before the root is read, nothing run
   if (!Object.hasOwn(handlers, p.verb) || typeof handlers[p.verb] !== 'function') { err(`tree: council tree ${p.verb} is not part of this build (it arrives with the readiness milestone)`); for (const l of USAGE) err(l); return 2; }
   // `start` has no root folder yet: it makes one, so it is dispatched here, before resolveRoot
-  if (p.verb === 'start') return handlers.start({ flags: p.flags, work, stdin, stdout, stderr, ...(now ? { now } : {}), ceiling, ...(piiSetting ? { piiSetting } : {}) });
+  if (p.verb === 'start') return handlers.start({ flags: p.flags, work, stdin, stdout, stderr, ...(now ? { now } : {}), ceiling, ...(piiSetting ? { piiSetting } : {}), ...(claudeRouteEnv ? { claudeRouteEnv } : {}) });
   const root = resolveRoot(work, p.rootArg);
   if (root.error) { err(`tree ${p.verb}: ${root.error}`); return 2; }
-  return handlers[p.verb]({ ...root, ...(p.args ? { args: p.args } : {}), flags: p.flags, work, stdin, stdout, stderr, ...(now ? { now } : {}), ceiling });
+  return handlers[p.verb]({ ...root, ...(p.args ? { args: p.args } : {}), flags: p.flags, work, stdin, stdout, stderr, ...(now ? { now } : {}), ceiling, ...(p.verb === 'resume' && claudeRouteEnv ? { env: claudeRouteEnv } : {}) });      // 0.8.4 zero retention: the resume's runs read the setting from the environment of this command, handed in
 }

@@ -1,5 +1,8 @@
 {
   "name": "mock-patch-fallback",
+  "draft_end_marker": {
+    "enabled": true
+  },
   "description": "Offline. Exercises the patch-mode reviser (src/patch-revise.js): a block whose SEARCH text is not in the draft, proving the fallback to one full rewrite.",
   "maxRounds": 2,
   "stopOnPass": true,

@@ -13,7 +13,8 @@ afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); setB
 const CRITERION = 'The plan defines a retry limit.';
 const DRAFT = 'The worker retries failed requests.';
 const signoff = (extra = {}) => JSON.stringify({ meets: true, criteria: [{ criterion: CRITERION, verdict: 'MET', evidence: 'Section two sets it.' }], failures: [], verdict_line: 'ok', ...extra });
-const objecting = (extra = {}) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [{ criterion: CRITERION, problem: 'No limit.', fix: 'Add one.' }], verdict_line: 'no', ...extra });
+// CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the stub failure carried no rating. NEW: severity 5. WHY: ratingDemand is recorded (src/prompts/recorded-084-b.js): on this layered unanimous chain a failure without a rating is an unreadable reply. No relation is written: the chain has no answer_back, so no relation is asked or read.
+const objecting = (extra = {}) => JSON.stringify({ meets: false, criteria: [{ criterion: CRITERION, verdict: 'FAILED', evidence: 'Missing.' }], failures: [{ criterion: CRITERION, problem: 'No limit.', fix: 'Add one.', severity: 5 }], verdict_line: 'no', ...extra });
 const P = (...texts) => texts.map(text => ({ text }));
 const I = (...texts) => texts.map(text => ({ text, about: `about ${text}` }));
 const STANDINS = { reviewNotesRevise: () => 'WRITER-NOTES', reviewNotesMemory: () => 'MEMORY-NOTES', reviewNotesAnswer: () => 'ANSWER-NOTES' }; // 2b's sentences; 2a only needs them to exist
@@ -26,8 +27,8 @@ async function run(replies, { words = WORDS, extra = {}, notes = { enabled: true
   setPromptSpy(p => { prompts.set(p.label, p.user); });
   setCache({ invalidate() {}, get(label) {
     served.push(label);
-    const text = label.startsWith('panel-') ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
-    return { text, provider: 'mock', model: 'm', usage: label.startsWith('panel-') ? usage(label) : { input: 0, output: 0 }, usd: 0 };
+    const text = (label.startsWith('panel-') || label.startsWith('final-read-')) ? (replies(label) ?? signoff()) : label.startsWith('revise-') ? `${DRAFT}\n\nRevision ${label.slice(7)}.` : DRAFT;
+    return { text, provider: 'mock', model: 'm', usage: (label.startsWith('panel-') || label.startsWith('final-read-')) ? usage(label) : { input: 0, output: 0 }, usd: 0 };
   } });
   const seat = (lab, layer) => ({ provider: 'mock', model: 'mock-review-fixture', lab, maxTokens: 3000, layer });
   const config = {
@@ -168,6 +169,7 @@ test('NW-12 (source pin): the panel call reads the verdict from the reply WITHOU
   const { readFileSync } = await import('node:fs');
   const src = readFileSync(new URL('../src/chain.js', import.meta.url), 'utf8');
   assert.match(src, /const \{ verdictPart, notesReply \} = splitNotes\(parsed\);/);
-  assert.match(src, /normaliseCritique\(verdictPart, say,/);
+  assert.match(src, /const verdictClean = verdictPart && /);   // CHANGED ACCEPTED (second box run, 08 Nov 2026; origin S7b A3 05c2efac). OLD: /normaliseCritique\(verdictPart, say,/. NEW: the verdict that is normalised is verdictClean, which is verdictPart minus a `rulings` key on a layer-2 call that carries rulings (A3), so the pin reads both steps. WHY: A3 put verdictClean between the note split and the normaliser; the property pinned (the normaliser never sees the note keys) holds, the spelling moved.
+  assert.match(src, /normaliseCritique\(verdictClean, say,/);
   assert.equal(/normaliseCritique\(parsed, say, \{ stage: noteKey/.test(src), false);
 });

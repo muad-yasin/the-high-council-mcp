@@ -19,7 +19,7 @@ const LAYERED_ALL = readdirSync(join(root, 'chains')).filter(f => f.endsWith('.j
 // OLD (lane B commit 2, which wrongly quoted "a NEW one-key chain for the quick start" as Muad's words; the chain was C&C's proposal and Muad gave his OK on 23 Okt 2026; his words of 24 Okt 2026: "no, it was you that asked for this new chain. I gave you my OK"):
 // plan-default-opro-council was the one layered planning chain with NO Claude Code session in it, its decider a paid OpenRouter seat (TD-4 pinned that), and TD-1 to TD-3 exempted it. NEW: it names the session as its decider like every other layered planning chain (no exemption any more);
 // doctor leaves an external seats.decider slot out of its one-key test, so the chain stays on the "one key" line (test/one-key-decider.test.js, test/first-ten-minutes.test.js).
-const ONE_KEY = 'plan-default-opro-council';
+const ONE_KEY = 'plan-china-medium-council';   // CHANGED (0.8.4 seats unit, Muad 10 Nov 2026 01:10): plan-default-opro-council retired; the shipped chain whose every non-session seat is an OpenRouter seat is now plan-china-medium-council
 const LAYERED = LAYERED_ALL;
 const NUMBER_WORDS = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
 
@@ -52,26 +52,34 @@ test('TD-3: the README sentence about the decider lists exactly the layered plan
 
 // CHANGED ACCEPTED TEST (decider-readiness unit, 24 Okt 2026; Muad: "B sounds fine to me"). OLD TD-4: plan-default-opro-council has no external seat at all, and its decider is a paid OpenRouter seat (the exemption in TD-1 to TD-3 held only for that reason). NEW: its decider is the session seat, the
 // same as every other layered planning chain, and it is the ONLY external seat in the chain, so one OpenRouter key still runs everything else. WHY: the decider is the session that handles the run, not a model placed on a seat; doctor's one-key line leaves the decider slot out (test/one-key-decider.test.js).
-test('TD-4: plan-default-opro-council names the session as its decider, and every seat other than the decider is an OpenRouter seat (one key runs the rest of the chain)', () => {
+// CHANGED ACCEPTED TEST AGAIN (0.8.4 HS, Muad 05 Nov 2026 22:19: every layered chain needs a handling session; the quick-start chain gets a session seat). OLD title: "names the session as its decider, and every seat other than the decider is an OpenRouter seat" (the decider was the ONLY external seat). NEW: it names the session as its decider AND as its four writer seats (skeleton, builder, reviser, handoff: the other nine chains' writer seats), and every other seat (criteria, proposers, critics) is an OpenRouter seat. WHY: a layered chain needs a handling session in the reviser seat; one OpenRouter key still runs the judges, the proposers and the criteria stage, and the session answers the writer stages.
+test('TD-4: plan-china-medium-council names the session as its decider and its four writer seats, and every other seat (criteria, proposers, critics) is an OpenRouter seat (one key runs the rest of the chain)', () => {
   assert.ok(LAYERED_ALL.includes(ONE_KEY), 'the one-key chain is a layered planning chain');
   const c = load(ONE_KEY);
-  assert.deepEqual(c.seats.decider, load('plan-high-council').seats.decider);
-  const seats = [c.seats.criteria, c.seats.skeleton, c.seats.builder, c.seats.reviser, c.seats.handoff, ...c.seats.proposers, ...c.seats.critics];
-  assert.deepEqual(seats.filter(s => s.provider !== 'openrouter').map(s => `${s.provider}/${s.model}`), [], 'every seat except the decider is an OpenRouter seat');
+  const session = load('plan-high-council').seats.decider;
+  assert.deepEqual(c.seats.decider, session);
+  for (const k of ['skeleton', 'builder', 'reviser', 'handoff']) assert.deepEqual(c.seats[k], session, `${k} is the session seat`);
+  // CHANGED ACCEPTED TEST (0.8.4 seats unit, Muad 10 Nov 2026 01:10 and 01:56): OLD (the retired one-key chain): the criteria seat was a paid OpenRouter seat, so every seat except the session seats was an OpenRouter seat. NEW: the criteria seat is the subscription seat the handler session answers, in every shipped planning chain; proposers and judges of plan-china-medium-council are all OpenRouter seats.
+  assert.deepEqual(c.seats.criteria, { provider: 'external', model: 'subscription:opus-5.5', lab: 'opus5.5-sub', maxTokens: 128000, extra: { reasoning: { effort: 'high' } } });
+  const seats = [...c.seats.proposers, ...c.seats.critics];
+  assert.deepEqual(seats.filter(s => s.provider !== 'openrouter').map(s => `${s.provider}/${s.model}`), [], 'every proposer and judge is an OpenRouter seat');
 });
 
-test('TD-5: plan-default-opro-council: every seat reasons at exactly "high", or carries no reasoning setting where the reasoning table says the model\'s own default is above high (Muad 23 Okt 2026: high for every seat, never lower)', () => {
+test('TD-5: plan-china-medium-council: every seat reasons at exactly "high" in its file (xhigh on Qwen 3.8 27B), including the seats on a model whose own default is above high (Muad 2 Nov 2026: high for every seat, never lower)', () => {
   const table = JSON.parse(readFileSync(join(root, 'src', 'reasoning-table.json'), 'utf8')).models;
   const c = load(ONE_KEY);
   // CHANGED ACCEPTED TEST (decider-readiness unit, 24 Okt 2026): the decider is left out of this list (it is the session seat, which has no table row and sends nothing); the rest is unchanged.
-  const seats = [c.seats.criteria, c.seats.skeleton, c.seats.builder, c.seats.reviser, c.seats.handoff, ...c.seats.proposers, ...c.seats.critics];
-  const bad = []; let sentNothing = 0;
+  // CHANGED AGAIN (0.8.4 HS, Muad 05 Nov 2026 22:19): the skeleton, builder, reviser and handoff seats are the session too now, so they are left out for the same reason; criteria, proposers and critics are the seats that send.
+  const seats = [...c.seats.proposers, ...c.seats.critics];   // CHANGED (0.8.4 seats unit): the criteria seat is external now (no table row, sends nothing), so it is left out like the session seats
+  // CHANGED ACCEPTED TEST (2 Nov 2026, owner: "High for THC's chains, default to High on all chains, users can change it if they want to"). OLD (23 Okt 2026): a seat on a model whose own default is above high carries no reasoning setting. NEW: it states exactly "high" like every other seat.
+  const bad = []; let aboveDefault = 0;
   for (const s of seats) {
     const row = table[`${s.provider}/${s.model}`];
     if (!row) { bad.push(`${s.model}: no row in the reasoning table`); continue; }
-    if (row.defaultAboveHigh) { if (s.extra !== undefined) bad.push(`${s.model}: its default is above high, so it is sent nothing, but extra is ${JSON.stringify(s.extra)}`); else sentNothing++; }
-    else if (s.extra?.reasoning?.effort !== 'high') bad.push(`${s.model}: effort ${JSON.stringify(s.extra?.reasoning?.effort)}, expected "high"`);
+    if (row.defaultAboveHigh) aboveDefault++;
+    const want = /qwen3\.8-27b/.test(s.model) ? 'xhigh' : 'high';   // CHANGED (0.8.4 seats unit, Muad 09 Nov 2026 21:51: xhigh for Qwen 3.8 27B); high everywhere else
+    if (s.extra?.reasoning?.effort !== want) bad.push(`${s.model}: effort ${JSON.stringify(s.extra?.reasoning?.effort)}, expected "${want}"`);
   }
   assert.deepEqual(bad, []);
-  assert.ok(sentNothing >= 2, `the check can fail the other way too: GLM-5.3 and GLM-5.3 Flash are the seats sent nothing (${sentNothing})`);
+  assert.ok(aboveDefault >= 2, `the check can fail the other way too: GLM-5.3 and GLM-5.3 Flash are seats on a model whose own default is above high (${aboveDefault})`);
 });

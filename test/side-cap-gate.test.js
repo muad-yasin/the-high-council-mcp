@@ -107,10 +107,11 @@ test('REMATCH: a stop at the typed total writes ONE stop file in the rematch fol
     typeCap(f.rematchDir(7), '0.001');                       // below the first call's worst case: the run stops before it sends anything
     const stop = await f.run(printedArgs(first.stderr));
     assert.equal(stop.status, 4, stop.stdout + stop.stderr); assert.equal(f.count(), 0);
-    // CHANGED (S5-05, 28 Okt 2026). OLD: "the smallest that gets past this stop is $0.0500", the call's worst case plus the typed 0.001. NEW: the figure is the one the gate decided on (the call's expected cost, one attempt) on top of the
+    // CHANGED (S5-05, 28 Okt 2026). OLD: "the smallest total that lets the next call to a model be sent is $0.0500", the call's worst case plus the typed 0.001. NEW: the figure is the one the gate decided on (the call's expected cost, one attempt) on top of the
     // spend so far (0), to the cent. WHY: the stop record carries the gate's figure (gateStageUsd) and the consumers read it, so the sentence names a total that really gets past this stop (test/stop-figure-invariant.test.js proves
     // that on the CLI). The bounds are derived, not typed: at least the expected cost with an EMPTY prompt (a real prompt only adds input), under the worst case of an empty prompt with the retry.
-    const figure = Number((stop.stderr.match(/Run the same command again: it asks for a new total above \$0\.0000 \(the smallest that gets past this stop is \$([0-9]+\.[0-9]+)\):\n  \S+ --rematch \S+ --rematch-seed 7/) ?? [])[1]);
+    // CHANGED ACCEPTED (0.8.4, commit 3 of the 5xx fix-up, C&C's (B) of R244). OLD: the stop sentence read "the smallest [total] that gets past this stop is $X". NEW: "the smallest total that lets the next call to a model be sent is $X". WHY: a counted 5xx can stop the call again at its re-send, so "gets past this stop" could be false; the figure is the total at which the NEXT call is sent, and the text now says only that.
+    const figure = Number((stop.stderr.match(/Run the same command again: it asks for a new total above \$0\.0000 \(the smallest total that lets the next call to a model be sent is \$([0-9]+\.[0-9]+)\):\n  \S+ --rematch \S+ --rematch-seed 7/) ?? [])[1]);
     const Efloor = expectedCallUsd(PAID(0), { system: '', user: '', label: 'criteria' }); const W0 = projectAttempts(PAID(0), { system: '', user: '' });
     assert.ok(figure >= Efloor && figure < W0.first + W0.retry, `the smallest total ${figure} is the call's expected cost to the cent (>= ${Efloor}) and under its worst case (${W0.first + W0.retry})`);
     assert.doesNotMatch(stop.stderr, /--max-usd none/);
@@ -291,7 +292,7 @@ test('THE PRINTED COMMAND IS THE PERSON\'S OWN: every flag typed is kept (--allo
   } finally { f.srv.close(); }
 });
 
-// The invariant of "the smallest total that gets past this stop" on the rematch path (S5-05; the obligation of the review of 2bbe2e3d): the figure the stop prints sends the call when typed, and one cent less stops again. The stub answers
+// The invariant of "the smallest total that lets the next call to a model be sent" on the rematch path (S5-05; the obligation of the review of 2bbe2e3d): the figure the stop prints sends the call when typed, and one cent less stops again. The stub answers
 // 500, so a call that is SENT is only counted.
 test('REMATCH: the total a stop prints gets past it (the call is sent) and one cent less stops again', async () => {
   const f = await fixture();
@@ -302,7 +303,7 @@ test('REMATCH: the total a stop prints gets past it (the call is sent) and one c
     typeCap(d, '0.001');
     const stop = await f.run(printedArgs(first.stderr));
     assert.equal(stop.status, 4, stop.stdout + stop.stderr); assert.equal(f.count(), 0);
-    const figure = Number((stop.stderr.match(/the smallest that gets past this stop is \$([0-9]+\.[0-9]+)\)/) ?? [])[1]);
+    const figure = Number((stop.stderr.match(/the smallest total that lets the next call to a model be sent is \$([0-9]+\.[0-9]+)\)/) ?? [])[1]);
     assert.ok(figure > 0.001, `the stop names a total (${stop.stderr})`);
     const screen2 = await f.run(printedArgs(stop.stderr)); assert.equal(screen2.status, 21, screen2.stdout + screen2.stderr);
     typeCap(d, String(Math.round((figure - 0.01) * 100) / 100));

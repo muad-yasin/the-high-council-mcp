@@ -31,8 +31,14 @@ test('RID-2 the three call sites use that ONE function: none defines its own (no
   assert.equal((src('run-files.js').match(/export function nextRunId/g) ?? []).length, 1, 'exactly one definition');
 });
 
-test('RID-3 no import cycle: run-files.js imports only node built-ins, so it can sit under api.js, mcp/server.js and tree-start.js; and the library entry point still loads', async () => {
+// CHANGED ACCEPTED TEST (0.8.4 F3). OLD: run-files.js imports only node built-ins. NEW: node built-ins and ./return-path.js, whose own imports are node built-ins and ./hidden-chars.js. WHY: trustedRunDir writes the name it read from the
+// run folder through fragment() (src/return-path.js); the property the test guards is "no import cycle", and the assertion that return-path.js's closure holds no run-files.js and only those files keeps it.
+test('RID-3 no import cycle: run-files.js imports only node built-ins and the fragment writer (return-path.js, which imports only built-ins and hidden-chars.js), so it can sit under api.js, mcp/server.js and tree-start.js; and the library entry point still loads', async () => {
   const imports = [...src('run-files.js').matchAll(/^import .* from '([^']+)'/gm)].map(m => m[1]);
-  assert.ok(imports.length > 0 && imports.every(m => m.startsWith('node:')), `run-files.js imports: ${imports.join(', ')}`);
+  assert.ok(imports.length > 0 && imports.every(m => m.startsWith('node:') || m === './return-path.js'), `run-files.js imports: ${imports.join(', ')}`);
+  const writerImports = [...src('return-path.js').matchAll(/^import .* from '([^']+)'/gm)].map(m => m[1]);
+  assert.ok(writerImports.length > 0 && writerImports.every(m => m.startsWith('node:') || m === './hidden-chars.js'), `return-path.js imports: ${writerImports.join(', ')}`);
+  const hiddenImports = [...src('hidden-chars.js').matchAll(/^import .* from '([^']+)'/gm)].map(m => m[1]);
+  assert.ok(hiddenImports.every(m => m.startsWith('node:')), `hidden-chars.js imports: ${hiddenImports.join(', ')}`);
   await import('../src/api.js'); await import('../src/tree-start.js');
 });

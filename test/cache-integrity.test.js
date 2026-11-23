@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { fingerprintInputs, cacheVerdict, promptHashOf } from '../src/cache-integrity.js';
 
 test('fingerprintInputs changes when the task text changes, stable otherwise', () => {
-  const config = { name: 'verify' };
+  const config = { name: 'plan-mini-council' };
   const a = fingerprintInputs('original task text', config);
   const b = fingerprintInputs('original task text', config);
   const c = fingerprintInputs('edited task text', config);

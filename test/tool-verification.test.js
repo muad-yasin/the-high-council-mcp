@@ -47,6 +47,8 @@ const FROZEN_V6_KEYS = [
   'missingCriteria', 'criteriaLints',
   // 0.8.2 item 4 (owner 6 Oct 2026: label the signed vs the delivered text): 'signedText' and 'deliveredText' are on every finished run (additive; 'handoffText' only with a handoff).
   'signedText', 'deliveredText',
+  // 10 Nov 2026 (0.8.4 D1, commit 45908a7d "Ending matrix: one word for how every run ends"): 'endingWord' - the matrix's word for how the run ended, on every finished run. Additive, like every key above it (report.json carries it as ending_word). 'stopKind' is added only when the run ended at a stop, so it is not in a plain mock run's key set. This line was missing from 45908a7d; this test is the guard that asks for it.
+  'endingWord',
 ].sort();
 
 test('verify absent: result has no ground_truth key and matches the frozen v6 key set', async () => {

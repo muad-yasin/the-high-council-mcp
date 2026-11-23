@@ -181,19 +181,19 @@ test('T8 the root\'s exit code in resume\'s own set: 3 -> 3, 4 -> 4, 19 -> 19, a
     assert.equal(starter.calls.length, 0, 'the root starter is not used once run.json exists'); }
 });
 
-test('T8b the REAL starter (api.run, the shipped chain verify, no key in the environment, $0): the root\'s own CLI refuses at exit 5 before its folder is made, the tree stays at S3 with nothing but tree/ in the root folder, no node_started is claimed, and the next resume starts it again', { timeout: 120_000 }, async () => {
+test('T8b the REAL starter (api.run, the shipped chain plan-mini-council, no key in the environment, $0): the root\'s own CLI refuses at exit 5 before its folder is made, the tree stays at S3 with nothing but tree/ in the root folder, no node_started is claimed, and the next resume starts it again', { timeout: 120_000 }, async () => {
   const saved = {};
   for (const k of Object.keys(process.env)) if (/KEY|TOKEN|SECRET/i.test(k)) { saved[k] = process.env[k]; delete process.env[k]; }
   try {
     const dir = work(); const rootDir = join(dir, 'runs', ID);
-    const verify = { depth: 0, name: 'verify', sha256: configSha256(join(root, 'chains', 'verify.json')) };
+    const verify = { depth: 0, name: 'plan-mini-council', sha256: configSha256(join(root, 'chains', 'plan-mini-council.json')) };
     startTree(rootDir, { rootCapUsd: 5, chains: [0, 1, 2].map(depth => ({ ...verify, depth })), rootTask: makeRootTaskPin(join(dir, 'tasks', 'x.md'), dir) });
     mkdirSync(join(rootDir, 'tree', 'inputs', 'R@g1'), { recursive: true }); writeFileSync(join(rootDir, 'tree', 'inputs', 'R@g1', 'node.json'), `${JSON.stringify(lineageOf(ID), null, 2)}\n`); registerRoot(rootDir);
     // fail closed: this test may never spend. The run's own reader of keys must say that EVERY seat of the chain lacks one (the scrub above removes key-like names; a key from anywhere else fails the test before any call)
-    const config = resolveChainSeats({ ...JSON.parse(readFileSync(join(root, 'chains', 'verify.json'), 'utf8')), name: 'verify' });
+    const config = resolveChainSeats({ ...JSON.parse(readFileSync(join(root, 'chains', 'plan-mini-council.json'), 'utf8')), name: 'plan-mini-council' });
     const seats = everySeatOf(config);
-    assert.ok(seats.length > 0 && missingKeyLines(config, seats), 'the verify chain must be missing a key here, or this test could spend money');
-    for (const seat of seats) assert.ok(missingKeyLines(config, [seat]), `no key may be found for ${seat.provider}`);
+    assert.ok(seats.length > 0 && missingKeyLines(config, seats), 'the plan-mini-council chain must be missing a key here, or this test could spend money');
+    for (const seat of seats.filter(s => s.provider !== 'external')) assert.ok(missingKeyLines(config, [seat]), `no key may be found for ${seat.provider}`);   // CHANGED (0.8.4 seats unit): the chain has external seats (the session and the criteria subscription seat), which need no key
     let launches = 0;
     for (const attempt of [1, 2]) {
       const d = io();

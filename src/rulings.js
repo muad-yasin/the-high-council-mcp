@@ -7,6 +7,17 @@
 /** The gate text of a ruling: the pass it applies from, then the ruling as shown. */
 export const rulingGateText = (pass, text) => `Ruling from pass ${pass}\n\n${String(text).trim()}\n`;
 
+/**
+ * Does the person's words CONTAIN the ruling text (S20 slice 2, Q1; C&C's R155)? A ruling is the person's own text: a handler that relays it must bring the person's quoted words, and the ruling must be in them. The comparison, and nothing wider:
+ * every run of whitespace on both sides is collapsed to one space and both are trimmed, then plain containment (the words may hold more). "Whitespace" is JavaScript's own `\s`, which includes the non-breaking space and the other Unicode spaces, so that
+ * a line wrap from a handler window does not matter. Case and punctuation stay EXACT, and a word split by a hyphen at a line end is a different text and stays refused. The record is NOT normalised: the words are stored as typed.
+ */
+export const rulingTextInWords = (words, text) => {
+  const squash = s => String(s).replace(/\s+/g, ' ').trim();
+  const t = squash(text);
+  return t !== '' && squash(words).includes(t);
+};
+
 /** { pass, text } from the bytes of a ruling gate's text, or null when they are not exactly that shape (a ruling that cannot be read is never dropped silently: the caller refuses). */
 export function parseRulingGateText(bytes) {
   const m = /^Ruling from pass (\d+)\n\n([\s\S]*\S)\n$/.exec(Buffer.isBuffer(bytes) ? bytes.toString('utf8') : String(bytes));
@@ -27,20 +38,6 @@ export function parseWithdrawalGateText(bytes) {
   if (!m) return null;
   const pass = Number(m[2]);
   return Number.isInteger(pass) && pass >= 1 ? { gate: m[1], pass } : null;
-}
-
-/**
- * A handler re-tag (B3 prep, JUDGE 4b, 1 Nov 2026; Muad: "handler too"): the person's decision, relayed by the handler session, to change the rating of ONE objection from a fixed pass on. A gate of kind `retag` (src/gate.js); its text is the
- * change exactly as it will be recorded. Same record rules as a ruling: the pass is fixed in the text, an approval stays in force whatever the clock says, and a prompt for pass R is the same whether it is built now or on a resume.
- */
-export const retagGateText = ({ pass, id, severity, reason }) => `Re-tag from pass ${pass}\nobjection: ${id}\nnew severity: ${severity}\nreason: ${String(reason).replace(/\s+/g, ' ').trim()}\n`;   // A-DRAFT (read by a person at the gate)
-
-/** { pass, id, severity, reason } from the bytes of a re-tag gate's text, or null when they are not exactly that shape (a re-tag that cannot be read is never dropped silently: the caller refuses). */
-export function parseRetagGateText(bytes) {
-  const m = /^Re-tag from pass (\d+)\nobjection: (O-\w+)\nnew severity: (\d+(?:\.\d)?)\nreason: (\S[^\n]*)\n$/.exec(Buffer.isBuffer(bytes) ? bytes.toString('utf8') : String(bytes));
-  if (!m) return null;
-  const pass = Number(m[1]); const severity = Number(m[3]);
-  return Number.isInteger(pass) && pass >= 1 && severity >= 1 && severity <= 10 && m[4].trim() === m[4] ? { pass, id: m[2], severity, reason: m[4] } : null;
 }
 
 /** The re-tags that apply AT pass `round` (each one takes effect once, at the top of its own pass; the rating it sets stays in force after that through the severity run). */

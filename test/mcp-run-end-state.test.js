@@ -62,10 +62,28 @@ test('MS-1 childEndOf: 0, 7, 8 and 22 are a FINISHED run (7/8 security-gated, 22
   const ended = code => ({ code, signal: null });
   for (const code of [0, 7, 8, 22]) assert.equal(childEndOf(ended(code)), 'finished', `exit ${code}`);
   assert.equal(childEndOf(ended(23)), 'stopped');
+  assert.equal(childEndOf(ended(26)), 'stopped', '26: a run stopped at an excerpt approval waits for the person (0.8.4 D10)');
   assert.equal(childEndOf(ended(3)), 'paused');
   assert.equal(childEndOf(null), 'running');
   assert.equal(childEndOf({ code: null, signal: 'SIGKILL' }), 'failed', 'a signal death is a run that died');
   for (const code of [1, 2, 4, 5, 10, 11, 15, 16, 17, 18, 19, 20]) assert.equal(childEndOf(ended(code)), 'failed', `exit ${code}`);
+});
+
+test('MS-1b childEndOf given the run folder and the spawn time: exit 11 beside a whole secret-stop record written after the spawn is a STOP waiting for the person (a run that ran and paused); with no record, a stale one or a torn one it stays FAILED (the pre-run refusal); no other code moves', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'thc-ms1b-'));
+  const put = rec => writeFileSync(join(dir, 'secret-stop.json'), typeof rec === 'string' ? rec : JSON.stringify(rec));
+  const spawnedAt = Date.now() - 1000;
+  const whole = { schema: 'secret-stop/1', stop: 'a1b2c3d4e5f60718', label: 'critic-1', findings: [{ part: 'user', line: 2, name: 'anthropic' }], values: ['d'.repeat(32)], at: new Date().toISOString() };
+  const ended = code => ({ code, signal: null });
+  assert.equal(childEndOf(ended(11), { runDir: dir, spawnedAt }), 'failed', 'no record: a pre-run refusal');
+  put(whole);
+  assert.equal(childEndOf(ended(11), { runDir: dir, spawnedAt }), 'stopped', 'a record written after the spawn: the run paused');
+  assert.equal(childEndOf(ended(11), { runDir: dir, spawnedAt: Date.now() + 60_000 }), 'failed', 'a record older than the spawn is a stale one');
+  assert.equal(childEndOf(ended(11)), 'failed', 'without the folder, the code alone (MS-1)');
+  put('{"schema":'); assert.equal(childEndOf(ended(11), { runDir: dir, spawnedAt }), 'failed', 'a torn record');
+  put({ ...whole, values: [] }); assert.equal(childEndOf(ended(11), { runDir: dir, spawnedAt }), 'failed', 'a record with no value hashes');
+  put(whole);
+  for (const [code, want] of [[3, 'paused'], [23, 'stopped'], [0, 'finished'], [1, 'failed'], [10, 'failed']]) assert.equal(childEndOf(ended(code), { runDir: dir, spawnedAt }), want, `exit ${code}`);
 });
 
 test('MS-2 resume_run on a run that is already stopped for the person: resumed:false (nothing resumed), state "stopped, waiting for the person\'s choice", the stop sentence names --continue and --finish, and run_status agrees (awaiting_choice)', async () => {

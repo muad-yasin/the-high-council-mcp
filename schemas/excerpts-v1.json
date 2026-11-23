@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://the-high-council.dev/schema/excerpts-v1.json",
+  "title": "excerpts.jsonl - one line of a run's excerpt record (experimental)",
+  "description": "runs/<id>/excerpts.jsonl, appended by src/excerpt-record.js: one JSON object per line. An excerpt of project text the seats were shown, or a request for such text that was declined, left unanswered, withheld or not cut by the harness, or a read of the handling session that the harness could not cut (a session_read line with status not_cut). `text` is the exact text shown after any edit, and the prompt block is built from it. A request without text has text, text_sha256, file_sha256 and scans null. `answered_stage` names the stage whose answer carried the text or the decline; it names, for a request left unanswered, the stage at whose pause it was left out, and is null only when no pause came after the request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "request_kind", "requested_by", "objection_id", "origin", "why", "source_kind", "path", "lines", "text", "text_sha256", "file_sha256", "edited", "pasted_by", "advisor", "advisor_said", "answered_stage", "scans", "approval"],
+  "properties": {
+    "schema": { "const": "excerpts/1", "description": "The version of this line's format, as the other run-folder records carry theirs." },
+    "id": { "type": "string", "pattern": "^E-[1-9][0-9]*$", "description": "E-<n>, numbered in the order recorded." },
+    "request_kind": { "enum": ["seat_request", "session_read", "seat_read"], "description": "seat_read is reserved for a later seat that reads the project itself; it has the same fields." },
+    "requested_by": { "type": ["string", "null"], "description": "The requesting seat's key; null for a session_read." },
+    "objection_id": { "type": ["string", "null"] },
+    "origin": { "type": ["string", "null"], "description": "The label of the reply that carried the request (for example panel-1-<seat key> for a judge's verdict or debate-<seat key> for a proposer's debate reply); it tells apart two seats that share a key. null for a session_read." },
+    "why": { "type": "string", "minLength": 1 },
+    "source_kind": { "enum": ["repository_file", "task_file", "context_document", "handed_draft"] },
+    "path": { "type": "string", "minLength": 1 },
+    "lines": { "type": ["string", "null"], "pattern": "^[0-9]+-[0-9]+$" },
+    "text": { "type": ["string", "null"], "description": "The exact text shown. It may be empty or only whitespace when the named lines hold no text (an empty file, a blank range); null when the line carries no text." },
+    "text_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "file_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "edited": { "type": "boolean" },
+    "pasted_by": { "type": ["string", "null"], "description": "main-session for a request the handling session answered with a paste or a decline; null for a session read and for a request left unanswered or not cut." },
+    "advisor": { "enum": ["consulted", "none", "unavailable", null] },
+    "advisor_said": { "type": ["string", "null"] },
+    "answered_stage": { "type": ["string", "null"], "description": "The stage whose answer carried the text or the decline: for a session_read, the stage whose answer the session was writing when it read the file; for a request, the stage at whose pause the session answered. The text is shown in every prompt from the next stage on. For a request left unanswered, the stage at whose pause it was left out; null only when no pause came after the request. For a line the harness could not cut (not_cut), the stage whose answer named the text." },
+    "scans": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["key_shape", "personal_data"],
+      "properties": {
+        "key_shape": { "enum": ["clear", "hit", "continued_by_person"] },
+        "personal_data": { "enum": ["clear", "hit", "continued_by_person", "not_scanned"], "description": "not_scanned: no personal-data check ran during the run (the check at the start applies); the entry does not claim a pass." }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "actor", "channel", "at", "reason"],
+      "properties": {
+        "status": { "enum": ["not_required", "approved", "edited", "refused", "unanswered", "withheld", "not_cut"], "description": "not_cut: the harness could not cut the text the request or the read named (the path is outside the project, a secret file, not found, the lines do not fit, the text is too long for an approval screen); the reason says which. Nobody declined it and nobody left it out." },
+        "actor": { "type": ["string", "null"], "description": "As the gate ledger recorded it: the operating-system user name for cli, the MCP client's name for elicitation, main-session for session; null when the gate recorded none." },
+        "channel": { "enum": ["cli", "elicitation", "session", null], "description": "One of the gate's channels." },
+        "at": { "type": "string", "description": "An ISO 8601 time." },
+        "reason": { "type": ["string", "null"], "minLength": 1, "description": "The decliner's or the refuser's own words; null when none was given (a refusal's reason is optional), never an empty string. Required for unanswered, withheld and not_cut." }
+      }
+    },
+    "supersedes": { "type": "string", "pattern": "^E-[1-9][0-9]*$", "description": "Optional, absent on almost every line. The id of an earlier line recorded not_required that this line replaces: that earlier text was recorded while the privacy switch was off and no call on the run's record had sent it to a seat, so it was held for the person when the switch was turned on, and this line holds the answer (or not_cut, for a text longer than an approval screen can hold). The earlier line stays in the file; it is no longer used." }
+  }
+}

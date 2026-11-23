@@ -56,10 +56,17 @@ export function deriveDissentSummary(report) {
       .map(p => `${p.by}: ${p.text}`)
   );
   const verdict = report?.outcome || 'unknown';
-  return { topics, objections, verdict: String(verdict) };
+  // 0.8.4 (found-secret pause, --finish): a run finished at a credential-shaped pause in its FIRST pass with no layer answered has no verdict that counts (a layer that was cut off left its replies marked); the template would say the panel disagreed on "nothing".
+  const noPanel = report?.stop?.kind === 'secret_pause' && report.stop.pass === 1 && (report.stop.reviewed === 'none' || (report.stop.reviewed === 'part' && Array.isArray(report.stop.asked_layers) && report.stop.asked_layers.length === 0));
+  // 0.8.4 S16 (F; WORDING S16-w68): a run finished at the spending limit in its FIRST pass, when no layer of that pass answered (derived from layers[]: nothing new is recorded)
+  const answered = r => r?.state === 'signed_off' || r?.state === 'objected';
+  const noPanelSpend = report?.stop?.kind === 'budget_stop' && report.stop.pass === 1 && !(Array.isArray(report.layers) ? report.layers : []).some(r => r?.round === 1 && answered(r));
+  return { topics, objections, verdict: String(verdict), ...(noPanel ? { noPanel: true } : noPanelSpend ? { noPanel: 'spend' } : {}) };
 }
 
-export function renderDigestTemplate({ topics, objections, verdict }) {
+export function renderDigestTemplate({ topics, objections, verdict, noPanel = false }) {
+  if (noPanel === 'spend') return "No verdict of the panel counts: the run was finished at the person's choice at the spending limit in the first pass, before the review of the plan was complete.";   // 0.8.4 S16 (F; WORDING S16-w68)
+  if (noPanel) return "No verdict of the panel counts: the run was finished at the person's choice at a credential-shaped pause in the first pass, before the review of the plan was complete.";   // A-DRAFT (WORDING_0.8.4.md, c2h)
   const topicsText = topics.length ? topics.join(', ') : NO_DISSENT_TOPICS;
   const objectionsText = objections.length ? objections.join('; ') : 'none';
   return `The panel disagreed on: ${topicsText}. Objections raised: ${objectionsText}. Final verdict: ${verdict}.`;
@@ -68,7 +75,7 @@ export function renderDigestTemplate({ topics, objections, verdict }) {
 export async function generateDigestText({ report, call, model, provider, maxTokens = 300, note = () => {} }) {
   const summary = deriveDissentSummary(report);
   const fallback = renderDigestTemplate(summary);
-  if (!call) return fallback;
+  if (!call || summary.noPanel) return fallback;   // no panel, nothing for a model to summarise: no call
   // Money path #5 (Review/PreRelease_Audit_moneypath_2026-09-23.md): this is the one paid call made
   // outside chain.js's invoke(), so the run-time denied-model check never saw it and
   // `--provider openrouter --model x-ai/...` would have been sent. "No xAI/Grok, ever", no opt-out:

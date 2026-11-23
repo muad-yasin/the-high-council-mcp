@@ -10,14 +10,16 @@
 // state: { used1, l2, l3 }   used1 = layer-1 revisions in the current block, l2 = layer-2 visits since the last layer-3 visit, l3 = layer-3 visits so far
 export const LADDER_BLOCK = 3;
 export const LADDER_VISITS = 3;
+// The most rounds of the layer exchange the ladder may ask at layers 2 and 3. One number for ladderOf below and the MCP start_run argument (src/mcp/start-ladder.js); the CLI's own check (src/cli.js, --ladder-exchange) spells the same bound as 0 to 7.
+export const LADDER_EXCHANGE_MAX = 7;
 
 const isCount = n => Number.isInteger(n) && n >= 1;
 
-/** The normalised setting, or null when it is not a usable one. `block` and `visits` default to Muad's 3 and 3; `credit` to 0 (a run that starts under the ladder); `exchange` = the rounds of the layer exchange at layers 2 and 3 (0 = none; layer 1 keeps the chain's layer_debate.rounds). */
+/** The normalised setting, or null when it is not a usable one. `block` and `visits` default to Muad's 3 and 3; `credit` to 0 (a run that starts under the ladder); `exchange` = the rounds of the layer exchange at layers 2 and 3 (0 = none; layer 1's exchange always runs N9's own loop: until a round changes nothing, at most seven). */
 export function ladderOf(setting) {
   if (!setting || typeof setting !== 'object') return null;
   const block = setting.block ?? LADDER_BLOCK; const visits = setting.visits ?? LADDER_VISITS; const credit = setting.credit ?? 0; const exchange = setting.exchange ?? 0;
-  if (!isCount(block) || !isCount(visits) || !Number.isInteger(credit) || credit < 0 || !Number.isInteger(exchange) || exchange < 0 || exchange > 7) return null;
+  if (!isCount(block) || !isCount(visits) || !Number.isInteger(credit) || credit < 0 || !Number.isInteger(exchange) || exchange < 0 || exchange > LADDER_EXCHANGE_MAX) return null;
   return { block, visits, credit, exchange };
 }
 

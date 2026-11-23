@@ -14,11 +14,10 @@ const serverJson = readJson('server.json');
 const manifest = readJson('mcpb/manifest.json');
 const serverSrc = readFileSync(join(root, 'src', 'mcp', 'server.js'), 'utf8');
 // EDITED 23 Okt 2026 (lane D; C&C thcmcp-cd): the list of registered tools is the one landing-page.test.js counts - the `server.tool(` calls in server.js PLUS the `registerTool` calls in
-// advice.js (council_quote, council_advise) and contract.js (contract_read, contract_amend). OLD: server.js only, so four registered tools were missing from the manifest and nothing said so.
+// contract.js (contract_read, contract_amend); the advice tools left in 0.8.4. OLD: server.js only, so four registered tools were missing from the manifest and nothing said so.
 const registeredIn = (file, re) => [...readFileSync(join(root, 'src', 'mcp', file), 'utf8').matchAll(re)].map(m => m[1]);
 const toolNames = [
   ...[...serverSrc.matchAll(/server\.tool\('([a-z_]+)'/g)].map(m => m[1]),
-  ...registeredIn('advice.js', /server\.registerTool\('([a-z_]+)'/g),
   ...registeredIn('contract.js', /server\.registerTool\('([a-z_]+)'/g),
 ].sort();
 const keyVars = readFileSync(join(root, '.env.example'), 'utf8').match(/^[A-Z_]+_API_KEY(?==)/gm);

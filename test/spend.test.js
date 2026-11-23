@@ -35,12 +35,12 @@ test('runIdToDate parses a run id, and rejects anything else', () => {
 
 test('sums completed runs and reports each one', () => {
   const { runs, add } = fixture();
-  add(ID(0), { 'report.json': { chain: 'verify', totals: { usd: 0.25 } } });
+  add(ID(0), { 'report.json': { chain: 'plan-mini-council', totals: { usd: 0.25 } } });
   add(ID(1), { 'report.json': { chain: 'plan-debate', totals: { usd: 1.5 } } });
   const r = spendReport(runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
   assert.equal(r.count, 2);
   assert.ok(Math.abs(r.totalUsd - 1.75) < 1e-9);
-  assert.deepEqual(r.runs.map(x => x.chain).sort(), ['plan-debate', 'verify']);
+  assert.deepEqual(r.runs.map(x => x.chain).sort(), ['plan-debate', 'plan-mini-council']);
   assert.ok(r.runs.every(x => x.state === 'complete'));
 });
 
@@ -123,18 +123,18 @@ test('a corrupt report.json does not poison the total', () => {
 test('the report carries cost and chain, never the task', () => {
   // What a run was about is not spend data.
   const { runs, add } = fixture();
-  add(ID(8), { 'report.json': { chain: 'verify', task: 'tasks/acquire-competitor.md', totals: { usd: 1 } } });
+  add(ID(8), { 'report.json': { chain: 'plan-mini-council', task: 'tasks/acquire-competitor.md', totals: { usd: 1 } } });
   const r = spendReport(runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
   assert.equal(JSON.stringify(r).includes('acquire-competitor'), false,
     'the task path must not appear in a spend report');
-  assert.equal(r.runs[0].chain, 'verify');
+  assert.equal(r.runs[0].chain, 'plan-mini-council');
 });
 
 test('an unsettled reservation (a call in flight when the process ended) stays charged at its worst case; the report carries amounts only, never its label or seat (0.8.2 item 8b)', () => {
   const { runs, add } = fixture();
   const line = o => `${JSON.stringify({ schema: 'spend-reservations/1', at: '2026-09-11T10:00:00.000Z', ...o })}\n`;
   add(ID(9), {
-    'report.json': { chain: 'verify', totals: { usd: 1 } },
+    'report.json': { chain: 'plan-mini-council', totals: { usd: 1 } },
     'spend-reservations.jsonl': line({ event: 'reserved', id: 'r1', label: 'panel-1-secret-label', seat: 'vendor/secret-model', usd: 2.5 }) + line({ event: 'settled', id: 'r1', outcome: 'recorded', usd: 0.3 })
       + line({ event: 'reserved', id: 'r2', label: 'panel-2-secret-label', seat: 'vendor/secret-model', usd: 4 }) + '{"schema":"spend-reservations/1","event":"sett',
   });
@@ -167,13 +167,13 @@ test('test_cost_today_sums_by_calendar_day_with_per_model_breakdown: only today\
   const tenHoursIn = toId(new Date(startOfDay.getTime() + 10 * 3600 * 1000));
   const fiveHoursBefore = toId(new Date(startOfDay.getTime() - 5 * 3600 * 1000));
 
-  add(twoHoursIn, { 'run.json': { chain: 'verify' },
+  add(twoHoursIn, { 'run.json': { chain: 'plan-mini-council' },
     'criteria.usage.json': { provider: 'together', model: 'deepseek', usd: 0.1 },
     'build.usage.json': { provider: 'openrouter', model: 'qwen', usd: 0.2 } });
-  add(tenHoursIn, { 'run.json': { chain: 'verify' },
+  add(tenHoursIn, { 'run.json': { chain: 'plan-mini-council' },
     'criteria.usage.json': { provider: 'together', model: 'deepseek', usd: 0.3 } });
   // Before local midnight - must not be counted.
-  add(fiveHoursBefore, { 'run.json': { chain: 'verify' },
+  add(fiveHoursBefore, { 'run.json': { chain: 'plan-mini-council' },
     'criteria.usage.json': { provider: 'together', model: 'deepseek', usd: 99 } });
 
   const r = costToday(runs, { date: target });
@@ -187,7 +187,7 @@ test('test_cost_today_sums_by_calendar_day_with_per_model_breakdown: only today\
 
 test('costToday writes nothing at all, same degradation contract as spendReport', () => {
   const { dir, runs, add } = fixture();
-  add('2026-09-11T09-00-00-000Z', { 'run.json': { chain: 'verify' }, 'criteria.usage.json': { provider: 'mock', model: 'mock', usd: 0 } });
+  add('2026-09-11T09-00-00-000Z', { 'run.json': { chain: 'plan-mini-council' }, 'criteria.usage.json': { provider: 'mock', model: 'mock', usd: 0 } });
   const before = tree(dir);
   costToday(runs, { date: new Date('2026-09-11T20:00:00Z') });
   assert.deepEqual(tree(dir), before, 'costToday must not touch the disk');
@@ -220,22 +220,21 @@ test('costToday follows the calendar day across DST changes (Europe/Berlin)', as
   assert.deepEqual(out, { oct25: 1, oct26: 0, mar29: 0, mar30: 1 });
 });
 
-test('an advice call\'s folder before its start (0.8.1 DR-15) reads as not started, with its chain and $0, not as a run that died', async () => {
-  const { requestGate } = await import('../src/gate.js');
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: a pre-start advice folder (advice.meta.json + a gate written by requestGate with kind 'advice') read as state 'advice call not started: awaiting approval (nothing sent or spent)'. NEW: the folder is built by hand (the gate writer for that kind is gone), the report still names its chain from advice.meta.json at $0, and its state is the plain 'incomplete'. WHY: src/spend.js no longer has the advice state sentence; it still reads advice.meta.json for the chain name (an old folder).
+test('an old advice call\'s folder from before its start (advice.meta.json, no run.json) still names its chain at $0 and reads as incomplete', () => {
   const { runs, add } = fixture();
   add(ID(2), { 'advice-brief.md': '# A brief\n', 'advice.meta.json': { schema: 'advice-meta/1', chain: 'advise-single', gate: 'g1' } });
-  const g = requestGate(join(runs, ID(2)), { kind: 'advice', textPath: 'advice-brief.md', price: { ceiling_usd: 0.3 }, seats: [], sensitivity: null, expiresAt: Date.now() + 600_000 });
-  assert.ok(g.ok, g.message);
   const r = spendReport(runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
   assert.equal(r.runs.length, 1);
-  assert.deepEqual({ chain: r.runs[0].chain, usd: r.runs[0].usd, state: r.runs[0].state }, { chain: 'advise-single', usd: 0, state: 'advice call not started: awaiting approval (nothing sent or spent)' });
+  assert.deepEqual({ chain: r.runs[0].chain, usd: r.runs[0].usd, state: r.runs[0].state }, { chain: 'advise-single', usd: 0, state: 'incomplete' });
   assert.equal(r.totalUsd, 0);
 });
 
-test('an advice run stopped at exit 18 (0.8.1 M6) is named by its cause, and what it paid for still counts', () => {
+// CHANGED ACCEPTED TEST (0.8.4 add-on removal, wave 2): OLD: an advice run with STOPPED-wall_clock.json read as 'stopped: at its wall clock'. NEW: the marker is not read any more (STOP_CAUSES lost wall_clock), the state is 'incomplete', and what the run paid for still counts. WHY: the three advice stop causes left src/stop-files.js with the add-on; the money assertion is the part that stays true.
+test('an old advice run that an earlier version stopped (STOPPED-wall_clock.json) reads as incomplete, and what it paid for still counts', () => {
   const { runs, add } = fixture();
   add(ID(3), { 'run.json': { chain: 'advise-standard' }, 'STOPPED-wall_clock.json': { schema: 'stopped/1', stoppedBy: 'wall_clock' }, 'advise-a.usage.json': { usd: 0.05 }, 'advise-b.usage.json': { usd: 0.07 } });
   const r = spendReport(runs, { days: 30, now: Date.parse('2026-09-11T20:00:00Z') });
-  assert.equal(r.runs[0].state, 'stopped: at its wall clock');
+  assert.equal(r.runs[0].state, 'incomplete');
   assert.equal(Math.round(r.totalUsd * 100) / 100, 0.12);
 });

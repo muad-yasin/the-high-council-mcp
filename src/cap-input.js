@@ -13,6 +13,9 @@ import { redactText } from './secret-patterns.js';
 export const CAP_GRAMMAR = /^(0|[1-9][0-9]{0,5})(\.([0-9]{1,4}))?$/;
 export const MICRO = 1_000_000;
 
+/** The ONE reader of a limit read back from the record: the record stores the typed limit as the normalized decimal string parseCapInput gave (a number is passed through when finite). A string outside the grammar, a blank one or null reads as null, never as zero. */
+export const capUsdNumber = v => (typeof v === 'number' ? (Number.isFinite(v) ? v : null) : typeof v === 'string' && CAP_GRAMMAR.test(v) ? Number(v) : null);
+
 const shown = raw => { const t = redactText(String(raw)).text; return t.length > 40 ? `${t.slice(0, 40)}...` : t; };
 const refuse = (code, sentence) => ({ ok: false, code, sentence: `${sentence} Nothing was started.` });
 // The ceiling test, ONE copy for the CLI's typed limit (parseCapInput below) and the tree's amounts (src/tree-ceiling.js: tree start, the member's start; 15 Oct 2026, C&C: COUNCIL_MAX_USD_LIMIT bounds a tree's typed amounts too). Micro-dollar integers, so it is

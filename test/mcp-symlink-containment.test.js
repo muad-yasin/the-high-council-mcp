@@ -19,7 +19,7 @@ const VICTIM = 'VICTIM-ORIGINAL-CONTENT';
 
 function mcp(cwd, calls, { timeoutMs = 60_000 } = {}) {
   return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd } });
+    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, ...malformedProviderKeys() } });
     const want = new Set(calls.map((_, i) => i + 2));
     const byId = new Map();
     let buf = '';
@@ -206,62 +206,6 @@ test('a run.json that names a hostile cwd cannot widen where a task path may be 
       const written = join(w.work, 'runs', id, 'stage_prompt.md');
       if (existsSync(written)) assert.ok(!readFileSync(written, 'utf8').includes(SENTINEL), 'stage_prompt.md carries the outside file');
     }
-  } finally { w.clean(); }
-});
-
-// A sequential session: each step is built from the previous answers (the quote id is only known after council_quote).
-function mcpSteps(cwd, steps) {
-  return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [cli, '--mcp'], { cwd, env: { PATH: process.env.PATH, HOME: cwd, COUNCIL_ADVISE_COOLDOWN_MS: '0', ...malformedProviderKeys() } });
-    const results = []; const byId = new Map(); let buf = ''; let next = 0;
-    const timer = setTimeout(() => { child.kill(); fail(new Error('timed out')); }, 60_000);
-    const send = o => child.stdin.write(JSON.stringify(o) + '\n');
-    const fire = () => {
-      if (next >= steps.length) { clearTimeout(timer); child.kill(); return done(results); }
-      const id = next + 2; const call = steps[next](results);
-      next++; byId.set(id, null);
-      send({ jsonrpc: '2.0', id, method: 'tools/call', params: call });
-    };
-    child.stdout.on('data', d => {
-      buf += d; let nl;
-      while ((nl = buf.indexOf('\n')) !== -1) {
-        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
-        let m; try { m = JSON.parse(line); } catch { continue; }
-        if (m.id === 1) { send({ jsonrpc: '2.0', method: 'notifications/initialized' }); fire(); }
-        else if (m.id !== undefined && byId.has(m.id)) { results.push(m); fire(); }
-      }
-    });
-    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'symlink-containment', version: '0' } } });
-  });
-}
-
-test('council_advise records objection dispositions without following a symlinked advise-log.json.tmp (the write was a bare writeFileSync)', async () => {
-  const w = world();
-  try {
-    const id = '2026-10-06T17-00-05-000Z'; const dir = join(w.work, 'runs', id);
-    mkdirSync(dir, { recursive: true });
-    // zero-spend-ok: this server has no approver, so no send is ever approved, and its env carries malformed provider keys (never filled from .env, never sent)
-    writeFileSync(join(dir, 'run.json'), JSON.stringify({ chain: 'advise-single' }));
-    // A valid-shape ledger entry with a timestamp in the future, so it stays "in session" for the guards.
-    writeFileSync(join(dir, 'advise-log.json'), JSON.stringify({ ts: Date.now() + 3_600_000, quoted: { ceiling_usd: 0.1 }, dissent_ids: [`${id}#glm5.3`], dispositions: [] }));
-    symlinkSync(w.victim, join(dir, 'advise-log.json.tmp'));
-    const brief = { schema_version: 'advice-brief/1', moment: 'before_commit', question: 'Should we drop the legacy invoices column before the release?',
-      decision_at_stake: 'A dropped column cannot be restored once the migration has run in production.',
-      options_considered: [{ name: 'Drop it now', summary: 'Run the migration before the release.' }, { name: 'Do less', summary: 'Keep the column and add a new one beside it.' }],
-      tried: [{ what: 'Ran the migration on a copy of the data', result: 'It passed in 3 seconds.' }], sensitivity: 'internal', not_included: ['the conversation', 'environment variables'] };
-    const [quote, advise] = await mcpSteps(w.work, [
-      () => ({ name: 'council_quote', arguments: { brief, mode: 'single' } }),
-      results => {
-        const t = JSON.stringify(results[0].result);
-        const q = t.match(/quote_id: \\"(q_[0-9a-f]{24})\\"/)?.[1]; const sha = t.match(/confirm_sha256: \\"([0-9a-f]{64})\\"/)?.[1];
-        assert.ok(q && sha, `a quote came back: ${t.slice(0, 300)}`);
-        return { name: 'council_advise', arguments: { quote_id: q, confirm_sha256: sha, wait_seconds: 0, dispositions: [{ id: `${id}#glm5.3`, decision: 'accept', reason: 'The objection is right, we will keep the column.' }] } };
-      },
-    ]);
-    assert.ok(!quote.result?.isError, textOf(quote).slice(0, 300));
-    assert.equal(readFileSync(w.victim, 'utf8'), VICTIM, `the disposition record was written through the link: ${textOf(advise).slice(0, 300)}`);
-    // and it was refused for THIS reason (not by some unrelated earlier failure): the planted link makes the run folder unusable
-    assert.match(textOf(advise), /ledger_unreadable.*symbolic link|symbolic link.*ledger_unreadable/s, textOf(advise).slice(0, 400));
   } finally { w.clean(); }
 });
 

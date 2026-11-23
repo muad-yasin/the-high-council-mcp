@@ -242,6 +242,7 @@ test('never lower, form 1 (source scan): no line of code in src/ writes a lower 
     readFileSync(join(root, 'src', f), 'utf8').split('\n').forEach((line, i) => {
       const t = line.trim();
       if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return; // comments may name the old behaviour
+      if (f === 'providers.js' && /id: 'context-compression', enabled: false/.test(line)) return;   // CHANGED ACCEPTED (0.8.4 S16 H(c)): the router's prompt-compression plugin is switched OFF in every OpenRouter request so a too-long prompt is refused instead of shortened; it is not a reasoning setting (the pattern is for thinking switches)
       if (lowering.some(re => re.test(line))) hits.push(`src/${f}:${i + 1}: ${t.slice(0, 120)}`);
     });
   }
@@ -250,8 +251,9 @@ test('never lower, form 1 (source scan): no line of code in src/ writes a lower 
 
 test('never lower, form 2 (source scan): every call that sends a seat\'s request in invoke() sends the SAME extra', () => {
   const whole = readFileSync(join(root, 'src', 'chain.js'), 'utf8');
-  const from = whole.indexOf('async function invoke(');
-  const src = whole.slice(from, whole.indexOf('\n}\n', from)); // invoke() only: the alternatives stage has its own, unrelated `ask`
+  // CHANGED ACCEPTED (0.8.4 D38 option I, 09 Nov 2026): invoke() is now a short wrapper over invokeCall(), the function that holds the body (it remembers the text really sent for the repair pauses); the scan reads the body.
+  const from = whole.indexOf('async function invokeCall(');
+  const src = whole.slice(from, whole.indexOf('\n}\n', from)); // the body only: the alternatives stage has its own, unrelated `ask`
   const asks = [...src.matchAll(/\bask\(([^)]*)\)/g)].map(m => m[1].trim());
   assert.ok(asks.length >= 2, 'fixture: the first call and the retry');
   for (const a of asks) assert.ok(a.startsWith('sentExtra'), `ask(${a}) does not send sentExtra`);

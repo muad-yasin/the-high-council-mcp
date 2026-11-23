@@ -17,6 +17,7 @@ Output of this skill, handed to `frontend-developer`: **a confirmed flow, a text
 - [ ] 4. Notification tier chosen; transient exits designed; dark-pattern screen
 - [ ] 5. First-session path checked
 - [ ] 6. Copy: action names consistent, errors say what to do next
+- [ ] 7. The walk-through of section 2: system state visible, a way out everywhere, undo or ask first, nothing to remember from the screen before
 ```
 
 ## 1. Map the flow - always first
@@ -38,12 +39,15 @@ Output of this skill, handed to `frontend-developer`: **a confirmed flow, a text
 - **Mystery-lock or full transparency, chosen per screen.** A discovery screen may hide locked content; a planning screen shows its name, cost and requirements up front. Say which and why.
 - **Withhold the action, never the information.** A locked or unavailable item says what it is and what it costs; the button is what is withheld. A planning screen is not a discovery mechanic. (A deliberate exception on one project: a physical object in a game world left silently unusable so players would wonder about it. It worked because it was an object in a world, not a menu row: a screen keeps transparency, a world can keep a mystery.)
 - **A lock the user can resolve gets its reason and next step; a lock they cannot resolve gets plain dimmed chrome, not a caption.** A locked or empty state otherwise gets a headline, a one-line reason, a visual cue, and a next step where one exists. "Check back later" is worse than either a plain dimmed lock or a real reason.
+- **A consequential action can be undone, or the user is asked before it runs - and undo is the better of the two.** Asking before every routine action trains people to click through, so keep the question for what cannot be taken back, and say in it what will be lost.
+- **Prevent the slip and the mistake differently.** A slip is the right intention with the wrong motion (a mis-tap beside a destructive control): spacing, a constraint and undo answer it. A mistake is a wrong picture of what the control does: a clearer name, a preview of the result and undo answer it. A warning helps only when it says what will happen, because a bare "Are you sure?" invites someone who misunderstands the action to agree to the misunderstanding.
+- **Before handoff, walk the wireframe once with four questions:** can the user always see what state the system is in; is there a marked way out of every screen and every transient surface; can each consequential action be undone, or is the user asked first; does any screen rely on the user remembering something from the screen before? Each "no" is a finding while it is still cheap to fix. (The four questions and the slip and mistake distinction follow Jakob Nielsen's usability heuristics; the remedies are this skill's: `references/evidence.md`.)
 - **A newly interactive element needs a visible affordance** (icon, highlight, chevron, caption) specified in the design. Wireframes describe what an element does and routinely forget that it must *look* actionable.
 - **Say whether each visual signal invites or informs.** Inviting signals draw attention (a glow, a pulse, a badge); informative ones are legible but recede (a label, a count). The distinction (Celia Hodent's inviting and informative signs, from game UX) generalizes well and stops an informative element being animated into a nag. If a control needs a caption to explain its own verb, question the control first.
 
 ## 3. Accessibility - not skipped for a prototype
 
-Design-time items, stated against WCAG 2.2 AA, the current W3C Recommendation. Many legal baselines still cite WCAG 2.1 AA (the US ADA Title II rule, and the EU's EN 301 549 until its WCAG 2.2-aligned V4.1.1, published September 2026, is cited in the Official Journal - expected December 2026; re-check this sentence after that); 2.2 AA covers 2.1 AA, so design to 2.2.
+Design-time items, stated against WCAG 2.2 AA, the current W3C Recommendation. Many legal baselines still cite WCAG 2.1 AA (the US ADA Title II rule, and the EU's EN 301 549 until its WCAG 2.2-aligned V4.1.1, published September 2026, is cited in the Official Journal - expected December 2026; re-check this sentence after that); 2.2 AA covers 2.1 AA, so design to 2.2. An AAA criterion is adopted by decision and written down, because one nobody chose gets met on one screen and missed on the next: a measurable focus indicator (2.4.13) is one such choice, and `frontend-developer` has its figures.
 
 - **Color never carries meaning alone** - pair it with a shape, icon, sign or label.
 - **Contrast** meets 4.5:1 for normal text and 3:1 for large text and for UI components and meaningful graphics (WCAG 1.4.3, 1.4.11). Computed, not eyeballed; this skill owns the thresholds for the whole set, `visual-craft` owns the measuring method.
@@ -73,6 +77,7 @@ Tone and function can both bind; **function wins on anything the user acts on.**
 
 - **An action keeps one name through the flow.** "Delete" produces a confirmation that says "Deleted," not "Operation complete." A committing button names its verb ("Delete file", "Send €50"), never a bare "OK."
 - **Name what the user controls, not how it's built.** Files, messages and orders - never a "handler" or a "state." A leaked implementation noun is a copy defect.
+- **A prompt for input says what the answer will be used for.** A bare field asking for a number gets a guess; "Spending limit for this run, in dollars" gets an answer, and the unit is part of the label.
 - **An error says what happened and what to do next,** in the product's voice, without apology or vagueness. "Something went wrong" is a stub.
 - **Each element does one job.** A label carrying both a joke and the only statement of a rule loses the rule for everyone who skims past the joke. Split it into two lines.
 
@@ -92,9 +97,11 @@ When the asked-for direction is weaker than one you can see, say so before execu
 - A notification louder (or quieter) than its urgency.
 - A monetization or engagement design with no independent second look.
 - An action whose name changes between control, confirmation and result.
+- A destructive action with neither undo nor a question first that says what is lost; a question before every routine action.
+- A prompt that asks for a value without saying what it is for.
 - An error with no next step; a label doing two jobs.
 - A UX claim resting on an invented statistic.
 - A direction validated because it was asked for, when a stronger one went unmentioned.
 - The same correction absorbed twice without being written down.
 
-Recurring display and state defects from shipped work - read before reviewing shipped UI or when a defect "feels familiar": `references/field-lessons.md`.
+Recurring display and state defects from shipped work - read before reviewing shipped UI or when a defect "feels familiar": `references/field-lessons.md`. The source added in 2026-11, with what was read: `references/evidence.md`.

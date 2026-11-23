@@ -196,7 +196,8 @@ test('the CLI front door: `council tree decide <root> --abandon` is a KNOWN opti
 });
 
 test('DA-10 (the MCP half): no MCP tool abandons anything - it is a terminal verb (the tool COUNT is pinned by test/landing-page.test.js, which derives it from src/mcp/server.js)', () => {
-  const sources = ['server.js', 'advice.js', 'contract.js'].map(f => readFileSync(new URL(`../src/mcp/${f}`, import.meta.url), 'utf8'));       // the same three files test/landing-page.test.js counts
+  // CHANGED ACCEPTED TEST (0.8.4 add-on removal): OLD the three files server.js, advice.js (council_quote, council_advise) and contract.js were read. NEW server.js and contract.js, the two files test/landing-page.test.js counts. WHY the advice tools are gone, so src/mcp/advice.js registers no tool; the `names.length >= 20` bar below still holds (23 tools).
+  const sources = ['server.js', 'contract.js'].map(f => readFileSync(new URL(`../src/mcp/${f}`, import.meta.url), 'utf8'));
   const names = sources.flatMap(src => [...src.matchAll(/server\.(?:tool|registerTool)\(\s*'([a-z_]+)'/g)].map(m => m[1]));
   assert.ok(names.length >= 20, `the tool list was read (${names.length} tools)`);
   assert.deepEqual(names.filter(n => /abandon/.test(n)), []);

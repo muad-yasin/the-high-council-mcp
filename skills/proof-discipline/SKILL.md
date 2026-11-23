@@ -19,7 +19,7 @@ A card is for a result that will **gate a milestone, set a baseline, decide a re
 A few lines each, in a file whose commit precedes the first output. It may be a header in the launcher script or a section of a handoff; what matters is the order, and the commit hash goes in the report, which is how a reader sees the card came first.
 
 1. **Claim.** One sentence with its scope in it. "Junction arms agree in height on the 40 tiles in sample S" is a claim; "junction heights are fixed" is not. If the claim tests something narrower than, or different from, what was asked, say so on the card in the requester's own words, and put the difference to the requester as a choice (`task-scoping`). A proof that passes can otherwise launder a substitution nobody agreed to.
-2. **Sample.** What exactly the proof runs on, how it was chosen, how big it is. A sample picked by looking at what fails shows the fix works on those cases and nothing else. A random or stratified sample drawn before the run, seed recorded, supports a wider claim. Include the strata the change does not aim at, and any place a person has already reported a problem.
+2. **Sample.** What exactly the proof runs on, how it was chosen, how big it is. A sample picked by looking at what fails shows the fix works on those cases and nothing else. A random or stratified sample drawn before the run, seed recorded, supports a wider claim. Include the strata the change does not aim at, and any place a person has already reported a problem. Say how much of the data had been seen when the card was written (none collected; collected, not looked at; looked at): a card written after a look is post-data. Write down now which cases may be excluded or retried: a rule made after the run is a choice of result.
 3. **Criteria.** Each checkable by a script or a number, with its threshold written before you see the distribution. Never "looks right". For each one, write four things:
    - **Tier.** BLOCKING (it gates the milestone or decision) or REPORTED (measured and written down, never re-run on its own account). The rule and its reasoning are `verification-and-critique`'s; the card only records which tier each criterion has.
    - **A threshold from outside the run.** If it has to come from data, derive it on a separate calibration sample the proof will not use, and name that sample and the rule on the card. Splitting the data and sealing one part until exploration is done is how research methods turn exploration into a test (Nosek et al. 2018).
@@ -36,7 +36,7 @@ Optional lines when the stakes warrant: a **stop condition** (maximum runs, time
 
 - **Run the card as written.** A harness fix made before any result is seen is a harness fix: say what you fixed. One made after any result is seen, or one that changes what is counted (a filter, a join, a threshold), is a post-data change to the proof.
 - **Check the checker before trusting it on real data.** Feed it one case that must fail and one that must pass. A check that says "all good" on every input has shown nothing. Keep the card and the checking script read-only to the agent that runs the proof: in a benchmark built to make honest passing impossible, read-only test access stopped test edits while keeping legitimate performance (ImpossibleBench, Zhong et al. 2025).
-- **Keep the raw outputs.** The verdict is a derived claim; the files it came from are the evidence. Name them by path and commit, plus the per-case table.
+- **Keep the raw outputs.** The verdict is a derived claim; the files it came from are the evidence. Name them by path and commit, plus the per-case table. Once the raw outputs are gone, what remains of a result is its history, not evidence.
 - **A second reader only where it pays.** When the result gates a release or rebuild, sets a baseline, or decides to stop work, give a fresh session the card and the raw outputs and nothing else, and ask it to re-derive the verdict and list any criterion it cannot check. Below those triggers, skip it: excessive verification is a documented way for a procedure to make agents worse (the largest source, 67 cases, within the Excessive Procedure failures of a 307-failure study; Dong et al. 2026).
 
 ## When the result comes in
@@ -44,6 +44,8 @@ Optional lines when the stakes warrant: a **stop condition** (maximum runs, time
 **PASS** means exactly the card's claim on exactly the card's sample. Write that sentence in the report before any wider one. A wider claim needs its own sample.
 
 **FAIL** stays FAIL. Next comes the fallback on the card, or a decision by whoever owns the milestone to proceed anyway, recorded with who and when. That decision never changes the verdict, and "pass with caveats" is not a verdict when the caveat is the failed criterion. A failure you can explain is still a failure: form a hypothesis from what you saw, and test it on data that was not used to form it. A new card and a new run are for a miss that blocks something; a miss that blocks nothing goes under "Does not close" and work continues.
+
+**Every criterion on the card is reported**, the ones that missed included: a report of the hits alone is a different card. **A null result is a bound, not an absence:** say the smallest effect this sample could have shown, and report the cases at floor or ceiling as carrying no signal.
 
 **INCONCLUSIVE** means the proof did not run well enough to say. Report it as such, with the reason; nothing failing is not the same as passing.
 
@@ -71,6 +73,7 @@ Write the scope into the headline. These are the shapes that go wrong:
 | One machine, one seed, one build | "On this machine and seed" | "Deterministic" |
 | A test the author wrote after the change | "Passes the new check" | "Verified" |
 | An offline rig or a stand-in engine | "Passes in the rig" | "Works in the real system" |
+| A comparison that found no difference | "No difference larger than d on N cases" | "No difference" |
 
 ## Report template
 
@@ -101,6 +104,7 @@ Evidence:          <paths to raw outputs and the per-case table>
 - A FAIL reframed as "pass with caveats", or the decision to proceed written over the verdict.
 - A second round spent on a miss that blocks nothing, or "one more tweak" past a stop.
 - No fallback written, so the bar moves when the proof fails.
+- A null reported with no bound; a planned criterion left out of the report; an exclusion rule made after the run.
 - A card written for a result nobody will rely on, or none written for one that gates a decision.
 
 Evidence for these rules, graded, and a filled-in example card: `references/evidence-and-example.md`.

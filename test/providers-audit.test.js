@@ -47,7 +47,7 @@ test("#3: Node's 300 s headers timeout is explained, and not retried", async () 
   };
   setRetrySleep(async () => {});
   try {
-    await assert.rejects(call('ollama', opts('http://127.0.0.1:9')), (err) => /300 s/.test(err.message) && /maxTokens/.test(err.message));
+    await assert.rejects(call('ollama', opts('http://127.0.0.1:9')), (err) => /300 s/.test(err.message) && /may already be billed/.test(err.message) && !/maxTokens/.test(err.message));
     assert.equal(calls, 1);
   } finally {
     globalThis.fetch = real;

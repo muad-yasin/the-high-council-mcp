@@ -73,7 +73,8 @@ export function fileEnvelopeStore(runDir) {
 /** What a scripted mock seat (or any reader of a prompt) uses to find the ids, independent of the held sentence's wording: the 12-hex value after each id name (last occurrence). null when absent. */
 export function idsFromPrompt(text) {
   // The LAST match: the envelope section is the last thing in the prompt, so an id-shaped string quoted in the draft cannot steer a reader. A digit within 40 characters before the value breaks the match (stated limit).
-  const last = name => [...String(text).matchAll(new RegExp(`${name}\\D{0,40}([0-9a-f]{12})`, 'g'))].at(-1)?.[1];
+  // The gap is LAZY (SG-4): the hex letters a-f are non-digits, so a greedy gap ran on through a value with no digit (and through the closing quote and the next name) and returned the NEXT id's value; lazy, the value is the first run of twelve hex characters after the name.
+  const last = name => [...String(text).matchAll(new RegExp(`${name}\\D{0,40}?([0-9a-f]{12})`, 'g'))].at(-1)?.[1];
   const review_id = last('review_id');
   const draft_id = last('draft_id');
   return review_id && draft_id ? { review_id, draft_id } : null;

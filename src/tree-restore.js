@@ -31,6 +31,7 @@ import { parseMilestones } from './milestones.js';
 import { appendTreeEventLocked, readTreeRecord, stateOf, withTreeLock } from './tree-record.js';
 import { RESTORABLE_CODES, isSupersededGeneration, planAuthorityOf } from './tree-transitions.js';
 import { rederivationOutcome, rederivedTriggers } from './tree-ready.js';
+import { agreedOf } from './ending-matrix.js';   // 0.8.4 D1: the matrix's agreed reading, the one every reader of 'did the run end agreed' shares
 
 const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 /** The `why` words of a close test that could NOT RUN (Astra (a): unable to check is not still failing; the sitting says them apart). */
@@ -53,7 +54,7 @@ export function snapshotOfRun(runsDir, runId, { accepted = null } = {}) {
   if (typeof handoff.text === 'string') { try { status = parseMilestones(handoff.text).status ?? null; } catch { status = null; } }
   return {
     report, observedBodySha256: body.body !== undefined ? sha256Of(body.body) : null, bodyError: body.error ?? null,
-    thinContractSha256: typeof report.thin_contract?.sha256 === 'string' ? report.thin_contract.sha256 : null, passed: report.passed === true, status,
+    thinContractSha256: typeof report.thin_contract?.sha256 === 'string' ? report.thin_contract.sha256 : null, passed: agreedOf(report), status,
   };
 }
 

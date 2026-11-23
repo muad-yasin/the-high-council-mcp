@@ -36,6 +36,14 @@
 | Undo is unreliable across bridge operations | practitioner observation | no primary source found |
 | Cycles on CPU renders with no GL context; EEVEE and Workbench needed a GL library or virtual display on a bare server | practitioner runs (5.0.1 and 5.1.2) | unpublished |
 
+## Three command-line facts from the Blender 5.1 manual
+
+From the 5.1 manual's page "Command Line Arguments", read on 2026-11-12; of that page only the three entries listed here were read. The same page of the newest manual, whose title named Blender 5.3 that day, said the same in all three. None of this was run here.
+
+- `--python-exit-code <code>` sets the code Blender exits with when a script given on the command line raises a Python exception; a value of zero turns this off. The entry does not say what the default is, so the skill's rule is to set it.
+- `--factory-startup` skips reading the startup file in the user's home directory.
+- Blender works through its arguments in the order written; the page shows a render that goes to the wrong place because its output path came after the render argument.
+
 ## Observations from an earlier probe script (Blender 5.0.1, superseded, not re-run)
 
 Operator with no active object raised a poll `RuntimeError`; `BLENDER_EEVEE_NEXT` raised `TypeError`; `action.fcurves` was gone; a closed box exported to glTF and re-imported reported 24 non-manifold edges raw and 0 after welding; a Workbench render worked with software GL once the EGL runtime library was installed (before that the process aborted with exit code 134: noted, not recorded). The current probe re-asks all of these and more on whatever version you run.

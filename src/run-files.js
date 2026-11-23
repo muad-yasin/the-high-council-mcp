@@ -12,6 +12,7 @@
 //      platform without it (Windows) the lstat in step 2 and in writeRunFile is the check.
 //
 // Reads return { text } | { missing: true } | { refusal }, never a throw; a refusal carries the words a person reads.
+import { fragment } from './return-path.js';
 import { lstatSync, realpathSync, readdirSync, openSync, closeSync, fstatSync, readFileSync, writeFileSync, renameSync, unlinkSync, constants } from 'node:fs';
 import { join, resolve, relative, isAbsolute, sep } from 'node:path';
 
@@ -59,14 +60,17 @@ export function runFolderKind(dir) {
 /** { dir } for a run folder the server may touch, or { refusal } saying why not ("no such run" when there is none). `dir` is runsDir/run, as callers already build it. */
 export function trustedRunDir(runsDir, run) {
   const dir = join(runsDir, run);
+  // 0.8.4 F3: the MCP tools pass a checked run id; the tree code passes ids read from a tree record (any string), which are written as fragments unless they are plainly a folder name
+  const shownRun = SAFE_NAME.test(String(run)) && !String(run).includes('..') ? run : fragment(run);
   const kind = runFolderKind(dir);
-  if (kind === 'link') return { refusal: `refused: runs/${run} is a symbolic link, and the harness never creates one` };
+  if (kind === 'link') return { refusal: `refused: runs/${shownRun} is a symbolic link, and the harness never creates one` };
   if (kind !== 'folder') return { refusal: 'no such run' };
   try {
-    if (!strictlyInside(realpathSync(runsDir), realpathSync(dir))) return { refusal: `refused: runs/${run} is outside runs/` };
+    if (!strictlyInside(realpathSync(runsDir), realpathSync(dir))) return { refusal: `refused: runs/${shownRun} is outside runs/` };
   } catch { return { refusal: 'no such run' }; }
   const link = firstSymlink(dir);
-  if (link) return { refusal: `refused: runs/${run}/${link} is a symbolic link, and the harness never creates one in a run folder (remove it, or look at the folder yourself)` };
+  // 0.8.4 F3: `link` is a name read from the run folder: inside a tool call it is written as a fragment (between the markers of src/return-path.js), anywhere else it is the name itself (the CLI's lines are unchanged)
+  if (link) return { refusal: `refused: runs/${shownRun}/${fragment(link)} is a symbolic link, and the harness never creates one in a run folder (remove it, or look at the folder yourself)` };
   return { dir };
 }
 

@@ -1,7 +1,7 @@
 // tree/report.json, the tree's own report (0.8.3 M6 slice S4, second commit; PLAN 9.2, CL-125). MONEY: the tree's spend is shown as TWO figures that are never merged, each with the reservations behind it:
 //   memberSpend   the sum of the members' spend as the tree counts it (memberSpentUsd, src/tree-budget.js): the run folder's figure (src/spend.js: a reservation with no settlement counts at its worst case; a charge record counts besides it), never below a floor a person accepted for an unreadable report.json.
 //   adjustments   the tree's signed adjustments under PLAN 7.1, "sum of added(R)": extra conservative charges (a reservation the run's own record no longer accounts for: rows 4 and 5, added = max(0, worst case - evidence)),
-//                 and the one reconciliation that removes a call runSpentUsd counts twice (row 3, added = minus the charge's evidence). It can be negative. Rows 0, 1 and 2 add nothing.
+//                 (a reservation with a durable evidence record, row 3, adds nothing since 0.8.4 unit 6: runSpentUsd counts that call once, at the larger of the worst case and the evidence; before, it counted both and added was minus the evidence). Rows 0, 1, 2 and 3 add nothing.
 // No field of this file is their sum: there is no "total", no "treeSpentUsd". (The tree's spend for a cap decision is memberSpend + adjustments, PLAN 7.1; src/tree-budget.js gateTree computes it; this file only reports.)
 // A test pins the exact key set, and that the two figures equal gateTree's own members[] and addedUsd (this module computes no money of its own: it sorts and sums what gateTree returns, in a fixed order).
 //
@@ -18,7 +18,7 @@
 //       money: { unit: 'usd', rootCapUsd,
 //                memberSpend: { sumUsd, members: [{ node, generation, runId, started, runSpentUsd }], reservations: [{ key, node, row, worstCaseUsd, evidenceUsd, settledAccepted }] },
 //                adjustments: { sumUsd, reservations: [{ key, node, row, worstCaseUsd, evidenceUsd, addedUsd }] } } }
-//     memberSpend.reservations are the reservations whose state shapes what runSpentUsd read (rows 1, 2, 3); adjustments.reservations are the ones that add something (addedUsd != 0, rows 3, 4, 5). Row 3 is in both: its
+//     memberSpend.reservations are the reservations whose state shapes what runSpentUsd read (rows 1, 2, 3); adjustments.reservations are the ones that add something (addedUsd != 0, rows 4, 5; row 3 adds nothing since 0.8.4 unit 6). Row 3 is in both: its
 //     worst case is inside memberSpend and its correction inside adjustments. Sorted by key; members by node, generation. The sums add in that order.
 //     PLAN 7.1 has five states for a reservation (settled and accepted: row 1; unsettled, no evidence: row 2; unsettled with a durable evidence record: row 3; in the mirror only: row 4; settled but rejected by the gate: row 5).
 //     Row 0 is gateTree's label for an id that is in NONE of them: no reserved line for it in the run's own file (as runSpentUsd reads it) and none mirrored, so only a settled line (settled_without_reserved, which the gate

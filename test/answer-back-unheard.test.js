@@ -12,7 +12,7 @@ import * as HN from './held-prompts/held-next.js';
 afterEach(() => { setHeldForTest(null); setPromptSpy(null); setCache(null); });
 
 const criterion = 'The plan defines a retry limit.';
-const failure = { criterion, problem: 'No retry limit is specified.', fix: 'Specify a retry limit.' };
+const failure = { criterion, problem: 'No retry limit is specified.', fix: 'Specify a retry limit.', relation: 'new' };   // K1: relationRule is recorded; every raise in this file is a first raise
 const ID = objectionId('la', failure);
 const DRAFT = 'The worker retries failed requests.';
 const verdict = (meets, extra = {}) => JSON.stringify({ meets, criteria: [{ criterion, verdict: meets ? 'MET' : 'FAILED', evidence: meets ? 'Checked.' : 'No limit appears.' }], failures: meets ? [] : [failure], verdict_line: meets ? 'Pass.' : 'Limit missing.', ...extra });
@@ -68,7 +68,7 @@ test('30: an objection the judge withdrew (with a quote) is not shown again afte
   // Round 1: la objects. Round 2: la withdraws with a quote but lb objects, so the draft is revised. Round 3: la unreadable, lb signs off: no revise. Round 4: la asked again.
   const replies = label => label === 'panel-1-la' ? verdict(false)
     : label === 'panel-2-la' ? verdict(true, { answers: [{ id: ID, status: 'withdrawn', evidence: '`The worker retries failed requests.`' }] })
-      : label === 'panel-2-lb' ? JSON.stringify({ meets: false, criteria: [{ criterion, verdict: 'FAILED', evidence: 'x' }], failures: [{ criterion, problem: 'Other gap.', fix: 'y' }], verdict_line: 'No.' })
+      : label === 'panel-2-lb' ? JSON.stringify({ meets: false, criteria: [{ criterion, verdict: 'FAILED', evidence: 'x' }], failures: [{ criterion, problem: 'Other gap.', fix: 'y', relation: 'new' }], verdict_line: 'No.' })
         : /^panel-3-la/.test(label) ? UNREADABLE : null;
   const { prompts } = await run(replies, { maxRounds: 5 });
   assert.ok(prompts.has('panel-4-la'), [...prompts.keys()].join(', '));
@@ -87,7 +87,7 @@ test('30 + 27: a judge that never answers is still bounded: the dispute stage st
 // The final review of items 27/28/30 (7 Oct 2026), finding 1: the same loss when ANOTHER judge objects, so the round IS revised. The answer-back data was rebuilt at the revise from the
 // heard judges' objections only, so the unheard judge's open objection vanished and a later clean sign-off passed the run.
 test('30 (revise path): a judge unheard in a round that is revised because another judge objected is still shown its open objection next round, and a silent sign-off does not pass', async () => {
-  const other = { criterion, problem: 'The limit has no unit.', fix: 'Say per request.' };
+  const other = { criterion, problem: 'The limit has no unit.', fix: 'Say per request.', relation: 'new' };
   const replies = label => label === 'panel-1-la' ? verdict(false)
     : /^panel-2-la/.test(label) ? UNREADABLE
       : label === 'panel-2-lb' ? JSON.stringify({ meets: false, criteria: [{ criterion, verdict: 'FAILED', evidence: 'x' }], failures: [other], verdict_line: 'No.' })
@@ -103,7 +103,7 @@ test('30 (revise path): a judge unheard in a round that is revised because anoth
 });
 
 test('30 (revise path): an objection withdrawn with a quote in a reply refused for its table, in a round revised because another judge objected, is not shown again', async () => {
-  const other = { criterion, problem: 'The limit has no unit.', fix: 'Say per request.' };
+  const other = { criterion, problem: 'The limit has no unit.', fix: 'Say per request.', relation: 'new' };
   const noTable = JSON.stringify({ meets: true, criteria: [], failures: [], answers: [{ id: ID, status: 'withdrawn', evidence: '`The worker retries failed requests.`' }], verdict_line: 'Pass.' });
   const replies = label => label === 'panel-1-la' ? verdict(false) : /^panel-2-la/.test(label) ? noTable
     : label === 'panel-2-lb' ? JSON.stringify({ meets: false, criteria: [{ criterion, verdict: 'FAILED', evidence: 'x' }], failures: [other], verdict_line: 'No.' })
@@ -115,7 +115,7 @@ test('30 (revise path): an objection withdrawn with a quote in a reply refused f
 });
 
 test('30 (revise path): a kept objection keeps the reason the writer gave for declining it', async () => {
-  const other = { criterion, problem: 'The limit has no unit.', fix: 'Say per request.' };
+  const other = { criterion, problem: 'The limit has no unit.', fix: 'Say per request.', relation: 'new' };
   const replies = label => label === 'panel-1-la' ? verdict(false) : /^panel-2-la/.test(label) ? UNREADABLE
     : label === 'panel-2-lb' ? JSON.stringify({ meets: false, criteria: [{ criterion, verdict: 'FAILED', evidence: 'x' }], failures: [other], verdict_line: 'No.' }) : null;
   const hashes = new Map(); const prompts = new Map();

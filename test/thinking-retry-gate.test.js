@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runChain, runSingleStage, setBudget, setCache, budgetState, BudgetExceeded, setPromptSpy } from '../src/chain.js';
-import { costOf, projectAttempts } from '../src/cost.js';
+import { costOf, projectAttempts, expectedCallUsd } from '../src/cost.js';
 
 const stubFetch = handler => { const original = globalThis.fetch; globalThis.fetch = handler; return () => { globalThis.fetch = original; }; };
 const withKey = async fn => {
@@ -28,25 +28,44 @@ async function figures() {
   try { setCache(null); setBudget(null); await assert.rejects(() => runChain({ request: 'A request.', config, log: () => {} })); } finally { restore(); setPromptSpy(null); }
   const { first, retry } = projectAttempts(SEAT, sent);
   const wasted = costOf('anthropic', 'claude-sonnet-5', { input: IN, output: OUT, thinking: OUT }).usd;
-  assert.ok(first > 0 && retry > first && wasted > 0, 'fixture: the retry is a bigger call than the first attempt');
-  return { retry, wasted };
+  const expected = expectedCallUsd(SEAT, { ...sent, label: 'criteria' });   // 0.8.4 unit 4: the retry of a call that has an expected size is checked at that expected cost
+  assert.ok(first > 0 && retry > first && wasted > 0 && expected > 0 && expected < retry / 2, 'fixture: the retry is a bigger call than the first attempt, and its expected cost is far below its worst case');
+  return { retry, wasted, expected };
 }
 
 test('the thinking retry is gated: a ceiling that admits the first attempt and cannot hold the retry stops the run with the retry unsent and the wasted attempt counted once', async () => {
   await withKey(async () => {
-    const { retry, wasted } = await figures();
-    // above the first attempt's expected cost (400 output tokens, far under the 4000 it was billed), below the wasted first attempt + the retry's worst case
-    const cap = wasted + retry / 2;
+    const { wasted, expected } = await figures();
+    // above the first attempt's expected cost (400 output tokens, far under the 4000 it was billed), below the wasted first attempt + the retry's EXPECTED cost (0.8.4 unit 4: the retry is checked at the expected cost of the call it repeats)
+    const cap = wasted + expected / 2;
     let calls = 0;
     const logs = [];
     const restore = stubFetch(async () => { calls++; return cutByThinking(); });
     try {
       setCache(null); setBudget(cap);
-      await assert.rejects(() => runChain({ request: 'A request.', config, log: l => logs.push(l) }), e => e instanceof BudgetExceeded && e.label === 'criteria' && Math.abs(e.spent - wasted) < 1e-9 && Math.abs(e.cap - cap) < 1e-9);
+      await assert.rejects(() => runChain({ request: 'A request.', config, log: l => logs.push(l) }), e => e instanceof BudgetExceeded && e.label === 'criteria' && Math.abs(e.spent - wasted) < 1e-9 && Math.abs(e.cap - cap) < 1e-9 && Math.abs(e.gate - (wasted + expected)) < 1e-9 && e.gate < e.projected);   // 0.8.4 unit 4: the figure the resume must clear is the wasted attempt + the retry's expected cost, below the whole worst case
       assert.equal(calls, 1, 'the retry was not sent');
       assert.ok(Math.abs(budgetState().spent - wasted) < 1e-9, `the wasted first attempt is counted, once (${budgetState().spent} vs ${wasted})`);
       assert.equal(budgetState().reserved, 0);
       assert.ok(logs.some(l => /the retry at a bigger token cap .* STOPPED, the retry was not sent/.test(l)), logs.join('\n'));
+    } finally { restore(); setBudget(null); }
+  });
+});
+
+// 0.8.4 unit 4 (his pick OWNER 6: "Re-asks and retries are checked at the expected size of the call they repeat; a re-ask can overrun the cap"): a ceiling that holds the wasted first attempt plus the retry's EXPECTED cost sends the
+// retry, though the retry's worst case would pass it. The reservation on disk still carries both attempts at their worst case.
+test('the thinking retry of a call that has an expected size is sent when its EXPECTED cost fits, though its worst case would not', async () => {
+  await withKey(async () => {
+    const { retry, wasted, expected } = await figures();
+    const cap = wasted + (expected + retry) / 2;
+    assert.ok(wasted + retry > cap && wasted + expected < cap, 'fixture: a worst-case retry gate refuses this ceiling, an expected-cost one admits it');
+    let calls = 0;
+    const restore = stubFetch(async () => { calls++; return calls === 1 ? cutByThinking() : complete(CRITERIA_REPLY); });
+    try {
+      setCache(null); setBudget(cap);
+      const r = await runChain({ request: 'A request.', config, log: () => {} });
+      assert.equal(calls, 2, 'the first attempt was cut off, the retry was sent');
+      assert.deepEqual(r.criteria, ['A real criterion, produced on the retry.']);
     } finally { restore(); setBudget(null); }
   });
 });

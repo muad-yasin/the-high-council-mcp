@@ -12,6 +12,9 @@
 //   haikuBudgetFor(maxTokens)      -> tokens                  the thinking budget of an Anthropic seat that has no effort levels
 // Nothing here ever writes a lower setting. A seat's OWN explicit setting (even a lowering one) is never overwritten: a user
 // who wrote it meant it, and the shipped chains are held to "high" by the chain-lint rule `reasoning-not-high`, not by rewriting.
+// 2 Nov 2026 (owner: "High for THC's chains, default to High on all chains, users can change it if they want to"): this is also true of a model whose own default is above high. The harness sends such a
+// model high too when the seat sets nothing (the 23 Oct 2026 rule "no effort sent, the model's own max is fine" and the 7 Oct 2026 "an explicit high is a lowering there" are both reversed), and the
+// shipped chains write high on those seats. A typed level, higher or lower, is the seat author's own and is sent unchanged.
 import { readFileSync } from 'node:fs';
 import { NOT_ON_ROUTER_PREFIX, notOnRouterReason } from './table-reasons.js';
 import { dirname, join } from 'node:path';
@@ -28,8 +31,6 @@ export function tableAgeDays(now = Date.now()) {
 // The effort values that are "high or above". Anything else, set explicitly, is a lowering (a smaller effort or none at all).
 const HIGH_OR_ABOVE = new Set(['high', 'xhigh', 'max']);
 const LOW_WORDS = new Set(['none', 'minimal', 'low', 'medium']);
-// The order of the effort words, lowest first (the table's defaultEffort and supportedEfforts use these words). One place: the above-high-default check reads it.
-const EFFORT_RANK = { none: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
 
 // An INTEGER effort (a model whose engine takes 1-100, e.g. DeepSeek V4.1 Flash on its chat template) is "high or above" only when the model's table row says from which number: `highAtLeast`. A row without it has no such number, so every integer on it stays a lowering (fails closed).
 export const isHighInteger = (value, row) => Number.isInteger(value) && value <= 100 && Number.isFinite(row?.highAtLeast) && value >= row.highAtLeast;
@@ -61,15 +62,14 @@ export function unlistedReasonOf(seat, { deliberateOnly = false } = {}) {
 export const HAIKU_MIN_BUDGET = 1024;
 export const haikuBudgetFor = maxTokens => Math.max(HAIKU_MIN_BUDGET, Math.floor(maxTokens / 2));
 
-// ONE table of every spelling of a reasoning EFFORT WORD (a level named by a word). loweringReasons reads it to report a word below high (and, on a model whose own default is above high, a high that
-// is below that default); statesHighEffort reads it to see that a seat states a level of high or above. A spelling added here is read by both (0.8.3, C&C ruling 23 Oct 2026: unify the two lists;
-// test/reasoning-unknown-model.test.js UM-9 names every path of this table). `holder` finds the object that carries the key; `defaultCheck` marks the spellings the "below the model's own default" rule reads.
+// ONE table of every spelling of a reasoning EFFORT WORD (a level named by a word). loweringReasons reads it to report a word below high; statesHighEffort reads it to see that a seat states a level of high or above. A spelling added here is read by both (0.8.3, C&C ruling 23 Oct 2026: unify the two lists;
+// test/reasoning-unknown-model.test.js UM-9 names every path of this table). `holder` finds the object that carries the key.
 const thinkingConfigOf = e => e.thinking_config ?? e.thinkingConfig ?? e.google?.thinking_config ?? e.google?.thinkingConfig;
 export const EFFORT_WORD_SPELLINGS = Object.freeze([
-  Object.freeze({ path: 'output_config.effort', holder: e => e.output_config, key: 'effort', below: 'an Anthropic effort below high', defaultCheck: true }),
-  Object.freeze({ path: 'reasoning.effort', holder: e => e.reasoning, key: 'effort', below: v => (LOW_WORDS.has(v) ? 'an effort below high' : 'an effort the harness does not know'), defaultCheck: true }),
-  Object.freeze({ path: 'reasoning_effort', holder: e => e, key: 'reasoning_effort', below: 'an effort below high', defaultCheck: true }),
-  Object.freeze({ path: 'chat_template_kwargs.reasoning_effort', holder: e => e.chat_template_kwargs, key: 'reasoning_effort', below: 'an effort below high', integerOk: true, defaultCheck: true }),
+  Object.freeze({ path: 'output_config.effort', holder: e => e.output_config, key: 'effort', below: 'an Anthropic effort below high' }),
+  Object.freeze({ path: 'reasoning.effort', holder: e => e.reasoning, key: 'effort', below: v => (LOW_WORDS.has(v) ? 'an effort below high' : 'an effort the harness does not know') }),
+  Object.freeze({ path: 'reasoning_effort', holder: e => e, key: 'reasoning_effort', below: 'an effort below high' }),
+  Object.freeze({ path: 'chat_template_kwargs.reasoning_effort', holder: e => e.chat_template_kwargs, key: 'reasoning_effort', below: 'an effort below high', integerOk: true }),
   Object.freeze({ path: 'thinking_config.thinking_level', holder: thinkingConfigOf, key: 'thinking_level', below: 'a thinking level below high' }),
   Object.freeze({ path: 'thinking_config.thinkingLevel', holder: thinkingConfigOf, key: 'thinkingLevel', below: 'a thinking level below high' }),
   Object.freeze({ path: 'thinking_level', holder: e => e, key: 'thinking_level', below: 'a thinking level below high' }),
@@ -118,15 +118,8 @@ export function loweringReasons(extra, seat = null) {
   // spelling of `reasoning.exclude`; the thinking level/budget also exist at the top level.
   if (e.include_reasoning === false) add('include_reasoning', false, 'reasoning hidden from the reply (OpenRouter\'s spelling of reasoning.exclude)');
   if ('thinking_budget' in e) add('thinking_budget', e.thinking_budget, 'a fixed thinking budget');
-  // 0.8.2 (owner, 7 Oct 2026, "Yes" to the never-lower check): on a model whose own default is ABOVE high (the table's defaultAboveHigh), an explicit
-  // "high" is a lowering too. Only the words the checks above let through are read here (a word below high is already reported once).
-  const row = seat ? rowOf(seat) : null;
-  const defaultRank = row?.defaultAboveHigh ? EFFORT_RANK[row.defaultEffort] : undefined;
-  if (defaultRank !== undefined) {
-    for (const w of effortWordsIn(e)) {
-      if (w.defaultCheck && HIGH_OR_ABOVE.has(w.value) && EFFORT_RANK[w.value] < defaultRank) add(w.path, w.value, `an effort below the model's own default (${row.defaultEffort})`);
-    }
-  }
+  // 2 Nov 2026 (owner, 2 Nov 2026: "High for THC's chains, default to High on all chains, users can change it if they want to"): the 7 Oct 2026 clause that called an explicit "high" a lowering on a model whose own
+  // default is above high (the table's defaultAboveHigh) is gone. The floor is high on every model, so high, xhigh and max pass here alike; a word below high is reported once, above.
   if (e.extra_body && typeof e.extra_body === 'object' && !Array.isArray(e.extra_body)) {
     for (const r of loweringReasons(e.extra_body, seat)) add(`extra_body.${r.path}`, r.value, r.why);
   }
@@ -159,12 +152,13 @@ const deepMerge = (a, b) => {
 
 /**
  * What the harness adds so a seat with no reasoning setting reasons at high; null when it adds nothing: the model has no row or no
- * documented field, the model's own default is already above high (sending "high" would be a LOWER effort), or the seat already
- * said something about reasoning in the form's own fields. Anthropic seats with no effort levels (Haiku) get a thinking budget.
+ * documented field, or the seat already said something about reasoning in the form's own fields (a level the seat's author typed passes through, whatever it is).
+ * Anthropic seats with no effort levels (Haiku) get a thinking budget. 2 Nov 2026 (owner: "High for THC's chains, default to High on all chains, users can change it if they want to"): a model whose own
+ * default is above high (GLM-5.3, GLM-5.3 Flash, MiniMax M3.1 Flash, Qwen 3.8 Max) gets high too when its seat sets nothing, in any chain; before, such a seat was sent no effort and ran at the model's own max or xhigh.
  */
 export function highExtraFor(seat, cap = seat.maxTokens) {
   const row = rowOf(seat);
-  if (!row || !row.form || row.defaultAboveHigh) return null;
+  if (!row || !row.form) return null;
   if (seat.keepOwnReasoning) return null; // a vendor reroute that kept the seat's own native reasoning field (providers.js resolveVendorSeat)
   const form = REASONING_TABLE.forms[row.form];
   if (!form) return null;
@@ -235,7 +229,7 @@ function hasHighForm(formName, extra, cap, row = null) {
 
 /**
  * Why a seat, as it will be SENT (after any transport rewrite and the harness default), does not reason at high: its own lowering
- * settings, or no high setting where the table knows one. A model whose own default is above high has nothing to be missing. A model
+ * settings, or no high setting where the table knows one (2 Nov 2026: this holds for a model whose own default is above high too). A model
  * the table knows NOTHING about (no `models` row, no `unlisted` reason) with no high effort stated in the seat's own extra fails
  * CLOSED (0.8.3, C&C ruling 23 Oct 2026): nothing then says it reasons at high. Empty array = fine. This is what the chain-lint rule
  * `reasoning-not-high` reports.
@@ -244,7 +238,7 @@ export function reasoningProblems(seat, cap = seat.maxTokens) {
   const effective = extraWithHighDefault(seat, cap);
   const problems = loweringReasons(effective, { ...seat, maxTokens: cap });
   const row = rowOf(seat);
-  if (!problems.length && row?.form && !row.defaultAboveHigh && !hasHighForm(row.form, effective, cap, row)) {
+  if (!problems.length && row?.form && !hasHighForm(row.form, effective, cap, row)) {
     problems.push({ path: row.form, value: null, why: `no "high" setting for ${keyOf(seat)} (the table's field for it is ${row.form}) and the seat's own extra blocks the default` });
   }
   if (!problems.length && !TABLE_KNOWN_WAYS.some(w => w.holds(seat, effective, cap))) {

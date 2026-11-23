@@ -100,19 +100,48 @@ for (const [stageName, keep] of [['debate', l => !/^(debate|reply|canary)-/.test
 
 // The guard the audit asked for: a new catch around invoke() that forgets to rethrow is the same
 // bug again. Source-level, because the swallow only shows under a cap or an external seat.
+//
+// CHANGED ACCEPTED (0.8.4, the found-secret pause --finish; Muad 8 Nov 2026; C&C's ruling that the allowance be as narrow as needed). OLD bar: the six lines after a catch around invoke() hold
+// /rethrowControlFlow\(err\)|controlFlow\) throw err/. NEW bar: the same, OR the catch's FIRST statement (comment lines and blank lines aside) is exactly
+// `if (!(X instanceof SecretFinish)) throw X;` with the SAME name X twice. WHY: the catches that wrap the pass loops and the layer loop (chain.js, `catch (secretErr)`) exist to END the loop on one control-flow error, the person's
+// recorded --finish (SecretFinish); their first statement rethrows everything else, a BudgetExceeded and an ExternalPause included. Nothing looser passes: a catch that handles anything before that statement, names
+// SecretFinish without rethrowing the rest, or rethrows a different name is still refused (the can-fail rows below). The check is a pure function so those rows can drive it.
+// CHANGED ACCEPTED AGAIN (0.8.4 ladder unit, --finish-now at a spending stop; C&C 10 Nov 2026). OLD bar: the first statement may name SecretFinish only. NEW bar: it may name SecretFinish OR NotRunForLimit, in the same exact form. WHY: the post-loop stages that go on without a call that would
+// bill (claims, the dispute rewrite, the challenge and its revision, the final edit, the handoff, the answers to the review notes, the argued file, the security review) catch NotRunForLimit and rethrow everything else, a BudgetExceeded and an ExternalPause included. Nothing looser passes.
+export function catchHeadOk(head) {
+  if (/rethrowControlFlow\(err\)|controlFlow\) throw err/.test(head.split('\n').slice(0, 6).join('\n'))) return true;   // the old bar, over its old six lines
+  const code = head.split('\n').filter(l => l.trim() && !/^\s*\/\//.test(l));
+  return /^\s*if \(!\((\w+) instanceof (?:SecretFinish|NotRunForLimit)\)\) throw \1;\s*$/.test(code[0] ?? '');
+}
 test('source guard: every catch whose try block calls invoke() rethrows control flow first', () => {
   for (const file of ['src/chain.js', 'src/canary.js']) {
     const src = readFileSync(join(root, file), 'utf8');
     const re = /\}\s*catch\s*(\([^)]*\))?\s*\{/g;
     let m, checked = 0;
+    const offenders = [];
     while ((m = re.exec(src))) {
       const tryAt = src.lastIndexOf('try {', m.index);
       if (tryAt < 0 || !/(invoke|decide)\(/.test(src.slice(tryAt, m.index))) continue;
-      const head = src.slice(m.index + m[0].length).split('\n').slice(0, 6).join('\n');
+      const head = src.slice(m.index + m[0].length).split('\n').slice(0, 9).join('\n');
       checked++;
-      assert.match(head, /rethrowControlFlow\(err\)|controlFlow\) throw err/,
-        `${file}:${src.slice(0, m.index).split('\n').length} catches around invoke() without rethrowing BudgetExceeded/ExternalPause`);
+      if (!catchHeadOk(head)) offenders.push(`${file}:${src.slice(0, m.index).split('\n').length}`);
     }
     assert.ok(checked > 0, `${file}: the guard found no catch to check - its pattern is stale`);
+    assert.deepEqual(offenders, [], `${file}: catches around invoke() without rethrowing BudgetExceeded/ExternalPause first`);
   }
+});
+test('source guard can FAIL: a catch that swallows BudgetExceeded, or names SecretFinish but handles something else first, is refused; the narrow SecretFinish allowance and the old forms pass', () => {
+  assert.equal(catchHeadOk("    log('swallowed');\n    return null;\n"), false, 'swallows everything');
+  assert.equal(catchHeadOk("    if (err instanceof BudgetExceeded) { return null; }\n    return null;\n"), false, 'names BudgetExceeded and swallows it');
+  assert.equal(catchHeadOk("    log('x');\n    if (!(e instanceof SecretFinish)) throw e;\n    break;\n"), false, 'handles something before the SecretFinish check');
+  assert.equal(catchHeadOk("    if (e instanceof SecretFinish) { break; }\n    return null;\n"), false, 'names SecretFinish and swallows the rest');
+  assert.equal(catchHeadOk("    if (!(a instanceof SecretFinish)) throw b;\n"), false, 'rethrows a different name');
+  assert.equal(catchHeadOk("    if (!(e instanceof SecretFinish)) { log('x'); }\n"), false, 'does not rethrow');
+  assert.equal(catchHeadOk("    // a comment\n\n    if (!(secretErr instanceof SecretFinish)) throw secretErr;\n    passed = false;\n"), true, 'the narrow allowance, comments aside');
+  assert.equal(catchHeadOk("    rethrowControlFlow(err);\n"), true); assert.equal(catchHeadOk("    if (err?.controlFlow) throw err;\n"), true);
+  // 0.8.4 (ladder unit, --finish-now at a spending stop): the same narrow allowance for NotRunForLimit, and its can-fail rows
+  assert.equal(catchHeadOk("    // a comment\n    if (!(err instanceof NotRunForLimit)) throw err;\n    log('not made');\n"), true, 'the narrow NotRunForLimit allowance');
+  assert.equal(catchHeadOk("    log('x');\n    if (!(err instanceof NotRunForLimit)) throw err;\n"), false, 'handles something before it');
+  assert.equal(catchHeadOk("    if (err instanceof NotRunForLimit) { return null; }\n    return null;\n"), false, 'names NotRunForLimit and swallows the rest');
+  assert.equal(catchHeadOk("    if (!(a instanceof NotRunForLimit)) throw b;\n"), false, 'rethrows a different name');
 });
