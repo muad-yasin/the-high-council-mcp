@@ -14,5 +14,6 @@ publishable.
 - `ideas/` - the idea matrix (THCMCP and Sophi-A) and its PDF renders.
 - `proposals/` - design proposals kept as input for later planning, not build orders.
 - `ROADMAP-0.8.0.md` - the 0.8.0 plan: local web UI headline, prerequisites, debate and checklist items.
+- `0.8.5/` - prepared for 0.8.5, not built: notes on small changes, each read against the code at the commit its header names. Its `README.md` says what was run to prepare them and what was not prepared.
 
 Moved here from the repository root (and one file from the gitignored `Review/`) on 2026-09-23.
