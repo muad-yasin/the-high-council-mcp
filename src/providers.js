@@ -1681,9 +1681,14 @@ async function callAnthropic({ model, system, messages, maxTokens, temperature, 
  */
 export const COMPRESSION_OFF = Object.freeze({ id: 'context-compression', enabled: false });
 export const withCompressionOff = plugins => { const list = Array.isArray(plugins) ? plugins : []; return list.some(p => p && p.id === 'context-compression') ? list : [...list, { ...COMPRESSION_OFF }]; };
-async function callOpenAICompat(provider, { model, system, messages, maxTokens, temperature, extra, baseUrl, cache }) {
-  // 0.8.4 cache part (b)2: `cache` = { head, ttl } is passed only for a Claude seat the route sent through OpenRouter (src/chain.js invokeCall). OpenRouter takes the same content-block marker as Anthropic's own API on a message part (shape read on its prompt-caching page, 10 Nov 2026: a text part carrying cache_control { type: 'ephemeral' }, 5 minutes by default, ttl '1h' for an hour). Any other call has no `cache`, and its body is byte for byte what it was.
-  const sentMessages = provider === 'openrouter' && cache ? anthropicMessages(messages, { head: cache.head, ttl: cache.ttl ?? '5m' }) : messages;
+async function callOpenAICompat(provider, { model, system, messages, maxTokens, temperature, extra, baseUrl, cache, promptCacheHead }) {
+  // 0.8.5 (C&C's rulings 5 and 6 on the GPT prompt cache, 23 Nov 2026): `promptCacheHead` is passed only for a MARKED call of a selected GPT seat (src/chain.js invokeCall: src/cache-order-gate.js gptHeadMarkOf and
+  // src/gpt-explicit-mode.js explicitModeOf). ONE condition, `breakpoint`, sends OpenAI's two fields together or neither: the user message cut at that head into two text blocks, the first carrying
+  // `prompt_cache_breakpoint: { "mode": "explicit" }` (openaiBreakpointMessages), AND the root `prompt_cache_options: { "mode": "explicit" }`, with no lifetime; the call then records `usage.promptCacheBreakpoint: 'head'`.
+  // Without it nothing of the request or of the record changes. Neither rides with `cache` (a Claude seat's marker). `marked` below stays the Claude marker's flag: a GPT call's written tokens stay inside `usage.input`, as on every unmarked call.
+  const breakpoint = provider === 'openrouter' && !cache && typeof promptCacheHead === 'string' && promptCacheHead !== '';
+  // 0.8.4 cache part (b)2: `cache` = { head, ttl } is passed only for a Claude seat the route sent through OpenRouter (src/chain.js invokeCall). OpenRouter takes the same content-block marker as Anthropic's own API on a message part (shape read on its prompt-caching page, 10 Nov 2026: a text part carrying cache_control { type: 'ephemeral' }, 5 minutes by default, ttl '1h' for an hour). Any other call has no `cache` (since 0.8.5 a selected GPT seat's marked call has `promptCacheHead` instead, above).
+  const sentMessages = provider === 'openrouter' && cache ? anthropicMessages(messages, { head: cache.head, ttl: cache.ttl ?? '5m' }) : breakpoint ? openaiBreakpointMessages(messages, promptCacheHead) : messages;
   const spec = OPENAI_COMPAT[provider];
   // The real env var, not keyFor()'s sentinel - a provider marked `optional` (ollama) is called
   // with no Authorization header at all when no key is set, rather than sending the sentinel
@@ -1709,6 +1714,7 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
       max_completion_tokens: maxTokens,
       ...(temperature === undefined ? {} : { temperature }),
       ...(provider === 'openrouter' && openRouterSessionId && !('session_id' in (extra || {})) ? { session_id: openRouterSessionId } : {}),   // FIX 7: every OpenRouter call of the run carries the run's one id (nothing else of the request changes)
+      ...(breakpoint ? { prompt_cache_options: { mode: 'explicit' } } : {}),   // 0.8.5: with the blocks above, never alone; in the paid test (gpt-6-luna on Azure) explicit mode wrote the head and nothing more; the shape of OpenAI's guide and OpenRouter's reference, no ttl
       ...(provider === 'openrouter' ? { plugins: withCompressionOff(extra?.plugins) } : {}),   // S16 (H): the router never shortens a prompt on its own (last, so a body that gains response_format keeps the key order the exchange transform produces)
     },
     `${provider}/${model}`
@@ -1728,13 +1734,13 @@ async function callOpenAICompat(provider, { model, system, messages, maxTokens, 
       // reported (null when it reported none or one that cannot be read); invoke() charges that figure, else a typical cost for the call. Every other throw after a 200 stays marked (BUG-C-032).
       const u = json.usage;
       const readable = u && typeof u === 'object' && !usageGap(u, 'prompt_tokens', 'completion_tokens').unreadable && [u.prompt_tokens, u.completion_tokens].every(n => Number.isFinite(n) && n >= 0);
-      err.errorBody = { usage: readable ? usageOfOpenAICompat(u, { marked: provider === 'openrouter' && !!cache }) : null, ...billedFactsOf(provider, json) };   // D12: the billed figure and the generation id ride on the error reply too (record only)
+      err.errorBody = { usage: readable ? { ...usageOfOpenAICompat(u, { marked: provider === 'openrouter' && !!cache }), ...(breakpoint ? { promptCacheBreakpoint: 'head' } : {}) } : null, ...billedFactsOf(provider, json) };   // D12: the billed figure and the generation id ride on the error reply too (record only)
       throw err;
     }
     const servedBy = endpointNameOf(json.provider);   // the checked value is what is spread below, so the check and the field cannot drift apart
     return {
       text: json.choices?.[0]?.message?.content ?? '',
-      usage: { ...usageOfOpenAICompat(json.usage, { marked: provider === 'openrouter' && !!cache }), stop: normaliseStop(json.choices?.[0]?.finish_reason), ...usageGap(json.usage, 'prompt_tokens', 'completion_tokens'), ...(provider === 'openrouter' && cache ? { cacheAsked: cache.ttl ?? '5m' } : {}) },   // cacheAsked: the call carried a marker, so a reply without cache counts is UNKNOWN to costOf, never zero
+      usage: { ...usageOfOpenAICompat(json.usage, { marked: provider === 'openrouter' && !!cache }), stop: normaliseStop(json.choices?.[0]?.finish_reason), ...usageGap(json.usage, 'prompt_tokens', 'completion_tokens'), ...(provider === 'openrouter' && cache ? { cacheAsked: cache.ttl ?? '5m' } : {}), ...(breakpoint ? { promptCacheBreakpoint: 'head' } : {}) },   // promptCacheBreakpoint (0.8.5): the call sent OpenAI's two fields (src/cost.js costOf; never cacheAsked, Anthropic's branch); cacheAsked: the call carried a Claude marker, so a reply without cache counts is UNKNOWN to costOf, never zero
       provider,
       // v3 §Item 3: a provider-array fallback (`extra.models`) can answer with a model other
       // than the one requested - `json.model` is the response's own record of which model
@@ -1858,6 +1864,21 @@ function mockHttpFailure(model) {
 const mockTransportError = plain => plain ? new Error('mock: a failure with no flags (simulated)')
   : Object.assign(new Error('mock: the connection was reset after the request was sent (simulated network failure)'), { causeClass: 'transport', maybeBilled: true, causeText: 'TypeError > Error ECONNRESET read', failureHost: 'mock.invalid' });
 
+/**
+ * 0.8.5 (C&C's rulings on the GPT prompt cache): the user message of a selected GPT seat's marked call, cut at `head` into two text blocks, the first carrying OpenAI's explicit breakpoint (`prompt_cache_breakpoint: { "mode": "explicit" }`,
+ * no lifetime). The cut is exact: the two texts joined are the user string, byte for byte (an empty rest leaves the head block alone, as anthropicMessages does). `head` is the call site's own head (src/chain.js invokeCall's
+ * cacheHead), never found by a search of the prompt. Anything else is a call-site error: it throws, nothing is sent. callOpenAICompat sends these blocks only together with the root explicit mode (its one condition).
+ */
+export function openaiBreakpointMessages(messages, head) {
+  const plain = messages.map(m => ({ role: m.role, content: m.content }));
+  if (typeof head !== 'string' || head === '') throw new Error('prompt cache: "head" must be the non-empty leading text of the user message (nothing was sent)');
+  const at = plain.length - 1;
+  const last = plain[at];
+  if (!last || last.role !== 'user' || typeof last.content !== 'string' || !last.content.startsWith(head)) throw new Error('prompt cache: the last message is not a user message that starts with "head", so no breakpoint can be placed (nothing was sent)');
+  const rest = last.content.slice(head.length);
+  plain[at] = { role: 'user', content: [{ type: 'text', text: head, prompt_cache_breakpoint: { mode: 'explicit' } }, ...(rest === '' ? [] : [{ type: 'text', text: rest }])] };
+  return plain;
+}
 export async function call(provider, opts) {
   if (provider === 'mock') {
     const d = mockDelayMs();

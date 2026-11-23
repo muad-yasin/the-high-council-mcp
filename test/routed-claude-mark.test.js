@@ -1,7 +1,7 @@
 // 0.8.4 cache part (b)2, step (b): the ROUTED-CLAUDE MARK (Muad, 10 Nov 2026 04:05: "Claude seats reached through OpenRouter ARE cached, 5 minutes where possible"; his 09 Nov 21:30 heading: a paid GPT-6 cache test is owed only if a cache mark or a switch-off reaches the OpenAI seats). Offline, $0: fetch is stubbed; the keys are dummies.
 // WHAT IS PINNED: RM-1 the mark rule (src/cache-order-gate.js markTtlOf): a seat the Claude route sent through OpenRouter (provider openrouter, originalProvider anthropic) is marked on the same rule as a direct one, always at 5 minutes (a chain's 1-hour lifetime is for its direct seats); a seat a person seated on OpenRouter
 // themselves, a GPT-6 seat and a Qwen seat are not; with the order's words unrecorded nothing is marked. RM-2 the request: a marked routed call carries the marker on the text part that ends the head H (type ephemeral, no ttl field: 5 minutes is OpenRouter's default), one head and one system text for every call of the group; the
-// reply's cache counts are read and the stage records the marker as asked. RM-3 the request of a GPT-6 seat and of a Qwen seat in the same state carries a string user message and no key with "cache" in it at any depth (FIX 2, C&C and Mini-C&C, 10 Nov 2026: this is NOT a byte comparison with a captured body; it meets the owner's 09 Nov 21:30 heading, which turns on a cache mark or a switch-off reaching those seats, and `cache` reaches callOpenAICompat only for a Claude seat). RM-4 the cap sees the write price: a ceiling that fits the unmarked projection but not the
+// reply's cache counts are read and the stage records the marker as asked. RM-3 the request of a Qwen seat in the same state, and of an UNMARKED call of a GPT-6 seat, carries a string user message and no key with "cache" in it at any depth; since 0.8.5 a MARKED call of a selected GPT-6 seat carries OpenAI's breakpoint and explicit mode together and never the Claude marker (src/gpt-explicit-mode.js) (FIX 2, C&C and Mini-C&C, 10 Nov 2026: this is NOT a byte comparison with a captured body; it meets the owner's 09 Nov 21:30 heading, which turns on a cache mark or a switch-off reaching those seats, and `cache` reaches callOpenAICompat only for a Claude seat). RM-4 the cap sees the write price: a ceiling that fits the unmarked projection but not the
 // marked ones stops the run before the second marked call is sent. RM-5 with the order's words not recorded a routed seat is sent no marker (ruling B's older mark never reaches it).
 // On the tree before this step RM-1 fails at the first markTtlOf (null, not '5m'), RM-2 at the split user text and RM-4 at the guard before its projection; RM-3 and RM-5 PASS there (they pin what held: NO RED OF THEIR OWN).
 import test, { afterEach } from 'node:test';
@@ -83,20 +83,43 @@ test('RM-2 THE REQUEST: a marked routed call carries the marker on the text part
   } finally { run.restore(); }
 });
 
-test('RM-3 A GPT-6 SEAT AND A QWEN SEAT: with the order live the request carries a plain string user message and no key with "cache" in it at any depth (not a comparison with a captured body)', async () => {
+// CHANGED ACCEPTED (0.8.5, C&C's rulings 5 and 6 on the GPT prompt cache, 23 Nov 2026). OLD (before 0.8.5): the GPT-6 seat, like the Qwen seat, carried a plain string user message and no key with "cache" in it at any depth.
+// NEW: gpt-6-luna is a selected id (src/gpt-explicit-mode.js), so its MARKED exchange calls (two judges in the layer: src/cache-order-gate.js gptHeadMarkOf) carry OpenAI's two fields together, the root mode and two text
+// blocks cut at H with the native breakpoint, and never the Claude marker. Its UNMARKED calls (the same exchange, the chain's layer holding one judge) and every call of the Qwen seat keep the OLD assertion.
+test('RM-3 A GPT-6 SEAT AND A QWEN SEAT: with the order live a marked call of the GPT-6 seat carries OpenAI\'s breakpoint and explicit mode and no Claude marker; its unmarked calls and the Qwen seat a plain string user message and no key with "cache" in it at any depth', async () => {
   Held.setHeldForTest(LIVE);
+  const plain = (model, b) => {
+    assert.deepEqual(everyKey(b).filter(k => /cache/i.test(k)), [], `${model}: no key containing "cache" at any depth`);
+    assert.equal(typeof b.messages.find(m => m.role === 'user').content, 'string', `${model}: the user message is the plain string`);
+  };
   for (const model of ['openai/gpt-6-luna', 'qwen/qwen3.8-flash']) {
     const seat = lab => ({ provider: 'openrouter', model, lab, layer: 1, maxTokens: 2000 });
+    assert.equal(Gate.gptHeadMarkOf(chainWith([seat('la'), seat('lb')]), seat('la')), model === 'openai/gpt-6-luna', `${model}: marked only as a selected GPT seat`);
     const run = await exchangeWith(chainWith([seat('la'), seat('lb')]));
     try {
       await run.run();
       assert.ok(run.sent.length >= 4, `${model}: posts and answers were sent`);
       for (const b of run.sent) {
-        assert.deepEqual(everyKey(b).filter(k => /cache/i.test(k)), [], `${model}: no key containing "cache" at any depth`);
-        assert.equal(typeof b.messages.find(m => m.role === 'user').content, 'string', `${model}: the user message is the plain string`);
+        if (model === 'openai/gpt-6-luna') {
+          assert.deepEqual([...new Set(everyKey(b).filter(k => /cache/i.test(k)))].sort(), ['prompt_cache_breakpoint', 'prompt_cache_options'], `${model}: OpenAI's two fields, no cache_control`);
+          const u = b.messages.find(m => m.role === 'user').content;
+          assert.ok(Array.isArray(u) && u.length === 2 && JSON.stringify(u[0].prompt_cache_breakpoint) === '{"mode":"explicit"}', `${model}: two blocks, the breakpoint on the first`);
+          continue;
+        }
+        plain(model, b);
       }
     } finally { run.restore(); }
   }
+  // the GPT-6 seat unmarked: the chain names layer 1 with ONE judge, and the exchange is handed two
+  const luna = (lab, layer = 1) => ({ provider: 'openrouter', model: 'openai/gpt-6-luna', lab, layer, maxTokens: 2000 });
+  const single = chainWith([luna('la'), luna('lc', 2)]);
+  assert.equal(Gate.gptHeadMarkOf(single, luna('lb')), false, 'one judge in the layer: unmarked');
+  const run = await exchangeWith(single, { judgeSeats: [luna('la'), luna('lb')] });
+  try {
+    await run.run();
+    assert.ok(run.sent.length >= 4, 'openai/gpt-6-luna unmarked: posts and answers were sent');
+    for (const b of run.sent) plain('openai/gpt-6-luna unmarked', b);
+  } finally { run.restore(); }
 });
 
 test('RM-4 THE CAP SEES THE WRITE PRICE: a ceiling that fits the unmarked projection but not two marked ones stops the run before the second marked call is sent', async () => {

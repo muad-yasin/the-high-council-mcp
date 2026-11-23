@@ -10,6 +10,7 @@ import { held } from './held-roles.js';
 import { promptCacheTtl, isDirectAnthropicSeat, isRoutedClaudeSeat } from './prompt-cache.js';
 import { shortExchangeOn } from './short-exchange.js';
 import { highExtraFor } from './reasoning.js';
+import { explicitModeOf } from './gpt-explicit-mode.js';
 
 /** The held names that make the order live, recorded all together or none (test/held-prompts-084-cache-order.test.js). */
 export const ORDER_WORDS = Object.freeze(['judgeKindLeadIn', 'orderInstructionsPhrase', 'criticOnlySourceSentenceOrder', 'criticExcerptOnlyRuleOrder', 'draftBoundarySentenceNeutral', 'draftEndLineNeutral', 'repairFormatWhereOrder']);
@@ -54,6 +55,16 @@ export function markTtlOf(config, seat) {
   const ttl = promptCacheTtl(config);
   // A routed Claude seat (isRoutedClaudeSeat) is marked on the same rule, always at 5 minutes whatever the chain's lifetime is (his 10 Nov 2026 04:05 heading names 5 minutes for them; plan-claude-council's 1 hour is for its direct seats). The rate it is projected at is the write multiple of OpenRouter's own page for Claude models (src/cache-prices.js).
   return ttl && cacheOrderSeat(config, seat) && (isDirectAnthropicSeat(seat) || isRoutedClaudeSeat(seat)) && exchangeLayerOf(config, seat) && !settingsDependOnCap(seat) ? (isRoutedClaudeSeat(seat) ? '5m' : ttl) : null;
+}
+
+/**
+ * 0.8.5 (C&C's rulings 5 and 6 on the GPT prompt cache, 23 Nov 2026): markTtlOf's group rule, for the selected GPT seats (src/gpt-explicit-mode.js). True for a judge call of such a seat whose order is
+ * live and whose layer runs an exchange, and whose settings do not depend on the cap: the calls whose head H a later call of the same seat in the pass can read. Such a call is sent with OpenAI's
+ * explicit breakpoint at the end of H and the explicit mode, together (src/providers.js callOpenAICompat); every other call of the seat is sent exactly as before 0.8.5, with neither. markTtlOf
+ * itself is not touched: the dry run reads it (src/cost.js), and a GPT call's projection stays what it was (every prompt token at the write multiple).
+ */
+export function gptHeadMarkOf(config, seat) {
+  return explicitModeOf(seat) === 'explicit' && promptCacheTtl(config) !== null && cacheOrderSeat(config, seat) && exchangeLayerOf(config, seat) && !settingsDependOnCap(seat);
 }
 
 /**

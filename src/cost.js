@@ -1,6 +1,7 @@
 import { isFreeProvider } from './providers.js';
 import { cacheReadMultiplierOf, cacheWriteMultiplierOf } from './cache-prices.js';
 import { promptCacheTtl, exchangeCallCarriesHead, isDirectAnthropicSeat } from './prompt-cache.js';
+import { isPricedGptId } from './gpt-explicit-mode.js';
 import { notesConfigOf, reviewNotesActive } from './review-notes-lane.js';
 import { SHIPPED_PRICES as PRICES, effectiveRow, rateFor } from './price-table.js';
 import * as R from './roles.js';
@@ -122,10 +123,10 @@ export function priceAt(provider, model, promptTokens) {
 // so the SELECTOR reads the family from the model id: provider openrouter, id `openai/gpt-<major>[.<minor>]...`, generation 5.6 or later. A pre-5.6 id (`gpt-5`, `gpt-5.5`, `gpt-5-mini`, a dated `gpt-4o`) is NOT selected. An `openai/`
 // id whose generation cannot be read (`openai/gpt-oss-120b`, `openai/o3`) IS selected: that is a design choice, taken to err high (pinned by test/cache-auto-write.test.js). A selected row that names `cache_write` is priced at the row
 // (cacheMultsOf); an absent write is priced at the page's figure below. Whether such an unmarked call later READS the entry is not known (B3 recorded no OpenRouter cache counts; the endpoints API says supports_implicit_caching false
-// for luna and terra while the page says OpenAI caching is automatic), so every call of a selected seat is priced as a write until a measured run shows reads: unknown is never priced as a saving.
+// for luna and terra while the page says OpenAI caching is automatic), so every call of a selected seat is priced as a write until a measured run shows reads: unknown is never priced as a saving. (0.8.5: one paid test measured gpt-6-luna with OpenAI's breakpoint and explicit mode, so that id's marked calls, the one kind that sends them, are priced by their reported counts, costOf below; every other call of a selected seat keeps this rule.)
 export const AUTO_CACHE_WRITE_MULT = 1.25;
 // What an INFERRED write costs, as a multiple of the input price: the row's write multiple, or the page's figure when the row names none, and NEVER below the input price (a later refresh may list a write price under the input price;
-// the page says the family bills a write at 1.25x, so an inferred write is never cheaper than a plain input token). On a selected seat that sent no marker a write the reply REPORTS does not set the price (costOf: it is inside usage.input); on any other row a reported write is priced at the row as it is.
+// the page says the family bills a write at 1.25x, so an inferred write is never cheaper than a plain input token). On a selected seat that sent no marker a write the reply REPORTS does not set the price (costOf: it is inside usage.input), except on a priced id's marked call (0.8.5, costOf); on any other row a reported write is priced at the row as it is.
 export const autoWriteMultOf = p => Math.max(1, p?.cacheWriteMult ?? AUTO_CACHE_WRITE_MULT);
 // 0.8.4 cache part (b)2: a call to an Anthropic model through OpenRouter that carries a marker (only a routed Claude seat is ever marked: a person's own OpenRouter seat never is). Its cache multiples come from the SHIPPED ROW of that model (`p.cacheReadMult` / `p.cacheWriteMult`, the OpenRouter page's dated figures: src/price-table.js cacheMultsOf), never below the Anthropic table's own write multiple for the lifetime (the cap never projects less than OpenRouter can bill), and a read never above the input price. Any other seat keeps the Anthropic table.
 const isRoutedClaudeModel = (provider, model) => provider === 'openrouter' && typeof model === 'string' && model.startsWith('anthropic/');
@@ -197,6 +198,7 @@ export function readUsage(usage) {
     if (!Number.isInteger(usage[k]) || usage[k] < 0) { bad.push(k); delete clean[k]; }
   }
   if (usage.cacheAsked != null && usage.cacheAsked !== '5m' && usage.cacheAsked !== '1h') { bad.push('cacheAsked'); delete clean.cacheAsked; }
+  if (usage.promptCacheBreakpoint != null && usage.promptCacheBreakpoint !== 'head') { bad.push('promptCacheBreakpoint'); delete clean.promptCacheBreakpoint; }   // 0.8.5: the record of a marked GPT call, which sent OpenAI's breakpoint at H and the explicit mode together (src/providers.js); any other value is not one THC sends
   const why = [...(usage.unreadable ? [String(usage.unreadable)] : []), ...(bad.length ? [`unreadable ${bad.join(', ')}`] : [])];
   return { usage: clean, unreadable: why.length ? why.join('; ') : null };
 }
@@ -220,7 +222,7 @@ export function openAiCacheInputUsd(usage, p, pIn) {
 export function costOf(provider, model, usage, pin = null) {
   // The size the provider billed as the prompt: input + cacheRead + cacheWrite as reported. Anthropic's input_tokens excludes the cached part; the OpenAI-compatible adapter subtracts the READ count from prompt_tokens (providers.js usageOfOpenAICompat) and
   // leaves a write count inside `input` for an UNMARKED call (the selected seats below) and takes it out for a call that sent a marker (FIX 6: measured, the written tokens are inside prompt_tokens), so for a marked call input + read + write is the prompt. A field not reported counts 0; no input figure at all = no size (undefined: the base row).
-  // EXCEPT a call to a selected seat (OpenRouter openai/ GPT 5.6 or later) that sent no marker: THC counts a reported write as lying inside `usage.input` (see the rule in costOf below), so it does not add to the size.
+  // EXCEPT a call to a selected seat (OpenRouter openai/ GPT 5.6 or later) that sent no marker: THC counts a reported write as lying inside `usage.input` (see the rule in costOf below), so it does not add to the size. (0.8.5: a call with OpenAI's breakpoint is such a call too: the adapter's `marked` flag is the Claude marker's.)
   const selectedUnmarked = !usage.cacheAsked && isAutoCacheWriteModel(provider, model);
   const size = usage.input == null ? undefined : usage.input + (usage.cacheRead ?? 0) + (selectedUnmarked ? 0 : (usage.cacheWrite ?? 0));
   const p = priceAt(provider, model, size);
@@ -233,7 +235,7 @@ export function costOf(provider, model, usage, pin = null) {
     // at its write multiple (src/price-table.js cacheMultsOf: the multiples of the shipped row, so a tier and the seat's own pin raise the cache prices with `pIn`). A price the row does not name is UNKNOWN, not free: a read then costs the input price
     // and so does a write, which is exactly what the whole prompt cost before the counts were read; only a row that says `cache_write: 0` writes for free. A read is never above the input price.
     if (provider !== 'anthropic') {
-      // A SELECTED seat (isAutoCacheWriteModel: openai/ GPT 5.6 or later on OpenRouter) that sent no marker is charged by THC as a write on every prompt token that was not read from the cache, whatever its reply reports, because OpenRouter's Prompt Caching page says
+      // A SELECTED seat (isAutoCacheWriteModel: openai/ GPT 5.6 or later on OpenRouter) that sent no marker is charged by THC as a write on every prompt token that was not read from the cache, whatever its reply reports (0.8.5: except a priced id's marked call, the branch inside), because OpenRouter's Prompt Caching page says
       // GPT-5.6 and later charge cache writes at 1.25 x the input price even with automatic caching, so THC counts every uncached prompt token as a write and the read tokens at the row's read multiple. THC's counting rule (C&C 09 Nov 2026; checked against the replies of one paid test: 24 calls to GPT-6 Luna on one Azure endpoint, 10 Nov 2026, and against no other model or host): a reported write count lies inside prompt_tokens, and
       // `usage.input` is prompt - read (providers.js usageOfOpenAICompat), so the count is inside it and sets NO price: the settled figure is input x the inferred write multiple (never below the input price)
       // plus the read at the row's multiple, for any write count, a reported zero included, and a write equal to the whole uncached part is not counted twice (nor in the tier size above). The flags say what the reply left out
@@ -241,6 +243,14 @@ export function costOf(provider, model, usage, pin = null) {
       // Every other seat keeps the input price for a write it has no price for.
       if (selectedUnmarked) {
         const rm = Math.min(1, p.cacheReadMult ?? 1);
+        // 0.8.5 (C&C's rulings 5 and 6 on the GPT prompt cache, 23 Nov 2026): a MARKED call (usage.promptCacheBreakpoint 'head', src/providers.js: it sent OpenAI's breakpoint at H and the explicit mode together; no other call sends either)
+        // to a PRICED id (src/gpt-explicit-mode.js: gpt-6-luna, the one id a paid test measured: every bill equalled the listed prices on the reported counts) whose reply REPORTS its write count is priced by its counts: the uncached
+        // prompt tokens that were not written at the input price (1.0x), the written ones at the write multiple (never below the input price), a reported read at the row's read multiple as below. A reply without a write count,
+        // every other selected id (untested) and every unmarked call keep the rule below. The projection before the call is not touched: worstCaseOf still prices every prompt token of such a seat as a write ('auto'), so the reservation is what it always was.
+        if (usage.promptCacheBreakpoint === 'head' && isPricedGptId(provider, model) && Number.isFinite(usage.cacheWrite)) {
+          const written = Math.min(usage.input, Math.max(0, usage.cacheWrite));   // inside usage.input on an unmarked call (providers.js usageOfOpenAICompat)
+          return { usd: ((usage.input - written) / 1e6) * pIn + (written / 1e6) * pIn * autoWriteMultOf(p) + ((usage.cacheRead ?? 0) / 1e6) * pIn * rm + outUsd, priced: true };
+        }
         const usd = (usage.input / 1e6) * pIn * autoWriteMultOf(p) + ((usage.cacheRead ?? 0) / 1e6) * pIn * rm + outUsd;
         if (usage.cacheRead === undefined && usage.cacheWrite === undefined) return { usd, priced: true, cacheUnknown: true };
         if (usage.cacheWrite === undefined) return { usd, priced: true, cacheWriteUnreported: true };
@@ -273,7 +283,8 @@ export function summarise(stages) {
   for (const s of stages) {
     if (!s.usage || isHarnessRecord(s)) continue;
     // A call recorded 'write-in-input' counted its written tokens as lying inside usage.input (costOf): the total leaves them out of `input` so the token line's "in", "read" and "written" do not overlap.
-    input += s.usage.input - (s.usage.cacheCounts === 'write-in-input' ? Math.min(s.usage.input, Number.isFinite(s.usage.cacheWrite) ? s.usage.cacheWrite : 0) : 0);
+    // 0.8.5: a marked GPT call (usage.promptCacheBreakpoint 'head') keeps its reported write inside usage.input (the adapter's `marked` flag is the Claude marker's), whichever rule priced it: the total leaves it out the same way, once.
+    input += s.usage.input - (s.usage.cacheCounts === 'write-in-input' || s.usage.promptCacheBreakpoint === 'head' ? Math.min(s.usage.input, Number.isFinite(s.usage.cacheWrite) ? s.usage.cacheWrite : 0) : 0);
     output += s.usage.output;
     cacheRead += Number.isFinite(s.usage.cacheRead) ? s.usage.cacheRead : 0;
     cacheWrite += Number.isFinite(s.usage.cacheWrite) ? s.usage.cacheWrite : 0;

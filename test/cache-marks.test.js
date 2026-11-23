@@ -314,21 +314,42 @@ test('LIVE RUN, the panel call: a direct Anthropic judge of a layer with two jud
   } finally { globalThis.fetch = original; if (hadKey === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = hadKey; }
 });
 
-test('GPT-6 SEAT (GO row 8): with the order live a request body for an OpenRouter GPT-6 judge carries NO cache field of any kind (the order only: no mark, no switch-off, no cache key)', async () => {
+// CHANGED ACCEPTED (0.8.5, C&C's rulings 5 and 6 on the GPT prompt cache, 23 Nov 2026). OLD (before 0.8.5): every request body for an OpenRouter GPT-6 judge carried NO key containing "cache" at any depth (the order only).
+// NEW: gpt-6-luna is a selected id (src/gpt-explicit-mode.js). Its MARKED exchange calls (two judges in the layer: src/cache-order-gate.js gptHeadMarkOf) carry OpenAI's two fields together and no other cache key: the user
+// text as two text blocks cut at H with `prompt_cache_breakpoint: {mode: explicit}` on the first, and the root `prompt_cache_options: {mode: explicit}`; never a Claude marker (cache_control). Its UNMARKED calls (the same
+// exchange, the chain's layer holding one judge, as in 'LIVE RUN: unmarked where the layer has one judge') keep the OLD assertion: no key containing "cache" at any depth, the plain string. The order is on in both.
+test('GPT-6 SEAT (GO row 8): with the order live a marked exchange call of an OpenRouter GPT-6 judge carries OpenAI\'s breakpoint at H and explicit mode together and no other cache key; an unmarked one no key containing "cache" at any depth', async () => {
   Held.setHeldForTest(LIVE);
-  const luna = lab => ({ provider: 'openrouter', model: 'openai/gpt-6-luna', lab, layer: 1, maxTokens: 2000 });
+  const luna = (lab, layer = 1) => ({ provider: 'openrouter', model: 'openai/gpt-6-luna', lab, layer, maxTokens: 2000 });
   const config = chainWith([luna('la'), luna('lb')]);
   assert.equal(Gate.markTtlOf(config, config.seats.critics[0]), null, 'not a direct Anthropic seat: no mark');
   assert.equal(Gate.cacheOrderSeat(config, config.seats.critics[0]), true, 'but its prompts get the new order');
+  assert.equal(Gate.gptHeadMarkOf(config, config.seats.critics[0]), true, 'two judges in the layer: marked');
   const run = await exchangeWith(config);
   try {
     await run.run();
     assert.ok(run.sent.length >= 4, `posts and answers were sent (${run.sent.length} calls)`);
     for (const b of run.sent) {
-      assert.deepEqual(everyKey(b).filter(k => /cache/i.test(k)), [], 'no key containing "cache" at any depth of the request body');
+      assert.deepEqual([...new Set(everyKey(b).filter(k => /cache/i.test(k)))].sort(), ['prompt_cache_breakpoint', 'prompt_cache_options'], 'only OpenAI\'s two cache fields: no cache_control, no cache key');
+      assert.deepEqual(b.prompt_cache_options, { mode: 'explicit' }, 'the root mode, no lifetime');
+      const u = b.messages.find(m => m.role === 'user').content;
+      assert.ok(Array.isArray(u) && u.length === 2 && u.every(p => p.type === 'text') && JSON.stringify(u[0].prompt_cache_breakpoint) === '{"mode":"explicit"}' && !('prompt_cache_breakpoint' in u[1]), 'a marked exchange call: two text blocks, the breakpoint on the first');
       assert.equal(b.messages.find(m => m.role === 'system').content, R.COUNCIL_INTRO, 'the order is on: the system text is the welcome');
     }
   } finally { run.restore(); }
+  const single = chainWith([luna('la'), luna('lc', 2)]);   // the chain names layer 1 with ONE judge: neither judge handed to the exchange is in a layer that runs an exchange
+  assert.equal(Gate.gptHeadMarkOf(single, luna('lb')), false, 'one judge in the layer: unmarked');
+  assert.equal(Gate.cacheOrderSeat(single, luna('lb')), true, 'the order is still live');
+  const plain = await exchangeWith(single, { judgeSeats: [luna('la'), luna('lb')] });
+  try {
+    await plain.run();
+    assert.ok(plain.sent.length >= 4, `posts and answers were sent (${plain.sent.length} calls)`);
+    for (const b of plain.sent) {
+      assert.deepEqual(everyKey(b).filter(k => /cache/i.test(k)), [], 'an unmarked call: no key containing "cache" at any depth of the request body');
+      assert.equal(typeof b.messages.find(m => m.role === 'user').content, 'string', 'an unmarked call: the plain string');
+      assert.equal(b.messages.find(m => m.role === 'system').content, R.COUNCIL_INTRO, 'the order is on: the system text is the welcome');
+    }
+  } finally { plain.restore(); }
 });
 
 // ---- a full run through the real Anthropic adapter, the judges answered by the mock judges (the stub hands each request to the mock provider and wraps the text in an Anthropic reply, with cache counts a real entry would give) ----

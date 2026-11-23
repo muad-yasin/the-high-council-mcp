@@ -31,7 +31,7 @@ setMockInstructionsFinder(user => {
 const fail = message => Object.assign(new Error(`cache-shaped prompt order: ${message} (nothing was sent)`), { controlFlow: true });
 
 // The gate lives in src/cache-order-gate.js (the cost estimate reads it without importing this file); re-exported here for the layout's callers.
-export { cacheOrderOn, cacheOrderSeat, orderNote, ORDER_WORDS, markTtlOf, exchangeLayerOf } from './cache-order-gate.js';
+export { cacheOrderOn, cacheOrderSeat, orderNote, ORDER_WORDS, markTtlOf, gptHeadMarkOf, exchangeLayerOf } from './cache-order-gate.js';
 
 /** The lead-in of a call kind (heading line and sentence), '' where the order is not live for the seat. */
 export function leadInOf(config, seat, kind) {

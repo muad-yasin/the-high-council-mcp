@@ -61,7 +61,7 @@ import * as R from './roles.js';
 import { assertStageLabelSafe } from './lab-safety.js';
 import { promptCacheTtl, exchangeCallCarriesHead, isRoutedClaudeSeat } from './prompt-cache.js';
 import { cacheOrderWordsOn } from './cache-order-gate.js';      // 0.8.4 cache part (b)2: a routed Claude seat is marked only where the order is live (its words recorded)
-import { judgePrompt, assertCacheOrder, cacheOrderOn, leadInOf, orderNote, markTtlOf } from './cache-order.js';   // 0.8.4 cache part (b)1: the cache-shaped prompt order of a judge call
+import { judgePrompt, assertCacheOrder, cacheOrderOn, leadInOf, orderNote, markTtlOf, gptHeadMarkOf } from './cache-order.js';   // 0.8.4 cache part (b)1: the cache-shaped prompt order of a judge call
 import { exchangeJsonModeLabs, jsonModeSeat, exchangeClosingText } from './exchange-json-mode.js';
 import { finishedAtStopWords } from './verdict-headline.js';   // 0.8.4 L3: pure; imports only outcome, final-read, layers and overseer-rounds
 import { contextWindowOf, fitsHalfWindow } from './context-window.js';
@@ -92,6 +92,7 @@ import { excerptBlockFor } from './excerpt-record.js';
 import { withNoTestsLine } from './verify-first.js';
 import { noFencedTestFile } from './fence-tests.js';
 import { placeExcerptBlock, isNotASeat } from './excerpt-slot.js';
+import { explicitModeOf } from './gpt-explicit-mode.js';
 import { excerptsMayBeShownFor, excerptChannelUsable } from './excerpt-channel.js';
 import { readTextRequests, numberRequests, noticeLines } from './text-requests.js';
 import { parsePatches, applyPatches, changedSince } from './patch-revise.js';
@@ -2064,9 +2065,9 @@ function scanned(label, prompt) {
  * single call (src/handoff-from-run.js), never as a way round any of them. Set the cap first
  * (setBudget) or it is uncapped, as for any caller.
  */
-export async function runSingleStage(seat, { system, user, log = () => {}, label, cacheHead, cacheTtl }) {
+export async function runSingleStage(seat, { system, user, log = () => {}, label, cacheHead, cacheTtl, promptCacheBreakpoint }) {
   // 0.8.4 cache part (b)2, FIX 3: the optional cache head and lifetime are forwarded to the same invoke() (the cap, the denied-model check and the key scan still apply); a caller that passes neither sends exactly what it sent before.
-  return invoke(seat, { system, user, log, label, ...(cacheHead !== undefined ? { cacheHead } : {}), ...(cacheTtl !== undefined ? { cacheTtl } : {}) });
+  return invoke(seat, { system, user, log, label, ...(cacheHead !== undefined ? { cacheHead } : {}), ...(cacheTtl !== undefined ? { cacheTtl } : {}), ...(promptCacheBreakpoint === true ? { promptCacheBreakpoint } : {}) });
 }
 
 // 0.8.4 S20 slice 2 (#16c, the owner's "pause after this round"): asked at the HEAD of every pass after the first, before anything of that pass is logged, built, written or reserved. It returns null, or { request_seq } when the person or the handler session asked the run to stop
@@ -2126,7 +2127,7 @@ async function invoke(seat, opts) {
   if (stage && typeof stage === 'object') sentUsers.set(stage, sent.user ?? opts.user);
   return stage;
 }
-async function invokeCall(seat, { system, user, log, label, cacheHead, cacheTtl, blockAfter, group = null, shownSystem = null, judge = false }, sent) {   // 0.8.4 T14: `group` names a set of calls proven to read none of each other (src/stale-guard.js); set only by the call sites that verified it
+async function invokeCall(seat, { system, user, log, label, cacheHead, cacheTtl, promptCacheBreakpoint = false, blockAfter, group = null, shownSystem = null, judge = false }, sent) {   // 0.8.4 T14: `group` names a set of calls proven to read none of each other (src/stale-guard.js); set only by the call sites that verified it
   assertStageLabelSafe(label, labOf(seat));   // BUG-D-021: before anything is read from or written to a run folder, sent or paid
   // Prompt caching (src/prompt-cache.js): a call site that names the start of its prompt hands it over as `cacheHead`, built by the prompt's own builder from the call's own arguments. It must be the start of the text that is sent;
   // otherwise the adapter could not place its marker and the run would stop mid-way, so a mismatch stops here, before anything is read, reserved or sent (a call-site bug, never a model's fault: control flow, not an abstention).
@@ -2143,10 +2144,15 @@ async function invokeCall(seat, { system, user, log, label, cacheHead, cacheTtl,
   { const block = excerptReader ? excerptReader(label) : ''; if (block) user = placeExcerptBlock(user, block, cacheHead ?? blockAfter); }
   sent.user = user;   // what is really sent, for the call sites that keep a copy of the prompt (below)
   // The marker is sent only for a call that names a head AND a lifetime on a seat that calls Anthropic directly (not a Claude model reached through OpenRouter); `cacheInfo` is what the cap projects with.
-  // 0.8.4 cache part (b)2: a Claude seat the route sent through OpenRouter is marked too, at 5 minutes, but only where the cache-shaped order is live (src/cache-order-gate.js markTtlOf gives it '5m'; ruling B's older mark, which exists only while the words are not recorded, never reaches it). A GPT-6 or Qwen seat is never marked.
+  // 0.8.4 cache part (b)2: a Claude seat the route sent through OpenRouter is marked too, at 5 minutes, but only where the cache-shaped order is live (src/cache-order-gate.js markTtlOf gives it '5m'; ruling B's older mark, which exists only while the words are not recorded, never reaches it). A GPT-6 or Qwen seat never gets this Claude marker (since 0.8.5 a selected GPT seat's MARKED call gets OpenAI's own fields instead: promptCacheHead below; its other calls are sent as before).
   const cacheOn = cacheHead !== undefined && (cacheTtl === '5m' || cacheTtl === '1h') && (seat.provider === 'anthropic' || (isRoutedClaudeSeat(seat) && cacheTtl === '5m' && cacheOrderWordsOn()));
   const cacheInfo = cacheOn ? { headChars: (system || '').length + cacheHead.length, ttl: cacheTtl } : null;
-  promptSpy?.({ label, provider: seat.provider, model: seat.model, system, user, ...(cacheHead !== undefined ? { cacheHead } : {}), ...(cacheOn ? { cacheTtl } : {}) });
+  // 0.8.5 (C&C's rulings 5 and 6 on the GPT prompt cache, 23 Nov 2026): a MARKED call of a selected GPT seat (its site marked it: layOut, markOf: src/cache-order-gate.js gptHeadMarkOf; the seat is selected: src/gpt-explicit-mode.js; it names
+  // its head) hands the adapter its head, and the adapter sends OpenAI's two fields together: the user text cut at H with the explicit breakpoint on the first block, and the explicit mode at the root. Every other call hands it
+  // nothing and is sent exactly as before 0.8.5. The head is its OWN argument, never `cacheOn`/`cacheInfo`: the projection, the reservation, the gate, the prompt hash and the stage cache read the one string exactly as before
+  // (every prompt token at the write multiple, cost.js worstCaseOf's 'auto' mode); the adapter makes the cut, after them, and only the price after the call reads the record (cost.js costOf, usage.promptCacheBreakpoint).
+  const promptCacheHead = !cacheOn && promptCacheBreakpoint === true && explicitModeOf(seat) === 'explicit' && typeof cacheHead === 'string' && cacheHead !== '' ? cacheHead : undefined;
+  promptSpy?.({ label, provider: seat.provider, model: seat.model, system, user, ...(cacheHead !== undefined ? { cacheHead } : {}), ...(cacheOn ? { cacheTtl } : {}), ...(promptCacheHead !== undefined ? { promptCacheBreakpoint: true } : {}) });
   const started = Date.now();
   // Backstop for the check at the top of runChain: every call, including a replay from disk.
   const denied = deniedReasonsOf(seat);
@@ -2393,6 +2399,7 @@ async function invokeCall(seat, { system, user, log, label, cacheHead, cacheTtl,
       // callOpenAICompat, which is the only one that reads it.
       baseUrl: seat.baseUrl,
       ...(cacheOn ? { cache: { head: cacheHead, ttl: cacheTtl } } : {}),   // prompt caching (src/prompt-cache.js): the adapter splits the user text at the head and marks the first block
+      ...(promptCacheHead !== undefined ? { promptCacheHead } : {}),   // 0.8.5: a marked call only: the head the adapter cuts at, with OpenAI's two fields together (src/providers.js callOpenAICompat); any other call passes nothing
     });
     // Usage the cap cannot read (a NaN, a negative or non-numeric count, no usage at all) is
     // zeroed in the record and charged at one attempt's projection (cost.js readUsage).
@@ -2423,7 +2430,7 @@ async function invokeCall(seat, { system, user, log, label, cacheHead, cacheTtl,
       }
       // 3b per field: a selected seat's reply carried a read count and no write count; the uncached part was charged as a write (cost.js costOf, cacheWriteUnreported). The record says so: the read count stays as reported.
       if (measured.cacheWriteUnreported && !r.unreadable && r.usage.cacheCounts === undefined) r.usage = { ...r.usage, cacheCounts: 'write-not-reported' };
-      // 0.8.4 commit 5: the reply carried a write count (a zero included) on a selected seat that sent no marker, and costOf charged every uncached prompt token as a write whatever the count: the record says the count did not set the price.
+      // 0.8.4 commit 5: the reply carried a write count (a zero included) on a selected seat that sent no marker, and costOf charged every uncached prompt token as a write whatever the count: the record says the count did not set the price. (0.8.5: a priced id's marked call, the one kind that sends OpenAI's fields, is priced by its counts and carries no such flag: src/cost.js costOf.)
       if (measured.cacheWriteInInput && !r.unreadable && r.usage.cacheCounts === undefined) r.usage = { ...r.usage, cacheCounts: 'write-in-input' };
       if (!r.unreadable) return measured;
       if (attemptWorstCase > 0) log(`  ${label}: ${r.provider}/${r.model} reported usage the spend cap cannot read (${r.unreadable}) - ${formatUsd(attemptWorstCase)} (one attempt's worst case) counted toward the cap.`);
@@ -3021,7 +3028,7 @@ export async function exchangeRound({ judges, request, criteria, draft, round, r
   const exchangeArgs = layout ? { request, criteria, draft: boundedDraft(draft, !!layout.endMarker), checks: layout.checks ?? '', endMarker: !!layout.endMarker } : null;
   const exchangeHead = layout ? R.criticUserHead(exchangeArgs) : null;
   // The new order replaces the pair and the head. Ruling B's mark (round 2 on) does not apply to a laid call: its mark is the mark rule of the order (src/cache-order-gate.js markTtlOf): every call of a direct-Anthropic seat in a layer that runs an exchange, from round 1.
-  const layOut = (ask, laid, seat) => { if (!laid.laid) return; ask.system = laid.system; ask.user = laid.user; ask.blockAfter = laid.head; ask.shownSystem = laid.shownSystem; const ttl = markTtlOf(layout.config, seat); if (ttl) ask.cacheTtl = ttl; else delete ask.cacheTtl; ask.cacheHead = laid.head; };
+  const layOut = (ask, laid, seat) => { if (!laid.laid) return; ask.system = laid.system; ask.user = laid.user; ask.blockAfter = laid.head; ask.shownSystem = laid.shownSystem; const ttl = markTtlOf(layout.config, seat); if (ttl) ask.cacheTtl = ttl; else delete ask.cacheTtl; if (gptHeadMarkOf(layout.config, seat)) ask.promptCacheBreakpoint = true; else delete ask.promptCacheBreakpoint; ask.cacheHead = laid.head; };   // 0.8.5: a selected GPT seat's breakpoint at H, by markTtlOf's group rule (src/cache-order-gate.js gptHeadMarkOf)
   // 084/glm-format (A-DRAFT, held path): one closing sentence at the very END of both exchange user messages, after the handler's rulings text, so the cached head (the start of the message) is untouched (invoke(), the head must be the start of the user text). Held until the owner's yes: held() returns nothing while roles.js has no export of that name.
   const closingText = exchangeClosingText();
   // 0.8.4 S3 (W2, held): the sentence that asks a withdrawing raiser to name the post or the passage that moved it. Until it is recorded in src/roles.js the reply prompt is byte-identical and no anchor is demanded (a judge is never flagged for what it was not asked); what a judge does give is always checked.
@@ -4709,7 +4716,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
   // (keyed by the stage label), the notes part taken OFF the reply before the verdict was read; a stash whose reply never became a recorded verdict is counted as dropped (`verdict_not_recorded`, with lab and pass).
   const notesCfg = notesConfigOf(config); const notesOn = reviewNotesActive(config);
   const cacheTtl = promptCacheTtl(config);   // CACHE lane unit 2 (src/prompt-cache.js): null = off (every byte as before)
-  const markOf = seat => { const ttl = markTtlOf(config, seat); return ttl ? { cacheTtl: ttl } : {}; };   // cache part (b)1: the mark of a laid judge call (src/cache-order-gate.js markTtlOf); the final read and the first-mode critic never ask for it
+  const markOf = seat => { const ttl = markTtlOf(config, seat); return ttl ? { cacheTtl: ttl } : gptHeadMarkOf(config, seat) ? { promptCacheBreakpoint: true } : {}; };   // 0.8.5: or a selected GPT seat's breakpoint at H, by the same group rule   // cache part (b)1: the mark of a laid judge call (src/cache-order-gate.js markTtlOf); the final read and the first-mode critic never ask for it
   const severityOn = ratingsDemanded(config);   // M1 (S19): the rating DEMAND, read once (src/ratings-demand.js): the sentences in every prompt AND the strict refusal of a missing rating; while the held word is not recorded it is false and every prompt is byte-identical to a chain without ratings
   const callGates = callGatesOf(config);   // 0.8.4 S11: the config-level gates of the escalation passes (src/call-gates.js), read ONCE here with ledgerOn and severityOn, as those two were: `goUpOn` is ledgerOn && severityOn
   const sevRun = layerDebateOn ? createSeverityRun() : null;   // unit 3: the run's severity ledger (first valid tag, overrides, withdrawals, the end of each pass), kept on EVERY layered unanimous run (M1: there is no switch); it reads no prompt, so its existence changes no byte a model is sent
