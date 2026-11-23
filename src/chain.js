@@ -3720,6 +3720,9 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
     for (const o of seatLast.get(key) || []) if (!own.has(o.id)) own.set(o.id, { base: o.base, problemNorm: o.problemNorm, state: 'standing' });
     return own;
   };
+  // 0.8.5: the ids of the copies this seat took over by a sustain in an EARLIER pass (each ruling row's adopted_as: the records closedOnRecord reads, so a replay rebuilds them). The id assigner
+  // reads this set for a `continues` only, so that a seat's `continues <copy id>` is heard before a counted verdict of it carries the copy; its history above, and with it every other relation, is as before.
+  const heldCopiesOf = (key, before) => { const ids = new Set(); for (const e of rulingRows()) { if (!(e.pass < before)) continue; for (const o of e.outcome ?? []) for (const a of o.adopted_as ?? []) if ((a.seat ?? a.lab) === key) ids.add(a.id); } return ids; };
   const withdrawnEverywhere = before => withdrawnList(before).filter(w => w.criterion).map(w => ({ id: w.id, lab: w.lab, criterion: w.criterion, quote: problemKey({ quote: w.quote }) }));
   const attachedQuotes = new Map();   // 0.8.4 S14: 'lab\u0000id' -> { quote, pass, from }: a quote attached to an unquoted objection in the exchange, folded from exchangeRound's result (so a resume rebuilds it from the cached replies); overlaid at the fold of the pass's failures, after the id
   const exchangeCarried = new Map();   // 0.8.4 S3 (Q1(g), T22aa): raiser seat key -> Map(objection id -> { criterion, problem, quote?, severity?, found_pass }): the objections an exchange did not reach (raised or amended in its last round), carried into the next pass's exchange. Built only from the exchange rows, so a replay rebuilds it.
@@ -5498,7 +5501,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
           const declared = new Set((Array.isArray(verdictPart?.failures) ? verdictPart.failures : []).map(f => normProblem(typeof f === 'string' ? f : f?.problem).slice(0, 80)));
           const missing = critique.failures.some(f => (f.relation === undefined || f.relation === null || f.relation === '') && declared.has(normProblem(f.problem).slice(0, 80)));
           const withdrawnNow = new Set((Array.isArray(parsed?.answers) ? parsed.answers : []).filter(a => a && typeof a === 'object' && String(a.status ?? '').toLowerCase() === 'withdrawn' && typeof a.id === 'string').map(a => a.id.trim()));
-          const asn = missing ? { unreadable: { why: 'relation_missing', ids: [] } } : assignIds({ lab: labKey, failures: critique.failures, withdrawnNow, own: ownHistory(labKey, round), withdrawnAny: withdrawnEverywhere(round) });
+          const asn = missing ? { unreadable: { why: 'relation_missing', ids: [] } } : assignIds({ lab: labKey, failures: critique.failures, withdrawnNow, own: ownHistory(labKey, round), held: heldCopiesOf(labKey, round), withdrawnAny: withdrawnEverywhere(round), shown: new Set(layerOneOpen?.text && criticSeat.layer > layerNumbers[0] && criticSeat.layer < topLayer ? [...(layerOneOpen.ruling?.rulable ?? []).map(r => r.id), ...(layerOneOpen.shownIds ?? [])] : []) });   // 0.8.5: the rows of layer 1 in this seat's prompt, under layerOneNote's own condition
           if (asn.unreadable) {
             const reasonCode = abstentionReasonCode(cs.usage, askedCapOf(cs, effectiveCap));
             say(`  ${shownSeat(criticSeat)}/${criticSeat.model}: [COUNCIL-E004] the reply's relation field cannot be used (${asn.unreadable.why}${asn.unreadable.ids.length ? `: ${asn.unreadable.ids.join(', ')}` : ''}) - counted as an unreadable reply, not a sign-off.`);   // A-DRAFT
@@ -6265,7 +6268,7 @@ async function runChainStages({ request: requestIn, config, draft: initialDraft 
               if (fit.left) log(`  layer ${row.layer}: ${fit.left} lower-rated open objection(s) of layer 1 did not fit the section its judges rule on, so they are not ruled on and stay open as they were (their ids are recorded in the run's report).`);   // A-DRAFT (WORDING row S7B-A4a), printed only in the S7b branch
             } else if (byKey.size) {
               const fit = fitOpenRows([...byKey.values()], ({ rows, left }) => R.layerOneOpenSection({ rows, left }));
-              layerOneOpen = { text: fit.text };
+              layerOneOpen = { text: fit.text, shownIds: fit.rows.map(r => r.id) };   // 0.8.5: the ids this section shows, for the id assigner (a `continues` on one of them is heard)
               row.layer_one_open = { shown: fit.rows.length, left_out: fit.left, chars: fit.chars, tokens_est: fit.tokens_est };
               if (fit.left) log(`  layer ${row.layer}: ${fit.left} lower-rated open objection(s) of layer 1 were left out of its section (named in it).`);
             }

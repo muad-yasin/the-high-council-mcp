@@ -45,7 +45,10 @@ export const GONE_STATES = Object.freeze(['withdrawn', 'overruled', 'adopted', '
 const isGone = o => GONE_STATES.includes(o?.state);
 // 0.8.4 (Muad, 11 Nov 2026): an objection the HANDLING SESSION or the TOP LAYER lowered below 4 stays lowered when the judge answers on it again: `continues <id>`, `reopens <id>` and the same text as `new` keep the id, with no suffix and no reopens note (the rating in force is the re-tagger's, so the objection holds no sign-off). Only a re-tag, by the handler or by layer 3 (the `by` of the re-tag row, kept in memory only): every other closed state reads as before.
 const heldByRetag = o => (o?.state === 'cleared_retag' && (o?.by === 'handler' || o?.by === 'layer3')) || (o?.state === 'overruled' && (o?.by === 'handler' || o?.by === 'layer3'));   // a re-tag with no `by` (an unknown source) stays refused
-export function assignIds({ lab, failures, withdrawnNow = new Set(), own = new Map(), withdrawnAny = [] }) {
+// `shown` (0.8.5): the ids of OTHER seats' rows this seat was shown in this ask (a middle layer's section of layer 1's open objections). A `continues` on one of them is this seat's
+// own new objection: it takes the id a `new` would take, and the failure keeps the relation the judge declared. An id that is neither the seat's own nor shown is refused, as before.
+// `held` (0.8.5): the ids of the copies this seat took over by a sustain. A `continues` on one of them that its history does not hold yet keeps the copy's id; nothing else reads `held`.
+export function assignIds({ lab, failures, withdrawnNow = new Set(), own = new Map(), withdrawnAny = [], shown = new Set(), held = new Set() }) {
   const taken = new Set(own.keys());
   const inReply = new Map();   // base -> ids assigned in this reply
   const seen = new Map();      // `${base}\0${problemNorm}` -> id: the same complaint twice in one reply is one objection
@@ -53,13 +56,14 @@ export function assignIds({ lab, failures, withdrawnNow = new Set(), own = new M
   for (const f of failures) {
     const base = baseObjectionId(lab, f); const pn = norm(f.problem);
     const dup = seen.get(`${base}\u0000${pn}`);
-    const rel = parseRelation(f.relation);
-    if (rel.kind === 'bad') return { unreadable: { why: 'relation_unreadable', ids: [] }, failures };
+    const declared = parseRelation(f.relation);
+    if (declared.kind === 'bad') return { unreadable: { why: 'relation_unreadable', ids: [] }, failures };
+    const rel = declared.kind === 'continues' && !own.has(declared.id) && shown.has(declared.id) ? { kind: 'new' } : declared;   // 0.8.5: a shown row of another seat (`shown` above)
     let id; const note = {};
     if (dup && rel.kind !== 'continues' && rel.kind !== 'reopens') { out.push({ ...f, id: dup }); continue; }
     if (rel.kind === 'continues') {
       const o = own.get(rel.id);
-      if (!o || (o.state !== 'standing' && !heldByRetag(o)) || withdrawnNow.has(rel.id)) return { unreadable: { why: 'continues_not_standing', ids: [rel.id] }, failures };
+      if ((!o && !held.has(rel.id)) || (o && o.state !== 'standing' && !heldByRetag(o)) || withdrawnNow.has(rel.id)) return { unreadable: { why: 'continues_not_standing', ids: [rel.id] }, failures };
       id = rel.id;
     } else if (rel.kind === 'reopens') {
       const o = own.get(rel.id);
