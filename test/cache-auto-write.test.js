@@ -19,7 +19,8 @@ const near = (a, b, eps = 1e-9) => typeof a === 'number' && Math.abs(a - b) < ep
 const SHIPPED = JSON.parse(readFileSync(new URL('../src/pricing.json', import.meta.url), 'utf8'));
 const chainFile = f => JSON.parse(readFileSync(new URL(`../chains/${f}`, import.meta.url), 'utf8'));
 const OR = id => ['openrouter', id];
-const SELECTED6 = ['openai/gpt-5.6-luna', 'openai/gpt-5.6-sol', 'openai/gpt-6-astra', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6.1-terra'];
+// CHANGED ACCEPTED DATA (0.8.5 chain update, 23 Nov 2026). OLD: SELECTED6, the six openrouter openai/ rows the selector selects, and the same six in S1's exact list. NEW: SELECTED8 and S1's list add openai/gpt-6.2-astra and openai/gpt-6.2-sol, the price table's two new rows. WHY: the table gains the two GPT-6.2 rows; D1, D2 and the Mini check now also assert on the 6.2 seats.
+const SELECTED8 = ['openai/gpt-5.6-luna', 'openai/gpt-5.6-sol', 'openai/gpt-6-astra', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6.1-terra', 'openai/gpt-6.2-astra', 'openai/gpt-6.2-sol'];
 // the write multiple of a shipped row, read from the table independently of the code under test (cache_write over the base the figures were taken at); 1.25 when the row names none (the page's figure)
 const writeMultOfRow = id => { const r = SHIPPED[`openrouter/${id}`]; return typeof r.cache_write === 'number' ? r.cache_write / Math.min(r.cache_basis_in ?? r.in, r.in) : 1.25; };
 // CHANGED ACCEPTED TEST (0.8.4 release chores, 11 Nov 2026; Mini-C&C's ruling on the re-pin). OLD: the 1.25 default for a SELECTED row that names no write price was pinned by the shipped row openrouter/openai/gpt-5.6-sol (G1, T1, T2). NEW: it is pinned by a USER price row, openrouter/openai/gpt-5.6-nowrite-test (selected: generation 5.6; absent from the shipped table; a user row names no cache price, so autoWriteMultOf falls back to 1.25); the shipped Sol row is read through writeMultOfRow like every other shipped row. WHY: the refresh of 11 Nov 2026 gives the Sol row cache_write 5.5 over a base of 4.4, exactly 1.25, so the old asserts would stay green while their claim ("the row names no write price") was false, and the default (AUTO_CACHE_WRITE_MULT, src/cost.js) would be pinned by no row at all at the next refresh.
@@ -33,7 +34,7 @@ function withNoWriteRow(fn) {
 
 test('S1: the selector reads the FAMILY from the id: every openrouter openai/ GPT of generation 5.6 or later is selected, with or without cache_write; pre-5.6 ids are not; an id whose generation cannot be read IS selected (errs high); a row of another lab that names cache_write is not', () => {
   const sel = (p, m) => C.isAutoCacheWriteModel?.(p, m);
-  for (const id of SELECTED6) assert.equal(sel(...OR(id)), true, `${id} is selected`);
+  for (const id of SELECTED8) assert.equal(sel(...OR(id)), true, `${id} is selected`);
   const NOT_SELECTED = ['openai/gpt-5.5', 'openai/gpt-5-mini', 'openai/gpt-5', 'openai/gpt-4o', 'openai/gpt-5-2026-08-07'];
   for (const id of NOT_SELECTED) assert.equal(sel(...OR(id)), false, `${id} is not selected (generation below 5.6, a dated id reads as 5.0)`);
   for (const id of ['openai/gpt-oss-120b', 'openai/o3']) assert.equal(sel(...OR(id)), true, `${id}: no readable generation, selected on purpose (errs high)`);
@@ -42,7 +43,7 @@ test('S1: the selector reads the FAMILY from the id: every openrouter openai/ GP
   assert.equal(sel('anthropic', 'claude-opus-5'), false);
   // the shipped table: exactly the rows the page's family covers
   const rows = Object.keys(SHIPPED).filter(k => k.startsWith('openrouter/openai/')).map(k => k.slice('openrouter/'.length));
-  assert.deepEqual(rows.filter(id => sel(...OR(id))).sort(), ['openai/gpt-5.6-luna', 'openai/gpt-5.6-sol', 'openai/gpt-6-astra', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6.1-terra']);
+  assert.deepEqual(rows.filter(id => sel(...OR(id))).sort(), ['openai/gpt-5.6-luna', 'openai/gpt-5.6-sol', 'openai/gpt-6-astra', 'openai/gpt-6-luna', 'openai/gpt-6.1-sol', 'openai/gpt-6.1-terra', 'openai/gpt-6.2-astra', 'openai/gpt-6.2-sol']);
 });
 
 test('G1: the per-call guard (worstCaseOf, projectStage) prices a selected seat\'s whole prompt as a write with no marker and with prompt_cache off: a row that names cache_write at the row (gpt-5.6-sol included), a selected row with no write price (a user row) at exactly 1.25 x input; a non-selected row at the input price', () => {
@@ -96,9 +97,9 @@ test('D1: the dry run keeps ONE row per call group for an unmarked selected seat
     for (const maximum of [false, true]) {
       const rows = C.estimateChainRows(cfg, { maximum });
       // CHANGED ACCEPTED (0.8.4 cache part (b)2 step (a), 10 Nov 2026; found by the box set). OLD no row of the chain had a cache-group suffix, because no shipped chain carried the switch. NEW the assertion is about the rows of the SELECTED seats (the seats this test is about: GPT 5.6 and later on OpenRouter): none has a `-x2` / `-x3` row. WHY: the seven shipped planning chains carry the switch, and while the order's words are not recorded a direct Anthropic seat of the chain has those rows legitimately (the round-2 write and the reading rounds); a selected seat is never marked.
-      assert.ok(!rows.some(r => /-x[23]$/.test(r.label) && SELECTED6.includes(r.seat.slice('openrouter/'.length))), `${name}: no cache-group rows for a selected seat`);
+      assert.ok(!rows.some(r => /-x[23]$/.test(r.label) && SELECTED8.includes(r.seat.slice('openrouter/'.length))), `${name}: no cache-group rows for a selected seat`);
       if (maximum) continue;
-      for (const r of rows.filter(r => SELECTED6.includes(r.seat.slice('openrouter/'.length)) && r.label !== 'network-retries')) {   // network-retries is 3 x another row's per-call figure, which carries the premium already
+      for (const r of rows.filter(r => SELECTED8.includes(r.seat.slice('openrouter/'.length)) && r.label !== 'network-retries')) {   // network-retries is 3 x another row's per-call figure, which carries the premium already
         const id = r.seat.slice('openrouter/'.length), p = C.priceOf('openrouter', id);
         assert.ok(near(r.usd, (r.input / 1e6) * p.in * writeMultOfRow(id) + (r.output / 1e6) * p.out, 1e-7), `${name} ${r.label} (${id}): ${r.usd}`);
         seen++;
@@ -113,7 +114,7 @@ test('D2: the maximum figure of a selected seat\'s row is the guard\'s projectio
   let seen = 0;
   for (const r of C.estimateChainRows(cfg, { maximum: true })) {
     const id = r.seat.slice('openrouter/'.length);
-    if (!SELECTED6.includes(id) || /-reask\d*$/.test(r.label) || r.label === 'network-retries') continue;   // the maximum figure prices a re-ask and the network retries at the EXPECTED cost of the call they repeat (pushExpected), not at the cap
+    if (!SELECTED8.includes(id) || /-reask\d*$/.test(r.label) || r.label === 'network-retries') continue;   // the maximum figure prices a re-ask and the network retries at the EXPECTED cost of the call they repeat (pushExpected), not at the cap
     const times = r.times ?? 1, inPer = r.input / times, outPer = r.output / times, p = C.priceAt('openrouter', id, inPer);
     assert.ok(near(r.usd, times * ((inPer / 1e6) * p.in * writeMultOfRow(id) + (outPer / 1e6) * p.out), 1e-7), `${r.label} (${id}): maximum row ${r.usd}`);
     seen++;
@@ -263,7 +264,7 @@ test('M1 (NAMED PIN: passes on the parent, which has no auto premium; FAIL CONDI
   const none = readers();
   for (const k of ['expected', 'maximum']) assert.ok(near(r[k], none[k], 1e-7), `${k}: off equals none`);
   C.setCacheModeForTest?.(FORCED);
-  for (const row of C.estimateChainRows(chainFile('plan-mini-council.json'), { maximum: false }).filter(x => SELECTED6.includes(x.seat.slice('openrouter/'.length)))) {
+  for (const row of C.estimateChainRows(chainFile('plan-mini-council.json'), { maximum: false }).filter(x => SELECTED8.includes(x.seat.slice('openrouter/'.length)))) {
     const id = row.seat.slice('openrouter/'.length), p = C.priceOf('openrouter', id);
     assert.ok(near(row.usd, (row.input / 1e6) * p.in + (row.output / 1e6) * p.out, 1e-7), `${row.label}: with caching off the row is at the input price`);
   }

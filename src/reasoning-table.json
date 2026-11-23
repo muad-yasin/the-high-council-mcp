@@ -708,6 +708,36 @@
       "source": "openrouter-models",
       "defaultAboveHigh": false
     },
+    "openrouter/openai/gpt-6.2-astra": {
+      "form": "openrouter-effort",
+      "maxOutput": 128000,
+      "defaultEffort": "medium",
+      "supportedEfforts": [
+        "max",
+        "xhigh",
+        "high",
+        "medium",
+        "low"
+      ],
+      "mandatory": true,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
+    "openrouter/openai/gpt-6.2-sol": {
+      "form": "openrouter-effort",
+      "maxOutput": 128000,
+      "defaultEffort": "medium",
+      "supportedEfforts": [
+        "max",
+        "xhigh",
+        "high",
+        "medium",
+        "low"
+      ],
+      "mandatory": true,
+      "source": "openrouter-models",
+      "defaultAboveHigh": false
+    },
     "openrouter/qwen/qwen3.5-9b": {
       "form": "openrouter-effort",
       "maxOutput": null,

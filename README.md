@@ -108,22 +108,22 @@ Which model sits on each proposer and judge seat of every shipped chain, and und
 |  | 2 | da Vinci | `mistralai/mistral-large-4-0` |
 |  | 2 | Aristotle | `deepseek/deepseek-v4.1-flash-1017` |
 |  | 3 | Melchizedek | `claude-opus-5-5` |
-|  | 3 | Karpathy | `openai/gpt-6.1-sol` |
+|  | 3 | Karpathy | `openai/gpt-6.2-sol` |
 | `plan-high-council` | Proposer | Noah | `claude-opus-5-5` |
 |  | Proposer | Husayn | `deepseek/deepseek-v4.1-flash-1017` |
-|  | Proposer | Abraham | `openai/gpt-6.1-sol` |
+|  | Proposer | Abraham | `openai/gpt-6.2-sol` |
 |  | 1 | Matthew | `claude-haiku-5-5` |
 |  | 1 | Merkel | `openai/gpt-6-luna` |
 |  | 1 | Herbert | `z-ai/glm-5.3-flash` |
 |  | 1 | Van Gogh | `minimax/minimax-m3.1-flash` |
 |  | 1 | Aristotle | `deepseek/deepseek-v4.1-flash-1017` |
 |  | 2 | Moses | `claude-opus-5-5` |
-|  | 2 | Einstein | `openai/gpt-6.1-sol` |
+|  | 2 | Einstein | `openai/gpt-6.2-sol` |
 |  | 2 | da Vinci | `mistralai/mistral-large-4-0` |
 |  | 2 | Archimedes | `moonshotai/kimi-k3.1-pro` |
 |  | 2 | Plato | `qwen/qwen3.8-27b` |
 |  | 3 | Melchizedek | `claude-fable-5-2` |
-|  | 3 | Karpathy | `openai/gpt-6-astra` |
+|  | 3 | Karpathy | `openai/gpt-6.2-astra` |
 | `plan-claude-council` | Proposer | Noah | `claude-sonnet-5-5` |
 |  | Proposer | Husayn | `claude-opus-5-5` |
 |  | Proposer | Abraham | `claude-fable-5-2` |
@@ -161,19 +161,19 @@ Which model sits on each proposer and judge seat of every shipped chain, and und
 |  | Judge | – | `mistral` |
 | `plan-the-high-council` | Proposer | Noah | `claude-opus-5-5` |
 |  | Proposer | Husayn | `deepseek/deepseek-v4.1-flash-1017` |
-|  | Proposer | Abraham | `openai/gpt-6.1-sol` |
+|  | Proposer | Abraham | `openai/gpt-6.2-sol` |
 |  | 1 | Matthew | `claude-haiku-5-5` |
 |  | 1 | Merkel | `openai/gpt-6-luna` |
 |  | 1 | Herbert | `z-ai/glm-5.3-flash` |
 |  | 1 | Van Gogh | `minimax/minimax-m3.1-flash` |
 |  | 1 | Aristotle | `deepseek/deepseek-v4.1-flash-1017` |
 |  | 2 | Moses | `claude-opus-5-5` |
-|  | 2 | Einstein | `openai/gpt-6.1-sol` |
+|  | 2 | Einstein | `openai/gpt-6.2-sol` |
 |  | 2 | da Vinci | `mistralai/mistral-large-4-0` |
 |  | 2 | Archimedes | `moonshotai/kimi-k3.1-pro` |
 |  | 2 | Plato | `qwen/qwen3.8-27b` |
 |  | 3 | Melchizedek | `claude-fable-5-2` |
-|  | 3 | Karpathy | `openai/gpt-6-astra` |
+|  | 3 | Karpathy | `openai/gpt-6.2-astra` |
 
 <!-- chains:end -->
 
@@ -196,9 +196,9 @@ What each shipped chain costs per run, in US dollars. `council doctor` prints th
 |---|---|---|
 | **Planning chains** | | |
 | `plan-mini-council` | $9.52 | – |
-| `plan-medium-council` | $14.78 | $3.6 |
-| `plan-high-council` | $31.56 | – |
-| `plan-the-high-council` | $31.71 | – |
+| `plan-medium-council` | $14.64 | $3.6 |
+| `plan-high-council` | $29.76 | – |
+| `plan-the-high-council` | $29.90 | – |
 | **Variants** | | |
 | `plan-claude-council` | $37.11 | – |
 | **Chinese-lab alternatives** | | |

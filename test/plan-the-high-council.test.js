@@ -34,12 +34,14 @@ const pricing = read('src/pricing.json');
 
 // His roster (09-10 Nov 2026): layer 3 Fable 5.2, GPT-6 Astra; layer 2 Opus 5.5, GPT-6.1 Sol, Mistral Large 4, Kimi K3.1 Pro, Qwen 3.8 27B; layer 1 Haiku 5.5, GPT-6 Luna, GLM 5.3 Flash, MiniMax M3.1 Flash, DeepSeek V4.1 Flash 1017;
 // proposers Opus 5.5, DeepSeek V4.1 Flash 1017, GPT-6.1 Sol. The four Claude seats are provider "anthropic", the other eleven are OpenRouter.
+// 23 Nov 2026 (0.8.5 chain update): GPT-6.2 Astra and GPT-6.2 Sol replace GPT-6 Astra and GPT-6.1 Sol on these seats (layer 3; layer 2 and the third proposer).
+// CHANGED ACCEPTED DATA (0.8.5 chain update, 23 Nov 2026). OLD: ROSTER and PROPOSERS named openrouter/openai/gpt-6.1-sol and openrouter/openai/gpt-6-astra, and PHC-6 planted its role and persona checks on openai/gpt-6-astra. NEW: openrouter/openai/gpt-6.2-sol and openrouter/openai/gpt-6.2-astra; PHC-6 plants on openai/gpt-6.2-astra. WHY: the chains move to GPT-6.2 Sol and GPT-6.2 Astra.
 const ROSTER = {
   1: ['anthropic/claude-haiku-5-5', 'openrouter/openai/gpt-6-luna', 'openrouter/z-ai/glm-5.3-flash', 'openrouter/minimax/minimax-m3.1-flash', 'openrouter/deepseek/deepseek-v4.1-flash-1017'],
-  2: ['anthropic/claude-opus-5-5', 'openrouter/openai/gpt-6.1-sol', 'openrouter/mistralai/mistral-large-4-0', 'openrouter/moonshotai/kimi-k3.1-pro', 'openrouter/qwen/qwen3.8-27b'],
-  3: ['anthropic/claude-fable-5-2', 'openrouter/openai/gpt-6-astra'],
+  2: ['anthropic/claude-opus-5-5', 'openrouter/openai/gpt-6.2-sol', 'openrouter/mistralai/mistral-large-4-0', 'openrouter/moonshotai/kimi-k3.1-pro', 'openrouter/qwen/qwen3.8-27b'],
+  3: ['anthropic/claude-fable-5-2', 'openrouter/openai/gpt-6.2-astra'],
 };
-const PROPOSERS = ['anthropic/claude-opus-5-5', 'openrouter/deepseek/deepseek-v4.1-flash-1017', 'openrouter/openai/gpt-6.1-sol'];
+const PROPOSERS = ['anthropic/claude-opus-5-5', 'openrouter/deepseek/deepseek-v4.1-flash-1017', 'openrouter/openai/gpt-6.2-sol'];
 const key = s => `${s.provider}/${s.model}`;
 const paid = c => [...(c.seats.proposers || []), ...(c.seats.critics || [])].filter(s => s.provider !== 'external');
 // His names (30 Okt 2026, then 09-10 Nov 2026: "the names are for the seats, and preferably stay with the models in-between chains"; proposers always Noah, Husayn, Abraham by position; layer 3 always Melchizedek and Karpathy by
@@ -153,9 +155,9 @@ test('PHC-6: the checks can fail: a Kimi with no effort, an effort on Qwen, an O
   assert.match(ignoreProblems(plant(c => { delete seat(c, 'openai/gpt-6-luna').extra.provider; })).join('|'), /gpt-6-luna: provider.ignore is undefined/);
   assert.match(ignoreProblems(plant(c => { seat(c, 'deepseek/deepseek-v4.1-flash-1017').extra.provider.ignore = ['open-inference']; })).join('|'), /deepseek-v4.1-flash-1017: provider.ignore is \["open-inference"\], not \["open-inference","morph"\]/);
   assert.match(reasoningProblems(plant(c => { const s = seat(c, 'claude-fable-5-2'); s.extra = { reasoning: { effort: 'high' } }; })).join('|'), /claude-fable-5-2: (states no effort|carries the OpenRouter effort form)/);
-  assert.match(absenceProblems(plant(c => { seat(c, 'openai/gpt-6-astra').role = { persona: 'karpathy' }; })).join('|'), /gpt-6-astra: carries a role field/);
+  assert.match(absenceProblems(plant(c => { seat(c, 'openai/gpt-6.2-astra').role = { persona: 'karpathy' }; })).join('|'), /gpt-6\.2-astra: carries a role field/);
   assert.match(absenceProblems(plant(c => { delete c.judging; })).join('|'), /judging is undefined, not "all-roles"/);
-  assert.match(personaProblems(plant(c => { delete seat(c, 'openai/gpt-6-astra').persona; })).join('|'), /gpt-6-astra \(layer 3\): persona undefined, the roster says "Karpathy"/);
+  assert.match(personaProblems(plant(c => { delete seat(c, 'openai/gpt-6.2-astra').persona; })).join('|'), /gpt-6\.2-astra \(layer 3\): persona undefined, the roster says "Karpathy"/);
   assert.match(personaProblems(plant(c => { c.seats.proposers[1].persona = 'Aristotle'; })).join('|'), /deepseek-v4.1-flash-1017 \(proposer 2\): persona "Aristotle", the roster says "Husayn"/);
   assert.match(personaProblems(plant(c => { c.seat_personas.enabled = false; })).join('|'), /seat_personas is/);
   assert.match(personaProblems(plant(c => { c.seat_personas.form = 'title'; })).join('|'), /seat_personas is/);   // CHANGED ACCEPTED TEST (0.8.4 apply, recorded state): OLD: the planted form was 'voice'. NEW: 'title' (the shipped form is now voice).

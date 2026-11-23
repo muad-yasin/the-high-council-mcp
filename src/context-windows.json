@@ -27,6 +27,8 @@
     "openai/gpt-6-luna": 1050000,
     "openai/gpt-6.1-sol": 1050000,
     "openai/gpt-6.1-terra": 1050000,
+    "openai/gpt-6.2-astra": 1050000,
+    "openai/gpt-6.2-sol": 1050000,
     "qwen/qwen3.8-27b": 262144,
     "qwen/qwen3.8-flash": 1000000,
     "qwen/qwen3.8-max-0902": 1000000,

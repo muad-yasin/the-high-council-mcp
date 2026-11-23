@@ -22,13 +22,14 @@ const reasoning = JSON.parse(read('src/reasoning-table.json')).models;
 const critics = chain.seats.critics;
 
 // CHANGED ACCEPTED DATA (0.8.4 seats unit; the twin of plan-the-high-council, his 09-10 Nov 2026 picks). The twelve judges and the three proposers of the flagship, in order.
-const TWELVE_LABS = ['haiku5.5', 'gpt6-luna', 'glm5.3-flash', 'minimax-m3.1-flash', 'deepseek-v4.1-flash', 'opus5.5', 'gpt6.1-sol', 'mistral-large4', 'kimi-k3.1-pro', 'qwen3.8-27b', 'fable5.2', 'gpt6-astra'].sort();
+// CHANGED ACCEPTED DATA (0.8.5 chain update, 23 Nov 2026). OLD: Sol and Astra as openai/gpt-6.1-sol (lab gpt6.1-sol) and openai/gpt-6-astra (lab gpt6-astra), here and in E5 h7's message. NEW: openai/gpt-6.2-sol (gpt6.2-sol) and openai/gpt-6.2-astra (gpt6.2-astra) on the same seats. WHY: the chains move to GPT-6.2 Sol and GPT-6.2 Astra; the lab tags follow the model.
+const TWELVE_LABS = ['haiku5.5', 'gpt6-luna', 'glm5.3-flash', 'minimax-m3.1-flash', 'deepseek-v4.1-flash', 'opus5.5', 'gpt6.2-sol', 'mistral-large4', 'kimi-k3.1-pro', 'qwen3.8-27b', 'fable5.2', 'gpt6.2-astra'].sort();
 const TWELVE = {
   1: ['claude-haiku-5-5', 'openai/gpt-6-luna', 'z-ai/glm-5.3-flash', 'minimax/minimax-m3.1-flash', 'deepseek/deepseek-v4.1-flash-1017'],
-  2: ['claude-opus-5-5', 'openai/gpt-6.1-sol', 'mistralai/mistral-large-4-0', 'moonshotai/kimi-k3.1-pro', 'qwen/qwen3.8-27b'],
-  3: ['claude-fable-5-2', 'openai/gpt-6-astra'],
+  2: ['claude-opus-5-5', 'openai/gpt-6.2-sol', 'mistralai/mistral-large-4-0', 'moonshotai/kimi-k3.1-pro', 'qwen/qwen3.8-27b'],
+  3: ['claude-fable-5-2', 'openai/gpt-6.2-astra'],
 };
-const PROPOSER_MODELS = ['claude-opus-5-5', 'deepseek/deepseek-v4.1-flash-1017', 'openai/gpt-6.1-sol'];
+const PROPOSER_MODELS = ['claude-opus-5-5', 'deepseek/deepseek-v4.1-flash-1017', 'openai/gpt-6.2-sol'];
 
 test('E5 h1: the panel is exactly Muad\'s twelve judges, in his three layers, each on its own lab; the three proposers are the flagship\'s; no alternatives stage, no deep dive', () => {
   for (const layer of [1, 2, 3]) assert.deepEqual(critics.filter(s => s.layer === layer).map(s => s.model).sort(), [...TWELVE[layer]].sort(), `layer ${layer}`);
@@ -112,7 +113,7 @@ test('E5 h7: on a mock run of the chain the voters are exactly the twelve labs, 
   const r = await mockFold(chain);
   assert.equal(r.passed, true, 'the mock run climbs all three layers');
   assert.deepEqual(votersOf(r), { verdicts: twelve, signoff: twelve });
-  assert.deepEqual([...new Set(chain.seats.proposers.map(x => x.lab))].filter(l => !twelve.includes(l)), [], 'every proposer lab also sits on the panel (opus5.5, deepseek-v4.1-flash, gpt6.1-sol): the twelve voters are the panel, counted once');
+  assert.deepEqual([...new Set(chain.seats.proposers.map(x => x.lab))].filter(l => !twelve.includes(l)), [], 'every proposer lab also sits on the panel (opus5.5, deepseek-v4.1-flash, gpt6.2-sol): the twelve voters are the panel, counted once');
   // the known-bad input: a thirteenth critic changes the voter set, so the row above would fail on it
   const bad = structuredClone(chain); bad.seats.critics.push({ provider: 'openrouter', model: 'google/gemini-3.8-flash', lab: 'gemini3.8-flash', maxTokens: 36000, layer: 1, extra: { reasoning: { effort: 'high' } } });
   const rb = await mockFold(bad);

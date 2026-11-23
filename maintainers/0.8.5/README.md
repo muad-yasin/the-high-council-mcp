@@ -1,6 +1,6 @@
-# 0.8.5: prepared, not built
+# 0.8.5: prepared, and one change built
 
-This folder holds work prepared for 0.8.5 so that a later build session can start from it without redoing the research. Nothing in it is built, and nothing in it is a build order: each note is input, and what it proposes waits for a build session and, where it says so, for the owner's yes.
+This folder holds work prepared for 0.8.5 so that a later build session can start from it without redoing the research, and the record of one change already built on `dev` ("Built on dev", below). The prepared notes are not built, and none of them is a build order: each note is input, and what it proposes waits for a build session and, where it says so, for the owner's yes.
 
 ## What it is based on
 
@@ -49,6 +49,12 @@ The numbers are the items of the maintainer's own roadmap. That roadmap is not i
 | `208-verify-first-legend.md` | the "Verify first" gap check reads a marker legend as a claim, and misses a match when apostrophes differ | two questions |
 | `209-gpt-seat-cache.md` | THC adds no cache mark for its GPT seats behind OpenRouter | a money path; a paid check first; a recorded decision would be reversed; four questions |
 | `210-dependency-advisories.md` | the lockfile holds dependency versions with published advisories | an A-DRAFT note; two questions; the build needs npm and the full suite |
+
+## Built on dev
+
+| Record | What it is about | Gates and open questions |
+| --- | --- | --- |
+| `gpt-6.2-chains.md` | three shipped chains seat GPT-6.2 Sol and GPT-6.2 Astra in place of GPT-6.1 Sol and GPT-6 Astra; three tables gain the two models' entries, and the zero-retention table is written whole from the list of 2026-11-23 | A-DRAFT sentences and labels; a Known limit, for the owner |
 
 ## Not prepared
 

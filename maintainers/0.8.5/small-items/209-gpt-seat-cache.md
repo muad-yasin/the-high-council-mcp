@@ -32,12 +32,12 @@ This is pinned on purpose. `test/cache-marks.test.js:317` (a recorded decision, 
 - The selected judge seats:
   - GPT-6 Luna at layer 1 in `plan-mini-council`, `plan-medium-council`, `plan-high-council` and `plan-the-high-council`;
   - GPT-6.1 Terra at layer 3 in `plan-mini-council`;
-  - GPT-6.1 Sol at layer 3 in `plan-medium-council`, and at layer 2 in `plan-high-council` and `plan-the-high-council`, where GPT-6 Astra sits at layer 3.
+  - GPT-6.2 Sol at layer 3 in `plan-medium-council`, and at layer 2 in `plan-high-council` and `plan-the-high-council`, where GPT-6.2 Astra sits at layer 3.
   - Sol is also a proposer in those last two chains. No proposer call passes a head: the head is passed by the panel calls (`:5314`, `:5365`), the exchange's posts and answers (laid out at `:3024`), the refused-sign-off re-asks (`:7112`, `:7157`) and the final read (`:1771`), and by no other call (`git grep -n cacheHead -- src/chain.js`).
 - With zero retention on, Luna can be served by Azure hosts only (`src/zdr-hosts.json:3704-3716`). Otherwise its seat leaves out one host (`extra.provider.ignore`), and other hosts can serve it.
 
 **Reported, not verified here.** The two pages below were read on 15 Nov 2026; this note re-read neither.
-- **Observed in runs** (with zero retention on, so the calls went to Azure): every Luna and Sol call reported a cache write of about its whole prompt and no cached tokens, while other models in the same passes read their shared head from the cache.
+- **Observed in runs** (with zero retention on, so the calls went to Azure): every Luna and GPT-6.1 Sol call reported a cache write of about its whole prompt and no cached tokens, while other models in the same passes read their shared head from the cache.
 - **Inferred from Microsoft's page on prompt caching in Azure OpenAI:**
   - for these models, the default places the cache point at the latest message, which differs on every call;
   - a cache key, together with an explicit breakpoint at the end of the shared prefix, is the documented way to make the prefix reusable;
@@ -72,11 +72,13 @@ This is pinned on purpose. `test/cache-marks.test.js:317` (a recorded decision, 
      | Row | Where | Row's read / write | Against the table |
      | --- | --- | --- | --- |
      | Luna | `src/pricing.json:1037` | 0.1 / 1.25 | agrees |
-     | Astra | `src/pricing.json:701` | 0.1 / 1.25 | agrees |
-     | Sol | `src/pricing.json:1306-1312` | 0.05 / 1.25 | the read parts |
+     | Astra (GPT-6.2) | `src/pricing.json:1488-1494` | 0.05 / 1.25 | the read parts |
+     | Sol (GPT-6.2) | `src/pricing.json:1520-1526` | 0.05 / 1.25 | the read parts |
      | Terra | `src/pricing.json:1456-1462` | 0.05 / 1.25, on a basis of 1.0 below its `in` of 1.2 | the read parts |
 
-     So for Sol and Terra, the settle counts a read at twice the rate the dry run's read rows use. The cap never assumes a hit (`CHANGELOG.md:88`), so the settle errs high, never low.
+     The two GPT-6.2 rows' lines are those of the commit that added them; the other cites are `0b4016a5`'s.
+
+     So for Sol, Astra and Terra, the settle counts a read at twice the rate the dry run's read rows use. The cap never assumes a hit (`CHANGELOG.md:88`), so the settle errs high, never low.
    - **`readUsage`** accepts only `5m` or `1h` as the lifetime asked for (`src/cost.js:199`).
    - **`usageOfOpenAICompat`** (`src/providers.js:1798`) takes the written tokens out of `input` for a marked call. That rule was measured on Claude hosts only (`:1783-1784` and `:1795-1796`), and whether Azure reports its writes inside `prompt_tokens` is to be confirmed.
    - **The reservation** errs high today, because it counts all of the prompt as a write. A marked head reserves less, so if the host ignores the fields and still writes the whole prompt, the bill passes the reservation.
@@ -88,9 +90,9 @@ This is pinned on purpose. `test/cache-marks.test.js:317` (a recorded decision, 
   - The two Luna judges get different keys.
   - An unselected OpenRouter seat's body gains no cache field.
   - Expected red today (not run): there is no switch and no such field.
-- **CK-2.** `costOf('openrouter', 'openai/gpt-6.1-sol', usage)`, for a marked usage at the 5-minute lifetime with a read count above zero and a write count, equals the figure at Sol's row multiples, as M2 prices the projection.
+- **CK-2.** `costOf('openrouter', 'openai/gpt-6.2-sol', usage)`, for a marked usage at the 5-minute lifetime with a read count above zero and a write count, equals the figure at Sol's row multiples, as M2 prices the projection.
   - Expected red today (not run): the settle reads at the table's 0.1, where the row's multiple is 0.05.
-  - On Luna or Astra the same case would be green today, because their rows agree with the table.
+  - On Luna the same case would be green today, because its row agrees with the table. On Astra it would be red, as on Sol.
 - `test/cache-marks.test.js:317` becomes a changed accepted test, but only with the owner's yes to reverse the decision it pins. With the switch off, its three assertions still hold.
 
 These run with the change:

@@ -84,7 +84,10 @@ test('one phrase per limit plan section 7 names (the advice-tool limits U1-U7 le
     // WHY: the gpt-5.6-sol row lost its `expires` date (2026-11-21 is no longer a red day); the OpenRouter rows were compared on 2026-11-11, so their freshness test turns red on 2026-12-27 (stamp + 45 + 1), not 2026-12-10; the zero-retention list (src/zdr-hosts.json, read 2026-11-10; test/zero-retention.test.js ZR-6)
     // turns red on 2026-12-26 and the Gemini 4 Argon (2026-12-01) and the two Gemini Flash rows (2027-01-01) are `expires` rows: all were red days the bullet left out. The pin is ANCHORED at the bullet's own opening words, because this section also holds the Pricing paragraph, which names 2026-12-01 and 2027-01-01 before the bullet: an unanchored
     // pattern would still pass with a date dropped from the bullet. Five dates, in date order, so it is stricter than before, not looser. RED RUN: this row run on the tree before the README edit fails (the bullet still says 2026-11-21).
-    ['the red-test dates', /`npm test` turns red on dates, by design:\*\*.*2026-12-01.*2026-12-23.*2026-12-26.*2026-12-27.*2027-01-01/s],
+    // CHANGED ACCEPTED (0.8.5 chain update, 23 Nov 2026; C&C ruling). OLD /...2026-12-01.*2026-12-23.*2026-12-26.*2026-12-27.*2027-01-01/s; NEW /...2026-12-01.*2026-12-23.*2026-12-27.*2027-01-01.*2027-01-08/s.
+    // WHY: src/zdr-hosts.json is written whole from OpenRouter's list of 2026-11-23, so test/zero-retention.test.js ZR-6 turns red on 2027-01-08 (read date + 45 + 1), not 2026-12-26; the bullet keeps date order, so that
+    // entry moves to the end. Still five dates in date order and anchored at the bullet's opening words, not looser. RED RUN: this row run on the tree before the KNOWN-LIMITS edit fails (the bullet still says 2026-12-26).
+    ['the red-test dates', /`npm test` turns red on dates, by design:\*\*.*2026-12-01.*2026-12-23.*2026-12-27.*2027-01-01.*2027-01-08/s],
     ['DeepSeek on Together unconfirmed', /DeepSeek V4 Flash on Together/],
     ['reasoning fields not exercised live', /not exercised in a live call/],
     // 0.8.2 (owner, 6 Oct 2026, archive the unused chains): four of the six moved to archive/chains/, so the sentence says Two; the next test derives the count.

@@ -17,10 +17,10 @@ One row per model seated in a shipped chain (mock and external seats are exclude
 | `openrouter/minimax/minimax-m3.1-flash` | 0.15 / 0.6 | 2026-10-30 | no published limit found | max | 128,000: plan-china-high-council, plan-china-medium-council, plan-high-council, plan-medium-council, plan-mini-council, plan-the-high-council | 128,000 → 128,000 | - |
 | `openrouter/mistralai/mistral-large-4-0` | 0.77 / 2.31 | 2026-11-01 | no published limit found | high | 128,000: plan-high-council, plan-medium-council, plan-mini-council, plan-the-high-council | 128,000 → 128,000 | - |
 | `openrouter/moonshotai/kimi-k3.1-pro` | 2.3 / 12 | 2026-10-30 | no published limit found | max | 128,000: plan-china-high-council, plan-high-council, plan-the-high-council | 128,000 → 128,000 | - |
-| `openrouter/openai/gpt-6-astra` | 10 / 50 | 2026-09-22 | 128,000 | medium | 128,000: plan-high-council, plan-the-high-council | 128,000 → 128,000 | 3,500 |
 | `openrouter/openai/gpt-6-luna` | 0.11 / 0.55 | 2026-09-27 | 128,000 | medium | 128,000: plan-high-council, plan-medium-council, plan-mini-council, plan-the-high-council | 128,000 → 128,000 | - |
-| `openrouter/openai/gpt-6.1-sol` | 2.2 / 11 | 2026-09-30 | 128,000 | medium | 128,000: plan-high-council, plan-medium-council, plan-the-high-council | 128,000 → 128,000 | - |
 | `openrouter/openai/gpt-6.1-terra` | 1.2 / 6 | 2026-10-30 | 128,000 | medium | 128,000: plan-mini-council | 128,000 → 128,000 | - |
+| `openrouter/openai/gpt-6.2-astra` | 8 / 40 | 2026-11-23 | 128,000 | medium | 128,000: plan-high-council, plan-the-high-council | 128,000 → 128,000 | - |
+| `openrouter/openai/gpt-6.2-sol` | 2 / 10 | 2026-11-23 | 128,000 | medium | 128,000: plan-high-council, plan-medium-council, plan-the-high-council | 128,000 → 128,000 | - |
 | `openrouter/qwen/qwen3.8-27b` | 0.45 / 3.2 | 2026-10-30 | 128,000 (owner's pick) | xhigh | 128,000: plan-china-high-council, plan-china-medium-council, plan-high-council, plan-mini-council, plan-the-high-council | 128,000 → 128,000 | - |
 | `openrouter/qwen/qwen3.8-flash` | 0.15 / 0.47 | 2026-10-23 | 131,072 | - | 131,072: plan-china-high-council, plan-china-medium-council | 131,072 → 131,072 | - |
 | `openrouter/qwen/qwen3.8-max-0902` | 2 / 6 | 2026-09-22 | 131,072 | xhigh | 131,072: plan-china-high-council, plan-china-medium-council | 131,072 → 131,072 | 21,000 |

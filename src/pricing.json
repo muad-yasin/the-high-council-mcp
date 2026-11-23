@@ -1485,6 +1485,70 @@
       ]
     }
   },
+  "openrouter/openai/gpt-6.2-astra": {
+    "in": 8.0,
+    "out": 40.0,
+    "_source": "openrouter.ai/api/v1/models/openai/gpt-6.2-astra/endpoints and openrouter.ai/api/v1/endpoints/zdr, read 2026-11-23: list price 8/40 per Mtok, the price of its openai, azure and amazon-bedrock/global endpoints (the fast and ultrafast tiers are dearer and not counted); azure, its only ZDR endpoint, is at that price, so the price pin (this row sent as max_price) keeps it. The host picture, tiers and cache prices were written by scripts/refresh-openrouter-prices.mjs on that day. No critiqueTokens: no measurement yet",
+    "cache_read": 0.4,
+    "cache_write": 10.0,
+    "cache_basis_in": 8.0,
+    "tiers": [{"from":272000,"in":16,"out":60}],
+    "hosts": {
+      "checked": "2026-11-23",
+      "count": 3,
+      "providers": 3,
+      "in": {
+        "low": 16,
+        "median": 16,
+        "high": 16
+      },
+      "out": {
+        "low": 60,
+        "median": 60,
+        "high": 60
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "0 host(s) the page marks \"Not used in Standard routing\" left out; 3 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
+  },
+  "openrouter/openai/gpt-6.2-sol": {
+    "in": 2.0,
+    "out": 10.0,
+    "_source": "openrouter.ai/api/v1/models/openai/gpt-6.2-sol/endpoints and openrouter.ai/api/v1/endpoints/zdr, read 2026-11-23: list price 2/10 per Mtok, the price of its openai, azure and amazon-bedrock/global endpoints (the fast and ultrafast tiers are dearer and not counted); azure, its only ZDR endpoint, is at that price, so the price pin (this row sent as max_price) keeps it. The host picture, tiers and cache prices were written by scripts/refresh-openrouter-prices.mjs on that day. No critiqueTokens: no measurement yet",
+    "cache_read": 0.1,
+    "cache_write": 2.5,
+    "cache_basis_in": 2.0,
+    "tiers": [{"from":272000,"in":4,"out":15}],
+    "hosts": {
+      "checked": "2026-11-23",
+      "count": 3,
+      "providers": 3,
+      "in": {
+        "low": 4,
+        "median": 4,
+        "high": 4
+      },
+      "out": {
+        "low": 15,
+        "median": 15,
+        "high": 15
+      },
+      "tier_driven": true,
+      "filters": [
+        "fast, ultrafast, priority and flex tiers left out (2 host(s))",
+        "output limit of at least 128000 tokens (the smallest maxTokens a shipped chain gives this model; 0 host(s) left out)",
+        "0 host(s) the page marks \"Not used in Standard routing\" left out; 3 page row(s) could not be matched to one host and their hosts stay counted (routing flag not read for them)",
+        "a host with price overrides (by prompt size or by time of day) counts in this host picture at its dearest figure",
+        "hosts of every provider are counted, Open Inference included, except any other host that every shipped seat of the model bans in its own extra.provider.ignore (a host that only some seats ban stays counted)"
+      ]
+    }
+  },
   "openrouter/qwen/qwen3.8-27b": {
     "in": 0.45,
     "out": 3.2,
