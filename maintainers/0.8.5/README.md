@@ -4,7 +4,7 @@ This folder holds work prepared for 0.8.5 so that a later build session can star
 
 ## What it is based on
 
-Every note was read against the code at commit `0b4016a5`, and its line numbers are that commit's. Before this folder was added, `dev` took exactly that tree, through a merge that keeps dev's earlier snapshots in its history. When a later build starts, it reads the line numbers again against the code of that day.
+Every note but one was read against the code at commit `0b4016a5`, and its line numbers are that commit's. Before this folder was added, `dev` took exactly that tree, through a merge that keeps dev's earlier snapshots in its history. Note 209 also cites two rows of the commit that added them, as it says. Note 216 was read at `6eb41961`, the tip of `dev` when it was written. When a later build starts, it reads the line numbers again against the code of that day.
 
 ## What was run to prepare it, and what was not
 
@@ -15,8 +15,9 @@ No test was run to prepare these notes, and nothing in them is built. Two things
 Every "expected red" in a note is therefore a prediction, which the first test run of the build must confirm.
 
 How the claims were checked:
-- Each file-and-line claim was checked against the file at `0b4016a5` by the session that wrote the notes.
-- Each note was then reviewed, with spot-checks, by a second session, which corrected the cites it found off.
+- Each file-and-line claim of the first ten notes was checked against the file at `0b4016a5` by the session that wrote them.
+- Each of those notes was then reviewed, with spot-checks, by a second session, which corrected the cites it found off.
+- Note 216's plan, and then the note itself, were reviewed by a second session, which read the code at `6eb41961` for itself and had what it found corrected.
 - A claim that could not be read in the code is marked "read, not run", "not established", "not checked" or "reported, not verified".
 
 ## How to read a note
@@ -29,7 +30,7 @@ A note says, in this order:
 - what the change must not touch;
 - the questions only the owner can answer.
 
-Two notes depart from that order. Note 199 goes row by row, eight rows, with its questions collected at the end. Note 210 has an exit check, the audit run again, in place of a failing test.
+Three notes depart from that order. Note 199 goes row by row, eight rows, with its questions collected at the end. Note 210 has an exit check, the audit run again, in place of a failing test. Note 216 opens with what is there today, since it lifts a rule, and adds a table of the sentences as drafts.
 
 A sentence a person or a session would read is marked A-DRAFT: its words wait for the owner's yes. A note's options state each option's result.
 
@@ -49,6 +50,7 @@ The numbers are the items of the maintainer's own roadmap. That roadmap is not i
 | `208-verify-first-legend.md` | the "Verify first" gap check reads a marker legend as a claim, and misses a match when apostrophes differ | two questions |
 | `209-gpt-seat-cache.md` | THC adds no cache mark for its GPT seats behind OpenRouter | a money path; a paid check first; a recorded decision would be reversed; four questions |
 | `210-dependency-advisories.md` | the lockfile holds dependency versions with published advisories | an A-DRAFT note; two questions; the build needs npm and the full suite |
+| `216-grok-ban-lift.md` | the ban on xAI/Grok is lifted with 0.8.5: what refuses such a seat today, what the lift changes, and what stays refused | the owner's own rule and its new sentence; A-DRAFT sentences; two questions; a table filter that must not be emptied by accident |
 
 ## Built on dev
 
